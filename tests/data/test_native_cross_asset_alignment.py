@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -15,6 +19,8 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
 )
+from trade_rl.data.identity import DATASET_ID_ARRAY_FIELDS
+from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import RawMarketSeries
 
 
@@ -64,7 +70,7 @@ def _source() -> _Source:
     )
 
 
-def _dataset(source: _Source) -> object:
+def _dataset(source: _Source) -> MarketDataset:
     specs = (
         FeatureSpec(
             name="15m__log_return_1bar",
@@ -143,6 +149,18 @@ def test_native_cross_asset_future_modification_preserves_earlier_decisions() ->
     np.testing.assert_array_equal(
         original.feature_available[:5], changed.feature_available[:5]
     )
+    for field in (
+        "feature_staleness_hours",
+        "feature_staleness",
+        "feature_missing_reason",
+        "global_features",
+        "global_feature_available",
+        "global_feature_staleness_hours",
+        "global_feature_missing_reason",
+    ):
+        np.testing.assert_array_equal(
+            getattr(original, field)[:5], getattr(changed, field)[:5]
+        )
 
 
 def test_delayed_native_publication_cannot_backdate_cross_asset_features() -> None:
@@ -158,3 +176,223 @@ def test_delayed_native_publication_cannot_backdate_cross_asset_features() -> No
     # At hour four the native event ending at hour four has NOT been observed.
     assert delayed.feature_staleness_hours[4, 1, 1] > 0.0
     assert normal.feature_staleness_hours[4, 1, 1] == pytest.approx(0.0)
+
+
+def _controlled_source(timeframe: str, *, proportional: bool = False) -> _Source:
+    reference = np.array([0.02, -0.01, 0.03, -0.02])
+    asset = 2.0 * reference if proportional else np.array([0.03, 0.04, -0.01, 0.05])
+    minutes = {"15m": 15, "1h": 60, "4h": 240}[timeframe]
+    values = {}
+    for symbol, returns in (("BTCUSDT", reference), ("ETHUSDT", asset)):
+        values[symbol, "1h"] = _bars("2026-01-01T00:00", 60, np.full(21, 100.0))
+        values[symbol, timeframe] = _bars(
+            "2026-01-01T00:00", minutes, 100.0 * np.exp(np.r_[0.0, np.cumsum(returns)])
+        )
+    return _Source(values)
+
+
+def _controlled_config(timeframe: str, *, lookback: int = 4) -> MarketBuildConfig:
+    native = None if timeframe == "1h" else timeframe
+    kinds = (
+        FeatureKind.LOG_RETURN,
+        FeatureKind.RELATIVE_RETURN_TO_BTC,
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.ROLLING_BETA_TO_BTC,
+        FeatureKind.CROSS_ASSET_DISPERSION,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+    )
+    rolling = {
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.ROLLING_BETA_TO_BTC,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+    }
+    return MarketBuildConfig(
+        base_timeframe="1h",
+        cross_asset_reference_symbol="BTCUSDT",
+        features=tuple(
+            FeatureSpec(
+                name=f"{timeframe}__{kind.value}",
+                kind=kind,
+                timeframe=native,
+                lookback=lookback if kind in rolling else 1,
+                min_periods=lookback if kind in rolling else 1,
+                max_staleness_hours=6.0,
+            )
+            for kind in kinds
+        ),
+    )
+
+
+def _controlled_dataset(
+    source: _Source,
+    config: MarketBuildConfig,
+    *,
+    symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
+) -> MarketDataset:
+    return MarketDatasetBuilder(config).build(
+        source,
+        tuple(
+            InstrumentContract(symbol, listed_at=datetime(2025, 1, 1, tzinfo=UTC))
+            for symbol in symbols
+        ),
+    )
+
+
+def test_finer_native_all_channels_have_literal_first_hour_oracle() -> None:
+    dataset = _controlled_dataset(
+        _controlled_source("15m", proportional=True), _controlled_config("15m")
+    )
+    assert dataset.identity_verified
+    assert dataset.feature_available[1, :, 1:].all()
+    # Four actual native returns, rather than a single hourly sample, are present.
+    assert dataset.features[1, 1, 1:5] == pytest.approx([-0.02, 1.0, 2.0, 0.01])
+    assert dataset.features[1, :, 5] == pytest.approx([-1.0, 1.0])
+    assert not dataset.feature_available[0, :, 2:4].any()
+
+
+@pytest.mark.parametrize("invalid_row", ["delayed", "untradable"])
+def test_finer_invalid_row_excludes_both_touching_returns_without_reset(
+    invalid_row: str,
+) -> None:
+    source = _controlled_source("15m")
+    raw = source.values["BTCUSDT", "15m"]
+    if invalid_row == "delayed":
+        arrivals = raw.available_at.copy()
+        arrivals[2] = np.datetime64("2026-01-01T02:00", "ns")
+        source.values["BTCUSDT", "15m"] = replace(raw, available_at=arrivals)
+    else:
+        tradable = raw.tradable.copy()
+        tradable[2] = False
+        source.values["BTCUSDT", "15m"] = replace(raw, tradable=tradable)
+    dataset = _controlled_dataset(source, _controlled_config("15m", lookback=2))
+    assert dataset.feature_available[1, 1, 3]
+    # Eligible pair events e1/e4 survive the gap: (.02,.03), (-.02,.05).
+    assert dataset.features[1, 1, 3] == pytest.approx(-0.5, abs=1e-6)
+    assert dataset.features[1, 1, 2] == pytest.approx(-1.0, abs=1e-6)
+    assert dataset.feature_staleness_hours[1, 1, 3] == 0.0
+
+
+def test_coarser_delayed_publication_preserves_observed_pair_history() -> None:
+    source = _controlled_source("4h")
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        raw = source.values[symbol, "4h"]
+        arrivals = raw.available_at.copy()
+        arrivals[2] = np.datetime64("2026-01-01T13:00", "ns")
+        source.values[symbol, "4h"] = replace(raw, available_at=arrivals)
+    dataset = _controlled_dataset(source, _controlled_config("4h", lookback=2))
+    assert not dataset.feature_available[:13, 1, 3].any()
+    assert dataset.features[13:16, 1, 3] == pytest.approx([-4.0] * 3, abs=1e-6)
+    assert dataset.feature_staleness_hours[13:16, 1, 3] == pytest.approx(
+        [1.0, 2.0, 3.0]
+    )
+    assert dataset.feature_staleness[13:16, 1, 3] == pytest.approx(
+        [1.0 / 6.0, 2.0 / 6.0, 3.0 / 6.0]
+    )
+    assert dataset.features[16, 1, 3] == pytest.approx(-1.2, abs=1e-6)
+    assert dataset.feature_staleness_hours[16, 1, 3] == 0.0
+
+
+@pytest.mark.parametrize(
+    "timeframe,cross_asset", [("15m", True), ("15m", False), ("1h", True), ("4h", True)]
+)
+def test_only_finer_cross_asset_config_binds_native_alignment_identity(
+    timeframe: str,
+    cross_asset: bool,
+) -> None:
+    config = _controlled_config(timeframe, lookback=2)
+    if not cross_asset:
+        config = replace(config, features=config.features[:1])
+    dataset = _controlled_dataset(_controlled_source(timeframe), config)
+    expected = config.canonical_payload()
+    if timeframe == "15m" and cross_asset:
+        expected["native_cross_asset_alignment"] = "native_before_base_sync_v1"
+        expected["native_cross_asset_history"] = "last_n_eligible_pair_events_v1"
+    assert dataset.feature_config_digest == content_digest(expected)
+    assert dataset.identity_payload_json is not None
+    payload = json.loads(dataset.identity_payload_json)
+    assert payload["config"] == json.loads(json.dumps(expected))
+    assert payload["feature_config_digest"] == dataset.feature_config_digest
+    assert dataset.identity_verified
+
+
+def test_equal_clock_cross_asset_values_and_ages_retain_literal_oracle() -> None:
+    dataset = _controlled_dataset(
+        _controlled_source("1h"), _controlled_config("1h", lookback=2)
+    )
+    assert dataset.features[2:5, 1, 3] == pytest.approx(
+        [-1.0 / 3.0, -1.25, -1.2], abs=1e-6
+    )
+    assert dataset.feature_available[2:5, 1, 3].all()
+    assert dataset.feature_staleness_hours[2:5, 1, 3] == pytest.approx([0.0] * 3)
+
+
+def test_finer_route_preserves_symbol_order_and_financial_inputs() -> None:
+    source = _controlled_source("15m")
+    config = _controlled_config("15m", lookback=2)
+    dataset = _controlled_dataset(source, config)
+    reordered = _controlled_dataset(source, config, symbols=("ETHUSDT", "BTCUSDT"))
+    for field in (
+        "features",
+        "feature_available",
+        "feature_staleness_hours",
+        "feature_staleness",
+        "feature_missing_reason",
+    ):
+        np.testing.assert_array_equal(
+            getattr(dataset, field), getattr(reordered, field)[:, ::-1]
+        )
+    baseline = _controlled_dataset(
+        source, replace(config, features=config.features[:1])
+    )
+    local = {
+        "features",
+        "feature_available",
+        "feature_staleness",
+        "feature_staleness_hours",
+        "feature_missing_reason",
+    }
+    for field in DATASET_ID_ARRAY_FIELDS:
+        if field not in local:
+            np.testing.assert_array_equal(
+                getattr(dataset, field), getattr(baseline, field)
+            )
+    assert dataset.nominal_bar_hours == baseline.nominal_bar_hours == 1.0
+    assert dataset.periods_per_year == baseline.periods_per_year
+
+
+def test_finer_native_feature_expiry_keeps_age_and_masks_zero_values() -> None:
+    dataset = _controlled_dataset(
+        _controlled_source("15m", proportional=True), _controlled_config("15m")
+    )
+    assert dataset.feature_available[7, :, 2:4].all()
+    assert not dataset.feature_available[8, :, 2:4].any()
+    assert not dataset.features[8, :, 2:4].any()
+    assert dataset.feature_staleness_hours[8, :, 2:4] == pytest.approx(
+        np.full((2, 2), 7.0)
+    )
+    assert dataset.feature_staleness[8, :, 2:4] == pytest.approx(np.ones((2, 2)))
+
+
+def test_marked_finer_dataset_artifact_retains_identity_and_dependency_config(
+    tmp_path: Path,
+) -> None:
+    dataset = _controlled_dataset(_controlled_source("15m"), _controlled_config("15m"))
+    write_market_dataset_files(tmp_path, dataset)
+    restored = load_market_dataset_artifact(tmp_path)
+    assert restored.identity_verified
+    assert restored.dataset_id == dataset.dataset_id
+    assert restored.feature_config_digest == dataset.feature_config_digest
+    assert restored.identity_payload_json == dataset.identity_payload_json
+    assert restored.identity_payload_json is not None
+    assert (
+        json.loads(restored.identity_payload_json)["config"][
+            "native_cross_asset_alignment"
+        ]
+        == "native_before_base_sync_v1"
+    )
+    assert (
+        json.loads(restored.identity_payload_json)["config"].get(
+            "native_cross_asset_history"
+        )
+        == "last_n_eligible_pair_events_v1"
+    )

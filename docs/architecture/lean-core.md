@@ -624,8 +624,16 @@ Controlled Experiment, with unchanged non-RL/cash controls and ledger economics.
 
 ## Native multi-timeframe information availability
 
-Non-base cross-asset rolling features must accumulate on the actual complete
-native events before as-of alignment. Native price and volume pathways must
+Cross-asset rolling features on clocks strictly finer than the decision clock
+accumulate eligible native events before as-of alignment. Equal/coarser clocks
+retain the maintained aligned-return history. A finer return joins two adjacent
+physical rows that are active, tradable and published by their own closes; a
+late or untradable row excludes both touching returns. Rolling statistics retain
+the last eligible pair events, without a reset-on-gap rule. Affected build
+configurations bind `native_cross_asset_alignment=native_before_base_sync_v1`
+and `native_cross_asset_history=last_n_eligible_pair_events_v1`
+in both their feature configuration digest and Dataset identity metadata;
+unaffected configuration payloads remain unchanged. Native price and volume pathways must
 respect a source event's close and its independent `available_at` publication
 clock. The last *available* native event, not the last event in the entire raw
 Dataset, is the only candidate for a base decision. Expired or unpublished

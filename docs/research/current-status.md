@@ -1361,3 +1361,17 @@ verify refusal; legal appended features and equivalent resolved clocks remain
 accepted. This is software input conformity only. No market fit, new economic
 comparison, calibrated costs, historical availability certification or full
 native Rolling/Signature admission is established by this repair.
+
+The native cross-asset software route is now limited to clocks strictly finer
+than the decision clock. It excludes returns touching a late/untradable physical
+row, keeps the maintained last-N eligible pair history, and binds an affected-only
+alignment marker consistently in build configuration digest and identity.
+An explicit `native_cross_asset_history=last_n_eligible_pair_events_v1` field
+separates this policy from a consecutive-observation/reset variant. The latter
+is a different representation hypothesis and is not silently imported here.
+Equal/coarser clocks preserve their prior aligned-return behavior. Literal
+four-event, missing-row and delayed coarser-publication oracles, prefix/expiry,
+symbol-order, financial-input and synthetic artifact reload checks cover these
+software prerequisites. Historical publication truth, calibrated market costs,
+formal research approval and economic advantage remain unestablished. No real
+market fit/replay, candidate/Study change or unused-data access is implied.

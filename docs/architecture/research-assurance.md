@@ -847,6 +847,31 @@ Production eligibility: NOT ESTABLISHED
 
 ## Signature paired-input software prerequisite
 
+The native cross-asset representation also has a clock-specific prerequisite.
+G0 asks whether the intended information grain is preserved, not whether a
+rolling statistic predicts profit. G1 admits finer-clock returns only from
+adjacent active/tradable rows published by their own closes, before accumulating
+the maintained last-N eligible pair history. Late rows are permanently excluded
+under this declared representation policy. Equal/coarser clocks retain their
+aligned-return history; no alternative Signature or rolling owner is introduced.
+Affected configuration digests and identity metadata bind the same explicit
+`native_before_base_sync_v1` route marker and explicit
+`native_cross_asset_history=last_n_eligible_pair_events_v1` history policy.
+Different gap policies must not share an indistinguishable configuration digest;
+array-bound Dataset identity does not substitute for representation provenance.
+
+G2 uses four literal 15m log returns (.02, -.01, .03, -.02) with a second asset
+twice those returns: first-hour beta 2, correlation 1, relative return -.02,
+dispersion .01 and momentum ranks [-1, 1]. A missing second physical row excludes
+the second/third returns, without resetting surviving pair history. With asset
+returns (.03, .04, -.01, .05), the retained first/fourth pair beta is -.5.
+For coarser 4h rows, publication of the 8h row at 13h makes the aligned history
+observe 4h then 12h: beta -4, whereas an incorrect raw-native route yields -1.25.
+Prefix, source-age/expiry, symbol-order, unchanged financial inputs and artifact
+identity oracles accompany these arithmetic checks. They do not certify actual
+historical publication clocks, source coverage, calibrated execution, research
+approval, tradable edge or G4–G5 readiness.
+
 G0 asks whether a local Signature addition can be compared while retaining the
 same original information, financial inputs and clock semantics. G1 permits
 appended local feature columns and representation provenance only. The existing

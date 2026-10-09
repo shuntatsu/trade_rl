@@ -21,6 +21,7 @@ from trade_rl.data.features.cross_asset import (
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
 from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.features.native_cross_asset import align_native_cross_asset_feature
 from trade_rl.data.features.numerics import (
     portable_log,
     portable_mean,
@@ -429,6 +430,36 @@ class MarketDatasetBuilder:
                 raise ValueError(
                     "cross-asset features require cross_asset_reference_symbol"
                 )
+            if native_timeframe != self.config.base_timeframe:
+                if not isinstance(source, MultiTimeframeMarketDataSource):
+                    raise ValueError(
+                        "native cross-asset features require a "
+                        "MultiTimeframeMarketDataSource"
+                    )
+                native_sources: list[RawMarketSeries] = []
+                for instrument in instruments:
+                    key = (instrument.symbol, native_timeframe)
+                    raw = native_cache.get(key)
+                    if raw is None:
+                        raw = source.load_timeframe(instrument.symbol, native_timeframe)
+                        native_cache[key] = raw
+                    native_sources.append(raw)
+                mtf_values, mtf_available, mtf_ages, mtf_staleness = (
+                    align_native_cross_asset_feature(
+                        spec,
+                        tuple(native_sources),
+                        instruments,
+                        timestamps,
+                        symbol_active,
+                        timeframe=native_timeframe,
+                        reference_symbol=reference_symbol,
+                    )
+                )
+                features[:, :, feature_index] = mtf_values
+                feature_available[:, :, feature_index] = mtf_available
+                feature_age_hours[:, :, feature_index] = mtf_ages
+                feature_staleness[:, :, feature_index] = mtf_staleness
+                continue
             events = calculate_cross_asset_feature_events(
                 spec,
                 aligned_returns=features[:, :, return_index],

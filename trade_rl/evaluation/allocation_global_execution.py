@@ -947,10 +947,10 @@ def _check_invalid_return(value: object) -> None:
 def _receipt(value: object) -> dict[str, Any]:
     _native_json(value)
     raw = _closed(value, _RECEIPT, "global execution receipt")
-    if raw["schema"] not in {
+    if raw["schema"] not in (
         "allocation_global_execution_receipt_v1",
         "allocation_global_execution_receipt_v2",
-    }:
+    ):
         raise ValueError("unknown global execution receipt schema")
     cost_aware = raw["schema"] == "allocation_global_execution_receipt_v2"
     plan = GlobalAllocationExecutionPlan.from_payload(raw["plan"])

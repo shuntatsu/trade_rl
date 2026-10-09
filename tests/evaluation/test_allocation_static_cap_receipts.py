@@ -390,16 +390,19 @@ def test_immutable_schema_dispatch_refuses_capped_v2_success_as_v1(
         capability().GlobalAllocationExecutionReceipt.from_payload(raw)
 
 
-def test_unknown_receipt_version_and_rewritten_v1_rejection_are_refused():
-    api = capability()
+@pytest.mark.parametrize("schema", ["allocation_global_execution_receipt_v3", {}, []])
+def test_unknown_receipt_version_is_refused_with_historical_error(schema):
     _, raw = historical("capped_failure")
-    raw["schema"] = "allocation_global_execution_receipt_v3"
+    raw["schema"] = schema
     with pytest.raises(ValueError, match="unknown global execution receipt schema"):
-        api.GlobalAllocationExecutionReceipt.from_payload(raw)
+        capability().GlobalAllocationExecutionReceipt.from_payload(raw)
+
+
+def test_rewritten_v1_rejection_is_refused():
     _, raw = historical("capped_failure")
     raw["rows"][0]["native_validation_failure"]["message"] = "different rejection"
     with pytest.raises(ValueError, match="differs from original reader"):
-        api.GlobalAllocationExecutionReceipt.from_payload(raw)
+        capability().GlobalAllocationExecutionReceipt.from_payload(raw)
 
 
 def carrier_with_allocator(original, allocator=None, *, flat_prices=False):

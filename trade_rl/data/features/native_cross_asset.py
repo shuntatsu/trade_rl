@@ -36,9 +36,10 @@ def align_native_cross_asset_feature(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Count actual native bars, not repeated or hourly-subsampled observations.
 
-    We conservatively account for late return publications with a cumulative
-    arrival bound for each involved asset. This can delay a feature more than
-    necessary; it cannot publish an unobserved historical return in the past.
+    Eligible returns join adjacent physical rows that are active, tradable and
+    published by their own closes. Late rows are excluded, not inserted into a
+    history after arrival. Rolling histories retain the last eligible pair
+    events; they do not reset at a missing event.
     """
     if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
         raise ValueError("native cross-asset feature kind is unsupported")
@@ -75,6 +76,11 @@ def align_native_cross_asset_feature(
             raise ValueError("native source is not aligned to the common clock")
         positions = (offsets // step).astype(np.intp)
         values, valid, arrived_at = _native_events(return_spec, raw, contract)
+        assert raw.available_at is not None
+        assert raw.tradable is not None
+        # _native_events already requires both adjacent rows to be active.
+        row_eligible = raw.tradable & (raw.available_at <= raw.timestamps)
+        valid[1:] &= row_eligible[1:] & row_eligible[:-1]
         returns[positions, i] = values
         return_valid[positions, i] = valid
         arrivals = np.full(len(timestamps), np.iinfo(np.int64).min, dtype=np.int64)

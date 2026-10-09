@@ -308,6 +308,7 @@ def _observation(
         native is not None
         and native["status"] == "completed"
         and len(closing) == len(plan.closing_clocks_ns) - 1
+        and all(row["clock_valid"] for row in closing)
     )
     stopped = final is not None and final["termination_reason"] is not None
     complete = (
@@ -401,6 +402,12 @@ def run_terminal_allocation_execution(
                 start_index=index,
             )
             facts = native_allocation_execution_facts(execution)
+            clock_valid = (
+                type(execution.next_index) is int
+                and type(execution.bars_advanced) is int
+                and execution.bars_advanced == 1
+                and execution.next_index == index + 1
+            )
             processing_time = (
                 int(
                     env.dataset.timestamps[execution.next_index]
@@ -414,8 +421,13 @@ def run_terminal_allocation_execution(
             closing.append(
                 {
                     "start_index": index,
-                    "processing_index": execution.next_index,
+                    "processing_index": facts["execution"]["next_index"],
                     "processing_time_ns": processing_time,
+                    "clock_valid": clock_valid,
+                    "returned_clock_types": {
+                        "next_index": type(execution.next_index).__name__,
+                        "bars_advanced": type(execution.bars_advanced).__name__,
+                    },
                     "opening_equity": before,
                     "risk_target": target.weights.tolist(),
                     "risk_reasons": list(target.reasons),
@@ -432,7 +444,7 @@ def run_terminal_allocation_execution(
                 execution.order_book,
                 execution.next_index,
             )
-            if execution.bars_advanced != 1 or index != attempted + 1:
+            if not clock_valid:
                 raise ValueError("terminal native execution changed its one-bar clock")
             if env.executor is not executor or env.risk is not risk:
                 raise ValueError("terminal executor/risk instance changed")

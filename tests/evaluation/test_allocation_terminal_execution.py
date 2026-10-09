@@ -332,6 +332,7 @@ def test_failed_close_cannot_erase_residual_or_call_it_cash(case):
     else:
         assert quantity == 5
     assert not raw["settlement_complete"] and raw["settled_profit_rate"] is None
+
     assert raw["final_book"]["fill_count"] >= 1
 
 
@@ -542,3 +543,31 @@ def test_malformed_returned_clock_retains_detached_native_facts(monkeypatch):
     assert raw["closing_rows"][0]["processing_time_ns"] is None
     assert raw["closing_rows"][0]["native"]["book"]["cash"] == pytest.approx(1039)
     assert not raw["settlement_complete"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"next_index": 8.0},
+        {"next_index": np.int64(8)},
+        {"bars_advanced": 1.0},
+        {"bars_advanced": True},
+    ],
+)
+def test_numeric_equality_cannot_substitute_for_native_clock_types(change, monkeypatch):
+    api = capability()
+    folds, env = carrier()
+    plan = plans(api, env, folds)
+    native = api._execute_allocation_target
+
+    def close(*args, **kwargs):
+        target, execution = native(*args, **kwargs)
+        return target, replace(execution, **change)
+
+    monkeypatch.setattr(api, "_execute_allocation_target", close)
+    with pytest.raises(ValueError, match="one-bar clock") as caught:
+        api.run_terminal_allocation_execution(folds, env, plan)
+    raw = caught.value.terminal_execution_receipt
+    assert len(raw["closing_rows"]) == 1
+    assert raw["final_book"]["cash"] == pytest.approx(1039)
+    assert not raw["settlement_complete"] and raw["settled_profit_rate"] is None

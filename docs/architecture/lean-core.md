@@ -1392,11 +1392,13 @@ reads all arrays. The mandatory external Dataset ID and explicit development
 bounds are checked after one load and before fitting, not as pre-open authority.
 The preparation neither crops a full artifact nor overwrites price channels.
 
-Admission requires declared direct `market_build_v3` lineage with portable
+Default admission requires declared direct `market_build_v3` lineage with portable
 feature numerics and a known identity v6 or v7 verified by the existing loader.
 Legacy v3/v6 artifacts retain their original identity and bar-mark funding
 fallback; accepting them does not authenticate settlement history. Loadable
-older build versions and derived lineage remain inadmissible. Existing FeatureSpec
+older build versions and unadmitted derived lineage remain inadmissible.
+The explicitly paired single-clock Signature exception below preserves this
+direct-build requirement on its separately pinned parent. Existing FeatureSpec
 decoding checks supported causal local
 and multi-timeframe declarations; ordered feature and fit-symbol names pass
 the shared training-scope dependency checks. Unknown transforms or normalization
@@ -1465,3 +1467,83 @@ valuation mark. Native execution uses that per-unit settlement product; the
 declared producer still extrapolates past `funding_rate`. Opposing event rates
 can sum to zero while their settlement products remain nonzero. Preparation
 preserves both channels without conversion or an additional accounting charge.
+
+## Opt-in rolling Path Signature (software capability)
+
+A developer may explicitly append finite signature tensor words to a Dataset
+via `trade_rl.data.features.with_path_signatures`. The input is a sequence
+of completed-bar log-close increments (optionally strictly positive log-volume)
+augmented by normalized bar index. It is **not** an intrabar OHLC path, and no
+missing market path is imputed. Historical row availability, instrument status,
+and positive values gate the entire lookback; unavailable results are masked.
+Window, depth, volume-channel choice and source Dataset ID are bound to the new
+immutable Dataset identity. The previous Dataset and all frozen research outputs
+remain unchanged. Signature enriches representation only; any incremental
+predictive or after-cost economic value requires a separate result-blind
+Controlled Experiment, with unchanged non-RL/cash controls and ledger economics.
+
+## Native multi-timeframe information availability
+
+Cross-asset rolling features on clocks strictly finer than the decision clock
+accumulate eligible native events before as-of alignment. Equal/coarser clocks
+retain the maintained aligned-return history. A finer return joins two adjacent
+physical rows that are active, tradable and published by their own closes; a
+late or untradable row excludes both touching returns. Rolling statistics retain
+the last eligible pair events, without a reset-on-gap rule. Affected build
+configurations bind `native_cross_asset_alignment=native_before_base_sync_v1`
+and `native_cross_asset_history=last_n_eligible_pair_events_v1`
+in both their feature configuration digest and Dataset identity metadata;
+unaffected configuration payloads remain unchanged. Native price and volume pathways must
+respect a source event's close and its independent `available_at` publication
+clock. The last *available* native event, not the last event in the entire raw
+Dataset, is the only candidate for a base decision. Expired or unpublished
+features are zero and explicitly masked. Opt-in native Signature windows consume
+all chronological completed closes; no candle high/low ordering or intermediate
+trades are invented. Research/model training and economics remain independently
+evaluated, with no retroactive change to frozen studies.
+
+The paired Signature comparison preserves every resolved Dataset identity array.
+Only appended local feature columns may differ; the original values, availability,
+staleness and missing reasons stay equal, as do all global information arrays.
+Normalized clock, annualization and volume-unit metadata also stay equal. In
+particular, equal funding rates do not substitute for equal settlement
+price-products or event counts. These checks precede both Ridge fitting and
+native replay; they establish input equality, not historical source authenticity
+or Signature profitability.
+
+## Paired single-clock Signature allocation admission
+
+Preparation may explicitly receive both signature_parent_root and
+expected_signature_parent_dataset_id. Half declarations and malformed pins
+reject before any load. Each entire artifact must already have separate caller
+read authority; post-load period and identity checks cannot grant that authority.
+
+The parent must pass the unchanged direct portable MarketBuilder lineage/spec
+checks and its external content pin. The augmented flat source_dataset_id must
+name this parent. Window 3..min(n_bars,512), depth 1..3, ordered time/price or
+time/price/volume channels and fixed single-clock declarations are required.
+The maintained with_path_signatures producer reconstructs the augmentation from
+the parent; its complete Dataset ID must equal the independently pinned input.
+The existing validate_signature_pair guard also conserves every financial,
+global and original local-prefix array and economic/clock metadata. An arbitrary
+rehash of an altered appended value cannot satisfy reconstruction.
+
+Paired fit_symbols must exactly equal dataset.symbols, in Dataset order, and
+selected features must include an appended Signature column. Strict subsets,
+multi-timeframe and nested transforms are inadmissible. The actual existing
+fitter retains training-scope and strictly mature endpoint checks. Direct-only
+caller ordering and subset dependency checks remain unchanged.
+
+Declared-recipe costs are projected from the admitted parent with the unchanged
+estimator and recipe/config. Explicit cost rows retain exact prospective coverage.
+The one frozen simple-return stream and returned Dataset keep the augmented ID;
+downstream proposals bind that identity together with parent-derived cost inputs.
+No proxy rate is charged again to canonical cash. NONRL, residual/direct RL and
+cash keep the existing consumer, hard risk and ledger contracts.
+
+This admits one input lane. A controlled baseline/Signature comparison still
+requires matched effective training rows and a frozen selection budget.
+Whole-artifact future changes update Dataset, model/stream and proposal provenance;
+earlier economic feature/prediction/target/cash values remain causal.
+Reconstruction is transformation conformance, not historical source authenticity,
+market calibration, economic evidence or live authorization.

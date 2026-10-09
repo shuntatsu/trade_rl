@@ -948,6 +948,53 @@ Production eligibility: NOT ESTABLISHED
 - comparison threshold / winner ruleを変える → resultを見た後の救済にせず、G4 protocolとして新しい事前定義を作る。
 - final/unused/live eligibilityを変える → G5 authorityを更新し、development evidenceを代替にしない。
 
+## Signature paired-input software prerequisite
+
+The native cross-asset representation also has a clock-specific prerequisite.
+G0 asks whether the intended information grain is preserved, not whether a
+rolling statistic predicts profit. G1 admits finer-clock returns only from
+adjacent active/tradable rows published by their own closes, before accumulating
+the maintained last-N eligible pair history. Late rows are permanently excluded
+under this declared representation policy. Equal/coarser clocks retain their
+aligned-return history; no alternative Signature or rolling owner is introduced.
+Affected configuration digests and identity metadata bind the same explicit
+`native_before_base_sync_v1` route marker and explicit
+`native_cross_asset_history=last_n_eligible_pair_events_v1` history policy.
+Different gap policies must not share an indistinguishable configuration digest;
+array-bound Dataset identity does not substitute for representation provenance.
+
+G2 uses four literal 15m log returns (.02, -.01, .03, -.02) with a second asset
+twice those returns: first-hour beta 2, correlation 1, relative return -.02,
+dispersion .01 and momentum ranks [-1, 1]. A missing second physical row excludes
+the second/third returns, without resetting surviving pair history. With asset
+returns (.03, .04, -.01, .05), the retained first/fourth pair beta is -.5.
+For coarser 4h rows, publication of the 8h row at 13h makes the aligned history
+observe 4h then 12h: beta -4, whereas an incorrect raw-native route yields -1.25.
+Prefix, source-age/expiry, symbol-order, unchanged financial inputs and artifact
+identity oracles accompany these arithmetic checks. They do not certify actual
+historical publication clocks, source coverage, calibrated execution, research
+approval, tradable edge or G4–G5 readiness.
+
+G0 asks whether a local Signature addition can be compared while retaining the
+same original information, financial inputs and clock semantics. G1 permits
+appended local feature columns and representation provenance only. The existing
+Dataset identity owners supply the array roster and normalized metadata; neither
+a new ledger nor equality of whole Dataset IDs is appropriate here.
+
+G2 uses independently reidentified synthetic pairs. Rate `.001`, settlement
+product `.12` and count `1` versus product `.13` must reject before fitting or
+replay. Count `2` must also reject with unchanged rate/product: two `.0005` events
+at marks `100` and `140` retain product `.12`, so count alone does not imply a
+cash difference. Other counterexamples change cash yield, contract multiplier,
+volume units, valid session clocks, annualization or original local/global
+information. Different optional continuous nominal-hour arguments that both
+resolve to one hour remain admissible. Fit/replay sentinels verify refusal order.
+
+These are input-consistency and software mechanism checks. Identity verification
+does not attest Signature computation, historical source availability, calendar
+coverage, cost calibration or tradable edge. Existing studies and economic
+results are not reclassified; G4/G5 and formal independent review remain separate.
+
 ## Completion condition
 
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
@@ -1876,3 +1923,41 @@ costs are not charged to the ledger, and the exit coefficient proves no actual
 liquidation. Synthetic software evidence does not establish profit, parameter
 selection, market calibration, formal independent approval, G3-G5 or Issue #810
 completion. Exact-head verification and the 20% research DD guardrail still apply.
+
+## Signature allocation admission G0-G2
+
+G0 asks whether a pinned single-clock representation can reach the existing
+common allocation input path without changing financial inputs, fitting scope
+semantics or realized accounting. This is a software prerequisite; no economic
+edge is assumed. G1 requires separate whole-artifact read authority, direct
+canonical parent lineage, exact producer reconstruction, complete pair
+conservation, the full Dataset-symbol tuple, mature-prefix fitting and available
+prediction features. Recipe projections use parent economics and initial-notional
+units; the augmented identity stays on the stream. Risk/action/account contracts
+and the 20% research DD constraint remain unchanged.
+
+The independent first-vintage oracle selects the appended time word of a
+window-3/depth-2 Signature. Warmup removes starts 0,1; cutoff 5/horizon 1 admits
+starts 2,3 for each of ALPHA/BETA and excludes endpoint 5. Labels [1,-.5,0,0]
+yield four samples, mean 1/8 and marginal population variance 19/64. With unit
+risk aversion and buy estimates .025/0, fresh-cash targets are 16/95 and 4/19.
+At constant prices 100/50 and actual fee .002, ALPHA quantity 32/19 gives cash
+78968/95 and equity 94968/95; BETA quantity 80/19 gives cash 14992/19 and equity
+18992/19. Surrogate buy cost is not debited again. Zero target retains cash 1000
+without fills/fees. Trace/count checks are essential: an incorrectly unmasked
+first prefix can share the same mean/variance. Cutoff 9 has twelve samples,
+mean 1/24 and variance 59/576, exposing that eligibility difference numerically.
+
+G2 counterexamples alter an appended value while rehashing an otherwise valid
+artifact, mutate its original prefix/economics, change the parent pin/reference,
+remove half the declaration, forge single-clock settings, supply MT features,
+restrict/reorder fit symbols or delay prediction information. They must fail
+before fitting/publication. Existing six-rate literals and a parent-estimator
+binding check prevent generating costs from the augmented incomplete provenance.
+Future-source mutation preserves earlier economic values and flat cash while
+Dataset/stream/cost/proposal provenance updates to the changed content.
+
+Green proves bounded software behavior. It does not prove matched baseline
+eligibility, predictive improvement, historical publication truth, calibrated
+fills or funding, G3-G5, formal independent approval or profitable deployment.
+The fresh source-only AI review supplies no external research approval.

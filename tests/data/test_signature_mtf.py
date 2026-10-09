@@ -64,7 +64,9 @@ def _raw(
         low=prices,
         close=prices,
         volume=(
-            np.full(n, 100.0) if volume is None else np.asarray(volume, dtype=np.float64)
+            np.full(n, 100.0)
+            if volume is None
+            else np.asarray(volume, dtype=np.float64)
         ),
         funding_rate=np.zeros(n),
         funding_available=np.zeros(n, dtype=np.bool_),
@@ -78,7 +80,8 @@ def _raw(
 
 
 def _base(n: int = 6) -> object:
-    return _market(np.full((n, 1), 100.0)).with_content_identity({"fixture": "base"})
+    source = _market(np.full((n, 1), 100.0))
+    return source.with_content_identity({"fixture": "base"})
 
 
 def _get(data: object, word: str) -> np.ndarray:
@@ -276,9 +279,7 @@ def test_multiple_native_clocks_are_independent_and_preserve_economics(
     base = _base(n=10)
     raw_15 = _raw(np.arange(100.0, 137.0))
     raw_4h = _raw(np.array([100.0, 105.0, 99.0]), minutes=240)
-    source = _MultiSource(
-        {("SYM0", "15m"): raw_15, ("SYM0", "4h"): raw_4h}
-    )
+    source = _MultiSource({("SYM0", "15m"): raw_15, ("SYM0", "4h"): raw_4h})
     clocks = (
         SignatureClock("15m", window_bars=3),
         SignatureClock("4h", window_bars=3),
@@ -295,7 +296,9 @@ def test_multiple_native_clocks_are_independent_and_preserve_economics(
     np.testing.assert_array_equal(a.close, base.close)
     np.testing.assert_array_equal(a.funding_rate, base.funding_rate)
     np.testing.assert_array_equal(a.fee_rate, base.fee_rate)
-    np.testing.assert_array_equal(a.features[:, :, : base.n_features], base.features)
+    np.testing.assert_array_equal(
+        a.features[:, :, : base.n_features], base.features
+    )
     restored_path = publish_market_dataset_artifact(tmp_path / "native", a).root
     restored = load_market_dataset_artifact(restored_path)
     assert restored.dataset_id == a.dataset_id

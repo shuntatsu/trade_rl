@@ -98,11 +98,10 @@ def _chen(left: Tensor, right: Tensor) -> Tensor:
     depth = len(left) - 1
     result = [np.array([1.0], dtype=np.float64)]
     for level in range(1, depth + 1):
-        contributions = [
-            np.kron(left[index], right[level - index])
-            for index in range(level + 1)
-        ]
-        result.append(np.sum(contributions, axis=0))
+        total = np.zeros_like(right[level])
+        for index in range(level + 1):
+            total += np.kron(left[index], right[level - index])
+        result.append(total)
     return tuple(result)
 
 
@@ -322,7 +321,11 @@ def with_native_multitimeframe_signatures(
                 ),
             )
             source_digests.append(
-                {"symbol": contract.symbol, "timeframe": clock.timeframe, "sha256": digest}
+                {
+                    "symbol": contract.symbol,
+                    "timeframe": clock.timeframe,
+                    "sha256": digest,
+                }
             )
             events, event_valid = _native_signature_events(raw, contract, clock)
             aligned = _align_events(

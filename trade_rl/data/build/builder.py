@@ -439,11 +439,13 @@ class MarketDatasetBuilder:
                 native_sources: list[RawMarketSeries] = []
                 for instrument in instruments:
                     key = (instrument.symbol, native_timeframe)
-                    raw = native_cache.get(key)
-                    if raw is None:
-                        raw = source.load_timeframe(instrument.symbol, native_timeframe)
-                        native_cache[key] = raw
-                    native_sources.append(raw)
+                    cached_native: RawMarketSeries | None = native_cache.get(key)
+                    if cached_native is None:
+                        cached_native = source.load_timeframe(
+                            instrument.symbol, native_timeframe
+                        )
+                        native_cache[key] = cached_native
+                    native_sources.append(cached_native)
                 mtf_values, mtf_available, mtf_ages, mtf_staleness = (
                     align_native_cross_asset_feature(
                         spec,

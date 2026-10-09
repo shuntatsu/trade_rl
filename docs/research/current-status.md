@@ -1137,6 +1137,8 @@ M2で候補をfreezeした後だけ進む。
 
 Canonical M2 bootstrapはresearch runそのものではなく、real development Studyの入力を固定するpreparation stepである。
 
+新規bootstrap v3はfunding eventのnormalized snapshotを`source/funding-events.json`へ保存し、そのSHA-256をmanifestへbindする。Visionのfunding CSVがsettlement markを持たない場合は、Binance funding historyの`markPrice`でイベントを完成させてからsnapshotを作り、以後のDataset buildとinspectionはnetwork-freeでこのsnapshotを使う。この実装修正後のreal-data bootstrapやeconomic evaluationはまだ実行していない。既存のPortable Controlled Experiment 0001の結果はそのまま保持し、新しいsettlement-mark pathの証拠として扱わない。
+
 入力JSONは少なくとも次を事前登録する。
 
 - Binance USD-M market

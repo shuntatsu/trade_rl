@@ -50,6 +50,23 @@ def plain(value):
 
 
 def test_zero_residual_preserves_captured_legacy_identity_and_complete_trace():
+    def historical_trace(execution):
+        snapshot = plain(execution)
+        assert len(execution.funding_evidence) == 1
+        for evidence, record in zip(
+            execution.funding_evidence, snapshot["funding_evidence"], strict=True
+        ):
+            assert evidence.funding_price_rates == (0.0,)
+            assert evidence.funding_price_rates == tuple(
+                rate * mark
+                for rate, mark in zip(
+                    evidence.funding_rates, evidence.mark_prices, strict=True
+                )
+            )
+            # This golden predates only the additional funding-product field.
+            del record["funding_price_rates"]
+        return snapshot
+
     ex, book, orders, kwargs = setup()
     baseline = propose_forecast_target(ex, book, orders, **kwargs)
     old = execute_forecast_proposal(ex, book, orders, baseline, **kwargs)
@@ -58,7 +75,7 @@ def test_zero_residual_preserves_captured_legacy_identity_and_complete_trace():
         "52c3d0f11ca4b962aefebf9cf53afbf449d201d5f6c3eaad72af9af39698458d"
     )
     expected_trace = "7fc059b2fbbb8ae11702d0531f92cfeb60a1fefe4ec56a28f7e37daaf52d816d"
-    assert content_digest(plain(old.execution)) == expected_trace
+    assert content_digest(historical_trace(old.execution)) == expected_trace
     args = arguments(kwargs)
     decision = prepare_allocation_decision(ex, book, orders, **args)
     result = execute_allocation_action(ex, book, orders, decision, np.int64(2), **args)
@@ -66,7 +83,8 @@ def test_zero_residual_preserves_captured_legacy_identity_and_complete_trace():
     assert result.proposal.raw_action == 2
     assert result.decision == decision and result.action == 2
     assert result.proposal.target_weight == baseline.target_weight == 0.2
-    assert content_digest(plain(result.execution)) == expected_trace
+    assert plain(result.execution) == plain(old.execution)
+    assert content_digest(historical_trace(result.execution)) == expected_trace
     np.testing.assert_array_equal(result.risk_target.weights, old.risk_target.weights)
 
 

@@ -2236,3 +2236,26 @@ unestablished. Parent namespaces are caller-trusted; power-loss durability,
 asynchronous interruption and hostile parent replacement are not guaranteed.
 Issue #810 remains incomplete. Formal independent review, G3-G5, final-head
 verification/integration and the 20% maximum DD research constraint are retained.
+
+## Issue #810: same-close development preparation prerequisite
+
+An opt-in evaluation composition now connects the existing canonical Dataset
+loader, causal direct-simple producer and exclusive stream publisher. It
+requires an externally pinned Dataset, explicit already-authorized development
+bounds, declared direct canonical causal feature lineage, ordered feature and
+training-symbol scopes, explicit blocks/horizon/alpha and complete existing
+horizon-cost payloads for every predicted symbol/decision. Fit symbols do not
+restrict prediction symbols. The result returns common stream/artifact inputs
+and costs grouped by Dataset symbol and decision, without a new persisted
+schema, lane-specific refit or Tier-1 facade extension.
+
+Synthetic saved-builder tests connect literal mean/variance/allocation to the
+existing consumer, preserve earlier causal predictions under future changes,
+and reject unsafe source/scope/basis/cost declarations before fitting. This is
+a software prerequisite. The whole artifact must already be authorized before
+the loader reads it; later bounds checks do not supply read authority. The saved
+real artifact has not been loaded or cropped for this Task, and its close/mark
+compatibility remains NOT ESTABLISHED. No real-market fit, forecast, replay,
+PPO training or profit comparison was performed. Calibration, authenticated
+history, formal research review, G3-G5, final-head integration and the full
+Issue #810 objective remain incomplete under the 20% research DD constraint.

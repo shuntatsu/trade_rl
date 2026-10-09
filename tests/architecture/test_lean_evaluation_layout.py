@@ -59,6 +59,7 @@ def test_evaluation_root_keeps_core_primitives() -> None:
 def test_evaluation_responsibility_packages_exist() -> None:
     required = (
         "directional.py",
+        "allocation_market_inputs.py",
         "carry.py",
         "directional_candidates.py",
         "directional_selection.py",

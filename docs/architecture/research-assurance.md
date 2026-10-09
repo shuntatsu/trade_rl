@@ -1792,3 +1792,32 @@ power loss, asynchronous interruption and hostile namespace replacement are
 outside this contract. Synthetic unit fixtures do not establish actual market
 calibration, learning, profit, G3-G5 or final/live eligibility. Formal review,
 the unchanged 20% research DD guardrail and final-head verification still apply.
+
+## Development input preparation G0-G2
+
+G0 asks whether explicit, already-authorized development inputs can reach the
+existing shared forecast/allocation boundary without lane-specific refitting,
+implicit cost zeros or replacing price basis. G1 keeps the existing raw
+same-close surrogate, prefix maturity, fit-symbol dependency scope, declared
+historical publication clocks and complete independent cost declarations.
+Full artifact read permission is the caller's prior responsibility; post-load
+identity/bounds checks cannot protect a previously unopened unused period.
+
+G2 uses actual synthetic MarketBuilder output saved through the existing
+canonical writer. ALPHA-only training contains returns 1,-.5,1,-.5; constant
+features give literal mean .25, variance .5625 and weight .2 with buy cost .025.
+BETA is predicted and requires costs despite exclusion from fitting. Reversed
+feature/cost input order tests exact names and Dataset-symbol/decision ordering.
+Future raw prices and feature ranges change whole content but not earlier
+vintages or packets. Wrong identity, unknown lineage/normalization, period or
+price-basis escape, unavailable inputs and dependency violations fail before
+fitting/publication. Every missing rate, incomplete/extra/duplicate cost roster,
+future cost availability and malformed clocks/horizons must also fail there.
+
+These declarations do not independently authenticate build history, source
+availability, historical compute completion or calibrated venue economics.
+Real Binance close/mark compatibility remains NOT ESTABLISHED; a correct
+same-close rejection is not repaired by rewriting marks. This software stage
+establishes no market fit/replay, economic comparison, G3-G5, live eligibility
+or Issue #810 completion. Formal independent approval, exact-head verification
+and the unchanged 20% research DD guardrail remain separate requirements.

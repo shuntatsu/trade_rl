@@ -18,9 +18,11 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.features import with_multitimeframe_path_signatures
 from trade_rl.evaluation.signature_comparison import (
+    _matched_baseline_fit_dataset,
     run_ridge_signature_comparison,
     validate_signature_pair,
 )
+from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.rl.ppo import PPOTradingEnv
 
@@ -218,3 +220,43 @@ def test_signature_rejects_invalid_clock_and_unavailable_feature_pair() -> None:
             baseline_feature_names=("log_return",),
             signature_feature_names=("log_return",),
         )
+
+
+
+def test_signature_comparison_matches_fit_rows_with_longer_native_warmup() -> None:
+    source = _source()
+    base = _dataset(source)
+    augmented = with_multitimeframe_path_signatures(
+        base, source, base_timeframe="1h", windows_by_timeframe={"1h": 5}
+    )
+    sig_name = "mt_path_sig_v1_1h_w5_d2_tp_tp"
+    sig_index = augmented.feature_names.index(sig_name)
+    fit_base = _matched_baseline_fit_dataset(base, augmented, (sig_index,))
+    expected_mask = augmented.feature_available[:, :, sig_index]
+    np.testing.assert_array_equal(
+        fit_base.feature_available[:, :, 0],
+        base.feature_available[:, :, 0] & expected_mask,
+    )
+    assert not fit_base.feature_available[:4, :, 0].any()
+    assert fit_base.identity_verified
+    assert fit_base.dataset_id != base.dataset_id
+    baseline_rows = build_causal_forecast_training_set(
+        fit_base, feature_indices=(0,), fit_cutoff=base.timestamps[7],
+        horizon_hours=1,
+    )
+    signature_rows = build_causal_forecast_training_set(
+        augmented, feature_indices=(0, sig_index),
+        fit_cutoff=base.timestamps[7], horizon_hours=1,
+    )
+    np.testing.assert_array_equal(
+        baseline_rows.label_end_times, signature_rows.label_end_times
+    )
+    np.testing.assert_array_equal(
+        baseline_rows.labels, signature_rows.labels
+    )
+    np.testing.assert_array_equal(
+        baseline_rows.sample_weights, signature_rows.sample_weights
+    )
+    assert baseline_rows.n_samples == signature_rows.n_samples
+    # The original data/metrics are untouched by fit-only common eligibility.
+    np.testing.assert_array_equal(fit_base.close, base.close)

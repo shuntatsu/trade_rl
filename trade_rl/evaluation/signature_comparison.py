@@ -7,10 +7,11 @@ the Dataset, exact split, feature names, budget and financial assumptions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
+from trade_rl.artifacts import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import (
     SingleSymbolReplayResult,
@@ -128,6 +129,48 @@ def validate_signature_pair(
     return baseline, extended
 
 
+def _matched_baseline_fit_dataset(
+    original: MarketDataset,
+    augmented: MarketDataset,
+    signature_indices: tuple[int, ...],
+) -> MarketDataset:
+    """Give both regressions the same eligible training rows.
+
+    A long Signature warmup or a missing native source must not silently change
+    the baseline's effective training sample. This is a *transient fit-only*
+    dataset; evaluation uses the unmodified original source Dataset.
+    """
+    signature_ready = np.all(
+        augmented.feature_available[:, :, list(signature_indices)], axis=2
+    )
+    fit_mask = signature_ready[:, :, None]
+    available = original.feature_available & fit_mask
+    staleness = np.where(
+        fit_mask, original.resolved_array("feature_staleness"), 1.0
+    ).astype(np.float32)
+    original_reasons = original.resolved_array("feature_missing_reason")
+    missing_reason = np.where(
+        fit_mask, original_reasons, np.ones_like(original_reasons)
+    )
+    definition: dict[str, object] = {
+        "schema": "signature_comparison_matched_fit_v1",
+        "base_dataset_id": original.dataset_id,
+        "augmented_dataset_id": augmented.dataset_id,
+        "signature_feature_names": [
+            augmented.feature_names[index] for index in signature_indices
+        ],
+        "selection": "all_selected_signature_features_available",
+    }
+    return replace(
+        original,
+        identity_payload_json=None,
+        feature_available=available,
+        feature_staleness=staleness,
+        feature_missing_reason=missing_reason,
+        feature_config_digest=content_digest(definition),
+    ).with_content_identity(definition)
+
+
 def run_ridge_signature_comparison(
     original: MarketDataset,
     augmented: MarketDataset,
@@ -170,8 +213,11 @@ def run_ridge_signature_comparison(
     cutoff = np.datetime64(fit_cutoff, "ns")
     if cutoff > original.timestamps[evaluation_start_index]:
         raise ValueError("Signature comparison training reaches into evaluation")
+    fit_baseline = _matched_baseline_fit_dataset(
+        original, augmented, extended_indices[len(baseline_indices) :]
+    )
     baseline_model = fit_ridge_forecast(
-        original,
+        fit_baseline,
         feature_indices=baseline_indices,
         fit_cutoff=cutoff,
         horizon_hours=horizon_hours,

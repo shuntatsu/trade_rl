@@ -1333,7 +1333,9 @@ future authorization, paper and live eligibility remain **NOT ESTABLISHED**.
 This opt-in extension introduces native-clock cross-asset rolling
 statistics (before downsampling), opt-in multi-clock Signature augmentation, and
 a development-only paired Ridge-vs-Signature-vs-cash adapter using unchanged
-per-symbol account/execution. The PPO observation adapter is checked on the same
+per-symbol account/execution. The Ridge arms fit on an identical effective
+training-row roster; the baseline's temporary fit mask excludes Signature
+warmup/missing rows, while execution uses the original unmodified Dataset. The PPO observation adapter is checked on the same
 augmented Dataset; this **does not** constitute a trained PPO economic result.
 
 G0: whether native 15m/1h/4h/1d path or BTC-relative information provides

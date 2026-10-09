@@ -167,7 +167,6 @@ def test_native_gap_resets_pair_lookback_without_stale_observations() -> None:
     assert dataset.feature_available[2, 0, beta]
 
 
-
 def test_physically_missing_native_bar_masks_only_affected_symbol_history() -> None:
     """Sparse raw timestamps cannot imply a fabricated return over a gap."""
     source, contracts = _fixture()
@@ -205,7 +204,9 @@ def test_identity_binds_consumed_raw_native_bytes_even_if_features_equal() -> No
     first = json.loads(baseline.identity_payload_json)
     second = json.loads(scaled.identity_payload_json)
     assert len(first["native_cross_asset_raw_inputs"]) == 2
-    assert first["native_cross_asset_raw_inputs"] != second["native_cross_asset_raw_inputs"]
+    first_inputs = first["native_cross_asset_raw_inputs"]
+    second_inputs = second["native_cross_asset_raw_inputs"]
+    assert first_inputs != second_inputs
     assert baseline.feature_config_digest == scaled.feature_config_digest
 
 

@@ -113,7 +113,6 @@ def test_cross_asset_prefix_is_unchanged_by_future_mutation() -> None:
         np.testing.assert_allclose(original.values[:split], mutated.values[:split])
 
 
-
 @pytest.mark.parametrize(
     "kind",
     (

@@ -152,7 +152,6 @@ def test_delayed_source_excludes_two_contaminated_native_pair_events() -> None:
     assert dataset.feature_available[2, 1, idx]
 
 
-
 def test_native_gap_resets_pair_lookback_without_stale_observations() -> None:
     """A gap cannot be bridged by counting earlier native pairs as recent."""
     source, contracts = _fixture(delayed_eth_at=5)

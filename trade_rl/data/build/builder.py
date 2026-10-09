@@ -440,11 +440,11 @@ class MarketDatasetBuilder:
                 native_sources: list[RawMarketSeries] = []
                 for contract in instruments:
                     key = (contract.symbol, native_timeframe)
-                    raw = native_cache.get(key)
-                    if raw is None:
-                        raw = source.load_timeframe(contract.symbol, native_timeframe)
-                        native_cache[key] = raw
-                    native_sources.append(raw)
+                    native_raw = native_cache.get(key)
+                    if native_raw is None:
+                        native_raw = source.load_timeframe(contract.symbol, native_timeframe)
+                        native_cache[key] = native_raw
+                    native_sources.append(native_raw)
                 values, available, age_hours, staleness = (
                     align_native_cross_asset_features(
                         spec,

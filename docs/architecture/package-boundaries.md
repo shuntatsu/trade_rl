@@ -564,3 +564,10 @@ source Dataset ID, channel choice and depth bind new Dataset identity; source
 Dataset/accounting/price arrays remain untouched. No OHLC intrabar sequence is
 assumed. Neither sub-bar decisions nor new risk/ledger/strategy authority are
 introduced.
+
+`evaluation/signature_comparison.py` owns paired diagnostic admission and reuses
+`data/identity.py`'s array roster and `MarketDataset.identity_contract_payload()`
+for input equality. It has no separate financial schema or accounting owner.
+Local Signature columns and their representation provenance may change; original
+feature prefixes, global information, normalized financial clocks, volume units
+and native financial arrays may not. Rejection occurs before either fit or replay.

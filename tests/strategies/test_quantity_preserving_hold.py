@@ -125,3 +125,45 @@ def test_split_preserves_unfilled_entry_proposal(route: str) -> None:
     assert book.total_cost == pytest.approx(0.5)
     assert book.cash == pytest.approx(499.5)
     assert book.portfolio_value == pytest.approx(999.5)
+
+
+@pytest.mark.parametrize("route", ["training", "single", "shared"])
+@pytest.mark.parametrize(
+    "intent,expected_funding,expected_cash,expected_value",
+    [
+        (PositionIntent.LONG, -15.25, 484.25, 1234.25),
+        (PositionIntent.SHORT, 15.25, 1514.75, 764.75),
+    ],
+)
+def test_held_quantity_uses_settlement_products_separately_from_valuation_marks(
+    route: str,
+    intent: PositionIntent,
+    expected_funding: float,
+    expected_cash: float,
+    expected_value: float,
+) -> None:
+    rates = np.zeros((6, 1))
+    settlement_products = np.zeros((6, 1))
+    counts = np.zeros((6, 1), dtype=np.int64)
+    rates[2, 0] = 0.03
+    settlement_products[2, 0] = 3.05
+    counts[2, 0] = 2
+    dataset = replace(
+        split_market(1.0),
+        mark_price=np.array([100.0, 110.0, 120.0, 130.0, 140.0, 150.0])[:, None],
+        funding_rate=rates,
+        funding_price_rate=settlement_products,
+        funding_event_count=counts,
+        funding_due=counts > 0,
+    )
+    book = held_book(dataset, route, intent)
+
+    # Five signed units trade at 100, then remain unchanged. Two settlements
+    # contribute 0.01 * 95 + 0.02 * 105 = 3.05 per unit, not 0.03 * bar mark.
+    sign = 1.0 if intent is PositionIntent.LONG else -1.0
+    assert book.quantities == pytest.approx([sign * 5.0])
+    assert book.fill_count == 1
+    assert book.total_cost == pytest.approx(0.5)
+    assert book.funding_pnl == pytest.approx(expected_funding)
+    assert book.cash == pytest.approx(expected_cash)
+    assert book.portfolio_value == pytest.approx(expected_value)

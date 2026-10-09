@@ -208,11 +208,11 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
     assert len(identities) == 4
 
 
-def test_builder_has_stable_portable_v3_identity_without_execution_profile() -> None:
+def test_builder_has_stable_portable_v7_identity_without_execution_profile() -> None:
     dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
 
     assert dataset.dataset_id == (
-        "de8c017c050089187c5f477f9791e96998624972a5a2f1fbd795b64695bf890e"
+        "ba57f4a38c0d8a8572eda498ae22988baa0a72ed0cc92c79793b9d45b30dbdbf"
     )
     assert dataset.feature_config_digest == (
         "17557a2fa47f5b5dafc4d2c1b79088469466e2b0bc2e585e4d84258921d2cff2"

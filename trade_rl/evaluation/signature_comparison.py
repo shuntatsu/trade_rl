@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from trade_rl.artifacts import content_digest
+from trade_rl.data.identity import DATASET_ID_ARRAY_FIELDS
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import (
     SingleSymbolReplayResult,
@@ -58,45 +59,45 @@ def validate_signature_pair(
         or original.symbols != augmented.symbols
         or not np.array_equal(original.timestamps, augmented.timestamps)
         or augmented.feature_names[: original.n_features] != original.feature_names
-        or not np.array_equal(
-            original.features, augmented.features[:, :, : original.n_features]
-        )
-        or not np.array_equal(
-            original.feature_available,
-            augmented.feature_available[:, :, : original.n_features],
-        )
     ):
         raise ValueError(
             "Signature pair must share an identical validated base Dataset"
         )
-    for field in (
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "funding_rate",
-        "tradable",
-        "fee_rate",
-        "maker_fee_rate",
-        "taker_fee_rate",
-        "spread_rate",
-        "max_participation_rate",
-        "minimum_notional",
-        "lot_size",
-        "tick_size",
-        "borrow_rate",
-        "funding_due",
-        "mark_price",
-        "index_price",
-        "available_at",
-        "information_available",
-        "symbol_active",
-    ):
-        if not np.array_equal(
-            original.resolved_array(field), augmented.resolved_array(field)
-        ):
+    local_features = {
+        "features",
+        "feature_available",
+        "feature_staleness",
+        "feature_staleness_hours",
+        "feature_missing_reason",
+    }
+    for field in DATASET_ID_ARRAY_FIELDS:
+        augmented_array = augmented.resolved_array(field)
+        if field in local_features:
+            augmented_array = augmented_array[:, :, : original.n_features]
+        if not np.array_equal(original.resolved_array(field), augmented_array):
             raise ValueError(f"Signature augmentation changed economic input: {field}")
+    representation_metadata = {
+        "feature_names",
+        "feature_config_digest",
+        "normalization_digest",
+    }
+    original_metadata = {
+        name: value
+        for name, value in original.identity_contract_payload().items()
+        if name not in representation_metadata
+    }
+    augmented_metadata = {
+        name: value
+        for name, value in augmented.identity_contract_payload().items()
+        if name not in representation_metadata
+    }
+    if original_metadata.keys() != augmented_metadata.keys():
+        raise ValueError("Signature augmentation changed economic metadata roster")
+    for field, value in original_metadata.items():
+        if value != augmented_metadata[field]:
+            raise ValueError(
+                f"Signature augmentation changed economic metadata: {field}"
+            )
     if not baseline_feature_names or not signature_feature_names:
         raise ValueError("baseline and Signature feature rosters must be nonempty")
     if (

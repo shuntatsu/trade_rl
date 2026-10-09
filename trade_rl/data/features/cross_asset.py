@@ -73,8 +73,14 @@ def calculate_cross_asset_feature_events(
     return_age_hours: np.ndarray,
     symbols: tuple[str, ...],
     reference_symbol: str,
+    require_consecutive: bool = False,
 ) -> CrossAssetFeatureEvents:
-    """Calculate one feature using only native return events available by each row."""
+    """Calculate features from timestamped, newly available return events.
+
+    When require_consecutive is True, a missing native event breaks the
+    affected rolling pair/rank history rather than allowing lookback samples
+    to span a gap. The default retains the existing event-count contract.
+    """
 
     if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
         raise ValueError("feature is not a maintained cross-asset kind")
@@ -135,10 +141,15 @@ def calculate_cross_asset_feature_events(
         pair_histories: list[list[tuple[float, float]]] = [[] for _ in range(n_symbols)]
         for index in range(n_bars):
             if not event_mask[index, btc_index]:
+                if require_consecutive:
+                    for pair_history in pair_histories:
+                        pair_history.clear()
                 continue
             reference = float(returns[index, btc_index])
             for symbol_index in range(n_symbols):
                 if not event_mask[index, symbol_index]:
+                    if require_consecutive:
+                        pair_histories[symbol_index].clear()
                     continue
                 pair_history = pair_histories[symbol_index]
                 pair_history.append((float(returns[index, symbol_index]), reference))
@@ -179,6 +190,9 @@ def calculate_cross_asset_feature_events(
     histories: list[list[float]] = [[] for _ in range(n_symbols)]
     for index in range(n_bars):
         current = event_mask[index]
+        if require_consecutive:
+            for symbol_index in np.flatnonzero(~current):
+                histories[int(symbol_index)].clear()
         for symbol_index in np.flatnonzero(current):
             momentum_history = histories[int(symbol_index)]
             momentum_history.append(float(returns[index, symbol_index]))

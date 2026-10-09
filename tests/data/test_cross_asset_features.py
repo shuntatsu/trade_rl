@@ -113,6 +113,48 @@ def test_cross_asset_prefix_is_unchanged_by_future_mutation() -> None:
         np.testing.assert_allclose(original.values[:split], mutated.values[:split])
 
 
+@pytest.mark.parametrize(
+    "kind",
+    (
+        FeatureKind.ROLLING_BETA_TO_BTC,
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+    ),
+)
+def test_consecutive_native_events_cannot_reuse_samples_across_gap(
+    kind: FeatureKind,
+) -> None:
+    """Default event-count semantics remain; strict native semantics reset."""
+    points = np.asarray(
+        [
+            [0.01, 0.02],
+            [0.02, 0.04],
+            [0.03, 0.06],
+            [0.04, 0.08],
+            [0.05, 0.10],
+            [0.06, 0.12],
+            [0.07, 0.14],
+        ],
+        dtype=np.float64,
+    )
+    valid = np.ones_like(points, dtype=np.bool_)
+    valid[4, 1] = False
+    spec = _spec(kind, lookback=4, min_periods=4)
+    kwargs = {
+        "aligned_returns": points,
+        "return_available": valid,
+        "return_age_hours": np.zeros_like(points),
+        "symbols": ("BTCUSDT", "ETHUSDT"),
+        "reference_symbol": "BTCUSDT",
+    }
+    old_contract = calculate_cross_asset_feature_events(spec, **kwargs)
+    strict = calculate_cross_asset_feature_events(
+        spec, require_consecutive=True, **kwargs
+    )
+    assert old_contract.valid[6, 1]
+    assert not strict.valid[6, 1]
+
+
 def test_cross_asset_features_require_explicit_reference_symbol() -> None:
     values = np.zeros((8, 2), dtype=np.float64)
     with pytest.raises(ValueError, match="occur exactly once"):

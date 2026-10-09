@@ -145,8 +145,10 @@ def align_native_cross_asset_features(
     if base_active.shape != (n_base, n_assets):
         raise ValueError("native cross-asset base-active shape is invalid")
     step = int(round(timeframe_hours(timeframe) * _NS_PER_HOUR))
-    # RawMarketSeries permits sparse timestamps. Align to the physical native
-    # grid below and mask missing slots instead of rejecting the whole source.
+    # The maintained native feature builder rejects physically absent bars.
+    # Do not silently bridge or infer an unobserved native interval.
+    for raw in raw_series:
+        _validate_regular_native_series(raw, timeframe)
     first_ns = min(
         int(raw.timestamps[0].astype("datetime64[ns]").astype(np.int64))
         for raw in raw_series

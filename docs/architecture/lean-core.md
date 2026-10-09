@@ -618,9 +618,10 @@ events with the existing statistical kernels, and only then carries the
 latest eligible result as-of the base decision timestamp.
 
 A source bar that arrived later than its own close does **not** enter this
-native rolling history retrospectively. Native gaps are represented as
-missing physical clock slots rather than joined across; an invalid/late
-event resets the affected symbol/reference rolling pair history
+native rolling history retrospectively. Physically absent native bars
+reject the entire Dataset build under the existing strict regular-clock
+contract, rather than reconstructing an unobserved interval. Explicit
+untradable or late source events reset affected rolling pair history
 and symbol momentum/rank history. The native lookback requires consecutive
 on-time return observations, not merely the last N valid pairs across gaps.
 Pair statistics require contemporaneous native reference and asset returns;

@@ -167,8 +167,8 @@ def test_native_gap_resets_pair_lookback_without_stale_observations() -> None:
     assert dataset.feature_available[2, 0, beta]
 
 
-def test_physically_missing_native_bar_masks_only_affected_symbol_history() -> None:
-    """Sparse raw timestamps cannot imply a fabricated return over a gap."""
+def test_physically_missing_native_bar_rejects_dataset_before_model_inputs() -> None:
+    """An absent native bar rejects the build rather than inventing a price."""
     source, contracts = _fixture()
     eth = source.values[("ETHUSDT", "15m")]
     keep = np.arange(len(eth.timestamps)) != 5
@@ -176,17 +176,8 @@ def test_physically_missing_native_bar_masks_only_affected_symbol_history() -> N
         [str(value) for value in eth.timestamps[keep]],
         eth.close[keep].tolist(),
     )
-    data = MarketDatasetBuilder(_config()).build(source, contracts)
-    beta = data.feature_names.index("15m__beta_4")
-    corr = data.feature_names.index("15m__corr_4")
-    rank = data.feature_names.index("15m__rank_4")
-    relative = data.feature_names.index("15m__relative_return")
-    assert data.feature_available[1, 1, beta]
-    assert data.feature_available[2, 0, beta]
-    assert not data.feature_available[2, 1, beta]
-    assert not data.feature_available[2, 1, corr]
-    assert not data.feature_available[2, 1, rank]
-    assert data.feature_available[2, 1, relative]
+    with pytest.raises(ValueError, match="complete and exactly regular"):
+        MarketDatasetBuilder(_config()).build(source, contracts)
 
 
 def test_identity_binds_consumed_raw_native_bytes_even_if_features_equal() -> None:

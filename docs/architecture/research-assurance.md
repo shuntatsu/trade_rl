@@ -1992,8 +1992,9 @@ time-only fits agree within a predeclared float64 tolerance1e-10. This is an
 explicit nonbinary-weight oracle, not a general bitwise-neutrality promise.
 G2 rejects fixed financial/source/clock/account drift, rule/allocator/action
 changes, real execution fee/seed changes, wrong cash context or plan roles/types,
-equal/swapped/malformed pins, foreign plans and mutated declaration/plan bytes
-before provenance/reset. Default native controls remain covered.
+equal/swapped/malformed pins, foreign plans and invalidly mutated declaration/plan
+bytes before provenance/reset. This checks current consistency; coordinated valid
+replacements are not historical tamper authentication. Default controls remain covered.
 
 There is no completed two-forecast evidence/report contract or frozen selection
 budget. V1 A/B/C retains one forecast and its mandatory RL matrix; controls cannot

@@ -306,6 +306,7 @@ def test_only_finer_cross_asset_config_binds_native_alignment_identity(
     expected = config.canonical_payload()
     if timeframe == "15m" and cross_asset:
         expected["native_cross_asset_alignment"] = "native_before_base_sync_v1"
+        expected["native_cross_asset_history"] = "last_n_eligible_pair_events_v1"
     assert dataset.feature_config_digest == content_digest(expected)
     assert dataset.identity_payload_json is not None
     payload = json.loads(dataset.identity_payload_json)
@@ -388,4 +389,10 @@ def test_marked_finer_dataset_artifact_retains_identity_and_dependency_config(
             "native_cross_asset_alignment"
         ]
         == "native_before_base_sync_v1"
+    )
+    assert (
+        json.loads(restored.identity_payload_json)["config"].get(
+            "native_cross_asset_history"
+        )
+        == "last_n_eligible_pair_events_v1"
     )

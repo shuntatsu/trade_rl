@@ -557,8 +557,10 @@ native pair events, not 24 hourly samples. Each admitted return joins two
 adjacent active, tradable rows available by their own closes. Missing pair events
 do not reset the maintained history. The builder owns the affected-only
 `native_cross_asset_alignment=native_before_base_sync_v1` derived configuration
-marker and uses one enriched payload for both its digest and identity metadata.
-This marker is not a `MarketBuildConfig` constructor/build-request field.
+marker plus `native_cross_asset_history=last_n_eligible_pair_events_v1` and uses
+one enriched payload for both its digest and identity metadata. The history field
+distinguishes eligible-event history from a consecutive-observation/reset policy.
+These markers are not `MarketBuildConfig` constructor/build-request fields.
 
 `data/features/signature_multitimeframe.py` supplies opt-in
 `with_multitimeframe_path_signatures`: each native continuous timeframe computes

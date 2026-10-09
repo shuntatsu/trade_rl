@@ -542,6 +542,9 @@ class MarketDatasetBuilder:
             config_payload["native_cross_asset_alignment"] = (
                 "native_before_base_sync_v1"
             )
+            config_payload["native_cross_asset_history"] = (
+                "last_n_eligible_pair_events_v1"
+            )
         feature_config_digest = content_digest(config_payload)
         normalization_digest = content_and_arrays_digest(
             {

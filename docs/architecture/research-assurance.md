@@ -855,7 +855,10 @@ the maintained last-N eligible pair history. Late rows are permanently excluded
 under this declared representation policy. Equal/coarser clocks retain their
 aligned-return history; no alternative Signature or rolling owner is introduced.
 Affected configuration digests and identity metadata bind the same explicit
-`native_before_base_sync_v1` marker.
+`native_before_base_sync_v1` route marker and explicit
+`native_cross_asset_history=last_n_eligible_pair_events_v1` history policy.
+Different gap policies must not share an indistinguishable configuration digest;
+array-bound Dataset identity does not substitute for representation provenance.
 
 G2 uses four literal 15m log returns (.02, -.01, .03, -.02) with a second asset
 twice those returns: first-hour beta 2, correlation 1, relative return -.02,

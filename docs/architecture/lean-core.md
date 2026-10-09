@@ -631,6 +631,7 @@ physical rows that are active, tradable and published by their own closes; a
 late or untradable row excludes both touching returns. Rolling statistics retain
 the last eligible pair events, without a reset-on-gap rule. Affected build
 configurations bind `native_cross_asset_alignment=native_before_base_sync_v1`
+and `native_cross_asset_history=last_n_eligible_pair_events_v1`
 in both their feature configuration digest and Dataset identity metadata;
 unaffected configuration payloads remain unchanged. Native price and volume pathways must
 respect a source event's close and its independent `available_at` publication

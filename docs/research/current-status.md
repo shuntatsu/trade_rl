@@ -2421,3 +2421,31 @@ There is no market artifact/result access, actual-market fit/replay, calibration
 selection, unused-period read, historical run reopening or sealed-run retry in
 this change. Formal review remains PENDING; profit improvement, G4/G5, live
 readiness and the overall Issue #810 objective remain NOT ESTABLISHED.
+
+## Issue #810: native terminal closing prerequisite (2026-10-10)
+
+`allocation_terminal_execution` adds opt-in evaluation-only actual closing for
+fixed NONRL and native cash. A frozen full physical horizon contains an unchanged
+marked policy prefix and reserved closing bars, with distinct settled objective,
+clock and recipe identities. Closing uses the same canonical account/executor,
+costs, hard risk, carry and orders; all reserved bars process even when flat.
+No learner or second ledger is introduced, and PPO is refused until matching
+training/admission economics exist. MARKET/zero-extra-latency and independent
+symbol constraints remain.
+
+Closed synthetic software tests independently reconcile long/short cash and
+closing fees/carry, partial and deferred closes, pending entry cancellation,
+exact dust, nontradable/no-volume bars, hard turnover, unequal-segment RNG/account
+continuity, DD breaches and signed insolvency loss. Settlement coverage/flatness
+and risk eligibility are distinct. A profitable marked remainder cannot become
+settled profit. Native marked prefix receipts and historical actor trace bytes
+retain their original meaning.
+
+This runtime observation has no serialized Study evidence reader or independent
+approval authority. No market data/artifact/result, actual-market fit/replay,
+calibration, selection, unused/final period, historical capture or sealed run was
+opened or repeated. Complete settled forecast-control evidence, matching PPO
+terminal learning, frozen protocol and formal independent review remain required.
+Exact-head full software verification and formal research review are separate;
+formal review is PENDING. Profit improvement, G4/G5, live readiness and the overall
+Issue #810 objective remain NOT ESTABLISHED.

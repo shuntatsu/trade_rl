@@ -1381,3 +1381,32 @@ ordinary temporary cleanup error does not invalidate success and may leave an
 owned temporary file. Precommit failure creates no final file for that writer.
 Power-loss durability, asynchronous interruption, hostile parent replacement,
 historical fit authentication and market profitability are not guaranteed.
+
+## Same-close development input preparation
+
+`prepare_allocation_market_inputs` composes the existing Dataset loader,
+direct-simple prefix producer and exclusive stream publisher. The caller must
+authorize the entire development-only artifact before invoking it: the loader
+reads all arrays. The mandatory external Dataset ID and explicit development
+bounds are checked after one load and before fitting, not as pre-open authority.
+The preparation neither crops a full artifact nor overwrites price channels.
+
+Admission requires declared direct `market_build_v3` lineage with portable
+feature numerics. Existing FeatureSpec decoding checks supported causal local
+and multi-timeframe declarations; ordered feature and fit-symbol names pass
+the shared training-scope dependency checks. Unknown transforms or normalization
+are rejected. These content-bound declarations do not authenticate historical
+construction or prove upstream causality.
+
+The prospective roster includes every Dataset symbol in each explicit block,
+even when the training symbol scope is smaller. Zero inference delay, available
+selected inputs, explicit horizon and exact close/mark equality are required
+before fitting. Complete existing horizon-cost payloads supply all six rates,
+bases, source and strict nanosecond clocks. Exactly one available matching cost
+per prospective packet is required; omission never becomes an assumed zero.
+
+One producer invocation creates the common stream and one exclusive publisher
+retains it. The in-memory result groups costs in Dataset-symbol then decision
+order. Existing Book/current-context admission and canonical execution remain
+downstream. No cost calibration, executable next-fill expectation, research
+authorization, PPO improvement or market profit is established by preparation.

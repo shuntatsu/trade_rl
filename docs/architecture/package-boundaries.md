@@ -1376,3 +1376,21 @@ the replacing atomic writer and Run/latest-pointer store are not substitutes.
 Callers retain both stream digest and Dataset ID outside the file. The new
 boundary neither loads market arrays nor derives expense assumptions, training
 windows, publication clocks or research authorization for its caller.
+
+## Allocation market input composition
+
+`evaluation/allocation_market_inputs.py` owns the opt-in
+`prepare_allocation_market_inputs` composition and frozen in-memory
+`PreparedAllocationMarketInputs`. It loads an already-authorized canonical
+development artifact once, checks explicit scope and complete costs, invokes
+the existing direct-simple producer once and uses the existing exclusive file
+publisher. It does not copy the Dataset manifest reader, fit per consumer lane
+or introduce a persisted schema. The Tier-1 evaluation facade is unchanged.
+
+Data identity parsing and FeatureSpec decoding remain in their existing owners;
+feature/symbol dependency checks remain in `strategies.dataset_scope`.
+The thin cost decoder admits exact `horizon_cost_estimates_v1` keys, reuses strict
+clock decoding and the existing constructor/payload roundtrip, and adds no rate
+model. Cost groups follow Dataset symbols and chronological decisions, suitable
+for the existing per-symbol independent-account consumers. The owner imports no
+learner, simulation ledger, network, credentials or sealed research lifecycle.

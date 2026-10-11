@@ -2552,3 +2552,23 @@ Actual actor/critic consumption, buffer/GAE evidence, fixed CPU SB3 fit, new
 verified bundle and same-H saved-policy inference remain incomplete. No new
 market learning, economic comparison, profit improvement or formal research
 approval is established. The work and Issue #810 are still active and incomplete.
+
+## Native Signature source identity and decision availability (2026-10-11)
+
+The native Signature and single-clock Signature augmentation now require a
+verified input Dataset content identity before deriving a new authenticated
+Dataset. Native Signature features are masked when base market information is
+unavailable or untradable at a decision even if the lower-clock path is
+completed. Finer-clock cross-asset feature preparation identity-binds raw
+native timestamp / availability / close / tradability bytes, and both the
+native MTF Signature and cross-asset producers reject future native source
+tails beyond the base Dataset decision horizon. Synthetic tests exercise
+same-feature/different-source identity, future tail rejection, unverified
+parent refusal before native reads, and masked unavailable base decisions.
+
+The retained rolling-history policy counts the last N eligible paired
+native returns, not a strictly consecutive-bar lookback. That alternative
+requires an independent preregistered factor. No historical frozen Study
+evidence, non-RL/cash comparison outcome, PPO training result, unused-future
+authorization, real-world after-cost profitability or live readiness is
+inferred or reclassified from these G1-G3 software checks.

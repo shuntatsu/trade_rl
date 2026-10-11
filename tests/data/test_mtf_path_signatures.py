@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from tests.data.test_native_cross_asset_alignment import _Source, _source
+from tests.data.test_native_cross_asset_alignment import _bars, _Source, _source
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -81,6 +81,59 @@ def test_native_15m_signature_uses_intrahour_completed_closes_and_masks() -> Non
     np.testing.assert_array_equal(extended.fee_rate, base.fee_rate)
     assert extended.dataset_id != base.dataset_id
     assert extended.identity_verified
+
+
+def test_native_signature_masks_base_decisions_with_unavailable_market_rows() -> None:
+    source = _source()
+    base = _dataset(source)
+    information = base.resolved_array("information_available").copy()
+    information[2, 0] = False
+    modified = replace(
+        base, identity_payload_json=None, information_available=information
+    ).with_content_identity({"fixture": "base_row_unavailable"})
+    assert modified.identity_verified
+    extended = with_multitimeframe_path_signatures(
+        modified, source, base_timeframe="1h", windows_by_timeframe={"15m": 5}
+    )
+    col = extended.feature_names.index("mt_path_sig_v1_15m_w5_d2_tp_tp")
+    assert extended.feature_available[1, 0, col]
+    assert not extended.feature_available[2, 0, col]
+    assert extended.features[2, 0, col] == 0.0
+    assert extended.feature_available[2, 1, col]
+
+
+def test_mtf_signature_rejects_unverified_base_before_native_data_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _source()
+    base = _dataset(source)
+    assert base.identity_verified
+    unverified = replace(base, identity_payload_json=None)
+    assert not unverified.identity_verified
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("unverified Dataset reached native source read")
+
+    monkeypatch.setattr(source, "load_timeframe", forbidden)
+    with pytest.raises(ValueError, match="identity-verified base Dataset"):
+        with_multitimeframe_path_signatures(
+            unverified,
+            source,
+            base_timeframe="1h",
+            windows_by_timeframe={"15m": 5},
+        )
+
+
+def test_mtf_signature_rejects_native_source_tail_beyond_base_decision_clock() -> None:
+    source = _source()
+    base = _dataset(source)
+    raw = source.values["BTCUSDT", "15m"]
+    prices = np.r_[raw.close, raw.close[-1] * 1.01]
+    source.values["BTCUSDT", "15m"] = _bars("2026-01-01T00:00", 15, prices)
+    with pytest.raises(ValueError, match="extends beyond Dataset clock"):
+        with_multitimeframe_path_signatures(
+            base, source, base_timeframe="1h", windows_by_timeframe={"15m": 5}
+        )
 
 
 def test_native_signature_late_publication_masks_early_decision() -> None:

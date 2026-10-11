@@ -1749,3 +1749,29 @@ array-byte pins reject source drift; this pre-fit declaration does not prove
 actual actor/critic consumption or append completeness. Real CPU fit, independent
 source/transition/buffer evidence, bundle admission and same-H inference remain
 required and unestablished.
+
+## Native Path Signature cross-line source identity contract
+
+Both single-clock and native multi-clock Path Signature augmentation require
+an input Dataset with a verified content identity before minting an augmented
+Dataset identity. Native MTF feature output is gated at each base decision by
+the base market's active, on-time information-available and tradable masks, in
+addition to native bar completion and source availability. In particular, an
+otherwise completed 15m path does not become eligible at an hourly decision
+whose base observation is unavailable. Unavailable output is zero and masked.
+
+For cross-asset statistics computed on clocks finer than the base decision
+clock, the generated Dataset identity binds SHA-256 digests of actually
+consumed raw native timestamp / `available_at` / close / tradability arrays
+per symbol/timeframe, even when derived returns are numerically identical.
+Both native cross-asset and native Signature source inputs are rejected if
+their tail extends after the Dataset's last decision clock. This is a
+post-load validity check; upstream readers must independently authorize
+every native source scope *before* accessing files or sealed periods.
+
+The maintained native cross-asset rolling history counts the last N eligible
+pair events across unavailable rows; it is not interchangeable with a
+consecutive-native-bar reset policy. The policy remains named in feature
+identity metadata and requires separate preregistration for comparison.
+G1/G2/G3 tests cannot establish profitable alpha or actual provider
+publication-time availability.

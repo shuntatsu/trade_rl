@@ -1104,7 +1104,7 @@ def _constructed_open_recovery(collected, opened, *, entry_volume=1.0, requested
         if opened == 200.0
         else 13 / 256
         if opened == 50.0
-        else 1 / 1280,
+        else 1.0 - 999.21875 / 1000.0,
     )
     rows[2]["native"]["book"].update(
         peak_value=peak,
@@ -1112,7 +1112,7 @@ def _constructed_open_recovery(collected, opened, *, entry_volume=1.0, requested
         if opened == 200.0
         else 13 / 256
         if opened == 50.0
-        else 1 / 640,
+        else 1.0 - 998.4375 / 1000.0,
     )
     entry = rows[0]["native"]["execution"]
     entry.update(

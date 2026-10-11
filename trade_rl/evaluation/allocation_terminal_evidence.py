@@ -194,6 +194,19 @@ def _metrics(previous: dict[str, Any], native: dict[str, Any]) -> None:
         if any(_number(v) < 0 for v in ex[vector]):
             raise ValueError("terminal unsigned symbol aggregate is negative")
         _equal(math.fsum(ex[vector]), ex[aggregate])
+    fills = [
+        event
+        for event in native["order_events"]
+        if event["event_type"] in ("filled", "partial_fill")
+    ]
+    _equal(math.fsum(e["filled_notional"] for e in fills), ex["filled_notional"])
+    for index, total in enumerate(ex["filled_notional_by_symbol"]):
+        _equal(
+            math.fsum(
+                e["filled_notional"] for e in fills if e["symbol_index"] == index
+            ),
+            total,
+        )
     turnover_denominator = max(previous["equity"], 1e-12)
     _equal(ex["filled_turnover"], ex["filled_notional"] / turnover_denominator)
     _equal(ex["requested_turnover"], ex["requested_notional"] / turnover_denominator)

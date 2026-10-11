@@ -2056,7 +2056,9 @@ conformance values, not empirical strategy results or a profitability claim.
 
 `allocation_terminal_evidence` checks source/plan identity, native integer clocks, full risk
 target, visible local state, cumulative cost/carry/counter algebra and signed
-reward telescoping. Source pins plus aggregates do not authenticate the actual
+reward telescoping. Filled/partial-fill event amounts must equal execution totals
+and symbol totals; moving a notional to an untraded coordinate rejects even when
+the scalar total is unchanged. Source pins plus aggregates do not authenticate the actual
 historical fee decomposition, stochastic execution or complete intent/fill
 archive. Endpoint facts support cumulative native DD lower bounds and continuity,
 not exact independent intrabar DD reconstruction. Valid failure observations

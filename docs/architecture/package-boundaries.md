@@ -1540,6 +1540,8 @@ It consumes the original global receipt and the generic actor-free returned-fact
 reader in `rl_allocation/transition_facts`; it does not instantiate an executor,
 reset an account, fit, replay or operate a ledger. Two private book/execution
 validation leaves preserve historical actor v1/v2 admission and first-error order.
+The terminal owner joins retained fill-event notionals to execution totals and
+symbol vectors; this added algebra does not change those historical validators.
 The generic visible-state projection/freezer belongs to transition_facts. Its
 projection does not replace the legacy allocation state digest.
 

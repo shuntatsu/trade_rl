@@ -66,6 +66,50 @@ def test_partial_close_is_valid_observation_without_settled_profit(
 
 
 @pytest.mark.parametrize(
+    "stage,partial,notional",
+    [("prefix", False, 500.0), ("closing", False, 550.0), ("closing", True, 220.0)],
+)
+def test_retained_fill_event_notional_must_match_execution(stage, partial, notional):
+    api = capability()
+    plan, raw = observed(partial=partial)
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    native = (
+        raw["native_receipt"]["rows"][0]["native"]
+        if stage == "prefix"
+        else raw["closing_rows"][0]["native"]
+    )
+    fill = next(
+        event
+        for event in native["order_events"]
+        if event["event_type"] in ("filled", "partial_fill")
+    )
+    assert fill["filled_notional"] == pytest.approx(notional)
+    assert native["execution"]["filled_notional"] == pytest.approx(notional)
+    fill["filled_notional"] = 1.0
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+def test_fill_event_symbol_totals_cannot_move_to_an_untraded_coordinate():
+    api = capability()
+    plan, raw = observed(n_symbols=2)
+    receipt = api.TerminalAllocationExecutionReceipt.from_payload(
+        raw, expected_plan=plan
+    )
+    assert receipt.payload["settled_profit_rate"] == pytest.approx(0.039)
+    native = raw["closing_rows"][0]["native"]
+    fills = [
+        event for event in native["order_events"] if event["event_type"] == "filled"
+    ]
+    assert [event["symbol_index"] for event in fills] == [0]
+    assert native["execution"]["filled_notional"] == pytest.approx(550.0)
+    assert native["execution"]["filled_notional_by_symbol"] == [550.0, 0.0]
+    native["execution"]["filled_notional_by_symbol"] = [0.0, 550.0]
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+@pytest.mark.parametrize(
     "field",
     [
         "settled_profit_rate",

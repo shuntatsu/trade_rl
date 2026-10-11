@@ -1620,8 +1620,10 @@ be relabeled as closed evidence. Failure stage and attempted index retain the
 known frontier; unreturned effects are not inferred.
 
 The pure reader reconstructs unchanged zero-target hard risk, verifies cumulative
-cost/borrow/turnover/count deltas, symbol totals and signed funding boundaries,
-and checks signed fixed-capital rewards against final wealth. Native cumulative
+cost/borrow/turnover/count deltas, symbol totals and signed funding boundaries.
+Retained filled/partial-fill event notionals must match both the execution total
+and each symbol's execution total in the accepted prefix and every close row.
+The reader checks signed fixed-capital rewards against final wealth. Native cumulative
 peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
 an independent reconstruction of the whole intrabar path. Coverage, settlement
 and DD eligibility remain separate. Partial or failed closes have no settled

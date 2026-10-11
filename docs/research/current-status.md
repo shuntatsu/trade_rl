@@ -2474,7 +2474,9 @@ readiness and the overall Issue #810 goal remain NOT ESTABLISHED.
 a separately frozen exact plan and its original global prefix receipt. It checks
 physical endpoints/clocks, actor-free returned facts, observable local-state
 continuity, unchanged hard risk, cumulative costs/carry/counts, signed rewards
-and summaries. Legacy terminal observation v1 remains diagnostic-only. Partial
+and summaries. Retained filled/partial-fill event notionals must equal execution
+totals and each symbol's total in both prefix and close rows. Legacy terminal
+observation v1 remains diagnostic-only. Partial
 and failed closes retain actual known inventory/orders and have no settled
 profit; DD eligibility remains separate from settlement completion.
 

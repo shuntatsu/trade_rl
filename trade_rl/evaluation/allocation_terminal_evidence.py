@@ -171,6 +171,8 @@ def _retained_links(native: dict[str, Any]) -> None:
             ),
             total,
         )
+        if not any(e["symbol_index"] == index for e in fills):
+            _equal(ex["cost_by_symbol"][index], 0.0)
     for event in fills:
         quantity = _number(event["filled_quantity"])
         if abs(quantity) <= 1e-12 or quantity * event["requested_quantity"] <= 0:
@@ -213,9 +215,67 @@ def _retained_links(native: dict[str, Any]) -> None:
         raise ValueError("terminal native participation/turnover is negative")
     if ex["requested_notional"] <= 1e-12:
         _equal(ex["fill_ratio"], 1.0)
+    for capacity in ex["capacity_evidence"]:
+        _equal(
+            capacity["initial_capacity_notional"],
+            capacity["market_notional"] * capacity["participation_limit"],
+        )
+        _equal(
+            capacity["initial_capacity_notional"],
+            capacity["consumed_capacity_notional"]
+            + capacity["remaining_capacity_notional"],
+        )
 
 
-def _metrics(previous: dict[str, Any], native: dict[str, Any]) -> None:
+def _interval_continuity(
+    previous: dict[str, Any],
+    previous_orders: list[dict[str, Any]],
+    native: dict[str, Any],
+) -> None:
+    """Conserve known order identities and cash in intervals without inventory."""
+    book, ex = native["book"], native["execution"]
+    active = {order["intent"]["order_id"] for order in native["active_orders"]}
+    terminals = {
+        event["order_id"]
+        for event in native["order_events"]
+        if OrderStatus(event["new_status"]).terminal
+    }
+    if any(
+        order["intent"]["order_id"] not in active | terminals
+        for order in previous_orders
+    ):
+        raise ValueError(
+            "terminal carried active order disappeared without termination"
+        )
+    # An initially flat account without fills cannot acquire inventory through
+    # splits, delisting or termination flattening; those operations preserve zero.
+    if all(q == "0" for q in previous["exact_quantities"]) and not any(
+        event["event_type"] in ("filled", "partial_fill")
+        for event in native["order_events"]
+    ):
+        if any(q != "0" for q in book["exact_quantities"]):
+            raise ValueError("terminal flat account acquired inventory without fills")
+        _equal(
+            book["cash"],
+            previous["cash"]
+            + math.fsum(
+                (
+                    -ex["interval_cost"],
+                    ex["interval_funding"],
+                    -ex["interval_borrow_cost"],
+                    ex["interval_dividend"],
+                    ex["interval_cash_interest"],
+                )
+            ),
+        )
+
+
+def _metrics(
+    previous: dict[str, Any],
+    native: dict[str, Any],
+    *,
+    previous_orders: list[dict[str, Any]],
+) -> None:
     book, ex = native["book"], native["execution"]
     equity, peak, dd = (
         _number(book[k]) for k in ("equity", "peak_value", "max_drawdown")
@@ -270,6 +330,7 @@ def _metrics(previous: dict[str, Any], native: dict[str, Any]) -> None:
     ):
         _same(ex[key], sum(e["event_type"] in events for e in native["order_events"]))
     _retained_links(native)
+    _interval_continuity(previous, previous_orders, native)
 
 
 def _risk_config(value: object, digest: str) -> PreTradeRiskConfig:
@@ -301,12 +362,17 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
     capital = common["initial_capital"]
     previous: dict[str, Any] = {
         "equity": capital,
+        "cash": capital,
+        "exact_quantities": ["0"] * len(accepted[0]["book"]["quantities"])
+        if accepted
+        else [],
         "peak_value": capital,
         "max_drawdown": 0.0,
         **{name: 0 for name in _COUNTERS},
     }
     rewards: list[float] = []
     config: PreTradeRiskConfig | None = None
+    orders: list[dict[str, Any]] = []
     for native in accepted:
         config = _risk_config(native["risk_config"], common["risk_digest"])
         decision = native["proposal"]["decision"]
@@ -315,11 +381,12 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
         expected_weights = _weights(previous, len(native["book"]["quantities"]))
         for a, b in zip(native["current_weights"], expected_weights, strict=True):
             _equal(a, float(b))
-        _metrics(previous, native)
+        _metrics(previous, native, previous_orders=orders)
         rewards.append((native["book"]["equity"] - previous["equity"]) / capital)
         previous = native["book"]
+        orders = native["active_orders"]
     prefix_final = None if not accepted else previous
-    final, orders = prefix_final, [] if not accepted else accepted[-1]["active_orders"]
+    final = prefix_final
     rows = raw["closing_rows"]
     if type(rows) is not list or len(rows) > len(plan.closing_clocks_ns) - 1:
         raise ValueError("terminal close rows exceed the reserved window")
@@ -387,7 +454,7 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
                 time_ns=plan.closing_clocks_ns[offset + 1],
             ),
         )
-        _metrics(previous, row["native"])
+        _metrics(previous, row["native"], previous_orders=orders)
         reward = (book.portfolio_value - previous["equity"]) / capital
         _equal(row["fixed_capital_reward"], reward)
         rewards.append(reward)

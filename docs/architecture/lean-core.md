@@ -1630,6 +1630,12 @@ boundary, whose endpoint and position/mark/multiplier vectors match the returned
 book for a solvent nonterminated interval. Terminated rows retain their distinct
 pre-flatten funding snapshot. Only the zero-request fill-ratio branch is derived;
 other ratios depend on unretained reference notionals.
+Execution costs must be zero on coordinates without fills. Retained capacity
+obeys initial = market notional times participation limit = consumed plus
+remaining. Every previously active order must remain active or have its own
+terminal event in the next interval. From the initially flat account, a no-fill
+interval must preserve exact-zero inventory and reconcile signed cash to recorded
+cost, funding, borrow, dividend and interest flows, including retained debt.
 The reader checks signed fixed-capital rewards against final wealth. Native
 cumulative peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
 an independent reconstruction of the whole intrabar path. Coverage, settlement

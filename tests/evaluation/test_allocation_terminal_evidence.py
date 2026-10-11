@@ -109,6 +109,114 @@ def test_fill_event_symbol_totals_cannot_move_to_an_untraded_coordinate():
         api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
 
 
+def test_fill_cost_cannot_move_to_an_untraded_coordinate():
+    api = capability()
+    plan, raw = observed(n_symbols=2)
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    execution = raw["closing_rows"][0]["native"]["execution"]
+    assert execution["cost_by_symbol"] == [5.5, 0.0]
+    execution["cost_by_symbol"] = [0.0, 5.5]
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+@pytest.mark.parametrize("mutation", ["cash", "inventory"])
+def test_flat_cash_cannot_gain_wealth_without_a_returned_cash_flow(mutation):
+    import math
+
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        terminal_allocation_state_digest,
+    )
+
+    api = capability()
+    plan, raw = observed(kind="cash")
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    row = raw["closing_rows"][0]
+    native = row["native"]
+    execution, book = native["execution"], native["book"]
+    assert not native["order_events"] and book["cash"] == 1000.0
+    for field in (
+        "interval_cost",
+        "interval_funding",
+        "interval_borrow_cost",
+        "interval_dividend",
+        "interval_cash_interest",
+    ):
+        assert execution[field] == 0.0
+    wealth = 2000.0 if mutation == "cash" else 1110.0
+    if mutation == "cash":
+        book["cash"] = wealth
+    else:
+        book.update(quantities=[1.0], exact_quantities=["1"])
+    book.update(equity=wealth, peak_value=wealth)
+    rate = (wealth - 1000.0) / 1000.0
+    execution.update(
+        interval_net_return=rate,
+        interval_log_return=math.log1p(rate),
+        interval_gross_return=rate,
+    )
+    for boundary in execution["funding_evidence"]:
+        boundary.update(equity_before_funding=wealth, equity_after_funding=wealth)
+        if mutation == "inventory":
+            boundary.update(signed_quantities=[1.0], funding_price_rates=[0.0])
+    row["after_state_digest"] = terminal_allocation_state_digest(
+        plan.native_plan.payload["common"],
+        plan.closing_source_digest,
+        native,
+        index=row["processing_index"],
+        time_ns=row["processing_time_ns"],
+    )
+    row["fixed_capital_reward"] = rate
+    raw.update(
+        final_book=book,
+        settlement_complete=mutation == "cash",
+        risk_eligible=mutation == "cash",
+        observed_profit_rate=rate,
+        settled_profit_rate=rate if mutation == "cash" else None,
+        fixed_capital_rewards=[0.0, rate],
+        fixed_capital_reward_sum=rate,
+    )
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+def test_carried_active_order_cannot_be_replaced_by_a_fresh_event_id():
+    api = capability()
+    runner = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    folds, env = carrier(partial=True)
+    plan = plans(runner, env, folds, stop=9)
+    raw = runner.run_terminal_allocation_execution(folds, env, plan).payload
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    previous, native = [row["native"] for row in raw["closing_rows"]]
+    order_id = previous["active_orders"][0]["intent"]["order_id"]
+    assert not native["active_orders"]
+    replacement = "b" * 64 if order_id != "b" * 64 else "a" * 64
+    for event in native["order_events"]:
+        if event["order_id"] == order_id:
+            event["order_id"] = replacement
+    for reason in native["terminal_order_reasons"]:
+        if reason["order_id"] == order_id:
+            reason["order_id"] = replacement
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+@pytest.mark.parametrize("mutation", ["initial_only", "initial_and_remaining"])
+def test_retained_capacity_conserves_its_consumed_and_remaining_notional(mutation):
+    api = capability()
+    plan, raw = observed()
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    capacity = raw["closing_rows"][0]["native"]["execution"]["capacity_evidence"][0]
+    assert capacity["initial_capacity_notional"] == pytest.approx(
+        capacity["consumed_capacity_notional"] + capacity["remaining_capacity_notional"]
+    )
+    capacity["initial_capacity_notional"] += 1.0
+    if mutation == "initial_and_remaining":
+        capacity["remaining_capacity_notional"] += 1.0
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
 @pytest.mark.parametrize("mutation", ["direction", "zero", "price", "no_price"])
 def test_retained_fill_quantity_and_price_cannot_contradict_the_order(mutation):
     api = capability()
@@ -405,6 +513,26 @@ def test_cash_interest_covers_flat_reserve_and_rejects_missing_bar():
         api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
 
 
+def test_flat_cash_interest_preserves_signed_debt_at_economic_stop():
+    api = capability()
+    runner = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    folds, env = carrier(kind="cash")
+    rates = env.dataset.cash_rate.copy()
+    rates[8] = -17520.0
+    object.__setattr__(env.dataset, "cash_rate", rates)
+    plan = plans(runner, env, folds, kind="cash")
+    raw = runner.run_terminal_allocation_execution(folds, env, plan).payload
+    result = api.TerminalAllocationExecutionReceipt.from_payload(
+        raw, expected_plan=plan
+    ).payload
+    assert result["status"] == "economic_stop"
+    assert result["final_book"]["exact_quantities"] == ["0"]
+    assert result["final_book"]["cash"] == pytest.approx(-1000.0)
+    assert result["observed_profit_rate"] == pytest.approx(-2.0)
+    assert result["fixed_capital_reward_sum"] == pytest.approx(-2.0)
+    assert result["settled_profit_rate"] is None
+
+
 def test_known_close_failure_frontier_keeps_original_error(monkeypatch):
     api = capability()
     runner = import_module("trade_rl.evaluation.allocation_terminal_execution")
@@ -559,6 +687,8 @@ def test_native_turnover_denominator_keeps_floor_for_tiny_equity():
     # Native turnover uses a 1e-12 denominator floor; economic reward does not.
     previous = {
         "equity": 1e-14,
+        "cash": 1e-14,
+        "exact_quantities": ["0"],
         "peak_value": 1e-14,
         "max_drawdown": 0.0,
         "turnover_total": 0.0,
@@ -594,10 +724,11 @@ def test_native_turnover_denominator_keeps_floor_for_tiny_equity():
             "filled_turnover": 0.0,
             "cost_by_symbol": [0.0],
             "funding_evidence": [],
+            "capacity_evidence": [],
             "unfilled_turnover": 0.001,
             "max_participation": 0.0,
             "participation_by_symbol": [0.0],
             "fill_ratio": 1.0,
         },
     }
-    api._metrics(previous, native)
+    api._metrics(previous, native, previous_orders=[])

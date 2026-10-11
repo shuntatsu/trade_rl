@@ -2482,6 +2482,11 @@ funding snapshots against the returned account. Terminated funding snapshots
 retain their pre-flatten meaning. Direct v1 digest lookup preserves original
 execution/order error precedence; its legacy admission is not widened into
 closed terminal evidence.
+Additional retained-fact closure rejects costs on untraded symbols, inconsistent
+capacity conservation, disappearance of a carried order without its own terminal
+event, and invented cash or inventory in an opening-flat no-fill interval. The
+cash equation retains signed debt and recorded carry/interest; it does not claim
+general historical cash-flow authentication across unretained inventory actions.
 Legacy terminal observation v1 remains diagnostic-only. Partial and failed closes
 retain actual known inventory/orders and have no settled
 profit; DD eligibility remains separate from settlement completion.

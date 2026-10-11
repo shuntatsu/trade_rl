@@ -1546,6 +1546,10 @@ Direction/price/notional, latest-event active membership, normal funding-book
 closure and one-bar funding cardinality remain terminal-only links. The shared
 leaf resolves actor economics only at the original event/order comparison,
 preserving direct v1 malformed-input error order and short-circuit behavior.
+The terminal owner also checks no-fill symbol costs, retained capacity algebra,
+known carried-order identities and cash-flow closure for flat no-fill intervals.
+It does not infer general position cash flows across unretained splits, delisting
+settlement or termination flattening.
 The generic visible-state projection/freezer belongs to transition_facts. Its
 projection does not replace the legacy allocation state digest.
 

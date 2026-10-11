@@ -2064,6 +2064,13 @@ active membership are retained invariants. One-bar funding cardinality and norma
 solvent endpoint/snapshot equality use returned facts; economic termination may
 flatten after the boundary and retains a separate snapshot. General fill ratios
 and historical funding prices cannot be independently recovered from aggregates.
+No-fill coordinates have zero execution cost; retained capacity conserves its
+initial, consumed and remaining amounts and declared participation bound. Known
+carried order IDs need their own terminal events before disappearing. An opening
+exact-flat no-fill account remains exact-flat and its cash changes only by the
+recorded signed flows, including negative interest and retained debt. These
+bounded links do not authenticate the historical cash-flow inputs or reconstruct
+general inventory transitions across splits and delisting settlement.
 Source pins plus aggregates do not authenticate historical fee decomposition,
 stochastic execution or complete intent/fill
 archive. Endpoint facts support cumulative native DD lower bounds and continuity,

@@ -2515,3 +2515,22 @@ selection, unused period or sealed workflow is authorized by this capability.
 Matching settled PPO learning, a result-blind frozen economic protocol, formal
 independent review and actual after-cost improvement remain unestablished.
 Issue #810 and live profitability remain incomplete.
+
+## Settled learning work: clock declaration only
+
+The opt-in lower `SettledAllocationClockContract` now declares actor P, nonempty
+reserve R, physical H=P+R and the last actor's variable reward duration. It uses
+fixed-capital equity-delta/gamma1 and GAE per actor transition, with full-H
+remaining fractions and a distinct closed schema. It does not change the
+historical regular financial clock or marked-continuation training.
+
+The active Issue #810 software work still requires an actual settled Gym lane,
+shared native closing, separate actor/physical source and transition evidence,
+fixed-protocol SB3 fit, verified new bundle save/load and same-H inference.
+Clock-only tests cannot establish that parity or complete the work. Mechanical
+unfinished closing must not publish a successful settled bundle; stopped/debt
+and DD-ineligible paths retain truthful signed diagnostics. No such new fit,
+bundle, training success, economic comparison or profit improvement has been
+performed or established by this declaration. Formal approval and G3-G5 remain
+separate and unestablished. NONRL/cash priority, 20% DD and sealed/final boundaries
+remain unchanged.

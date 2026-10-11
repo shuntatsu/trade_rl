@@ -1588,3 +1588,19 @@ admits complete v2 costs even with no rows. Shared plan v1 admission stays
 unchanged. Actor and scheduled trace owners continue importing the strict v1
 validator, and their capped admission limitation remains explicit. The existing
 comparison and terminal owners consume exact global observations unchanged.
+
+## Settled learning clock declaration ownership
+
+`strategies/rl/allocation_settled_clock.py` owns only the pure frozen
+`SettledAllocationClockContract` and closed `allocation_settled_clock_v1` reader.
+It depends on stdlib and canonical artifact helpers, never evaluation, risk,
+simulation, Gym or an optional learner. It distinguishes actor steps, physical
+reserve, full-horizon observation fractions and variable final reward timing.
+It neither constructs execution nor binds calendar carry, market data, an
+objective, source consumption, a training budget or saved policy.
+
+`evaluation/objectives/clock.py` retains its historical regular clock contract.
+The new declaration is not implicitly accepted by existing marked receipts,
+recipes, environment, continuation, schedules or bundle dispatch. A future
+settled adapter must own explicit binding, native closing, compressed-transition
+evidence and verified same-H inference; a clock declaration is not that adapter.

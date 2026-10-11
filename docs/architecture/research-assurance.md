@@ -2111,3 +2111,28 @@ Comparison/terminal composition and single actual drawdown projection are
 software evidence only. Exact-head source review/full CI and formal independent
 research approval remain separate. This supplies no economic edge, G3-G5,
 settled PPO admission, market profit or live readiness.
+
+## Settled learning clock software prerequisite
+
+G0 asks whether an explicit settled learning lane can optimize the same native
+after-cost endpoint later used for comparison. NONRL and cash remain controls;
+no alpha hypothesis, economic execution or profit claim follows from this
+software prerequisite. The full work requires actual runtime/fit, independent
+source and transition evidence, save/load and same-H inference, rather than a
+declaration-only completion.
+
+G1 separates P actor steps from nonempty R physical closing bars. The final
+actor aggregates its ordinary bar and all R reserve bars on original capital,
+with gamma1 and GAE explicitly per actor transition. Hard risk and the existing
+executor/book/orders/RNG remain the intended execution owners. Every reserve
+bar must process even after flatness. Calendar carry, failure policy and the
+20% DD eligibility remain separate from algebraic clock declarations.
+
+The current lower-clock G2 oracle uses P=2,R=2,dt=3600: spans [0,1) and [1,4),
+durations3600/10800 and last-actor fraction3/4. P=1,R=2,rollout2 refuses a false
+rollout-divisibility assumption and exposes the future inside-buffer terminal
+bootstrap oracle. The closed reader rejects altered physical horizon, reward
+duration, GAE clock, early-flat coverage, bool counts and legacy schema. These
+are declaration checks only. Actual critic7 masks, native closing/cash equations,
+source consumption and verified artifact relationships still require runtime
+tests; no G3-G5 or formal research authorization is established here.

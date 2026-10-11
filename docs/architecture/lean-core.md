@@ -1691,3 +1691,25 @@ Plans, recipes, detached native fact shapes, fee receipts and historical
 actor/scheduled trace validation retain their original contracts. Capped global
 observations compose with existing comparison and terminal owners without a new
 ledger; historical capped trace admission remains a separate boundary.
+
+## Declared settled allocation learning clock
+
+`SettledAllocationClockContract` is a pure lower declaration for an explicit
+future settled learning lane. It separates P actor transitions from R nonempty
+reserved native closing bars, with physical H=P+R. Ordinary actor rewards span
+one timestamp interval; the final actor reward spans its own bar plus every
+reserved bar. GAE measures actor transitions and gamma is exactly one for the
+fixed-capital equity-delta objective. This is algebraic timing, not evidence of
+an unbiased gradient, learner success or executed settlement.
+
+Actor observations and order offsets use the full physical horizon denominator.
+For P=2,R=2 the last actor's remaining fraction is 3/4, not 1/2. P=1,R=2 is valid
+with a two-transition rollout: termination may occur inside a buffer. No rollout
+divisibility restriction is inferred from the actor prefix. Timestamp spacing
+does not replace calendar kind or effective bar duration for native carry.
+
+The distinct closed `allocation_settled_clock_v1` payload preserves these rules,
+strict native counts, resolved durations and immutable identity. The existing
+`financial_clock_v1`, marked environment, training receipts and bundles remain
+unchanged. This declaration processes no account and adds no settled runtime,
+training, publication or inference admission. Those are remaining prerequisites.

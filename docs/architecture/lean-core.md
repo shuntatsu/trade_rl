@@ -1713,3 +1713,12 @@ strict native counts, resolved durations and immutable identity. The existing
 `financial_clock_v1`, marked environment, training receipts and bundles remain
 unchanged. This declaration processes no account and adds no settled runtime,
 training, publication or inference admission. Those are remaining prerequisites.
+
+`evaluation/allocation_reserved_closing.py` now owns the shared native reserve
+iterator. The existing NONRL/cash terminal adapter delegates every zero-target
+bar to this owner, preserving actual risk, returned book/orders and execution
+RNG. It yields each returned frontier before clock/source postflight; the caller
+must exhaust even after the final yield. It never resets or mutates a carrier,
+and a flat account still processes all reserved carry bars. An economic stop
+retains its actual signed account and incomplete coverage. This shared execution
+owner does not implement or admit the remaining settled learning lane.

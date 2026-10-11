@@ -2516,7 +2516,7 @@ Matching settled PPO learning, a result-blind frozen economic protocol, formal
 independent review and actual after-cost improvement remain unestablished.
 Issue #810 and live profitability remain incomplete.
 
-## Settled learning work: clock declaration only
+## Settled learning work: clock and shared native reserve
 
 The opt-in lower `SettledAllocationClockContract` now declares actor P, nonempty
 reserve R, physical H=P+R and the last actor's variable reward duration. It uses
@@ -2534,3 +2534,12 @@ bundle, training success, economic comparison or profit improvement has been
 performed or established by this declaration. Formal approval and G3-G5 remain
 separate and unestablished. NONRL/cash priority, 20% DD and sealed/final boundaries
 remain unchanged.
+
+The shared `allocation_reserved_closing` iterator now executes the existing
+NONRL/cash terminal route's native reserve without creating another account or
+ledger. It preserves zero-target hard risk, actual returned book/orders/RNG,
+full flat cash carry, before-state diagnostics and final yielded-row validation.
+Partial closing and signed debt remain actual observations. The distinct settled
+Gym lane, compressed actor/physical source/trace, CPU SB3 fit, new verified bundle
+and same-H saved-policy inference are still incomplete; this extraction supplies
+no PPO learning result, profit improvement or formal research approval.

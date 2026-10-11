@@ -2136,3 +2136,13 @@ duration, GAE clock, early-flat coverage, bool counts and legacy schema. These
 are declaration checks only. Actual critic7 masks, native closing/cash equations,
 source consumption and verified artifact relationships still require runtime
 tests; no G3-G5 or formal research authorization is established here.
+
+Shared native reserve execution is now extracted into
+`allocation_reserved_closing`. Its bounded synthetic software oracles include
+literal long1039/short1041, original-capital fee-only998, flat cash interest
+through the full reserve, retained partial/dust/pending inventory, signed debt,
+returned book/orders/RNG continuity and rejection after the final yielded row.
+The terminal adapter retains the original before-state/failure order and frozen
+legacy receipt bytes under fixed software provenance. This adds native closing
+mechanism evidence; it does not establish settled actor/critic/source/fit or
+artifact parity. Those full-lane G2 checks and G3-G5 remain required.

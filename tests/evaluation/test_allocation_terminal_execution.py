@@ -9,6 +9,7 @@ import pytest
 from tests.evaluation.test_allocation_global_execution import declare
 from tests.evaluation.test_allocation_nonrl_walk_forward import fixture
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.evaluation import allocation_reserved_closing as reserved_closing
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
 
@@ -277,7 +278,7 @@ def test_closing_does_not_consume_forecasts_or_features(monkeypatch):
     values = env.dataset.features.copy()
     values[8:] = 1e6
     object.__setattr__(env.dataset, "features", values)
-    original = api._execute_allocation_target
+    original = reserved_closing._execute_allocation_target
 
     def close(*args, **kwargs):
         monkeypatch.setattr(
@@ -287,7 +288,7 @@ def test_closing_does_not_consume_forecasts_or_features(monkeypatch):
         monkeypatch.setattr(env, "step", lambda *_: pytest.fail("closing policy step"))
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(api, "_execute_allocation_target", close)
+    monkeypatch.setattr(reserved_closing, "_execute_allocation_target", close)
     raw = api.run_terminal_allocation_execution(folds, env, plan).payload
     assert raw["final_book"]["cash"] == pytest.approx(1039)
 
@@ -296,14 +297,14 @@ def test_close_exception_preserves_returned_bar_and_original_error(monkeypatch):
     api = capability()
     folds, env = carrier(partial=True)
     plan = plans(api, env, folds, stop=9)
-    original = api._execute_allocation_target
+    original = reserved_closing._execute_allocation_target
 
     def close(*args, **kwargs):
         if kwargs["start_index"] == 8:
             raise RuntimeError("closing failure")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(api, "_execute_allocation_target", close)
+    monkeypatch.setattr(reserved_closing, "_execute_allocation_target", close)
     with pytest.raises(RuntimeError, match="closing failure") as caught:
         api.run_terminal_allocation_execution(folds, env, plan)
     raw = caught.value.terminal_execution_receipt
@@ -335,6 +336,37 @@ def test_existing_prefix_trace_bytes_remain_historical():
             canonical_json_bytes(result.receipt.payload["rows"][0]["native"])
         ).hexdigest()
         == "91aeaa84378b12d145f4b99f2d9f065fd88c946c7d4b0d1bff831e876143e590"
+    )
+
+
+def test_shared_reserve_preserves_complete_legacy_terminal_bytes(monkeypatch):
+    """Literal digest observed before extraction under fixed software provenance."""
+    from hashlib import sha256
+
+    from tests.evaluation import test_allocation_global_execution as test_prefix
+
+    api = capability()
+    native = import_module("trade_rl.evaluation.allocation_global_execution")
+    implementation = {"schema": "literal_terminal_implementation_v1"}
+    runtime = {"schema": "literal_terminal_runtime_v1"}
+    provenance = {
+        "schema_version": "candidate_run_provenance_v1",
+        "implementation": implementation,
+        "implementation_digest": content_digest(implementation),
+        "runtime_environment": runtime,
+        "runtime_environment_digest": content_digest(runtime),
+        "research_context_digest": None,
+    }
+    for module in (api, native, test_prefix):
+        monkeypatch.setattr(
+            module, "build_candidate_run_provenance", lambda: provenance
+        )
+    folds, env = carrier()
+    raw = api.run_terminal_allocation_execution(
+        folds, env, plans(api, env, folds)
+    ).payload
+    assert sha256(canonical_json_bytes(raw)).hexdigest() == (
+        "4c6d5d10f56667eb5d9c5365e68f65e6818354da74926c8c1f63c45112ac3259"
     )
 
 
@@ -423,7 +455,7 @@ def test_prefix_economic_stop_keeps_its_partial_receipt_and_never_closes(monkeyp
     env = global_control_fixture(signals=(-1, -1, -1, -1), insolvent_short=True)
     plan = plans(api, env, folds, stop=11)
     monkeypatch.setattr(
-        api,
+        reserved_closing,
         "_execute_allocation_target",
         lambda *_a, **_k: pytest.fail("close after prefix stop"),
     )
@@ -460,7 +492,7 @@ def test_unequal_segments_preserve_one_account_and_execution_rng(monkeypatch):
             return _original(**kwargs)
 
         monkeypatch.setattr(env, "reset", reset)
-        execute = api._execute_allocation_target
+        execute = reserved_closing._execute_allocation_target
 
         def close(executor, book, orders, **kwargs):
             assert executor is env.executor and kwargs["pretrade_risk"] is env.risk
@@ -468,7 +500,7 @@ def test_unequal_segments_preserve_one_account_and_execution_rng(monkeypatch):
             return execute(executor, book, orders, **kwargs)
 
         with monkeypatch.context() as scoped:
-            scoped.setattr(api, "_execute_allocation_target", close)
+            scoped.setattr(reserved_closing, "_execute_allocation_target", close)
             raw = api.run_terminal_allocation_execution(folds, env, plan).payload
         results.append(raw)
     assert resets == [True, True, True]
@@ -511,7 +543,7 @@ def test_deferred_close_reuses_actual_pending_order_book_and_held_carry(
     volume[8] = first_volume
     object.__setattr__(env.dataset, "volume", volume)
     plan = plans(api, env, folds, stop=9)
-    native = api._execute_allocation_target
+    native = reserved_closing._execute_allocation_target
     previous = []
 
     def close(executor, book, orders, **kwargs):
@@ -524,7 +556,7 @@ def test_deferred_close_reuses_actual_pending_order_book_and_held_carry(
         previous.append(execution)
         return target, execution
 
-    monkeypatch.setattr(api, "_execute_allocation_target", close)
+    monkeypatch.setattr(reserved_closing, "_execute_allocation_target", close)
     raw = api.run_terminal_allocation_execution(folds, env, plan).payload
     first, last = (row["native"] for row in raw["closing_rows"])
     pending = first["active_orders"][0]["intent"]["order_id"]
@@ -558,13 +590,13 @@ def test_malformed_returned_clock_retains_detached_native_facts(monkeypatch):
     api = capability()
     folds, env = carrier()
     plan = plans(api, env, folds)
-    native = api._execute_allocation_target
+    native = reserved_closing._execute_allocation_target
 
     def close(*args, **kwargs):
         target, execution = native(*args, **kwargs)
         return target, replace(execution, next_index=99)
 
-    monkeypatch.setattr(api, "_execute_allocation_target", close)
+    monkeypatch.setattr(reserved_closing, "_execute_allocation_target", close)
     with pytest.raises(ValueError, match="one-bar clock") as caught:
         api.run_terminal_allocation_execution(folds, env, plan)
     raw = caught.value.terminal_execution_receipt
@@ -586,13 +618,13 @@ def test_numeric_equality_cannot_substitute_for_native_clock_types(change, monke
     api = capability()
     folds, env = carrier()
     plan = plans(api, env, folds)
-    native = api._execute_allocation_target
+    native = reserved_closing._execute_allocation_target
 
     def close(*args, **kwargs):
         target, execution = native(*args, **kwargs)
         return target, replace(execution, **change)
 
-    monkeypatch.setattr(api, "_execute_allocation_target", close)
+    monkeypatch.setattr(reserved_closing, "_execute_allocation_target", close)
     with pytest.raises(ValueError, match="one-bar clock") as caught:
         api.run_terminal_allocation_execution(folds, env, plan)
     raw = caught.value.terminal_execution_receipt

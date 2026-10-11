@@ -1604,3 +1604,12 @@ The new declaration is not implicitly accepted by existing marked receipts,
 recipes, environment, continuation, schedules or bundle dispatch. A future
 settled adapter must own explicit binding, native closing, compressed-transition
 evidence and verified same-H inference; a clock declaration is not that adapter.
+
+`evaluation/allocation_reserved_closing.py` owns the private native reserve
+iterator and returned step. It depends on canonical allocation execution and
+native account facts, with no environment, global-plan, trainer or Study owner.
+Callers supply frozen digest/binding and diagnostic frontier hooks, never an
+execution implementation. `allocation_terminal_execution.py` retains its
+declaration, provenance and receipt formatting while fully consuming the shared
+iterator; its marked carrier remains unchanged. A future settled environment
+must use this same iterator and preserve final postflight/exhaustion evidence.

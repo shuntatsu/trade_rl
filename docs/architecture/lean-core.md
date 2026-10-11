@@ -1862,3 +1862,27 @@ row is an unvalidated tail, never an invented row. Failed witnesses join actual
 frontiers to validated-prefix counters; an original exception and its adopted
 frontier survive post-return capture failure. Source-denied admission remains
 unsupported diagnostic evidence rather than malformed successful execution.
+
+## Matched native CASH/NONRL software controls
+
+`allocation_settled_native_comparison` consumes a pinned plan and complete,
+ordered raw captures; it never executes accounts or learns policies. Each group
+has distinct CASH/direct0 and NONRL/residual2 accounts with the same P2/R1/H3
+clock, initial capital, native financial sources, costs, risk and information.
+Only physical account identities, action mode and the objective's own recipe
+digest differ. Arbitrary predeclared group names are allowed.
+
+`settled_comparison_source` extends matching to the full verified v7 Dataset:
+all 42 plain-array byte pins, stored identity and current live descriptor,
+including global, unselected and out-of-window features. It retains the entire
+forecast stream, ordered cost beliefs and complete source/recipe/objective
+projection. A plan is detached identity, not a source credential: the consumer
+reconstructs the complete live projection before and after native validation.
+
+The complete intended actor schedule stays frozen even if only its attempted
+prefix was captured. Failed or DD-ineligible arms remain diagnostic rows. An
+early frontier has no terminal-equity metric; a failed final frontier may retain
+observed terminal wealth but cannot qualify. A primary NONRL-minus-CASH delta
+requires fresh native admission for both arms. No supplied report flag can
+authorize this computation. The result is neither market profit evidence nor
+historical authentication of execution or learned source consumption.

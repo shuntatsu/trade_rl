@@ -2655,3 +2655,21 @@ value over cash/simple NONRL controls. Concrete source review, executed G2,
 exact-head full CI/package validation and formal independent approval remain
 separate evidence states. Issue #810 and the profitable-system goal remain
 active and incomplete.
+
+## Matched native CASH/NONRL comparison prerequisite
+
+The next bounded software comparison uses equal USD1000 capital, complete source
+identity, costs and DD20% with one continuous P2/R1/H3 account for CASH and one
+for the fixed NONRL allocator. Full Dataset matching includes all global,
+unselected and out-of-window arrays in addition to actor/native selections.
+Every ordered declared arm remains present; ineligible or failed observations
+cannot produce a primary profit difference.
+
+The three predeclared manufactured oracles cover nonzero cash carry, a lawful
+fee loss relative to cash and positive recovered wealth despite an earlier
+25.390625% DD breach. These known regression cases validate comparison/accounting
+contracts; they are not market alpha, an unused-period result or a claim that
+NONRL/PPO beats cash. The original six-fit aggregate learning result remains
+FAILED. Exact-head software CI and AGY source review do not constitute formal
+independent research approval. Issue #810 and the profitable-system objective
+remain active and incomplete.

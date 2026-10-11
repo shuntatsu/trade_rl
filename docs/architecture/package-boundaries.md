@@ -1685,3 +1685,27 @@ reuse captured bytes without account calls. Existing Core full tests discover
 this owner. Architecture checks enforce passive validation and the structural
 source boundary. No new facade, CI selector, comparison runner or Study owner
 is introduced; all prior settled learnability owners remain unchanged.
+
+## Matched native control comparison owners
+
+`evaluation/allocation_settled_native_comparison.py` owns the pure pinned plan,
+ordered CASH/NONRL arm roster and detached comparison report. It reuses the
+unchanged native capture validator and reconstructs matching live sources before
+and after each complete comparison. Nested rehashed plan changes cannot bypass
+that equality check. Report/group/arm key sets are closed; reports are never
+accepted as admission inputs.
+
+`evaluation/rl_allocation/settled_comparison_source.py` owns the explicit complete
+matching projection. It preserves every public source-envelope field except the
+three declared identity fields, every recipe field except action mode and every
+objective field except its own bound recipe digest. Complete Dataset arrays,
+descriptor, stream and cost declarations are additional passive pins. Neither
+owner imports an environment/learner or calls account execution.
+
+`tests/evaluation/test_allocation_settled_native_comparison.py` owns a separate
+three-group/six-account learner-free batch with two actor calls per account and
+the native final reserve. One batch serves literal oracles and forged-byte
+tests. It never invokes the existing nine-case collector or any model solver.
+`tests/architecture/test_allocation_settled_native_comparison_boundary.py` checks
+the passive owners and the sole reset/step call sites. Existing native readers,
+learnability fixtures, CI selectors and public facades remain intact.

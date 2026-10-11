@@ -2253,3 +2253,37 @@ Fresh concrete source/G2-plan review is required before the first native batch;
 design review does not establish executed G2. Neither these native checks nor
 AGY source review constitute formal independent GitHub research approval,
 G3-G5 economic evidence, unused/final authorization or parent completion.
+
+## Matched native CASH/NONRL software comparison assurance
+
+G0 asks whether a source-bound consumer rejects mismatched or risk-ineligible
+controls while retaining every predeclared arm. G1 fixes equal USD1000 capital,
+P2/R1/H3/hourly clocks, fee1/128, unchanged native execution and DD20%, with one
+continuous account per method. Declared coefficients are regression literals,
+not fitted predictors. Equal full Dataset identities and raw array pins,
+forecast streams, costs, risk and complete objective/recipe material precede
+capture. Plan hashes cannot authenticate when a physical execution occurred.
+
+The fixed G2 roster independently predicts: continuous toy cash carry with
+mathematical wealth1003.003001 and the exact native IEEE expression; partial
+entry/no-market continuation with NONRL wealth998.4375 versus cash1000; and
+recovered NONRL wealth1116.2109375 with native maxDD65/256, therefore ineligible.
+Second actor requests are respectively1023/256 and -5/256 in the latter two
+groups; neither is HOLD. Final native reserve cancels pending orders and closes
+the actual position. A positive recovered endpoint cannot erase an earlier DD
+breach or produce a primary paired delta.
+
+Malformed or foreign inputs reject. Valid failed/ineligible captures retain
+their original prefix/frontier/failure provenance and both arm rows. Full planned
+intents and actual attempted-prefix digests are distinct. Early terminal fields
+are null; observed endpoint values remain diagnostic until both admissions pass.
+Rehashed plan, action, reward and report-authority variants must not qualify.
+
+Fresh concrete source/G2-plan review precedes the first new native batch. At
+most three new local six-account batches are permitted, each with six resets,
+twelve actor calls and eighteen declared native bars. Inherited Core and actual
+learner CI replicas retain separate identities and budgets. Source review,
+executed software G2, full exact-head CI and formal independent GitHub approval
+remain separate. No original learning failure, sealed run or economic outcome is
+retried/reclassified. Opaque history/RNG and runtime authentication limitations
+persist; this comparison grants no market/unused/final/live authority.

@@ -2673,3 +2673,26 @@ NONRL/PPO beats cash. The original six-fit aggregate learning result remains
 FAILED. Exact-head software CI and AGY source review do not constitute formal
 independent research approval. Issue #810 and the profitable-system objective
 remain active and incomplete.
+
+
+## Issue #810: standalone terminal NONRL/CASH comparison prerequisite
+
+The existing settled report owner now supplies a separate two-arm frozen matrix
+for a single cost-aware NONRL controller versus CASH. A second forecast and PPO
+are not required for this Phase2 baseline. Complete native source/forecast/cost
+beliefs, actual execution policy, risk, capital and terminal clocks are matched;
+only the native role, action mode and their validated derived identities differ.
+Every original raw terminal observation uses the existing closed receipt reader.
+Missing/duplicate/foreign cells reject. Partial or failed settlement and DD above
+20% remain visible with no qualified paired delta. The three-arm forecast-factor
+report, existing RL matrices and bounded native-capture guards are unchanged.
+
+Hand-solved synthetic tests cover actual round-trip charges, complete declared
+account/scenario products, partial closes and a real native DD-ineligible close.
+These are software prerequisites. No new market fit/replay or profit result has
+been generated. Observed-cost, whole-intrabar-DD, historical source and nonlinear
+reference-size cost-proxy limits remain. New real-market development runs still
+require a frozen cost/data/candidate budget, source and independent research
+review, with all original 2025 negative outcomes and cash controls preserved.
+Signature is a separately controlled feature hypothesis; RL must later show
+added value. Issue #810, unused-future and live profitability remain incomplete.

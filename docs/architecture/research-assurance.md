@@ -2287,3 +2287,33 @@ executed software G2, full exact-head CI and formal independent GitHub approval
 remain separate. No original learning failure, sealed run or economic outcome is
 retried/reclassified. Opaque history/RNG and runtime authentication limitations
 persist; this comparison grants no market/unused/final/live authority.
+
+
+## Standalone terminal NONRL/CASH comparison assurance
+
+G0 is the software prerequisite for comparing one cost-aware non-RL controller
+with no trading, without making PPO or another forecast compulsory. It asserts
+no market edge. G1 fixes the same complete native common context and original
+forecast, cost beliefs, execution cost policy, capital, risk and clocks. Only
+the validated native role/reset/control identity, direct versus residual action
+mode and their derived recipe/terminal deployment identities differ. The full
+account/scenario Cartesian roster is declared before native accounts start.
+
+G2 includes an independent rational flat-price oracle: q=32/19 units at100 with
+entry and closing fee .002 produces total cost64/95 and terminal wealth94936/95,
+versus cash1000, so the fixed-capital NONRL-minus-CASH return is -64/95000. A
+capacity-limited close remains incomplete. The existing native adverse-close
+oracle produces settled equity742 and DD.258; its complete close cannot qualify
+the paired delta under DD.20. Foreign forecasts/cost beliefs/source contexts,
+duplicate/missing roles and fabricated summaries reject. The old three-arm
+forecast comparison keeps its original contracts and regression oracles.
+
+Fresh bound source/G2-plan review precedes new native feature checks. New market
+data reads, fits/replays and economic qualification are outside this software
+Task. Declared source equality does not authenticate all physical arrays or
+historical availability. Retained terminal facts do not independently reconstruct
+all charges on filled symbols or the entire intrabar price path. Reference-size
+nonlinear impact and forecast carry are explicit cost proxies; matching policies
+does not equate forecast estimates to realized charges. A future generated-cost
+Study must separately pin its full declared cost recipe and its relation to the
+actual executor. No original failed learning or sealed workflow is retried.

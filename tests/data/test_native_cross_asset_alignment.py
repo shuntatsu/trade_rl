@@ -373,7 +373,6 @@ def test_finer_native_feature_expiry_keeps_age_and_masks_zero_values() -> None:
     assert dataset.feature_staleness[8, :, 2:4] == pytest.approx(np.ones((2, 2)))
 
 
-
 def test_native_source_digest_changes_id_without_changing_derived_features() -> None:
     """Rescale one native source exactly: same log returns, different raw inputs."""
     source = _source()
@@ -407,9 +406,7 @@ def test_native_source_future_tail_is_rejected_before_dataset_build() -> None:
     raw = source.values["BTCUSDT", "15m"]
     # Base hourly Dataset ends at 08:00; native source must not include 08:15.
     prices = np.r_[raw.close, raw.close[-1] * 1.01]
-    source.values["BTCUSDT", "15m"] = _bars(
-        "2026-01-01T00:00", 15, prices
-    )
+    source.values["BTCUSDT", "15m"] = _bars("2026-01-01T00:00", 15, prices)
     with pytest.raises(ValueError, match="extends beyond Dataset clock"):
         _dataset(source)
 

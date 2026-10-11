@@ -2638,3 +2638,20 @@ requires an independent preregistered factor. No historical frozen Study
 evidence, non-RL/cash comparison outcome, PPO training result, unused-future
 authorization, real-world after-cost profitability or live readiness is
 inferred or reclassified from these G1-G3 software checks.
+
+## Native settled readback prerequisite
+
+The next finite software Task adds a native-only reader for actual detached
+settled records without pretending that a learner produced them. Its frozen
+nine-case synthetic roster and literal/coupled falsifiers cover cost, risk,
+capacity, full reserve, recovered drawdown, signed debt and post-return failure
+frontiers. The scope excludes new learning, market/controller comparisons,
+calibration, Signature additions to frozen research and unused/final inputs.
+
+This prerequisite does not revise the initial six-fit learnability outcome:
+aggregate learning remains FAILED, including fee-only seed17. Native accounting
+qualification and software CI cannot establish controller profitability or PPO
+value over cash/simple NONRL controls. Concrete source review, executed G2,
+exact-head full CI/package validation and formal independent approval remain
+separate evidence states. Issue #810 and the profitable-system goal remain
+active and incomplete.

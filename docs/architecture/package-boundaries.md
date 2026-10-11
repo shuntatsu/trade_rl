@@ -1662,3 +1662,26 @@ optional-backend fits, native controls, cue counterfactuals, verified reloads an
 the complete evidence registry. The registry reuses the pure capture validator
 and existing artifact reader; it never reruns a learner or account to validate
 a stored trace. These are test owners, not a public market/Study API.
+
+## Native-only settled validation owner
+
+`evaluation/rl_allocation/settled_native_validation.py` owns closed canonical
+capture/context/result interfaces and rederives bounded native admission from
+the source and capture on every request. Supplied report flags cannot authorize
+admission. It reuses already-pure settled fact helpers and normative immutable
+reconciliation/capacity/order algebra; it never imports an environment or
+optional learner, nor invokes account execution. Shared algebra is not the
+independent test oracle.
+
+`settled_training_source.py` accepts a private structural Protocol exposing
+only its existing read-only inputs. The real settled environment and passive
+native context use the same receipt projection; the executable receipt body,
+serialized schema, source selection and error behavior remain unchanged.
+
+`tests/evaluation/test_allocation_settled_native_validation.py` owns the fixed
+nine-case learner-free capture batch and literal/coupled arithmetic oracles.
+One module-scoped batch serves all native and forged-byte tests; pure variants
+reuse captured bytes without account calls. Existing Core full tests discover
+this owner. Architecture checks enforce passive validation and the structural
+source boundary. No new facade, CI selector, comparison runner or Study owner
+is introduced; all prior settled learnability owners remain unchanged.

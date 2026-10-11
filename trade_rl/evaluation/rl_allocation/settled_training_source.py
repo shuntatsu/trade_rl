@@ -9,8 +9,9 @@ compare the entire receipt to the constructor's detached envelope.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
@@ -20,9 +21,52 @@ from trade_rl.strategies.dataset_scope import validated_training_scope
 
 if TYPE_CHECKING:
     from trade_rl.data.market import MarketDataset
-    from trade_rl.evaluation.rl_allocation.settled_env import (
-        SettledAllocationTradingEnv,
+    from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
+    from trade_rl.evaluation.rl_allocation.settled_binding import (
+        BoundSettledAllocationClock,
     )
+    from trade_rl.strategies.forecasts.simple_stream import FrozenSimpleReturnStream
+
+
+class _SettledSourceContext(Protocol):
+    """Read-only fields consumed by the existing source envelope projection."""
+
+    @property
+    def dataset(self) -> MarketDataset: ...
+
+    @property
+    def stream(self) -> FrozenSimpleReturnStream: ...
+
+    @property
+    def bound(self) -> BoundSettledAllocationClock: ...
+
+    @property
+    def _estimates(self) -> Mapping[int, HorizonCostEstimates]: ...
+
+    @property
+    def account_id(self) -> str: ...
+
+    @property
+    def start_index(self) -> int: ...
+
+    @property
+    def actor_stop_index(self) -> int: ...
+
+    @property
+    def settlement_stop_index(self) -> int: ...
+
+    @property
+    def symbol_index(self) -> int: ...
+
+    @property
+    def feature_indices(self) -> tuple[int, ...]: ...
+
+    @property
+    def expected_horizon_seconds(self) -> int: ...
+
+    @property
+    def recipe_digest(self) -> str: ...
+
 
 _FEATURE_FIELDS = frozenset(
     {
@@ -136,7 +180,7 @@ def _selected_features(
 
 
 def settled_training_source_receipt(
-    env: SettledAllocationTradingEnv,
+    env: _SettledSourceContext,
 ) -> dict[str, Any]:
     """Return a fresh declaration; attach actual consumption evidence elsewhere."""
     dataset = env.dataset

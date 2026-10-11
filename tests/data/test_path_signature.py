@@ -153,8 +153,10 @@ def test_scale_invariance_and_no_ohlc_intrabar_order_lookups() -> None:
         one.features[:, :, -6:], two.features[:, :, -6:], atol=1e-6
     )
     ohlc = replace(
-        source, identity_payload_json=None,
-        high=source.high * 1.5, low=source.low * 0.5,
+        source,
+        identity_payload_json=None,
+        high=source.high * 1.5,
+        low=source.low * 0.5,
     ).with_content_identity({"fixture": "other_ohlc"})
     with_different_ohlc = with_path_signatures(ohlc, window_bars=3)
     np.testing.assert_array_equal(one.features, with_different_ohlc.features)

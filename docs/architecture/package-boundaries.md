@@ -1531,8 +1531,25 @@ The upper owner may inspect source/runtime provenance but cannot import training
 Study/final-selection owners or instantiate an account/executor. It never mutates
 Gym index, stop, terminal or book/order fields for closing. Native returned state
 is passed locally across the reserved window. Public observation has no
-from-payload Study/approval reader. Settled PPO admission, a complete controlled
-forecast report and frozen economic protocol require separate maintained owners.
+from-payload Study/approval reader. Closed software validation and controlled
+forecast reporting have separate pure owners; settled PPO admission and a frozen
+qualified economic protocol remain separate work.
+
+`allocation_terminal_evidence` owns externally plan-bound v2 receipt validation.
+It consumes the original global receipt and the generic actor-free returned-fact
+reader in `rl_allocation/transition_facts`; it does not instantiate an executor,
+reset an account, fit, replay or operate a ledger. Two private book/execution
+validation leaves preserve historical actor v1/v2 admission and first-error order.
+The generic visible-state projection/freezer belongs to transition_facts. Its
+projection does not replace the legacy allocation state digest.
+
+`allocation_settled_forecast_comparison` owns a separate frozen forecast-factor
+group, explicit complete account/scenario roster and report over validated
+terminal receipts. It performs no execution and has no Study, selection, training
+or final-test authority. Full original plans and external forecast assignments
+remain distinct; consistency projections are never replacement identities.
+Reports retain receipt objects and regenerate summaries from their detached
+bytes. A summary-only JSON import is not provided as evidence admission.
 
 ## Version-bound global transition verification ownership
 

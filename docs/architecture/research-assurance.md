@@ -2032,8 +2032,40 @@ bytes are independently pinned before the generic freezer extraction.
 
 Session design/source review and software tests do not establish authenticated
 independent G3, a qualified economic comparison or G4/G5. Matching PPO terminal
-learning, complete settled forecast controls, frozen finite protocol and formal
+learning, economic qualification of settled forecast controls, frozen finite protocol and formal
 independent research approval remain necessary follow-on boundaries.
+
+## Closed settled forecast software G0-G2
+
+G0 tests whether internally inconsistent or incomplete terminal comparisons are
+rejected before economic research. It assumes no alpha: stronger forecasts can
+increase turnover and fee loss in a constant-price market. G1 preserves native
+independent accounts, full original capital and physical prefix-plus-reserve
+clocks, unchanged zero-target hard risk, actual execution costs and original
+forecast assignments. This settled NONRL/cash factor comparison cannot establish
+training/evaluation parity for the current marked PPO terminal.
+
+G2 uses independent literal cash/fee/carry and signed debt oracles, profitable
+partial liquidation, untradability/turnover constraints, flat cash interest,
+state-chain mutations, physical date shifts, forged summaries and complete
+role/account/scenario roster mutations. A constant-price single-entry fixture
+with capital1000 and actual fee.002 in each direction has control quantity32/19
+and settled wealth94936/95, treatment quantity4 and wealth998.4, and cash1000.
+The larger forecast worsens settled wealth. These are predetermined synthetic
+conformance values, not empirical strategy results or a profitability claim.
+
+`allocation_terminal_evidence` checks source/plan identity, native integer clocks, full risk
+target, visible local state, cumulative cost/carry/counter algebra and signed
+reward telescoping. Source pins plus aggregates do not authenticate the actual
+historical fee decomposition, stochastic execution or complete intent/fill
+archive. Endpoint facts support cumulative native DD lower bounds and continuity,
+not exact independent intrabar DD reconstruction. Valid failure observations
+retain the last returned frontier and original diagnostic; malformed returned
+rows cannot enter accepted evidence. AI design/source review and exact-head
+software CI do not establish authenticated G3 or authorize economic G4/G5.
+The separate `allocation_settled_forecast_comparison` owner requires the full
+declared roster and retains validated receipt objects; summaries alone do not
+admit evidence or establish a profitable candidate.
 
 ## Global static-cap verification G0-G2
 

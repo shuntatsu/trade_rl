@@ -1605,8 +1605,39 @@ settled profit is absent. Signed fixed-capital rewards use native equity deltas,
 including losses below -100%, rather than clipped interval/log diagnostics.
 Original prefix failure or closing exception preserves its known partial facts
 and original error; an unreturned bar's fills are unknown. This is runtime
-software observation, not a serialized Study evidence reader, approval or WINNER.
+software observation, not a Study evidence reader, approval or WINNER.
 The native MARKET/zero-extra-latency and independent-symbol limits remain.
+
+## Closed terminal evidence and settled forecast controls
+
+`allocation_terminal_evidence` reads native terminal observation v2 against a
+separately supplied exact frozen plan. It preserves the original versioned global
+prefix receipt, verifies physical objective endpoints and every reserved clock,
+and checks actor-free returned book/execution/order facts. Before/after pins use
+the visible local book, active orders and processing index; they exclude return
+history, the terminal order archive and RNG. Legacy runtime observation v1 cannot
+be relabeled as closed evidence. Failure stage and attempted index retain the
+known frontier; unreturned effects are not inferred.
+
+The pure reader reconstructs unchanged zero-target hard risk, verifies cumulative
+cost/borrow/turnover/count deltas, symbol totals and signed funding boundaries,
+and checks signed fixed-capital rewards against final wealth. Native cumulative
+peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
+an independent reconstruction of the whole intrabar path. Coverage, settlement
+and DD eligibility remain separate. Partial or failed closes have no settled
+profit, while a settled DD breach remains ineligible.
+
+`allocation_settled_forecast_comparison` binds control/treatment/cash terminal
+plans to the original external forecast assignment. Each group retains complete
+arm identities and equal financial source, closing window, capital, actual costs,
+risk and full business objective. An explicit independent-account/scenario
+Cartesian roster requires exactly one receipt per role in every group. Reports
+retain the validated receipts, show every group, and provide deltas only for
+complete risk-eligible groups. They neither select a winner nor replace the
+one-forecast A/B/C or mandatory PPO seed matrix. Source hashes and internally
+consistent returned aggregates do not authenticate historical execution costs,
+RNG or the complete terminal fill archive. Economic qualification and matching
+settled PPO learning remain separate prerequisites.
 
 ## Versioned global static-cap verification
 

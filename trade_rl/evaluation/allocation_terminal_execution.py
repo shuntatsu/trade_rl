@@ -2,7 +2,7 @@
 
 The marked prefix stays unchanged. Reserved processing bars belong to a distinct
 full-horizon evaluation contract, and use its actual account and executor. These
-detached runtime observations are not a serialized independent-evidence reader.
+detached runtime observations require the separate closed evidence reader.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.evaluation.allocation import _execute_allocation_target
 from trade_rl.evaluation.allocation_global_execution import (
     GlobalAllocationExecutionPlan,
+    GlobalAllocationForecastControls,
     ObservedGlobalAllocationExecution,
     declare_global_allocation_execution,
     run_declared_global_allocation_execution,
@@ -35,7 +36,10 @@ from trade_rl.evaluation.rl_allocation.global_execution_context import (
     allocation_array_pin,
 )
 from trade_rl.evaluation.rl_allocation.transition_facts import (
+    _json,
+    native_allocation_account_facts,
     native_allocation_execution_facts,
+    terminal_allocation_state_digest,
 )
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
 from trade_rl.evaluation.runs import build_candidate_run_provenance
@@ -278,6 +282,7 @@ def _observation(
     *,
     error: Exception | None = None,
     attempted: int | None = None,
+    failure_stage: str | None = None,
 ) -> dict[str, Any]:
     rows = (
         []
@@ -326,7 +331,7 @@ def _observation(
         else plan.bound.objective.net_profit_rate((final["equity"],))
     )
     return {
-        "schema": "allocation_terminal_runtime_observation_v1",
+        "schema": "allocation_terminal_runtime_observation_v2",
         "plan": plan.payload,
         "plan_digest": plan.digest,
         "status": "economic_stop"
@@ -355,6 +360,7 @@ def _observation(
         "failure": None
         if error is None
         else {"error_type": type(error).__name__, "message": str(error)},
+        "failure_stage": failure_stage if error is not None else None,
         "claim_scope": "bounded_native_software_observation_no_economic_qualification",
     }
 
@@ -363,6 +369,8 @@ def run_terminal_allocation_execution(
     folds: tuple[WalkForwardFold, ...],
     env: AllocationTradingEnv,
     plan: TerminalAllocationExecutionPlan,
+    *,
+    forecast_controls: GlobalAllocationForecastControls | None = None,
 ) -> ObservedTerminalAllocationExecution:
     if type(plan) is not TerminalAllocationExecutionPlan:
         raise ValueError("terminal execution requires its exact frozen plan")
@@ -376,8 +384,11 @@ def run_terminal_allocation_execution(
     native: ObservedGlobalAllocationExecution | None = None
     opening = None
     attempted = None
+    failure_stage = "prefix"
     try:
-        native = run_declared_global_allocation_execution(folds, env, plan.native_plan)
+        native = run_declared_global_allocation_execution(
+            folds, env, plan.native_plan, forecast_controls=forecast_controls
+        )
         opening = allocation_state_digest(env)
         if opening != native.receipt.payload["closing_state_digest"]:
             raise ValueError("terminal opening state differs from native prefix close")
@@ -385,10 +396,19 @@ def run_terminal_allocation_execution(
         executor, risk = env.executor, env.risk
         book, orders, index = env.book, env.order_book, env.index
         while index < plan.settlement_stop_index:
+            attempted, failure_stage = index, "closing_preflight"
             if env.executor is not executor or env.risk is not risk:
                 raise ValueError("terminal executor/risk instance changed")
             _closing_binding(env, plan)
             attempted, before = index, book.portfolio_value
+            before_digest = terminal_allocation_state_digest(
+                plan.native_plan.payload["common"],
+                plan.closing_source_digest,
+                native_allocation_account_facts(book, orders),
+                index=index,
+                time_ns=plan.closing_clocks_ns[index - env.stop_index],
+            )
+            failure_stage = "closing_execution"
             target, execution = _execute_allocation_target(
                 executor,
                 book,
@@ -401,6 +421,7 @@ def run_terminal_allocation_execution(
                 symbol_index=env.symbol_index,
                 start_index=index,
             )
+            failure_stage = "closing_returned"
             facts = native_allocation_execution_facts(execution)
             clock_valid = (
                 type(execution.next_index) is int
@@ -431,6 +452,15 @@ def run_terminal_allocation_execution(
                     "opening_equity": before,
                     "risk_target": target.weights.tolist(),
                     "risk_reasons": list(target.reasons),
+                    "risk": _json(target),
+                    "before_state_digest": before_digest,
+                    "after_state_digest": terminal_allocation_state_digest(
+                        plan.native_plan.payload["common"],
+                        plan.closing_source_digest,
+                        facts,
+                        index=facts["execution"]["next_index"],
+                        time_ns=processing_time,
+                    ),
                     "native": facts,
                     "fixed_capital_reward": net_equity_increment(
                         before,
@@ -444,6 +474,7 @@ def run_terminal_allocation_execution(
                 execution.order_book,
                 execution.next_index,
             )
+            failure_stage = "closing_validation"
             if not clock_valid:
                 raise ValueError("terminal native execution changed its one-bar clock")
             if env.executor is not executor or env.risk is not risk:
@@ -451,6 +482,7 @@ def run_terminal_allocation_execution(
             _closing_binding(env, plan)
             if book.termination_reason is not None:
                 break
+        failure_stage = "final_validation"
         _provenance(plan)
         payload = _observation(plan, native.receipt.payload, closing, opening)
         return ObservedTerminalAllocationExecution(
@@ -468,8 +500,18 @@ def run_terminal_allocation_execution(
             setattr(
                 error,
                 "terminal_execution_receipt",
-                _observation(
-                    plan, receipt, closing, opening, error=error, attempted=attempted
+                json.loads(
+                    canonical_json_bytes(
+                        _observation(
+                            plan,
+                            receipt,
+                            closing,
+                            opening,
+                            error=error,
+                            attempted=attempted,
+                            failure_stage=failure_stage,
+                        )
+                    )
                 ),
             )
         except Exception as recording_error:

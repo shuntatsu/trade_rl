@@ -2475,9 +2475,15 @@ a separately frozen exact plan and its original global prefix receipt. It checks
 physical endpoints/clocks, actor-free returned facts, observable local-state
 continuity, unchanged hard risk, cumulative costs/carry/counts, signed rewards
 and summaries. Retained filled/partial-fill event notionals must equal execution
-totals and each symbol's total in both prefix and close rows. Legacy terminal
-observation v1 remains diagnostic-only. Partial
-and failed closes retain actual known inventory/orders and have no settled
+totals and each symbol's total in both prefix and close rows.
+Closed admission also links fill direction and price/notional, retains known
+pending orders until their last event terminates them, and checks one-bar normal
+funding snapshots against the returned account. Terminated funding snapshots
+retain their pre-flatten meaning. Direct v1 digest lookup preserves original
+execution/order error precedence; its legacy admission is not widened into
+closed terminal evidence.
+Legacy terminal observation v1 remains diagnostic-only. Partial and failed closes
+retain actual known inventory/orders and have no settled
 profit; DD eligibility remains separate from settlement completion.
 
 `allocation_settled_forecast_comparison` preserves original control/treatment/cash

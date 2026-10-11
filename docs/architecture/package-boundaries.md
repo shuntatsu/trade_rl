@@ -1542,6 +1542,10 @@ reset an account, fit, replay or operate a ledger. Two private book/execution
 validation leaves preserve historical actor v1/v2 admission and first-error order.
 The terminal owner joins retained fill-event notionals to execution totals and
 symbol vectors; this added algebra does not change those historical validators.
+Direction/price/notional, latest-event active membership, normal funding-book
+closure and one-bar funding cardinality remain terminal-only links. The shared
+leaf resolves actor economics only at the original event/order comparison,
+preserving direct v1 malformed-input error order and short-circuit behavior.
 The generic visible-state projection/freezer belongs to transition_facts. Its
 projection does not replace the legacy allocation state digest.
 

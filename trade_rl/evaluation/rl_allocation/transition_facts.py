@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import fields, is_dataclass, replace
 from enum import Enum
@@ -346,7 +347,10 @@ def validate_terminal_allocation_facts(
         }
         book = _returned_book(raw, dataset_id=dataset_id)
         _returned_execution(
-            raw, book, dataset_id=dataset_id, economics_digest=economics_digest
+            raw,
+            book,
+            dataset_id=dataset_id,
+            get_economics_digest=lambda: economics_digest,
         )
         return book
     except (KeyError, TypeError, OverflowError, RecursionError, IndexError) as error:
@@ -392,7 +396,11 @@ def _returned_book(raw: dict[str, Any], *, dataset_id: str) -> BookState:
 
 
 def _returned_execution(
-    raw: dict[str, Any], book: BookState, *, dataset_id: str, economics_digest: str
+    raw: dict[str, Any],
+    book: BookState,
+    *,
+    dataset_id: str,
+    get_economics_digest: Callable[[], str],
 ) -> None:
     book_raw, size = raw["book"], len(book.quantities)
     execution = _closed(
@@ -488,7 +496,7 @@ def _returned_execution(
             not in (raw["decision_index"], raw["processing_index"])
             or event.timestamp_ns != expected_time
             or event.dataset_id != dataset_id
-            or event.execution_policy_digest != economics_digest
+            or event.execution_policy_digest != get_economics_digest()
             or event.symbol_index != raw["symbol_index"]
         ):
             raise ValueError("transition interval-local order clock differs")
@@ -525,7 +533,7 @@ def _returned_execution(
                 )
         if (
             order.intent.dataset_id != dataset_id
-            or order.intent.execution_policy_digest != economics_digest
+            or order.intent.execution_policy_digest != get_economics_digest()
             or order.intent.symbol_index != raw["symbol_index"]
         ):
             raise ValueError("transition active order differs from native source")
@@ -675,7 +683,7 @@ def _validate_execution_facts(
         raw,
         book,
         dataset_id=dataset_id,
-        economics_digest=recipe["runtime_profile"]["economics_digest"],
+        get_economics_digest=lambda: recipe["runtime_profile"]["economics_digest"],
     )
     return net_equity_increment(
         context.equity, book.portfolio_value, initial_capital=decision.initial_capital

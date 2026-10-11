@@ -1623,8 +1623,15 @@ The pure reader reconstructs unchanged zero-target hard risk, verifies cumulativ
 cost/borrow/turnover/count deltas, symbol totals and signed funding boundaries.
 Retained filled/partial-fill event notionals must match both the execution total
 and each symbol's execution total in the accepted prefix and every close row.
-The reader checks signed fixed-capital rewards against final wealth. Native cumulative
-peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
+Fill quantities must follow their order's direction and bind notional to price
+and multiplier. The last nonterminal event for each observed order must remain
+active; a later terminal event permits removal. One-bar funding has at most one
+boundary, whose endpoint and position/mark/multiplier vectors match the returned
+book for a solvent nonterminated interval. Terminated rows retain their distinct
+pre-flatten funding snapshot. Only the zero-request fill-ratio branch is derived;
+other ratios depend on unretained reference notionals.
+The reader checks signed fixed-capital rewards against final wealth. Native
+cumulative peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
 an independent reconstruction of the whole intrabar path. Coverage, settlement
 and DD eligibility remain separate. Partial or failed closes have no settled
 profit, while a settled DD breach remains ineligible.

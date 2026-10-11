@@ -29,6 +29,7 @@ from trade_rl.evaluation.rl_allocation.transition_facts import (
     validate_terminal_allocation_facts,
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.simulation.orders.model import OrderStatus
 from trade_rl.strategies.rl.allocation_preprocessing import _native_json
 
 _FIELDS = {
@@ -154,6 +155,66 @@ def _weights(book: dict[str, Any], size: int) -> np.ndarray:
     )
 
 
+def _retained_links(native: dict[str, Any]) -> None:
+    """Join returned interval facts without reconstructing an execution path."""
+    book, ex = native["book"], native["execution"]
+    fills = [
+        event
+        for event in native["order_events"]
+        if event["event_type"] in ("filled", "partial_fill")
+    ]
+    _equal(math.fsum(e["filled_notional"] for e in fills), ex["filled_notional"])
+    for index, total in enumerate(ex["filled_notional_by_symbol"]):
+        _equal(
+            math.fsum(
+                e["filled_notional"] for e in fills if e["symbol_index"] == index
+            ),
+            total,
+        )
+    for event in fills:
+        quantity = _number(event["filled_quantity"])
+        if abs(quantity) <= 1e-12 or quantity * event["requested_quantity"] <= 0:
+            raise ValueError("terminal fill quantity differs from its order direction")
+        _equal(
+            event["filled_notional"],
+            abs(quantity)
+            * _number(event["execution_price"])
+            * book["contract_multipliers"][event["symbol_index"]],
+        )
+    latest = {event["order_id"]: event for event in native["order_events"]}
+    active = {order["intent"]["order_id"] for order in native["active_orders"]}
+    if any(
+        not OrderStatus(event["new_status"]).terminal and order_id not in active
+        for order_id, event in latest.items()
+    ):
+        raise ValueError("terminal latest nonterminal event lost its active order")
+    if len(ex["funding_evidence"]) > 1:
+        raise ValueError("terminal one-bar interval has duplicate funding boundaries")
+    if not book["insolvent"] and book["termination_reason"] is None:
+        for boundary in ex["funding_evidence"]:
+            _equal(boundary["equity_after_funding"], book["equity"])
+            for field, book_field in (
+                ("signed_quantities", "quantities"),
+                ("mark_prices", "mark_prices"),
+                ("contract_multipliers", "contract_multipliers"),
+            ):
+                for actual, expected in zip(
+                    boundary[field], book[book_field], strict=True
+                ):
+                    _equal(actual, expected)
+    if any(
+        _number(value) < 0
+        for value in (
+            ex["unfilled_turnover"],
+            ex["max_participation"],
+            *ex["participation_by_symbol"],
+        )
+    ):
+        raise ValueError("terminal native participation/turnover is negative")
+    if ex["requested_notional"] <= 1e-12:
+        _equal(ex["fill_ratio"], 1.0)
+
+
 def _metrics(previous: dict[str, Any], native: dict[str, Any]) -> None:
     book, ex = native["book"], native["execution"]
     equity, peak, dd = (
@@ -194,19 +255,6 @@ def _metrics(previous: dict[str, Any], native: dict[str, Any]) -> None:
         if any(_number(v) < 0 for v in ex[vector]):
             raise ValueError("terminal unsigned symbol aggregate is negative")
         _equal(math.fsum(ex[vector]), ex[aggregate])
-    fills = [
-        event
-        for event in native["order_events"]
-        if event["event_type"] in ("filled", "partial_fill")
-    ]
-    _equal(math.fsum(e["filled_notional"] for e in fills), ex["filled_notional"])
-    for index, total in enumerate(ex["filled_notional_by_symbol"]):
-        _equal(
-            math.fsum(
-                e["filled_notional"] for e in fills if e["symbol_index"] == index
-            ),
-            total,
-        )
     turnover_denominator = max(previous["equity"], 1e-12)
     _equal(ex["filled_turnover"], ex["filled_notional"] / turnover_denominator)
     _equal(ex["requested_turnover"], ex["requested_notional"] / turnover_denominator)
@@ -221,6 +269,7 @@ def _metrics(previous: dict[str, Any], native: dict[str, Any]) -> None:
         ("expired_count", ("expired",)),
     ):
         _same(ex[key], sum(e["event_type"] in events for e in native["order_events"]))
+    _retained_links(native)
 
 
 def _risk_config(value: object, digest: str) -> PreTradeRiskConfig:

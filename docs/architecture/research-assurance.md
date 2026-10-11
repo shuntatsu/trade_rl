@@ -2058,8 +2058,14 @@ conformance values, not empirical strategy results or a profitability claim.
 target, visible local state, cumulative cost/carry/counter algebra and signed
 reward telescoping. Filled/partial-fill event amounts must equal execution totals
 and symbol totals; moving a notional to an untraded coordinate rejects even when
-the scalar total is unchanged. Source pins plus aggregates do not authenticate the actual
-historical fee decomposition, stochastic execution or complete intent/fill
+the scalar total is unchanged.
+Order direction, price-times-quantity notional and the latest nonterminal order's
+active membership are retained invariants. One-bar funding cardinality and normal
+solvent endpoint/snapshot equality use returned facts; economic termination may
+flatten after the boundary and retains a separate snapshot. General fill ratios
+and historical funding prices cannot be independently recovered from aggregates.
+Source pins plus aggregates do not authenticate historical fee decomposition,
+stochastic execution or complete intent/fill
 archive. Endpoint facts support cumulative native DD lower bounds and continuity,
 not exact independent intrabar DD reconstruction. Valid failure observations
 retain the last returned frontier and original diagnostic; malformed returned

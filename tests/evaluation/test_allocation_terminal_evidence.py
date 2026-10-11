@@ -109,6 +109,181 @@ def test_fill_event_symbol_totals_cannot_move_to_an_untraded_coordinate():
         api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
 
 
+@pytest.mark.parametrize("mutation", ["direction", "zero", "price", "no_price"])
+def test_retained_fill_quantity_and_price_cannot_contradict_the_order(mutation):
+    api = capability()
+    plan, raw = observed()
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    fill = next(
+        event
+        for event in raw["closing_rows"][0]["native"]["order_events"]
+        if event["event_type"] == "filled"
+    )
+    assert fill["requested_quantity"] == fill["filled_quantity"] == -5.0
+    assert fill["execution_price"] == 110.0 and fill["filled_notional"] == 550.0
+    if mutation == "direction":
+        fill["filled_quantity"] = 5.0
+    elif mutation == "zero":
+        fill["filled_quantity"] = 0.0
+    else:
+        fill["execution_price"] = None if mutation == "no_price" else 1.0
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["equity", "duplicate", "quantity", "mark", "multiplier"]
+)
+def test_normal_funding_boundary_must_match_its_returned_account(mutation):
+    api = capability()
+    plan, raw = observed()
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    native = raw["closing_rows"][0]["native"]
+    boundaries = native["execution"]["funding_evidence"]
+    assert len(boundaries) == 1
+    boundary = boundaries[0]
+    assert boundary["funding_amount"] == 0.0
+    assert boundary["equity_after_funding"] == native["book"]["equity"] == 1039.0
+    if mutation == "equity":
+        boundary["equity_before_funding"] += 1
+        boundary["equity_after_funding"] += 1
+    elif mutation == "duplicate":
+        boundaries.append(deepcopy(boundary))
+    elif mutation == "quantity":
+        boundary["signed_quantities"][0] = 1.0
+        boundary["funding_price_rates"][0] = 0.0
+    elif mutation == "mark":
+        boundary["mark_prices"][0] += 1.0
+    else:
+        boundary["contract_multipliers"][0] += 1.0
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+def test_last_nonterminal_event_cannot_lose_its_known_active_order():
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        terminal_allocation_state_digest,
+    )
+
+    api = capability()
+    plan, raw = observed(partial=True)
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    row = raw["closing_rows"][0]
+    native = row["native"]
+    assert native["active_orders"]
+    assert native["order_events"][-1]["new_status"] == "partially_filled"
+    native["active_orders"] = []
+    row["after_state_digest"] = terminal_allocation_state_digest(
+        plan.native_plan.payload["common"],
+        plan.closing_source_digest,
+        native,
+        index=row["processing_index"],
+        time_ns=row["processing_time_ns"],
+    )
+    raw["final_active_orders"] = []
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["ratio", "unfilled", "participation", "symbol_participation"]
+)
+def test_zero_request_cash_preserves_native_diagnostic_bounds(mutation):
+    api = capability()
+    plan, raw = observed(kind="cash")
+    api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+    execution = raw["closing_rows"][0]["native"]["execution"]
+    assert execution["requested_notional"] == 0.0 and execution["fill_ratio"] == 1.0
+    if mutation == "ratio":
+        execution["fill_ratio"] = 0.0
+    elif mutation == "unfilled":
+        execution["unfilled_turnover"] = -1.0
+    elif mutation == "participation":
+        execution["max_participation"] = -1.0
+    else:
+        execution["participation_by_symbol"][0] = -1.0
+    with pytest.raises(ValueError):
+        api.TerminalAllocationExecutionReceipt.from_payload(raw, expected_plan=plan)
+
+
+@pytest.mark.parametrize(
+    "mutation,message",
+    [
+        ("bounds", "transition unsigned notionals/fill ratio exceed native bounds"),
+        ("clock", "transition interval-local order clock differs"),
+        ("empty", None),
+    ],
+)
+def test_legacy_execution_error_precedes_unused_recipe_economics_lookup(
+    mutation, message
+):
+    from tests.evaluation.test_allocation_static_cap_receipts import historical
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        validate_allocation_execution_facts,
+    )
+
+    _, raw = historical("uncapped_success")
+    native = raw["rows"][0]["native"]
+    recipe = raw["plan"]["cell"]["runtime"]["recipe"]
+    del recipe["runtime_profile"]["economics_digest"]
+    if mutation == "bounds":
+        native["execution"]["fill_ratio"] = -1.0
+    elif mutation == "clock":
+        native["order_events"][0]["timestamp_ns"] += 1
+    else:
+        for field in ("order_events", "active_orders", "terminal_order_reasons"):
+            native[field] = []
+        context = native["proposal"]["decision"]["baseline"]["context"]
+        expected = (native["book"]["equity"] - context["equity"]) / 1000.0
+        assert validate_allocation_execution_facts(
+            native,
+            recipe,
+            dataset_id=raw["plan"]["common"]["dataset_id"],
+            action_code=2,
+        ) == pytest.approx(expected)
+        return
+    with pytest.raises(ValueError, match=message) as caught:
+        validate_allocation_execution_facts(
+            native,
+            recipe,
+            dataset_id=raw["plan"]["common"]["dataset_id"],
+            action_code=2,
+        )
+    assert caught.value.__cause__ is None
+
+
+def test_partial_fill_followed_by_economic_cancellation_is_not_pending():
+    api = capability()
+    runner = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    folds, env = carrier(side=-1, partial=True)
+    price_rates = env.dataset.resolved_array("funding_price_rate").copy()
+    price_rates[8] = -1000.0
+    object.__setattr__(env.dataset, "funding_price_rate", price_rates)
+    plan = plans(runner, env, folds)
+    raw = runner.run_terminal_allocation_execution(folds, env, plan).payload
+    native = raw["closing_rows"][0]["native"]
+    partial = next(
+        event
+        for event in native["order_events"]
+        if event["event_type"] == "partial_fill"
+    )
+    same_order = [
+        event
+        for event in native["order_events"]
+        if event["order_id"] == partial["order_id"]
+    ]
+    assert same_order[-1]["event_type"] == "cancelled"
+    assert native["active_orders"] == [] and native["book"]["insolvent"]
+    assert native["execution"]["funding_evidence"][0]["signed_quantities"] == [-3.0]
+    assert native["book"]["quantities"] == [0.0]
+    receipt = api.TerminalAllocationExecutionReceipt.from_payload(
+        raw, expected_plan=plan
+    ).payload
+    assert receipt["status"] == "economic_stop"
+    assert receipt["observed_profit_rate"] < -1.0
+    assert receipt["settled_profit_rate"] is None
+
+
 @pytest.mark.parametrize(
     "field",
     [
@@ -379,7 +554,7 @@ def test_closed_reader_is_pure_and_uses_no_dataset_or_executor(monkeypatch):
     ).payload["settlement_complete"]
 
 
-def test_native_turnover_floor_does_not_clip_signed_equity_reward():
+def test_native_turnover_denominator_keeps_floor_for_tiny_equity():
     api = capability()
     # Native turnover uses a 1e-12 denominator floor; economic reward does not.
     previous = {
@@ -394,8 +569,9 @@ def test_native_turnover_floor_does_not_clip_signed_equity_reward():
         "rebalance_events": 0,
     }
     native = {
-        "book": dict(previous),
+        "book": dict(previous, insolvent=False, termination_reason=None),
         "order_events": [],
+        "active_orders": [],
         "execution": {
             "interval_net_return": 0.0,
             "interval_log_return": 0.0,
@@ -418,6 +594,10 @@ def test_native_turnover_floor_does_not_clip_signed_equity_reward():
             "filled_turnover": 0.0,
             "cost_by_symbol": [0.0],
             "funding_evidence": [],
+            "unfilled_turnover": 0.001,
+            "max_participation": 0.0,
+            "participation_by_symbol": [0.0],
+            "fill_ratio": 1.0,
         },
     }
     api._metrics(previous, native)

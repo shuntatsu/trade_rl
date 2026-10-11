@@ -43,6 +43,30 @@ def test_closed_terminal_owners_are_pure_and_have_no_research_gateway():
         }
 
 
+def test_standalone_nonrl_report_closes_raw_records_with_the_original_reader():
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse(
+        (
+            root / "trade_rl/evaluation/allocation_settled_forecast_comparison.py"
+        ).read_text("utf-8")
+    )
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    for name in ("build_settled_forecast_comparison", "build_settled_nonrl_comparison"):
+        calls = {
+            ast.unparse(n.func)
+            for n in ast.walk(functions[name])
+            if isinstance(n, ast.Call)
+        }
+        assert "TerminalAllocationExecutionReceipt.from_payload" in calls
+    classes = {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+    assert {
+        "TerminalAllocationForecastControls",
+        "SettledForecastComparisonPlan",
+        "TerminalAllocationNonRLControls",
+        "SettledNonRLComparisonPlan",
+    } <= classes
+
+
 def test_actor_free_validation_reuses_leaves_without_fabricating_an_actor():
     root = Path(__file__).resolve().parents[2]
     tree = ast.parse(

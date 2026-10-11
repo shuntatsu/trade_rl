@@ -1571,6 +1571,15 @@ remain distinct; consistency projections are never replacement identities.
 Reports retain receipt objects and regenerate summaries from their detached
 bytes. A summary-only JSON import is not provided as evidence admission.
 
+The same owner contains distinct standalone NONRL/CASH control, matrix and
+report types. Both raw observations still enter through
+`TerminalAllocationExecutionReceipt.from_payload` with their own external
+terminal plans. It adds no runner, ledger, forecast learner, source adapter or
+configurable matching projection. Full native common/source/cost/recipe parity
+is stricter than the three-arm forecast-factor comparison; that existing API and
+its distinct forecast assignment remain unchanged. Shared terminal context and
+receipt-row helpers derive identical summaries for both report families.
+
 ## Version-bound global transition verification ownership
 
 `rl_allocation/transition_facts.py` retains the strict historical validator and

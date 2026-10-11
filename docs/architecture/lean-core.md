@@ -1671,6 +1671,20 @@ consistent returned aggregates do not authenticate historical execution costs,
 RNG or the complete terminal fill archive. Economic qualification and matching
 settled PPO learning remain separate prerequisites.
 
+The same settled-report owner also offers a separately frozen two-arm
+`TerminalAllocationNonRLControls` / `SettledNonRLComparisonPlan` for a standalone
+cost-aware NONRL controller versus CASH. This requires neither a second forecast
+nor PPO. Complete native common payloads, including forecast and cost-belief
+pins, must match. Standalone native recipes differ only in validated direct CASH
+versus residual NONRL mode; actual cost policies and source-context pins match.
+Terminal objective, closing source and clocks match except each validated
+deployment recipe identity. Both original raw records pass the existing closed
+terminal reader. Every declared account/scenario pair remains visible; partial,
+failed or DD-ineligible arms yield no `nonrl_minus_cash` delta. Actual charges
+need not equal forecast estimates or CASH charges. These checks preserve the
+existing observed-cost, intrabar-DD and historical source-authentication limits;
+they do not widen the separate bounded 42-array native-capture profile.
+
 ## Versioned global static-cap verification
 
 New global execution receipts use `allocation_global_execution_receipt_v2`.

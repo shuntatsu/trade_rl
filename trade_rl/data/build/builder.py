@@ -13,6 +13,7 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
     MarketCalendarKind,
+    timeframe_hours,
 )
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
@@ -21,6 +22,7 @@ from trade_rl.data.features.cross_asset import (
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
 from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.features.native_cross_asset import align_native_cross_asset_feature
 from trade_rl.data.features.numerics import (
     portable_log,
     portable_mean,
@@ -366,6 +368,7 @@ class MarketDatasetBuilder:
         feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         native_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        consumed_native_cross_asset: set[tuple[str, str]] = set()
         for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
@@ -417,10 +420,8 @@ class MarketDatasetBuilder:
                 feature_age_hours[:, symbol_index, feature_index] = age_hours
                 feature_staleness[:, symbol_index, feature_index] = staleness
 
-        # Cross-asset channels are derived only after every symbol's native
-        # one-bar return has been causally aligned to the base decision clock.
-        # This prevents symbol-order dependence and keeps rolling windows on
-        # completed native events rather than repeated carried values.
+        # Finer cross-asset clocks accumulate native events before downsampling.
+        # Equal/coarser clocks retain the aligned-return event history below.
         for feature_index, spec in enumerate(self.config.features):
             if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
                 continue
@@ -444,6 +445,43 @@ class MarketDatasetBuilder:
                 raise ValueError(
                     "cross-asset features require cross_asset_reference_symbol"
                 )
+            if timeframe_hours(native_timeframe) < self.config.bar_hours:
+                if not isinstance(source, MultiTimeframeMarketDataSource):
+                    raise ValueError(
+                        "native cross-asset features require a "
+                        "MultiTimeframeMarketDataSource"
+                    )
+                native_sources: list[RawMarketSeries] = []
+                for instrument in instruments:
+                    key = (instrument.symbol, native_timeframe)
+                    cached_native: RawMarketSeries | None = native_cache.get(key)
+                    if cached_native is None:
+                        cached_native = source.load_timeframe(
+                            instrument.symbol, native_timeframe
+                        )
+                        native_cache[key] = cached_native
+                    if cached_native.timestamps[-1] > timestamps[-1]:
+                        raise ValueError(
+                            "native cross-asset source extends beyond Dataset clock"
+                        )
+                    native_sources.append(cached_native)
+                    consumed_native_cross_asset.add(key)
+                mtf_values, mtf_available, mtf_ages, mtf_staleness = (
+                    align_native_cross_asset_feature(
+                        spec,
+                        tuple(native_sources),
+                        instruments,
+                        timestamps,
+                        symbol_active,
+                        timeframe=native_timeframe,
+                        reference_symbol=reference_symbol,
+                    )
+                )
+                features[:, :, feature_index] = mtf_values
+                feature_available[:, :, feature_index] = mtf_available
+                feature_age_hours[:, :, feature_index] = mtf_ages
+                feature_staleness[:, :, feature_index] = mtf_staleness
+                continue
             events = calculate_cross_asset_feature_events(
                 spec,
                 aligned_returns=features[:, :, return_index],
@@ -500,7 +538,20 @@ class MarketDatasetBuilder:
         feature_age_hours = feature_age_hours.astype(np.float32)
         feature_staleness = feature_staleness.astype(np.float32)
         feature_names = tuple(spec.name for spec in self.config.features)
-        feature_config_digest = content_digest(self.config.canonical_payload())
+        config_payload = self.config.canonical_payload()
+        if any(
+            spec.kind in CROSS_ASSET_FEATURE_KINDS
+            and timeframe_hours(spec.resolved_timeframe(self.config.base_timeframe))
+            < self.config.bar_hours
+            for spec in self.config.features
+        ):
+            config_payload["native_cross_asset_alignment"] = (
+                "native_before_base_sync_v1"
+            )
+            config_payload["native_cross_asset_history"] = (
+                "last_n_eligible_pair_events_v1"
+            )
+        feature_config_digest = content_digest(config_payload)
         normalization_digest = content_and_arrays_digest(
             {
                 "schema": "normalization_state_v1",
@@ -515,7 +566,7 @@ class MarketDatasetBuilder:
         )
         metadata = {
             "schema": MARKET_DATASET_IDENTITY_SCHEMA,
-            "config": self.config.canonical_payload(),
+            "config": config_payload,
             "feature_config_digest": feature_config_digest,
             "normalization_digest": normalization_digest,
             "symbols": symbols,
@@ -525,6 +576,28 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
+        if consumed_native_cross_asset:
+            native_inputs: list[dict[str, str]] = []
+            for symbol, timeframe in sorted(consumed_native_cross_asset):
+                raw = native_cache[(symbol, timeframe)]
+                assert raw.available_at is not None
+                raw_digest = content_and_arrays_digest(
+                    {
+                        "schema": "native_cross_asset_raw_input_v1",
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                    },
+                    (
+                        ("timestamps", raw.timestamps),
+                        ("available_at", raw.available_at),
+                        ("close", raw.close),
+                        ("tradable", raw.tradable),
+                    ),
+                )
+                native_inputs.append(
+                    {"symbol": symbol, "timeframe": timeframe, "sha256": raw_digest}
+                )
+            metadata["native_cross_asset_raw_inputs"] = native_inputs
         if identity_provenance is not None:
             metadata["metadata_evidence"] = identity_provenance
         if execution_economics is not None:

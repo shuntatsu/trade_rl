@@ -71,6 +71,33 @@ def test_market_preparation_is_not_a_tier_one_facade_or_persisted_schema():
     )
 
 
+def test_signature_admission_reuses_only_existing_transform_and_pair_guard():
+    tree = ast.parse(OWNER.read_text(encoding="utf-8"))
+    imported = {
+        node.module: {name.name for name in node.names}
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+    }
+    assert imported["trade_rl.data.features.signature"] == {"with_path_signatures"}
+    assert imported["trade_rl.evaluation.signature_comparison"] == {
+        "validate_signature_pair"
+    }
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    keywords = {
+        arg.arg for arg in functions["prepare_allocation_market_inputs"].args.kwonlyargs
+    }
+    assert {"signature_parent_root", "expected_signature_parent_dataset_id"} <= keywords
+    calls = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert {"with_path_signatures", "validate_signature_pair"} <= calls
+    assert "run_ridge_signature_comparison" not in calls
+
+
 def test_declared_cost_owner_reuses_native_config_without_execution_or_new_schema():
     from trade_rl import evaluation
     from trade_rl.evaluation import allocation_costs

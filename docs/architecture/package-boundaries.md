@@ -29,7 +29,7 @@ trade_rl/
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
 │   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py}
+│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,native_alignment.py,native_cross_asset.py,numerics.py,price_channels.py,signature.py,signature_multitimeframe.py}
 ├── integrations/
 │   └── binance/
 │       ├── types.py
@@ -1382,22 +1382,24 @@ windows, publication clocks or research authorization for its caller.
 `evaluation/allocation_market_inputs.py` owns the opt-in
 `prepare_allocation_market_inputs` composition and frozen in-memory
 `PreparedAllocationMarketInputs`. It loads an already-authorized canonical
-development artifact once, checks explicit scope and complete costs, invokes
+development artifact once (plus one separately pinned parent in paired
+single-clock Signature mode), checks explicit scope and complete costs, invokes
 the existing direct-simple producer once and uses the existing exclusive file
 publisher. It does not copy the Dataset manifest reader, fit per consumer lane
 or introduce a persisted schema. The Tier-1 evaluation facade is unchanged.
 
 Data identity parsing and FeatureSpec decoding remain in their existing owners;
 feature/symbol dependency checks remain in `strategies.dataset_scope`.
-Preparation admits only the current v7 and legacy v6 constants owned by
+Default preparation admits only the current v7 and legacy v6 constants owned by
 `data.identity`, with the same direct portable build, scope, availability and
 same-close gates. The existing artifact loader owns v3/v4 field rosters and
 identity verification; composition adds no manifest reader or version converter.
 The thin cost decoder admits exact `horizon_cost_estimates_v1` keys, reuses strict
 clock decoding and the existing constructor/payload roundtrip, and adds no rate
 model. Cost groups follow Dataset symbols and chronological decisions, suitable
-for the existing per-symbol independent-account consumers. The owner imports no
-learner, simulation ledger, network, credentials or sealed research lifecycle.
+for the existing per-symbol independent-account consumers. The owner constructs
+no learner or ledger and executes no account transition, network call,
+credential access or sealed research lifecycle.
 
 `evaluation/allocation_costs.py` owns only frozen in-memory
 `DeclaredAllocationCostRecipe` and the concrete `estimate_declared_horizon_costs`.
@@ -1428,3 +1430,71 @@ Native funding continues to own settlement-weighted cashflow products, while
 the declared producer owns rate projections. Composition preserves a loaded v7
 product channel even when it differs from rate times bar mark. Legacy v6 retains
 the loader's bar-mark fallback and cannot bind changed settlement economics.
+
+## Opt-in causal rolling Path Signature feature
+
+`data/features/signature.py` owns the bounded, depth-1..3 truncated Chen-product
+algorithm and an explicit `with_path_signatures` MarketDataset augmentation.
+It consumes only completed close/volume rows with row-level point-in-time
+availability, uses normalized bar-index as its time augmentation, and does not
+reconstruct high/low event ordering inside a candle. It appends masked local
+features, retains all source account/economic arrays, and publishes a new
+content-bound dataset identity. No `FeatureKind` or default canonical build
+schema is changed. It has no strategy, ledger, risk or evaluation ownership.
+
+## Native MTF cross-asset and rolling Signature augmentation
+
+`data/features/native_alignment.py` is the as-of native-to-base event alignment
+primitive. `native_cross_asset.py` calculates BTC-relative rolling statistics on
+eligible native return events before reducing to a base decision clock;
+`data/build/builder.py` invokes it only for strictly finer cross-asset clocks.
+The equal/coarser aligned-return path is unchanged. For native 15m returns on a
+1h decision clock, a 24-event rolling correlation uses the last 24 eligible
+native pair events, not 24 hourly samples. Each admitted return joins two
+adjacent active, tradable rows available by their own closes. Missing pair events
+do not reset the maintained history. The builder owns the affected-only
+`native_cross_asset_alignment=native_before_base_sync_v1` derived configuration
+marker plus `native_cross_asset_history=last_n_eligible_pair_events_v1` and uses
+one enriched payload for both its digest and identity metadata. The history field
+distinguishes eligible-event history from a consecutive-observation/reset policy.
+These markers are not `MarketBuildConfig` constructor/build-request fields.
+
+`data/features/signature_multitimeframe.py` supplies opt-in
+`with_multitimeframe_path_signatures`: each native continuous timeframe computes
+bounded 3–512 completed-bar piecewise-linear signatures (depth 1–3, normalized
+bar-index + log close, optional positive log volume) and as-of aligns only
+arrived outputs to the base decision clock. Per-timeframe raw digest, window,
+source Dataset ID, channel choice and depth bind new Dataset identity; source
+Dataset/accounting/price arrays remain untouched. No OHLC intrabar sequence is
+assumed. Neither sub-bar decisions nor new risk/ledger/strategy authority are
+introduced.
+
+`evaluation/signature_comparison.py` owns paired diagnostic admission and reuses
+`data/identity.py`'s array roster and `MarketDataset.identity_contract_payload()`
+for input equality. It has no separate financial schema or accounting owner.
+Local Signature columns and their representation provenance may change; original
+feature prefixes, global information, normalized financial clocks, volume units
+and native financial arrays may not. Rejection occurs before either fit or replay.
+
+## Signature-to-allocation preparation ownership
+
+The existing allocation_market_inputs owner adds only an explicit paired parent
+route. Its private direct-build validator retains FeatureSpec/numerics decoding.
+It reuses data.features.signature.with_path_signatures for complete reconstruction
+and only evaluation.signature_comparison.validate_signature_pair for conservation.
+It never calls that module's diagnostic Ridge/replay comparison. Neither the
+augmenters' identities nor dataset_scope, the cost decoder, allocation or ledger
+owners change. No new facade, persisted schema, wrapper or second fitter is added.
+
+The parent owns declared cost source identity and execution economics; the
+augmented Dataset owns the forecast/stream identity. Both exact pins are checked.
+Preparation retains the same in-memory result and recipe object, with one
+producer invocation and one exclusive publication. Paired mode loads each whole
+authorized artifact once and requires the exact complete Dataset-symbol tuple.
+Multi-timeframe source admission and strict-subset dependency contracts are
+separate; the maintained current native MTF producer remains available elsewhere.
+
+Architecture tests retain no learner/ledger/network/lifecycle operations and
+guard the specific maintained transform/pure-pair imports and private API scope.
+The integrated native history markers remain native_before_base_sync_v1 and
+last_n_eligible_pair_events_v1; the competing reset-on-gap policy is not adopted.

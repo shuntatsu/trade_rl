@@ -143,3 +143,25 @@ The `dev` extra also includes the same SciPy range for the repository test suite
 ## Research rule
 
 Do not add model complexity to make a result pass. First verify causality, data quality, execution accounting, costs, symbol-level robustness, and unused-data evidence. A correct `no winner` result is preferable to an overfit winner.
+
+## Opt-in causal path signatures (software-only)
+
+A separately versioned rolling piecewise-linear Path Signature is available as an
+**opt-in Dataset augmentation**, without changing canonical candidate sets:
+
+```python
+from trade_rl.data.features import with_path_signatures
+
+augmented = with_path_signatures(
+    verified_dataset, window_bars=24, depth=2, include_volume=False
+)
+# Explicitly select augmented.feature_names in a new development run.
+```
+
+The channels are normalized bar-step time and log close (optionally positive
+log volume), with degrees 1–3. All window bars must be observable by their
+own close. Missing or late inputs produce masked-out features, never fills or
+signals. No OHLC intrabar ordering is inferred. Input window/depth, training
+scope and execution economics must be fixed in a separate Controlled Experiment
+before claiming any after-cost improvement. This capability establishes no
+profitable strategy, sealed-final qualification, or production authorization.

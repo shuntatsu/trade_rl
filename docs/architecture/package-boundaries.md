@@ -1601,9 +1601,10 @@ objective, source consumption, a training budget or saved policy.
 
 `evaluation/objectives/clock.py` retains its historical regular clock contract.
 The new declaration is not implicitly accepted by existing marked receipts,
-recipes, environment, continuation, schedules or bundle dispatch. A future
-settled adapter must own explicit binding, native closing, compressed-transition
-evidence and verified same-H inference; a clock declaration is not that adapter.
+recipes, environment, continuation or schedules. Explicit v4 recipe dispatch
+uses its distinct closed reconstruction before the unchanged legacy readers;
+no successful settled bundle dispatch is admitted yet. A clock declaration
+alone supplies no execution, fit evidence or verified same-H inference.
 
 `evaluation/allocation_reserved_closing.py` owns the private native reserve
 iterator and returned step. It depends on canonical allocation execution and
@@ -1611,5 +1612,18 @@ native account facts, with no environment, global-plan, trainer or Study owner.
 Callers supply frozen digest/binding and diagnostic frontier hooks, never an
 execution implementation. `allocation_terminal_execution.py` retains its
 declaration, provenance and receipt formatting while fully consuming the shared
-iterator; its marked carrier remains unchanged. A future settled environment
-must use this same iterator and preserve final postflight/exhaustion evidence.
+iterator; its marked carrier remains unchanged. The distinct settled composition
+environment uses this same iterator and exhausts final postflight validation.
+
+`rl_allocation/settled_binding.py` owns full-H objective/runtime admission;
+`settled_env.py` composes Gym with the canonical actor executor and shared native
+reserve, never the marked environment or terminal evidence carrier. It owns
+actual instance/frontier continuity, signed fixed-C reward and detached native
+diagnostics. It constructs accounts only at admitted reset boundaries.
+`settled_training_source.py` hashes declared actor selections and inclusive
+all-symbol native financial arrays without a learner or legacy environment
+dependency. Its receipt is a pre-fit source declaration, not consumed evidence.
+`strategies/rl/allocation_recipe_v4.py` owns the independent settled recipe with
+observation v2 and full physical clock. Training source/trace/buffer verification,
+fixed CPU fit, new settled artifact admission and same-H inference remain separate
+unfinished owners; these runtime capabilities do not reinterpret marked bundles.

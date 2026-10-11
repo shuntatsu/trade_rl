@@ -2146,3 +2146,20 @@ The terminal adapter retains the original before-state/failure order and frozen
 legacy receipt bytes under fixed software provenance. This adds native closing
 mechanism evidence; it does not establish settled actor/critic/source/fit or
 artifact parity. Those full-lane G2 checks and G3-G5 remain required.
+
+The distinct settled composition now executes P actor transitions and H native
+bars through the same account/risk/orders/RNG. Literal software oracles directly
+check fee-only998 with rewards−.001/−.001 and last actor fraction3/4, long1039,
+short1041, full flat cash carry1003.003001, residual partial fill and signed
+debt−504.5. It retains every returned row before rejection, including an invalid
+final clock. A settled DD breach remains present and ineligible. Mid-episode
+native instance replacement and reset-based account discard reject while keeping
+the frontier; later eligible cash cannot erase a previous closing failure.
+
+The source envelope is checked before account creation and each native boundary:
+actor-only selected information is separate from all physical financial/capacity
+rows, including funding_price_rate. Reserve feature changes are not actor
+consumption; reserve financial drift rejects before execution. These are bounded
+synthetic runtime/contract checks. Real critic7/GAE masks, actual consumed-input
+and append evidence, CPU fit, publication/save/load and same-H policy parity are
+still mandatory, and no profit, economic G3-G5 or formal approval follows.

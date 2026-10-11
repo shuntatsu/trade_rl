@@ -48,6 +48,16 @@
   "source_sections": [
     {
       "path": "docs/architecture/lean-core.md",
+      "heading": "Declared settled allocation learning clock",
+      "sha256": "0c5238aeff71dcb807cf78c81a07c995fef5fb52412edb6caa64ae96234c1e4a"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Settled learning work: clock and shared native reserve",
+      "sha256": "9a6ea67949931e347527090d1ae5b33db8f3c1e3bd291c5a9c24fb6e7ac2f6af"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
       "heading": "Pure allocation observation v3 frozen-feature projection",
       "sha256": "8176c22f5936501d8c5e8d5fb04399ec37a8264f59848bd08a345b863a3a29cd"
     },
@@ -516,13 +526,27 @@
       "id": "fit-allocation-ppo",
       "symbol": "trade_rl.evaluation.rl_allocation.training.fit_allocation_ppo",
       "kind": "function",
-      "source_sha256": "7280df8f1b10c412008d5cdd75983dc7ddd7ae709323e3ff37ceae64736ca2aa",
+      "source_sha256": "fd3fd23d0e485af6720606af6002d70e94d06831fd1661d199937fe04932d313",
       "label_ja": "明示した独立口座だけで配分PPOを学習する",
-      "description_ja": "省略・Noneでは既存v1/v2のbudgetとsource記録を維持します。明示設定ではv3 bundle、凍結前処理では実Datasetのprefixを構築前・学習後に照合してv4 bundleへ接続します。市場承認や学習成功の証明ではありません。",
+      "description_ja": "時価評価で終わるAllocationTradingEnvだけを、resetや学習器importより前に受け付けます。省略・Noneでは既存v1/v2のbudgetとsource記録を維持します。明示設定ではv3 bundle、凍結前処理では実Datasetのprefixを構築前・学習後に照合してv4 bundleへ接続します。市場承認や学習成功の証明ではありません。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_allocation_preprocessing_runtime.py",
         "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "allocation-settled-env",
+      "symbol": "trade_rl.evaluation.rl_allocation.settled_env.SettledAllocationTradingEnv",
+      "kind": "class",
+      "source_sha256": "9e992349409cd6efe82494bb35f713bbb3558e377a42c0d3c8fd4f8432b1d7d5",
+      "label_ja": "同じ口座の決済費用まで最後の報酬へ含める",
+      "description_ja": "独立口座でP回の判断とR本の予約決済を分け、同じ共通会計でH=P+Rを処理します。残り期間は全Hを分母にし、最後の報酬に決済費用・carryを含めます。債務・未約定・失敗を保持し、実学習・保存物の適格性は後続検証です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_settled_env.py",
+        "tests/evaluation/test_allocation_settled_source.py",
+        "tests/architecture/test_allocation_settled_learning_boundary.py"
       ]
     },
     {

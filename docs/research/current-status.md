@@ -2524,9 +2524,9 @@ fixed-capital equity-delta/gamma1 and GAE per actor transition, with full-H
 remaining fractions and a distinct closed schema. It does not change the
 historical regular financial clock or marked-continuation training.
 
-The active Issue #810 software work still requires an actual settled Gym lane,
-shared native closing, separate actor/physical source and transition evidence,
-fixed-protocol SB3 fit, verified new bundle save/load and same-H inference.
+The active Issue #810 software work still requires actual consumed actor/physical
+source and transition evidence, fixed-protocol SB3 fit, verified new bundle
+save/load and same-H inference.
 Clock-only tests cannot establish that parity or complete the work. Mechanical
 unfinished closing must not publish a successful settled bundle; stopped/debt
 and DD-ineligible paths retain truthful signed diagnostics. No such new fit,
@@ -2539,7 +2539,16 @@ The shared `allocation_reserved_closing` iterator now executes the existing
 NONRL/cash terminal route's native reserve without creating another account or
 ledger. It preserves zero-target hard risk, actual returned book/orders/RNG,
 full flat cash carry, before-state diagnostics and final yielded-row validation.
-Partial closing and signed debt remain actual observations. The distinct settled
-Gym lane, compressed actor/physical source/trace, CPU SB3 fit, new verified bundle
-and same-H saved-policy inference are still incomplete; this extraction supplies
-no PPO learning result, profit improvement or formal research approval.
+Partial closing and signed debt remain actual observations. The distinct
+`SettledAllocationTradingEnv` now binds one independent account, full physical
+horizon, observation v2 and recipe v4, then uses that same finalizer. Fixed
+synthetic cases directly verify signed after-cost reward, full reserved cash
+carry, native frontier preservation and separate settlement/DD eligibility.
+Live instance replacement and reset-based discard are rejected; unsuccessful
+closing remains sticky across later episodes. The pre-fit source envelope pins
+actor information separately from inclusive all-symbol native financial rows.
+
+Actual actor/critic consumption, buffer/GAE evidence, fixed CPU SB3 fit, new
+verified bundle and same-H saved-policy inference remain incomplete. No new
+market learning, economic comparison, profit improvement or formal research
+approval is established. The work and Issue #810 are still active and incomplete.

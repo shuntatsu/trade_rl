@@ -19,6 +19,9 @@ from trade_rl.strategies.rl.allocation_preprocessing import (
 )
 from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
 from trade_rl.strategies.rl.allocation_recipe_v3 import allocation_recipe_payload_v3
+from trade_rl.strategies.rl.allocation_recipe_v4 import (
+    validate_settled_allocation_recipe,
+)
 
 
 def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
@@ -30,6 +33,9 @@ def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
 def validate_allocation_recipe(recipe: dict[str, Any]) -> None:
     if type(recipe) is not dict or type(recipe.get("schema")) is not str:
         raise ValueError("allocation recipe dispatch requires a native mapping and tag")
+    if recipe["schema"] == "allocation_ppo_recipe_v4":
+        validate_settled_allocation_recipe(recipe)
+        return
     v3 = recipe.get("schema") == "allocation_ppo_recipe_v3"
     if v3:
         try:

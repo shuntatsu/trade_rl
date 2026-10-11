@@ -1711,8 +1711,8 @@ does not replace calendar kind or effective bar duration for native carry.
 The distinct closed `allocation_settled_clock_v1` payload preserves these rules,
 strict native counts, resolved durations and immutable identity. The existing
 `financial_clock_v1`, marked environment, training receipts and bundles remain
-unchanged. This declaration processes no account and adds no settled runtime,
-training, publication or inference admission. Those are remaining prerequisites.
+unchanged. This declaration alone processes no account and supplies no training,
+publication or inference admission.
 
 `evaluation/allocation_reserved_closing.py` now owns the shared native reserve
 iterator. The existing NONRL/cash terminal adapter delegates every zero-target
@@ -1721,4 +1721,31 @@ RNG. It yields each returned frontier before clock/source postflight; the caller
 must exhaust even after the final yield. It never resets or mutates a carrier,
 and a flat account still processes all reserved carry bars. An economic stop
 retains its actual signed account and incomplete coverage. This shared execution
-owner does not implement or admit the remaining settled learning lane.
+owner supplies execution, not learner or artifact admission.
+
+The distinct `SettledAllocationTradingEnv` composes this same native owner after
+its final actor bar. Its `BoundSettledAllocationClock` requires one settled
+independent account, exact P/R/H UTC bars, MARKET/zero-extra-latency retained-debt
+economics and unchanged hard risk at no more than20% DD. Recipe v4 independently
+binds full-H observation v2, calendar/effective bar hours and clock; Dataset
+window endpoints remain in the objective binding. Marked build/fit entry points
+explicitly reject this different environment before reset or optional imports.
+
+Reward is each actual native equity delta divided by original C; the final
+delta includes every returned reserve bar and its fees/carry. Ordered detached
+rows retain actor index, native return and visible before/after-state identities.
+True termination produces a zero sentinel without truncation. Native instances
+cannot be replaced mid-episode, and reset refuses to discard a processed live
+account. Failed/incomplete closing remains a sticky publication diagnostic.
+Full settlement and DD eligibility are distinct: a flat DD breach stays in
+evidence without becoming eligible. Signed insolvency and residual/active orders
+are never clipped or synthetically closed.
+
+The declared source envelope pins all-symbol native financial/availability/
+capacity rows including the complete reserve and reference row, separately from
+selected actor/forecast-owner features and actor cost/forecast declarations.
+Reserve feature availability and forecasts are not policy inputs. Exact native
+array-byte pins reject source drift; this pre-fit declaration does not prove
+actual actor/critic consumption or append completeness. Real CPU fit, independent
+source/transition/buffer evidence, bundle admission and same-H inference remain
+required and unestablished.

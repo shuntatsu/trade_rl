@@ -193,6 +193,7 @@ def validate_allocation_model(model: Any, manifest: dict[str, Any]) -> None:
     if manifest["recipe"]["schema"] in (
         "allocation_ppo_recipe_v2",
         "allocation_ppo_recipe_v3",
+        "allocation_ppo_recipe_v4",
     ):
         count = len(manifest["recipe"]["observation"]["fields"])
     if (
@@ -232,6 +233,7 @@ def validate_allocation_model(model: Any, manifest: dict[str, Any]) -> None:
         "allocation_ppo_inference_bundle_v3",
         "allocation_ppo_inference_bundle_v4",
         "allocation_ppo_inference_bundle_v5",
+        "allocation_ppo_inference_bundle_v6",
     ):
         validate_allocation_protocol_model(
             model, AllocationPPOTrainingProtocol.from_payload(training["protocol"])

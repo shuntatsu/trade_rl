@@ -12,6 +12,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.objectives import ObjectiveContract
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.simulation import MarketExecutor
+from trade_rl.strategies.forecasts.training_trace import _timestamp
 from trade_rl.strategies.rl.allocation_settled_clock import (
     SettledAllocationClockContract,
 )
@@ -104,19 +105,24 @@ def validate_settled_runtime_binding(
         or objective.deployment_recipe_digest != recipe_digest
     ):
         raise ValueError("settled profile or recipe differs from the actual runtime")
-    times = dataset.timestamps[start_index : settlement_stop_index + 1].astype(
-        "datetime64[ns]"
+    times = tuple(
+        _timestamp(value, field="settled Dataset clock")
+        for value in dataset.timestamps[start_index : settlement_stop_index + 1]
     )
-    if np.any(np.isnat(times)) or np.any(
-        np.diff(times.astype(np.int64))
-        != bound.clock.execution_interval_seconds * 1_000_000_000
+    ticks = tuple(int(value.astype(np.int64)) for value in times)
+    if any(
+        right - left != bound.clock.execution_interval_seconds * 1_000_000_000
+        for left, right in zip(ticks, ticks[1:])
     ):
         raise ValueError("Dataset intervals differ from the settled physical clock")
     for actual, declared in (
         (times[0], objective.evaluation_start),
         (times[-1], objective.evaluation_stop_exclusive),
     ):
-        expected = np.datetime64(declared.astimezone(UTC).replace(tzinfo=None), "ns")
+        expected = _timestamp(
+            np.datetime64(declared.astimezone(UTC).replace(tzinfo=None), "us"),
+            field="declared settled UTC endpoint",
+        )
         if actual != expected:
             raise ValueError(
                 "Dataset endpoints differ from the declared settled UTC horizon"

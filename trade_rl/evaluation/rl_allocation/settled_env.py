@@ -30,6 +30,7 @@ from trade_rl.evaluation.rl_allocation.settled_training_source import (
 )
 from trade_rl.evaluation.rl_allocation.transition_facts import (
     _json,
+    _pending,
     native_allocation_account_facts,
     native_allocation_execution_facts,
 )
@@ -242,6 +243,8 @@ class SettledAllocationTradingEnv(gym.Env):
             symbol_index=self.symbol_index,
             start_index=self.index,
         )
+        # Preserve the actual encoded input for read-only fit observers.
+        self._encoded_snapshot = snapshot
         return encode_allocation_observation_v2(
             snapshot,
             self.decision,
@@ -338,11 +341,24 @@ class SettledAllocationTradingEnv(gym.Env):
             and execution.bars_advanced == 1
             and execution.next_index == start + 1
         )
+        observed_ids = {event.order_id for event in execution.order_events}
+        accepted_orders = [
+            _pending(order)
+            for order in (
+                *execution.order_book.active_orders,
+                *execution.order_book.terminal_orders,
+            )
+            if order.order_id in observed_ids
+        ]
         return {
             "kind": kind,
             "start_index": start,
             "processing_index": execution.next_index,
             "clock_valid": valid,
+            "returned_clock_types": {
+                "next_index": type(execution.next_index).__name__,
+                "bars_advanced": type(execution.bars_advanced).__name__,
+            },
             "opening_equity": before,
             "before_state_digest": before_digest,
             "after_state_digest": self._state_digest(
@@ -350,6 +366,7 @@ class SettledAllocationTradingEnv(gym.Env):
             ),
             "risk": _json(risk),
             "native": native,
+            "accepted_orders": accepted_orders,
         }
 
     def _witness(self) -> dict[str, Any]:

@@ -1695,7 +1695,7 @@ ledger; historical capped trace admission remains a separate boundary.
 ## Declared settled allocation learning clock
 
 `SettledAllocationClockContract` is a pure lower declaration for an explicit
-future settled learning lane. It separates P actor transitions from R nonempty
+distinct settled learning lane. It separates P actor transitions from R nonempty
 reserved native closing bars, with physical H=P+R. Ordinary actor rewards span
 one timestamp interval; the final actor reward spans its own bar plus every
 reserved bar. GAE measures actor transitions and gamma is exactly one for the
@@ -1746,9 +1746,35 @@ capacity rows including the complete reserve and reference row, separately from
 selected actor/forecast-owner features and actor cost/forecast declarations.
 Reserve feature availability and forecasts are not policy inputs. Exact native
 array-byte pins reject source drift; this pre-fit declaration does not prove
-actual actor/critic consumption or append completeness. Real CPU fit, independent
-source/transition/buffer evidence, bundle admission and same-H inference remain
-required and unestablished.
+actual actor/critic consumption or append completeness.
+
+The separate settled fitter requires an explicit fixed CPU protocol and an exact
+rollout-multiple budget. Its recorder delegates actual policy forward, critic,
+native reset/step, buffer append and GAE calls once, retaining original returned
+objects. Native rows are copied before autoreset; append evidence exists only
+after an actual successful buffer return. Prepared reset observations, live
+boundary critics and terminal zero sentinels retain distinct roles. Buffer
+arrays are copied chronologically before get; pinned SB3 NumPy GAE, done masks,
+actual returned Adam calls/epochs and final actual model parameters/counters are
+joined before publication. No extra prediction, sampling or execution is used.
+
+The upper validator joins selected source bytes, actual observation witnesses,
+ordered native account/order facts, raw signed rewards and actual tensors. It
+checks submitted decision identity, exact Book/lot quantities, fill counters,
+current DD and signed carry using native arithmetic order. Returned partial,
+economic-stop and unappended stages remain diagnostics. Hidden RNG, full order
+archives, stochastic execution prices and observed costs are not authenticated
+by these hashes; economic early-end carry has only phase-independent coverage.
+
+The pure lower settled training receipt derives structural settlement and
+eligibility from full-vector quantities, order states and physical coverage.
+All completed episodes must settle and at least one must meet the DD bound;
+DD-ineligible settled episodes and the live budget tail remain recorded.
+Recipe v4 pairs only with new bundle v6. Verified write-once save/load reuses the
+existing artifact boundary, validates the actual loaded model before reset and
+executes the same P/R/H native horizon. Existing marked bundles and training
+entry points keep their original meaning. These are software capabilities;
+learnability, market profit and formal research authorization remain separate.
 
 ## Native Path Signature cross-line source identity contract
 

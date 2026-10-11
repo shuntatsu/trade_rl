@@ -78,6 +78,79 @@ def test_settled_recipe_stays_lower_and_source_has_no_learner_or_legacy_owner():
             "gymnasium",
         )
     )
+
+
+def test_settled_receipt_stays_lower_and_runtime_observation_does_not_reexecute():
+    lower = PACKAGE / "strategies/rl/allocation_settled_receipt.py"
+    imports = ImportCollector(PACKAGE).collect(lower)
+    assert not any(
+        name.startswith(prefix)
+        for name in imports
+        for prefix in (
+            "trade_rl.evaluation",
+            "trade_rl.simulation",
+            "trade_rl.risk",
+            "torch",
+            "stable_baselines3",
+            "gymnasium",
+        )
+    )
+    for filename in (
+        "settled_input_receipt.py",
+        "settled_transition_trace.py",
+        "settled_transition_validation.py",
+    ):
+        path = PACKAGE / "evaluation/rl_allocation" / filename
+        imports = ImportCollector(PACKAGE).collect(path)
+        assert not any(
+            name.startswith(prefix)
+            for name in imports
+            for prefix in (
+                "torch",
+                "stable_baselines3",
+                "trade_rl.evaluation.rl_allocation.env",
+                "trade_rl.evaluation.rl_allocation.training",
+                "trade_rl.evaluation.experiments",
+                "trade_rl.evaluation.final_test",
+            )
+        )
+        tree = ast.parse(path.read_text("utf8"))
+        calls = {
+            ast.unparse(node.func)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+        }
+        assert not any(
+            call.split(".")[-1]
+            in {
+                "execute_fill",
+                "execute_target_statefully",
+                "execute_allocation_action",
+                "_iter_reserved_allocation_closing",
+                "predict",
+                "predict_values",
+            }
+            for call in calls
+        )
+        assert not calls & {"self.buffer.get", "model.rollout_buffer.get"}
+
+
+def test_settled_fit_and_inference_keep_legacy_and_study_routes_separate():
+    for filename in ("settled_training.py", "settled_inference.py"):
+        imports = ImportCollector(PACKAGE).collect(
+            PACKAGE / "evaluation/rl_allocation" / filename
+        )
+        assert not any(
+            name == prefix or name.startswith(prefix + ".")
+            for name in imports
+            for prefix in (
+                "trade_rl.evaluation.rl_allocation.env",
+                "trade_rl.evaluation.rl_allocation.training",
+                "trade_rl.evaluation.experiments",
+                "trade_rl.evaluation.final_test",
+                "trade_rl.evaluation.allocation_scheduled",
+            )
+        )
     source = PACKAGE / "evaluation/rl_allocation/settled_training_source.py"
     imports = ImportCollector(PACKAGE).collect(source)
     assert not any(

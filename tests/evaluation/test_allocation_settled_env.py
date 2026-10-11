@@ -39,6 +39,10 @@ def arguments(
     terminal_price=100.0,
     funding=False,
     cash_rate=0.0,
+    borrow_rate=0.0,
+    dividend=0.0,
+    lot_size=0.0,
+    actor_volume=None,
     partial=False,
     reserve_features=False,
     cost_changes=None,
@@ -61,6 +65,8 @@ def arguments(
     # Actor processing is at start+1; reserve first processes start+P+1.
     prices[start + actor_steps + 1 :] = terminal_price
     volume = marked.dataset.volume.copy()
+    if actor_volume is not None:
+        volume[start + 1 : start + actor_steps + 1] = actor_volume
     if partial:
         volume[start + actor_steps + 1 : start + horizon + 1] = 1.0
     available = marked.dataset.feature_available.copy()
@@ -81,7 +87,9 @@ def arguments(
         funding_price_rate=prices * (0.001 if funding else 0.0),
         funding_due=np.full((12, 1), funding, dtype=bool),
         cash_rate=np.full(12, cash_rate),
-        borrow_rate=np.zeros((12, 1)),
+        borrow_rate=np.full((12, 1), borrow_rate),
+        dividend=np.full((12, 1), dividend),
+        lot_size=np.full((12, 1), lot_size),
     )
     packets = []
     for index, packet in zip(range(6, 10), marked.stream.packets):
@@ -193,6 +201,10 @@ def assert_row_chain(rows, starts):
     assert [row["processing_index"] for row in rows] == [i + 1 for i in starts]
     for row in rows:
         assert row["clock_valid"] is True
+        assert row["returned_clock_types"] == {
+            "next_index": "int",
+            "bars_advanced": "int",
+        }
         assert row["native"]["execution"]["next_index"] == row["processing_index"]
         assert row["native"]["execution"]["bars_advanced"] == 1
         assert row["native"]["book"]["as_of_index"] == row["processing_index"]
@@ -353,8 +365,9 @@ def test_reserve_never_prepares_forecast_or_policy_feature_observation(monkeypat
     assert_row_chain(detached(info)["rows"], [7, 8, 9])
 
 
+@pytest.mark.parametrize("native_bars", [2, np.int64(1), True])
 def test_final_generator_resume_rejects_bad_clock_retaining_returned_frontier(
-    monkeypatch,
+    monkeypatch, native_bars
 ):
     env = environment()
     env.reset()
@@ -364,7 +377,7 @@ def test_final_generator_resume_rejects_bad_clock_retaining_returned_frontier(
     def invalid_last_clock(*args, **kwargs):
         target, execution = native_execute(*args, **kwargs)
         if kwargs["start_index"] == 9:
-            execution = replace(execution, bars_advanced=2)
+            execution = replace(execution, bars_advanced=native_bars)
         return target, execution
 
     monkeypatch.setattr(
@@ -381,12 +394,32 @@ def test_final_generator_resume_rejects_bad_clock_retaining_returned_frontier(
     assert canonical_json_bytes(receipt) == raw
     assert [row["start_index"] for row in receipt["rows"]] == [7, 8, 9]
     last = receipt["rows"][-1]
-    assert last["native"]["execution"]["bars_advanced"] == 2
+    assert last["native"]["execution"]["bars_advanced"] == native_bars
+    assert last["returned_clock_types"]["bars_advanced"] == type(native_bars).__name__
     assert last["native"]["book"]["equity"] == pytest.approx(998.0)
     assert last["clock_valid"] is False
     assert receipt["failure_stage"] == "closing_validation"
     assert receipt["attempted_start_index"] == 9
     assert receipt["settlement_witness"]["settled"] is False
+
+
+def test_settled_return_retains_exact_terminal_fill_order_states():
+    env = environment()
+    env.reset()
+    _, _, _, _, first = env.step(np.int64(3))
+    opened = detached(first)["rows"][0]
+    orders = opened["accepted_orders"]
+    assert {order["intent"]["order_id"] for order in orders} == {
+        event["order_id"] for event in opened["native"]["order_events"]
+    }
+    assert len(orders) == 1 and orders[0]["status"] == "filled"
+    assert orders[0]["exact_cumulative_filled_quantity"] == "5"
+    _, _, _, _, last = env.step(np.int64(0))
+    closed = [
+        order for row in detached(last)["rows"] for order in row["accepted_orders"]
+    ]
+    assert len(closed) == 1 and closed[0]["status"] == "filled"
+    assert closed[0]["exact_cumulative_filled_quantity"] == "-5"
 
 
 @pytest.mark.parametrize("invalid", ["old_bound", "limit", "latency", "horizon"])

@@ -2133,9 +2133,9 @@ durations3600/10800 and last-actor fraction3/4. P=1,R=2,rollout2 refuses a false
 rollout-divisibility assumption and exposes the future inside-buffer terminal
 bootstrap oracle. The closed reader rejects altered physical horizon, reward
 duration, GAE clock, early-flat coverage, bool counts and legacy schema. These
-are declaration checks only. Actual critic7 masks, native closing/cash equations,
-source consumption and verified artifact relationships still require runtime
-tests; no G3-G5 or formal research authorization is established here.
+are declaration checks only. The separate runtime oracles below cover actual
+critic7 masks and source/artifact relationships. No G3-G5 or formal research
+authorization follows from these software checks.
 
 Shared native reserve execution is now extracted into
 `allocation_reserved_closing`. Its bounded synthetic software oracles include
@@ -2160,6 +2160,23 @@ The source envelope is checked before account creation and each native boundary:
 actor-only selected information is separate from all physical financial/capacity
 rows, including funding_price_rate. Reserve feature changes are not actor
 consumption; reserve financial drift rejects before execution. These are bounded
-synthetic runtime/contract checks. Real critic7/GAE masks, actual consumed-input
-and append evidence, CPU fit, publication/save/load and same-H policy parity are
-still mandatory, and no profit, economic G3-G5 or formal approval follows.
+synthetic runtime/contract checks.
+
+Distinct fixed-budget CPU G2 oracles use the actual SB3 learner with literal
+critic7 and fixed initial action biases. P1/R2/rollout2 has two true terminals;
+P2/R2 with lambda.95 retains advantages[-6.65,-7] and returns[.35,0]; P3/R1
+retains a live critic7 boundary, then terminal masks and a live budget tail.
+This checks collector arithmetic rather than optimizing a trading strategy.
+Native nonzero orders, partial fills, effective lot floors, signed carry and
+same-H write-once save/load supply separate contracts. Exact residuals, no
+completed eligible episode, stopped callbacks, partial failed appends, autoreset
+failure and changed final model weights must refuse successful publication.
+
+Adversarial G2 source/capture oracles change canonical order IDs and target
+identities, native counters, DD, funding/interest and per-update epoch counts;
+rehashing is insufficient to pass the independent relational validator.
+Known limitations: full archives/RNG and observed stochastic prices/costs are
+not authenticated; economic early ends lack full phase-specific carry bases.
+Joint exact lot counts are validated from retained Book/source/event facts,
+not claimed independently observed hidden allocator counts. No new profit,
+economic G3-G5, learnability or formal research approval follows.

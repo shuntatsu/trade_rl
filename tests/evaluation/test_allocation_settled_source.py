@@ -1,15 +1,56 @@
 """Actor declarations and the entire native closing envelope have separate scope."""
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
 
-from tests.evaluation.test_allocation_settled_env import environment
+from tests.evaluation.test_allocation_settled_env import arguments, environment
 from trade_rl.evaluation.rl_allocation.settled_training_source import (
     settled_training_source_receipt,
 )
+
+
+@pytest.mark.parametrize("wrapped_source", [True, False])
+def test_unrepresentable_utc_dates_cannot_alias_a_native_nanosecond_window(
+    wrapped_source,
+):
+    from trade_rl.evaluation.rl_allocation.settled_binding import (
+        validate_settled_runtime_binding,
+    )
+    from trade_rl.simulation import MarketExecutor
+
+    args, _ = arguments()
+    bound = args["bound"]
+    objective = replace(
+        bound.objective,
+        evaluation_start=datetime(2600, 1, 1, 6, tzinfo=UTC),
+        evaluation_stop_exclusive=datetime(2600, 1, 1, 10, tzinfo=UTC),
+    )
+    bound = replace(bound, objective=objective)
+    # Build no account or source packet at this date. Exercise the clock reader
+    # directly with both original coarse stamps and their wrapped ns aliases.
+    original = np.datetime64("2600-01-01T00:00:00", "us") + np.arange(
+        12
+    ) * np.timedelta64(1, "h")
+    timestamps = original.astype("datetime64[ns]") if wrapped_source else original
+    dataset = args["dataset"]
+    object.__setattr__(dataset, "timestamps", timestamps)
+    executor = MarketExecutor(
+        dataset, args["execution_cost"], insolvency_valuation="retain_debt"
+    )
+    with pytest.raises(ValueError, match="nanoseconds"):
+        validate_settled_runtime_binding(
+            dataset,
+            bound,
+            executor,
+            args["risk_config"],
+            objective.deployment_recipe_digest,
+            start_index=6,
+            actor_stop_index=8,
+            settlement_stop_index=10,
+        )
 
 
 @pytest.mark.parametrize("field", ["funding_price_rate", "cash_rate", "volume"])

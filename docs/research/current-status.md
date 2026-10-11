@@ -2524,16 +2524,12 @@ fixed-capital equity-delta/gamma1 and GAE per actor transition, with full-H
 remaining fractions and a distinct closed schema. It does not change the
 historical regular financial clock or marked-continuation training.
 
-The active Issue #810 software work still requires actual consumed actor/physical
-source and transition evidence, fixed-protocol SB3 fit, verified new bundle
-save/load and same-H inference.
-Clock-only tests cannot establish that parity or complete the work. Mechanical
-unfinished closing must not publish a successful settled bundle; stopped/debt
-and DD-ineligible paths retain truthful signed diagnostics. No such new fit,
-bundle, training success, economic comparison or profit improvement has been
-performed or established by this declaration. Formal approval and G3-G5 remain
-separate and unestablished. NONRL/cash priority, 20% DD and sealed/final boundaries
-remain unchanged.
+The distinct settled software lane now includes observed actor/native source,
+transition/append/critic/buffer evidence, fixed-protocol CPU SB3 fit and verified
+bundle v6 save/load with same-H inference. Mechanical unfinished closing prevents
+publication; stopped/debt and DD-ineligible paths keep truthful signed diagnostics.
+The declared clock alone still establishes none of these relationships.
+NONRL/cash priority, 20% DD and sealed/final boundaries remain unchanged.
 
 The shared `allocation_reserved_closing` iterator now executes the existing
 NONRL/cash terminal route's native reserve without creating another account or
@@ -2548,10 +2544,28 @@ Live instance replacement and reset-based discard are rejected; unsuccessful
 closing remains sticky across later episodes. The pre-fit source envelope pins
 actor information separately from inclusive all-symbol native financial rows.
 
-Actual actor/critic consumption, buffer/GAE evidence, fixed CPU SB3 fit, new
-verified bundle and same-H saved-policy inference remain incomplete. No new
-market learning, economic comparison, profit improvement or formal research
-approval is established. The work and Issue #810 are still active and incomplete.
+The fixed synthetic CPU oracles cover P1/R2 termination inside a rollout,
+P2/R2, and P3/R1 live rollout/budget tails. A deliberately constant actual critic7
+remains7 in returned tensors while terminal masks remove its bootstrap; lambda
+is applied per actor transition. Native partial fills, effective lot floors,
+short borrow, signed funding/dividend/interest and unchanged saved-policy horizon
+are separate software checks. A native sub-tolerance exact remainder stays
+unsettled; it cannot be erased to admit a model. Callback cancellation, an append
+that writes then raises, autoreset failure and post-fit weight mutation retain
+actual frontiers without successful publication.
+
+Rehashed capture counterexamples reject swapped submitted order identity,
+invented fill counts, hidden current drawdown, absent funding offset with invented
+interest, false initial counters and impossible per-update epoch distribution.
+These checks validate supplied joint facts, not historical authenticity of hidden
+execution state or stochastic costs. Economic early ends have limited carry
+phase evidence and do not qualify as completed settled episodes.
+
+The finite synthetic fits establish software execution and artifact contracts,
+not successful profit learning. No new market learning, economic comparison,
+profit improvement or formal research approval is established. Exact-head full
+CI/package verification and formal approval remain separate. The work and
+Issue #810 are still active and incomplete.
 
 ## Native Signature source identity and decision availability (2026-10-11)
 

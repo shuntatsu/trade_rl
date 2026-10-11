@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from tests.data.test_native_cross_asset_alignment import _Source, _bars, _source
+from tests.data.test_native_cross_asset_alignment import _bars, _Source, _source
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,

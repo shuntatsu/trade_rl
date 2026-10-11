@@ -549,11 +549,18 @@ schema is changed. It has no strategy, ledger, risk or evaluation ownership.
 
 `data/features/native_alignment.py` is the as-of native-to-base event alignment
 primitive. `native_cross_asset.py` calculates BTC-relative rolling statistics on
-*all* completed native return events before reducing to a base decision clock;
-`data/build/builder.py` invokes it only for non-base native cross-asset features.
-The prior base-timeframe path is unchanged. For native 15m returns observed on a
-1h decision clock, a 24-event rolling correlation means 24 consecutive 15m
-returns, not 24 hourly-sampled 15m returns.
+eligible native return events before reducing to a base decision clock;
+`data/build/builder.py` invokes it only for strictly finer cross-asset clocks.
+The equal/coarser aligned-return path is unchanged. For native 15m returns on a
+1h decision clock, a 24-event rolling correlation uses the last 24 eligible
+native pair events, not 24 hourly samples. Each admitted return joins two
+adjacent active, tradable rows available by their own closes. Missing pair events
+do not reset the maintained history. The builder owns the affected-only
+`native_cross_asset_alignment=native_before_base_sync_v1` derived configuration
+marker plus `native_cross_asset_history=last_n_eligible_pair_events_v1` and uses
+one enriched payload for both its digest and identity metadata. The history field
+distinguishes eligible-event history from a consecutive-observation/reset policy.
+These markers are not `MarketBuildConfig` constructor/build-request fields.
 
 `data/features/signature_multitimeframe.py` supplies opt-in
 `with_multitimeframe_path_signatures`: each native continuous timeframe computes

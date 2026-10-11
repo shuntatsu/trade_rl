@@ -1361,3 +1361,32 @@ verify refusal; legal appended features and equivalent resolved clocks remain
 accepted. This is software input conformity only. No market fit, new economic
 comparison, calibrated costs, historical availability certification or full
 native Rolling/Signature admission is established by this repair.
+
+The native cross-asset software route is now limited to clocks strictly finer
+than the decision clock. It excludes returns touching a late/untradable physical
+row, keeps the maintained last-N eligible pair history, and binds an affected-only
+alignment marker consistently in build configuration digest and identity.
+An explicit `native_cross_asset_history=last_n_eligible_pair_events_v1` field
+separates this policy from a consecutive-observation/reset variant. The latter
+is a different representation hypothesis and is not silently imported here.
+Equal/coarser clocks preserve their prior aligned-return behavior. Literal
+four-event, missing-row and delayed coarser-publication oracles, prefix/expiry,
+symbol-order, financial-input and synthetic artifact reload checks cover these
+software prerequisites. Historical publication truth, calibrated market costs,
+formal research approval and economic advantage remain unestablished. No real
+market fit/replay, candidate/Study change or unused-data access is implied.
+
+## Native finer-clock cross-asset input provenance hardening (2026-10-11)
+
+The companion native-MTF route now rejects raw native bars ending after the
+base Dataset's last decision clock and identity-binds SHA-256 digests of the
+consumed native timestamp / `available_at` / close / tradability arrays for
+each symbol×timeframe. Rescaling only the native price path while preserving
+identical derived return/cross-asset features therefore produces a different
+Dataset ID; historical provider publication-time truth remains unproven.
+
+The declared `last_n_eligible_pair_events_v1` rolling history policy is
+unchanged. It is NOT equivalent to the alternative `require_consecutive`
+history policy in the alternative native-clock research branch; comparing/adopting them requires a separate
+result-blind controlled-factor decision. Frozen evidence and existing
+KEEP_BASELINE decisions are unchanged.

@@ -1387,6 +1387,6 @@ Dataset ID; historical provider publication-time truth remains unproven.
 
 The declared `last_n_eligible_pair_events_v1` rolling history policy is
 unchanged. It is NOT equivalent to the alternative `require_consecutive`
-history policy in PR #863; comparing/adopting them requires a separate
+history policy in the alternative native-clock research branch; comparing/adopting them requires a separate
 result-blind controlled-factor decision. Frozen evidence and existing
 KEEP_BASELINE decisions are unchanged.

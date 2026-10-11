@@ -66,6 +66,8 @@ def with_path_signatures(
     missing outputs are zero with an explicit unavailable mask. All features
     are opt-in: no canonical dataset, model, or frozen study changes by default.
     """
+    if not dataset.identity_verified:
+        raise ValueError("path Signature requires identity-verified base Dataset")
     if (
         isinstance(window_bars, bool)
         or not isinstance(window_bars, int)

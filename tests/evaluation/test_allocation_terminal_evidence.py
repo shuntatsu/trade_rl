@@ -9,6 +9,7 @@ import pytest
 
 from tests.evaluation.test_allocation_terminal_execution import carrier, plans
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.evaluation import allocation_reserved_closing as reserved_closing
 
 
 def capability():
@@ -947,14 +948,14 @@ def test_known_close_failure_frontier_keeps_original_error(monkeypatch):
     runner = import_module("trade_rl.evaluation.allocation_terminal_execution")
     folds, env = carrier(partial=True)
     plan = plans(runner, env, folds, stop=9)
-    native = runner._execute_allocation_target
+    native = reserved_closing._execute_allocation_target
 
     def close(*args, **kwargs):
         if kwargs["start_index"] == 8:
             raise RuntimeError("known failure")
         return native(*args, **kwargs)
 
-    monkeypatch.setattr(runner, "_execute_allocation_target", close)
+    monkeypatch.setattr(reserved_closing, "_execute_allocation_target", close)
     with pytest.raises(RuntimeError, match="known failure") as caught:
         runner.run_terminal_allocation_execution(folds, env, plan)
     raw = caught.value.terminal_execution_receipt
@@ -1077,7 +1078,7 @@ def test_closed_reader_is_pure_and_uses_no_dataset_or_executor(monkeypatch):
     plan, raw = observed()
     runner = import_module("trade_rl.evaluation.allocation_terminal_execution")
     monkeypatch.setattr(
-        runner,
+        reserved_closing,
         "_execute_allocation_target",
         lambda *_a, **_k: pytest.fail("reader executed"),
     )

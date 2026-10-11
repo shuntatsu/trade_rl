@@ -17,13 +17,15 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
-from trade_rl.evaluation.allocation import _execute_allocation_target
 from trade_rl.evaluation.allocation_global_execution import (
     GlobalAllocationExecutionPlan,
     GlobalAllocationForecastControls,
     ObservedGlobalAllocationExecution,
     declare_global_allocation_execution,
     run_declared_global_allocation_execution,
+)
+from trade_rl.evaluation.allocation_reserved_closing import (
+    _iter_reserved_allocation_closing,
 )
 from trade_rl.evaluation.objectives import (
     BoundObjectiveClock,
@@ -38,11 +40,12 @@ from trade_rl.evaluation.rl_allocation.global_execution_context import (
 from trade_rl.evaluation.rl_allocation.transition_facts import (
     _json,
     native_allocation_account_facts,
-    native_allocation_execution_facts,
     terminal_allocation_state_digest,
 )
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
 from trade_rl.evaluation.runs import build_candidate_run_provenance
+from trade_rl.simulation import BookState
+from trade_rl.simulation.orders.model import OrderBookState
 
 
 def _close_source(env: AllocationTradingEnv, stop: int) -> str:
@@ -383,7 +386,7 @@ def run_terminal_allocation_execution(
     closing: list[dict[str, Any]] = []
     native: ObservedGlobalAllocationExecution | None = None
     opening = None
-    attempted = None
+    attempted: int | None = None
     failure_stage = "prefix"
     try:
         native = run_declared_global_allocation_execution(
@@ -394,94 +397,71 @@ def run_terminal_allocation_execution(
             raise ValueError("terminal opening state differs from native prefix close")
         _provenance(plan)
         executor, risk = env.executor, env.risk
-        book, orders, index = env.book, env.order_book, env.index
-        while index < plan.settlement_stop_index:
-            attempted, failure_stage = index, "closing_preflight"
+
+        def closing_binding() -> None:
             if env.executor is not executor or env.risk is not risk:
                 raise ValueError("terminal executor/risk instance changed")
             _closing_binding(env, plan)
-            attempted, before = index, book.portfolio_value
-            before_digest = terminal_allocation_state_digest(
+
+        def note_stage(index: int, stage: str) -> None:
+            nonlocal attempted, failure_stage
+            attempted, failure_stage = index, stage
+
+        def before_state(index: int, book: BookState, orders: OrderBookState) -> str:
+            return terminal_allocation_state_digest(
                 plan.native_plan.payload["common"],
                 plan.closing_source_digest,
                 native_allocation_account_facts(book, orders),
                 index=index,
                 time_ns=plan.closing_clocks_ns[index - env.stop_index],
             )
-            failure_stage = "closing_execution"
-            target, execution = _execute_allocation_target(
-                executor,
-                book,
-                orders,
-                target_weight=0.0,
-                decision_digest=content_digest(
-                    {"plan": plan.digest, "closing_index": index}
-                ),
-                pretrade_risk=risk,
-                symbol_index=env.symbol_index,
-                start_index=index,
-            )
-            failure_stage = "closing_returned"
-            facts = native_allocation_execution_facts(execution)
-            clock_valid = (
-                type(execution.next_index) is int
-                and type(execution.bars_advanced) is int
-                and execution.bars_advanced == 1
-                and execution.next_index == index + 1
-            )
-            processing_time = (
-                int(
-                    env.dataset.timestamps[execution.next_index]
-                    .astype("datetime64[ns]")
-                    .astype("int64")
-                )
-                if type(execution.next_index) is int
-                and 0 <= execution.next_index < env.dataset.n_bars
-                else None
-            )
+
+        for step in _iter_reserved_allocation_closing(
+            executor,
+            env.book,
+            env.order_book,
+            risk=risk,
+            symbol_index=env.symbol_index,
+            start_index=env.index,
+            stop_index=plan.settlement_stop_index,
+            decision_digest=lambda index: content_digest(
+                {"plan": plan.digest, "closing_index": index}
+            ),
+            before_state=before_state,
+            validate_binding=closing_binding,
+            note_stage=note_stage,
+        ):
+            facts, execution, target = step.native, step.execution, step.risk_target
             closing.append(
                 {
-                    "start_index": index,
+                    "start_index": step.start_index,
                     "processing_index": facts["execution"]["next_index"],
-                    "processing_time_ns": processing_time,
-                    "clock_valid": clock_valid,
+                    "processing_time_ns": step.processing_time_ns,
+                    "clock_valid": step.clock_valid,
                     "returned_clock_types": {
                         "next_index": type(execution.next_index).__name__,
                         "bars_advanced": type(execution.bars_advanced).__name__,
                     },
-                    "opening_equity": before,
+                    "opening_equity": step.opening_equity,
                     "risk_target": target.weights.tolist(),
                     "risk_reasons": list(target.reasons),
                     "risk": _json(target),
-                    "before_state_digest": before_digest,
+                    "before_state_digest": step.before_state_digest,
                     "after_state_digest": terminal_allocation_state_digest(
                         plan.native_plan.payload["common"],
                         plan.closing_source_digest,
                         facts,
                         index=facts["execution"]["next_index"],
-                        time_ns=processing_time,
+                        time_ns=step.processing_time_ns,
                     ),
                     "native": facts,
                     "fixed_capital_reward": net_equity_increment(
-                        before,
+                        step.opening_equity,
                         execution.book.portfolio_value,
                         initial_capital=env.initial_capital,
                     ),
                 }
             )
-            book, orders, index = (
-                execution.book,
-                execution.order_book,
-                execution.next_index,
-            )
-            failure_stage = "closing_validation"
-            if not clock_valid:
-                raise ValueError("terminal native execution changed its one-bar clock")
-            if env.executor is not executor or env.risk is not risk:
-                raise ValueError("terminal executor/risk instance changed")
-            _closing_binding(env, plan)
-            if book.termination_reason is not None:
-                break
         failure_stage = "final_validation"
         _provenance(plan)
         payload = _observation(plan, native.receipt.payload, closing, opening)

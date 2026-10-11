@@ -20,6 +20,9 @@ from trade_rl.strategies.rl.allocation_recipe_validation import (
 from trade_rl.strategies.rl.allocation_schedule_receipt import (
     validate_allocation_schedule_training,
 )
+from trade_rl.strategies.rl.allocation_settled_receipt import (
+    validate_allocation_settled_training,
+)
 from trade_rl.strategies.rl.allocation_training_receipt import (
     validate_allocation_training,
 )
@@ -29,6 +32,7 @@ ALLOCATION_BUNDLE_SCHEMA_V2 = "allocation_ppo_inference_bundle_v2"
 ALLOCATION_BUNDLE_SCHEMA_V3 = "allocation_ppo_inference_bundle_v3"
 ALLOCATION_BUNDLE_SCHEMA_V4 = "allocation_ppo_inference_bundle_v4"
 ALLOCATION_BUNDLE_SCHEMA_V5 = "allocation_ppo_inference_bundle_v5"
+ALLOCATION_BUNDLE_SCHEMA_V6 = "allocation_ppo_inference_bundle_v6"
 
 
 def allocation_bundle_schema(recipe: dict[str, Any]) -> str:
@@ -38,6 +42,8 @@ def allocation_bundle_schema(recipe: dict[str, Any]) -> str:
         return ALLOCATION_BUNDLE_SCHEMA_V2
     if recipe.get("schema") == "allocation_ppo_recipe_v3":
         return ALLOCATION_BUNDLE_SCHEMA_V4
+    if recipe.get("schema") == "allocation_ppo_recipe_v4":
+        return ALLOCATION_BUNDLE_SCHEMA_V6
     raise ValueError("unsupported allocation recipe version")
 
 
@@ -57,6 +63,7 @@ def validate_allocation_manifest(
         if value["schema"] in (
             ALLOCATION_BUNDLE_SCHEMA_V4,
             ALLOCATION_BUNDLE_SCHEMA_V5,
+            ALLOCATION_BUNDLE_SCHEMA_V6,
         ):
             _native_json(value)
         normalized = json.loads(canonical_json_bytes(value))
@@ -96,7 +103,9 @@ def validate_allocation_manifest(
     if content_digest(manifest["recipe"]) != manifest["recipe_digest"]:
         raise ValueError("allocation recipe digest differs from its payload")
     validator = (
-        validate_allocation_schedule_training
+        validate_allocation_settled_training
+        if manifest["schema"] == ALLOCATION_BUNDLE_SCHEMA_V6
+        else validate_allocation_schedule_training
         if scheduled
         else validate_allocation_training_v4
         if manifest["schema"] == ALLOCATION_BUNDLE_SCHEMA_V4

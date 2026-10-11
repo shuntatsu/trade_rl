@@ -52,6 +52,8 @@ def build_allocation_ppo(
     training_protocol: AllocationPPOTrainingProtocol | None = None,
 ) -> Any:
     """Fixed software learning protocol; no search or economic authorization."""
+    if not isinstance(env, AllocationTradingEnv):
+        raise ValueError("marked training requires an AllocationTradingEnv")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("policy seed must be a nonnegative integer")
     env.validate_binding()
@@ -97,6 +99,8 @@ def fit_allocation_ppo(
     This callable does not open data, create a Study or grant research approval.
     The resulting bundle is inference-only, not an exact account/RNG restart.
     """
+    if not isinstance(env, AllocationTradingEnv):
+        raise ValueError("marked training requires an AllocationTradingEnv")
     if (
         isinstance(total_timesteps, bool)
         or not isinstance(total_timesteps, int)

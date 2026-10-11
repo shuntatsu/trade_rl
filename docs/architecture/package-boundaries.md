@@ -1588,3 +1588,65 @@ admits complete v2 costs even with no rows. Shared plan v1 admission stays
 unchanged. Actor and scheduled trace owners continue importing the strict v1
 validator, and their capped admission limitation remains explicit. The existing
 comparison and terminal owners consume exact global observations unchanged.
+
+## Settled learning clock declaration ownership
+
+`strategies/rl/allocation_settled_clock.py` owns only the pure frozen
+`SettledAllocationClockContract` and closed `allocation_settled_clock_v1` reader.
+It depends on stdlib and canonical artifact helpers, never evaluation, risk,
+simulation, Gym or an optional learner. It distinguishes actor steps, physical
+reserve, full-horizon observation fractions and variable final reward timing.
+It neither constructs execution nor binds calendar carry, market data, an
+objective, source consumption, a training budget or saved policy.
+
+`evaluation/objectives/clock.py` retains its historical regular clock contract.
+The new declaration is not implicitly accepted by existing marked receipts,
+recipes, environment, continuation or schedules. Explicit v4 recipe dispatch
+uses its distinct closed reconstruction before the unchanged legacy readers;
+bundle v6 alone pairs with recipe v4 through its separate settled receipt.
+A clock declaration alone supplies no execution, fit evidence or inference.
+
+`evaluation/allocation_reserved_closing.py` owns the private native reserve
+iterator and returned step. It depends on canonical allocation execution and
+native account facts, with no environment, global-plan, trainer or Study owner.
+Callers supply frozen digest/binding and diagnostic frontier hooks, never an
+execution implementation. `allocation_terminal_execution.py` retains its
+declaration, provenance and receipt formatting while fully consuming the shared
+iterator; its marked carrier remains unchanged. The distinct settled composition
+environment uses this same iterator and exhausts final postflight validation.
+
+The optional returned-result retention hook is caller-owned. The settled
+environment adopts the actual book/orders/index before returned-stage and fact
+diagnostics; the iterator never owns a Gym account or replacement ledger.
+Omitting the hook preserves the existing NONRL terminal adapter's behavior.
+
+`rl_allocation/settled_binding.py` owns full-H objective/runtime admission;
+`settled_env.py` composes Gym with the canonical actor executor and shared native
+reserve, never the marked environment or terminal evidence carrier. It owns
+actual instance/frontier continuity, signed fixed-C reward and detached native
+diagnostics. It constructs accounts only at admitted reset boundaries.
+`settled_training_source.py` hashes declared actor selections and inclusive
+all-symbol native financial arrays without a learner or legacy environment
+dependency. Its receipt is a pre-fit source declaration, not consumed evidence.
+`strategies/rl/allocation_recipe_v4.py` owns the independent settled recipe with
+observation v2 and full physical clock.
+
+`strategies/rl/allocation_settled_receipt.py` owns the pure closed lower witness
+and admission derivation; it has no evaluation, simulation or learner dependency
+and never calls a marked training reader. `settled_input_receipt.py` frames actual
+model-consumed tensor roles independently of prepared reset observations.
+`settled_transition_trace.py` owns instance-scoped observation leases and retains
+actual native returns before autoreset, append/critic/GAE data and returned update
+parameters. It neither samples nor reexecutes an account. Cleanup preserves the
+original failure and foreign method ownership; unsuccessful records cannot publish.
+`settled_transition_validation.py` validates the source/native/input/buffer joins
+with pure lower reconstruction and source algebra, never an executor or learner.
+Opaque archive/RNG digests and observed stochastic costs remain limited evidence.
+
+`settled_training.py` composes the existing explicit CPU constructor/update hook
+with these distinct owners; it validates the actual final model and only then
+publishes bundle v6. `settled_inference.py` admits a fresh matching P/R/H recipe
+and validates a verified loaded model before reset, then exhausts the same native
+reserve. It reuses the existing write-once artifact implementation. No shared or
+scheduled/global lane, Study, new preprocessing or default dispatch is added;
+marked bundles retain their original meaning.

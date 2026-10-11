@@ -2111,3 +2111,85 @@ Comparison/terminal composition and single actual drawdown projection are
 software evidence only. Exact-head source review/full CI and formal independent
 research approval remain separate. This supplies no economic edge, G3-G5,
 settled PPO admission, market profit or live readiness.
+
+## Settled learning clock software prerequisite
+
+G0 asks whether an explicit settled learning lane can optimize the same native
+after-cost endpoint later used for comparison. NONRL and cash remain controls;
+no alpha hypothesis, economic execution or profit claim follows from this
+software prerequisite. The full work requires actual runtime/fit, independent
+source and transition evidence, save/load and same-H inference, rather than a
+declaration-only completion.
+
+G1 separates P actor steps from nonempty R physical closing bars. The final
+actor aggregates its ordinary bar and all R reserve bars on original capital,
+with gamma1 and GAE explicitly per actor transition. Hard risk and the existing
+executor/book/orders/RNG remain the intended execution owners. Every reserve
+bar must process even after flatness. Calendar carry, failure policy and the
+20% DD eligibility remain separate from algebraic clock declarations.
+
+The current lower-clock G2 oracle uses P=2,R=2,dt=3600: spans [0,1) and [1,4),
+durations3600/10800 and last-actor fraction3/4. P=1,R=2,rollout2 refuses a false
+rollout-divisibility assumption and exposes the future inside-buffer terminal
+bootstrap oracle. The closed reader rejects altered physical horizon, reward
+duration, GAE clock, early-flat coverage, bool counts and legacy schema. These
+are declaration checks only. The separate runtime oracles below cover actual
+critic7 masks and source/artifact relationships. No G3-G5 or formal research
+authorization follows from these software checks.
+
+Shared native reserve execution is now extracted into
+`allocation_reserved_closing`. Its bounded synthetic software oracles include
+literal long1039/short1041, original-capital fee-only998, flat cash interest
+through the full reserve, retained partial/dust/pending inventory, signed debt,
+returned book/orders/RNG continuity and rejection after the final yielded row.
+The terminal adapter retains the original before-state/failure order and frozen
+legacy receipt bytes under fixed software provenance. This adds native closing
+mechanism evidence; it does not establish settled actor/critic/source/fit or
+artifact parity. Those full-lane G2 checks and G3-G5 remain required.
+
+The distinct settled composition now executes P actor transitions and H native
+bars through the same account/risk/orders/RNG. Literal software oracles directly
+check fee-only998 with rewards−.001/−.001 and last actor fraction3/4, long1039,
+short1041, full flat cash carry1003.003001, residual partial fill and signed
+debt−504.5. It retains every returned row before rejection, including an invalid
+final clock. A settled DD breach remains present and ineligible. Mid-episode
+native instance replacement and reset-based account discard reject while keeping
+the frontier; later eligible cash cannot erase a previous closing failure.
+
+The source envelope is checked before account creation and each native boundary:
+actor-only selected information is separate from all physical financial/capacity
+rows, including funding_price_rate. Reserve feature changes are not actor
+consumption; reserve financial drift rejects before execution. These are bounded
+synthetic runtime/contract checks.
+
+Distinct fixed-budget CPU G2 oracles use the actual SB3 learner with literal
+critic7 and fixed initial action biases. P1/R2/rollout2 has two true terminals;
+P2/R2 with lambda.95 retains advantages[-6.65,-7] and returns[.35,0]; P3/R1
+retains a live critic7 boundary, then terminal masks and a live budget tail.
+This checks collector arithmetic rather than optimizing a trading strategy.
+Native nonzero orders, partial fills, effective lot floors, signed carry and
+same-H write-once save/load supply separate contracts. Exact residuals, no
+completed eligible episode, stopped callbacks, partial failed appends, autoreset
+failure and changed final model weights must refuse successful publication.
+
+Actual native-return interruption oracles retain index7, cash499, equity999
+and quantity5 before the actor counter advances. KeyboardInterrupt/SystemExit
+must mark sticky failure and preserve the detached frontier before any later
+reset; interruption while encoding diagnostics must not mask the original error.
+
+Returned-stage failures are injected separately in actor and reserve processing,
+and reserve fact capture can fail before the iterator yields. Each actual
+returned account must already be adopted: actor index7/cash499/equity999/quantity5
+or reserve index8/cash998/equity998/quantity0 in the fixed-price fee-only oracle.
+The reserve retention hook is caller-owned; no additional execution is allowed.
+These oracles cover post-return diagnostics, not unreturned executor effects
+or interruption inside the retention handoff itself.
+
+Adversarial G2 source/capture oracles change canonical order IDs and target
+identities, native counters, DD, funding/interest and per-update epoch counts;
+rehashing is insufficient to pass the independent relational validator.
+Known limitations: full archives/RNG and observed stochastic prices/costs are
+not authenticated; economic early ends lack full phase-specific carry bases.
+Joint exact lot counts are validated from retained Book/source/event facts,
+not claimed independently observed hidden allocator counts. No new profit,
+economic G3-G5, learnability or formal research approval follows.

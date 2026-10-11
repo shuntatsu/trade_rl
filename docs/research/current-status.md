@@ -2515,3 +2515,86 @@ selection, unused period or sealed workflow is authorized by this capability.
 Matching settled PPO learning, a result-blind frozen economic protocol, formal
 independent review and actual after-cost improvement remain unestablished.
 Issue #810 and live profitability remain incomplete.
+
+## Settled learning work: clock and shared native reserve
+
+The opt-in lower `SettledAllocationClockContract` now declares actor P, nonempty
+reserve R, physical H=P+R and the last actor's variable reward duration. It uses
+fixed-capital equity-delta/gamma1 and GAE per actor transition, with full-H
+remaining fractions and a distinct closed schema. It does not change the
+historical regular financial clock or marked-continuation training.
+
+The distinct settled software lane now includes observed actor/native source,
+transition/append/critic/buffer evidence, fixed-protocol CPU SB3 fit and verified
+bundle v6 save/load with same-H inference. Mechanical unfinished closing prevents
+publication; stopped/debt and DD-ineligible paths keep truthful signed diagnostics.
+The declared clock alone still establishes none of these relationships.
+NONRL/cash priority, 20% DD and sealed/final boundaries remain unchanged.
+
+The shared `allocation_reserved_closing` iterator now executes the existing
+NONRL/cash terminal route's native reserve without creating another account or
+ledger. It preserves zero-target hard risk, actual returned book/orders/RNG,
+full flat cash carry, before-state diagnostics and final yielded-row validation.
+Partial closing and signed debt remain actual observations. The distinct
+`SettledAllocationTradingEnv` now binds one independent account, full physical
+horizon, observation v2 and recipe v4, then uses that same finalizer. Fixed
+synthetic cases directly verify signed after-cost reward, full reserved cash
+carry, native frontier preservation and separate settlement/DD eligibility.
+Live instance replacement and reset-based discard are rejected; unsuccessful
+closing remains sticky across later episodes. The pre-fit source envelope pins
+actor information separately from inclusive all-symbol native financial rows.
+
+The fixed synthetic CPU oracles cover P1/R2 termination inside a rollout,
+P2/R2, and P3/R1 live rollout/budget tails. A deliberately constant actual critic7
+remains7 in returned tensors while terminal masks remove its bootstrap; lambda
+is applied per actor transition. Native partial fills, effective lot floors,
+short borrow, signed funding/dividend/interest and unchanged saved-policy horizon
+are separate software checks. A native sub-tolerance exact remainder stays
+unsettled; it cannot be erased to admit a model. Callback cancellation, an append
+that writes then raises, autoreset failure and post-fit weight mutation retain
+actual frontiers without successful publication.
+
+Rehashed capture counterexamples reject swapped submitted order identity,
+invented fill counts, hidden current drawdown, absent funding offset with invented
+interest, false initial counters and impossible per-update epoch distribution.
+These checks validate supplied joint facts, not historical authenticity of hidden
+execution state or stochastic costs. Economic early ends have limited carry
+phase evidence and do not qualify as completed settled episodes.
+
+Interrupted returned native processing cannot be treated as an unused opening:
+the failed episode remains publication-invalid before a later reset, and its
+detached frontier stays on the original exception when encoding succeeds.
+Diagnostic interruption cannot substitute for that primary failure.
+
+Actor and reserve returns are now retained before fallible returned-stage/fact
+diagnostics. A failed detached-row capture cannot roll the live account back to
+its previous bar. The reserve iterator's optional retention handoff is used by
+the distinct settled account; the existing NONRL terminal carrier and ordering
+remain unchanged. Unreturned executor effects and interruption inside adoption
+remain outside this returned-frontier guarantee.
+
+The finite synthetic fits establish software execution and artifact contracts,
+not successful profit learning. No new market learning, economic comparison,
+profit improvement or formal research approval is established. Exact-head full
+CI/package verification and formal approval remain separate. The work and
+Issue #810 are still active and incomplete.
+
+## Native Signature source identity and decision availability (2026-10-11)
+
+The native Signature and single-clock Signature augmentation now require a
+verified input Dataset content identity before deriving a new authenticated
+Dataset. Native Signature features are masked when base market information is
+unavailable or untradable at a decision even if the lower-clock path is
+completed. Finer-clock cross-asset feature preparation identity-binds raw
+native timestamp / availability / close / tradability bytes, and both the
+native MTF Signature and cross-asset producers reject future native source
+tails beyond the base Dataset decision horizon. Synthetic tests exercise
+same-feature/different-source identity, future tail rejection, unverified
+parent refusal before native reads, and masked unavailable base decisions.
+
+The retained rolling-history policy counts the last N eligible paired
+native returns, not a strictly consecutive-bar lookback. That alternative
+requires an independent preregistered factor. No historical frozen Study
+evidence, non-RL/cash comparison outcome, PPO training result, unused-future
+authorization, real-world after-cost profitability or live readiness is
+inferred or reclassified from these G1-G3 software checks.

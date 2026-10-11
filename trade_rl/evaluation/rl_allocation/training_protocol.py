@@ -7,6 +7,8 @@ from collections.abc import Callable
 from hashlib import sha256
 from typing import Any
 
+import gymnasium as gym
+
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.strategies.rl.allocation_model import (
@@ -35,7 +37,7 @@ def validate_protocol_clock(
 
 
 def construct_protocol_ppo(
-    env: AllocationTradingEnv, protocol: AllocationPPOTrainingProtocol, *, seed: int
+    env: gym.Env, protocol: AllocationPPOTrainingProtocol, *, seed: int
 ) -> Any:
     validate_allocation_backend_versions()
     torch = importlib.import_module("torch")

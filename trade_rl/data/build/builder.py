@@ -368,6 +368,7 @@ class MarketDatasetBuilder:
         feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         native_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        consumed_native_cross_asset: set[tuple[str, str]] = set()
         for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
@@ -459,7 +460,12 @@ class MarketDatasetBuilder:
                             instrument.symbol, native_timeframe
                         )
                         native_cache[key] = cached_native
+                    if cached_native.timestamps[-1] > timestamps[-1]:
+                        raise ValueError(
+                            "native cross-asset source extends beyond Dataset clock"
+                        )
                     native_sources.append(cached_native)
+                    consumed_native_cross_asset.add(key)
                 mtf_values, mtf_available, mtf_ages, mtf_staleness = (
                     align_native_cross_asset_feature(
                         spec,
@@ -570,6 +576,28 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
+        if consumed_native_cross_asset:
+            native_inputs: list[dict[str, str]] = []
+            for symbol, timeframe in sorted(consumed_native_cross_asset):
+                raw = native_cache[(symbol, timeframe)]
+                assert raw.available_at is not None
+                raw_digest = content_and_arrays_digest(
+                    {
+                        "schema": "native_cross_asset_raw_input_v1",
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                    },
+                    (
+                        ("timestamps", raw.timestamps),
+                        ("available_at", raw.available_at),
+                        ("close", raw.close),
+                        ("tradable", raw.tradable),
+                    ),
+                )
+                native_inputs.append(
+                    {"symbol": symbol, "timeframe": timeframe, "sha256": raw_digest}
+                )
+            metadata["native_cross_asset_raw_inputs"] = native_inputs
         if identity_provenance is not None:
             metadata["metadata_evidence"] = identity_provenance
         if execution_economics is not None:

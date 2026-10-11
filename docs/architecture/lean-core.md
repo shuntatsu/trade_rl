@@ -1691,3 +1691,130 @@ Plans, recipes, detached native fact shapes, fee receipts and historical
 actor/scheduled trace validation retain their original contracts. Capped global
 observations compose with existing comparison and terminal owners without a new
 ledger; historical capped trace admission remains a separate boundary.
+
+## Declared settled allocation learning clock
+
+`SettledAllocationClockContract` is a pure lower declaration for an explicit
+distinct settled learning lane. It separates P actor transitions from R nonempty
+reserved native closing bars, with physical H=P+R. Ordinary actor rewards span
+one timestamp interval; the final actor reward spans its own bar plus every
+reserved bar. GAE measures actor transitions and gamma is exactly one for the
+fixed-capital equity-delta objective. This is algebraic timing, not evidence of
+an unbiased gradient, learner success or executed settlement.
+
+Actor observations and order offsets use the full physical horizon denominator.
+For P=2,R=2 the last actor's remaining fraction is 3/4, not 1/2. P=1,R=2 is valid
+with a two-transition rollout: termination may occur inside a buffer. No rollout
+divisibility restriction is inferred from the actor prefix. Timestamp spacing
+does not replace calendar kind or effective bar duration for native carry.
+
+The distinct closed `allocation_settled_clock_v1` payload preserves these rules,
+strict native counts, resolved durations and immutable identity. The existing
+`financial_clock_v1`, marked environment, training receipts and bundles remain
+unchanged. This declaration alone processes no account and supplies no training,
+publication or inference admission.
+
+`evaluation/allocation_reserved_closing.py` now owns the shared native reserve
+iterator. The existing NONRL/cash terminal adapter delegates every zero-target
+bar to this owner, preserving actual risk, returned book/orders and execution
+RNG. It yields each returned frontier before clock/source postflight; the caller
+must exhaust even after the final yield. It never resets or mutates a carrier,
+and a flat account still processes all reserved carry bars. An economic stop
+retains its actual signed account and incomplete coverage. This shared execution
+owner supplies execution, not learner or artifact admission.
+
+For a live settled account, its caller supplies a retention hook receiving the
+actual native result immediately before returned-stage/fact diagnostics. This
+handoff adopts the actual book/orders/index without adding execution or ledger
+ownership to the iterator. The NONRL terminal adapter omits this optional hook
+and keeps its original marked carrier and diagnostic order.
+
+The distinct `SettledAllocationTradingEnv` composes this same native owner after
+its final actor bar. Its `BoundSettledAllocationClock` requires one settled
+independent account, exact P/R/H UTC bars, MARKET/zero-extra-latency retained-debt
+economics and unchanged hard risk at no more than20% DD. Recipe v4 independently
+binds full-H observation v2, calendar/effective bar hours and clock; Dataset
+window endpoints remain in the objective binding. Marked build/fit entry points
+explicitly reject this different environment before reset or optional imports.
+
+Reward is each actual native equity delta divided by original C; the final
+delta includes every returned reserve bar and its fees/carry. Ordered detached
+rows retain actor index, native return and visible before/after-state identities.
+True termination produces a zero sentinel without truncation. Native instances
+cannot be replaced mid-episode, and reset refuses to discard a processed live
+account. Failed/incomplete closing remains a sticky publication diagnostic.
+Full settlement and DD eligibility are distinct: a flat DD breach stays in
+evidence without becoming eligible. Signed insolvency and residual/active orders
+are never clipped or synthetically closed.
+
+An interruption after a native return is a sticky failed episode even if the
+actor counter has not advanced. The original exception retains the returned
+native frontier when diagnostics can be encoded; an interrupted diagnostic
+cannot replace that original failure. Later reset cannot restore publication
+eligibility.
+
+Both actor and reserve returns are adopted before fallible stage/fact recording.
+An exception during that recording retains the latest returned account even
+when no detached row could be appended. This covers returned diagnostic seams,
+not unreturned executor effects or arbitrary interruption inside adoption.
+
+The declared source envelope pins all-symbol native financial/availability/
+capacity rows including the complete reserve and reference row, separately from
+selected actor/forecast-owner features and actor cost/forecast declarations.
+Reserve feature availability and forecasts are not policy inputs. Exact native
+array-byte pins reject source drift; this pre-fit declaration does not prove
+actual actor/critic consumption or append completeness.
+
+The separate settled fitter requires an explicit fixed CPU protocol and an exact
+rollout-multiple budget. Its recorder delegates actual policy forward, critic,
+native reset/step, buffer append and GAE calls once, retaining original returned
+objects. Native rows are copied before autoreset; append evidence exists only
+after an actual successful buffer return. Prepared reset observations, live
+boundary critics and terminal zero sentinels retain distinct roles. Buffer
+arrays are copied chronologically before get; pinned SB3 NumPy GAE, done masks,
+actual returned Adam calls/epochs and final actual model parameters/counters are
+joined before publication. No extra prediction, sampling or execution is used.
+
+The upper validator joins selected source bytes, actual observation witnesses,
+ordered native account/order facts, raw signed rewards and actual tensors. It
+checks submitted decision identity, exact Book/lot quantities, fill counters,
+current DD and signed carry using native arithmetic order. Returned partial,
+economic-stop and unappended stages remain diagnostics. Hidden RNG, full order
+archives, stochastic execution prices and observed costs are not authenticated
+by these hashes; economic early-end carry has only phase-independent coverage.
+
+The pure lower settled training receipt derives structural settlement and
+eligibility from full-vector quantities, order states and physical coverage.
+All completed episodes must settle and at least one must meet the DD bound;
+DD-ineligible settled episodes and the live budget tail remain recorded.
+Recipe v4 pairs only with new bundle v6. Verified write-once save/load reuses the
+existing artifact boundary, validates the actual loaded model before reset and
+executes the same P/R/H native horizon. Existing marked bundles and training
+entry points keep their original meaning. These are software capabilities;
+learnability, market profit and formal research authorization remain separate.
+
+## Native Path Signature cross-line source identity contract
+
+Both single-clock and native multi-clock Path Signature augmentation require
+an input Dataset with a verified content identity before minting an augmented
+Dataset identity. Native MTF feature output is gated at each base decision by
+the base market's active, on-time information-available and tradable masks, in
+addition to native bar completion and source availability. In particular, an
+otherwise completed 15m path does not become eligible at an hourly decision
+whose base observation is unavailable. Unavailable output is zero and masked.
+
+For cross-asset statistics computed on clocks finer than the base decision
+clock, the generated Dataset identity binds SHA-256 digests of actually
+consumed raw native timestamp / `available_at` / close / tradability arrays
+per symbol/timeframe, even when derived returns are numerically identical.
+Both native cross-asset and native Signature source inputs are rejected if
+their tail extends after the Dataset's last decision clock. This is a
+post-load validity check; upstream readers must independently authorize
+every native source scope *before* accessing files or sealed periods.
+
+The maintained native cross-asset rolling history counts the last N eligible
+pair events across unavailable rows; it is not interchangeable with a
+consecutive-native-bar reset policy. The policy remains named in feature
+identity metadata and requires separate preregistration for comparison.
+G1/G2/G3 tests cannot establish profitable alpha or actual provider
+publication-time availability.

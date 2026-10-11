@@ -293,7 +293,7 @@ class SettledAllocationTradingEnv(gym.Env):
         self._terminated = False
         try:
             observation = self._observation()
-        except Exception:
+        except BaseException:
             self._episode_failed = self._terminated = self.publication_invalid = True
             raise
         return observation, {
@@ -448,8 +448,8 @@ class SettledAllocationTradingEnv(gym.Env):
                 action,
                 **self._arguments(),
             )
-            self._note_stage(actor_index, "actor_returned")
             self._adopt(result.execution)
+            self._note_stage(actor_index, "actor_returned")
             native = native_allocation_execution_facts(result.execution)
             row = self._row(
                 "actor",
@@ -491,8 +491,8 @@ class SettledAllocationTradingEnv(gym.Env):
                     before_state=self._state_digest,
                     validate_binding=self.validate_binding,
                     note_stage=self._note_stage,
+                    retain_returned=self._adopt,
                 ):
-                    self._adopt(closing.execution)
                     row = self._row(
                         "reserve",
                         closing.start_index,
@@ -538,7 +538,9 @@ class SettledAllocationTradingEnv(gym.Env):
                     "terminal_valuation": "settled",
                 },
             )
-        except Exception as error:
+        except BaseException as error:
+            # A native return may precede an interruption before actor_step
+            # advances. Retain that frontier as a failed, never eligible episode.
             self._episode_failed = self._terminated = self.publication_invalid = True
             # Keep the original failure even if its returned diagnostics cannot
             # themselves be encoded as finite native JSON.
@@ -548,7 +550,7 @@ class SettledAllocationTradingEnv(gym.Env):
                     "attempted_start_index": self._attempted_start_index,
                 }
                 error.settled_execution_receipt = canonical_json_bytes(diagnostic)  # type: ignore[attr-defined]
-            except Exception:
+            except BaseException:
                 pass
             raise
 

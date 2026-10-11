@@ -1723,6 +1723,12 @@ and a flat account still processes all reserved carry bars. An economic stop
 retains its actual signed account and incomplete coverage. This shared execution
 owner supplies execution, not learner or artifact admission.
 
+For a live settled account, its caller supplies a retention hook receiving the
+actual native result immediately before returned-stage/fact diagnostics. This
+handoff adopts the actual book/orders/index without adding execution or ledger
+ownership to the iterator. The NONRL terminal adapter omits this optional hook
+and keeps its original marked carrier and diagnostic order.
+
 The distinct `SettledAllocationTradingEnv` composes this same native owner after
 its final actor bar. Its `BoundSettledAllocationClock` requires one settled
 independent account, exact P/R/H UTC bars, MARKET/zero-extra-latency retained-debt
@@ -1740,6 +1746,17 @@ account. Failed/incomplete closing remains a sticky publication diagnostic.
 Full settlement and DD eligibility are distinct: a flat DD breach stays in
 evidence without becoming eligible. Signed insolvency and residual/active orders
 are never clipped or synthetically closed.
+
+An interruption after a native return is a sticky failed episode even if the
+actor counter has not advanced. The original exception retains the returned
+native frontier when diagnostics can be encoded; an interrupted diagnostic
+cannot replace that original failure. Later reset cannot restore publication
+eligibility.
+
+Both actor and reserve returns are adopted before fallible stage/fact recording.
+An exception during that recording retains the latest returned account even
+when no detached row could be appended. This covers returned diagnostic seams,
+not unreturned executor effects or arbitrary interruption inside adoption.
 
 The declared source envelope pins all-symbol native financial/availability/
 capacity rows including the complete reserve and reference row, separately from

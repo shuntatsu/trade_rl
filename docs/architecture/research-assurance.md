@@ -2172,6 +2172,19 @@ same-H write-once save/load supply separate contracts. Exact residuals, no
 completed eligible episode, stopped callbacks, partial failed appends, autoreset
 failure and changed final model weights must refuse successful publication.
 
+Actual native-return interruption oracles retain index7, cash499, equity999
+and quantity5 before the actor counter advances. KeyboardInterrupt/SystemExit
+must mark sticky failure and preserve the detached frontier before any later
+reset; interruption while encoding diagnostics must not mask the original error.
+
+Returned-stage failures are injected separately in actor and reserve processing,
+and reserve fact capture can fail before the iterator yields. Each actual
+returned account must already be adopted: actor index7/cash499/equity999/quantity5
+or reserve index8/cash998/equity998/quantity0 in the fixed-price fee-only oracle.
+The reserve retention hook is caller-owned; no additional execution is allowed.
+These oracles cover post-return diagnostics, not unreturned executor effects
+or interruption inside the retention handoff itself.
+
 Adversarial G2 source/capture oracles change canonical order IDs and target
 identities, native counters, DD, funding/interest and per-update epoch counts;
 rehashing is insufficient to pass the independent relational validator.

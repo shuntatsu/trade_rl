@@ -1615,6 +1615,11 @@ declaration, provenance and receipt formatting while fully consuming the shared
 iterator; its marked carrier remains unchanged. The distinct settled composition
 environment uses this same iterator and exhausts final postflight validation.
 
+The optional returned-result retention hook is caller-owned. The settled
+environment adopts the actual book/orders/index before returned-stage and fact
+diagnostics; the iterator never owns a Gym account or replacement ledger.
+Omitting the hook preserves the existing NONRL terminal adapter's behavior.
+
 `rl_allocation/settled_binding.py` owns full-H objective/runtime admission;
 `settled_env.py` composes Gym with the canonical actor executor and shared native
 reserve, never the marked environment or terminal evidence carrier. It owns

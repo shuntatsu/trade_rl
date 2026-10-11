@@ -2561,6 +2561,18 @@ These checks validate supplied joint facts, not historical authenticity of hidde
 execution state or stochastic costs. Economic early ends have limited carry
 phase evidence and do not qualify as completed settled episodes.
 
+Interrupted returned native processing cannot be treated as an unused opening:
+the failed episode remains publication-invalid before a later reset, and its
+detached frontier stays on the original exception when encoding succeeds.
+Diagnostic interruption cannot substitute for that primary failure.
+
+Actor and reserve returns are now retained before fallible returned-stage/fact
+diagnostics. A failed detached-row capture cannot roll the live account back to
+its previous bar. The reserve iterator's optional retention handoff is used by
+the distinct settled account; the existing NONRL terminal carrier and ordering
+remain unchanged. Unreturned executor effects and interruption inside adoption
+remain outside this returned-frontier guarantee.
+
 The finite synthetic fits establish software execution and artifact contracts,
 not successful profit learning. No new market learning, economic comparison,
 profit improvement or formal research approval is established. Exact-head full

@@ -49,6 +49,7 @@ def _iter_reserved_allocation_closing(
     before_state: Callable[[int, BookState, OrderBookState], str],
     validate_binding: Callable[[], None],
     note_stage: Callable[[int, str], None],
+    retain_returned: Callable[[StatefulExecutionResult], None] | None = None,
 ) -> Iterator[_ReservedAllocationClosingStep]:
     """Continue one actual account through every declared reserve bar.
 
@@ -56,6 +57,9 @@ def _iter_reserved_allocation_closing(
     they supply no execution implementation or replacement accounting. A flat
     account still processes native carry. Only actual economic termination stops
     the reserve early, and never establishes full settlement coverage.
+
+    A caller owning a live account can retain each actual return before any
+    fallible diagnostics. The hook supplies no replacement execution.
     """
     if (
         type(start_index) is not int
@@ -80,6 +84,8 @@ def _iter_reserved_allocation_closing(
             symbol_index=symbol_index,
             start_index=index,
         )
+        if retain_returned is not None:
+            retain_returned(execution)
         note_stage(index, "closing_returned")
         facts = native_allocation_execution_facts(execution)
         clock_valid = (

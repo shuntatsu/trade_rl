@@ -49,12 +49,12 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Declared settled allocation learning clock",
-      "sha256": "341f266b9208ec2b1479f790e55b7938fae35970ff7a27aede2d99c298a84203"
+      "sha256": "94424281ebe232cecbb95e061fa8a54fdd90a7f38c28f21b284c93dbe48f99ea"
     },
     {
       "path": "docs/research/current-status.md",
       "heading": "Settled learning work: clock and shared native reserve",
-      "sha256": "3883fb854aaeef22d879130225f91e4ae9b3740997bf3652367d606c5ff36b4f"
+      "sha256": "8e291a42e6ec5b021630142ba06059d45ae845a225a2bf4c1eb29eb597ad7d42"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -539,7 +539,7 @@
       "id": "allocation-settled-env",
       "symbol": "trade_rl.evaluation.rl_allocation.settled_env.SettledAllocationTradingEnv",
       "kind": "class",
-      "source_sha256": "347ad827c2e754da2fd3aafd85339bb0c016375d37e1d81a494607c6c6cd5756",
+      "source_sha256": "dec97b82831cda6c1976650f1609a81e9258cd732390130845a4df1e71fd58fc",
       "label_ja": "同じ口座の決済費用まで最後の報酬へ含める",
       "description_ja": "独立口座でP回の判断とR本の予約決済を分け、同じ共通会計でH=P+Rを処理します。残り期間は全Hを分母にし、最後の報酬に決済費用・carryを含めます。債務・未約定・失敗を保持し、実学習・保存物の適格性は後続検証です。",
       "variables": [],

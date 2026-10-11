@@ -528,3 +528,125 @@ def test_live_reset_rejects_account_discard_and_preserves_unfinished_frontier():
     assert (env.index, env.actor_step, env.book.portfolio_value) == (7, 1, 999.0)
     assert env.book.exact_quantities[0] == 5
     assert env.publication_invalid is True
+
+
+@pytest.mark.parametrize("interruption_type", [KeyboardInterrupt, SystemExit])
+def test_post_return_interruption_retains_failure_and_native_frontier(
+    monkeypatch, interruption_type
+):
+    module = capability("trade_rl.evaluation.rl_allocation.settled_env")
+    env = environment()
+    env.reset()
+    original_capture = module.native_allocation_execution_facts
+    returned = []
+    interruption = interruption_type("interrupted after actual native return")
+
+    def interrupt(execution):
+        returned.append((execution, original_capture(execution)))
+        assert execution.book is env.book and execution.order_book is env.order_book
+        raise interruption
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "native_allocation_execution_facts", interrupt)
+        with pytest.raises(interruption_type) as caught:
+            env.step(np.int64(3))
+    assert caught.value is interruption and len(returned) == 1
+    execution, facts = returned[0]
+    assert (execution.next_index, env.index, env.actor_step) == (7, 7, 0)
+    assert execution.interval_cost == 1.0 and execution.fill_count == 1
+    assert env.book.cash == 499.0 and env.book.portfolio_value == 999.0
+    assert env.book.exact_quantities[0] == 5
+    assert facts["book"]["as_of_index"] == 7
+    assert env._episode_failed and env._terminated and env.publication_invalid
+    raw = interruption.settled_execution_receipt
+    frontier = json.loads(raw)["settlement_witness"]["native_frontier"]["book"]
+    assert frontier["as_of_index"] == 7 and frontier["quantities"] == [5.0]
+    assert frontier["cash"] == 499.0 and frontier["equity"] == 999.0
+    env.reset()
+    assert env.publication_invalid is True
+    assert interruption.settled_execution_receipt == raw
+
+
+def test_diagnostic_interruption_does_not_replace_original_native_failure(monkeypatch):
+    module = capability("trade_rl.evaluation.rl_allocation.settled_env")
+    env = environment()
+    env.reset()
+    original = ValueError("native facts failed after return")
+
+    def fail_capture(execution):
+        assert execution.book is env.book and execution.next_index == env.index == 7
+        raise original
+
+    def interrupt_diagnostic(*args, **kwargs):
+        raise KeyboardInterrupt("diagnostic interrupted")
+
+    monkeypatch.setattr(module, "native_allocation_execution_facts", fail_capture)
+    monkeypatch.setattr(env, "_payload", interrupt_diagnostic)
+    observed = None
+    try:
+        env.step(np.int64(3))
+    except BaseException as error:
+        observed = error
+    assert observed is original
+    assert env._episode_failed and env._terminated and env.publication_invalid
+    assert env.index == 7 and env.book.portfolio_value == 999.0
+
+
+@pytest.mark.parametrize(
+    "phase,hook", [("actor", "stage"), ("reserve", "stage"), ("reserve", "facts")]
+)
+@pytest.mark.parametrize("failure_type", [ValueError, KeyboardInterrupt])
+def test_returned_account_precedes_fallible_diagnostics(
+    monkeypatch, phase, hook, failure_type
+):
+    env = environment(actor_steps=1, reserve_steps=1)
+    env.reset()
+    failure = failure_type("diagnostic failure after actual native return")
+    original_stage = env._note_stage
+    original_execution = reserved_closing._execute_allocation_target
+    returned = []
+
+    def execute(*args, **kwargs):
+        target, execution = original_execution(*args, **kwargs)
+        returned.append(execution)
+        return target, execution
+
+    def note(index, stage):
+        original_stage(index, stage)
+        if stage == ("actor_returned" if phase == "actor" else "closing_returned"):
+            raise failure
+
+    def facts(execution):
+        assert execution is returned[-1]
+        raise failure
+
+    with monkeypatch.context() as patch:
+        patch.setattr(reserved_closing, "_execute_allocation_target", execute)
+        if hook == "stage":
+            patch.setattr(env, "_note_stage", note)
+        else:
+            patch.setattr(reserved_closing, "native_allocation_execution_facts", facts)
+        with pytest.raises(failure_type) as caught:
+            env.step(np.int64(3))
+    assert caught.value is failure
+    index, equity, cash, quantity, actor_count = (
+        (7, 999.0, 499.0, 5, 0) if phase == "actor" else (8, 998.0, 998.0, 0, 1)
+    )
+    assert (env.index, env.actor_step) == (index, actor_count)
+    assert (env.book.cash, env.book.portfolio_value) == (cash, equity)
+    assert env.book.exact_quantities[0] == quantity
+    assert env._episode_failed and env._terminated and env.publication_invalid
+    if phase == "reserve":
+        assert len(returned) == 1
+        assert env.book is returned[0].book and env.order_book is returned[0].order_book
+        assert returned[0].interval_cost == 1.0 and returned[0].fill_count == 1
+    else:
+        assert returned == []
+    raw = failure.settled_execution_receipt
+    witness = json.loads(raw)["settlement_witness"]
+    assert not witness["settled"] and not witness["eligible"]
+    frontier = witness["native_frontier"]["book"]
+    assert frontier["as_of_index"] == index and frontier["cash"] == cash
+    assert frontier["equity"] == equity and frontier["quantities"] == [float(quantity)]
+    env.reset()
+    assert env.publication_invalid is True and failure.settled_execution_receipt == raw

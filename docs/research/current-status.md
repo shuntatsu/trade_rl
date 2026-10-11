@@ -2418,3 +2418,14 @@ A fail-before-source-read regression prevents an unverified base from being
 wrapped into a newly valid-looking derived Dataset ID. This is a software
 G1/G3 admission invariant; no model fit, economic comparison, final-period
 authorization or profitability conclusion follows from it.
+
+## Signature identity and base-clock availability boundary (2026-10-11)
+
+Both base and native Path Signature augmentation now fail closed on a base
+Dataset without verified content identity. For native MTF Signature, a
+completed native window is available at the base decision only if the
+base Dataset's symbol row is also active, tradable, causally available
+and on time. Software counterexamples prevent authenticated-looking
+derived Dataset IDs from unverified inputs and prevent a native feature
+from remaining available on a missing base-market row. This does not
+establish source-provider publication truth or any economic improvement.

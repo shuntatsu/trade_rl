@@ -1572,3 +1572,14 @@ identity is not verified. This check runs **before** any native source load;
 a derived content ID must never legitimize an unverified base snapshot.
 The native read still requires separately authorized source scope. Successful
 identity and as-of checks alone do not prove provider publication history.
+
+## Both Path Signature APIs require authenticated parent identity
+
+Both completed-base-clock and native-MTF Path Signature augmentation now
+reject unverified input Dataset identities *before* computing any new derived
+identity. The native path additionally masks output at a base decision if the
+base market row lacks on-time information or tradability, even if a lower
+native path would otherwise have a completed Signature. Invalid output is
+zero with an explicit availability mask. Synthetic falsifiers cover both
+entrypoints and retained earlier valid decisions. This is G1/G2 admission
+assurance, not empirical evidence of positive alpha.

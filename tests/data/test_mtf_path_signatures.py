@@ -83,6 +83,25 @@ def test_native_15m_signature_uses_intrahour_completed_closes_and_masks() -> Non
     assert extended.identity_verified
 
 
+def test_native_signature_masks_base_decisions_with_unavailable_market_rows() -> None:
+    source = _source()
+    base = _dataset(source)
+    information = base.resolved_array("information_available").copy()
+    information[2, 0] = False
+    modified = replace(
+        base, identity_payload_json=None, information_available=information
+    ).with_content_identity({"fixture": "base_row_unavailable"})
+    assert modified.identity_verified
+    extended = with_multitimeframe_path_signatures(
+        modified, source, base_timeframe="1h", windows_by_timeframe={"15m": 5}
+    )
+    col = extended.feature_names.index("mt_path_sig_v1_15m_w5_d2_tp_tp")
+    assert extended.feature_available[1, 0, col]
+    assert not extended.feature_available[2, 0, col]
+    assert extended.features[2, 0, col] == 0.0
+    assert extended.feature_available[2, 1, col]
+
+
 def test_mtf_signature_rejects_unverified_base_before_native_data_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

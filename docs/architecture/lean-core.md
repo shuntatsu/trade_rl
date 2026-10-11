@@ -632,7 +632,12 @@ late or untradable row excludes both touching returns. Rolling statistics retain
 the last eligible pair events, without a reset-on-gap rule. Affected build
 configurations bind `native_cross_asset_alignment=native_before_base_sync_v1`
 and `native_cross_asset_history=last_n_eligible_pair_events_v1`
-in both their feature configuration digest and Dataset identity metadata;
+in both their feature configuration digest and Dataset identity metadata.
+For this finer cross-asset route, source-close / availability / tradability /
+timestamp array digests of actually consumed native symbol×clock inputs are
+also bound into the Dataset identity. Extra future native bars beyond the
+base Dataset end are rejected; the digests alone do not prove provider
+historical publication times.
 unaffected configuration payloads remain unchanged. Native price and volume pathways must
 respect a source event's close and its independent `available_at` publication
 clock. The last *available* native event, not the last event in the entire raw

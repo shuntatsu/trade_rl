@@ -49,12 +49,12 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Declared settled allocation learning clock",
-      "sha256": "94424281ebe232cecbb95e061fa8a54fdd90a7f38c28f21b284c93dbe48f99ea"
+      "sha256": "b4885100b4d81964a7919c283c966d5afa1cadfb40f5f8d0443f25d31ebf33cf"
     },
     {
       "path": "docs/research/current-status.md",
       "heading": "Settled learning work: clock and shared native reserve",
-      "sha256": "8e291a42e6ec5b021630142ba06059d45ae845a225a2bf4c1eb29eb597ad7d42"
+      "sha256": "9cecea0ad7fbc7d60d6e4422c1e08307e34f90452d152dc5f39bf5fcfce9c658"
     },
     {
       "path": "docs/architecture/lean-core.md",

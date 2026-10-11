@@ -1793,6 +1793,25 @@ executes the same P/R/H native horizon. Existing marked bundles and training
 entry points keep their original meaning. These are software capabilities;
 learnability, market profit and formal research authorization remain separate.
 
+A separate test-only learnability diagnostic fixes signal and fee-only synthetic
+cases, seeds 0/7/17 and one 4096-transition CPU fit per case/seed. It preserves
+the same native USD1000 account, direct action, fees, DD20% guard and P16/R2/H18
+clock for initialization, trained policy, cash, cue-rule and fixed-position
+controls. Entry capacity precedes a delayed payoff; absent capacity forbids
+entering just before that payoff. Removed/inverted cue views keep financial
+prices and capacity unchanged. The sixteen factorial patterns include the
+training pattern and are known regression data, not independent market samples.
+
+Mechanical conformance and the frozen learning predicates have separate results.
+The signal case requires after-cost gain, improvement over initialization,
+effective direction and cue counterfactual degradation. Fee-only learning also
+requires lower entry probability on the same cash observations; an initially
+flat greedy actor alone does not establish learning. Every failed slot retains
+partial native returns and explicitly unexecuted patterns. The six-slot registry
+revalidates full captures, saved bundles and native evaluation metrics before
+classifying learning. A valid recorded learning failure may pass software CI;
+missing/invalid evidence cannot qualify. This adds no market fit or authority.
+
 ## Native Path Signature cross-line source identity contract
 
 Both single-clock and native multi-clock Path Signature augmentation require

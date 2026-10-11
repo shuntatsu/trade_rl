@@ -83,6 +83,27 @@ def test_native_15m_signature_uses_intrahour_completed_closes_and_masks() -> Non
     assert extended.identity_verified
 
 
+
+def test_mtf_signature_rejects_unverified_base_before_native_data_access() -> None:
+    source = _source()
+    base = _dataset(source)
+    assert base.identity_verified
+    unverified = replace(base, identity_payload_json=None)
+    assert not unverified.identity_verified
+    class DenySource(_Source):
+        def load_timeframe(self, symbol: str, timeframe: str):
+            pytest.fail("unverified Dataset reached native source read")
+
+    denied = DenySource(source.values)
+    with pytest.raises(ValueError, match="identity-verified base Dataset"):
+        with_multitimeframe_path_signatures(
+            unverified,
+            denied,
+            base_timeframe="1h",
+            windows_by_timeframe={"15m": 5},
+        )
+
+
 def test_mtf_signature_rejects_native_source_tail_beyond_base_decision_clock() -> None:
     source = _source()
     base = _dataset(source)

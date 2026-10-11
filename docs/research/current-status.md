@@ -2409,3 +2409,12 @@ and an out-of-scope future native tail. These changes are result-blind
 software assurance, not new economic/profit evidence. The existing
 last-N-eligible-history definition remains distinct from a strict consecutive
 native-bar window and needs an independent Controlled Factor to compare.
+
+## Native Signature parent identity guard (2026-10-11)
+
+The native multi-clock Signature augmentation rejects a base Dataset with
+unverified content identity before accessing any external native source.
+A fail-before-source-read regression prevents an unverified base from being
+wrapped into a newly valid-looking derived Dataset ID. This is a software
+G1/G3 admission invariant; no model fit, economic comparison, final-period
+authorization or profitability conclusion follows from it.

@@ -1564,3 +1564,11 @@ provider archive was available in real time. The maintained
 `last_n_eligible_pair_events_v1` history policy is unchanged. Frozen
 economic studies, settlement, execution, risk and unused-data permissions
 are not revised by this protection.
+
+## Native Signature verified parent prerequisite
+
+Opt-in native MTF Signature refuses an input Dataset whose current Dataset
+identity is not verified. This check runs **before** any native source load;
+a derived content ID must never legitimize an unverified base snapshot.
+The native read still requires separately authorized source scope. Successful
+identity and as-of checks alone do not prove provider publication history.

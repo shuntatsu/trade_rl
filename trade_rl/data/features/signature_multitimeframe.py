@@ -101,13 +101,15 @@ def with_multitimeframe_path_signatures(
     depth: int = 2,
     include_volume: bool = False,
 ) -> MarketDataset:
-    """Append per-native-clock Signature features to an immutable base Dataset.
+    """Append per-native-clock Signature features to a verified base Dataset.
 
     Every native window is calculated before as-of alignment to one base
     decision clock. An eligible native event may be delivered late, but never
     before its maximum constituent `available_at`. No native bar is subsampled
     before calculating its Signature.
     """
+    if not dataset.identity_verified:
+        raise ValueError("native Signature requires identity-verified base Dataset")
     if dataset.calendar_kind != MarketCalendarKind.CONTINUOUS:
         raise ValueError("native Signature v1 requires continuous market calendar")
     if not math.isclose(

@@ -1837,3 +1837,28 @@ consecutive-native-bar reset policy. The policy remains named in feature
 identity metadata and requires separate preregistration for comparison.
 G1/G2/G3 tests cannot establish profitable alpha or actual provider
 publication-time availability.
+
+## Bounded native settled readback
+
+`rl_allocation/settled_native_validation.py` separately verifies detached native
+captures against a passive source context and ordered integer actor intents.
+It constructs no environment, executes no account and supplies no learner,
+buffer, critic or GAE evidence. Canonical bytes provide detached identity,
+not authentication of an execution or of opaque order archives/history/RNG.
+
+Strong native admission is limited to the declared single-symbol, continuous
+hourly USD1000 profile with MARKET/zero latency, BASE_ASSET processing capacity,
+deterministic fees and the fixed DD20% risk contract. The reader joins exact
+Book fill counters and turnover using prior equity; open refresh, accepted fill
+and final mark peak/DD sites; post-risk target sizing and quantity HOLD; and
+source capacity, immutable pending progress, event sequence and aggregate cost.
+Raw action0 never bypasses hard risk. Exact post-risk quantity HOLD cancels
+remaining MARKET orders and emits no new intent.
+
+A DD-ineligible completed account retains structural settlement. Failed,
+incomplete, economic-end or unsupported observations retain diagnostics and
+cannot satisfy strong admission. A returned account beyond the last validated
+row is an unvalidated tail, never an invented row. Failed witnesses join actual
+frontiers to validated-prefix counters; an original exception and its adopted
+frontier survive post-return capture failure. Source-denied admission remains
+unsupported diagnostic evidence rather than malformed successful execution.

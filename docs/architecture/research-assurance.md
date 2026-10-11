@@ -2223,3 +2223,33 @@ any false predicate is retained as failure. Software/process success or a
 faithfully stored false predicate is not learning success. Neither synthetic
 qualification nor source review grants market G3-G5, formal independent approval
 or unused/final/live authority.
+
+## Native settled readback precursor assurance
+
+This result-blind software prerequisite closes four native relationships before
+controller comparisons: counters/turnover, all normal peak/DD update sites,
+post-risk target-to-intent sizing, and capacity/fill/event/cost aggregates.
+Its frozen local batch contains nine fresh USD1000 accounts and at most 25
+declared native bars: cash carry, residual2 NONRL baseline, direct long/short,
+partial/no-market reserve, recovered reserve drawdown, signed-debt economic end,
+and actor/reserve post-return BaseException seams. Coefficients are literal
+synthetic declarations, not an estimated Ridge model. No neural/RL or Ridge
+solver fit, market access, policy save/load or economic selection is permitted.
+
+Independent literals include residual target3/16 and quantity15/8, long/short
+round-trip wealth992.1875 with fees7.8125, partial/no-market wealth998.4375, and
+recovered reserve DD0.25390625. The failure oracles preserve the original
+exception, validated prefix and actual adopted tail without a subsequent call.
+Constructed open200/open50 variants reuse partial-case bytes with new source
+identities and fully rebound proposals/orders/states. Honest variants must
+qualify before endpoint-only peak/DD mutants are rejected. Quantity/capacity,
+counters, turnover, pending progress and failed-witness mutants also rehash
+linked duplicates. Constructed variants claim no additional native origin.
+
+The local plan permits at most three new nine-case batches (75 declared bars),
+with every software invocation recorded separately. Required inherited CI
+replicas are separate software checks, not an enforced total backend budget.
+Fresh concrete source/G2-plan review is required before the first native batch;
+design review does not establish executed G2. Neither these native checks nor
+AGY source review constitute formal independent GitHub research approval,
+G3-G5 economic evidence, unused/final authorization or parent completion.

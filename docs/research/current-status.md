@@ -2591,6 +2591,28 @@ mechanical conformance, learning predicates and failures distinct; missing or
 invalid evidence cannot qualify. Results require verified exact-source captures
 and saved-bundle closure, rather than a passing test count alone.
 
+The initial fixed run completed all six fits and independent native/capture/
+bundle readback: software conformance is VALID, but aggregate learning is
+FAILED. The source-frozen run started on the `14a98c5` overlay; the unchanged
+four harness owners were committed as `85ca536`. Every signal case met its
+fixed predicates, including 100% effective payoff-direction alignment:
+
+| Seed | Signal mean net gain | Fee-only mean net gain | Fee-only entry probability before → after | Learning |
+| --- | --- | --- | --- | --- |
+| 0 | 3.854494% | 0% | 49.944117% → 0.259792% | PASS / PASS |
+| 7 | 3.825444% | 0% | 50.005627% → 0.839054% | PASS / PASS |
+| 17 | 3.940466% | −0.5% | 49.943060% → 71.326324% | PASS / FAILED |
+
+Seed17 traded in every fee-only evaluation pattern and failed both zero-trading
+and the fixed probability-reduction predicate. It is retained with the same
+4096-transition budget; no seed removal, retry or threshold change qualifies
+this run. The strong cue-rule mean signal gain was 3.854494%, and cash was 0%.
+These manufactured sixteen-pattern outcomes do not establish PPO superiority
+over simple rules or an independent market edge. The local publication summary
+SHA-256 is `e186c1f37b13d9b643dd13897ebb4a3d19ecf0d78b74688b696de0fa100e6d18`.
+CI replicas are separately identified software checks and cannot replace the
+initial failed learning outcome.
+
 This Task does not fit/replay market data, qualify economic comparisons or open
 unused/final data. Market profitability, PPO value over real simple rules,
 formal independent review and the parent profitable-system goal remain

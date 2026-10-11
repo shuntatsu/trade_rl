@@ -1605,8 +1605,71 @@ settled profit is absent. Signed fixed-capital rewards use native equity deltas,
 including losses below -100%, rather than clipped interval/log diagnostics.
 Original prefix failure or closing exception preserves its known partial facts
 and original error; an unreturned bar's fills are unknown. This is runtime
-software observation, not a serialized Study evidence reader, approval or WINNER.
+software observation, not a Study evidence reader, approval or WINNER.
 The native MARKET/zero-extra-latency and independent-symbol limits remain.
+
+## Closed terminal evidence and settled forecast controls
+
+`allocation_terminal_evidence` reads native terminal observation v2 against a
+separately supplied exact frozen plan. It preserves the original versioned global
+prefix receipt, verifies physical objective endpoints and every reserved clock,
+and checks actor-free returned book/execution/order facts. Before/after pins use
+the visible local book, active orders and processing index; they exclude return
+history, the terminal order archive and RNG. Legacy runtime observation v1 cannot
+be relabeled as closed evidence. Failure stage and attempted index retain the
+known frontier; unreturned effects are not inferred.
+
+The pure reader reconstructs unchanged zero-target hard risk, verifies cumulative
+cost/borrow/turnover/count deltas, symbol totals and signed funding boundaries.
+Retained filled/partial-fill event notionals must match both the execution total
+and each symbol's execution total in the accepted prefix and every close row.
+Fill quantities must follow their order's direction and bind notional to price
+and multiplier. The last nonterminal event for each observed order must remain
+active; a later terminal event permits removal. One-bar funding has at most one
+boundary, whose endpoint and position/mark/multiplier vectors match the returned
+book for a solvent nonterminated interval. Terminated rows retain their distinct
+pre-flatten funding snapshot. Only the zero-request fill-ratio branch is derived;
+other ratios depend on unretained reference notionals.
+Execution costs must be zero on coordinates without fills. Retained capacity
+obeys initial = market notional times participation limit = consumed plus
+remaining. Each independent interval has at most one pool, with the selected
+book multiplier and a limit no greater than actual cost policy. Fill events
+retain its sequential before/after subtraction; consumed capacity matches fills
+within native subtraction-rounding tolerance. Participation summaries equal
+retained fill maxima, whose rates cannot fall below their notional ratios.
+Every previously active order must remain active or have its own terminal event
+in the next interval. Known intents and status chains persist; new orders need
+submission events. Surviving cumulative notionals use native sequential addition
+and evidence versions count actual transitions. No-fill-only carried orders stay
+unchanged. Contract multipliers are fixed, foreign coordinates stay exactly zero,
+live margin fields match actual cost policy, and rebalances count successful fills.
+From the initially flat account, a no-fill interval preserves exact-zero inventory
+and has no execution, funding, borrow or dividend flow. Only signed recorded cash
+interest changes its cash, including retained debt; zero interest preserves cash
+exactly. Nonzero interest uses operation-magnitude ULP tolerance because native
+gap and processing interest round separately. A failed prefix retains its own
+original diagnostic and prefix frontier rather than a substituted closing stage.
+Event remaining quantities follow known fills within native lot-rounding tolerance;
+FILLED events have exact-zero remaining quantity and cannot overfill that frontier.
+Cumulative floating totals use forward addition with operand ULP tolerance,
+avoiding cancellation in subtractive deltas; integer counts remain exact.
+The reader checks signed fixed-capital rewards against final wealth. Native
+cumulative peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
+an independent reconstruction of the whole intrabar path. Coverage, settlement
+and DD eligibility remain separate. Partial or failed closes have no settled
+profit, while a settled DD breach remains ineligible.
+
+`allocation_settled_forecast_comparison` binds control/treatment/cash terminal
+plans to the original external forecast assignment. Each group retains complete
+arm identities and equal financial source, closing window, capital, actual costs,
+risk and full business objective. An explicit independent-account/scenario
+Cartesian roster requires exactly one receipt per role in every group. Reports
+retain the validated receipts, show every group, and provide deltas only for
+complete risk-eligible groups. They neither select a winner nor replace the
+one-forecast A/B/C or mandatory PPO seed matrix. Source hashes and internally
+consistent returned aggregates do not authenticate historical execution costs,
+RNG or the complete terminal fill archive. Economic qualification and matching
+settled PPO learning remain separate prerequisites.
 
 ## Versioned global static-cap verification
 

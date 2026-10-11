@@ -2444,8 +2444,8 @@ retain their original meaning.
 This runtime observation has no serialized Study evidence reader or independent
 approval authority. No market data/artifact/result, actual-market fit/replay,
 calibration, selection, unused/final period, historical capture or sealed run was
-opened or repeated. Complete settled forecast-control evidence, matching PPO
-terminal learning, frozen protocol and formal independent review remain required.
+opened or repeated. Economic qualification of settled forecast controls, matching
+PPO terminal learning, frozen protocol and formal independent review remain required.
 Exact-head full software verification and formal research review are separate;
 formal review is PENDING. Profit improvement, G4/G5, live readiness and the overall
 Issue #810 objective remain NOT ESTABLISHED.
@@ -2467,3 +2467,51 @@ projection. No optimizer, risk, ledger, training or market result changed. These
 checks establish a bounded software prerequisite only. Formal research review
 remains PENDING; economic profit improvement, settled PPO parity, G3-G5, live
 readiness and the overall Issue #810 goal remain NOT ESTABLISHED.
+
+## Issue #810: closed settled forecast software comparison
+
+`allocation_terminal_evidence` validates terminal runtime observation v2 against
+a separately frozen exact plan and its original global prefix receipt. It checks
+physical endpoints/clocks, actor-free returned facts, observable local-state
+continuity, unchanged hard risk, cumulative costs/carry/counts, signed rewards
+and summaries. Retained filled/partial-fill event notionals must equal execution
+totals and each symbol's total in both prefix and close rows.
+Closed admission also links fill direction and price/notional, retains known
+pending orders until their last event terminates them, and checks one-bar normal
+funding snapshots against the returned account. Terminated funding snapshots
+retain their pre-flatten meaning. Direct v1 digest lookup preserves original
+execution/order error precedence; its legacy admission is not widened into
+closed terminal evidence.
+Additional retained-fact closure rejects costs on untraded symbols, inconsistent
+capacity conservation, disappearance of a carried order without its own terminal
+event, and invented cash or inventory in an opening-flat no-fill interval. The
+capacity pool and sequential fills bind actual participation limits and returned
+maxima. Submitted and surviving orders retain known intent/status, sequential
+cumulative notionals and transition versions. Independent inventory, fixed
+multipliers, successful-fill rebalance counts and live margin fields are checked.
+The exact-flat no-fill cash equation admits only signed recorded interest; zero
+interest preserves cash exactly, while nonzero interest has native ULP rounding
+allowance. Original nested prefix diagnostics are retained. These are bounded
+returned-fact checks, not general historical cash-flow authentication across
+unretained inventory actions.
+Remaining quantities follow known event fills, and FILLED records cannot retain
+residuals or overfill. Forward ULP-bounded cumulative arithmetic preserves lawful
+rounding; a failed prefix retains its original diagnostic and prefix stage.
+Legacy terminal observation v1 remains diagnostic-only. Partial and failed closes
+retain actual known inventory/orders and have no settled
+profit; DD eligibility remains separate from settlement completion.
+
+`allocation_settled_forecast_comparison` preserves original control/treatment/cash
+forecast assignments and complete native identities. Explicit independent
+accounts and scenarios require the entire Cartesian roster, with every role
+exactly once. A report retains validated receipts and shows every group; missing,
+duplicated, foreign or swapped observations reject. Incomplete or DD-ineligible
+groups provide no comparison delta. No Study, winner or PPO matrix is introduced.
+
+These are closed synthetic software prerequisites. Internally consistent hashes
+and aggregate returned facts do not authenticate historical costs, RNG, intrabar
+DD or full fill archives. No new market fit/replay, data/result inspection,
+selection, unused period or sealed workflow is authorized by this capability.
+Matching settled PPO learning, a result-blind frozen economic protocol, formal
+independent review and actual after-cost improvement remain unestablished.
+Issue #810 and live profitability remain incomplete.

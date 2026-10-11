@@ -1996,8 +1996,10 @@ equal/swapped/malformed pins, foreign plans and invalidly mutated declaration/pl
 bytes before provenance/reset. This checks current consistency; coordinated valid
 replacements are not historical tamper authentication. Default controls remain covered.
 
-There is no completed two-forecast evidence/report contract or frozen selection
-budget. V1 A/B/C retains one forecast and its mandatory RL matrix; controls cannot
+This native preflight does not itself establish completed forecast evidence or
+economic qualification; the separate bounded settled software report is defined
+below. A frozen economic selection budget is still absent. V1 A/B/C retains one
+forecast and its mandatory RL matrix; controls cannot
 be disguised as RL cells or different scenarios. Matching the closed fixture
 does not prove general training matching, calibrated market costs, profitability,
 formal independent approval or G3-G5. Equal seeded configs need not consume
@@ -2032,8 +2034,63 @@ bytes are independently pinned before the generic freezer extraction.
 
 Session design/source review and software tests do not establish authenticated
 independent G3, a qualified economic comparison or G4/G5. Matching PPO terminal
-learning, complete settled forecast controls, frozen finite protocol and formal
+learning, economic qualification of settled forecast controls, frozen finite protocol and formal
 independent research approval remain necessary follow-on boundaries.
+
+## Closed settled forecast software G0-G2
+
+G0 tests whether internally inconsistent or incomplete terminal comparisons are
+rejected before economic research. It assumes no alpha: stronger forecasts can
+increase turnover and fee loss in a constant-price market. G1 preserves native
+independent accounts, full original capital and physical prefix-plus-reserve
+clocks, unchanged zero-target hard risk, actual execution costs and original
+forecast assignments. This settled NONRL/cash factor comparison cannot establish
+training/evaluation parity for the current marked PPO terminal.
+
+G2 uses independent literal cash/fee/carry and signed debt oracles, profitable
+partial liquidation, untradability/turnover constraints, flat cash interest,
+state-chain mutations, physical date shifts, forged summaries and complete
+role/account/scenario roster mutations. A constant-price single-entry fixture
+with capital1000 and actual fee.002 in each direction has control quantity32/19
+and settled wealth94936/95, treatment quantity4 and wealth998.4, and cash1000.
+The larger forecast worsens settled wealth. These are predetermined synthetic
+conformance values, not empirical strategy results or a profitability claim.
+
+`allocation_terminal_evidence` checks source/plan identity, native integer clocks, full risk
+target, visible local state, cumulative cost/carry/counter algebra and signed
+reward telescoping. Filled/partial-fill event amounts must equal execution totals
+and symbol totals; moving a notional to an untraded coordinate rejects even when
+the scalar total is unchanged.
+Order direction, price-times-quantity notional and the latest nonterminal order's
+active membership are retained invariants. One-bar funding cardinality and normal
+solvent endpoint/snapshot equality use returned facts; economic termination may
+flatten after the boundary and retains a separate snapshot. General fill ratios
+and historical funding prices cannot be independently recovered from aggregates.
+No-fill coordinates have zero execution cost; retained capacity conserves its
+initial, consumed and remaining amounts and declared participation bound. Known
+carried order IDs need their own terminal events before disappearing. Retained
+submission/intent/status, cumulative notional and evidence-version links reject
+invented order progress. Single-pool fill subtraction, participation maxima and
+notional lower bounds join native capacity; fixed multipliers, independent-symbol
+inventory, rebalance counts and live margin fields join actual cost policy.
+An opening exact-flat no-fill account remains exact-flat and has no inventory
+cash flows. Only recorded signed cash interest changes cash, including negative
+interest and retained debt. Zero interest preserves cash exactly; nonzero
+interest allows operation-magnitude ULP error from native sequential application,
+without a fixed absolute tolerance floor. Nested prefix failures retain the
+original diagnostic. These
+bounded links do not authenticate the historical cash-flow inputs or reconstruct
+general inventory transitions across splits and delisting settlement.
+Source pins plus aggregates do not authenticate historical fee decomposition,
+stochastic execution or complete intent/fill
+archive. Endpoint facts support cumulative native DD lower bounds and continuity,
+not exact independent intrabar DD reconstruction. Valid failure observations
+retain the last returned frontier and original diagnostic; malformed returned
+rows cannot enter accepted evidence. AI design/source review and exact-head
+software CI do not establish authenticated G3 or authorize economic G4/G5.
+The separate `allocation_settled_forecast_comparison` owner requires the full
+declared roster and retains validated receipt objects; summaries alone do not
+admit evidence or establish a profitable candidate.
 
 ## Global static-cap verification G0-G2
 

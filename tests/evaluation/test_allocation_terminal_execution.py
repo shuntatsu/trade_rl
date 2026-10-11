@@ -1,6 +1,6 @@
 """Literal native closing oracles; no fit, market data or research selection."""
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from importlib import import_module, util
 
 import numpy as np
@@ -20,7 +20,15 @@ def capability():
 
 
 def carrier(
-    *, side=1, kind="nonrl", partial=False, cash_rate=0, borrow_rate=0, risk=None
+    *,
+    side=1,
+    kind="nonrl",
+    partial=False,
+    cash_rate=0,
+    borrow_rate=0,
+    risk=None,
+    n_symbols=1,
+    max_participation=1.0,
 ):
     folds, (original,) = fixture(
         ranges=((6, 7),),
@@ -47,6 +55,25 @@ def carrier(
         cash_rate=np.full(12, cash_rate),
         borrow_rate=np.full((12, 1), borrow_rate),
     )
+    if n_symbols != 1:
+        duplicated = {}
+        for field in fields(dataset):
+            value = getattr(dataset, field.name)
+            if (
+                field.init
+                and not field.name.startswith("global_")
+                and isinstance(value, np.ndarray)
+            ):
+                if value.ndim >= 2 and value.shape[:2] == (dataset.n_bars, 1):
+                    duplicated[field.name] = np.repeat(value, n_symbols, axis=1)
+                elif value.shape == (1,):
+                    duplicated[field.name] = np.repeat(value, n_symbols)
+        dataset = replace(
+            dataset,
+            **duplicated,
+            symbols=tuple(f"S{i}" for i in range(n_symbols)),
+            volume_units=dataset.volume_units * n_symbols,
+        )
     allocator = (
         replace(original.allocator, lower_weight=-0.5, upper_weight=0.0)
         if side == -1
@@ -60,6 +87,7 @@ def carrier(
         if borrow_rate
         else original.execution_cost
     )
+    cost = replace(cost, max_participation_rate=max_participation)
     economics = MarketExecutor(
         dataset, cost, insolvency_valuation="retain_debt"
     ).execution_policy_digest

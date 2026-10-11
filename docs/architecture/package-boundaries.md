@@ -1650,3 +1650,15 @@ and validates a verified loaded model before reset, then exhausts the same nativ
 reserve. It reuses the existing write-once artifact implementation. No shared or
 scheduled/global lane, Study, new preprocessing or default dispatch is added;
 marked bundles retain their original meaning.
+
+The bounded synthetic learnability fixture stays in
+`tests/integrations/settled_learnability_fixture.py`. Its literal accounting,
+causality, failure preservation and evidence-tamper oracles belong to
+`tests/evaluation/test_allocation_settled_learnability_oracles.py`; the fixed
+roster/CI-selection contract belongs to
+`tests/architecture/test_allocation_settled_learnability_contract.py`.
+`tests/integrations/test_allocation_settled_learnability.py` owns six actual
+optional-backend fits, native controls, cue counterfactuals, verified reloads and
+the complete evidence registry. The registry reuses the pure capture validator
+and existing artifact reader; it never reruns a learner or account to validate
+a stored trace. These are test owners, not a public market/Study API.

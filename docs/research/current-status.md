@@ -2579,6 +2579,24 @@ profit improvement or formal research approval is established. Exact-head full
 CI/package verification and formal approval remain separate. The work and
 Issue #810 are still active and incomplete.
 
+### Bounded synthetic settled learnability
+
+A separate test-only Task fixes two manufactured cases, seeds 0/7/17 and one
+4096-transition fit per case/seed. USD1000, DD20% and the same native P16/R2/H18
+execution apply to initialization, learned policies, cash, strong cue-rule and
+fixed-position controls. Cue removal/inversion preserves financial inputs.
+Every sixteen-pattern evaluation includes the training pattern and is a known
+regression task, not independent market generalization. Six-slot evidence keeps
+mechanical conformance, learning predicates and failures distinct; missing or
+invalid evidence cannot qualify. Results require verified exact-source captures
+and saved-bundle closure, rather than a passing test count alone.
+
+This Task does not fit/replay market data, qualify economic comparisons or open
+unused/final data. Market profitability, PPO value over real simple rules,
+formal independent review and the parent profitable-system goal remain
+unestablished. The earlier finite software fits are not rebound to new learning
+outcomes. Exact-head CI and formal research approval remain separate.
+
 ## Native Signature source identity and decision availability (2026-10-11)
 
 The native Signature and single-clock Signature augmentation now require a

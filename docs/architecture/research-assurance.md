@@ -2193,3 +2193,33 @@ not authenticated; economic early ends lack full phase-specific carry bases.
 Joint exact lot counts are validated from retained Book/source/event facts,
 not claimed independently observed hidden allocator counts. No new profit,
 economic G3-G5, learnability or formal research approval follows.
+
+The separate bounded synthetic learnability G0 asks whether an unfixed settled
+actor learns delayed cue-conditioned decisions after fees and avoids pure-fee
+entries. Collector/constant-critic oracles do not answer this question. G1 fixes
+two cases, seeds 0/7/17, one 4096-transition fit per case/seed, an explicit CPU
+protocol and sixteen known four-sign patterns before outcomes. The roster
+includes the training pattern; it is not an independent statistical market
+sample. Initial/trained models, cash, strong cue-rule, fixed long/short HOLD and
+removed/inverted cue controls share capital, native execution, risk and full H.
+No threshold, pattern, seed or budget is adapted from an outcome.
+
+Pre-fit G2 checks literal fees/quantities, delayed payoff, absent late-entry
+capacity, future-input perturbations and the sole directional channel. Post-fit
+G2 requires actual source/input/native/append/update/v6 closure and equivalent
+save/load execution. The complete six-slot registry derives gains from terminal
+equity and checks clocks, exact flatness, orders, DD, native fills and source
+bindings. It independently validates saved full captures and policy bytes.
+Original failures, partial frontiers, unexecuted patterns and storage errors
+remain visible and prevent mechanical qualification.
+
+Learning criteria are separate: every signal seed needs mean signed terminal
+gain >2%, improvement over initialization >1.5 percentage points, effective
+payoff direction >=75%, cue-removal degradation >=1.5 points and nonpositive
+inverted-cue gain. Every fee-only seed needs zero gains/fills in every pattern
+and >=20-point reduction in entry probability on the same 64 cash observations
+under eval/no-grad, without changing parameters or RNG. An initial ceiling or
+any false predicate is retained as failure. Software/process success or a
+faithfully stored false predicate is not learning success. Neither synthetic
+qualification nor source review grants market G3-G5, formal independent approval
+or unused/final/live authority.

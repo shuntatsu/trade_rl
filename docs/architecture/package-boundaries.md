@@ -1548,6 +1548,16 @@ leaf resolves actor economics only at the original event/order comparison,
 preserving direct v1 malformed-input error order and short-circuit behavior.
 The terminal owner also checks no-fill symbol costs, retained capacity algebra,
 known carried-order identities and cash-flow closure for flat no-fill intervals.
+It joins the single capacity pool, sequential fill subtraction, participation and
+actual policy limits; binds surviving intent/status/notional/version progress;
+and verifies fixed multipliers, independent coordinates and live margin algebra.
+An exact-flat no-fill interval has only signed cash interest, with a bounded
+native floating-point rounding allowance for nonzero interest. Original nested
+prefix failure diagnostics remain unchanged. These links are terminal-only;
+historical actor v1/v2 validator contracts are preserved.
+Known remaining quantities and exact-zero FILLED completion reject overfills.
+Cumulative floats use forward native-rounded closure, while integer counters are
+exact; failed prefixes cannot acquire a substituted closing failure frontier.
 It does not infer general position cash flows across unretained splits, delisting
 settlement or termination flattening.
 The generic visible-state projection/freezer belongs to transition_facts. Its

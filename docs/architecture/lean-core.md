@@ -1632,10 +1632,27 @@ pre-flatten funding snapshot. Only the zero-request fill-ratio branch is derived
 other ratios depend on unretained reference notionals.
 Execution costs must be zero on coordinates without fills. Retained capacity
 obeys initial = market notional times participation limit = consumed plus
-remaining. Every previously active order must remain active or have its own
-terminal event in the next interval. From the initially flat account, a no-fill
-interval must preserve exact-zero inventory and reconcile signed cash to recorded
-cost, funding, borrow, dividend and interest flows, including retained debt.
+remaining. Each independent interval has at most one pool, with the selected
+book multiplier and a limit no greater than actual cost policy. Fill events
+retain its sequential before/after subtraction; consumed capacity matches fills
+within native subtraction-rounding tolerance. Participation summaries equal
+retained fill maxima, whose rates cannot fall below their notional ratios.
+Every previously active order must remain active or have its own terminal event
+in the next interval. Known intents and status chains persist; new orders need
+submission events. Surviving cumulative notionals use native sequential addition
+and evidence versions count actual transitions. No-fill-only carried orders stay
+unchanged. Contract multipliers are fixed, foreign coordinates stay exactly zero,
+live margin fields match actual cost policy, and rebalances count successful fills.
+From the initially flat account, a no-fill interval preserves exact-zero inventory
+and has no execution, funding, borrow or dividend flow. Only signed recorded cash
+interest changes its cash, including retained debt; zero interest preserves cash
+exactly. Nonzero interest uses operation-magnitude ULP tolerance because native
+gap and processing interest round separately. A failed prefix retains its own
+original diagnostic and prefix frontier rather than a substituted closing stage.
+Event remaining quantities follow known fills within native lot-rounding tolerance;
+FILLED events have exact-zero remaining quantity and cannot overfill that frontier.
+Cumulative floating totals use forward addition with operand ULP tolerance,
+avoiding cancellation in subtractive deltas; integer counts remain exact.
 The reader checks signed fixed-capital rewards against final wealth. Native
 cumulative peak/DD must be monotonic and bound endpoint loss; absent intrabar inputs prevent
 an independent reconstruction of the whole intrabar path. Coverage, settlement

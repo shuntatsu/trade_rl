@@ -2485,8 +2485,18 @@ closed terminal evidence.
 Additional retained-fact closure rejects costs on untraded symbols, inconsistent
 capacity conservation, disappearance of a carried order without its own terminal
 event, and invented cash or inventory in an opening-flat no-fill interval. The
-cash equation retains signed debt and recorded carry/interest; it does not claim
-general historical cash-flow authentication across unretained inventory actions.
+capacity pool and sequential fills bind actual participation limits and returned
+maxima. Submitted and surviving orders retain known intent/status, sequential
+cumulative notionals and transition versions. Independent inventory, fixed
+multipliers, successful-fill rebalance counts and live margin fields are checked.
+The exact-flat no-fill cash equation admits only signed recorded interest; zero
+interest preserves cash exactly, while nonzero interest has native ULP rounding
+allowance. Original nested prefix diagnostics are retained. These are bounded
+returned-fact checks, not general historical cash-flow authentication across
+unretained inventory actions.
+Remaining quantities follow known event fills, and FILLED records cannot retain
+residuals or overfill. Forward ULP-bounded cumulative arithmetic preserves lawful
+rounding; a failed prefix retains its original diagnostic and prefix stage.
 Legacy terminal observation v1 remains diagnostic-only. Partial and failed closes
 retain actual known inventory/orders and have no settled
 profit; DD eligibility remains separate from settlement completion.

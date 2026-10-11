@@ -28,6 +28,7 @@ def carrier(
     borrow_rate=0,
     risk=None,
     n_symbols=1,
+    max_participation=1.0,
 ):
     folds, (original,) = fixture(
         ranges=((6, 7),),
@@ -86,6 +87,7 @@ def carrier(
         if borrow_rate
         else original.execution_cost
     )
+    cost = replace(cost, max_participation_rate=max_participation)
     economics = MarketExecutor(
         dataset, cost, insolvency_valuation="retain_debt"
     ).execution_policy_digest

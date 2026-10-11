@@ -1996,8 +1996,10 @@ equal/swapped/malformed pins, foreign plans and invalidly mutated declaration/pl
 bytes before provenance/reset. This checks current consistency; coordinated valid
 replacements are not historical tamper authentication. Default controls remain covered.
 
-There is no completed two-forecast evidence/report contract or frozen selection
-budget. V1 A/B/C retains one forecast and its mandatory RL matrix; controls cannot
+This native preflight does not itself establish completed forecast evidence or
+economic qualification; the separate bounded settled software report is defined
+below. A frozen economic selection budget is still absent. V1 A/B/C retains one
+forecast and its mandatory RL matrix; controls cannot
 be disguised as RL cells or different scenarios. Matching the closed fixture
 does not prove general training matching, calibrated market costs, profitability,
 formal independent approval or G3-G5. Equal seeded configs need not consume
@@ -2066,9 +2068,17 @@ flatten after the boundary and retains a separate snapshot. General fill ratios
 and historical funding prices cannot be independently recovered from aggregates.
 No-fill coordinates have zero execution cost; retained capacity conserves its
 initial, consumed and remaining amounts and declared participation bound. Known
-carried order IDs need their own terminal events before disappearing. An opening
-exact-flat no-fill account remains exact-flat and its cash changes only by the
-recorded signed flows, including negative interest and retained debt. These
+carried order IDs need their own terminal events before disappearing. Retained
+submission/intent/status, cumulative notional and evidence-version links reject
+invented order progress. Single-pool fill subtraction, participation maxima and
+notional lower bounds join native capacity; fixed multipliers, independent-symbol
+inventory, rebalance counts and live margin fields join actual cost policy.
+An opening exact-flat no-fill account remains exact-flat and has no inventory
+cash flows. Only recorded signed cash interest changes cash, including negative
+interest and retained debt. Zero interest preserves cash exactly; nonzero
+interest allows operation-magnitude ULP error from native sequential application,
+without a fixed absolute tolerance floor. Nested prefix failures retain the
+original diagnostic. These
 bounded links do not authenticate the historical cash-flow inputs or reconstruct
 general inventory transitions across splits and delisting settlement.
 Source pins plus aggregates do not authenticate historical fee decomposition,

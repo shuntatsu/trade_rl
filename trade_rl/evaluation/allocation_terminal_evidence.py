@@ -29,7 +29,7 @@ from trade_rl.evaluation.rl_allocation.transition_facts import (
     validate_terminal_allocation_facts,
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation.orders.model import OrderStatus
+from trade_rl.simulation.orders.model import OrderStatus, _quantity_tolerance
 from trade_rl.strategies.rl.allocation_preprocessing import _native_json
 
 _FIELDS = {
@@ -155,7 +155,9 @@ def _weights(book: dict[str, Any], size: int) -> np.ndarray:
     )
 
 
-def _retained_links(native: dict[str, Any]) -> None:
+def _retained_links(
+    native: dict[str, Any], cost: dict[str, Any], symbol_index: int
+) -> None:
     """Join returned interval facts without reconstructing an execution path."""
     book, ex = native["book"], native["execution"]
     fills = [
@@ -173,6 +175,18 @@ def _retained_links(native: dict[str, Any]) -> None:
         )
         if not any(e["symbol_index"] == index for e in fills):
             _equal(ex["cost_by_symbol"][index], 0.0)
+        _equal(
+            ex["participation_by_symbol"][index],
+            max(
+                (e["participation_rate"] for e in fills if e["symbol_index"] == index),
+                default=0.0,
+            ),
+        )
+    _equal(
+        ex["max_participation"],
+        max((e["participation_rate"] for e in fills), default=0.0),
+    )
+    _same(ex["rebalance_events"], ex["fill_count"])
     for event in fills:
         quantity = _number(event["filled_quantity"])
         if abs(quantity) <= 1e-12 or quantity * event["requested_quantity"] <= 0:
@@ -215,7 +229,17 @@ def _retained_links(native: dict[str, Any]) -> None:
         raise ValueError("terminal native participation/turnover is negative")
     if ex["requested_notional"] <= 1e-12:
         _equal(ex["fill_ratio"], 1.0)
+    if len(ex["capacity_evidence"]) > 1 or fills and not ex["capacity_evidence"]:
+        raise ValueError("terminal independent interval requires one capacity pool")
     for capacity in ex["capacity_evidence"]:
+        _same(
+            capacity["contract_multiplier"],
+            book["contract_multipliers"][symbol_index],
+        )
+        if capacity["participation_limit"] > cost["max_participation_rate"]:
+            raise ValueError(
+                "terminal capacity exceeds the declared participation policy"
+            )
         _equal(
             capacity["initial_capacity_notional"],
             capacity["market_notional"] * capacity["participation_limit"],
@@ -225,6 +249,118 @@ def _retained_links(native: dict[str, Any]) -> None:
             capacity["consumed_capacity_notional"]
             + capacity["remaining_capacity_notional"],
         )
+        remaining = capacity["initial_capacity_notional"]
+        for event in fills:
+            _same(event["capacity_before"], remaining)
+            remaining = max(0.0, remaining - event["filled_notional"])
+            _same(event["capacity_after"], remaining)
+        _same(capacity["remaining_capacity_notional"], remaining)
+        if capacity["market_notional"] > 1e-12:
+            for event in fills:
+                ratio = event["filled_notional"] / capacity["market_notional"]
+                if event["participation_rate"] < ratio and not math.isclose(
+                    event["participation_rate"], ratio, rel_tol=1e-10, abs_tol=1e-12
+                ):
+                    raise ValueError(
+                        "terminal fill participation is below its notional ratio"
+                    )
+    capacity_tolerance = math.fsum(
+        max(
+            1e-9,
+            8 * math.ulp(c["initial_capacity_notional"]),
+            8 * math.ulp(c["remaining_capacity_notional"]),
+        )
+        for c in ex["capacity_evidence"]
+    )
+    if not math.isclose(
+        math.fsum(c["consumed_capacity_notional"] for c in ex["capacity_evidence"]),
+        ex["filled_notional"],
+        rel_tol=1e-10,
+        abs_tol=capacity_tolerance,
+    ):
+        raise ValueError("terminal consumed capacity differs from returned fills")
+
+
+def _order_continuity(
+    previous_orders: list[dict[str, Any]], native: dict[str, Any]
+) -> None:
+    before = {order["intent"]["order_id"]: order for order in previous_orders}
+    after = {order["intent"]["order_id"]: order for order in native["active_orders"]}
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for event in native["order_events"]:
+        groups.setdefault(event["order_id"], []).append(event)
+    fixed = (
+        "dataset_id",
+        "execution_policy_digest",
+        "symbol_index",
+        "requested_quantity",
+        "replaced_order_id",
+    )
+    for order_id, events in groups.items():
+        prior = before.get(order_id)
+        if prior is None and events[0]["event_type"] != "submitted":
+            raise ValueError("terminal new order has no native submission event")
+        known = prior if prior is not None else after.get(order_id)
+        intent = events[0] if known is None else known["intent"]
+        status = "submitted" if prior is None else prior["status"]
+        requested = _number(intent["requested_quantity"])
+        remaining = requested if prior is None else _number(prior["remaining_quantity"])
+        cumulative = (
+            0.0 if prior is None else _number(prior["cumulative_filled_quantity"])
+        )
+        for event in events:
+            if OrderStatus(status).terminal:
+                raise ValueError("terminal order changed after its terminal event")
+            for field in fixed:
+                _same(event[field], intent[field])
+            # Native canonical payloads omit this flag when it is false.
+            _same(event.get("reduce_only", False), intent.get("reduce_only", False))
+            _same(event["previous_status"], status)
+            quantity = _number(event["filled_quantity"])
+            tolerance = _quantity_tolerance(requested, cumulative, remaining, quantity)
+            expected = remaining
+            if event["event_type"] in ("filled", "partial_fill"):
+                if (
+                    quantity * remaining <= 0.0
+                    or abs(quantity) > abs(remaining) + tolerance
+                ):
+                    raise ValueError(
+                        "terminal fill exceeds its known remaining quantity"
+                    )
+                expected -= quantity
+                cumulative += quantity
+            actual = _number(event["remaining_quantity"])
+            tolerance = max(
+                tolerance, _quantity_tolerance(requested, cumulative, expected, actual)
+            )
+            if event["new_status"] == "filled":
+                _same(event["remaining_quantity"], 0.0)
+            if not math.isclose(actual, expected, rel_tol=0.0, abs_tol=tolerance):
+                raise ValueError(
+                    "terminal event remaining quantity differs from its fills"
+                )
+            remaining = actual
+            status = event["new_status"]
+    for order_id, active in after.items():
+        prior = before.get(order_id)
+        events = groups.get(order_id, [])
+        if prior is None and not events:
+            raise ValueError("terminal new active order has no submission event")
+        cumulative = 0.0 if prior is None else prior["cumulative_filled_notional"]
+        version = 0 if prior is None else prior["evidence_version"]
+        # Match native sequential addition; fsum has different rounding.
+        for event in events:
+            if event["event_type"] in ("filled", "partial_fill"):
+                cumulative += event["filled_notional"]
+            if event["event_type"] not in ("submitted", "no_fill"):
+                version += 1
+        _same(active["cumulative_filled_notional"], cumulative)
+        _same(active["evidence_version"], version)
+    for order_id, old in before.items():
+        if order_id in after:
+            _same(after[order_id]["intent"], old["intent"])
+            if all(e["event_type"] == "no_fill" for e in groups.get(order_id, ())):
+                _same(after[order_id], old)
 
 
 def _interval_continuity(
@@ -247,6 +383,7 @@ def _interval_continuity(
         raise ValueError(
             "terminal carried active order disappeared without termination"
         )
+    _order_continuity(previous_orders, native)
     # An initially flat account without fills cannot acquire inventory through
     # splits, delisting or termination flattening; those operations preserve zero.
     if all(q == "0" for q in previous["exact_quantities"]) and not any(
@@ -255,19 +392,92 @@ def _interval_continuity(
     ):
         if any(q != "0" for q in book["exact_quantities"]):
             raise ValueError("terminal flat account acquired inventory without fills")
-        _equal(
-            book["cash"],
-            previous["cash"]
-            + math.fsum(
-                (
-                    -ex["interval_cost"],
-                    ex["interval_funding"],
-                    -ex["interval_borrow_cost"],
-                    ex["interval_dividend"],
-                    ex["interval_cash_interest"],
-                )
-            ),
+        if any(
+            ex[field] != 0.0
+            for field in (
+                "interval_cost",
+                "interval_funding",
+                "interval_borrow_cost",
+                "interval_dividend",
+            )
+        ):
+            raise ValueError("terminal flat no-fill account has an inventory cash flow")
+        cash, interest = (
+            _number(previous["cash"]),
+            _number(ex["interval_cash_interest"]),
         )
+        expected = cash + interest
+        # Gap and processing interest are applied separately but returned as a
+        # rounded sum. Cancellation can amplify their ULP error at the endpoint.
+        tolerance = 8 * math.fsum(
+            math.ulp(value) for value in (cash, interest, expected)
+        )
+        if interest == 0.0 and _number(book["cash"]) != cash:
+            raise ValueError("terminal zero-interest flat cash changed")
+        if not math.isclose(
+            _number(book["cash"]), expected, rel_tol=0.0, abs_tol=tolerance
+        ):
+            raise ValueError("terminal flat cash differs from recorded interest")
+
+
+def _book_links(
+    previous: dict[str, Any],
+    native: dict[str, Any],
+    cost: dict[str, Any],
+    symbol_index: int,
+) -> None:
+    book = native["book"]
+    if "contract_multipliers" in previous:
+        _same(book["contract_multipliers"], previous["contract_multipliers"])
+    if any(
+        q != "0"
+        for index, q in enumerate(book["exact_quantities"])
+        if index != symbol_index
+    ):
+        raise ValueError("terminal independent account holds a foreign symbol")
+    if book["termination_reason"] is not None:
+        for field in ("margin_used", "maintenance_margin", "maintenance_requirement"):
+            _equal(book[field], 0.0)
+    else:
+        gross = float(
+            np.abs(
+                np.array(book["quantities"])
+                * np.array(book["mark_prices"])
+                * np.array(book["contract_multipliers"])
+            ).sum()
+        )
+        _equal(book["margin_used"], gross / cost["max_leverage"])
+        _equal(book["maintenance_margin"], cost["maintenance_margin_rate"])
+        _equal(book["maintenance_requirement"], gross * cost["maintenance_margin_rate"])
+        values = (
+            np.array(book["quantities"])
+            * np.array(book["mark_prices"])
+            * np.array(book["contract_multipliers"])
+        )
+        requirement = gross * cost["maintenance_margin_rate"]
+        collateral = float(
+            book["cash"]
+            + np.minimum(values, 0.0).sum()
+            + cost["collateral_haircut"] * np.maximum(values, 0.0).sum()
+        )
+        deficit = max(
+            0.0, requirement - max(book["equity"], 0.0), requirement - collateral
+        )
+        if cost["margin_mode"] == "isolated" and gross > 0.0:
+            deficit = max(
+                deficit,
+                float(
+                    np.max(
+                        np.maximum(
+                            cost["maintenance_margin_rate"] * np.abs(values)
+                            - collateral * (np.abs(values) / gross),
+                            0.0,
+                        ),
+                        initial=0.0,
+                    )
+                ),
+            )
+        _equal(book["margin_deficit"], deficit)
 
 
 def _metrics(
@@ -275,6 +485,8 @@ def _metrics(
     native: dict[str, Any],
     *,
     previous_orders: list[dict[str, Any]],
+    cost: dict[str, Any],
+    symbol_index: int,
 ) -> None:
     book, ex = native["book"], native["execution"]
     equity, peak, dd = (
@@ -304,9 +516,22 @@ def _metrics(
     _equal(ex["interval_gross_return"], gross)
     for name, interval in _COUNTERS.items():
         value, before = _number(book[name]), _number(previous[name])
-        if name != "funding_pnl" and (value < 0 or value < before - 1e-12):
+        increment = _number(ex[interval])
+        if name != "funding_pnl" and (value < 0 or value < before or increment < 0):
             raise ValueError("terminal unsigned cumulative counter decreased")
-        _equal(value - before, ex[interval])
+        if name in ("fill_count", "rebalance_events"):
+            _same(book[name], previous[name] + ex[interval])
+        else:
+            expected = before + increment
+            additions = sum(
+                e["event_type"] in ("filled", "partial_fill")
+                for e in native["order_events"]
+            )
+            tolerance = (8 + 2 * additions) * math.fsum(
+                math.ulp(x) for x in (before, increment, expected)
+            )
+            if not math.isclose(value, expected, rel_tol=0.0, abs_tol=tolerance):
+                raise ValueError("terminal cumulative value differs from its interval")
     for vector, aggregate in (
         ("cost_by_symbol", "interval_cost"),
         ("requested_notional_by_symbol", "requested_notional"),
@@ -329,8 +554,9 @@ def _metrics(
         ("expired_count", ("expired",)),
     ):
         _same(ex[key], sum(e["event_type"] in events for e in native["order_events"]))
-    _retained_links(native)
+    _retained_links(native, cost, symbol_index)
     _interval_continuity(previous, previous_orders, native)
+    _book_links(previous, native, cost, symbol_index)
 
 
 def _risk_config(value: object, digest: str) -> PreTradeRiskConfig:
@@ -347,7 +573,8 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
     _native_json(value)
     raw = _closed(value, _FIELDS, "receipt")
     _same(raw["schema"], "allocation_terminal_runtime_observation_v2")
-    common, _ = _plan(plan)
+    common, cell = _plan(plan)
+    cost = cell["runtime"]["cost_payload"]
     _same(raw["plan"], plan.payload)
     _same(raw["plan_digest"], plan.digest)
     prefix = GlobalAllocationExecutionReceipt.from_payload(
@@ -381,7 +608,13 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
         expected_weights = _weights(previous, len(native["book"]["quantities"]))
         for a, b in zip(native["current_weights"], expected_weights, strict=True):
             _equal(a, float(b))
-        _metrics(previous, native, previous_orders=orders)
+        _metrics(
+            previous,
+            native,
+            previous_orders=orders,
+            cost=cost,
+            symbol_index=common["symbol_index"],
+        )
         rewards.append((native["book"]["equity"] - previous["equity"]) / capital)
         previous = native["book"]
         orders = native["active_orders"]
@@ -454,7 +687,13 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
                 time_ns=plan.closing_clocks_ns[offset + 1],
             ),
         )
-        _metrics(previous, row["native"], previous_orders=orders)
+        _metrics(
+            previous,
+            row["native"],
+            previous_orders=orders,
+            cost=cost,
+            symbol_index=common["symbol_index"],
+        )
         reward = (book.portfolio_value - previous["equity"]) / capital
         _equal(row["fixed_capital_reward"], reward)
         rewards.append(reward)
@@ -474,6 +713,10 @@ def _receipt(value: object, plan: TerminalAllocationExecutionPlan) -> dict[str, 
                 "terminal failure requires the original exception diagnostic"
             )
         stage = raw["failure_stage"]
+        if prefix["status"] != "completed" and stage != "prefix":
+            raise ValueError("terminal closing failure has no completed native prefix")
+        if stage == "prefix" and prefix["failure"] is not None:
+            _same(failure, prefix["failure"])
         if stage not in (
             "prefix",
             "closing_preflight",

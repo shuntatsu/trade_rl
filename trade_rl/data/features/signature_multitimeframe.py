@@ -175,6 +175,10 @@ def with_multitimeframe_path_signatures(
             else:
                 assert source is not None
                 raw = source.load_timeframe(symbol, timeframe)
+                if raw.timestamps[-1] > dataset.timestamps[-1]:
+                    raise ValueError(
+                        "native Signature source extends beyond Dataset clock"
+                    )
                 _validate_regular_native_series(raw, timeframe)
                 times = raw.timestamps
                 closes = raw.close

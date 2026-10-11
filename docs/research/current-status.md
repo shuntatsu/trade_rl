@@ -2396,3 +2396,16 @@ Full exact committed-head software verification and formal independent research
 review are separate requirements. This companion remains Draft while formal
 review is PENDING. Profit improvement, G4/G5, live readiness and Issue #810's
 overall completion remain NOT ESTABLISHED.
+
+## Native MTF source-scope and identity assurance (2026-10-11)
+
+The finer-clock cross-asset builder now binds actually consumed native
+timestamps, availability, close and tradability SHA-256 per symbol/timeframe
+to the new Dataset identity. Native input after the base Dataset decision
+horizon is rejected. The opt-in multi-clock Signature function also rejects
+native data extending beyond that horizon. G2 counterexamples use an exactly
+rescaled native price series (same derived returns, different source identity)
+and an out-of-scope future native tail. These changes are result-blind
+software assurance, not new economic/profit evidence. The existing
+last-N-eligible-history definition remains distinct from a strict consecutive
+native-bar window and needs an independent Controlled Factor to compare.

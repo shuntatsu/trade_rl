@@ -1547,3 +1547,20 @@ Whole-artifact future changes update Dataset, model/stream and proposal provenan
 earlier economic feature/prediction/target/cash values remain causal.
 Reconstruction is transformation conformance, not historical source authenticity,
 market calibration, economic evidence or live authorization.
+
+## Native cross-asset input provenance and MTF scope
+
+For strictly finer native cross-asset rolling inputs, the Dataset content
+identity binds the full consumed per-symbol/timeframe native input digests:
+timestamp, `available_at`, close and tradability. Two native sources with
+identical derived one-bar return features but different raw prices are
+therefore distinct Dataset identities. Native sources ending after the
+base Dataset's final decision timestamp are rejected rather than allowing
+future raw bars to enter the source identity. The same source-horizon
+boundary applies to opt-in native-clock Path Signature augmentation.
+
+These are source-content / clock-scope guarantees, not proof that a historical
+provider archive was available in real time. The maintained
+`last_n_eligible_pair_events_v1` history policy is unchanged. Frozen
+economic studies, settlement, execution, risk and unused-data permissions
+are not revised by this protection.

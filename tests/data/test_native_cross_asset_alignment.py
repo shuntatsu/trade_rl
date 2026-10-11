@@ -373,6 +373,43 @@ def test_finer_native_feature_expiry_keeps_age_and_masks_zero_values() -> None:
     assert dataset.feature_staleness[8, :, 2:4] == pytest.approx(np.ones((2, 2)))
 
 
+def test_native_source_digest_changes_id_without_changing_derived_features() -> None:
+    """Exactly rescaled native prices yield same returns but different raw input ID."""
+    source = _source()
+    original = _dataset(source)
+    raw = source.values["BTCUSDT", "15m"]
+    source.values["BTCUSDT", "15m"] = replace(
+        raw,
+        open=raw.open * 2.0,
+        high=raw.high * 2.0,
+        low=raw.low * 2.0,
+        close=raw.close * 2.0,
+    )
+    modified = _dataset(source)
+    np.testing.assert_array_equal(original.features, modified.features)
+    np.testing.assert_array_equal(
+        original.feature_available, modified.feature_available
+    )
+    assert original.feature_config_digest == modified.feature_config_digest
+    assert original.dataset_id != modified.dataset_id
+    original_payload = json.loads(original.identity_payload_json or "{}")
+    modified_payload = json.loads(modified.identity_payload_json or "{}")
+    old_raw = original_payload["native_cross_asset_raw_inputs"]
+    new_raw = modified_payload["native_cross_asset_raw_inputs"]
+    assert [item["symbol"] for item in old_raw] == ["BTCUSDT", "ETHUSDT"]
+    assert old_raw != new_raw
+    assert old_raw[1]["sha256"] == new_raw[1]["sha256"]
+
+
+def test_future_native_source_tail_is_rejected_by_cross_asset_builder() -> None:
+    source = _source()
+    raw = source.values["BTCUSDT", "15m"]
+    prices = np.r_[raw.close, raw.close[-1] * 1.01]
+    source.values["BTCUSDT", "15m"] = _bars("2026-01-01T00:00", 15, prices)
+    with pytest.raises(ValueError, match="extends beyond Dataset clock"):
+        _dataset(source)
+
+
 def test_marked_finer_dataset_artifact_retains_identity_and_dependency_config(
     tmp_path: Path,
 ) -> None:

@@ -201,7 +201,7 @@ def test_opt_in_signature_round_trips_through_dataset_artifact(
     np.testing.assert_array_equal(restored.funding_rate, source.funding_rate)
 
 
-def test_base_clock_signature_rejects_unverified_parent_before_deriving_identity() -> None:
+def test_path_signature_rejects_unverified_base() -> None:
     source = _unverified_market(np.full((6, 1), 100.0))
     assert not source.identity_verified
     with pytest.raises(ValueError, match="identity-verified base Dataset"):

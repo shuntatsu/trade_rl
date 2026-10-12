@@ -1019,7 +1019,7 @@ variance, all initial-notional costs and cash/carry estimates. Provenance and
 availability are caller declarations, not historical point-in-time proofs.
 The same-close scalar utility is the formula in the optional allocation section
 of lean-core. It is neither RL reward nor realized account P&L. First eligible
-MARKET fills remain on the next processing bar, with zero extra latency in v1.
+MARKET first possible fills use submit+max(1,L), with integer L0/L2 admission.
 Execution uses the canonical signed self-financing cash model and ledger; this
 is not an assertion about exchange futures collateral economics.
 
@@ -1161,7 +1161,7 @@ G0 asks whether a detached predecision record preserves observable canonical
 account/order facts without source mutation or unavailable-price exposure. It
 does not assert complete policy state, historical authenticity or market value.
 
-G1 fixes live independent-symbol, MARKET/zero-extra-latency scope, a known
+G1 fixes live independent-symbol, MARKET latency0/2 scope, a known
 Dataset/index clock, selected-source availability and caller-refreshed margin.
 The producer uses native context/order validation and a detached margin check.
 It reuses native fill-completion tolerance to reject already-completed active
@@ -2015,8 +2015,8 @@ and grants no market execution, Study, unused-data or live authority.
 
 G1 pins an evaluation-only settled full horizon: unchanged marked policy prefix,
 predeclared reserved processing bars, same native account/orders/executor/RNG/risk,
-fixed initial-capital denominator, gamma=1 equity deltas and unchanged MARKET
-zero-extra-latency execution. Zero target obeys hard risk and native liquidity.
+fixed initial-capital denominator, gamma=1 equity deltas and unchanged declared
+MARKET latency0/2 execution. Zero target obeys hard risk and native liquidity.
 Already flat books still process every reserve bar. Current PPO training remains
 marked continuation and is not admitted as a settled policy. Prefix and whole
 window objectives/clock/recipe identities are distinct and retained together.
@@ -2290,6 +2290,30 @@ persist; this comparison grants no market/unused/final/live authority.
 
 
 ## Standalone terminal NONRL/CASH comparison assurance
+
+### Execution-only latency software prerequisite
+
+G0 asks whether existing MARKET latency2 can be admitted without weakening native
+pending clocks, physical source coverage or finite terminal eligibility. G1 fixes
+the original same-close controller/beliefs, independent capital, risk and common
+actor/reserve clocks; only execution latency changes. Actual returned holdings
+feed each next decision, so targets and orders can differ. Base0 declared costs
+are unchanged surrogates, not latency-calibrated predictions.
+
+G2 hand oracles use cash1000/price100: a target.5 at6 fills7 in L0 but waits7 and
+fills8 in L2; matching pending identity survives, HOLD cancels, a changed target
+replaces with a new eligibility. Future pending clocks and missing first-eligible
+source/horizon reject. A constructed fee.01, variance.02, risk_aversion1 example
+with forecast.03 then.015 chooses first weight.25. L0 subsequently holds its
+actual quantity and closes to995; L2 chooses zero and cancels, remaining1000.
+These are hand arithmetic with IEEE-tolerant native checks, not market results.
+Four units at reserve8 close through L2 wait9 and capacity2 at10/11; finite R1/R2
+remain unsettled and R3 may finish. Coverage alone cannot establish settlement.
+All original failure/DD and unsupported-source diagnostics survive. Ordinary
+latency integers0/2 are the closed scope; bool,1,3 and nonmarket profiles reject.
+Declared cost production and bounded native toy readers remain MARKET0. Source
+review and these software tests supply no G3/G4, new market execution or formal
+GitHub independent approval.
 
 G0 is the software prerequisite for comparing one cost-aware non-RL controller
 with no trading, without making PPO or another forecast compulsory. It asserts

@@ -5,6 +5,19 @@ ROOT = Path(__file__).resolve().parents[2]
 OWNER = ROOT / "trade_rl/evaluation/allocation_nonrl_walk_forward.py"
 
 
+def test_carrier_preflight_cannot_advance_or_reset_accounts():
+    tree = ast.parse(OWNER.read_text(encoding="utf-8"))
+    carrier = next(
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_carriers"
+    )
+    calls = {
+        n.func.attr
+        for n in ast.walk(carrier)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    }
+    assert calls.isdisjoint({"reset", "step", "execute_interval", "apply_fill"})
+
+
 def test_fixed_nonrl_consumer_reuses_execution_without_learning_or_selection():
     tree = ast.parse(OWNER.read_text(encoding="utf-8"))
     imports = {

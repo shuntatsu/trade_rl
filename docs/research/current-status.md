@@ -2430,7 +2430,7 @@ marked policy prefix and reserved closing bars, with distinct settled objective,
 clock and recipe identities. Closing uses the same canonical account/executor,
 costs, hard risk, carry and orders; all reserved bars process even when flat.
 No learner or second ledger is introduced, and PPO is refused until matching
-training/admission economics exist. MARKET/zero-extra-latency and independent
+training/admission economics exist. MARKET latency0/2 and independent
 symbol constraints remain.
 
 Closed synthetic software tests independently reconcile long/short cash and
@@ -2696,3 +2696,21 @@ require a frozen cost/data/candidate budget, source and independent research
 review, with all original 2025 negative outcomes and cash controls preserved.
 Signature is a separately controlled feature hypothesis; RL must later show
 added value. Issue #810, unused-future and live profitability remain incomplete.
+
+## Issue #810: closed-loop MARKET latency stress prerequisite
+
+The existing scalar adapter/account observer now admit integer MARKET latency0
+or2. Fixed NONRL/CASH carrier preflight checks all actor first-eligible rows and
+forecast horizons before reset. Native submit/processing clocks, pending-order
+retention/cancellation/replacement, actual capacity and finite terminal reserve
+remain unchanged. Generic RL callers share per-decision checks only; no new fit
+is authorized. Declared cost production and strong bounded native readers retain
+their MARKET0 limits.
+
+The prospective comparison freezes base0 same-close forecasts and cost beliefs,
+controller, capital/risk and common actor/reserve clocks across execution settings.
+Different actual holdings may create different later targets, so this measures
+the full closed-loop execution treatment. Synthetic wait, HOLD, partial-close and
+source/horizon falsifiers test software semantics, not profitable alpha. No new
+market artifact read, fit, replay, unused-future result or live authority is
+supplied. A finite independently reviewed real-market protocol remains required.

@@ -1697,6 +1697,18 @@ is introduced; all prior settled learnability owners remain unchanged.
 
 ## Matched native control comparison owners
 
+The scalar allocation owner and its account snapshot observer share narrow
+MARKET integer latency0/2 admission. `allocation_nonrl_walk_forward._carriers`
+also checks the whole actor roster's first eligible physical row and horizon
+before delegating to the existing runner. The native executor, reconciliation,
+reserve and terminal receipt owners are unchanged. Generic RL callers retain
+per-decision scalar checks rather than that whole-roster control guarantee.
+`tests/evaluation/test_allocation_latency_stress.py` uses fixed synthetic sources
+and the existing native owners for wait/retain/cancel/replace/capacity, closed-loop
+holdings and finite partial-close oracles. No latency engine, public facade,
+learner, persisted schema or market runner is added. Declared cost production
+and bounded strong-native capture admission keep their narrower MARKET0 guards.
+
 `evaluation/allocation_settled_native_comparison.py` owns the pure pinned plan,
 ordered CASH/NONRL arm roster and detached comparison report. It reuses the
 unchanged native capture validator and reconstructs matching live sources before

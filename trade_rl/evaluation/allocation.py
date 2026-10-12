@@ -1,8 +1,8 @@
 """Opt-in independent-account allocator → hard risk → canonical execution.
 
-The current-close return forecast is a declared surrogate: MARKET orders first
-fill on the next processing bar. This adapter neither fits forecasts nor runs
-a Study, and its supplied estimates are not economic evidence.
+The current-close return forecast is a declared surrogate. MARKET latency0/2
+changes eligible execution, not those beliefs. This adapter neither fits
+forecasts nor runs a Study, and its supplied estimates are not economic evidence.
 """
 
 from __future__ import annotations
@@ -53,10 +53,17 @@ def _context(
         or not 0 <= symbol_index < dataset.n_symbols
     ):
         raise ValueError("selected symbol is outside the dataset")
-    if executor.cost.order_type != "market" or executor.cost.order_latency_bars != 0:
+    latency = executor.cost.order_latency_bars
+    if (
+        executor.cost.order_type != "market"
+        or type(latency) is not int
+        or latency not in {0, 2}
+    ):
         raise ValueError(
-            "allocation v1 supports only MARKET orders with zero extra latency"
+            "allocation supports only MARKET orders with integer latency0 or2"
         )
+    if start_index + max(1, latency) >= dataset.n_bars:
+        raise ValueError("first eligible processing bar is outside the source dataset")
     if (
         not pretrade_risk.config.drawdown_start
         < pretrade_risk.config.drawdown_stop
@@ -186,8 +193,9 @@ def propose_nonrl_target(
         symbol_index=symbol_index,
         start_index=start_index,
     )
-    if inputs.horizon_end < executor.dataset.timestamps[start_index + 1]:
-        raise ValueError("return horizon ends before the first processing bar")
+    first_eligible = start_index + max(1, executor.cost.order_latency_bars)
+    if inputs.horizon_end < executor.dataset.timestamps[first_eligible]:
+        raise ValueError("return horizon ends before the first eligible processing bar")
     cap = min(pretrade_risk.config.max_abs_weight, executor.cost.max_leverage)
     # Static bounds are intersected here; drawdown projection occurs only once,
     # at execution, so a held position is not implicitly scaled twice.

@@ -150,6 +150,8 @@ def estimate_declared_horizon_costs(
     decision_indices: tuple[int, ...],
     horizon_hours: int,
     recipe: DeclaredAllocationCostRecipe,
+    declared_execution_economics: ExecutionEconomicsProfile | None = None,
+    expected_dataset_id: str | None = None,
 ) -> tuple[HorizonCostEstimates, ...]:
     """Emit complete existing six-rate rows in Dataset-symbol/decision order.
 
@@ -157,11 +159,29 @@ def estimate_declared_horizon_costs(
     bars. Available current cap/size and OPEN fraction describe one reference
     order, without pending competition or promises about the next fill. Buy,
     sell and future exit reuse a symmetric nonlinear reference-size proxy.
+
+    Paired profile/ID keywords opt into caller-declared simulation assumptions
+    for an unchanged content-verified Dataset. The seven scalar profile arrays
+    must match on every row/symbol. This supplies no construction provenance,
+    venue calibration, artifact read authority or direct-build admission.
     """
     if not isinstance(dataset, MarketDataset) or not isinstance(
         recipe, DeclaredAllocationCostRecipe
     ):
         raise ValueError("declared costs require typed Dataset and recipe")
+    explicit_profile = declared_execution_economics is not None
+    if explicit_profile != (expected_dataset_id is not None):
+        raise ValueError(
+            "declared profile and expected_dataset_id are required together"
+        )
+    if expected_dataset_id is not None:
+        if not isinstance(declared_execution_economics, ExecutionEconomicsProfile):
+            raise ValueError("declared_execution_economics must be a typed profile")
+        require_sha256(expected_dataset_id, field="expected_dataset_id")
+        if not dataset.identity_verified or dataset.dataset_id != expected_dataset_id:
+            raise ValueError(
+                "explicit profile requires the expected verified Dataset ID"
+            )
     _positive_integer(horizon_hours, field="horizon_hours")
     if (
         not isinstance(decision_indices, tuple)
@@ -197,9 +217,20 @@ def estimate_declared_horizon_costs(
             "declared costs require an explicit execution economics profile"
         )
     identity = parse_identity_json(dataset.identity_payload_json)
-    profile = ExecutionEconomicsProfile.from_payload(
-        identity.get("execution_economics")
-    )
+    if declared_execution_economics is None:
+        profile = ExecutionEconomicsProfile.from_payload(
+            identity.get("execution_economics")
+        )
+    else:
+        profile = ExecutionEconomicsProfile.from_payload(
+            declared_execution_economics.to_payload()
+        )
+        if "execution_economics" in identity:
+            existing_profile = ExecutionEconomicsProfile.from_payload(
+                identity["execution_economics"]
+            )
+            if existing_profile.to_payload() != profile.to_payload():
+                raise ValueError("declared profile conflicts with Dataset economics")
     cost = recipe.execution_cost
     arrays = {
         name: dataset.resolved_array(name)
@@ -219,6 +250,20 @@ def estimate_declared_horizon_costs(
             "funding_event_count",
         )
     }
+    if explicit_profile:
+        for name in (
+            "fee_rate",
+            "maker_fee_rate",
+            "taker_fee_rate",
+            "spread_rate",
+            "max_participation_rate",
+            "borrow_available",
+            "borrow_rate",
+        ):
+            if not np.all(arrays[name] == getattr(profile, name)):
+                raise ValueError(
+                    "declared simulation profile disagrees with whole Dataset arrays"
+                )
     expected_slippage = (
         cost.slippage_std
         * math.sqrt(2 / math.pi)
@@ -345,16 +390,17 @@ def estimate_declared_horizon_costs(
                 / (365 * 24)
                 * cost.borrow_rate_multiplier
             )
-            source = content_digest(
-                {
-                    "dataset_id": dataset.dataset_id,
-                    "execution_economics": profile.to_payload(),
-                    "recipe": declarations,
-                    "symbol": symbol,
-                    "decision_time": int(decision.astype(np.int64)),
-                    "horizon_hours": horizon_hours,
-                }
-            )
+            source_body = {
+                "dataset_id": dataset.dataset_id,
+                "execution_economics": profile.to_payload(),
+                "recipe": declarations,
+                "symbol": symbol,
+                "decision_time": int(decision.astype(np.int64)),
+                "horizon_hours": horizon_hours,
+            }
+            if explicit_profile:
+                source_body["profile_origin"] = "caller_declared_simulation_v1"
+            source = content_digest(source_body)
             estimates.append(
                 HorizonCostEstimates(
                     symbol=symbol,

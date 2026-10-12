@@ -1438,6 +1438,20 @@ have tuple trigger fractions before matching specifically its own
 `ExecutionCostConfig.execution_policy_digest`, separate from a wrapped executor
 digest. These declarations bind content, not historical calibration or authority.
 
+The estimator alone offers paired `declared_execution_economics` and
+`expected_dataset_id` keywords for caller-declared simulation assumptions on an
+unchanged content-verified Dataset. Both or neither are required. The explicit
+profile is strictly decoded, the expected ID must match verified content, and
+all rows/symbols of fee, maker/taker fee, spread, participation cap, borrow
+availability and borrow rate must exactly match its seven scalar fields. A
+present top-level profile is strictly decoded even if malformed and must match
+the complete canonical profile payload; absent declarations are not promoted
+from nested source metadata. Funding, mark, interest, rules and other financial
+series remain in their native channels. The explicit cost-source identity adds
+`profile_origin=caller_declared_simulation_v1`; the default source body and recipe
+fields remain unchanged. This supplies no venue calibration, historical
+availability, direct-build/Signature admission, market-read or fit authority.
+
 For reference notional N and current market quote turnover M, participation is
 N/M. Current cap is assumed to persist to the next fill: one-order OPEN capacity
 is M times the smaller configured/Dataset participation cap times OPEN fraction.

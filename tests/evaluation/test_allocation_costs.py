@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
 import math
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
@@ -156,6 +158,231 @@ def rates(cost):
             "cash_return",
         )
     )
+
+
+def test_explicit_profile_requires_expected_dataset_id_before_arithmetic(monkeypatch):
+    dataset = market()
+    profile = ExecutionEconomicsProfile.from_payload(
+        parse_identity_json(dataset.identity_payload_json)["execution_economics"]
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Unbound profile reached cost arithmetic")
+
+    monkeypatch.setattr(type(dataset), "market_notional", forbidden)
+    with pytest.raises(ValueError, match="together"):
+        api().estimate_declared_horizon_costs(
+            dataset,
+            decision_indices=(24,),
+            horizon_hours=48,
+            recipe=recipe(),
+            declared_execution_economics=profile,
+        )
+
+
+def wrapped_market():
+    dataset = market()
+    identity = parse_identity_json(dataset.identity_payload_json)
+    profile = ExecutionEconomicsProfile.from_payload(identity["execution_economics"])
+    wrapped = replace(dataset, identity_payload_json=None).with_content_identity(
+        {
+            "schema": "synthetic_consumed_development_wrapper",
+            "source_dataset": {
+                "dataset_id": dataset.dataset_id,
+                "identity_payload": identity,
+            },
+        }
+    )
+    return wrapped, profile
+
+
+def explicit_estimate(dataset, profile, supplied=None, **changes):
+    return api().estimate_declared_horizon_costs(
+        dataset,
+        **(
+            dict(
+                decision_indices=(24,),
+                horizon_hours=48,
+                recipe=recipe() if supplied is None else supplied,
+                declared_execution_economics=profile,
+                expected_dataset_id=dataset.dataset_id,
+            )
+            | changes
+        ),
+    )
+
+
+def test_legacy_source_digest_and_explicit_mode_distinguish_equal_rates():
+    dataset, supplied = market(), recipe()
+    profile = ExecutionEconomicsProfile.from_payload(
+        parse_identity_json(dataset.identity_payload_json)["execution_economics"]
+    )
+    legacy = estimate(dataset, supplied)
+    explicit = explicit_estimate(dataset, profile, supplied)
+    # Independent pre-change field roster: no producer declarations/hash helper.
+    declarations = {
+        name: getattr(supplied, name)
+        for name in (
+            "expected_execution_policy_digest",
+            "reference_notional",
+            "assumptions_identity",
+            "fee_assumption",
+            "spread_assumption",
+            "impact_assumption",
+            "slippage_assumption",
+            "borrow_assumption",
+            "funding_source_identity",
+            "funding_lookback_hours",
+            "funding_minimum_event_count",
+            "funding_maximum_counted_bar_close_gap_hours",
+            "funding_maximum_counted_bar_close_age_hours",
+            "cash_zero_rationale",
+        )
+    }
+    declarations["execution_cost"] = supplied.execution_cost.execution_policy_payload()
+    for name in (
+        "assumptions_available_at",
+        "funding_coverage_start",
+        "funding_coverage_stop",
+    ):
+        declarations[name] = int(getattr(supplied, name).astype(np.int64))
+    body = {
+        "dataset_id": dataset.dataset_id,
+        "execution_economics": profile.to_payload(),
+        "recipe": declarations,
+        "symbol": "ALPHA",
+        "decision_time": int(time(24).astype(np.int64)),
+        "horizon_hours": 48,
+    }
+    for old, new in zip(legacy, explicit):
+        body["symbol"] = old.symbol
+        raw = json.dumps(
+            body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        assert old.source_identity == hashlib.sha256(raw.encode()).hexdigest()
+        explicit_body = body | {"profile_origin": "caller_declared_simulation_v1"}
+        raw = json.dumps(
+            explicit_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        assert new.source_identity == hashlib.sha256(raw.encode()).hexdigest()
+    omitted = explicit_estimate(dataset, None, supplied, expected_dataset_id=None)
+    assert [c.payload() for c in omitted] == [c.payload() for c in legacy]
+    assert [rates(c) for c in legacy] == [rates(c) for c in explicit]
+    assert all(a.source_identity != b.source_identity for a, b in zip(legacy, explicit))
+
+
+def test_wrapped_profile_keeps_original_identity_arrays_and_literal_costs():
+    dataset, profile = wrapped_market()
+    dataset_id, identity_json = dataset.dataset_id, dataset.identity_payload_json
+    arrays = {name: values.copy() for name, values in dataset.identity_arrays().items()}
+    with pytest.raises(ValueError, match="JSON object"):
+        estimate(dataset)
+    supplied = recipe()
+    original_recipe = repr(supplied)
+    costs = explicit_estimate(dataset, profile, supplied)
+    for cost in costs:
+        assert rates(cost) == pytest.approx((0.0434, 0.0434, 0.0434, 0.0012, 0.0009, 0))
+    assert (
+        dataset.dataset_id == dataset_id
+        and dataset.identity_payload_json == identity_json
+    )
+    assert dataset.identity_verified and repr(supplied) == original_recipe
+    for name, expected in arrays.items():
+        np.testing.assert_array_equal(dataset.identity_arrays()[name], expected)
+    renamed = explicit_estimate(dataset, replace(profile, name="different declaration"))
+    assert rates(renamed[0]) == rates(costs[0])
+    assert renamed[0].source_identity != costs[0].source_identity
+
+
+@pytest.mark.parametrize("row", (0, 71))
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("fee_rate", 0.001),
+        ("maker_fee_rate", 0.001),
+        ("taker_fee_rate", 0.001),
+        ("spread_rate", 0.001),
+        ("max_participation_rate", 0.01),
+        ("borrow_available", False),
+        ("borrow_rate", 0.01),
+    ),
+)
+def test_explicit_profile_rejects_whole_array_mismatch_before_arithmetic(
+    monkeypatch, row, field, value
+):
+    dataset, profile = wrapped_market()
+    values = dataset.resolved_array(field).copy()
+    values[row, 1] = value
+    identity = parse_identity_json(dataset.identity_payload_json)
+    dataset = replace(
+        dataset, **{field: values}, identity_payload_json=None
+    ).with_content_identity(identity)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Whole-array disagreement reached cost arithmetic")
+
+    monkeypatch.setattr(type(dataset), "market_notional", forbidden)
+    with pytest.raises(ValueError, match="whole Dataset arrays"):
+        explicit_estimate(dataset, profile)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        "id_only",
+        "bad_type",
+        "bad_id",
+        "bool_id",
+        "wrong_id",
+        "unverified",
+        "stale_content",
+        "conflict",
+        "malformed",
+        "malformed_empty",
+        "malformed_bool",
+        "forged_profile",
+    ),
+)
+def test_explicit_profile_invalid_binding_before_arithmetic(monkeypatch, failure):
+    dataset, profile = wrapped_market()
+    changes = {}
+    if failure == "id_only":
+        profile = None
+    elif failure == "bad_type":
+        profile = profile.to_payload()
+    elif failure == "bad_id":
+        changes["expected_dataset_id"] = "not a digest"
+    elif failure == "bool_id":
+        changes["expected_dataset_id"] = False
+    elif failure == "wrong_id":
+        changes["expected_dataset_id"] = "0" * 64
+    elif failure == "unverified":
+        dataset = replace(dataset, identity_payload_json=None)
+    elif failure == "stale_content":
+        close = dataset.close.copy()
+        close[0, 0] += 1
+        object.__setattr__(dataset, "close", close)
+    elif failure in {"conflict", "malformed", "malformed_empty", "malformed_bool"}:
+        identity = parse_identity_json(dataset.identity_payload_json)
+        identity["execution_economics"] = (
+            replace(profile, name="conflicting existing declaration").to_payload()
+            if failure == "conflict"
+            else {"malformed": None, "malformed_empty": {}, "malformed_bool": False}[
+                failure
+            ]
+        )
+        dataset = replace(dataset, identity_payload_json=None).with_content_identity(
+            identity
+        )
+    elif failure == "forged_profile":
+        object.__setattr__(profile, "spread_rate", float("nan"))
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Invalid profile binding reached cost arithmetic")
+
+    monkeypatch.setattr(type(dataset), "market_notional", forbidden)
+    with pytest.raises(ValueError):
+        explicit_estimate(dataset, profile, **changes)
 
 
 def test_literal_additive_execution_carry_and_total_turnover_participation(monkeypatch):

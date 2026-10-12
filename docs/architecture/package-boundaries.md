@@ -1410,6 +1410,16 @@ Tuple trigger fractions are required before matching the config policy digest,
 so ordinary caller-list mutation cannot alter the returned config through an
 alias. The recipe has no persisted schema or Tier-1 facade export.
 
+Only this concrete estimator accepts paired optional
+`declared_execution_economics` / `expected_dataset_id` keywords. It reuses the
+typed immutable `ExecutionEconomicsProfile` and verified Dataset identity,
+checks its seven scalar channels across the whole Dataset and rejects any
+malformed or conflicting existing top-level profile. No Dataset, nested
+lineage, recipe field, default cost digest or financial series is rewritten.
+Explicit cost-source hashes additionally bind the caller-declared simulation
+origin. This opt-in adds no facade, persisted schema, prepare bypass or loader;
+the existing preparation retains its direct-build and Signature admission.
+
 Preparation optionally calls this owner once on the already-admitted Dataset;
 the recipe path is exclusive with explicit rows, and both pass the existing
 strict complete-cost decoder. `PreparedAllocationMarketInputs.cost_recipe` is

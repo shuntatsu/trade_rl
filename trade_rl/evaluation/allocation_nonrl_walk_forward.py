@@ -106,9 +106,12 @@ def _carriers(
         env.validate_binding()
         if (
             env.execution_cost.order_type != "market"
-            or env.execution_cost.order_latency_bars != 0
+            or type(env.execution_cost.order_latency_bars) is not int
+            or env.execution_cost.order_latency_bars not in {0, 2}
         ):
-            raise ValueError("nonRL allocation requires MARKET with zero extra latency")
+            raise ValueError(
+                "nonRL allocation requires MARKET with integer latency0 or2"
+            )
         if not env.risk_config.drawdown_start < env.risk_config.drawdown_stop <= 0.20:
             raise ValueError("nonRL allocation requires the native drawdown guardrail")
         if env.action_contract.mode != required_action_mode:
@@ -127,7 +130,7 @@ def _carriers(
         )
         if set(env._estimates) != {int(time.astype("int64")) for time in times}:
             raise ValueError("nonRL cost coverage differs from fold decision clocks")
-        for time in times:
+        for index, time in enumerate(times, start=env.start_index):
             packet = packets.get((env.dataset.symbols[env.symbol_index], time))
             cost = env._estimates[int(time.astype("int64"))]
             if (
@@ -141,6 +144,11 @@ def _carriers(
                 or cost.horizon_end != packet.horizon_end
             ):
                 raise ValueError("nonRL forecast/cost coverage or clocks differ")
+            first_eligible = index + max(1, env.execution_cost.order_latency_bars)
+            if first_eligible >= env.dataset.n_bars:
+                raise ValueError("nonRL first eligible processing bar has no source")
+            if packet.horizon_end < env.dataset.timestamps[first_eligible]:
+                raise ValueError("nonRL horizon ends before first eligible processing")
     return candidate
 
 

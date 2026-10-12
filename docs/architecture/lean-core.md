@@ -704,12 +704,13 @@ recomputes the scalar proposal, and applies hard risk once. The returned
 `NonRLExecutionResult` keeps the proposal, risk target and canonical execution
 result so requested, approved and filled exposures remain distinguishable.
 
-V1 accepts only an independent-symbol account, MARKET orders, zero additional
-latency and one processing bar per call. Other-symbol positions/orders,
+The adapter accepts only an independent-symbol account, MARKET orders, integer
+latency0 or2 and one processing bar per call. Other-symbol positions/orders,
 nonmarket/protective orders, stale valuation marks and terminated accounts are
 rejected. Pending clocks must permit the next processing bar; already-expired
 or later-eligible residuals and future active/terminal transitions are rejected.
-The horizon must cover at least that first processing bar. Canonical margin and
+The first possible fill is `start + max(1, latency)` and must physically exist;
+the supplied horizon must cover its timestamp. Canonical margin and
 drawdown refresh on a detached BookState copy reject already-dead margin states
 and missing latched drawdown evidence; the original book is not mutated.
 Risk requires `drawdown_start < drawdown_stop <= 20%`; the canonical latched maximum
@@ -729,7 +730,7 @@ The caller continues with both returned book and order book; no second ledger,
 free-cash reservation balance or execution compatibility cache is introduced.
 
 Current-close estimates remain a declared proxy because first eligible fills
-occur on the next processing bar. Future exit and carry estimates are charged
+occur no earlier than the declared first eligible processing bar. Future exit and carry estimates are charged
 on initial exposure in the surrogate, whereas realized costs/carry use canonical
 fills and marks. The signed self-financing cash term reflects this ledger's
 cash, including short proceeds or negative cash; it is not a universal futures
@@ -858,7 +859,7 @@ position age、numeric PPO observation、policyへの接続を保証しない。
 
 `evaluation.allocation_snapshot.snapshot_allocation_account` is an opt-in,
 observer-only reader for a live independent-symbol account with MARKET orders
-and zero extra latency. It requires the known matching Dataset/index clock,
+and latency0 or2. It requires the known matching Dataset/index clock,
 current selected-source availability and the existing allocation context checks.
 The caller must refresh canonical margin before reading, including bootstrap
 accounts whose stored maintenance rate may otherwise retain its default value.
@@ -1125,7 +1126,7 @@ authenticity, actor learnability, market profitability nor research permission.
 `run_continuous_nonrl_allocation` accepts fresh residual allocation environments,
 declares only action2, and delegates account/order carry and actual execution to
 the existing continuous runner. Direct action2 means FLAT and is rejected before
-reset. Only native MARKET/zero-extra-latency and drawdown profiles are admitted.
+reset. Only native MARKET latency0/2 and drawdown profiles are admitted.
 Candidate/runtime, forecast and cost-clock coverage are checked for the
 whole chain first; native source/account admission remains per decision.
 The typed result retains the fixed rule, forecast and complete runtime identities.
@@ -1248,7 +1249,7 @@ with private fixed residual action2 and direct HOLD action0 respectively. They
 accept the immutable segment plan, one fresh native environment and an optional
 closed observational collector, with no
 caller policy, action sequence or reset seed. The complete carrier forecast/cost
-clock coverage, action mode, MARKET/zero-extra-latency profile and native
+clock coverage, action mode, MARKET latency0/2 profile and native
 drawdown guardrail at most 20% are checked before the one reset. H, capital and
 the observation normalizer remain global across unequal internal segments.
 Execution RNG retains the configured economic seed; controls have no policy seed.
@@ -1606,7 +1607,31 @@ including losses below -100%, rather than clipped interval/log diagnostics.
 Original prefix failure or closing exception preserves its known partial facts
 and original error; an unreturned bar's fills are unknown. This is runtime
 software observation, not a Study evidence reader, approval or WINNER.
-The native MARKET/zero-extra-latency and independent-symbol limits remain.
+The native MARKET latency0/2 and independent-symbol limits apply.
+
+### Closed-loop execution latency treatment
+
+The public scalar adapter and shared account observer admit only ordinary integer
+MARKET latency0 or2. Eligibility is submit index plus latency; first processing
+is submit plus1. Thus latency2 waits one additional processing bar. The existing
+pending eligible<=current+1 and future-progress checks stay strict: a genuine
+latency2 wait returned at current7 may retain eligible8, while an unprocessed
+submit6/eligible8 inserted into context6 is refused.
+
+Fixed NONRL/CASH carriers check every actor decision's first possible fill row
+and forecast horizon before any reset. Generic RL callers share scalar admission
+per decision; they do not inherit this whole-roster preflight guarantee. The
+same-close forecast and base0 cost beliefs stay at the original decision clock;
+latency changes actual execution, not their calibration. Recomputing from each
+arm's actual holdings may retain, cancel or replace orders, so identical controller
+inputs do not imply identical targets or trade paths. This is a closed-loop
+execution-setting treatment, not a pure shift of identical trades.
+
+The existing finite reserve and terminal eligibility remain authoritative.
+Matching closes keep their original eligibility; partial or missed closes remain
+unsettled, without automatic extension. Declared cost production, configured-fee
+views, settled-learning and bounded strong-native readers retain their separate
+zero-latency limits. No market fit, retry, new ledger or profit claim is supplied.
 
 ## Closed terminal evidence and settled forecast controls
 

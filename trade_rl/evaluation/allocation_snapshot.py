@@ -51,7 +51,7 @@ def snapshot_allocation_account(
     symbol_index: int,
     start_index: int,
 ) -> AllocationAccountSnapshot:
-    """Copy an admitted live MARKET/zero-latency independent-symbol account.
+    """Copy an admitted live MARKET latency0/2 independent-symbol account.
 
     Requires a known Dataset/index clock and caller-refreshed canonical margin.
     No original book cache, account, order or executor randomness is changed.

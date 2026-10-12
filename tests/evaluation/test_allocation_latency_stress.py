@@ -2,6 +2,7 @@
 
 from dataclasses import fields, replace
 from fractions import Fraction
+from math import log
 
 import numpy as np
 import pytest
@@ -89,7 +90,14 @@ def carrier(
         replace(
             old_vintage.training.log_training,
             features=np.zeros((2, 1)),
-            labels=np.log1p(returns),
+            labels=np.array(
+                [
+                    log(end / start)
+                    for start, end in zip(
+                        trace.start_close, trace.end_close, strict=True
+                    )
+                ]
+            ),
             label_end_times=times[2:4],
             sample_weights=np.ones(2),
             horizon_hours=2,

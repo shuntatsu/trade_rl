@@ -2280,6 +2280,25 @@ fitting and publication. Old explicit-row callers and four-field positional
 results retain their behavior. No additional persisted schema, ledger, learner,
 callback or artifact/execution authority is introduced.
 
+The concrete estimator additionally accepts paired typed caller-declared
+simulation economics and an expected verified Dataset ID. This accommodates an
+explicit development cost declaration without changing Dataset content or
+promoting wrapped lineage to direct-build status. All seven profile arrays
+must match throughout all rows/symbols; existing top-level declarations cannot
+be silently replaced. Explicit-mode cost identities are distinct even when
+numeric rates match, while legacy source digests and recipe fields retain their
+contract. The direct preparation and Signature gates are unchanged.
+
+This is a software interoperability prerequisite, not calibration or profit
+evidence. Result-blind review and synthetic conformance must be verified on its
+exact committed head before new cost execution. No actual-market costs, fit,
+native comparison, unused-period read or new winner follows from this API.
+The consumed 2025 structural observation alone does not authenticate selected
+feature construction, received-time or nested source copying. Phase 2 NONRL
+versus CASH economic comparison remains incomplete; past negative comparisons
+remain unchanged. The 20% DD constraint and the full Issue #810 objective are
+retained.
+
 First-scope restrictions are regular continuous bars, quote-notional turnover,
 MARKET/zero extra latency, previous-bar OPEN capacity, available same-close
 valuation, explicit matching build economics, complete available aligned past

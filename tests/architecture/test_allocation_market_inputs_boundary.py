@@ -148,3 +148,26 @@ def test_declared_cost_owner_reuses_native_config_without_execution_or_new_schem
     assert not hasattr(allocation_costs.DeclaredAllocationCostRecipe, "payload")
     for name in allocation_costs.__all__:
         assert not hasattr(evaluation, name)
+
+
+def test_explicit_simulation_profile_is_estimator_only_without_recipe_schema_drift():
+    from inspect import Parameter, signature
+
+    from trade_rl.evaluation.allocation_costs import (
+        DeclaredAllocationCostRecipe,
+        estimate_declared_horizon_costs,
+    )
+    from trade_rl.evaluation.allocation_market_inputs import (
+        prepare_allocation_market_inputs,
+    )
+
+    keywords = ("declared_execution_economics", "expected_dataset_id")
+    parameters = signature(estimate_declared_horizon_costs).parameters
+    for name in keywords:
+        assert parameters[name].kind is Parameter.KEYWORD_ONLY
+        assert parameters[name].default is None
+        assert name not in DeclaredAllocationCostRecipe.__dataclass_fields__
+    assert (
+        "declared_execution_economics"
+        not in signature(prepare_allocation_market_inputs).parameters
+    )

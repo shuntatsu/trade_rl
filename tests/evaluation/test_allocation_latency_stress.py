@@ -411,7 +411,7 @@ def test_scalar_admission_rejects_noninteger_or_unregistered_latency(latency):
     ex = executor(data)
     # Configuration construction already rejects malformed types; prove the
     # admission itself cannot be bypassed by caller mutation of its public config.
-    ex.cost.order_latency_bars = latency
+    object.__setattr__(ex.cost, "order_latency_bars", latency)
     with pytest.raises(ValueError, match="latency"):
         propose(ex, book(data), OrderBookState.empty())
 

@@ -97,10 +97,12 @@ def test_discriminating_latency_two_misses_sole_capacity(cue):
     assert env.order_book.active_orders
 
 
-@pytest.mark.parametrize("latency", [1, 2])
-def test_allocation_adapter_explicitly_rejects_extra_latency(latency):
+@pytest.mark.parametrize("latency,reason", [(1, "latency"), (2, "horizon")])
+def test_allocation_adapter_rejects_unsupported_latency_or_short_horizon(
+    latency, reason
+):
     env = delayed_env(1, 1, latency=latency)
-    with pytest.raises(ValueError, match="zero extra latency"):
+    with pytest.raises(ValueError, match=reason):
         env.reset()
 
 

@@ -290,7 +290,9 @@ def test_capacity_is_used_on_actual_processing_bar(latency):
     volume = data.volume.copy()
     volume[1:] = 0
     data = replace(data, volume=volume)
-    ex = executor(data, order_latency_bars=latency)
+    ex = executor(
+        data, order_latency_bars=latency, processing_bar_volume_capacity=False
+    )
     first = apply(
         ex,
         book(data),

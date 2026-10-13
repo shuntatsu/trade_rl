@@ -58,6 +58,8 @@ feature_available_time <= decision_time
 
 MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、publish後に再読込してcontent identityを検証します。
 
+銘柄名、特徴量名、出来高単位、calendarなどの意味も、保存した識別情報と照合します。数値配列が同じでも意味を変更したデータを古いIDで受理しません。意図した変更は新しいcontent identityを作ります。
+
 同じpublication先が既に存在する場合は、静かに上書きせずfail closedにします。
 
 ## 6. 候補strategyは同じDatasetを見る

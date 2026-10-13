@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
+from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.market import MarketDataset
 
 
@@ -105,3 +107,61 @@ def test_market_dataset_internal_caches_are_deeply_immutable() -> None:
         assert array.flags.writeable is False
         with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
             array.setflags(write=True)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("symbols", ("OTHER",)),
+        ("feature_names", ("other_feature",)),
+        ("global_feature_names", ("other_global",)),
+        ("volume_units", (VolumeUnit.QUOTE_NOTIONAL,)),
+        ("feature_config_digest", "a" * 64),
+        ("normalization_digest", "b" * 64),
+        ("calendar_kind", MarketCalendarKind.CONTINUOUS),
+        ("nominal_bar_hours", 2.0),
+        ("periods_per_year", 252),
+    ],
+)
+def test_content_identity_rejects_changed_scalar_meaning(
+    field_name: str, replacement: object
+) -> None:
+    original = replace(
+        dataset(), calendar_kind=MarketCalendarKind.SESSION
+    ).with_content_identity()
+
+    with pytest.raises(ValueError, match="dataset_id.*contract"):
+        replace(original, **{field_name: replacement})
+
+
+def test_recomputed_identity_detects_live_feature_label_drift() -> None:
+    original = dataset().with_content_identity()
+    object.__setattr__(original, "feature_names", ("other_feature",))
+
+    assert original.recomputed_dataset_id() != original.dataset_id
+    assert original.identity_verified is False
+
+
+def test_explicitly_reidentified_scalar_change_has_a_new_identity() -> None:
+    original = dataset().with_content_identity()
+    successor = replace(
+        original, feature_names=("other_feature",), identity_payload_json=None
+    ).with_content_identity()
+
+    assert successor.dataset_id != original.dataset_id
+    assert successor.identity_verified is True
+
+
+@pytest.mark.parametrize("change", ["missing", "malformed", "changed"])
+def test_stored_descriptor_tampering_is_not_verified(change: str) -> None:
+    original = dataset().with_content_identity()
+    payload = json.loads(original.identity_payload_json)
+    if change == "missing":
+        del payload["dataset_contract"]
+    elif change == "malformed":
+        payload["dataset_contract"] = "invalid"
+    else:
+        payload["dataset_contract"]["feature_names"] = ["other_feature"]
+    object.__setattr__(original, "identity_payload_json", json.dumps(payload))
+
+    assert original.identity_verified is False

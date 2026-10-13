@@ -2753,3 +2753,18 @@ loading. This repair
 provides no new market read, forecast fit, native replay or economic result.
 Frozen research sources and outputs remain separate, and Issue #810 and the
 profitable-system objective remain incomplete.
+
+## Issue #810: Dataset activity alias source repair
+
+Dataset source projections now validate that the native `asset_active` mask
+and the canonical `symbol_active` mask agree in shape, boolean dtype and contents.
+One-sided changes previously retained a verified ID and escaped the generic
+global source projections. Synthetic regressions cover both alias directions,
+malformed values and rejection before native reset or execution. Equal-content
+separate arrays remain valid, and normal v6/v7 identities keep their bytes.
+
+This is a software source-binding repair. It supplies no new market input,
+forecast fit, native market replay, economic result or live authority. The
+whole-Dataset reconstruction and formally reviewed after-cost comparison
+remain separate prerequisites; Issue #810 and profitable-system evidence
+remain incomplete.

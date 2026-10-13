@@ -141,3 +141,46 @@ def test_current_settlement_products_bind_identity_envelopes_and_execution(monke
     ):
         execution.run_declared_global_allocation_execution(folds, env, plan)
     assert not hasattr(env, "book") and env._transition_recorder is None
+
+
+@pytest.mark.parametrize("alias_field", ["asset_active", "symbol_active"])
+def test_activity_alias_drift_rejects_source_digests_before_native_work(
+    monkeypatch, alias_field
+):
+    api = capability()
+    env = global_control_fixture()
+    object.__setattr__(
+        env.dataset,
+        alias_field,
+        np.zeros_like(env.dataset.resolved_array(alias_field)),
+    )
+    monkeypatch.setattr(env, "reset", lambda **kwargs: pytest.fail("native reset"))
+    monkeypatch.setattr(env, "step", lambda action: pytest.fail("native execution"))
+
+    for digest in (
+        api.allocation_source_envelope_digest,
+        api.global_declared_source_digest,
+    ):
+        with pytest.raises(ValueError, match="activity aliases"):
+            digest(env)
+
+
+@pytest.mark.parametrize("alias_field", ["asset_active", "symbol_active"])
+def test_activity_alias_equal_byte_replacement_preserves_source_digests(
+    alias_field,
+):
+    api = capability()
+    env = global_control_fixture()
+    expected = (
+        api.allocation_source_envelope_digest(env),
+        api.global_declared_source_digest(env),
+    )
+    replacement = env.dataset.resolved_array(alias_field).copy()
+    assert replacement.flags.writeable
+    object.__setattr__(env.dataset, alias_field, replacement)
+
+    assert env.dataset.asset_active is not env.dataset.symbol_active
+    assert (
+        api.allocation_source_envelope_digest(env),
+        api.global_declared_source_digest(env),
+    ) == expected

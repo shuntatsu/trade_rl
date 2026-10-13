@@ -60,6 +60,8 @@ MarketDatasetの配列、availability、staleness、execution economics、identi
 
 銘柄名、特徴量名、出来高単位、calendarなどの意味も、保存した識別情報と照合します。数値配列が同じでも意味を変更したデータを古いIDで受理しません。意図した変更は新しいcontent identityを作ります。
 
+保存用と約定処理用の銘柄の有効状態も照合し、片側だけが変わったデータを検証へ渡しません。
+
 同じpublication先が既に存在する場合は、静かに上書きせずfail closedにします。
 
 ## 6. 候補strategyは同じDatasetを見る

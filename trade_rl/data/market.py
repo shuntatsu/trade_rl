@@ -688,6 +688,13 @@ class MarketDataset:
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
             canonical_payload_json = canonical_identity_json(payload)
+            stored_contract = payload.get("dataset_contract")
+            if not isinstance(stored_contract, dict) or canonical_identity_json(
+                stored_contract
+            ) != canonical_identity_json(self.identity_contract_payload()):
+                raise ValueError(
+                    "dataset_id does not match the current dataset contract"
+                )
             if (
                 payload.get("schema") == "market_dataset_identity_v6"
                 and self.funding_price_rate is not None
@@ -707,15 +714,23 @@ class MarketDataset:
     def recomputed_dataset_id(self) -> str:
         if self.identity_payload_json is None:
             raise ValueError("dataset has no canonical identity payload")
+        payload = parse_identity_json(self.identity_payload_json)
+        payload["dataset_contract"] = self.identity_contract_payload()
         return compute_market_dataset_id(
-            parse_identity_json(self.identity_payload_json),
+            payload,
             self.identity_arrays(),
         )
 
     @property
     def identity_verified(self) -> bool:
+        if self.identity_payload_json is None:
+            return False
+        payload = parse_identity_json(self.identity_payload_json)
+        stored_contract = payload.get("dataset_contract")
         return (
-            self.identity_payload_json is not None
+            isinstance(stored_contract, dict)
+            and canonical_identity_json(stored_contract)
+            == canonical_identity_json(self.identity_contract_payload())
             and self.recomputed_dataset_id() == self.dataset_id
         )
 

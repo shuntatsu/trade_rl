@@ -583,9 +583,10 @@ def test_recomputed_identity_does_not_authenticate_a_changed_live_descriptor():
     declared = _declarations(_GROUPS[0], "NONRL")
     dataset = declared["dataset"]
     object.__setattr__(dataset, "global_feature_names", ("renamed",))
-    assert dataset.identity_verified
+    assert not dataset.identity_verified
+    assert dataset.recomputed_dataset_id() != dataset.dataset_id
     context = SettledNativeValidationContext(**declared)
-    with pytest.raises(ValueError, match="live descriptor"):
+    with pytest.raises(ValueError, match="verified complete Dataset identity"):
         owner.declare_settled_native_control_comparison(
             (owner.SettledNativeControlGroup("descriptor", context, context),)
         )

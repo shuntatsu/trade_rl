@@ -2733,3 +2733,23 @@ the full closed-loop execution treatment. Synthetic wait, HOLD, partial-close an
 source/horizon falsifiers test software semantics, not profitable alpha. No new
 market artifact read, fit, replay, unused-future result or live authority is
 supplied. A finite independently reviewed real-market protocol remains required.
+
+## Issue #810: Dataset scalar identity contract repair
+
+The Dataset constructor now checks the persisted `dataset_contract` against
+the live scalar descriptor. Relabeling symbols or local/global features,
+changing volume units, calendar/cadence metadata or feature/normalization
+digests cannot retain a verified old Dataset ID. Runtime identity recomputation
+also binds the current descriptor. Normal v6/v7 artifacts retain their payload
+and ID; an intentional transform must mint a new content identity.
+
+Verified identity additionally requires stored/live descriptor agreement;
+recomputation must not conceal a changed, missing or malformed stored descriptor.
+
+Synthetic regressions reproduced nine accepted scalar changes and an undetected
+live feature-label change before the repair. The checks cover their rejection,
+stored-descriptor tampering, explicit reidentification and normal legacy artifact
+loading. This repair
+provides no new market read, forecast fit, native replay or economic result.
+Frozen research sources and outputs remain separate, and Issue #810 and the
+profitable-system objective remain incomplete.

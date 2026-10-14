@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-05 (JST)
+更新基準: 2026-10-14 (JST)
 
 ## 結論
 
@@ -20,6 +20,14 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
 
 receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
+## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
+
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了した。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
+
+比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
+
+Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、このtechnical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 

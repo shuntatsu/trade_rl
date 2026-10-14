@@ -4,6 +4,12 @@
 
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
+## Task 18 Datasetの準備状況と次のゲート
+
+Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで検証しました。これは宣言済みscope・fee・funding inputを使うNONRL 48-cell比較に対するloader/sourceの技術確認です。48枠のfitや経済replayは未実行で、P&Lとprofitabilityは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markを校正した結果ではありません。impactを含む未固定のexecution条件は比較前にfreezeします。
+
+Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままです。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
+
 ## PPO中期保有期間の次期設計
 
 従来の独立口座版 `ppo_holding_duration_v1` は、PPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較します。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。

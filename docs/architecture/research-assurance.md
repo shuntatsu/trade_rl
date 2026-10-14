@@ -738,6 +738,14 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
 
+#### Development reuse tiers
+
+`Tier D` は、入力Datasetと対象scope全体が既にdevelopmentで消費済みだと、既存provenanceから確認できる場合に限る。正確なDataset manifestと`arrays.npz`のSHA-256、既消費scopeを確認し、同じ科学的parameterでのdeterministic reconstruction/evaluation、通常のcode/test/debug、harness起因のtechnical retryを繰り返せる。wrapper・transport・harness errorだけで既消費データを永久retireしない。各attemptは入力manifest/NPZ hash、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはerror・parameters・log参照をappend-onlyで記録する。
+
+`Tier U` はunused、final/sealed、既消費と未使用を含むmixed scope、または消費済みであることを証明できないscopeである。unknown/mixedはTier Uのままにし、既存のauthorization、candidate freeze、one-shot execution、consumed-evidence ledgerを維持する。harness failureを理由に自動downgrade・unsealせず、network fallbackやlive authorityも与えない。
+
+Tier判定は既存provenanceとevidenceを確認する運用policyであり、自動classifierの実装を主張しない。`StudyResearchContext`がbindするのは申告済みconsumptionで、全閲覧を自動証明するものではない。Tier D retryはtechnical reproducibilityのための同じ科学的設定の再実行であり、以前のscientific `FAILED` / `INVALID` を消去・置換したり、結果を見て採用基準や候補parameterを変えたりできない。繰り返し出力はfresh sample、独立generalization、profitabilityの証拠にならない。どちらのtierでも、P&L解釈前のcausal/source/scalar確認、ledger・independent-oracle照合、result-blind semantic reviewを省略できず、経済採用では同じcapital/risk/execution-cost/stress条件を結果前に固定する。
+
 Forward paper screens additionally bind a `carry_paper_attempt_lineage_v2` object
 inside the sealed screen plan. Attempt numbers are consecutive; every successor
 records the predecessor protocol digest, final journal tip, disposition, reason

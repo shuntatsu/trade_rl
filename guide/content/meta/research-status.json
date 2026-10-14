@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "検証済みdevelopment evidence、未証明事項、実装済みfinal authorization境界と未実行のfinal evaluationを分離して表示します。",
+  "summary": "検証済みdevelopment evidence、Task 18 Datasetの技術確認とNONRL 48-cellの次段階、未証明事項、未実行のfinal evaluationを表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -14,7 +14,10 @@
     "profitability",
     "winner",
     "limitations",
-    "final authorization"
+    "final authorization",
+    "Task 18",
+    "NONRL 48",
+    "fee-only learnability"
   ],
   "source_sections": [
     {
@@ -36,6 +39,11 @@
       "path": "docs/research/current-status.md",
       "heading": "Active PPO medium-term holding-duration design",
       "sha256": "8948da7817c8ce7038eb9e08f02ca42341e2e85d595517a0d1e7a69aef916513"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
+      "sha256": "907a5f5eb83b00f711c8f427d3e13519b22bcb82bc3ec4a6eb19591fb959a98a"
     }
   ],
   "code_references": []

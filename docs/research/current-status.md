@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-05 (JST)
+更新基準: 2026-10-14 (JST)
 
 ## 結論
 
@@ -14,6 +14,12 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
+
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18では、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderでSourceVerifier 30cが検証し、Dataset identity、scalar、aliasの確認を通過した。これは宣言済みNONRL 48-cell scope/feeとfunding inputを使えるというloader/sourceの技術確認であり、48枠のfit・経済replay・P&Lはまだ実行されておらず、profitabilityも未確立である。Funding markはbar-close proxyとraw rateの仮定を使い、実際のsettlement markを校正した証拠ではない。impactを含む未固定のexecution条件は比較前にfreezeする。
+
+Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならない。loader適合・technical retry・software Greenを経済結果として扱わない。
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 

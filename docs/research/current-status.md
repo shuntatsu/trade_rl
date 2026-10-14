@@ -15,6 +15,12 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Generic software PR review policy (2026-10-14)
+
+[Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
+
+receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
 Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18では、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderでSourceVerifier 30cが検証し、Dataset identity、scalar、aliasの確認を通過した。これは宣言済みNONRL 48-cell scope/feeとfunding inputを使えるというloader/sourceの技術確認であり、48枠のfit・経済replay・P&Lはまだ実行されておらず、profitabilityも未確立である。Funding markはbar-close proxyとraw rateの仮定を使い、実際のsettlement markを校正した証拠ではない。impactを含む未固定のexecution条件は比較前にfreezeする。
@@ -31,7 +37,7 @@ prefixで選定したconfigを凍結し、同じevaluation windowにbase、`Exec
 
 初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
 
-fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、実装と異なるconfigured AIモデルのexact-HEAD receiptによる正式PR reviewへ自動昇格しない。
 
 ## Quantity-preserving hold repair (2026-10-05)
 
@@ -75,7 +81,7 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 
 実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
 
-このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
+このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認は、実装と異なるconfigured AIモデルのexact-HEAD receiptによる必須PR approvalへ自動昇格しない。
 
 ## Trading-bot tuning contract correction (2026-10-02)
 

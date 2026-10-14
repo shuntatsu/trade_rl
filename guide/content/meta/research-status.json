@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "検証済みdevelopment evidence、Task 18 Datasetの技術確認とNONRL 48-cellの次段階、未証明事項、未実行のfinal evaluationを表示します。",
+  "summary": "Task 18 loader確認、12 fit後に停止したNONRL準備、未実行の48-cell比較とP&L、研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -43,7 +43,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "907a5f5eb83b00f711c8f427d3e13519b22bcb82bc3ec4a6eb19591fb959a98a"
+      "sha256": "e4b84f56af9158eba03fc7f681bfaa890bd5f2752df24ef3cd4e47e7227b039f"
     }
   ],
   "code_references": []

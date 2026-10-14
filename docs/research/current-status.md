@@ -23,9 +23,11 @@ receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの�
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
-Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18では、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderでSourceVerifier 30cが検証し、Dataset identity、scalar、aliasの確認を通過した。これは宣言済みNONRL 48-cell scope/feeとfunding inputを使えるというloader/sourceの技術確認であり、48枠のfit・経済replay・P&Lはまだ実行されておらず、profitabilityも未確立である。Funding markはbar-close proxyとraw rateの仮定を使い、実際のsettlement markを校正した証拠ではない。impactを含む未固定のexecution条件は比較前にfreezeする。
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了した。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
 
-Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならない。loader適合・technical retry・software Greenを経済結果として扱わない。
+比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
+
+Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、このtechnical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 

@@ -594,6 +594,8 @@ behavior. Terminated child processes must be reaped before evidence upload.
 
 review本文にはcode fence外に一つの `<!-- independent-research-review-audit -->` と唯一の `### Disposition: APPROVED` を置き、閉じた `independent-review-receipt` fenceを一つ置く。そのJSON envelopeのfieldは `payload` と `sha256` だけである。payloadのfieldは次に限定する。
 
+supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の正規化に使う。indented code、HTML/comment内の見出しやfence、Unicode space/line separatorを使う見出しはstructured dispositionにならない。fenced content外のraw HTMLは必須markerを除きapprovalをfail-closedにする。receipt内のactual reportはJSON dataとしてそのまま保持し、Markdown全体をrender/解釈するauthorityとはしない。
+
 - `schema`: `independent_model_review_v1`。
 - `head_sha`: GitHub APIのcurrent PR headとreviewの`commit_id`と一致する40桁lowercase commit SHA。
 - `publisher_user_id`: review APIのauthenticated actorと一致するnative positive integer。

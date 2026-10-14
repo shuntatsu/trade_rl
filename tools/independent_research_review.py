@@ -45,6 +45,8 @@ _UNKNOWN_IDENTITIES = {
 _REPORT_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _FENCE_CLOSE = re.compile(r"^ {0,3}(`+|~+)[ \t]*$")
+_HTML_TAG = re.compile(r"</?([a-z][a-z0-9:-]*)(?=[ \t>/]|$)|<[!?]", re.I)
+_HTML_LITERAL_NAMES = {"pre", "code", "script", "style", "textarea"}
 
 
 class ReviewOutcome(StrEnum):
@@ -72,19 +74,55 @@ def _review_content(body: str) -> tuple[list[str], list[str]]:
     lines: list[str] = []
     receipts: list[str] = []
     receipt_lines: list[str] | None = None
+    html_tags: list[str] = []
+    html_comment = False
+    html_opaque = False
+    unsupported_html = False
     fence_character: str | None = None
     fence_length = 0
-    for line in body.splitlines():
+    for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if fence_character is None:
-            opening = _FENCE_OPEN.match(line)
+            if html_comment:
+                html_comment = "-->" not in line
+                continue
+            if html_opaque:
+                html_opaque = bool(line.strip(" \t"))
+                continue
+            indentation = line[: len(line) - len(line.lstrip(" \t"))]
+            if len(indentation.expandtabs(4)) >= 4:
+                continue
+            opening = _FENCE_OPEN.match(line) if not html_tags else None
             if opening is not None:
                 fence = opening.group(1)
                 fence_character = fence[0]
                 fence_length = len(fence)
-                if line[opening.end() :].strip() == _RECEIPT_FENCE:
+                if line[opening.end() :].strip(" \t") == _RECEIPT_FENCE:
                     receipt_lines = []
                 continue
-            lines.append(line.strip())
+            if not html_tags and line.strip(" \t") == _REVIEW_MARKER:
+                lines.append(_REVIEW_MARKER)
+                continue
+            if "<!--" in line:
+                unsupported_html = True
+                html_comment = "-->" not in line.split("<!--", 1)[1]
+                continue
+            tags = list(_HTML_TAG.finditer(line))
+            if html_tags or tags:
+                unsupported_html = True
+                literal_line = bool(html_tags)
+                for tag in tags:
+                    name = (tag.group(1) or "").casefold()
+                    if name not in _HTML_LITERAL_NAMES:
+                        continue
+                    literal_line = True
+                    if line[tag.start() + 1] != "/":
+                        html_tags.append(name)
+                    elif html_tags and html_tags[-1] == name:
+                        html_tags.pop()
+                if not literal_line:
+                    html_opaque = line.lstrip(" \t").startswith("<")
+                continue
+            lines.append(line.strip(" \t"))
             continue
         closing = _FENCE_CLOSE.match(line)
         if closing is not None:
@@ -98,7 +136,8 @@ def _review_content(body: str) -> tuple[list[str], list[str]]:
                 continue
         if receipt_lines is not None:
             receipt_lines.append(line)
-    return lines, receipts if fence_character is None else []
+    complete = fence_character is None and not unsupported_html
+    return lines, receipts if complete else []
 
 
 def _unique_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

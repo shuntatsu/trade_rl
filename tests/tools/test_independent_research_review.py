@@ -123,6 +123,108 @@ def test_unstructured_or_ambiguous_disposition_does_not_approve(body: str) -> No
     assert outcome is not ReviewOutcome.APPROVED
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        str(_review()["body"]).replace(
+            "### Disposition: APPROVED", "    ### Disposition: APPROVED"
+        ),
+        str(_review()["body"]).replace(
+            "### Disposition: APPROVED", "\t### Disposition: APPROVED"
+        ),
+        str(_review()["body"]).replace(REVIEW_MARKER, f"    {REVIEW_MARKER}"),
+        str(_review()["body"]).replace(REVIEW_MARKER, f"  \t{REVIEW_MARKER}"),
+        f"<pre>\n{_review()['body']}\n</pre>",
+        f'<PRE class="literal">\n{_review()["body"]}\n</PRE>',
+        f"<pre\nclass=literal>\n{_review()['body']}\n</pre>",
+        str(_review()["body"]).replace(
+            "### Disposition: APPROVED", "<pre>\n### Disposition: APPROVED\n</pre>"
+        ),
+        f"{REVIEW_MARKER}\n### Disposition: APPROVED\n<pre>\n{_receipt_body(_payload())}\n</pre>",
+        str(_review()["body"]).replace(
+            "### Disposition: APPROVED", "<!-- hidden\n### Disposition: APPROVED\n-->"
+        ),
+    ],
+    ids=[
+        "space-indented-heading",
+        "tab-indented-heading",
+        "space-indented-marker",
+        "tab-indented-marker",
+        "pre-wrapped-protocol",
+        "pre-attributes",
+        "pre-multiline-opener",
+        "pre-wrapped-heading",
+        "pre-wrapped-receipt",
+        "comment-wrapped-heading",
+    ],
+)
+def test_literal_markdown_and_html_cannot_supply_review_protocol(body: str) -> None:
+    review = _review()
+    review["body"] = body
+
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+@pytest.mark.parametrize("tag", ["textarea", "div", "table", "details"])
+def test_unsupported_html_wrapper_cannot_supply_review_disposition(tag: str) -> None:
+    review = _review()
+    review["body"] = str(review["body"]).replace(
+        "### Disposition: APPROVED", f"<{tag}>\n### Disposition: APPROVED\n</{tag}>"
+    )
+
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["\u00a0", "\u2003", "Example\u2028", "Example\u2029", "Example\v", "Example\f"],
+)
+def test_non_markdown_space_and_line_separators_cannot_create_disposition(
+    prefix: str,
+) -> None:
+    review = _review()
+    review["body"] = str(review["body"]).replace(
+        "### Disposition: APPROVED", f"{prefix}### Disposition: APPROVED"
+    )
+
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_receipt_report_may_quote_html_without_hiding_visible_protocol() -> None:
+    payload = _payload()
+    payload["report"] = (
+        "Reviewed the <pre> literal-block failure path; no blocking findings."
+    )
+    review = _review()
+    review["body"] = f"{REVIEW_MARKER}\n### Disposition: APPROVED\n" + _receipt_body(
+        payload
+    )
+
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.APPROVED
+    )
+
+
+def test_unsupported_raw_html_outside_receipt_fails_closed() -> None:
+    review = _review()
+    review["body"] = f"<pre>Unrelated literal example.</pre>\n{review['body']}"
+
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
 def test_review_on_a_different_head_does_not_satisfy_gate() -> None:
     outcome = resolve_review_outcome(
         _pull_request(),

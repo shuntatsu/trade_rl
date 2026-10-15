@@ -2,7 +2,7 @@
   "id": "experiment-loop",
   "title": "一因子ずつ検証する実験ループ",
   "nav_label": "実験と証拠",
-  "summary": "基準系の固定、一因子実験、独立検証、判断、freeze、その後の別final-authorization境界までを追います。",
+  "summary": "基準系の固定、一因子実験、Tier Dの技術再試行とTier Uの厳格な境界、独立検証、判断、freeze、その後の別final-authorization境界までを追います。",
   "role": "detail",
   "keywords": [
     "Study",
@@ -12,7 +12,10 @@
     "verification",
     "decision",
     "freeze",
-    "final authorization"
+    "final authorization",
+    "Tier D",
+    "Tier U",
+    "technical retry"
   ],
   "source_sections": [
     {
@@ -29,6 +32,11 @@
       "path": "docs/architecture/controlled-experiment-loop.md",
       "heading": "Research assurance prerequisite",
       "sha256": "a3699912792fbac32d7e05b2dd96b8f5a30d25e34fc45bb7f9ab5bb544cbc2ea"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Failure / tamper contract",
+      "sha256": "9b4384da07ec34038c386cdb23079c2ce343feb41f87c86263e0273adef88cb4"
     }
   ],
   "code_references": []

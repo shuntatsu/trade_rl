@@ -211,10 +211,17 @@ class SimpleReturnPacket:
         return content_digest(self._snapshot())
 
     def _content(self) -> dict[str, object]:
+        snapshot = self._snapshot()
+        # Keep virtual digest properties observable on compatible subclasses.
+        snapshot_digest = (
+            content_digest(snapshot)
+            if type(self) is SimpleReturnPacket
+            else self.snapshot_digest
+        )
         return {
             "schema": "simple_return_packet_v1",
-            **self._snapshot(),
-            "snapshot_digest": self.snapshot_digest,
+            **snapshot,
+            "snapshot_digest": snapshot_digest,
             "forecast_available_at": _ns(self.forecast_available_at),
             "horizon_end": _ns(self.horizon_end),
             "horizon_seconds": self.horizon_seconds,
@@ -232,7 +239,11 @@ class SimpleReturnPacket:
         return content_digest(self._content())
 
     def payload(self) -> dict[str, object]:
-        return {**self._content(), "digest": self.digest}
+        content = self._content()
+        digest = (
+            content_digest(content) if type(self) is SimpleReturnPacket else self.digest
+        )
+        return {**content, "digest": digest}
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,13 +324,19 @@ class FrozenSimpleReturnStream:
         return content_digest(self._causal_content())
 
     def payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema": "simple_return_ridge_stream_v1",
             "availability_semantics": "declared_simulation_v1",
             "dataset_id": self.dataset_id,
-            **self._causal_content(),
-            "causal_scope_digest": self.causal_scope_digest,
         }
+        causal_content = self._causal_content()
+        payload.update(causal_content)
+        payload["causal_scope_digest"] = (
+            content_digest(causal_content)
+            if type(self) is FrozenSimpleReturnStream
+            else self.causal_scope_digest
+        )
+        return payload
 
     @property
     def digest(self) -> str:

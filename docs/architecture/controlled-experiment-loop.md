@@ -217,6 +217,10 @@ loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch�
 
 Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
 
+`research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
+
+unused/final/sealed、mixed、または消費済みを立証できない入力はTier Uとして、既存のstrict authorization・candidate freeze・one-shot・consumed-ledger controlsに従う。technical retryはsealed dataをunsealせず、Tier UをTier Dへ自動変更しない。
+
 ## What this does not prove
 
-このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。Canonical M2 bootstrap toolingの実装完了も同様に研究結果ではない。次の研究作業はcanonical real development bootstrapを実際に作成し、そのStudyでbaselineとControlled Experimentを実行して、`WINNER`または`NO_WINNER`へfreezeすることである。
+このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。Canonical M2 bootstrap toolingの実装完了も同様に研究結果ではない。Canonical M2 Study lineの次の研究作業は、canonical real development bootstrapを実際に作成し、そのStudyでbaselineとControlled Experimentを実行して、`WINNER`または`NO_WINNER`へfreezeすることである。

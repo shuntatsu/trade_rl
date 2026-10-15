@@ -26,9 +26,11 @@ Agent作業で `main` へのforce-push、history rewrite、branch削除を行わ
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクルは次の通りとする。
 
 1. **レビューゲートの検知**: 先行CI（core, ppo-runtime, guide等）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **外部監査の実行**: 独立したAI（Gemini 3.8 Flash等）または外部レビュアーがPRのexact HEAD差分をresult-blindで監査する。
+2. **独立監査の実行**: 実装担当の全AIモデルと異なるモデルを明示して、fresh read-only reviewerがPRのexact HEAD差分をresult-blindで監査する。Generic gateは同一GitHub accountの`COMMENTED`投稿も、model/task identityとdigestを検証するreceiptがある場合に受理する。別accountだけでは独立性を満たさない。receipt契約は `docs/architecture/research-assurance.md` を正本とする。
 3. **差し戻し（BLOCKED）**: 重大な懸念や脆弱性、契約違反（Medium / High severity）が検出された場合、レビュー本文に指摘事項を記載し `### Disposition: BLOCKED` を記録してPRに投稿する。マージはブロックされ、修正対応（差し戻し）となる。
 4. **承認（APPROVED）とマージ・クローズ**: 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。全必須CIチェックがGreenとなり、`tested PR head contains current main` が満たされた段階でPRをマージ（`gh pr merge`）してクローズする。
+
+Generic receiptはsoftware PRの統合確認だけを担い、G4 economic execution、sealed PPO、unused/final評価、live注文の個別authorizationを代替しない。
 
 ## Remote branch hygiene
 

@@ -525,7 +525,9 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 このGit tree内のproseやarchitecture testだけでbranch protectionが有効とは判断しない。ruleset/protectionの設定変更後はGitHub stateをread-backし、required check、PR requirement、force-push/deletion、maintainer/admin bypassを確認する。管理surfaceが利用できない場合は未設定/未検証として扱う。
 
-PRに要求される独立研究レビュー（`Generic Independent Research Review` / `Independent Research Review`）は、PR authorとは異なるGitHub principalによるexact HEADレビューを要求する。承認は正式な `APPROVED` review stateと本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しを満たす場合だけ認める。`### Disposition: BLOCKED` を含む該当レビューが一つでもあれば承認より優先し、保留・曖昧・古いHEADのレビューはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みレビューはIntegratorによるマージ・クローズの対象となる。
+`Generic Independent Research Review` は、実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerによるexact HEADのsoftware-onlyレビューを要求する。authenticated GitHub review APIの `COMMENTED` または `APPROVED` 投稿に、本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しと、model/task IDs・actual report・publisher・HEADをdigestへbindした `independent_model_review_v1` receiptを必須とする。同一GitHub accountでもこの条件を満たせば受理し、別principalであることだけでは独立性を認めない。receiptの正本は [research assurance](research-assurance.md#generic-software-pr-review-receipt) とする。
+
+同じexact HEADのactive submitted marked `### Disposition: BLOCKED` が一つでもあれば承認より優先し、後続の同一actorによる承認でも消去しない。保留・曖昧・dismissed・古いHEAD・不整合なreceiptはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みsoftwareレビューはIntegratorによるマージ・クローズの対象となる。このGeneric receiptは `Independent Research Review` の4h PPO smoke専用review/triggerやG4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。
 
 `tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、(1) targetをdataとして読むpacket生成job、(2) Gemini secretを持たずexact reviewed SHAへ固定command setを実行するCore / PPO Runtime / Human Guide verification jobs、(3) canonical packetだけを受け取るfresh secret-bearing review jobを分離する。review jobはtarget checkoutやtarget-generated executable artifactをauthorityとして受け取らず、trusted runner/workflow identity、request/tag identity、packet digest、trusted verification job identity、Gemini request/response identityをreviewer-run attestationへbindする。Gemini API key/model selectionはworkflow configurationであり、concrete model versionはprovenanceとして記録するがproduction trading/runtime schemaやvalidator allow-listへ固定しない。
 
@@ -605,6 +607,14 @@ execution. `simple_stream.py` owns separate versioned records/reader;
 `simple_prequential.py` selects and fits each prefix once. The forecast facade
 directly exports the six simple APIs from their owners. Tier-1 exports and old
 log records retain their meanings.
+
+`evaluation/rl_allocation/_simple_stream_digest.py` is a private value-guarded
+memo used only by the native global execution collector. It reads native forecast
+records and current array bytes, with canonical fallback for unsupported or
+changed serializer contracts. It owns no public facade, persisted identity,
+payload cache, fitting, execution, Dataset loading or research authorization.
+The existing source-envelope/runtime helpers retain their canonical public path;
+the collector's private path changes only repeated stream digest computation.
 
 `evaluation/forecast_allocation.py` exposes `HorizonCostEstimates`,
 `propose_forecast_target` and `execute_forecast_proposal`. It validates exact
@@ -1367,6 +1377,9 @@ It reuses canonical JSON and regular-file foundations, and the existing
 evaluation, risk, execution, RL or fitter and adds no serializer, alternate
 forecast units, ledger or research runner. The strict reader reconstructs
 already-frozen projections for validation without fitting a new model.
+The existing `simple_stream.py` owner reuses materialized content only within
+one payload access; it introduces no persistent identity cache or new public API.
+Nested outputs remain detached and subclass digest overrides remain observable.
 The owner rejects stationary nonregular inputs with `lstat` before opening,
 then retains the foundation's opened-file validation and one byte snapshot.
 It does not change the shared regular-file helper.

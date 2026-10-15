@@ -607,7 +607,40 @@ behavior. Terminated child processes must be reaped before evidence upload.
 
 ### Reviewer independence / freshness
 
-既定は、実装Workerとは別の **fresh reviewer context** を持つAI reviewer/sessionで、対象branchへwriteしない **read-only** roleとする。reviewはexact target revisionへbindする。
+既定は、実装担当の全configured AIモデルと異なるconfiguredモデルを使い、実装Workerとは別の **fresh reviewer context** を持つAI reviewer/sessionで、対象branchへwriteしない **read-only** roleとする。reviewはexact target revisionへbindする。同一モデルのfresh sessionだけではmodel independenceを確立しない。
+
+### Generic software PR review receipt
+
+`Generic Independent Research Review` はsoftware-onlyのPR統合確認であり、GitHub account分離ではなくconfigured AIモデルの分離を要求する。同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
+
+review本文にはcode fence外に一つの `<!-- independent-research-review-audit -->` と唯一の `### Disposition: APPROVED` を置き、閉じた `independent-review-receipt` fenceを一つ置く。そのJSON envelopeのfieldは `payload` と `sha256` だけである。payloadのfieldは次に限定する。
+
+supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の正規化に使う。indented code、HTML/comment内の見出しやfence、Unicode space/line separatorを使う見出しはstructured dispositionにならない。fenced content外のraw HTMLは必須markerを除きapprovalをfail-closedにする。receipt内のactual reportはJSON dataとしてそのまま保持し、Markdown全体をrender/解釈するauthorityとはしない。
+
+- `schema`: `independent_model_review_v1`。
+- `head_sha`: GitHub APIのcurrent PR headとreviewの`commit_id`と一致する40桁lowercase commit SHA。
+- `publisher_user_id`: review APIのauthenticated actorと一致するnative positive integer。
+- `scope`: `software-only`。
+- `disposition`: visible dispositionと一致する `APPROVED`（rendererは `BLOCKED` も記録できる）。
+- `implementation`: 全実装担当の `{model_id, task_id}` の非空list。
+- `reviewer`: reviewerの `{model_id, task_id}`。
+- `report`: reviewerが実際に出した非空の監査結果本文。model設定の根拠と限界も残す。
+
+model/task IDは実harness configuration・provider receiptまたは実conversation/task identifierから取得し、publisherがその対応をattestする。`UNKNOWN` / `NOT_ESTABLISHED` 等の未確立値、空値、control character、未知field、重複JSON keyは拒否する。IDsはlowercase ASCIIのcanonical identifierを使い、modelのseparator variantsを同じidentityとして比較する。reviewerのmodelは全implementation modelと異なること、reviewerのtaskは全implementation taskと異なること、implementation task IDsが重複しないことを検証する。宣言値を作り替えるだけで実モデルの分離が成立したとは扱わない。
+
+`sha256` は **payloadだけ**を `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")` したbytesのSHA-256であり、envelopeのhashをpayloadへ入れない。CIはhashの存在確認だけでなく実payloadから再計算する。authenticated publisher、exact HEAD、disposition、report、model/task metadataがこのdigestへbindされる。これはpublisher attestationの整合性検査であり、providerの実model weightsや真の実装履歴を暗号学的に証明しない。
+
+実reviewのpayloadを用意した後、network-free rendererで投稿本文を作れる。
+
+```bash
+uv run python tools/independent_research_review.py --render-payload-json receipt-payload.json
+```
+
+最新GitHub API evidenceを毎回refetchし、approvalはactorごとの最新marked review IDで評価する。dismissed/pending/changes-requested、stale HEAD、重複review ID、receipt不整合や曖昧なdispositionはapprovalにならない。一方、同じexact HEADのactive submitted marked `BLOCKED` はreceiptがなくても全actor・全review recordで優先し、同じactorの後続APPROVEDでも消去しない。
+
+このreceiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のsame-model fresh-agent reviewを自動で新policyのformal approvalへ昇格しない。
+
+### Separate economic reviewer authority
 
 GitHub上のposting principalはreview transportであり、それ自体をAI reviewerの独立性authorityとしない。同じGitHub principalをauthor/transportとして使う場合、review bodyやtagに `reviewer_independence=ESTABLISHED` と自己申告しただけではG4をauthorizeしない。独立性をmachine-boundに扱う経路では、default branch上でpre-reviewed/frozenされたtrusted reviewer workflow/runnerがfresh Gemini requestを発行し、そのrunからimmutable reviewer attestationを生成する。4h PPO smoke向け `ppo_4h_gemini_reviewer_run_v1` は最低限、reviewed code SHA、annotated review-tag object SHA、trusted workflow SHA/refとworkflow/runner content digest、canonical request PR/comment/requester authority、result-blind packet digest、同じtrusted run内のCore / PPO Runtime / Human Guide verification job identity、canonical system-instruction / Gemini request digest、raw Gemini response digest、Gemini `modelVersion` / `responseId`、G0/G1/G2/dispositionをbindする。具体的なGemini model versionはprovenanceでありvalidator allow-listにはしない。
 
@@ -758,6 +791,14 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 **Counterexample:** 既知の期間で複数候補を試した後、名前だけ変えた最終候補を同じ期間で「初見」と扱う。
 
 **Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
+
+#### Development reuse tiers
+
+`Tier D` は、入力Datasetと対象scope全体が既にdevelopmentで消費済みだと、既存provenanceから確認できる場合に限る。正確なDataset manifestと`arrays.npz`のSHA-256、既消費scopeを確認し、同じ科学的parameterでのdeterministic reconstruction/evaluation、通常のcode/test/debug、harness起因のtechnical retryを繰り返せる。wrapper・transport・harness errorだけで既消費データを永久retireしない。各attemptは入力manifest/NPZ hash、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはerror・parameters・log参照をappend-onlyで記録する。
+
+`Tier U` はunused、final/sealed、既消費と未使用を含むmixed scope、または消費済みであることを証明できないscopeである。unknown/mixedはTier Uのままにし、既存のauthorization、candidate freeze、one-shot execution、consumed-evidence ledgerを維持する。harness failureを理由に自動downgrade・unsealせず、network fallbackやlive authorityも与えない。
+
+Tier判定は既存provenanceとevidenceを確認する運用policyであり、自動classifierの実装を主張しない。`StudyResearchContext`がbindするのは申告済みconsumptionで、全閲覧を自動証明するものではない。Tier D retryはtechnical reproducibilityのための同じ科学的設定の再実行であり、以前のscientific `FAILED` / `INVALID` を消去・置換したり、結果を見て採用基準や候補parameterを変えたりできない。繰り返し出力はfresh sample、独立generalization、profitabilityの証拠にならない。どちらのtierでも、P&L解釈前のcausal/source/scalar確認、ledger・independent-oracle照合、result-blind semantic reviewを省略できず、経済採用では同じcapital/risk/execution-cost/stress条件を結果前に固定する。
 
 Forward paper screens additionally bind a `carry_paper_attempt_lineage_v2` object
 inside the sealed screen plan. Attempt numbers are consecutive; every successor

@@ -14,6 +14,9 @@ from trade_rl.evaluation.allocation_comparison_evidence import (
     allocation_fold_plan_digest,
 )
 from trade_rl.evaluation.allocation_decision import AllocationActionExecutionResult
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
@@ -47,6 +50,12 @@ def allocation_array_pin(values: np.ndarray) -> dict[str, Any]:
 
 def allocation_source_envelope_digest(env: AllocationTradingEnv) -> str:
     """Declared finite envelope, explicitly not an authenticated usage receipt."""
+    return _source_envelope_digest(env, None)
+
+
+def _source_envelope_digest(
+    env: AllocationTradingEnv, stream_memo: SimpleStreamDigestMemo | None
+) -> str:
     dataset = env.dataset
     arrays = {}
     for name, values in dataset.identity_arrays().items():
@@ -71,7 +80,11 @@ def allocation_source_envelope_digest(env: AllocationTradingEnv) -> str:
             "feature_names": list(dataset.feature_names),
             "range": [env.start_index, env.stop_index],
             "account_id": env.account_id,
-            "forecast_context_digest": env.stream.digest,
+            "forecast_context_digest": (
+                env.stream.digest
+                if stream_memo is None
+                else stream_memo.get(env.stream)
+            ),
             "cost_beliefs": [
                 env._estimates[key].payload() for key in sorted(env._estimates)
             ],
@@ -81,6 +94,12 @@ def allocation_source_envelope_digest(env: AllocationTradingEnv) -> str:
 
 
 def allocation_execution_runtime(env: AllocationTradingEnv) -> dict[str, Any]:
+    return _execution_runtime(env, None)
+
+
+def _execution_runtime(
+    env: AllocationTradingEnv, stream_memo: SimpleStreamDigestMemo | None
+) -> dict[str, Any]:
     if (
         type(env) is not AllocationTradingEnv
         or type(env.executor) is not MarketExecutor
@@ -112,7 +131,7 @@ def allocation_execution_runtime(env: AllocationTradingEnv) -> dict[str, Any]:
     return {
         "recipe": env.recipe,
         "cost_payload": actual,
-        "source_context_digest": allocation_source_envelope_digest(env),
+        "source_context_digest": _source_envelope_digest(env, stream_memo),
     }
 
 
@@ -220,12 +239,13 @@ class GlobalAllocationExecutionCollector:
         self.segments: list[dict[str, Any]] = []
         self.error: Exception | None = None
         self.economic_stop_consistent = False
+        self._stream_digest = SimpleStreamDigestMemo()
 
     def _consistent(self) -> None:
         if (
             self.env.dataset is not self.dataset
             or global_declared_source_digest(self.env) != self.common["source_digest"]
-            or canonical_json_bytes(allocation_execution_runtime(self.env))
+            or canonical_json_bytes(_execution_runtime(self.env, self._stream_digest))
             != canonical_json_bytes(self.cell["runtime"])
         ):
             raise ValueError("global declared source/runtime contents changed")

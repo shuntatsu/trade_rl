@@ -580,3 +580,15 @@ def test_reader_rejects_wrong_owner_values_after_all_packet_hashes_are_recompute
         api.FrozenSimpleReturnStream.from_payload(
             payload, expected_digest=content_digest(payload)
         )
+
+
+def test_stream_digests_match_fresh_content_digests() -> None:
+    api = load_api()
+    stream = fit(api)
+    assert stream.digest == content_digest(stream.payload())
+    assert stream.causal_scope_digest == content_digest(stream._causal_content())
+    for packet in stream.packets:
+        assert packet.digest == content_digest(packet._content())
+        assert packet.snapshot_digest == content_digest(packet._snapshot())
+        assert packet.payload()["digest"] == packet.digest
+        assert packet.payload()["snapshot_digest"] == packet.snapshot_digest

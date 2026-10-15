@@ -792,6 +792,18 @@ to the existing source-envelope and execution guards. Compatible subclasses keep
 their virtual digest-property behavior. This is serialization work reduction,
 not a change to forecast units, clocks, model values or economic accounting.
 
+The native global execution collector may retain one private run-local simple
+stream digest memo. Each original consistency boundary still compares current
+packet values and all nested native record fields and array contents against
+the initial value snapshot. Array dtype, shape, strides and scalar types remain
+observable. The memo retains no mutable payload and never refreshes the frozen
+plan or its initial authority after a mismatch. Unknown carriers, subclasses or
+changed serializer contracts use the current public digest calculation. Public
+declaration/runtime helpers continue to calculate canonical identities directly;
+cost, source, clock and policy checks keep their existing timing. This is a
+single-process optimization, not protection against arbitrary hostile Python
+code or concurrent unsynchronized mutation.
+
 `evaluation.forecast_allocation` checks Dataset lineage, symbol, selected feature
 names/values/availability and exact clocks. Packet close, Dataset close/mark and
 actual BookState mark must agree. Separate `HorizonCostEstimates` bind source,

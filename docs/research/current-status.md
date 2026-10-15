@@ -77,6 +77,19 @@ parameter, fee/funding calibration, Tier U restriction or PPO learnability
 disposition changes. Fresh exact-source review and validation remain necessary
 before another market-data attempt.
 
+An unconditional persistent-digest candidate failed artificial mutation checks:
+a changed future packet retained its old stream digest and passed the collector's
+source check; a subclass scope override also broke digest/payload agreement.
+That candidate is replaced by the canonical public record behavior above and a
+private collector-owned, run-local memo that checks current values at every
+existing boundary. Synthetic golden plan/receipt equality, mutation and fallback
+regressions are required; the optimization does not authorize another market run.
+The earlier throughput extrapolations are not measured full-arm runtime bounds.
+The resumable/parallel driver remains under audit: old failed attempts must remain
+immutable, corrupt receipts must fail closed, and worker outcomes must reconcile
+before a fresh technical retry. The retained R1/R2 status and economic conclusions
+remain unchanged.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

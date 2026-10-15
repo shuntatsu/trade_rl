@@ -608,6 +608,14 @@ execution. `simple_stream.py` owns separate versioned records/reader;
 directly exports the six simple APIs from their owners. Tier-1 exports and old
 log records retain their meanings.
 
+`evaluation/rl_allocation/_simple_stream_digest.py` is a private value-guarded
+memo used only by the native global execution collector. It reads native forecast
+records and current array bytes, with canonical fallback for unsupported or
+changed serializer contracts. It owns no public facade, persisted identity,
+payload cache, fitting, execution, Dataset loading or research authorization.
+The existing source-envelope/runtime helpers retain their canonical public path;
+the collector's private path changes only repeated stream digest computation.
+
 `evaluation/forecast_allocation.py` exposes `HorizonCostEstimates`,
 `propose_forecast_target` and `execute_forecast_proposal`. It validates exact
 current snapshot/horizon/valuation, then invokes the existing allocation

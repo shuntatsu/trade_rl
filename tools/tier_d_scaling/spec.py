@@ -68,7 +68,7 @@ def profile_protocol(dataset: MarketDataset, dataset_root: Path) -> dict[str, An
         return str(dataset.timestamps[index])
 
     return {
-        "schema": "issue888_artificial_scaling_v2",
+        "schema": "issue888_artificial_scaling_v3",
         "scope": "ARTIFICIAL_SOFTWARE_PROFILE_ONLY",
         "source_head": base["source_head"],
         "concurrency": {"max_workers": 1},
@@ -118,7 +118,7 @@ def profile_protocol(dataset: MarketDataset, dataset_root: Path) -> dict[str, An
                 for name, target, profile in CASES
             ],
             "limits": {
-                "wall_seconds": 1200,
+                "wall_seconds": 10_800,
                 "rss_bytes": 2 * 1024**3,
                 "disk_bytes": 4 * 1024**3,
                 "sample_seconds": 10,

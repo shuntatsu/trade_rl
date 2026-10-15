@@ -136,7 +136,8 @@ frozen, while the measured prefix uses only first-vintage actor advances for the
 first symbol; reserve and vintage-transition advances are outside the
 measurement. Four one-repetition cases run the same NONRL plan at 100, 400, and
 1,600 advances, plus a separately profiled 1,600-advance case, each with a fresh
-account. The wall, process-tree RSS, disk, and sampling limits are 1,200 seconds,
+account. The current v3 wall, process-tree RSS, disk, and sampling limits are
+10,800 seconds,
 2 GiB, 4 GiB, and 10 seconds respectively.
 
 Profile-only checkpoints are published after advance 1 and every 100 advances,
@@ -156,8 +157,59 @@ harness code; package/CI verification is not a new measurement. These are single
 first-vintage actor observations; CASH remains `UNATTEMPTED`. No real input is
 used and no economic admission follows. Full-arm/48-arm runtime, variance,
 asymptotic-scaling claims, release byte-equivalence, and Step 0 acceptance remain
-unestablished. In particular, the same-source/same-plan profiled versus
-unprofiled 1,600-advance receipt comparison is incomplete.
+unestablished. For v2, the same-source/same-plan profiled versus unprofiled 1,600-advance
+receipt comparison remains incomplete. The separate v3 result follows.
+
+The separate v3 wave kept its predeclared 10,800-second wall ceiling and all
+RSS/disk/sampling/worker/repetition limits fixed. It changed no native runtime
+implementation or economic setting. Fresh preparation froze its own protocol,
+cost-assumption and plan identities; v2 inputs and observations were not reused.
+
+At frozen measurement source `face9b295bb61`, all four artificial prefixes
+qualified, with strict expected-plan readback, 10 prepared inputs and 24 source
+pins verified. The normal four-root summary is `MEASUREMENTS_COMPLETE`.
+
+| V3 case | Actor advances | Native seconds | Parent seconds | Peak RSS bytes |
+| --- | ---: | ---: | ---: | ---: |
+| n1600-profile | 1,600 | 8,572.9078481 | 8,628.734 | 330,137,600 |
+| n100 | 100 | 314.0048234 | 334.421 | 160,198,656 |
+| n400 | 400 | 1,138.3133687 | 1,165.141 | 173,191,168 |
+| n1600 | 1,600 | 4,881.3781038 | 4,933.735 | 329,134,080 |
+
+All parent supervisors ended rc=0, reaped their workers and reported zero
+remaining owned processes, no cleanup/final-sample errors and no violations.
+Profile-on/off n1600 canonical partial receipts are `MATCH`; their raw gzip
+SHA-256 values differ. The original inputs, journals, receipts, 17 checkpoints,
+profiles, diagnostics and size/SHA-256 manifest are published in the separate
+[v3 artificial checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-artificial-scaling-v3-20261016).
+Its tag and three asset sizes/digests were read back and matched. Measurement
+source FACE remains frozen; a later documentation HEAD does not rebind it.
+
+These are single first-vintage actor observations with zero reserve advances,
+not completed financial arms. Every child attempt and NONRL arm remains
+`FAILED`, CASH remains `UNATTEMPTED`, and partial receipts retain
+`integrity_failure`. Preparation includes three vintages, but their transitions
+and the full 6,599-advance plan were not executed. No complexity order, speedup,
+full-arm/48-arm runtime bound or time extrapolation is established.
+
+The final profile and checkpoint 1,600 contain negative `isinstance` call
+counters. Aggregate counts, affected per-call metrics and calls per second are
+unusable. Raw profiles and the original diagnostic remain unchanged; read the
+bundled `counter-integrity.json` / `counter-integrity.md` companion with them.
+Signed 32-bit C-long overflow on the observed Windows CPython 3.12.0 is a
+source-consistent inference, not a recovered count or rebuilt binary identity
+proof. Actor advances come from separate journals; inclusive cumulative profile
+times overlap and must not be summed. BLAS threads and complete environment
+identity were not established.
+
+At FACE, clean package closure passed 12/12 gates. Exact-head
+[CI 38770180118](https://github.com/shuntatsu/trade_rl/actions/runs/38770180118)
+passed Core (6,151 tests), PPO (346) and Guide; Generic independent research
+review was `PENDING` and failed, so the overall workflow is `FAILURE`. Step 0
+acceptance remains `INCOMPLETE` pending fresh different-model exact-head review
+and the cross-source old-release execution-byte comparison contract. Historical
+release equivalence, R3, unused/final evaluation, full-48 completion, after-fee
+profit, adoption, WINNER and live readiness remain unestablished.
 
 The fixed artificial release fixture in
 `tests/evaluation/fixtures/issue888_release_v1/` retains the original compressed

@@ -126,7 +126,7 @@ def test_limits_are_fixed_and_unsupported_platform_rejects_before_any_effect(
 ):
     module, root = api(), tmp_path / "new"
     assert module.LIMITS == {
-        "wall_seconds": 1200,
+        "wall_seconds": 10_800,
         "rss_bytes": 2 * 1024**3,
         "disk_bytes": 4 * 1024**3,
         "sample_seconds": 10,
@@ -309,3 +309,51 @@ def test_summary_itself_cannot_silently_push_output_past_disk_cap(
     assert module.supervised(["MANUFACTURED_WORKER"], root) == 1
     value = report(root)
     assert value["status"] == "FAILED" and value["final_violation"] == ["disk_bytes"]
+
+
+def test_v3_protocol_limits_match_actual_supervision_report(tmp_path, monkeypatch):
+    from tools.tier_d_scaling.fixture import write_full_artificial_dataset
+    from tools.tier_d_scaling.spec import profile_protocol
+
+    module, root = api(), tmp_path / "protocol-bound"
+    dataset_root = tmp_path / "dataset"
+    dataset = write_full_artificial_dataset(dataset_root)
+    protocol = profile_protocol(dataset, dataset_root)
+    _, state, kills, _ = install(module, monkeypatch, root)
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 0
+    value = report(root)
+    expected_limits = {
+        "wall_seconds": 10_800,
+        "rss_bytes": 2 * 1024**3,
+        "disk_bytes": 4 * 1024**3,
+        "sample_seconds": 10,
+    }
+    assert protocol["schema"] == "issue888_artificial_scaling_v3"
+    assert protocol["measurement"]["limits"] == expected_limits
+    assert module.LIMITS == expected_limits
+    assert value["limits"] == protocol["measurement"]["limits"]
+    assert value["status"] == "COMPLETED" and value["returncode"] == 0
+    assert state.reaped and value["worker_reaped"]
+    assert value["owned_members_remaining"] == 0 and kills == []
+
+
+def test_supervisor_completes_after_former_1200_second_cap(tmp_path, monkeypatch):
+    module, root = api(), tmp_path / "long-prefix"
+    _, state, kills, clock = install(
+        module, monkeypatch, root, exits=(None,) * 130 + (0,)
+    )
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 0, report(root)
+    value = report(root)
+    assert value["status"] == "COMPLETED" and value["returncode"] == 0
+    assert value["elapsed_seconds"] > 1_200 and clock[0] > 1_200
+    assert value["limits"]["wall_seconds"] == 10_800
+    assert value["limits"] == module.LIMITS
+    assert state.reaped and value["worker_reaped"]
+    assert value["owned_members_remaining"] == 0
+    assert kills == [] and state.unrelated_alive
+    assert (root / "attempt" / "partial.json").read_bytes() == (
+        b'{"retained":"child-owned"}\n'
+    )
+    assert (root / "worker.log").read_text() == "manufactured child output\n"

@@ -1,0 +1,194 @@
+{
+  "actual_artificial_process_control": {
+    "artifact_sha256": "e08b8587c78a2fefb1c712f147d8cb8b0167ad8dbb6cd81d37e59127ba5a7803",
+    "child_returncode": 4294967295,
+    "members": [
+      {
+        "creation_ticks": 639275807787479710,
+        "parent_pid": 15456,
+        "pid": 16128,
+        "rss_bytes": 4399104
+      },
+      {
+        "creation_ticks": 639275807787584760,
+        "parent_pid": 16128,
+        "pid": 21240,
+        "rss_bytes": 37896192
+      }
+    ],
+    "owned_members_remaining": 0,
+    "root_rss_bytes": 4399104,
+    "rss_bytes": 42295296,
+    "scope": "ARTIFICIAL_RESOURCE_CONTROL_ONLY",
+    "termination_verified": true
+  },
+  "cleanup_failure_path_repair": {
+    "actual_persistent_provider_failure": {
+      "initial_owned_members": [
+        {
+          "creation_ticks": 639275814614550540,
+          "parent_pid": 19772,
+          "pid": 13896,
+          "rss_bytes": 4403200
+        },
+        {
+          "creation_ticks": 639275814614648530,
+          "parent_pid": 13896,
+          "pid": 15596,
+          "rss_bytes": 37904384
+        }
+      ],
+      "owned_members_remaining": 0,
+      "proof_sha256": "53397992833dfcaca8199e663c493d025e1552b593b1a4ef86b54e814a16c814",
+      "scope": "ARTIFICIAL_RESOURCE_FAILURE_ONLY",
+      "supervisor": {
+        "child_returncode": 4294967295,
+        "elapsed_seconds": 11.389999999999418,
+        "failure": "resource supervision failed: OSError: injected persistent CIM monitoring failure; owned process cleanup or verification failed: OSError: injected persistent CIM monitoring failure",
+        "final_disk_bytes": 2297,
+        "limits": {
+          "disk_bytes": 4294967296,
+          "limitations": "native APIs retain one arm in RAM; no performance benchmark",
+          "measured": false,
+          "rss_bytes": 2147483648,
+          "sample_seconds": 10,
+          "semantics": "Windows owned process-tree RSS including redirector descendants; sampled stop; overshoot possible",
+          "storage": "gzip full raw receipts; one matched pair retained in RAM at a time",
+          "wall_seconds": 3600
+        },
+        "measurement": "observed for this attempt only; no market benchmark",
+        "sampled_peak_rss_bytes": 42307584,
+        "status": "FAILED"
+      },
+      "unrelated_alive_after_owned_cleanup": true,
+      "worker_reaped": true
+    },
+    "attempt_state": "FAILED;48UNATTEMPTED; no fabricated receipts",
+    "change": "finally invokes creation-bound owned-tree cleanup even when fresh monitoring/cleanup CIM snapshot fails",
+    "focused_control_tests": {
+      "basetemp": "test-work-cim-cleanup-green",
+      "elapsed_seconds": 20.02,
+      "passed": 6
+    },
+    "protocol_and_numeric_budgets_changed": false,
+    "retention": "last_sample fallback reaches real Python leaf; original monitor error retained when survivor verification also unavailable",
+    "review": "PENDING_ROOT6-astra focused cleanup refresh",
+    "root_R1_mutated": false
+  },
+  "configured_implementation_model": "gpt-6.1-sol",
+  "configured_reasoning_effort": "max",
+  "handoff": "Source frozen; ROOT6-astra control-only review before ordinary48 retry",
+  "legacy": "PPO six-fit aggregate stays FAILED including fee-only seed17; Phase1 source unchanged",
+  "model_evidence": "coordinator harness configuration only, not observable provider weights",
+  "new_control_candidate_market_attempt": "NOT_STARTED",
+  "ordinary_supervised_artificial_CLI": {
+    "claim": "manufactured software validation only",
+    "elapsed_seconds": 8.389999999999418,
+    "final_disk_bytes": 442563,
+    "native_closure": {
+      "cash": {
+        "active_orders": 0,
+        "actor_rows": 32,
+        "closing_rows": 8,
+        "final_quantities": [
+          0.0,
+          0.0
+        ],
+        "first_fill_processing_index": null,
+        "ledger_reward_sum": 0.0,
+        "reset_count": 1,
+        "settlement_complete": true
+      },
+      "nonrl": {
+        "active_orders": 0,
+        "actor_rows": 32,
+        "closing_rows": 8,
+        "final_quantities": [
+          0.0,
+          0.0
+        ],
+        "first_fill_processing_index": 130,
+        "ledger_reward_sum": -0.0018196408716285078,
+        "reset_count": 1,
+        "settlement_complete": true
+      }
+    },
+    "result_sha256": "c6e9bfef06ef169fe7c6bc54aed8887e9c8764c688a0ce4218075476e3271600",
+    "sampled_peak_tree_rss_bytes": 43307008,
+    "status": "COMPLETED",
+    "supervisor_sha256": "a7c19b61596c8ad14e9b41e8968959453ddf773356a5553ac7ee1687f17c8bc0"
+  },
+  "preserved_R1": {
+    "PnL": "NOT_GENERATED",
+    "attempt": "C:\\Users\\shun\\.codex\\worktrees\\nonrl-activity-alias-guard\\trade_rl\\output\\issue810-tier-d-nonrl-preparation\\market-20261014T1305Z",
+    "attempt_sha256": "a2d53a90b2f7134a153107cf9e94cace9c92b2a3d9b6cff4a04d221f04ed15fc",
+    "child_returncode": 4294967295,
+    "cost_producers_completed": 4,
+    "elapsed_seconds": 177.06300000000192,
+    "native_matrix": "ABSENT",
+    "native_replay": "NOT_ATTEMPTED",
+    "native_slots_unattempted": 48,
+    "old_redirector_only_rss_metric": "INCOMPLETE_EXCLUDES_REAL_PYTHON_DESCENDANT",
+    "operator_finalization": "ROOT owned; all R1 artifacts untouched by repair worker",
+    "public_preparations_completed": 4,
+    "ridge_vintages_completed": 12,
+    "status": "FAILED"
+  },
+  "prior_cleanup_source_and_records": "C:\\Users\\shun\\.codex\\worktrees\\nonrl-activity-alias-guard\\trade_rl\\output\\issue810-tier-d-nonrl-preparation\\prior-before-cim-failure-cleanup-ee21a2ce",
+  "prior_source_and_records": "C:\\Users\\shun\\.codex\\worktrees\\nonrl-activity-alias-guard\\trade_rl\\output\\issue810-tier-d-nonrl-preparation\\prior-before-process-tree-repair-4e2bb0d6",
+  "protocol_digest": "ee21a2ce876f0e79a3ec518a963320fafe74430bef1944e9df918c760dfe43a1",
+  "protocol_file_sha256": "4804cb9333207f44434091c9051d5e99ffd33fa9961ece8debf8dc65638792e3",
+  "readme_sha256": "b30768057d1de7bcfba65e5588016bf37f4383610e20cf1a5f406ed9f6e535b8",
+  "resource_proposal": {
+    "disk_bytes": 4294967296,
+    "limitations": "native APIs retain one arm in RAM; no performance benchmark",
+    "measured": false,
+    "rss_bytes": 2147483648,
+    "sample_seconds": 10,
+    "semantics": "Windows owned process-tree RSS including redirector descendants; sampled stop; overshoot possible",
+    "storage": "gzip full raw receipts; one matched pair retained in RAM at a time",
+    "wall_seconds": 3600
+  },
+  "scientific_protocol_and_numeric_budgets_unchanged": true,
+  "scope": "CIM_FAILURE_CLEANUP_CONTROL_REPAIR_NO_TASK18_RERUN",
+  "source_head": "30c5ab54fdb9db7f03b947c1687a09c8b929c461",
+  "source_sha256": {
+    "tier_d_decomposition.py": "4d808831e1235058608deeb9ae9ef71835dcab7131a934ee5cd939e32834dcf7",
+    "tier_d_fixture.py": "4a0f1c527a7a6d7abcfd2cf43fd5b93a75dd71b8ea058358e865454de83d068e",
+    "tier_d_native.py": "055d236f9079fea3aa8f7ad54a6495a9de24793a353dc084af095a74a436c083",
+    "tier_d_process_tree.py": "ac305f5b761de0a4d11db4858a6b01b1a6e3f362dbbd1e2f1484f798ec4d95c0",
+    "tier_d_protocol.py": "9dc0dd5033a0bc6073c497cd0349b7227fd828e75b7cc806f94a5d0e0961300c",
+    "tier_d_records.py": "bf97fd4f3c8cde18b93cf41f462bc7dc016a35fcf470b775a9f3bf655eb77131",
+    "tier_d_runner.py": "2450ea54e86591340b251933f8c66e66e4dc059088065496f1e968e7640fef77",
+    "tier_d_supervisor.py": "f0c1ea8c440ff456c6beb9bec188495064a9c1b0ab587d5648330807338c3f4a"
+  },
+  "technical_repair": {
+    "Windows_RSS": "one bounded CIM snapshot, creation-bound owned descendants summed with redirector",
+    "nonzero_exit": "attempt FAILED regardless of other failure text, UNATTEMPTED rows retained",
+    "termination": "deepest owned descendants first; native process handles plus <=1us CIM timestamp precision check; reap and verify no owned survivors"
+  },
+  "test_sha256": {
+    "test_runner.py": "58f7df453b90a95a411249f614b2ba28b892401ca2826a520df08503574f18e4",
+    "test_supervisor.py": "2e183a4b64b27b52f87bc43219a0b4935819bbedeca08090aa72e6de60bf207b"
+  },
+  "tracked_status": "",
+  "validation": {
+    "cleanup_source_checks": {
+      "mypy": "PASS",
+      "ruff": "PASS",
+      "ruff_format": "PASS"
+    },
+    "full_repository_CI": "NOT_RUN_IN_THIS_IGNORED_CONTROL_REPAIR",
+    "independent_different_model_review": "PENDING_ROOT_CIM_FAILURE_CLEANUP_REFRESH",
+    "mypy_touched_source": "PASS",
+    "ruff": "PASS",
+    "ruff_format": "PASS",
+    "tests": {
+      "basetemp": "test-work-process-tree-final",
+      "control_tests": 4,
+      "driver_tests": 7,
+      "elapsed_seconds": 10.5,
+      "passed": 11
+    }
+  }
+}

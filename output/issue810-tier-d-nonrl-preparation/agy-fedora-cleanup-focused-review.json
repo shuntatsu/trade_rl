@@ -1,0 +1,25 @@
+{
+  "receipt": {
+    "returncode": 0,
+    "timed_out": false,
+    "requested_model": "claude-opus-5-5-high",
+    "effort": "high",
+    "prompt_sha256": "4c5e6ce283765142e0a171a64e41943d93f03f27c3fb6773606d4c80ff9029da"
+  },
+  "payload": {
+    "conversation_id": "f3153dec-0b2b-404f-a4df-c9e3a47e60ac",
+    "status": "SUCCESS",
+    "response": "```json\n{\"disposition\":\"BLOCKED\",\"findings\":[{\"id\":\"F1\",\"severity\":\"high\",\"title\":\"If the first sample fails, the redirector is never terminated\",\"detail\":\"If tree.sample() raises and tree.last_sample is None, the function re-raises right away. It never calls process.terminate()/wait(), even though Popen already holds a handle that is safe to use. This breaks the contract to clean up safely when the monitor fails.\",\"fix\":\"Always terminate and wait on the owned Popen in a finally block, or before re-raising. Then raise an error that keeps the original monitor exception attached.\"},{\"id\":\"F2\",\"severity\":\"high\",\"title\":\"If the PowerShell kill step fails, the redirector is never terminated\",\"detail\":\"subprocess.run(check=True, timeout=30) can raise CalledProcessError, TimeoutExpired, or OSError. Any of these skips process.terminate(). Inside the script, an uncaught 'throw' (for example access denied on .Handle or Kill for a descendant that has not exited) stops the foreach, so the remaining members are not killed either. Also, N members x WaitForExit(1000) can go past the 30s timeout once there are about 30 or more members.\",\"fix\":\"Catch errors per member and keep going, then report failures once at the end. Put the redirector terminate/wait in a finally block. Set the timeout from the member count, or drop the per-member WaitForExit and do one bounded wait at the end.\"},{\"id\":\"F3\",\"severity\":\"medium\",\"title\":\"Descendants that start after the snapshot are missed; killing deepest-first lets parents respawn children\",\"detail\":\"Members come from a single snapshot, or from a stale last_sample when the monitor fails. Processes created after that point are never targeted. Killing leaves first gives live parents (for example worker pools) time to spawn new children before they are killed themselves. 'Deepest-first' also only holds if sample.members is ordered parents before children, and that is not shown.\",\"fix\":\"Prefer a Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, assigned at spawn time. Otherwise, repeat sample-and-kill until a sample comes back empty, and kill or suspend parents before their children.\"},{\"id\":\"F4\",\"severity\":\"medium\",\"title\":\"The final survivor check may be unreliable or hide the real error\",\"detail\":\"tree.sample() runs after the root has exited. If the monitor is still broken, it raises the raw monitor exception instead of a clear cleanup error. If sample() walks from the dead root, orphaned descendants may be missed and the result may be a false 'empty'. Whether this is safe depends on how ProcessTree is implemented, which was not provided.\",\"fix\":\"Re-check the pid and creation_ticks of the previously known members directly. Wrap monitor errors in a clear cleanup-failure error.\"},{\"id\":\"F5\",\"severity\":\"low\",\"title\":\"The comment describes the handle wrongly; the PID-reuse guard itself works\",\"detail\":\"The handle is not kept from sampling time. It is opened when the kill runs. The guard still works: in Windows PowerShell 5.1 (.NET Framework), once .Handle is read, StartTime, HasExited and Kill all use that same cached handle, and the creation-time match within 10 ticks (1us) ties it to the sampled process. So reused PIDs are refused. Separately, StartTime.ToUniversalTime() on a local-kind DateTime can be off by an hour around a DST fall-back. That fails closed (no kill), but then cleanup raises.\",\"fix\":\"Fix the comment. Optionally read the creation FILETIME directly (GetProcessTimes through the handle) or compare in UTC from start to finish.\"}],\"limitations\":[\"Static review of the pasted function only; no tests run or claimed.\",\"The ProcessTree.sample, last_sample and member ordering code was not provided; their behaviour was assumed from the description.\",\"How creation_ticks is computed from CIM (timezone/DST handling) was not visible.\",\"Assumes powershell.exe is Windows PowerShell 5.1 on .NET Framework (handle caching behaviour); pwsh/.NET Core may behave differently.\",\"The plan artifact was skipped because you asked for no tools or files and strict JSON output.\"]}\n```\n",
+    "duration_seconds": 51.475773236,
+    "num_turns": 1,
+    "usage": {
+      "input_tokens": 8645,
+      "output_tokens": 4913,
+      "thinking_tokens": 0,
+      "cache_read_tokens": 13127,
+      "total_tokens": 13558
+    }
+  },
+  "stdout_sha256": "159d766f3d416d9b2963aee1efee29580df081c4c265bef82fc41ef62d64c90b",
+  "scope": "FUNCTION_ONLY_NOT_FINAL_SUPERVISOR_GATE"
+}

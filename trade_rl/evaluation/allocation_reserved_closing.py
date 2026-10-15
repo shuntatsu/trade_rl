@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from trade_rl.evaluation.allocation import _execute_allocation_target
+from trade_rl.evaluation.rl_allocation._native_progress import (
+    AllocationAdvanceObserver,
+    notify_advance,
+    validate_advance_observer,
+)
 from trade_rl.evaluation.rl_allocation.transition_facts import (
     native_allocation_execution_facts,
 )
@@ -50,6 +55,7 @@ def _iter_reserved_allocation_closing(
     validate_binding: Callable[[], None],
     note_stage: Callable[[int, str], None],
     retain_returned: Callable[[StatefulExecutionResult], None] | None = None,
+    on_advance: AllocationAdvanceObserver | None = None,
 ) -> Iterator[_ReservedAllocationClosingStep]:
     """Continue one actual account through every declared reserve bar.
 
@@ -61,6 +67,7 @@ def _iter_reserved_allocation_closing(
     A caller owning a live account can retain each actual return before any
     fallible diagnostics. The hook supplies no replacement execution.
     """
+    validate_advance_observer(on_advance)
     if (
         type(start_index) is not int
         or type(stop_index) is not int
@@ -121,6 +128,17 @@ def _iter_reserved_allocation_closing(
         if not clock_valid:
             raise ValueError("terminal native execution changed its one-bar clock")
         validate_binding()
+        if on_advance is not None:
+            notify_advance(
+                on_advance,
+                "reserve",
+                validation_start,
+                index,
+                executor=executor,
+                book=book,
+                orders=orders,
+                validate_binding=validate_binding,
+            )
         if book.termination_reason is not None:
             break
 

@@ -14,6 +14,11 @@ from trade_rl.evaluation.allocation_comparison_evidence import (
     allocation_fold_plan_digest,
 )
 from trade_rl.evaluation.allocation_decision import AllocationActionExecutionResult
+from trade_rl.evaluation.rl_allocation._native_progress import (
+    AllocationAdvanceObserver,
+    notify_advance,
+    validate_advance_observer,
+)
 from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
     SimpleStreamDigestMemo,
 )
@@ -223,8 +228,15 @@ def _invalid_return(action: object, error: ValueError) -> dict[str, Any]:
 
 class GlobalAllocationExecutionCollector:
     def __init__(
-        self, env: AllocationTradingEnv, common: dict[str, Any], cell: dict[str, Any]
+        self,
+        env: AllocationTradingEnv,
+        common: dict[str, Any],
+        cell: dict[str, Any],
+        *,
+        on_advance: AllocationAdvanceObserver | None = None,
     ):
+        validate_advance_observer(on_advance)
+        self._on_advance = on_advance
         self.env, self.dataset = env, env.dataset
         self.common, self.cell = json.loads(canonical_json_bytes([common, cell]))
         validate_allocation_execution_cost_payload(
@@ -400,6 +412,37 @@ class GlobalAllocationExecutionCollector:
         if self.env.book.termination_reason is None:
             row["after_state_digest"] = allocation_state_digest(self.env)
         self._consistent()
+        if self._on_advance is not None:
+            book, orders, executor, risk = (
+                self.env.book,
+                self.env.order_book,
+                self.env.executor,
+                self.env.risk,
+            )
+            index, terminal = self.env.index, self.env._terminated
+
+            def validate_observed_binding() -> None:
+                if (
+                    self.env.book is not book
+                    or self.env.order_book is not orders
+                    or self.env.executor is not executor
+                    or self.env.risk is not risk
+                    or self.env.index != index
+                    or self.env._terminated is not terminal
+                ):
+                    raise ValueError("on_advance observer changed native carrier")
+                self._consistent()
+
+            notify_advance(
+                self._on_advance,
+                "actor",
+                row["decision_index"],
+                index,
+                executor=executor,
+                book=book,
+                orders=orders,
+                validate_binding=validate_observed_binding,
+            )
         self.economic_stop_consistent = self.env.book.termination_reason is not None
 
     def completed(self, folds: tuple[FoldOOSResult, ...]) -> None:

@@ -1558,6 +1558,19 @@ from-payload Study/approval reader. Closed software validation and controlled
 forecast reporting have separate pure owners; settled PPO admission and a frozen
 qualified economic protocol remain separate work.
 
+An optional `on_advance` callback belongs to this runtime composition. The
+existing global collector observes validated actor returns, and the reserve
+iterator observes validated actor-free advances, including its final postflight.
+Only phase/start/processing primitives cross the callback boundary. Persistence,
+elapsed-time sampling, process supervision and no-progress rules remain caller
+responsibilities outside these owners. Observer failures use the existing
+partial-observation path; callbacks do not supply execution or replacement state.
+`rl_allocation/_native_progress.py` owns the private synchronous notification
+guard using existing native facts. Enabled callbacks also check retained history,
+terminal orders and RNG; these guards scan growing history/archive state and do
+not establish constant overhead or full-size runtime feasibility. The omitted
+callback path does not perform these extra checks.
+
 `allocation_terminal_evidence` owns externally plan-bound v2 receipt validation.
 It consumes the original global receipt and the generic actor-free returned-fact
 reader in `rl_allocation/transition_facts`; it does not instantiate an executor,

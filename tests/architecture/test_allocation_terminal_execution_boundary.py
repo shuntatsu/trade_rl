@@ -105,3 +105,33 @@ def test_terminal_capability_and_limits_have_current_documentation():
     ):
         text = (root / "docs" / name).read_text("utf-8")
         assert "allocation_terminal_execution" in text
+
+
+def test_native_progress_owners_do_not_acquire_supervision_or_tool_dependencies():
+    root = Path(__file__).resolve().parents[2]
+    owners = (
+        "allocation_terminal_execution.py",
+        "allocation_reserved_closing.py",
+        "allocation_global_execution.py",
+        "rl_allocation/global_execution_context.py",
+        "rl_allocation/_native_progress.py",
+    )
+    forbidden = ("tools", "subprocess", "multiprocessing", "concurrent", "psutil")
+    for owner in owners:
+        tree = ast.parse((root / "trade_rl/evaluation" / owner).read_text("utf-8"))
+        imports = {
+            name
+            for node in ast.walk(tree)
+            for name in (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module]
+                if isinstance(node, ast.ImportFrom) and node.module
+                else []
+            )
+        }
+        assert not any(
+            name == prefix or name.startswith(prefix + ".")
+            for name in imports
+            for prefix in forbidden
+        ), owner

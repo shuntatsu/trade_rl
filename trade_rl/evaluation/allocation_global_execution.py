@@ -42,6 +42,10 @@ from trade_rl.evaluation.allocation_scenario_identity import (
     allocation_candidate_recipe_digest,
 )
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
+from trade_rl.evaluation.rl_allocation._native_progress import (
+    AllocationAdvanceObserver,
+    validate_advance_observer,
+)
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
 )
@@ -1548,7 +1552,16 @@ def run_declared_global_allocation_execution(
     base_env: AllocationTradingEnv | None = None,
     contract: AllocationComparisonContract | None = None,
     forecast_controls: GlobalAllocationForecastControls | None = None,
+    on_advance: AllocationAdvanceObserver | None = None,
 ) -> ObservedGlobalAllocationExecution:
+    """Run the frozen actor plan, optionally observing validated native advances.
+
+    ``on_advance(phase, start_index, processing_index)`` receives detached actor
+    primitives. Observer failures retain their known frontier and primary error.
+    Notifications are provisional diagnostics; the closed receipt reader remains
+    authoritative. Omitting the observer preserves the ordinary execution path.
+    """
+    validate_advance_observer(on_advance)
     if type(plan) is not GlobalAllocationExecutionPlan:
         raise ValueError("global execution requires its exact closed plan")
     plan.__post_init__()
@@ -1572,7 +1585,9 @@ def run_declared_global_allocation_execution(
             raise ValueError("forecast execution requires a standalone declared member")
     cell, common = plan.payload["cell"], plan.payload["common"]
     provenance_before = _provenance(common)
-    collector = GlobalAllocationExecutionCollector(env, common, cell)
+    collector = GlobalAllocationExecutionCollector(
+        env, common, cell, on_advance=on_advance
+    )
     validate_global_collector(env, collector)
     declared = declare_global_allocation_execution(
         folds,

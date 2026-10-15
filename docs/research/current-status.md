@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-15 (JST)
+更新基準: 2026-10-16 (JST)
 
 ## Issue #810: signed insolvency software candidate
 
@@ -146,16 +146,18 @@ checkpoint. A checkpoint is diagnostic evidence, never a qualified receipt.
 The final profile still covers the whole returned native call. The v2 execution
 order starts with the profiled case, then runs the unprofiled 100/400/1,600 cases.
 
-At frozen source `63c58fccf530`, the earlier v1
-100-advance case completed mechanically in 285.0056903 native seconds, with
-strict partial-receipt readback and successful owned-process supervision.
-This single artificial observation does not establish scaling order or a
-real-market bound. It remains bound to that original source and plan; the v2
-checkpoint procedure requires fresh preparation and cannot reuse it as its own
-measurement. Generated artifacts remain ignored. No real input is used and the
-profile does not provide economic admission. It is not a completed 48-arm run, a full-matrix runtime
-estimate, or a release byte-equivalence claim. One observation per case also
-does not support variance or asymptotic-scaling claims.
+The v2 run at measurement source `11ca5d979e5a` is closed. The 100- and
+400-advance artificial prefixes qualified as software observations with strict
+partial-receipt readback; both 1,600-advance cases exceeded the 1,200-second wall
+cap and produced no final receipt. Evidence is retained in the
+[v2 artificial checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-artificial-scaling-v2-20261016).
+The checkpoint source and measurement source have identical admitted runtime and
+harness code; package/CI verification is not a new measurement. These are single
+first-vintage actor observations; CASH remains `UNATTEMPTED`. No real input is
+used and no economic admission follows. Full-arm/48-arm runtime, variance,
+asymptotic-scaling claims, release byte-equivalence, and Step 0 acceptance remain
+unestablished. In particular, the same-source/same-plan profiled versus
+unprofiled 1,600-advance receipt comparison is incomplete.
 
 The fixed artificial release fixture in
 `tests/evaluation/fixtures/issue888_release_v1/` retains the original compressed

@@ -139,9 +139,21 @@ measurement. Four one-repetition cases run the same NONRL plan at 100, 400, and
 account. The wall, process-tree RSS, disk, and sampling limits are 1,200 seconds,
 2 GiB, 4 GiB, and 10 seconds respectively.
 
-This source declaration includes no measured timing or resource results; fresh
-measurements and their exact source identities are retained as ignored artifacts. No real input is used and the profile does not provide
-economic admission. It is not a completed 48-arm run, a full-matrix runtime
+Profile-only checkpoints are published after advance 1 and every 100 advances,
+without disabling the active profiler. Their IO overhead is included only in
+the separate profiled case; unfinished enclosing frames can be absent from a
+checkpoint. A checkpoint is diagnostic evidence, never a qualified receipt.
+The final profile still covers the whole returned native call. The v2 execution
+order starts with the profiled case, then runs the unprofiled 100/400/1,600 cases.
+
+At frozen source `63c58fccf53066d9d6f94f8bac455494b0e7b54b`, the earlier v1
+100-advance case completed mechanically in 285.0056903 native seconds, with
+strict partial-receipt readback and successful owned-process supervision.
+This single artificial observation does not establish scaling order or a
+real-market bound. It remains bound to that original source and plan; the v2
+checkpoint procedure requires fresh preparation and cannot reuse it as its own
+measurement. Generated artifacts remain ignored. No real input is used and the
+profile does not provide economic admission. It is not a completed 48-arm run, a full-matrix runtime
 estimate, or a release byte-equivalence claim. One observation per case also
 does not support variance or asymptotic-scaling claims.
 

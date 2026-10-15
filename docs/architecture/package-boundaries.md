@@ -1825,6 +1825,13 @@ outside measurement. A fourth case profiles the 1,600-advance prefix. The same
 NONRL plan is measured once per case with a fresh account, under 1,200-second
 wall, 2 GiB process-tree RSS, 4 GiB disk, and 10-second sampling limits.
 
+Only the profiled case publishes cProfile snapshots after advance 1 and every
+100 advances. Atomic exclusive publication preserves completed diagnostic
+snapshots across a hard stop without disabling the active profiler or changing
+the final whole-call profile. Snapshot IO contributes to profiled elapsed time;
+unfinished enclosing frames may be absent from an intermediate snapshot.
+Snapshots do not qualify a financial receipt or a mechanically complete case.
+
 The package consumes no real input and its profile grants no economic admission.
 It does not execute the full 48-arm comparison, establish full-matrix runtime,
 or claim release byte-equivalence. Its source belongs to normal repository Ruff,

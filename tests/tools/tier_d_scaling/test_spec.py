@@ -14,6 +14,9 @@ def test_full_plan_and_all_measurement_cases_are_declared_together(tmp_path: Pat
     root = tmp_path / "dataset"
     dataset = write_full_artificial_dataset(root)
     protocol = module.profile_protocol(dataset, root)
+    assert protocol["schema"] == "issue888_artificial_scaling_v2"
+    assert protocol["measurement"]["profile_checkpoint_every"] == 100
+    assert protocol["measurement"]["profile_checkpoint_first"] == 1
     serialized = json.dumps(protocol)
     assert all(name not in serialized for name in ("BTCUSDT", "ETHUSDT", "Task18"))
     assert protocol["dataset"]["dimensions"] == [9504, 2, 6]

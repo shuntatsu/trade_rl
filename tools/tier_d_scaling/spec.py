@@ -68,7 +68,7 @@ def profile_protocol(dataset: MarketDataset, dataset_root: Path) -> dict[str, An
         return str(dataset.timestamps[index])
 
     return {
-        "schema": "issue888_artificial_scaling_v1",
+        "schema": "issue888_artificial_scaling_v2",
         "scope": "ARTIFICIAL_SOFTWARE_PROFILE_ONLY",
         "source_head": base["source_head"],
         "concurrency": {"max_workers": 1},
@@ -112,6 +112,7 @@ def profile_protocol(dataset: MarketDataset, dataset_root: Path) -> dict[str, An
         "policy": base["policy"],
         "budget": {"native_arms": 2, "ridge_vintages": 3, "advances_per_arm": 6599},
         "measurement": {
+            "execution_order": ["n1600-profile", "n100", "n400", "n1600"],
             "cases": [
                 {"name": name, "target": target, "profile": profile}
                 for name, target, profile in CASES
@@ -123,6 +124,9 @@ def profile_protocol(dataset: MarketDataset, dataset_root: Path) -> dict[str, An
                 "sample_seconds": 10,
             },
             "financial_authority": False,
+            "profile_checkpoint_first": 1,
+            "profile_checkpoint_every": 100,
+            "profile_checkpoint_semantics": "atomic exclusive cProfile snapshots without disabling active contexts; unfinished enclosing frames may be absent; profile IO overhead included in profiled timing only",
             "semantics": "intentional failed native prefixes of one identical full plan; no reset/step substitute",
             "coverage": "all measured advances are actor/vintage one; no reserve or vintage transition measurement",
             "repetitions": 1,

@@ -10,6 +10,8 @@ from time import perf_counter
 
 from tools.tier_d_nonrl.progress import ArmProgressSpec
 
+from .checkpoint import publish_checkpoint
+
 _Advance = Callable[[str, int, int], None]
 
 
@@ -28,6 +30,7 @@ class PrefixObservation:
     error: Exception | None
     returned: object | None
     profile_publication_failure: str | None
+    profile_checkpoints: tuple[str, ...] = ()
 
 
 def _make_profiler() -> cProfile.Profile:
@@ -41,6 +44,7 @@ def observe_prefix(
     target: int,
     on_advance: _Advance | None = None,
     profile_path: Path | None = None,
+    checkpoint_every: int | None = None,
     clock: Callable[[], float] = perf_counter,
 ) -> PrefixObservation:
     """Observe actual contiguous callbacks, stopping with an owned exception at N.
@@ -49,13 +53,24 @@ def observe_prefix(
     A valid event counts even if forwarding it fails. The exact owned stopping
     exception remains available for its caller-attached partial receipt. Counts
     and normal returns confer no financial completion or settlement status.
-    Elapsed time excludes profile publication; profile files are fresh-only.
+    Elapsed time excludes final profile publication; profile files are fresh-only.
+    Profile-only checkpoints include their overhead in elapsed time and retain
+    completed-call statistics; active enclosing frames may be absent until the
+    final dump. This opt-in requires a new protocol, not reuse of older attempts.
     """
     if type(spec) is not ArmProgressSpec:
         raise ValueError("prefix observation requires an exact arm progress spec")
     spec.__post_init__()
     if type(target) is not int or not 1 <= target <= spec.target:
         raise ValueError("prefix target must be an ordinary int within the arm")
+    if checkpoint_every is not None and (
+        type(checkpoint_every) is not int
+        or checkpoint_every <= 0
+        or profile_path is None
+    ):
+        raise ValueError(
+            "checkpoint cadence requires a positive ordinary int and profile path"
+        )
     if (
         not callable(invoke)
         or not callable(clock)
@@ -67,9 +82,11 @@ def observe_prefix(
     count = actor = reserve = 0
     processing_index = spec.start_index
     stop = _PrefixStop("predeclared artificial native prefix reached")
+    checkpoints: list[str] = []
+    profile_failure: str | None = None
 
     def advance(phase: str, start: int, processing: int) -> None:
-        nonlocal count, actor, reserve, processing_index
+        nonlocal count, actor, reserve, processing_index, profile_failure
         expected_phase = "actor" if processing_index < spec.actor_stop else "reserve"
         if (
             type(phase) is not str
@@ -91,13 +108,27 @@ def observe_prefix(
             actor += phase == "actor"
             reserve += phase == "reserve"
             processing_index = processing
+        if (
+            profiler is not None
+            and profile_path is not None
+            and checkpoint_every is not None
+            and profile_failure is None
+            and (count == 1 or count % checkpoint_every == 0)
+        ):
+            try:
+                path = profile_path.with_name(
+                    f"{profile_path.stem}.checkpoint-{count:06d}.prof"
+                )
+                publish_checkpoint(profiler, path)
+                checkpoints.append(str(path))
+            except Exception as failure:
+                profile_failure = f"{type(failure).__name__}: {failure}"
         if count == target:
             raise stop
 
     profiler = _make_profiler() if profile_path is not None else None
     error: Exception | None = None
     returned: object | None = None
-    profile_failure = None
     started = clock()
     try:
         if profiler is not None:
@@ -110,7 +141,9 @@ def observe_prefix(
             try:
                 profiler.disable()
             except Exception as failure:
-                profile_failure = f"{type(failure).__name__}: {failure}"
+                profile_failure = (
+                    profile_failure or f"{type(failure).__name__}: {failure}"
+                )
         elapsed = clock() - started
         if profiler is not None and profile_path is not None:
             try:
@@ -132,4 +165,5 @@ def observe_prefix(
         error=error,
         returned=returned,
         profile_publication_failure=profile_failure,
+        profile_checkpoints=tuple(checkpoints),
     )

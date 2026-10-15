@@ -64,9 +64,11 @@ def test_profile_keeps_real_failed_prefix_receipt_bytes(tmp_path: Path):
             spec,
             target=3,
             profile_path=profile,
+            checkpoint_every=1 if profile is not None else None,
         )
         assert observation.expected_stop and observation.count == 3
         assert observation.profile_publication_failure is None
+        assert len(observation.profile_checkpoints) == (0 if profile is None else 3)
         raw = getattr(observation.error, "terminal_execution_receipt")
         assert raw["status"] == "integrity_failure"
         assert raw["settlement_complete"] is False

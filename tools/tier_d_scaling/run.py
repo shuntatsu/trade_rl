@@ -106,6 +106,9 @@ def measure(root: Path, prepared_root: Path, name: str) -> dict[str, Any]:
             target=case["target"],
             on_advance=journal.advance,
             profile_path=root / "native.prof" if case["profile"] else None,
+            checkpoint_every=protocol["measurement"]["profile_checkpoint_every"]
+            if case["profile"]
+            else None,
         )
         retained = perf_counter()
         report.update(
@@ -117,6 +120,7 @@ def measure(root: Path, prepared_root: Path, name: str) -> dict[str, Any]:
             elapsed_seconds=observation.elapsed_seconds,
             native_error=_error(observation.error) if observation.error else None,
             profile_publication_failure=observation.profile_publication_failure,
+            profile_checkpoints=list(observation.profile_checkpoints),
         )
         raw = getattr(native_returned, "payload", None)
         if raw is None:

@@ -192,6 +192,7 @@ def test_no_profile_path_never_constructs_profiler_or_opens_file(monkeypatch):
     )
     result = module.observe_prefix(lambda _: returned, spec(), target=1)
     assert result.returned is returned and result.profile_publication_failure is None
+    assert result.profile_checkpoints == ()
 
 
 def test_actual_cprofile_preserves_fake_facts_and_expected_stop(tmp_path):
@@ -279,3 +280,236 @@ def test_profile_destination_collision_preserves_prior_bytes_and_return(tmp_path
     assert result.returned is returned and result.error is None
     assert result.profile_publication_failure is not None
     assert path.read_bytes() == b"retained prior diagnostic"
+
+
+def checkpoint_profiler(module, monkeypatch, *, final_failure=False):
+    events, active = [], [False]
+
+    def enable():
+        assert not active[0]
+        active[0] = True
+        events.append("enable")
+
+    def disable():
+        assert active[0]
+        active[0] = False
+        events.append("disable")
+
+    def dump(path):
+        assert not active[0]
+        events.append("final_dump")
+        if final_failure:
+            raise PermissionError("final publication second failure")
+
+    profiler = SimpleNamespace(enable=enable, disable=disable, dump_stats=dump)
+    monkeypatch.setattr(module, "_make_profiler", lambda: profiler)
+    return profiler, events, active
+
+
+@pytest.mark.parametrize(
+    "cadence,target,counts", [(100, 220, (1, 100, 200)), (1, 4, (1, 2, 3, 4))]
+)
+def test_checkpoints_follow_fixed_counts_without_stopping_profiler(
+    tmp_path, monkeypatch, cadence, target, counts
+):
+    module = api()
+    profiler, events, active = checkpoint_profiler(module, monkeypatch)
+    published, caught = [], []
+    declaration = ArmProgressSpec(
+        "H72_A10", "ARTIFICIAL_A", "BASEL0", "nonrl", "a" * 64, 10, 310, 330
+    )
+    final_path = tmp_path / "native.prof"
+
+    def publish(actual, path):
+        assert actual is profiler and active[0]
+        assert events == ["enable"]
+        published.append(str(path))
+
+    def invoke(callback):
+        try:
+            for index in range(10, 10 + target):
+                callback("actor", index, index + 1)
+        except Exception as error:
+            caught.append(error)
+            raise
+
+    monkeypatch.setattr(module, "publish_checkpoint", publish, raising=False)
+    result = module.observe_prefix(
+        invoke,
+        declaration,
+        target=target,
+        profile_path=final_path,
+        checkpoint_every=cadence,
+    )
+    expected = tuple(
+        str(tmp_path / f"native.checkpoint-{count:06d}.prof") for count in counts
+    )
+    assert tuple(published) == result.profile_checkpoints == expected
+    assert result.expected_stop and result.error is caught[0] and result.count == target
+    assert events == ["enable", "disable", "final_dump"]
+
+
+@pytest.mark.parametrize("cadence", [0, -1, True, False, 1.0, "100"])
+def test_invalid_checkpoint_cadence_rejects_before_invocation_or_io(tmp_path, cadence):
+    with pytest.raises(ValueError, match="checkpoint"):
+        api().observe_prefix(
+            lambda _: pytest.fail("invoked invalid checkpoint cadence"),
+            spec(),
+            target=1,
+            profile_path=tmp_path / "native.prof",
+            checkpoint_every=cadence,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_checkpoint_cadence_without_profile_rejects_before_invocation(tmp_path):
+    with pytest.raises(ValueError, match="checkpoint"):
+        api().observe_prefix(
+            lambda _: pytest.fail("invoked without a profile path"),
+            spec(),
+            target=1,
+            checkpoint_every=100,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("outcome", ["expected", "native", "returned"])
+def test_checkpoint_first_failure_is_secondary_and_disables_further_checkpoints(
+    tmp_path, monkeypatch, outcome
+):
+    module, primary, returned = api(), LookupError("native primary"), object()
+    _, events, _ = checkpoint_profiler(module, monkeypatch, final_failure=True)
+    attempts, caught = [], []
+
+    def publish(profiler, path):
+        attempts.append(path)
+        raise PermissionError("checkpoint publication first failure")
+
+    def invoke(callback):
+        try:
+            for event in EVENTS[: 4 if outcome == "expected" else 2]:
+                callback(*event)
+            if outcome == "native":
+                raise primary
+            return returned
+        except Exception as error:
+            error.terminal_execution_receipt = {
+                "scope": "MANUFACTURED_RETAINED_PARTIAL"
+            }
+            caught.append(error)
+            raise
+
+    monkeypatch.setattr(module, "publish_checkpoint", publish, raising=False)
+    result = module.observe_prefix(
+        invoke,
+        spec(),
+        target=4,
+        profile_path=tmp_path / "native.prof",
+        checkpoint_every=1,
+    )
+    assert len(attempts) == 1 and result.profile_checkpoints == ()
+    assert "checkpoint publication first failure" in result.profile_publication_failure
+    assert "final publication second failure" not in result.profile_publication_failure
+    assert result.expected_stop is (outcome == "expected")
+    assert result.returned is (returned if outcome == "returned" else None)
+    assert result.error is (None if outcome == "returned" else caught[0])
+    if outcome == "native":
+        assert result.error is primary
+    if outcome != "returned":
+        assert result.error.terminal_execution_receipt == {
+            "scope": "MANUFACTURED_RETAINED_PARTIAL"
+        }
+    assert result.count == (4 if outcome == "expected" else 2)
+    assert events == ["enable", "disable", "final_dump"]
+
+
+def test_journal_primary_failure_counts_advance_without_checkpoint(
+    tmp_path, monkeypatch
+):
+    module, error = api(), OSError("journal primary")
+    checkpoint_profiler(module, monkeypatch)
+    monkeypatch.setattr(
+        module,
+        "publish_checkpoint",
+        lambda *args: pytest.fail("checkpoint after rejected journal"),
+        raising=False,
+    )
+
+    def journal(*event):
+        raise error
+
+    result = module.observe_prefix(
+        lambda callback: callback(*EVENTS[0]),
+        spec(),
+        target=4,
+        on_advance=journal,
+        profile_path=tmp_path / "native.prof",
+        checkpoint_every=1,
+    )
+    assert result.error is error and not result.expected_stop
+    assert result.count == 1 and result.processing_index == 11
+    assert (
+        result.profile_publication_failure is None and result.profile_checkpoints == ()
+    )
+
+
+def test_prior_successful_checkpoint_survives_later_publication_failure(
+    tmp_path, monkeypatch
+):
+    module = api()
+    checkpoint_profiler(module, monkeypatch)
+    published = []
+
+    def publish(profiler, path):
+        if published:
+            raise PermissionError("second checkpoint failed")
+        published.append(str(path))
+
+    def invoke(callback):
+        for event in EVENTS[:4]:
+            callback(*event)
+
+    monkeypatch.setattr(module, "publish_checkpoint", publish, raising=False)
+    result = module.observe_prefix(
+        invoke,
+        spec(),
+        target=4,
+        profile_path=tmp_path / "native.prof",
+        checkpoint_every=1,
+    )
+    assert result.expected_stop and result.profile_checkpoints == tuple(published)
+    assert (
+        len(published) == 1
+        and "second checkpoint failed" in result.profile_publication_failure
+    )
+
+
+def test_final_profiler_disable_failure_cannot_replace_checkpoint_first_error(
+    tmp_path, monkeypatch
+):
+    module = api()
+    profiler, events, _ = checkpoint_profiler(module, monkeypatch)
+    original_disable = profiler.disable
+
+    def disable():
+        original_disable()
+        raise RuntimeError("later profiler disable failure")
+
+    def publish(profiler, path):
+        raise PermissionError("checkpoint first failure")
+
+    profiler.disable = disable
+    monkeypatch.setattr(module, "publish_checkpoint", publish)
+    result = module.observe_prefix(
+        lambda callback: callback(*EVENTS[0]),
+        spec(),
+        target=1,
+        profile_path=tmp_path / "native.prof",
+        checkpoint_every=1,
+    )
+    assert result.expected_stop and result.count == 1
+    assert (
+        result.profile_publication_failure
+        == "PermissionError: checkpoint first failure"
+    )
+    assert events == ["enable", "disable", "final_dump"]

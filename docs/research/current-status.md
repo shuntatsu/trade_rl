@@ -63,9 +63,9 @@ authorization. See the result-blind mechanism contract in
 The [Issue #810 development checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue810-development-checkpoint-20261015)
 retains the failed R2 attempt: twelve fitted vintages and a frozen 48-arm
 matrix, followed by one interrupted native arm and 47 unattempted arms.
+R2 followed the earlier sampler-failure attempt on 2026-10-14 UTC; the
+2026-10-15 checkpoint date records publication rather than execution.
 No completed native receipt, matched comparison or market result was returned.
-The latest checkpoint documentation is tracked in
-[PR #886](https://github.com/shuntatsu/trade_rl/pull/886).
 
 An artificial source-only oracle reproduced eight snapshot constructions per
 packet when obtaining a stream payload. The bounded repair reduces that to one

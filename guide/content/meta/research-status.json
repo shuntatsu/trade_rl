@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18 loader確認、12 fit後に停止したNONRL準備、未実行の48-cell比較とP&L、研究上の未証明事項を表示します。",
+  "summary": "Task 18のR2は12 Ridge fit後に48-cell宣言を凍結し、最初のnative armでFAILED（1 interrupted / 47 unattempted）。完了receiptと比較結果は未生成で、損益評価は未確定です。",
   "role": "status",
   "keywords": [
     "M2",
@@ -43,7 +43,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "e4b84f56af9158eba03fc7f681bfaa890bd5f2752df24ef3cd4e47e7227b039f"
+      "sha256": "92ffe6e106192009ef0a05392613244a7d7a28bba9ce631f1da960fd2ed8b566"
     }
   ],
   "code_references": []

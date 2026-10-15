@@ -14,7 +14,7 @@ def test_full_plan_and_all_measurement_cases_are_declared_together(tmp_path: Pat
     root = tmp_path / "dataset"
     dataset = write_full_artificial_dataset(root)
     protocol = module.profile_protocol(dataset, root)
-    assert protocol["schema"] == "issue888_artificial_scaling_v2"
+    assert protocol["schema"] == "issue888_artificial_scaling_v3"
     assert protocol["measurement"]["profile_checkpoint_every"] == 100
     assert protocol["measurement"]["profile_checkpoint_first"] == 1
     serialized = json.dumps(protocol)
@@ -35,8 +35,12 @@ def test_full_plan_and_all_measurement_cases_are_declared_together(tmp_path: Pat
         ("n1600-profile", 1600, True),
     ]
     assert protocol["measurement"]["financial_authority"] is False
-    assert protocol["measurement"]["limits"]["wall_seconds"] == 1200
-    assert protocol["measurement"]["limits"]["rss_bytes"] == 2 * 1024**3
+    assert protocol["measurement"]["limits"] == {
+        "wall_seconds": 10_800,
+        "rss_bytes": 2 * 1024**3,
+        "disk_bytes": 4 * 1024**3,
+        "sample_seconds": 10,
+    }
     assert module.case_by_name(protocol, "n100") == cases[0]
     for name in ("../n100", "n25", "N100", True):
         with pytest.raises(ValueError):

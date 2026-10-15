@@ -136,7 +136,8 @@ frozen, while the measured prefix uses only first-vintage actor advances for the
 first symbol; reserve and vintage-transition advances are outside the
 measurement. Four one-repetition cases run the same NONRL plan at 100, 400, and
 1,600 advances, plus a separately profiled 1,600-advance case, each with a fresh
-account. The wall, process-tree RSS, disk, and sampling limits are 1,200 seconds,
+account. The current v3 wall, process-tree RSS, disk, and sampling limits are
+10,800 seconds,
 2 GiB, 4 GiB, and 10 seconds respectively.
 
 Profile-only checkpoints are published after advance 1 and every 100 advances,
@@ -158,6 +159,14 @@ used and no economic admission follows. Full-arm/48-arm runtime, variance,
 asymptotic-scaling claims, release byte-equivalence, and Step 0 acceptance remain
 unestablished. In particular, the same-source/same-plan profiled versus
 unprofiled 1,600-advance receipt comparison is incomplete.
+
+The v3 follow-up predeclares the larger per-job wall ceiling above to pursue the
+still-missing 1,600-advance baseline observations. It changes no native runtime
+implementation or economic setting. Fresh preparation at its own committed
+source must freeze new protocol, cost-assumption and plan identities; v2 inputs
+and 100/400 observations cannot be reused as its measurement curve. The retained
+v2 cap failures are not rewritten. This engineering budget decision establishes
+neither a speedup nor a completion guarantee, and no v3 result is established.
 
 The fixed artificial release fixture in
 `tests/evaluation/fixtures/issue888_release_v1/` retains the original compressed

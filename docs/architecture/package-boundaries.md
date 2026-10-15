@@ -1822,8 +1822,14 @@ CASH remains `UNATTEMPTED`. The three-vintage metadata and plan remain frozen;
 observation stops at first-vintage actor-only prefixes of 100, 400, and 1,600
 advances for the first symbol. Reserve and vintage-transition advances are
 outside measurement. A fourth case profiles the 1,600-advance prefix. The same
-NONRL plan is measured once per case with a fresh account, under 1,200-second
+NONRL plan is measured once per case with a fresh account, under 10,800-second
 wall, 2 GiB process-tree RSS, 4 GiB disk, and 10-second sampling limits.
+
+The v3 wall ceiling is an engineering resource budget, not a measured completion
+bound. A changed fixed budget requires a new protocol and fresh source-bound
+preparation; protocol, cost-assumption and plan identities change. Observations
+from different protocols must not be combined or relabeled. Earlier artifacts
+remain bound to their original source and reader.
 
 Only the profiled case publishes cProfile snapshots after advance 1 and every
 100 advances. Atomic exclusive publication preserves completed diagnostic

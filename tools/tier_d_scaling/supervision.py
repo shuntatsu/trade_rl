@@ -13,7 +13,7 @@ from tools.tier_d_nonrl.tier_d_records import append_log, write_json
 
 REPO = Path(__file__).resolve().parents[2]
 LIMITS = {
-    "wall_seconds": 1200,
+    "wall_seconds": 10_800,
     "rss_bytes": 2 * 1024**3,
     "disk_bytes": 4 * 1024**3,
     "sample_seconds": 10,

@@ -1807,3 +1807,26 @@ owned process tree. Progress records never establish settlement or profitability
 Only strict native receipt readback qualifies a returned result. A progress
 publication failure retains any already-published qualified receipt, and rejected
 returned native payloads remain partial failure artifacts rather than disappearing.
+
+## Tier D artificial prefix scaling diagnostics
+
+`tools/tier_d_scaling/` is a repository-only artificial profiling package. It
+uses the public `trade_rl.data`, `trade_rl.artifacts`, selected
+`trade_rl.evaluation` and `trade_rl.strategies.forecasts.simple_stream_io` APIs,
+plus existing `tools/tier_d_nonrl` driver APIs and contracts. It is not a
+production dependency: no `trade_rl` runtime module may import it. Its fixed
+Dataset has 9,504 hourly bars, 2 artificial symbols, and 6 features. Each case
+executes one representative NONRL arm: H72 / alpha 10 / first-symbol
+`ARTIFICIAL_A` / `BASEL0`. The frozen full plan retains NONRL and CASH plans, but
+CASH remains `UNATTEMPTED`. The three-vintage metadata and plan remain frozen;
+observation stops at first-vintage actor-only prefixes of 100, 400, and 1,600
+advances for the first symbol. Reserve and vintage-transition advances are
+outside measurement. A fourth case profiles the 1,600-advance prefix. The same
+NONRL plan is measured once per case with a fresh account, under 1,200-second
+wall, 2 GiB process-tree RSS, 4 GiB disk, and 10-second sampling limits.
+
+The package consumes no real input and its profile grants no economic admission.
+It does not execute the full 48-arm comparison, establish full-matrix runtime,
+or claim release byte-equivalence. Its source belongs to normal repository Ruff,
+format, and research-tool Mypy checks; the architecture contract keeps imports
+and path references within the artificial repository-only boundary.

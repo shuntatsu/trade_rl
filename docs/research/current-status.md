@@ -125,6 +125,26 @@ full-size artificial scaling/profile. The proposed deadlines/resource limits are
 not measured full-matrix runtime bounds. No new market costs, fits, replay,
 unused-data access or live routing is authorized by this progress work.
 
+## Issue #888 artificial scaling prefix profile
+
+The repository-only `tools/tier_d_scaling/` harness builds a fixed artificial
+Dataset of 9,504 hourly bars × 2 artificial symbols × 6 features. Each case
+executes one representative NONRL arm: `H72`, `alpha 10`, `ARTIFICIAL_A`,
+`BASEL0`. The declared full plan retains both NONRL and CASH plans, but CASH is
+`UNATTEMPTED` in every case. The three-vintage metadata and full plan remain
+frozen, while the measured prefix uses only first-vintage actor advances for the
+first symbol; reserve and vintage-transition advances are outside the
+measurement. Four one-repetition cases run the same NONRL plan at 100, 400, and
+1,600 advances, plus a separately profiled 1,600-advance case, each with a fresh
+account. The wall, process-tree RSS, disk, and sampling limits are 1,200 seconds,
+2 GiB, 4 GiB, and 10 seconds respectively.
+
+This source declaration includes no measured timing or resource results; fresh
+measurements and their exact source identities are retained as ignored artifacts. No real input is used and the profile does not provide
+economic admission. It is not a completed 48-arm run, a full-matrix runtime
+estimate, or a release byte-equivalence claim. One observation per case also
+does not support variance or asymptotic-scaling claims.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

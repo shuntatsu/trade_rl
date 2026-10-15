@@ -1788,4 +1788,22 @@ execution, unused/final access or live routing.
 Market supervision requires the Windows owned-process-tree sampler; unsupported
 platforms refuse before protocol or Dataset IO. The declared worker count bounds
 in-flight pairs under the aggregate sampled resource limit. Arm/pair diagnostics
-do not establish per-advance progress through the terminal reserve.
+are supplemented by validated native actor/reserve notifications. Repository-only
+`progress.py` binds a closed per-arm roster and contiguous advance records;
+`progress_io.py` owns exclusive, durable arm journals and bounded incremental
+readback. Workers write disjoint journals. The parent publishes verified records
+to the canonical attempt log, including while parallel futures are unfinished.
+Reused receipts do not open another native journal.
+
+The result-blind v3 protocol fixes the no-progress policy before execution:
+600 seconds per started arm with expected advances remaining, sampled every
+second. This is an initial proposal, not a measured market runtime bound. The
+supervisor uses its own monotonic observation clock; heartbeat, other-arm events,
+queued work and fit/preparation cannot reset an active arm's deadline. Ended
+native calls and arms with every expected advance are outside that deadline;
+resource caps still cover preparation and finalization. Resource sampling retains
+its separate cadence. A stop retains the verified prefix and terminates only the
+owned process tree. Progress records never establish settlement or profitability.
+Only strict native receipt readback qualifies a returned result. A progress
+publication failure retains any already-published qualified receipt, and rejected
+returned native payloads remain partial failure artifacts rather than disappearing.

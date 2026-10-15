@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .progress import validate_progress_policy
+from .progress_io import ProgressReader
 from .tier_d_process_tree import ProcessTree, terminate_owned_tree
 from .tier_d_process_tree import ProcessUsage as ProcessUsage
 from .tier_d_protocol import (
@@ -126,7 +128,16 @@ def supervised_run(
         "PYTHONPATH": str(REPO),
     }
     budget = protocol["resource_proposal"]
+    progress_policy = validate_progress_policy(protocol.get("progress_policy"))
+    reader = ProgressReader(
+        artifact_root,
+        expected_protocol=protocol if mode == "market" else None,
+        expected_policy=progress_policy,
+        clock=time.monotonic,
+    )
+    stalled_arms: list[dict[str, Any]] = []
     started, peak_rss, failure = time.monotonic(), 0, None
+    next_resource_sample = started + budget["sample_seconds"]
     with (root / "worker.log").open("w", encoding="utf-8") as output:
         with subprocess.Popen(
             command, cwd=REPO, env=environment, stdout=output, stderr=subprocess.STDOUT
@@ -152,11 +163,25 @@ def supervised_run(
                     if initial_sample.rss_bytes > budget["rss_bytes"]:
                         failure = "sampled process-tree RSS budget exceeded; retain partial attempt"
                 while failure is None and process.poll() is None:
+                    for _ in reader.poll():
+                        pass  # Child parent owns canonical progress publication.
+                    stalled_arms = reader.stalled()
+                    if stalled_arms:
+                        failure = "native progress stalled; retain partial attempt"
+                        break
                     try:
-                        process.wait(timeout=budget["sample_seconds"])
+                        process.wait(
+                            timeout=min(
+                                progress_policy["sample_seconds"],
+                                max(0, next_resource_sample - time.monotonic()),
+                            )
+                        )
                         break
                     except subprocess.TimeoutExpired:
                         pass
+                    if time.monotonic() < next_resource_sample:
+                        continue
+                    next_resource_sample = time.monotonic() + budget["sample_seconds"]
                     sample = tree.sample() if tree is not None else None
                     rss = (
                         sample.rss_bytes if sample is not None else process_rss(process)
@@ -190,9 +215,12 @@ def supervised_run(
                             "sampled resource budget exceeded; retain partial attempt"
                         )
                         break
+                if failure is None:
+                    for _ in reader.poll():
+                        pass  # Validate the final committed journal prefix too.
             except Exception as error:
                 failure = (
-                    f"resource supervision failed: {type(error).__name__}: {error}"
+                    f"execution supervision failed: {type(error).__name__}: {error}"
                 )
             except KeyboardInterrupt:
                 failure = "operator interruption; retain partial attempt"
@@ -236,9 +264,14 @@ def supervised_run(
     final_disk = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
     final_elapsed = time.monotonic() - started
     if final_disk > budget["disk_bytes"]:
-        failure = "final output disk budget exceeded; retain full failure artifacts"
+        failure = (
+            failure
+            or "final output disk budget exceeded; retain full failure artifacts"
+        )
     if final_elapsed > budget["wall_seconds"]:
-        failure = "final wall-time budget exceeded; retain full attempt artifacts"
+        failure = (
+            failure or "final wall-time budget exceeded; retain full attempt artifacts"
+        )
     if failure is None and returncode != 0:
         failure = f"worker exited nonzero ({returncode}); retain partial attempt"
     report = {
@@ -249,6 +282,9 @@ def supervised_run(
         "sampled_peak_rss_bytes": peak_rss or None,
         "final_disk_bytes": final_disk,
         "limits": budget,
+        "progress_policy": progress_policy,
+        "native_progress_states": reader.states,
+        "stalled_arms": stalled_arms,
         "measurement": "observed for this attempt only; no market benchmark",
         "attempt_root": str(artifact_root),
     }

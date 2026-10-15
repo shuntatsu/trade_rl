@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18のR2は12 Ridge fit後に48-cell宣言を凍結し、最初のnative armでFAILED（1 interrupted / 47 unattempted）。完了receiptと比較結果は未生成で、損益評価は未確定です。",
+  "summary": "Task 18のR2は12 Ridge fit後に48-cell宣言を凍結後、operator技術停止でFAILED（1 arm INTERRUPTED / 47 arms UNATTEMPTED）。完了receiptと比較結果は未生成で、損益評価は未確定です。",
   "role": "status",
   "keywords": [
     "M2",
@@ -43,7 +43,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "92ffe6e106192009ef0a05392613244a7d7a28bba9ce631f1da960fd2ed8b566"
+      "sha256": "d74c53234c20683b95f74e0fbc9460a1b1342a43ba534abcbd34c0f01e2d9e14"
     }
   ],
   "code_references": []

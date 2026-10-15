@@ -53,6 +53,26 @@ def output_snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
+def progress_journals(root: Path) -> dict[str, bytes]:
+    directory = root / "native-progress"
+    if not directory.exists():
+        return {}
+    return {path.name: path.read_bytes() for path in sorted(directory.glob("*.jsonl"))}
+
+
+def assert_completed_progress_journal(raw: bytes) -> None:
+    records = [json.loads(line) for line in raw.splitlines()]
+    advances = [record for record in records if record["event"] == "native_advanced"]
+    assert len(records) == 42
+    assert records[0]["event"] == "native_started"
+    assert records[0]["count"] == 0
+    assert [record["count"] for record in advances] == list(range(1, 41))
+    assert sum(record["phase"] == "actor" for record in advances) == 32
+    assert sum(record["phase"] == "reserve" for record in advances) == 8
+    assert records[-1]["event"] == "native_returned"
+    assert records[-1]["count"] == records[-1]["total"] == 40
+
+
 def install_call_spies(module, monkeypatch):
     calls = {
         "cost_rows": 0,
@@ -202,6 +222,14 @@ def test_worker_count_changes_scheduling_only_for_canonical_artifacts(
         two_worker_root / "result.json"
     ).read_bytes()
 
+    one_worker_journals = progress_journals(one_worker_root)
+    two_worker_journals = progress_journals(two_worker_root)
+    assert one_worker_journals.keys() == two_worker_journals.keys()
+    assert len(one_worker_journals) == 4
+    assert one_worker_journals == two_worker_journals
+    for raw in one_worker_journals.values():
+        assert_completed_progress_journal(raw)
+
 
 def test_completed_resume_skips_real_prepare_cost_and_native_calls(
     tmp_path, monkeypatch
@@ -232,6 +260,7 @@ def test_completed_resume_skips_real_prepare_cost_and_native_calls(
     }
     assert resumed["public_calls"]["cost_producers"] == 0
     assert resumed["public_calls"]["prepare_calls"] == 0
+    assert progress_journals(destination) == {}
     assert output_snapshot(source) == source_before
 
 
@@ -289,4 +318,12 @@ def test_partial_resume_reuses_nonrl_receipt_without_refit_or_recost(
     by_role = {row["role"]: row for row in destination_state["arms"]}
     assert by_role["nonrl"]["reused"] is True
     assert by_role["cash"]["reused"] is False
+    roster = json.loads(
+        (destination / "native-progress-roster.json").read_text(encoding="utf-8")
+    )
+    cash_arm_ids = {arm["arm_id"] for arm in roster["arms"] if arm["role"] == "cash"}
+    resumed_journals = progress_journals(destination)
+    assert len(cash_arm_ids) == len(resumed_journals) == 1
+    assert set(resumed_journals) == {f"{next(iter(cash_arm_ids))}.jsonl"}
+    assert_completed_progress_journal(next(iter(resumed_journals.values())))
     assert output_snapshot(source) == source_before

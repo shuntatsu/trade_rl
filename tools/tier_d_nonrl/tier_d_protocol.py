@@ -109,10 +109,15 @@ def market_protocol(*, max_workers: int = 1) -> dict[str, Any]:
         for symbol in ("BTCUSDT", "ETHUSDT")
     ]
     return {
-        "schema": "issue810_tier_d_nonrl48_result_blind_v2",
+        "schema": "issue810_tier_d_nonrl48_result_blind_v3",
         "scope": "CONSUMED_2025_DEVELOPMENT_NONRL48_ONLY",
         "source_head": source_head(),
         "concurrency": {"max_workers": worker_count(max_workers)},
+        "progress_policy": {
+            "schema": "issue810_native_progress_v1",
+            "no_progress_seconds": 600,
+            "sample_seconds": 1,
+        },
         "dataset": {
             "root": str(DATASET_ROOT),
             "dataset_id": DATASET_ID,
@@ -253,7 +258,7 @@ def market_protocol(*, max_workers: int = 1) -> dict[str, Any]:
             "semantics": "Windows owned process-tree RSS including redirector descendants; sampled stop; overshoot possible",
             "maximum_inflight_pairs": max_workers,
             "storage": "gzip full raw receipts; matched pairs retained by at most the declared in-flight worker count",
-            "limitations": "native APIs retain arm receipts in active workers; full-matrix feasibility and per-reserve progress are not established",
+            "limitations": "native APIs retain arm receipts in active workers; full-matrix feasibility and the proposed resource/progress bounds are not established",
         },
         "decision": {
             "primary": "terminal after-cost NONRL minus matched CASH wealth / V0",

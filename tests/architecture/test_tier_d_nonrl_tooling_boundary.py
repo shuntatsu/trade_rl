@@ -65,3 +65,49 @@ def test_tier_d_tooling_does_not_implement_a_ledger_or_import_live_final_or_ppo(
             if isinstance(node, ast.Call)
         }
         assert not calls & {"BookState", "env.step", "env.reset"}, path.name
+
+
+def test_progress_owners_are_repository_diagnostics_without_domain_execution():
+    owner = ROOT / "tools/tier_d_nonrl"
+    for name in ("progress.py", "progress_io.py"):
+        tree = ast.parse((owner / name).read_text("utf-8"))
+        imports = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        assert not any(
+            name == "trade_rl" or name.startswith("trade_rl.") for name in imports
+        )
+        assert not imports & {"subprocess", "concurrent.futures", "multiprocessing"}
+        calls = {
+            ast.unparse(node.func)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+        }
+        assert not calls & {
+            "run_terminal_allocation_execution",
+            "carrier",
+            "env.step",
+            "env.reset",
+        }
+    runner = ast.parse((owner / "tier_d_runner.py").read_text("utf-8"))
+    observed_calls = [
+        node
+        for node in ast.walk(runner)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "run_terminal_allocation_execution"
+        and any(keyword.arg == "on_advance" for keyword in node.keywords)
+    ]
+    assert len(observed_calls) == 1
+    callback = next(
+        keyword.value
+        for keyword in observed_calls[0].keywords
+        if keyword.arg == "on_advance"
+    )
+    assert ast.unparse(callback) == "observer.advance"

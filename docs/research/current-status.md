@@ -104,19 +104,26 @@ not a new native market run or an approved full-matrix runtime budget. Resume,
 parallel shutdown, final-head gates and fresh independent source review remain
 acceptance requirements before another technical retry.
 
-Issue #888 Step 4 remains incomplete: arm/pair events do not measure the full
-6,599 native advances, and the actor index does not observe terminal-reserve
-advances. A full-size artificial scaling/profile, verified progress and a
-predeclared no-progress stop rule remain required before R3; the resource
-proposal is not a measured full-matrix runtime bound.
+Issue #888 progress work adds opt-in validated actor/reserve advance notifications
+to `allocation_terminal_execution` and connects them to repository-driver
+per-arm journals. The parent tails these journals while parallel futures run;
+resume readback does not execute or journal reused receipts. The v3 result-blind
+protocol fixes an initial 600-second per-active-arm no-progress threshold with
+one-second polling. Fit/preparation, queued/reused arms, ended native calls and
+finalization after all expected advances are excluded from this deadline; the
+separate hard resource caps remain. This changes protocol and derived plan
+identities and does not make earlier protocol bytes equivalent.
 
-A separate runtime progress prerequisite adds opt-in actor/reserve advance
-notifications to `allocation_terminal_execution`. It observes real validated
-native transitions rather than polling the marked carrier index. This alone
-does not complete Step 4: durable per-arm progress, a predeclared no-progress
-stop rule, bounded supervision and full-size artificial scaling/profile remain
-unimplemented or unmeasured. Callback diagnostics cannot replace strict receipt
-readback or authorize R3, market fits/replays, unused data or live routing.
+Manufactured orchestration verifies progress publication and failure retention.
+An actual Windows child-process oracle confirms that a stalled journal retains
+its observed prefix, interrupts the owned arm/process tree, leaves unattempted
+arms unattempted, and keeps an unrelated process alive. Neither counts nor a
+normal native return qualify a financial result; strict receipt readback remains
+required. These are software-only observations. Step 4 acceptance and R3 still
+require final-head software gates, independent exact-source review and the
+full-size artificial scaling/profile. The proposed deadlines/resource limits are
+not measured full-matrix runtime bounds. No new market costs, fits, replay,
+unused-data access or live routing is authorized by this progress work.
 
 ## Generic software PR review policy (2026-10-14)
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import sys
+from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,8 @@ from trade_rl.strategies.forecasts.simple_stream_io import (
     PublishedSimpleReturnStreamArtifact,
 )
 
+from .progress import ArmProgressSpec, validate_progress_policy
+from .progress_io import ProgressJournal, ProgressReader, publish_roster
 from .resume import freeze_inputs, preflight_resume
 from .tier_d_decomposition import ledger_decomposition
 from .tier_d_fixture import write_artificial_dataset
@@ -274,6 +278,9 @@ def _worker_execute_pair(
     inputs: PreparedAllocationMarketInputs,
     estimates: tuple[HorizonCostEstimates, ...],
     protocol: dict[str, Any],
+    *,
+    progress_enabled: bool = False,
+    on_progress: Callable[[], None] | None = None,
 ) -> PairExecutionResult:
     records: list[dict[str, Any]] = []
     closures: dict[str, Any] = {}
@@ -306,6 +313,7 @@ def _worker_execute_pair(
         relative = f"receipts/{pair.account}_{pair.scenario}_{role}.json.gz"
         receipt_path = root / relative
         raw = None
+        deferred_progress_error: Exception | None = None
         execution_started = False
         # A rejected retained file is never an instruction to execute again.
         if receipt_path.exists():
@@ -344,8 +352,40 @@ def _worker_execute_pair(
                 role=role,
             )
             if raw is None:
-                execution_started = True
-                observed = run_terminal_allocation_execution(folds, env, plan)
+                journal = (
+                    ProgressJournal(
+                        root,
+                        ArmProgressSpec(
+                            pair.configuration,
+                            pair.account,
+                            pair.scenario,
+                            role,
+                            plan.digest,
+                            protocol["actor"]["start"],
+                            protocol["actor"]["stop"],
+                            protocol["terminal"]["stop_inclusive"],
+                        ),
+                        on_change=on_progress,
+                    )
+                    if progress_enabled
+                    else nullcontext()
+                )
+                observed = None
+                try:
+                    with journal as observer:
+                        execution_started = True
+                        observed = (
+                            run_terminal_allocation_execution(
+                                folds, env, plan, on_advance=observer.advance
+                            )
+                            if observer is not None
+                            else run_terminal_allocation_execution(folds, env, plan)
+                        )
+                except Exception as error:
+                    if observed is None:
+                        raise
+                    # Retain returned facts even when lifecycle publication fails.
+                    deferred_progress_error = error
                 raw = observed.payload
                 receipt = TerminalAllocationExecutionReceipt.from_payload(
                     raw, expected_plan=plan
@@ -359,6 +399,8 @@ def _worker_execute_pair(
                     "reused": False,
                     "execution_started": True,
                 }
+                if deferred_progress_error is not None:
+                    raise deferred_progress_error
             closures[role] = native_closure(raw)
             decomposition[role] = ledger_decomposition(
                 raw, inputs.dataset, env.execution_cost
@@ -373,7 +415,11 @@ def _worker_execute_pair(
                     "receipt": None,
                     "execution_started": execution_started,
                 }
-                partial = getattr(error, "terminal_execution_receipt", None)
+                partial = (
+                    raw
+                    if raw is not None
+                    else getattr(error, "terminal_execution_receipt", None)
+                )
                 if partial is not None:
                     try:
                         slots[role]["receipt"] = save_gzip(
@@ -385,6 +431,18 @@ def _worker_execute_pair(
                         slots[role]["partial_publication_failure"] = _failure(
                             publication_error
                         )
+            if deferred_progress_error is not None:
+                slots[role]["progress_publication_failure"] = _failure(
+                    deferred_progress_error
+                )
+            elif (
+                diagnostic := getattr(
+                    error, "native_progress_publication_failure", None
+                )
+            ) is not None:
+                slots[role]["progress_publication_failure"] = {
+                    "message": str(diagnostic)
+                }
             return outcome(None, failure)
     try:
         pair_plan = SettledNonRLComparisonPlan(
@@ -442,11 +500,30 @@ def execute_pairs(
     roster = tuple((p.configuration, p.account, p.scenario) for p in pairs)
     closures: dict[str, Any] = {}
     failure: dict[str, str] | None = None
+    progress_reader = (
+        ProgressReader(root, expected_protocol=protocol)
+        if "progress_policy" in protocol
+        else None
+    )
+    progress_publication_failed = False
 
     def publication_failed(error: Exception) -> None:
         nonlocal failure
         failure = failure or _failure(error)
         state.setdefault("publication_failures", []).append(_failure(error))
+
+    def publish_progress() -> None:
+        nonlocal progress_publication_failed
+        if progress_reader is None or progress_publication_failed:
+            return
+        try:
+            for event in progress_reader.poll():
+                record = dict(event)
+                append_log(root, record.pop("event"), **record)
+        except Exception as error:
+            progress_publication_failed = True
+            publication_failed(error)
+            raise
 
     def arguments(pair: PairDeclaration) -> tuple[Any, ...]:
         inputs = prepared[pair.configuration]
@@ -548,6 +625,11 @@ def execute_pairs(
         except Exception as publication_error:
             publication_failed(publication_error)
 
+    if progress_reader is not None:
+        if not (root / "native-progress-roster.json").exists():
+            raise ValueError("declared native progress requires its frozen roster")
+        publish_progress()  # Validate bindings before any work is submitted.
+
     if workers == 1 or len(pairs) == 1:
         for pair in pairs:
             try:
@@ -556,7 +638,15 @@ def execute_pairs(
                 completed(pair, None, error, not_started=True)
                 break
             try:
-                result = _worker_execute_pair(*arguments(pair))
+                result = (
+                    _worker_execute_pair(
+                        *arguments(pair),
+                        progress_enabled=True,
+                        on_progress=publish_progress,
+                    )
+                    if progress_reader is not None
+                    else _worker_execute_pair(*arguments(pair))
+                )
             except Exception as error:
                 completed(pair, None, error)
             else:
@@ -578,7 +668,16 @@ def execute_pairs(
                     return False
                 try:
                     submitted(pair)
-                    active[pool.submit(_worker_execute_pair, *arguments(pair))] = pair
+                    future = (
+                        pool.submit(
+                            _worker_execute_pair,
+                            *arguments(pair),
+                            progress_enabled=True,
+                        )
+                        if progress_reader is not None
+                        else pool.submit(_worker_execute_pair, *arguments(pair))
+                    )
+                    active[future] = pair
                 except Exception as error:
                     completed(pair, None, error, not_started=True)
                     return False
@@ -588,7 +687,29 @@ def execute_pairs(
                 if not submit_next():
                     break
             while active:
-                future = next(concurrent.futures.as_completed(tuple(active)))
+                if progress_reader is None:
+                    ready = {next(concurrent.futures.as_completed(tuple(active)))}
+                else:
+                    ready, _ = concurrent.futures.wait(
+                        tuple(active),
+                        timeout=protocol["progress_policy"]["sample_seconds"],
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    try:
+                        publish_progress()
+                    except Exception:
+                        pass  # Recorded once; drain already-started worker outcomes.
+                if failure is not None:
+                    for pending, declaration in tuple(active.items()):
+                        if pending.cancel():
+                            active.pop(pending)
+                            completed(declaration, None, cancelled=True)
+                if not ready:
+                    continue
+                # Process one known outcome before considering another submission.
+                future = next(iter(ready))
+                if future not in active:
+                    continue
                 pair = active.pop(future)
                 try:
                     result = future.result()
@@ -605,6 +726,10 @@ def execute_pairs(
                             completed(declaration, None, cancelled=True)
                 else:
                     submit_next()
+    try:
+        publish_progress()
+    except Exception:
+        pass  # Retain every reconciled result when final progress publication fails.
     if failure is not None:
         raise RuntimeError(f"worker failure: {failure['type']}: {failure['message']}")
     return [groups[key] for key in roster if key in groups], closures
@@ -624,6 +749,12 @@ def execute(
         raise FileExistsError(
             "retain prior attempt; resume_from requires a new destination"
         )
+    progress_enabled = "progress_policy" in protocol
+    if progress_enabled or protocol["scope"] in {
+        "CONSUMED_2025_DEVELOPMENT_NONRL48_ONLY",
+        "ARTIFICIAL_SOFTWARE_INTEGRATION_ONLY",
+    }:
+        validate_progress_policy(protocol.get("progress_policy"))
     provenance = build_candidate_run_provenance()
     envelope = {
         "source_head": protocol["source_head"],
@@ -697,6 +828,27 @@ def execute(
         )
         write_json(root / "attempt.json", state, replace=True)
         append_log(root, "complete_matrix_frozen", arms=len(pairs) * 2)
+        if progress_enabled:
+            publish_roster(
+                root,
+                protocol,
+                tuple(
+                    ArmProgressSpec(
+                        pair.configuration,
+                        pair.account,
+                        pair.scenario,
+                        role,
+                        plan.digest,
+                        protocol["actor"]["start"],
+                        protocol["actor"]["stop"],
+                        protocol["terminal"]["stop_inclusive"],
+                    )
+                    for pair in pairs
+                    for role, plan in zip(
+                        ("nonrl", "cash"), pair.controls.plans, strict=True
+                    )
+                ),
+            )
 
         groups, closure = execute_pairs(root, pairs, prepared, tables, protocol, state)
         state["status"] = "COMPLETED"

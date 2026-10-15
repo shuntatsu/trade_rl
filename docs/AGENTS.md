@@ -189,6 +189,8 @@ uv run mypy tools/ppo_checkpoint_actions.py tools/tier_d_nonrl
 uv run pytest -q tests
 ```
 
+Windowsでrepository toolingを変更した場合は、Mypyに `--platform linux` を渡してLinux CIのOS固有stubでも検査する。Windows側のGreenだけでLinux専用・Windows専用attributeの互換性を判断しない。
+
 さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。PPO/SB3境界を含む変更では、PR-only `PPO Runtime` jobで`train-sb3` extraの実Stable-Baselines3/Torchを導入し、environment API・実rollout・interleaved fit・model save/loadをsmokeする。fake/mockだけをintegration oracleにしない。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
 
 Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。

@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+_WINDOWS_CREATE_NO_WINDOW: int = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 @dataclass(frozen=True)
 class ProcessUsage:
@@ -50,7 +52,7 @@ def windows_process_snapshot() -> tuple[ProcessUsage, ...]:
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
         text=True,
         timeout=10,
-        creationflags=subprocess.CREATE_NO_WINDOW,
+        creationflags=_WINDOWS_CREATE_NO_WINDOW,
     )
     rows = json.loads(output)
     if type(rows) is not list or len(rows) > 4096:
@@ -138,7 +140,7 @@ def terminate_owned_tree(process: subprocess.Popen[Any], tree: ProcessTree) -> N
             text=True,
             check=True,
             timeout=30,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=_WINDOWS_CREATE_NO_WINDOW,
         )
     if process.poll() is None:
         process.terminate()

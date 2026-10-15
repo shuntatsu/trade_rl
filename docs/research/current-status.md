@@ -157,6 +157,17 @@ profile does not provide economic admission. It is not a completed 48-arm run, a
 estimate, or a release byte-equivalence claim. One observation per case also
 does not support variance or asymptotic-scaling claims.
 
+The fixed artificial release fixture in
+`tests/evaluation/fixtures/issue888_release_v1/` retains the original compressed
+native plan and NONRL/CASH receipts. Public-reader regressions pin their
+compressed SHA-256 values and exact canonical round trips of the embedded native
+and terminal plans and receipts, preserving the original source and plan digests.
+This verifies reader compatibility only. It runs no Dataset preparation or native
+execution and does not establish historical execution equivalence. Cross-source
+plan/receipt byte equality also remains unresolved because implementation
+provenance binds the runtime source files; source pins must not be bypassed to
+claim equality.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

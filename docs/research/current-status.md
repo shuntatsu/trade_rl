@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-14 (JST)
+更新基準: 2026-10-15 (JST)
 
 ## 結論
 
@@ -23,11 +23,13 @@ receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの�
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
-Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了した。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attempt R1では、4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了した（README/CHECKPOINT記録上は4つのpublic preparation完了）。その後、Windows RSS（Resident Set Size）samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで全arm未着手であり、native replayとP&Lは実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。harness failureだけでdataを永久retireせず、同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後のTier D technical retry（R2）へ再利用された。
+
+2026-10-14のTier D technical retry R2は、同じ既消費Datasetと科学的recipeで4つのcost producer、4つのpublic preparation、4 configuration × 3 vintageの12 Ridge fitを完了し、48 native-arm declaration matrixを約19分で凍結した。最初のnative NONRL arm（実行予算6,599 advances）は約12.8分経過後も完了せず、throughputを理由にoperatorが停止した。すべてのarmが最初のNONRL armで停止までに経過した約12.8分を要すると仮定した単純外挿は48 armsで約10.2時間となるが、完了armの計測値に基づくものではなく、全matrixの実測完了時間や下限を示さない。他のarm、特にCASH armの所要時間は未測定である（実market CPU profileも未測定）。attempt全体は1905.938秒で`FAILED`となり、状態は1 `INTERRUPTED` / 47 `UNATTEMPTED`だった。完了したnative receipt、比較、resultはなく、P&L評価も未確定である。source inspectionとartificial-only profileではsource / stream serializationの反復が最適化候補として見つかったが、実market CPU profileは測定しておらず、実market速度への保証はない。安全性を確認したthroughput最適化は未実装で、科学的設定は変えていない。同じconsumed-development Datasetと固定recipeはTier D technical workに再利用できる。R1とR2のattempt、protocol、provenance、frozen planは[Issue #810 checkpoint snapshot](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue810-development-checkpoint-20261015)（ZIP SHA-256: `03bcbd613a516e9e0504d5c074297a896d3e680d87c29adcdbc2fad2d4dc1556`）に保存されている。prototype sourceはPR [#883](https://github.com/shuntatsu/trade_rl/pull/883)のhead commit `30c5ab54`（main未統合、169 commits ahead / 298 files差）へ固定されている。snapshotは入力Datasetを含まず、Windows固有pathとPowerShell CIM (Common Information Model) process samplingを含む。これはportable CLIやproduction APIの確立を示さず、main runtime sourceにも変更を加えていない。関連するpublic implementation PRは[#882](https://github.com/shuntatsu/trade_rl/pull/882)と[#883](https://github.com/shuntatsu/trade_rl/pull/883)。含まれる開発環境（Antigravity / AGY）による関数単位レビューは限定スコープの記録であり、whole-source approvalや実行認可ではない。
 
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
 
-Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、このtechnical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。
+Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、R1 / R2 technical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。Tier U、final evaluation、adoption、winner判定、Production/live routingの境界も変わっていない。
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 

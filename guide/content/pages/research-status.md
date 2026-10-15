@@ -6,11 +6,15 @@ Portable Controlled Experiment 0001は独立再検証まで完了し、formal de
 
 ## Task 18 Datasetの準備状況と次のゲート
 
-Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了しました。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
+Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。2026-10-14のR1では4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了しました（README/CHECKPOINT記録上は4つのpublic preparation完了）。その後、Windows RSS（Resident Set Size）samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。R1は177秒で`FAILED`となり、native比較は0 / 48 armsで全arm未着手でした。native replayとP&Lは実行していません。
+
+2026-10-14のR2は同じDatasetと科学的recipeで同じ4 preparationと12 Ridge fitを完了し、48 native-arm declaration matrixを約19分で凍結しました。最初のnative NONRL arm（実行予算6,599 advances）は約12.8分経過後も完了せず、throughputを理由にoperatorが停止しました。すべてのarmが最初のNONRL armで停止までに経過した約12.8分を要すると仮定した単純外挿は48 armsで約10.2時間ですが、完了armの計測値に基づくものではなく、全matrixの実測完了時間や下限を示しません。他のarm、特にCASH armの所要時間は未測定です（実market CPU profileも未測定）。attempt全体は1905.938秒で`FAILED`となり、1 armが`INTERRUPTED`、47 armsが`UNATTEMPTED`でした。完了receipt、比較、resultはなく、P&L評価も未確定です。source inspectionとartificial-only profileではsource / stream serializationの反復が最適化候補として見つかりましたが、実market CPU profileは未測定で、実market速度への保証はありません。安全性を確認したthroughput最適化はまだ実装しておらず、科学的設定も変えていません。同じconsumed-development Datasetと固定recipeはTier D technical workに再利用できます。
+
+[Issue #810 checkpoint snapshot](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue810-development-checkpoint-20261015)（ZIP SHA-256: `03bcbd613a516e9e0504d5c074297a896d3e680d87c29adcdbc2fad2d4dc1556`）は、prototype sourceをPR [#883](https://github.com/shuntatsu/trade_rl/pull/883)のhead commit `30c5ab54`（main未統合、169 commits ahead / 298 files差）へ固定し、R1 / R2のattemptとfrozen planを保持します。入力Datasetは含まず、prototypeはWindows固有pathとPowerShell CIM (Common Information Model) process samplingに結び付いています。portable CLIやproduction APIの確立を示すものではなく、main runtime sourceも変更していません。関連PRは[#882](https://github.com/shuntatsu/trade_rl/pull/882)と[#883](https://github.com/shuntatsu/trade_rl/pull/883)。含まれる開発環境（Antigravity / AGY）による関数単位レビューは限定スコープの記録で、whole-source approvalや実行認可ではありません。
 
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みですが、歴史的な市場実績へのcalibrationは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではありません。
 
-Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
+Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、R1 / R2によって変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。Tier U、final evaluation、adoption、winner判定、Production/live routingの境界も変わっていません。
 
 ## PPO中期保有期間の次期設計
 

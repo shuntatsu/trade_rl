@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import fsum
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -31,6 +31,10 @@ from trade_rl.evaluation.objectives import (
     BoundObjectiveClock,
     FinancialClockContract,
     net_equity_increment,
+)
+from trade_rl.evaluation.rl_allocation._native_progress import (
+    AllocationAdvanceObserver,
+    validate_advance_observer,
 )
 from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
@@ -286,6 +290,7 @@ def _observation(
     error: Exception | None = None,
     attempted: int | None = None,
     failure_stage: str | None = None,
+    observer_failed: bool = False,
 ) -> dict[str, Any]:
     rows = (
         []
@@ -337,7 +342,9 @@ def _observation(
         "schema": "allocation_terminal_runtime_observation_v2",
         "plan": plan.payload,
         "plan_digest": plan.digest,
-        "status": "economic_stop"
+        "status": "integrity_failure"
+        if observer_failed
+        else "economic_stop"
         if stopped or (native is not None and native["status"] == "economic_stop")
         else "integrity_failure"
         if error is not None
@@ -374,7 +381,17 @@ def run_terminal_allocation_execution(
     plan: TerminalAllocationExecutionPlan,
     *,
     forecast_controls: GlobalAllocationForecastControls | None = None,
+    on_advance: AllocationAdvanceObserver | None = None,
 ) -> ObservedTerminalAllocationExecution:
+    """Run the actor and reserved close with optional passive advance diagnostics.
+
+    ``on_advance(phase, start_index, processing_index)`` receives detached actor
+    or reserve primitives only after native validation, including final reserve
+    postflight. Observer failures retain the known frontier and primary error;
+    notifications remain provisional and the closed receipt reader is authority.
+    Omitting the observer preserves the ordinary execution path.
+    """
+    validate_advance_observer(on_advance)
     if type(plan) is not TerminalAllocationExecutionPlan:
         raise ValueError("terminal execution requires its exact frozen plan")
     plan.__post_init__()
@@ -388,20 +405,48 @@ def run_terminal_allocation_execution(
     opening = None
     attempted: int | None = None
     failure_stage = "prefix"
+    observer_failed = False
+    forwarded: AllocationAdvanceObserver | None = None
+    if on_advance is not None:
+        callback = on_advance
+
+        def observed_advance(
+            phase: Literal["actor", "reserve"], start: int, processing: int
+        ) -> None:
+            nonlocal observer_failed
+            try:
+                callback(phase, start, processing)
+            except Exception:
+                observer_failed = True
+                raise
+
+        forwarded = observed_advance
     try:
         native = run_declared_global_allocation_execution(
-            folds, env, plan.native_plan, forecast_controls=forecast_controls
+            folds,
+            env,
+            plan.native_plan,
+            forecast_controls=forecast_controls,
+            on_advance=forwarded,
         )
         opening = allocation_state_digest(env)
         if opening != native.receipt.payload["closing_state_digest"]:
             raise ValueError("terminal opening state differs from native prefix close")
         _provenance(plan)
         executor, risk = env.executor, env.risk
+        marked_book, marked_orders, marked_index = env.book, env.order_book, env.index
 
         def closing_binding() -> None:
             if env.executor is not executor or env.risk is not risk:
                 raise ValueError("terminal executor/risk instance changed")
             _closing_binding(env, plan)
+            if on_advance is not None and (
+                env.book is not marked_book
+                or env.order_book is not marked_orders
+                or env.index != marked_index
+                or allocation_state_digest(env) != opening
+            ):
+                raise ValueError("on_advance observer changed marked carrier")
 
         def note_stage(index: int, stage: str) -> None:
             nonlocal attempted, failure_stage
@@ -430,6 +475,7 @@ def run_terminal_allocation_execution(
             before_state=before_state,
             validate_binding=closing_binding,
             note_stage=note_stage,
+            on_advance=forwarded,
         ):
             facts, execution, target = step.native, step.execution, step.risk_target
             closing.append(
@@ -490,6 +536,13 @@ def run_terminal_allocation_execution(
                             error=error,
                             attempted=attempted,
                             failure_stage=failure_stage,
+                            observer_failed=observer_failed
+                            or (
+                                on_advance is not None
+                                and getattr(
+                                    error, "_allocation_advance_observer_failure", False
+                                )
+                            ),
                         )
                     )
                 ),

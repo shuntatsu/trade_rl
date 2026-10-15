@@ -1660,6 +1660,19 @@ and original error; an unreturned bar's fills are unknown. This is runtime
 software observation, not a Study evidence reader, approval or WINNER.
 The native MARKET latency0/2 and independent-symbol limits apply.
 
+The optional `on_advance` observer reports detached phase and native start/next
+indices after an actor or reserve advance passes its existing clock/source
+checks. Reserve notifications include the postflight after the final yielded
+row; reading the marked carrier's actor index cannot substitute for them.
+Notifications are provisional execution diagnostics. The strict terminal receipt
+reader still determines complete coverage, settlement and risk eligibility.
+An observer failure keeps the original exception and known native frontier;
+it cannot create a successful receipt or erase a failed bar. The callback owns
+no account, ledger, filesystem, heartbeat or stopping rule. Omitting it preserves
+the existing execution path. Caller-provided observation code must not mutate
+the financial inputs or account; bounded synchronous checks do not constitute
+a sandbox against arbitrary Python code or concurrent mutation.
+
 ### Closed-loop execution latency treatment
 
 The public scalar adapter and shared account observer admit only ordinary integer

@@ -110,6 +110,14 @@ advances. A full-size artificial scaling/profile, verified progress and a
 predeclared no-progress stop rule remain required before R3; the resource
 proposal is not a measured full-matrix runtime bound.
 
+A separate runtime progress prerequisite adds opt-in actor/reserve advance
+notifications to `allocation_terminal_execution`. It observes real validated
+native transitions rather than polling the marked carrier index. This alone
+does not complete Step 4: durable per-arm progress, a predeclared no-progress
+stop rule, bounded supervision and full-size artificial scaling/profile remain
+unimplemented or unmeasured. Callback diagnostics cannot replace strict receipt
+readback or authorize R3, market fits/replays, unused data or live routing.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

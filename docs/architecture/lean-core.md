@@ -784,6 +784,14 @@ content digest and checks reconstructed nested schemas, labels, variance, recipe
 and predictions; it neither refits nor independently authenticates the original
 fit or historical source availability.
 
+Concrete simple-return packet and stream payloads build each local snapshot or
+content once per access and derive their nested digests from that same content.
+They retain no payload or digest cache between accesses: returned nested values
+are detached, and later packet, model or training-trace mutations remain visible
+to the existing source-envelope and execution guards. Compatible subclasses keep
+their virtual digest-property behavior. This is serialization work reduction,
+not a change to forecast units, clocks, model values or economic accounting.
+
 `evaluation.forecast_allocation` checks Dataset lineage, symbol, selected feature
 names/values/availability and exact clocks. Packet close, Dataset close/mark and
 actual BookState mark must agree. Separate `HorizonCostEstimates` bind source,

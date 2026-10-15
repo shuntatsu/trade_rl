@@ -804,6 +804,19 @@ cost, source, clock and policy checks keep their existing timing. This is a
 single-process optimization, not protection against arbitrary hostile Python
 code or concurrent unsynchronized mutation.
 
+The repository Tier D runner publishes each forecast, frozen input, plan and
+receipt once into a fresh attempt destination. A technical retry preserves its
+read-only source attempt and may reuse only strictly restored, externally pinned
+complete artifacts. Corrupt or missing completed receipts fail closed; they are
+never replaced by replay or cash-zero placeholders. Failure in one parallel
+worker cannot erase another worker's completed or partial observations. The
+parent reconciles all started work before finalizing state under the single
+process-tree resource budget. Software CI and JSON review files alone do not
+authorize a market run or establish economic validity.
+Mutable index publication may retry the same closed staging file for a bounded
+Windows sharing lock; it never retries a native arm or regenerates its payload.
+Persistent publication failure retains the previous index and fails the attempt.
+
 `evaluation.forecast_allocation` checks Dataset lineage, symbol, selected feature
 names/values/availability and exact clocks. Packet close, Dataset close/mark and
 actual BookState mark must agree. Separate `HorizonCostEstimates` bind source,

@@ -1753,3 +1753,26 @@ tests. It never invokes the existing nine-case collector or any model solver.
 `tests/architecture/test_allocation_settled_native_comparison_boundary.py` checks
 the passive owners and the sole reset/step call sites. Existing native readers,
 learnability fixtures, CI selectors and public facades remain intact.
+
+## Tier D NONRL repository runner
+
+`tools/tier_d_nonrl/` owns the repository-only result-blind attempt driver and
+process-tree supervisor. It composes the existing forecast, cost, declaration,
+receipt and comparison APIs; it does not add a public trading facade, learner,
+ledger or authorization. Runtime outputs belong in explicit ignored attempt
+directories. Maintained source and tests participate in normal Ruff, tooling
+Mypy and full-test routing; generated review/protocol/report files do not become
+current source or approval.
+
+Attempts have a fresh destination. Reuse, when available, reads an immutable
+prior attempt through externally pinned source/protocol/provenance, frozen plans,
+forecasts, costs and receipts. A missing strict restoration path keeps reuse
+unavailable rather than declaring or fitting replacements. The parent owns state
+and summary publication; workers own disjoint immutable per-arm artifacts and
+return actual outcomes. Neither this owner nor its CI approval grants Tier D
+execution, unused/final access or live routing.
+
+Market supervision requires the Windows owned-process-tree sampler; unsupported
+platforms refuse before protocol or Dataset IO. The declared worker count bounds
+in-flight pairs under the aggregate sampled resource limit. Arm/pair diagnostics
+do not establish per-advance progress through the terminal reserve.

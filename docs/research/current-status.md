@@ -90,6 +90,26 @@ immutable, corrupt receipts must fail closed, and worker outcomes must reconcile
 before a fresh technical retry. The retained R1/R2 status and economic conclusions
 remain unchanged.
 
+## Tier D runner retention repair candidate (2026-10-15)
+
+The resumable/parallel prototype failed three pure JSON/gzip counterexamples:
+in-place reopening changed a retained attempt, receipt publication overwrote old
+bytes, and a corrupt receipt was swallowed before environment construction.
+Maintained runner work moves active source/tests into `tools/tier_d_nonrl` and
+normal test/type-check routing. Fresh destinations and exclusive artifacts are
+required; any reused result must pass strict frozen-plan and input restoration
+without refitting or replacing the old attempt's authority. Earlier R1/R2 files
+and failure dispositions remain unchanged. These are software repair oracles,
+not a new native market run or an approved full-matrix runtime budget. Resume,
+parallel shutdown, final-head gates and fresh independent source review remain
+acceptance requirements before another technical retry.
+
+Issue #888 Step 4 remains incomplete: arm/pair events do not measure the full
+6,599 native advances, and the actor index does not observe terminal-reserve
+advances. A full-size artificial scaling/profile, verified progress and a
+predeclared no-progress stop rule remain required before R3; the resource
+proposal is not a measured full-matrix runtime bound.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

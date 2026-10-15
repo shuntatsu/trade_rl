@@ -725,6 +725,10 @@ class MarketDataset:
     def identity_verified(self) -> bool:
         if self.identity_payload_json is None:
             return False
+        try:
+            self._validated_activity_array()
+        except ValueError:
+            return False
         payload = parse_identity_json(self.identity_payload_json)
         stored_contract = payload.get("dataset_contract")
         return (
@@ -747,7 +751,31 @@ class MarketDataset:
             "volume_units": tuple(value.value for value in self.volume_units),
         }
 
+    def _validated_activity_array(self) -> np.ndarray:
+        asset_active, symbol_active = self.asset_active, self.symbol_active
+        message = "dataset activity aliases must be matching boolean arrays"
+        if not isinstance(asset_active, np.ndarray) or not isinstance(
+            symbol_active, np.ndarray
+        ):
+            raise ValueError(message)
+        shape = (self.n_bars, self.n_symbols)
+        if (
+            type(asset_active) is not np.ndarray
+            or type(symbol_active) is not np.ndarray
+            or asset_active.dtype != np.dtype(np.bool_)
+            or symbol_active.dtype != np.dtype(np.bool_)
+            or asset_active.shape != shape
+            or symbol_active.shape != shape
+        ):
+            raise ValueError(message)
+        if asset_active is not symbol_active and not np.array_equal(
+            asset_active, symbol_active
+        ):
+            raise ValueError(message)
+        return asset_active
+
     def identity_arrays(self) -> dict[str, np.ndarray]:
+        activity = self._validated_activity_array()
         return {
             "timestamps": self.timestamps,
             "available_at": self.resolved_array("available_at"),
@@ -774,7 +802,7 @@ class MarketDataset:
             "funding_price_rate": self.resolved_array("funding_price_rate"),
             "funding_event_count": self.resolved_array("funding_event_count"),
             "tradable": self.tradable,
-            "symbol_active": self.resolved_array("symbol_active"),
+            "symbol_active": activity,
             "fee_rate": self.resolved_array("fee_rate"),
             "maker_fee_rate": self.resolved_array("maker_fee_rate"),
             "taker_fee_rate": self.resolved_array("taker_fee_rate"),

@@ -146,7 +146,7 @@ checkpoint. A checkpoint is diagnostic evidence, never a qualified receipt.
 The final profile still covers the whole returned native call. The v2 execution
 order starts with the profiled case, then runs the unprofiled 100/400/1,600 cases.
 
-At frozen source `63c58fccf53066d9d6f94f8bac455494b0e7b54b`, the earlier v1
+At frozen source `63c58fccf530`, the earlier v1
 100-advance case completed mechanically in 285.0056903 native seconds, with
 strict partial-receipt readback and successful owned-process supervision.
 This single artificial observation does not establish scaling order or a

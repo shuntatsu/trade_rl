@@ -9,15 +9,21 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict
+from types import SimpleNamespace
 
 import pytest
-from tier_d_process_tree import ProcessTree, ProcessTreeSample, windows_process_snapshot
-from tier_d_protocol import market_protocol
-from tier_d_records import initialize_attempt, write_json
+
+from tools.tier_d_nonrl.tier_d_process_tree import (
+    ProcessTree,
+    ProcessTreeSample,
+    windows_process_snapshot,
+)
+from tools.tier_d_nonrl.tier_d_protocol import market_protocol
+from tools.tier_d_nonrl.tier_d_records import initialize_attempt, write_json
 
 
 def api():
-    module = importlib.import_module("tier_d_supervisor")
+    module = importlib.import_module("tools.tier_d_nonrl.tier_d_supervisor")
     assert hasattr(module, "ProcessTree"), "descendant RSS ownership is missing"
     return module
 
@@ -55,6 +61,7 @@ def test_creation_identity_refuses_pid_reuse_and_impossible_parent_age():
 
 
 def test_nonzero_child_exit_finalizes_failed_without_invented_arm_receipts(tmp_path):
+    tmp_path = tmp_path / "attempt"
     state = initialize_attempt(tmp_path, market_protocol())
     assert state["status"] == "PREPARING"
     api().mark_attempt_failure(tmp_path, failure=None, returncode=7)
@@ -107,14 +114,18 @@ def test_actual_windows_redirector_memory_and_owned_leaf_termination(tmp_path):
         owned_members_remaining=0,
         child_returncode=process.returncode,
     )
-    write_json(tmp_path / "actual-process-tree.json", observation)
+    write_json(tmp_path / "actual-process-tree.json", observation, replace=True)
 
 
 def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
     tmp_path, monkeypatch
 ):
     module = api()
+    monkeypatch.setattr(module, "os", SimpleNamespace(name="nt", environ=os.environ))
     root = tmp_path / "supervised-fake-cim-failure"
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    protocol = market_protocol()
+    monkeypatch.setattr(module, "market_protocol", lambda **kwargs: protocol)
     owned_cleanup_calls = []
 
     class FakeProcess:
@@ -124,7 +135,7 @@ def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
         reaped = False
 
         def __enter__(self):
-            initialize_attempt(root, market_protocol())
+            initialize_attempt(root / "attempt", protocol)
             return self
 
         def __exit__(self, *args):
@@ -171,7 +182,7 @@ def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
     assert module.supervised_run("synthetic", root, None) == 1
     assert owned_cleanup_calls == [True]
     assert not process.leaf_alive and process.reaped
-    state = json.loads((root / "attempt.json").read_text())
+    state = json.loads((root / "attempt/attempt.json").read_text())
     assert state["status"] == "FAILED"
     assert all(row["state"] == "UNATTEMPTED" for row in state["arms"])
 
@@ -182,12 +193,13 @@ def test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated(
 ):
     module = api()
     root = tmp_path / "supervised-actual-cim-failure"
+    monkeypatch.setattr(module, "ROOT", tmp_path)
     original_popen = subprocess.Popen
     observed = {}
     child_code = (
         "import json,pathlib,sys,time; "
         "payload=bytearray(24*1024*1024); "
-        "root=pathlib.Path(sys.argv[1]); "
+        "root=pathlib.Path(sys.argv[1]); root.mkdir(); "
         "root.joinpath('attempt.json').write_text(json.dumps({'status':'PREPARING','arms':"
         "[{'state':'UNATTEMPTED','receipt':None} for _ in range(48)]})); "
         "root.joinpath('ready.txt').write_text('ready'); time.sleep(30)"
@@ -199,9 +211,10 @@ def test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated(
     unrelated_tree.sample()
 
     def launch(command, **kwargs):
-        if len(command) >= 3 and str(command[2]).endswith("tier_d_runner.py"):
+        if len(command) >= 4 and command[2:4] == ["-m", "tools.tier_d_nonrl"]:
             worker = original_popen(
-                [sys.executable, "-B", "-c", child_code, str(root)], **kwargs
+                [sys.executable, "-B", "-c", child_code, str(root / "attempt")],
+                **kwargs,
             )
             observed["worker"] = worker
             return worker
@@ -212,7 +225,10 @@ def test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated(
             if self.last_sample is not None:
                 raise OSError("injected persistent CIM monitoring failure")
             deadline = time.monotonic() + 10
-            while not (root / "ready.txt").exists() and time.monotonic() < deadline:
+            while (
+                not (root / "attempt/ready.txt").exists()
+                and time.monotonic() < deadline
+            ):
                 time.sleep(0.05)
             sample = super().sample()
             observed["owned"] = sample.members
@@ -229,7 +245,7 @@ def test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated(
         assert leftovers == []
         assert observed["worker"].returncode is not None
         assert unrelated.poll() is None
-        state = json.loads((root / "attempt.json").read_text())
+        state = json.loads((root / "attempt/attempt.json").read_text())
         assert state["status"] == "FAILED"
         assert all(
             row["state"] == "UNATTEMPTED" and row["receipt"] is None

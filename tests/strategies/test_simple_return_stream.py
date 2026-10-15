@@ -582,7 +582,7 @@ def test_reader_rejects_wrong_owner_values_after_all_packet_hashes_are_recompute
         )
 
 
-def test_stream_precalculated_digests_match_fresh_content_digests() -> None:
+def test_stream_digests_match_fresh_content_digests() -> None:
     api = load_api()
     stream = fit(api)
     assert stream.digest == content_digest(stream.payload())

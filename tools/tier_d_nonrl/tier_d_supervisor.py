@@ -13,19 +13,21 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from tier_d_process_tree import ProcessTree, terminate_owned_tree
-from tier_d_process_tree import ProcessUsage as ProcessUsage
-from tier_d_protocol import (
+from .tier_d_process_tree import ProcessTree, terminate_owned_tree
+from .tier_d_process_tree import ProcessUsage as ProcessUsage
+from .tier_d_protocol import (
     IMPLEMENTATION_MODEL,
     REPO,
     ROOT,
-    SOURCE_HEAD,
     TASK_ID,
     json_sha256,
     market_protocol,
+    source_head,
     source_pins,
+    validate_committed_source,
+    worker_count,
 )
-from tier_d_records import append_log, output_manifest, write_json
+from .tier_d_records import append_log, output_manifest, write_json
 
 
 def process_rss(process: subprocess.Popen[Any]) -> int:
@@ -46,36 +48,82 @@ def mark_attempt_failure(
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state.update(status="FAILED", supervisor_failure=reason)
         for slot in state["arms"]:
-            if slot["state"] == "RUNNING":
+            if slot["state"] in {"RUNNING", "SUBMITTED"}:
                 slot["state"] = "INTERRUPTED"
-        write_json(state_path, state)
+        write_json(state_path, state, replace=True)
 
 
-def supervised_run(mode: str, root: Path, review_path: Path | None) -> int:
-    from tier_d_runner import validate_external_review
-
-    protocol = market_protocol()
-    if mode == "market":
-        validate_external_review(review_path, protocol)
-    root = root.resolve()
-    if not root.is_relative_to(ROOT) or root == ROOT:
-        raise ValueError("attempt outputs must stay below the assigned ignored scope")
-    root.mkdir(parents=True, exist_ok=False)
+def worker_command(
+    mode: str,
+    root: Path,
+    review_path: Path | None,
+    *,
+    protocol_path: Path | None = None,
+    resume_from: Path | None = None,
+    max_workers: int = 1,
+) -> list[str]:
     command = [
         sys.executable,
         "-B",
-        str(ROOT / "tier_d_runner.py"),
+        "-m",
+        "tools.tier_d_nonrl",
         "--worker",
         "--mode",
         mode,
         "--attempt-root",
         str(root),
+        "--max-workers",
+        str(worker_count(max_workers)),
     ]
-    if review_path is not None:
-        command += ["--review-record", str(review_path.resolve())]
+    for flag, path in (
+        ("--review-record", review_path),
+        ("--protocol", protocol_path),
+        ("--resume-from", resume_from),
+    ):
+        if path is not None:
+            command += [flag, str(path.resolve())]
+    return command
+
+
+def supervised_run(
+    mode: str,
+    root: Path,
+    review_path: Path | None,
+    *,
+    protocol_path: Path | None = None,
+    resume_from: Path | None = None,
+    max_workers: int | None = None,
+) -> int:
+    if mode == "market" and os.name != "nt":
+        raise ValueError(
+            "market supervision requires Windows aggregate process-tree monitoring"
+        )
+    from .tier_d_runner import load_market_protocol, validate_external_review
+
+    protocol = (
+        load_market_protocol(protocol_path, max_workers=max_workers)
+        if mode == "market"
+        else market_protocol(max_workers=max_workers or 1)
+    )
+    if mode == "market":
+        validate_external_review(review_path, protocol)
+        validate_committed_source(protocol)
+    root = root.resolve()
+    if not root.is_relative_to(ROOT) or root == ROOT:
+        raise ValueError("attempt outputs must stay below the assigned ignored scope")
+    root.mkdir(parents=True, exist_ok=False)
+    artifact_root = root / "attempt"
+    command = worker_command(
+        mode,
+        artifact_root,
+        review_path,
+        protocol_path=protocol_path,
+        resume_from=resume_from,
+        max_workers=protocol["concurrency"]["max_workers"],
+    )
     environment = os.environ | {
         "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONPATH": os.pathsep.join((str(ROOT), str(REPO))),
+        "PYTHONPATH": str(REPO),
     }
     budget = protocol["resource_proposal"]
     started, peak_rss, failure = time.monotonic(), 0, None
@@ -202,9 +250,16 @@ def supervised_run(mode: str, root: Path, review_path: Path | None) -> int:
         "final_disk_bytes": final_disk,
         "limits": budget,
         "measurement": "observed for this attempt only; no market benchmark",
+        "attempt_root": str(artifact_root),
     }
     write_json(root / "supervisor.json", report)
-    mark_attempt_failure(root, failure=failure, returncode=returncode)
+    mark_attempt_failure(artifact_root, failure=failure, returncode=returncode)
+    if artifact_root.exists():
+        write_json(
+            artifact_root / "output-manifest.json",
+            output_manifest(artifact_root),
+            replace=True,
+        )
     write_json(root / "output-manifest.json", output_manifest(root))
     print(f"{report['status']}: {root}", flush=True)
     return 1 if report["status"] == "FAILED" else 0
@@ -217,45 +272,70 @@ def main() -> None:
     )
     parser.add_argument("--attempt-root", type=Path)
     parser.add_argument("--review-record", type=Path)
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        help="exact frozen source declaration; required for market",
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        help="read-only prior worker attempt, not its supervisor container",
+    )
+    parser.add_argument("--max-workers", type=int, choices=range(1, 7), default=None)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args()
     if arguments.mode == "source":
-        protocol = market_protocol()
-        write_json(ROOT / "protocol.json", protocol)
+        root = arguments.attempt_root or ROOT / f"source-{uuid4().hex[:12]}"
+        root.mkdir(parents=True, exist_ok=False)
+        protocol = market_protocol(max_workers=arguments.max_workers or 1)
+        write_json(root / "protocol.json", protocol)
         write_json(
-            ROOT / "implementation-harness-provenance.json",
+            root / "implementation-harness-provenance.json",
             {
                 "task_id": TASK_ID,
-                "source_head": SOURCE_HEAD,
+                "source_head": source_head(),
                 "configured_model": IMPLEMENTATION_MODEL,
                 "configured_reasoning_effort": "max",
                 "evidence": "coordinator harness configuration only; provider weights are not observable",
                 "protocol_digest": json_sha256(protocol),
                 "source_sha256": source_pins(),
-                "economic_run": "NEW_CONTROL_SOURCE_ATTEMPT_NOT_STARTED; ROOT different-model review prerequisite",
-                "preserved_prior_actual_attempt": {
-                    "attempt": "market-20261014T1305Z",
-                    "status": "FAILED_RESOURCE_SUPERVISION",
-                    "cost_producers_completed": 4,
-                    "public_preparations_completed": 4,
-                    "ridge_vintages_completed": 12,
-                    "native_arms": "48 UNATTEMPTED; no replay/PnL",
-                },
+                "candidate_execution": "NOT_STARTED; fresh exact-source review required",
+                "history": "Prior failed R1/R2 attempts remain preserved separately; this source declaration does not reclassify or authorize them",
             },
         )
-        print(f"Result-blind source only: {ROOT / 'protocol.json'}")
+        print(f"Result-blind source only: {root / 'protocol.json'}")
         return
     if arguments.worker:
-        from tier_d_runner import run_market, run_synthetic
+        from .tier_d_runner import run_market, run_synthetic
 
         if arguments.attempt_root is None:
             raise ValueError("worker needs an explicit attempt root")
         if arguments.mode == "market":
-            run_market(arguments.attempt_root, review_path=arguments.review_record)
+            run_market(
+                arguments.attempt_root,
+                review_path=arguments.review_record,
+                protocol_path=arguments.protocol,
+                resume_from=arguments.resume_from,
+                max_workers=arguments.max_workers,
+            )
         else:
-            run_synthetic(arguments.attempt_root)
+            run_synthetic(
+                arguments.attempt_root,
+                resume_from=arguments.resume_from,
+                max_workers=arguments.max_workers or 1,
+            )
         return
     attempt_root = arguments.attempt_root or ROOT / (
         f"{arguments.mode}-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
     )
-    sys.exit(supervised_run(arguments.mode, attempt_root, arguments.review_record))
+    sys.exit(
+        supervised_run(
+            arguments.mode,
+            attempt_root,
+            arguments.review_record,
+            protocol_path=arguments.protocol,
+            resume_from=arguments.resume_from,
+            max_workers=arguments.max_workers,
+        )
+    )

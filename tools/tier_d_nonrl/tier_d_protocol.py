@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent
-REPO = ROOT.parent.parent
-SOURCE_HEAD = "30c5ab54fdb9db7f03b947c1687a09c8b929c461"
+PACKAGE = Path(__file__).resolve().parent
+REPO = PACKAGE.parent.parent
+ROOT = REPO / "output/tier-d-nonrl"
 IMPLEMENTATION_MODEL = "gpt-6.1-sol"
+IMPLEMENTATION_MODELS = (IMPLEMENTATION_MODEL, "gpt-6-luna")
 TASK_ID = "/root/tier_d_nonrl_runner_worker"
 DATASET_ROOT = Path(
     "C:/dev/trade_rl/.worktrees/nonrl-market-development-20261012/output/"
@@ -45,23 +47,72 @@ def json_sha256(payload: Any) -> str:
 
 
 def source_pins() -> dict[str, str]:
-    return {path.name: file_sha256(path) for path in sorted(ROOT.glob("tier_d_*.py"))}
+    return {
+        path.relative_to(PACKAGE).as_posix(): file_sha256(path)
+        for path in sorted(PACKAGE.rglob("*.py"))
+    }
+
+
+def source_head() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
+    ).strip()
+
+
+def validate_committed_source(protocol: dict[str, Any]) -> None:
+    """Market admission requires this frozen committed source before data IO."""
+    if source_head() != protocol["source_head"]:
+        raise ValueError(
+            "frozen protocol source HEAD changed; use a fresh reviewed attempt"
+        )
+    if subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"], cwd=REPO
+    ).strip():
+        raise ValueError("market execution requires a clean tracked tree")
+    current = {
+        path.relative_to(REPO).as_posix(): path for path in PACKAGE.rglob("*.py")
+    }
+    tracked = {
+        name.decode()
+        for name in subprocess.check_output(
+            ["git", "ls-files", "-z", "--", PACKAGE.relative_to(REPO).as_posix()],
+            cwd=REPO,
+        ).split(b"\0")
+        if name and name.endswith(b".py")
+    }
+    if not current or set(current) != tracked:
+        raise ValueError("every maintained runner Python file must be tracked")
+    for relative, path in current.items():
+        committed = subprocess.check_output(
+            ["git", "show", f"HEAD:{relative}"], cwd=REPO
+        )
+        if path.is_symlink() or hashlib.sha256(committed).hexdigest() != file_sha256(
+            path
+        ):
+            raise ValueError("runner source bytes differ from the committed HEAD")
+
+
+def worker_count(value: int) -> int:
+    if type(value) is not int or not 1 <= value <= 6:
+        raise ValueError("concurrency max_workers must be an integer within 1..6")
+    return value
 
 
 def configuration_id(horizon: int, alpha: float) -> str:
     return f"H{horizon}_RIDGE_A{alpha:g}"
 
 
-def market_protocol() -> dict[str, Any]:
+def market_protocol(*, max_workers: int = 1) -> dict[str, Any]:
     accounts = [
         f"{configuration_id(horizon, alpha)}_{symbol}"
         for horizon, alpha in CONFIGURATIONS
         for symbol in ("BTCUSDT", "ETHUSDT")
     ]
     return {
-        "schema": "issue810_tier_d_nonrl48_result_blind_v1",
+        "schema": "issue810_tier_d_nonrl48_result_blind_v2",
         "scope": "CONSUMED_2025_DEVELOPMENT_NONRL48_ONLY",
-        "source_head": SOURCE_HEAD,
+        "source_head": source_head(),
+        "concurrency": {"max_workers": worker_count(max_workers)},
         "dataset": {
             "root": str(DATASET_ROOT),
             "dataset_id": DATASET_ID,
@@ -200,8 +251,9 @@ def market_protocol() -> dict[str, Any]:
             "wall_seconds": 3600,
             "sample_seconds": 10,
             "semantics": "Windows owned process-tree RSS including redirector descendants; sampled stop; overshoot possible",
-            "storage": "gzip full raw receipts; one matched pair retained in RAM at a time",
-            "limitations": "native APIs retain one arm in RAM; no performance benchmark",
+            "maximum_inflight_pairs": max_workers,
+            "storage": "gzip full raw receipts; matched pairs retained by at most the declared in-flight worker count",
+            "limitations": "native APIs retain arm receipts in active workers; full-matrix feasibility and per-reserve progress are not established",
         },
         "decision": {
             "primary": "terminal after-cost NONRL minus matched CASH wealth / V0",

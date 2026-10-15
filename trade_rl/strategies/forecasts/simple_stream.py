@@ -128,8 +128,6 @@ class SimpleReturnPacket:
     valuation_basis: str = "same_close_price_return"
     variance_kind: str = "fit_prefix_marginal_variance"
     forecast_kind: str = "regularized_linear_projection"
-    _snapshot_digest: str = dataclass_field(init=False, repr=False)
-    _digest: str = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.symbol, str) or not self.symbol.strip():
@@ -198,8 +196,6 @@ class SimpleReturnPacket:
             "decision_close",
         ):
             object.__setattr__(self, field, float(getattr(self, field)))
-        object.__setattr__(self, "_snapshot_digest", content_digest(self._snapshot()))
-        object.__setattr__(self, "_digest", content_digest(self._content()))
 
     def _snapshot(self) -> dict[str, object]:
         return {
@@ -212,14 +208,20 @@ class SimpleReturnPacket:
 
     @property
     def snapshot_digest(self) -> str:
-        digest = getattr(self, "_snapshot_digest", None)
-        return content_digest(self._snapshot()) if digest is None else digest
+        return content_digest(self._snapshot())
 
     def _content(self) -> dict[str, object]:
+        snapshot = self._snapshot()
+        # Keep virtual digest properties observable on compatible subclasses.
+        snapshot_digest = (
+            content_digest(snapshot)
+            if type(self) is SimpleReturnPacket
+            else self.snapshot_digest
+        )
         return {
             "schema": "simple_return_packet_v1",
-            **self._snapshot(),
-            "snapshot_digest": self.snapshot_digest,
+            **snapshot,
+            "snapshot_digest": snapshot_digest,
             "forecast_available_at": _ns(self.forecast_available_at),
             "horizon_end": _ns(self.horizon_end),
             "horizon_seconds": self.horizon_seconds,
@@ -234,11 +236,14 @@ class SimpleReturnPacket:
 
     @property
     def digest(self) -> str:
-        digest = getattr(self, "_digest", None)
-        return content_digest(self._content()) if digest is None else digest
+        return content_digest(self._content())
 
     def payload(self) -> dict[str, object]:
-        return {**self._content(), "digest": self.digest}
+        content = self._content()
+        digest = (
+            content_digest(content) if type(self) is SimpleReturnPacket else self.digest
+        )
+        return {**content, "digest": digest}
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,8 +251,6 @@ class FrozenSimpleReturnStream:
     dataset_id: str
     vintages: tuple[SimpleReturnVintage, ...]
     packets: tuple[SimpleReturnPacket, ...]
-    _causal_scope_digest: str = dataclass_field(init=False, repr=False)
-    _digest: str = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
@@ -309,21 +312,6 @@ class FrozenSimpleReturnStream:
                 raise ValueError("simple packet disagrees with the frozen projection")
         if used != set(owners):
             raise ValueError("each simple vintage must have recorded predictions")
-        causal_scope = content_digest(self._causal_content())
-        object.__setattr__(self, "_causal_scope_digest", causal_scope)
-        object.__setattr__(
-            self,
-            "_digest",
-            content_digest(
-                {
-                    "schema": "simple_return_ridge_stream_v1",
-                    "availability_semantics": "declared_simulation_v1",
-                    "dataset_id": self.dataset_id,
-                    **self._causal_content(),
-                    "causal_scope_digest": causal_scope,
-                }
-            ),
-        )
 
     def _causal_content(self) -> dict[str, object]:
         return {
@@ -333,22 +321,26 @@ class FrozenSimpleReturnStream:
 
     @property
     def causal_scope_digest(self) -> str:
-        digest = getattr(self, "_causal_scope_digest", None)
-        return content_digest(self._causal_content()) if digest is None else digest
+        return content_digest(self._causal_content())
 
     def payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema": "simple_return_ridge_stream_v1",
             "availability_semantics": "declared_simulation_v1",
             "dataset_id": self.dataset_id,
-            **self._causal_content(),
-            "causal_scope_digest": self.causal_scope_digest,
         }
+        causal_content = self._causal_content()
+        payload.update(causal_content)
+        payload["causal_scope_digest"] = (
+            content_digest(causal_content)
+            if type(self) is FrozenSimpleReturnStream
+            else self.causal_scope_digest
+        )
+        return payload
 
     @property
     def digest(self) -> str:
-        digest = getattr(self, "_digest", None)
-        return content_digest(self.payload()) if digest is None else digest
+        return content_digest(self.payload())
 
     @classmethod
     def from_payload(

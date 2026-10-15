@@ -5,10 +5,10 @@ from __future__ import annotations
 from math import fsum, isclose, sqrt
 from typing import Any
 
-from tier_d_protocol import CAPITAL
-
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.execution import ExecutionCostConfig
+
+from .tier_d_protocol import CAPITAL
 
 
 def ledger_decomposition(

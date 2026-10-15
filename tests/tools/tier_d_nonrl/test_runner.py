@@ -1,4 +1,4 @@
-"""Artificial integration checks for the ignored Tier D driver only."""
+"""Artificial integration checks for the maintained development driver."""
 
 from __future__ import annotations
 
@@ -8,15 +8,20 @@ import json
 from pathlib import Path
 
 import pytest
-from tier_d_fixture import write_artificial_dataset
-from tier_d_native import cost_rows, execution_cost, synthetic_protocol
+
+from tools.tier_d_nonrl.tier_d_fixture import write_artificial_dataset
+from tools.tier_d_nonrl.tier_d_native import (
+    cost_rows,
+    execution_cost,
+    synthetic_protocol,
+)
 
 
 def driver():
-    assert importlib.util.find_spec("tier_d_runner") is not None, (
+    assert importlib.util.find_spec("tools.tier_d_nonrl.tier_d_runner") is not None, (
         "Tier D bounded public-API driver is missing"
     )
-    return importlib.import_module("tier_d_runner")
+    return importlib.import_module("tools.tier_d_nonrl.tier_d_runner")
 
 
 def test_result_blind_protocol_declares_the_complete_48_arm_budget():
@@ -39,6 +44,7 @@ def test_result_blind_protocol_declares_the_complete_48_arm_budget():
 
 
 def test_artificial_h72_pair_uses_native_continuous_books_and_latency2(tmp_path):
+    tmp_path = tmp_path / "attempt"
     result = driver().run_synthetic(tmp_path)
     assert result["scope"] == "ARTIFICIAL_SOFTWARE_INTEGRATION_ONLY"
     assert result["completed_arms"] == 2
@@ -86,8 +92,9 @@ def test_market_invocation_refuses_before_real_input_without_external_review(tmp
 
 def test_unattempted_arm_cannot_be_replaced_by_a_cash_zero(tmp_path):
     module = driver()
-    module.initialize_attempt(tmp_path, module.market_protocol())
-    roster = json.loads((tmp_path / "attempt.json").read_text(encoding="utf-8"))
+    attempt_root = tmp_path / "attempt"
+    module.initialize_attempt(attempt_root, module.market_protocol())
+    roster = json.loads((attempt_root / "attempt.json").read_text(encoding="utf-8"))
     assert len(roster["arms"]) == 48
     assert all(row["state"] == "UNATTEMPTED" for row in roster["arms"])
     assert all(row["receipt"] is None for row in roster["arms"])
@@ -96,8 +103,8 @@ def test_unattempted_arm_cannot_be_replaced_by_a_cash_zero(tmp_path):
 def test_output_directory_is_inside_the_assigned_ignored_scope():
     module = driver()
     root = Path(module.__file__).resolve().parent
-    assert root.name == "issue810-tier-d-nonrl-preparation"
-    assert root.parent.name == "output"
+    assert root.name == "tier_d_nonrl"
+    assert root.parent.name == "tools"
 
 
 def test_cost2_doubles_only_execution_rates_with_nonzero_artificial_carry(tmp_path):
@@ -123,13 +130,14 @@ def test_cost2_doubles_only_execution_rates_with_nonzero_artificial_carry(tmp_pa
 
 
 def test_technical_failure_retains_failed_and_unattempted_slots(tmp_path, monkeypatch):
+    tmp_path = tmp_path / "attempt"
     module = driver()
 
     def fail(*args, **kwargs):
         raise OSError("artificial injected native-call failure")
 
     monkeypatch.setattr(module, "run_terminal_allocation_execution", fail)
-    with pytest.raises(OSError, match="artificial injected"):
+    with pytest.raises(RuntimeError, match="artificial injected"):
         module.run_synthetic(tmp_path)
     state = json.loads((tmp_path / "attempt.json").read_text(encoding="utf-8"))
     assert state["status"] == "FAILED"
@@ -141,27 +149,28 @@ def test_technical_failure_retains_failed_and_unattempted_slots(tmp_path, monkey
 
 def test_synthetic_run_can_resume_and_reuse_completed_receipts(tmp_path):
     module = driver()
-    r1 = module.run_synthetic(tmp_path)
-    assert r1["completed_arms"] == 2
-
-    # Second execution: resume=True should reuse existing receipts
-    r2 = module.run_synthetic(tmp_path, resume=True)
-    assert r2["completed_arms"] == 2
+    source, destination = tmp_path / "first", tmp_path / "second"
+    r1 = module.run_synthetic(source)
+    before = {
+        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
+    }
+    r2 = module.run_synthetic(destination, resume_from=source)
+    assert r1["completed_arms"] == r2["completed_arms"] == 2
     assert r1["matrix_digest"] == r2["matrix_digest"]
     assert r1["pairs"] == r2["pairs"]
     assert r1["combined_ranking"] == r2["combined_ranking"]
-
-    # Verify attempt_resumed and arm_reused in progress log
-    events = [
-        json.loads(line)["event"]
-        for line in (tmp_path / "progress.jsonl").read_text(encoding="utf-8").splitlines()
-        if line
-    ]
-    assert "attempt_resumed" in events
-    assert "arm_reused" in events
+    assert r2["public_calls"]["cost_producers"] == 0
+    assert r2["public_calls"]["prepare_calls"] == 0
+    assert r2["public_calls"]["ridge_vintages"] == 0
+    assert {
+        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
+    } == before
+    assert (destination / "resume.json").is_file()
+    assert "arm_reused" in (destination / "progress.jsonl").read_text()
 
 
 def test_synthetic_run_supports_parallel_execution(tmp_path, monkeypatch):
+    tmp_path = tmp_path / "attempt"
     module = driver()
     original_synthetic_protocol = module.synthetic_protocol
 
@@ -170,6 +179,7 @@ def test_synthetic_run_supports_parallel_execution(tmp_path, monkeypatch):
         p["scenarios"] = ["BASEL0", "BASEL2"]
         p["budget"]["native_arms"] = 4
         p["concurrency"] = {"max_workers": 2}
+        p["resource_proposal"]["maximum_inflight_pairs"] = 2
         return p
 
     monkeypatch.setattr(module, "synthetic_protocol", multi_pair_protocol)
@@ -178,9 +188,9 @@ def test_synthetic_run_supports_parallel_execution(tmp_path, monkeypatch):
     assert len(result["pairs"]) == 2
     events = [
         json.loads(line)["event"]
-        for line in (tmp_path / "progress.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (tmp_path / "progress.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line
     ]
     assert "parallel_execution_started" in events
-
-

@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-05 (JST)
+更新基準: 2026-10-15 (JST)
 
 ## Issue #810: signed insolvency software candidate
 
@@ -39,9 +39,11 @@ suffix mutation must leave causal identities unchanged, while the whole-Dataset
 lineage ID may change. The #810 trading path uses the separately versioned
 direct-simple forecast stream through the common allocator/risk/execution path.
 
-This is a partial P2 implementation. The default horizon remains 24h; no 72h
-economic comparison, parameter selection or real-data fit/replay has been
-performed for this capability. Forecast completion/latency are declared
+This is a partial P2 implementation. The default horizon remains 24h. Later
+consumed-development Task18 preparations fitted H24/H72 vintages, but the
+48-arm NONRL/CASH comparison remains incomplete; see the checkpoint below.
+No complete economic comparison or parameter selection is established.
+Forecast completion/latency are declared
 simulation assumptions, not measured receipts. The source only admits inputs
 available on their Dataset row; it does not recover delayed feature histories.
 Log-return forecasts and the current cost proxy do not establish expected simple
@@ -56,6 +58,72 @@ guardrail remains 20%; there is no new winner, final-data opening or live-order
 authorization. See the result-blind mechanism contract in
 `architecture/research-assurance.md`.
 
+## Simple-return serialization repair (2026-10-15)
+
+The [Issue #810 development checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue810-development-checkpoint-20261015)
+retains the failed R2 attempt: twelve fitted vintages and a frozen 48-arm
+matrix, followed by one interrupted native arm and 47 unattempted arms.
+R2 followed the earlier sampler-failure attempt on 2026-10-14 UTC; the
+2026-10-15 checkpoint date records publication rather than execution.
+No completed native receipt, matched comparison or market result was returned.
+
+An artificial source-only oracle reproduced eight snapshot constructions per
+packet when obtaining a stream payload. The bounded repair reduces that to one
+for concrete packet/stream classes while retaining identical canonical bytes,
+fresh nested payloads, subclass behavior and the per-transition mutation guards.
+There is no persistent cache. This is software evidence; full-matrix throughput
+and profitability are not established by that call-count reduction. No economic
+parameter, fee/funding calibration, Tier U restriction or PPO learnability
+disposition changes. Fresh exact-source review and validation remain necessary
+before another market-data attempt.
+
+An unconditional persistent-digest candidate failed artificial mutation checks:
+a changed future packet retained its old stream digest and passed the collector's
+source check; a subclass scope override also broke digest/payload agreement.
+That candidate is replaced by the canonical public record behavior above and a
+private collector-owned, run-local memo that checks current values at every
+existing boundary. Synthetic golden plan/receipt equality, mutation and fallback
+regressions are required; the optimization does not authorize another market run.
+The earlier throughput extrapolations are not measured full-arm runtime bounds.
+The resumable/parallel driver remains under audit: old failed attempts must remain
+immutable, corrupt receipts must fail closed, and worker outcomes must reconcile
+before a fresh technical retry. The retained R1/R2 status and economic conclusions
+remain unchanged.
+
+## Tier D runner retention repair candidate (2026-10-15)
+
+The resumable/parallel prototype failed three pure JSON/gzip counterexamples:
+in-place reopening changed a retained attempt, receipt publication overwrote old
+bytes, and a corrupt receipt was swallowed before environment construction.
+Maintained runner work moves active source/tests into `tools/tier_d_nonrl` and
+normal test/type-check routing. Fresh destinations and exclusive artifacts are
+required; any reused result must pass strict frozen-plan and input restoration
+without refitting or replacing the old attempt's authority. Earlier R1/R2 files
+and failure dispositions remain unchanged. These are software repair oracles,
+not a new native market run or an approved full-matrix runtime budget. Resume,
+parallel shutdown, final-head gates and fresh independent source review remain
+acceptance requirements before another technical retry.
+
+Issue #888 Step 4 remains incomplete: arm/pair events do not measure the full
+6,599 native advances, and the actor index does not observe terminal-reserve
+advances. A full-size artificial scaling/profile, verified progress and a
+predeclared no-progress stop rule remain required before R3; the resource
+proposal is not a measured full-matrix runtime bound.
+
+## Generic software PR review policy (2026-10-14)
+
+[Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
+
+receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
+## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
+
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了した。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
+
+比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
+
+Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、このtechnical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。
+
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 
 利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。
@@ -66,7 +134,7 @@ prefixで選定したconfigを凍結し、同じevaluation windowにbase、`Exec
 
 初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
 
-fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、実装と異なるconfigured AIモデルのexact-HEAD receiptによる正式PR reviewへ自動昇格しない。
 
 ## Quantity-preserving hold repair (2026-10-05)
 
@@ -110,7 +178,7 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 
 実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
 
-このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
+このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認は、実装と異なるconfigured AIモデルのexact-HEAD receiptによる必須PR approvalへ自動昇格しない。
 
 ## Trading-bot tuning contract correction (2026-10-02)
 

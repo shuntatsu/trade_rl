@@ -98,6 +98,41 @@ def test_lower_collector_is_concrete_and_not_a_second_callback_protocol():
     )
 
 
+def test_stream_memo_is_private_and_does_not_own_execution_or_persistence():
+    path = ROOT / "trade_rl/evaluation/rl_allocation/_simple_stream_digest.py"
+    tree = ast.parse(path.read_text("utf-8"))
+    imports = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not any(
+        name.startswith(("trade_rl.data", "trade_rl.evaluation", "trade_rl.simulation"))
+        for name in imports
+    )
+    assert not imports & {
+        "pickle",
+        "pathlib",
+        "subprocess",
+        "torch",
+        "stable_baselines3",
+    }
+    assert "__all__" not in {
+        node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+    }
+    calls = {
+        ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)
+    }
+    assert not calls & {
+        "open",
+        "fit",
+        "env.step",
+        "env.reset",
+        "json.dumps",
+        "json.dump",
+    }
+
+
 def test_forecast_controls_preflight_stays_in_native_plan_owner_before_execution():
     upper = ROOT / "trade_rl/evaluation/allocation_global_execution.py"
     tree = ast.parse(upper.read_text("utf-8"))

@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
-from tier_d_protocol import CAPITAL, json_sha256
 
 from trade_rl.artifacts import content_digest
 from trade_rl.data.build.economics import ExecutionEconomicsProfile
@@ -48,6 +47,8 @@ from trade_rl.strategies.forecasts.stream import ForecastBlock
 from trade_rl.strategies.rl.allocation_observation_v2 import AllocationObservationSchema
 from trade_rl.strategies.rl.allocation_policy import AllocationRuntimeProfile
 from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
+
+from .tier_d_protocol import CAPITAL, json_sha256
 
 
 def execution_cost(scenario: str) -> ExecutionCostConfig:

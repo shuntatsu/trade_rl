@@ -4,19 +4,74 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
 from math import fsum
 from pathlib import Path
+from time import sleep as _pause_index_retry
 from typing import Any
 
-from tier_d_protocol import CAPITAL, file_sha256
+from .tier_d_protocol import CAPITAL, file_sha256
+
+_WINDOWS = os.name == "nt"
+_INDEX_RETRY_DELAYS = (0.01, 0.05, 0.15)
 
 
-def write_json(path: Path, payload: Any) -> None:
+def write_json(path: Path, payload: Any, *, replace: bool = False) -> None:
+    raw = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
+    if not replace:
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(raw)
+        return
+    staging = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            staging = Path(stream.name)
+            stream.write(raw)
+            stream.flush()
+        # A short Windows sharing lock must not rerun an arm or regenerate its
+        # index. Retry only this same closed file; persistent denial still fails.
+        delays = _INDEX_RETRY_DELAYS if _WINDOWS else ()
+        for attempt in range(len(delays) + 1):
+            try:
+                os.replace(staging, path)
+                break
+            except PermissionError:
+                if attempt == len(delays):
+                    raise
+                _pause_index_retry(delays[attempt])
+    finally:
+        if staging is not None:
+            staging.unlink(missing_ok=True)
+
+
+def _pairs(values: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name, value in values:
+        if name in result:
+            raise ValueError("duplicate JSON field")
+        result[name] = value
+    return result
+
+
+def _constant(value: str) -> Any:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def read_json(path: Path) -> Any:
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_pairs,
+        parse_constant=_constant,
     )
 
 
@@ -31,20 +86,11 @@ def initialize_attempt(
     root: Path, protocol: dict[str, Any], *, resume: bool = False
 ) -> dict[str, Any]:
     attempt_path = root / "attempt.json"
-    if attempt_path.exists():
-        if not resume:
-            raise FileExistsError(
-                "retain prior attempt; use a new attempt directory for technical retries"
-            )
-        state = json.loads(attempt_path.read_text(encoding="utf-8"))
-        append_log(
-            root,
-            "attempt_resumed",
-            scope=protocol["scope"],
-            completed_arms=sum(r["state"] == "COMPLETED" for r in state["arms"]),
+    if resume or attempt_path.exists():
+        raise FileExistsError(
+            "retain prior attempt; use a new attempt directory for technical retries"
         )
-        return state
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=False)
     state = {
         "scope": protocol["scope"],
         "status": "PREPARING",
@@ -74,7 +120,7 @@ def save_gzip(root: Path, relative: str, payload: Any) -> dict[str, Any]:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     # json.dump writes incrementally; avoid another full raw JSON bytes buffer.
-    with gzip.open(path, "wt", encoding="utf-8", compresslevel=6) as stream:
+    with gzip.open(path, "xt", encoding="utf-8", compresslevel=6) as stream:
         json.dump(
             payload, stream, sort_keys=True, separators=(",", ":"), allow_nan=False
         )
@@ -83,7 +129,7 @@ def save_gzip(root: Path, relative: str, payload: Any) -> dict[str, Any]:
 
 def load_gzip(path: Path) -> Any:
     with gzip.open(path, "rt", encoding="utf-8") as stream:
-        return json.load(stream)
+        return json.load(stream, object_pairs_hook=_pairs, parse_constant=_constant)
 
 
 def arm_state(

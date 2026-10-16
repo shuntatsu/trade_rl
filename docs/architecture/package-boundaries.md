@@ -190,6 +190,13 @@ bid/ask weighted prices, and preserves unfilled lots. It owns no source capture,
 journal, policy, or independent account. Callers must prohibit snapshot-capacity
 reuse. Optional fill valuation prices in BookState separate cash execution from
 position marks without changing the default historical execution contract.
+BookState also owns signed cash-interest validation and accrual. Its optional
+finite `cash_basis` changes only the interest calculation basis, not the cash
+balance receiving that amount. The stateful bar lifecycle supplies the current
+cash minus already applied gap carry; it neither clones an intermediate book
+for scalar interest arithmetic nor owns a second cash-interest implementation.
+This basis adjustment does not add a drawdown observation or relax book-clone
+validation.
 `ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
 the completed directional baseline. It reuses the same fit and replay owners,
 checks source/runtime isolation, and reports relative loss reduction separately

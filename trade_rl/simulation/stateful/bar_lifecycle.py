@@ -166,15 +166,11 @@ class StatefulBarLifecycle:
                 year_fraction=context.processing_year_fraction,
             )
 
-        interest_basis = runtime.book.clone()
-        interest_basis.cash -= context.gap_cash_carry_delta
-        amount = interest_basis.apply_cash_interest(
+        return runtime.book.apply_cash_interest(
             annual_rate,
             year_fraction=context.processing_year_fraction,
+            cash_basis=runtime.book.cash - context.gap_cash_carry_delta,
         )
-        runtime.book.cash += amount
-        runtime.book.revalue(runtime.book.mark_prices)
-        return amount
 
     def finish_bar(
         self,

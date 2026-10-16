@@ -435,6 +435,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - maker/taker cost分類はorder typeだけでなくrealized liquidity roleに合わせる。LIMITがそのprocessing barで初めてeligibleになり、同じbarのopenで既にmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使う。新規LIMITがbar内touchまでrestする場合、および以前のeligible barからcarryされていたLIMITが後続bar openでcrossする場合はresting orderとしてmaker feeとhalf spreadを使う。MARKET / STOP_MARKETは従来どおりtakerである。この分類はfill価格・数量・capacityを変更しない。
 - fundingはイベントごとのsettlement mark price × rateで求めたnotionalへsigned quantityとcontract multiplierを掛け、対象時刻に一度だけ計上する。bar close/現在bar markとsettlement markを同一視せず、raw rateとsettlement notional rateをDataset identity・artifact・execution evidenceへ別々に保持する。Dataset identity v7 / artifact v4とfunding evidence v2が現行形式で、従来のDataset artifact v3 / identity v6およびfunding evidence v1は読み取り時に元のidentity・canonical bytesを保つ。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
+- processing-barのcash interestは、その時点の現金から既に適用したgap carryの現金差分だけを除いたbasisへ適用する。processing配当はこのbasisに含め、gap interestの再利息は加えない。`BookState.apply_cash_interest` の任意の有限なsigned `cash_basis` は計算基準だけを指定し、発生利息を既存の現金へ一度だけ加算する。省略時は従来どおり現在の現金を使う。利息計算のために中間bookをcloneしたり、配当直後のpeakを新たに観測したりせず、既存のopen/end-bar drawdown観測順序を保つ。
 - terminal mark-to-marketとforced closeを混同しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。
 

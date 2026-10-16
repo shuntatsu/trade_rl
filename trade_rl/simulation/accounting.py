@@ -377,7 +377,9 @@ class BookState:
         *,
         periods_per_year: int | None = None,
         year_fraction: float | None = None,
+        cash_basis: float | None = None,
     ) -> float:
+        """Accrue signed interest, optionally excluding already applied carry."""
         if not np.isfinite(annual_rate):
             raise ValueError("annual_rate must be finite")
         if year_fraction is None:
@@ -388,7 +390,10 @@ class BookState:
             if not np.isfinite(year_fraction) or year_fraction < 0.0:
                 raise ValueError("year_fraction must be finite and non-negative")
             resolved_fraction = float(year_fraction)
-        amount = float(self.cash * annual_rate * resolved_fraction)
+        basis = self.cash if cash_basis is None else cash_basis
+        if not np.isfinite(basis):
+            raise ValueError("cash_basis must be finite")
+        amount = float(basis * annual_rate * resolved_fraction)
         self.cash += amount
         self._refresh_economic_state()
         return amount

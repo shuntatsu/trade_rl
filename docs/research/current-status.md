@@ -417,6 +417,28 @@ and nonzero cash carry, and witnesses both real validation routes. These are
 software contracts; native throughput, full-48 feasibility, profit and economic
 authorization require separate evidence.
 
+An artificial public-binder microbenchmark ran once at clean committed source
+`8b267bd6d237`, on Windows/Python 3.12.0/NumPy 1.26.4. It used the same fixture
+runtime and synthetic hourly timestamp carrier for both helper routes, one
+warmup and five observations per route/size, with alternating pair order.
+Median elapsed milliseconds were:
+
+| Selected timestamp rows | Scalar reference | Array normalization |
+| --- | ---: | ---: |
+| 64 | 1.0305 | 0.3117 |
+| 6,528 | 91.8052 | 17.3272 |
+
+All 20 timed observations and four warmups retained matching Python-integer UTC
+expectations, inputs and runtime provenance. The result JSON SHA-256 is
+`e3fc1e66046b7553b3e852d7d5f581e1ae04297dbad401aec949c56eb86422d6`.
+The fixed protocol, runner, raw observations and independent checks accompany
+the [binder timing evidence](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-binding-clock-8b267bd6d-20261016).
+The timestamp carrier deliberately bypasses Dataset construction; this measures
+only the public binder, with no market or economic replay. Exclusive CPU
+isolation was not established. The measured source stays pinned to `8b267bd6d237`;
+later documentation commits do not rebind it. These local observations provide
+no native/full-matrix timing or profitability conclusion.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

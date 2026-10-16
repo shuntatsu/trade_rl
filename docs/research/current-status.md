@@ -2,6 +2,22 @@
 
 更新基準: 2026-10-16 (JST)
 
+## Issue #901: compatibility close-liquidation repair
+
+The unprofiled `MarketExecutor.liquidate_at_close` shortcut now applies actual
+accepted lot deltas without rounding the remaining whole position into a fill.
+Forced MARKET closes use taker fees/full spread; below-minimum and sub-lot
+inventory remains visible and cannot be reported as a completed liquidation.
+Economic-stop reasons survive a flat result. A single exact batch uses the
+existing BookState accounting owner and preserves its batch counters.
+
+This is a same-index compatibility API repair. Source-profile mode continues
+to reject the shortcut and requires explicit stateful orders. The Issue #888
+artificial measurement remains frozen at its declared source; these changes do
+not alter that run, reopen historical evidence, or establish profitability,
+R3 admission, unused/final eligibility or live readiness. Exact-head independent
+review and the full software gates remain required for integration.
+
 ## Issue #810: signed insolvency software candidate
 
 An opt-in canonical execution policy retains negative marked terminal equity

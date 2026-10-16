@@ -349,6 +349,7 @@ retain their explicit reference-price sizing contract.
 - 数量のcanonical文字列解析とFractionからfloatへの射影は、入力の意味を変えずに反復計算を省くため、標準型かつサイズ上限内の値だけを保持する2,048-entry LRU cachesを使う。型サブクラスや大きな入力はcacheを迂回し、canonical判定・有限範囲判定・保守的射影は従来どおり実行する。
 - per-barのcorporate-action処理は、すべてのsplit factorが厳密に`1.0`のときだけ`BookState.apply_split`を省略する。1.0と異なる係数は、注文cancel閾値より小さい差でも正確に適用し、order-cancellation toleranceは従来どおり注文をcancelするかの判定だけに使う。
 - signed fillのcash移動は承認された数量のfloat射影・価格・contract multiplierから求め、feeを一度だけ引く。clone、split、settlementはexact残高を引き継ぐ。明示的なabsolute target指定だけはexact旧残高との差額を会計してから新残高へ置換する。
+- `BookState.execute_quantity_deltas` は、承認済みのsymbol順 `tuple[Fraction, ...]` を既存のexact残高へ一括加算する。価格・費用・turnoverの検証と会計は既存の同一台帳処理を使い、変更symbol数のfillと一回のbatch rebalanceを記録する。lot・capacityの承認はcaller側の責務であり、floatのabsolute targetへ変換して端数を消さない。
 - capacityによる部分約定は、元注文の整数lot上限内で、実際のfloat約定金額がcapacity以下となる最大lot数を探索する。逆算の割り算誤差で1 lotを失わず、quantity/capacity上限へ丸め許容幅を加えない。
 - PendingOrderはcanonical rational文字列の累積約定数量を保存し、JSON再読込後も残量を再現する。旧float-only payloadは記録済み値として読めるが、過去に失われた精度を回復したとは扱わない。最小発注額や真のsub-lot rejectionは緩和しない。
 
@@ -394,6 +395,18 @@ Selected non-MARKET orders and the compatibility `liquidate_at_close` shortcut f
 closed in profile mode; use explicit stateful orders. Side permissions, funding,
 costs and margin keep their existing owners. The profile is not a complete live
 exchange-filter emulator or a strategy qualification.
+
+Without a source profile, `liquidate_at_close` retains its same-index mark and
+zero-bar-advance contract. Its forced MARKET fills pay taker fees and full spread,
+including when the executor is configured for ordinary LIMIT orders. Closing
+uses the shared capacity allocator and applies accepted exact deltas as one batch.
+Ordinary lot/minimum rules remain in force: a sub-lot or below-minimum residual
+stays visible, including when no fill is possible. Requested notional describes
+the attempted close before the minimum filter; fill completion uses actual fills.
+Only an exactly flat, solvent result receives `LIQUIDATION`; an economic stop
+keeps its original reason. No-lot full closes retain the existing exact-inventory
+rule. This shortcut does not substitute for stateful terminal orders or qualify
+a strategy's economic evidence.
 
 Shared-cash directional evaluation accepts this optional profile through the
 common replay/executor path. Explicit-profile results use

@@ -65,6 +65,8 @@ PPO環境と各replayは、分割後の数量単位に希望数量を換算し�
 
 経済的な終了時に負の純資産を保持するか、従来どおり0へ丸めるかもsimulationの所有範囲です。負債保持モードは共通の口座台帳と約定ポリシーIDに含め、strategyやevaluationへ別の損益計算を作りません。
 
+複数銘柄の承認済み約定数量をまとめて反映する場合も、正確な残高と一回の会計イベントはBookStateが所有します。executorは容量・発注単位を検証した数量を渡し、表示用の小数値から残高を作り直しません。
+
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 
 ## 境界を見るときのチェック

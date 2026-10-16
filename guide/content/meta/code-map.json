@@ -94,7 +94,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "9780fdef55268e3d69d781bf0fcbd26834dde68643fe910b2b12fefdb337b3e2",
+      "source_sha256": "f2b82a00bb83f9aa0a70408881fb8fcedd2f5164606270f703a9b95d5b46a5e4",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],

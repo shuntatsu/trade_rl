@@ -516,6 +516,37 @@ class BookState:
             turnover=turnover,
         )
 
+    def execute_quantity_deltas(
+        self,
+        *,
+        fill_prices: np.ndarray,
+        quantity_deltas: tuple[Fraction, ...],
+        cost_amount: float,
+        turnover: float,
+        valuation_prices: np.ndarray | None = None,
+    ) -> None:
+        """Record one batch of accepted exact fills without rebasing inventory."""
+        if (
+            type(quantity_deltas) is not tuple
+            or len(quantity_deltas) != len(self.quantities)
+            or any(type(delta) is not Fraction for delta in quantity_deltas)
+        ):
+            raise ValueError("quantity deltas must be a matching tuple of Fractions")
+        targets = tuple(
+            current + delta
+            for current, delta in zip(
+                self._quantity_values(), quantity_deltas, strict=True
+            )
+        )
+        self._record_execution(
+            fill_prices=fill_prices,
+            exact_targets=targets,
+            delta=quantity_deltas,
+            cost_amount=cost_amount,
+            turnover=turnover,
+            valuation_prices=valuation_prices,
+        )
+
     def execute_fill(
         self,
         *,

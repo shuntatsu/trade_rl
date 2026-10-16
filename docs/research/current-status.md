@@ -277,6 +277,29 @@ second input units, one warmup and five repetitions per case. It measures only
 digests against independent integer clock values after every observation.
 This is not a Dataset preparation, native execution or market measurement.
 
+The frozen constructor protocol ran on Windows/Python 3.12.0/NumPy 1.26.4,
+first at baseline `f02bb33f0f3e315453d41026d44b05114a7aaaa4`, then at committed
+candidate `7b6ce78086c26075ca413bb04e76698e26c11926`. Median wall times in
+milliseconds (five retained observations after one warmup) were:
+
+| Clock unit | Rows | Baseline | Candidate |
+| --- | ---: | ---: | ---: |
+| ns | 64 | 0.931500 | 0.083200 |
+| ns | 19,008 | 241.075900 | 1.642800 |
+| s | 64 | 0.839600 | 0.041900 |
+| s | 19,008 | 258.185700 | 1.886000 |
+
+Both runs used the same interpreter, script, protocol and immutable inputs;
+every full payload/digest check matched. Baseline and candidate result JSON
+SHA-256 values are respectively
+`9ddbbf5ec97b22b3021fff499148dbb443450645825d3d692f30bc8292fbf9b4`
+and `6f97dafe281d52394a7d6d747a636d252bccdd519d008cf4f5dde113d84d3ff3`.
+The measured candidate's raw Windows production-file SHA-256 is
+`5e68a69d6b76df3c311bc902323ff5d394f12549ce8376ec247c7cb51fbecfd6`.
+Later documentation publication does not rebind either measured source.
+The constructor results establish only this local synthetic timing observation;
+they provide no native/full-matrix extrapolation or complexity-order evidence.
+
 The implementation replaces per-row Python dispatch with per-call array NaT and
 exact round-trip masks. The original scalar validator still handles the first
 invalid element, including failure ordering for mixed NaT and precision loss.

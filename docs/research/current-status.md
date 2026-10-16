@@ -278,8 +278,8 @@ digests against independent integer clock values after every observation.
 This is not a Dataset preparation, native execution or market measurement.
 
 The frozen constructor protocol ran on Windows/Python 3.12.0/NumPy 1.26.4,
-first at baseline `f02bb33f0f3e315453d41026d44b05114a7aaaa4`, then at committed
-candidate `7b6ce78086c26075ca413bb04e76698e26c11926`. Median wall times in
+first at baseline `f02bb33f0f3e`, then at committed
+candidate `7b6ce78086c2`. Median wall times in
 milliseconds (five retained observations after one warmup) were:
 
 | Clock unit | Rows | Baseline | Candidate |

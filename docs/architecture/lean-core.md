@@ -41,7 +41,7 @@ metrics / comparison / robustness / immutable run artifact
 
 `fit_symbol_indices` はtraining rowの選択だけでなく、**選択featureが依存してよいsymbol universeの情報scope**でもある。content-verified Datasetで全symbolより狭いfit scopeを使う場合、cross-sectional rank / dispersionのように全universeへ依存するselected featureはrejectし、reference-relative / correlation / betaはそのreference symbolがfit scope内にある場合だけ許す。依存kindはfeature名のheuristicではなくDataset build identityのFeatureKindから復元する。source Dataset identityをネストして保持する正式transformでは元build configまで遡って同じ検査を行い、verified identityなのにdependency provenanceを復元できないstrict subsetはfail closedにする。full-symbol trainingは従来どおり許し、identity provenanceを持たないlegacy/synthetic Datasetの互換は維持するが、その経路だけをunseen-symbol isolationの強い証拠にはしない。
 
-Dataset identityは内容にbindされ、canonical artifactはdeterministicでなければならない。publication先が既に存在する場合は上書きせずfailする。
+Dataset identityは内容にbindされ、canonical artifactはdeterministicでなければならない。canonical market publisherはcodec書込と再読込によるidentity検証の後、共有の排他的directory publicationを使う。事前確認後に作られた空directoryを含め、publication先の既存entryを置き換えずfailする。
 
 保存されたidentity payloadの`dataset_contract`は、現在の銘柄・local/global特徴量名・出来高単位・calendar・nominal bar hours・年間period数・feature/normalization digestと一致しなければならない。配列が同じでも、この意味を変更したDatasetは古いIDで受理しない。再計算するIDも現在のcontractを使うため、生成後のscalar変更を検出する。正常なv6/v7 artifactのpayloadとIDは維持し、意味を変更した正式なtransformは新しいcontent identityを作る。
 
@@ -492,7 +492,7 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
 - Market dataset artifactのcodec/publicationは `trade_rl.data.artifacts` が持つ。
 - Candidate/evaluation runはimmutable filesystem artifactとして残す。
-- Candidate RunとStudy EvidenceSetのdirectory publicationはstagingからatomic renameする。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyへ切り替えない。
+- Market dataset、Candidate Run、Study EvidenceSet、policy/transition bundleのdirectory publicationは、共有primitiveのnative no-replace操作で完成済みstagingを一度だけ公開する。空directory・file・symlink・dangling symlinkを含む既存entryを置き換えない。Windowsの一時的なdirectory lockによるpermission errorだけを有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。native機能やfilesystemが非対応の場合も失敗し、通常のPOSIX renameや部分copyへ切り替えない。helper失敗時のstagingはcallerに残り、publisherは自分のprivate stagingだけをcleanupする。この契約はatomic visibilityであり、電源断後のdurabilityや悪意あるancestor置換への保証を追加しない。
 - Candidate Runはresolved result `summary.json`、raw interval return `returns.npz`、implementation/runtime/research-context evidence `provenance.json` の3ファイルを一体としてpublishする。
 - Candidate Runは実行前後でimplementation/runtime provenanceが一致する場合だけpublishする。実行中にsource/runtime provenanceが変化したRunを正当なevidenceとして残さない。
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。

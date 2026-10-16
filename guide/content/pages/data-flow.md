@@ -56,7 +56,9 @@ feature_available_time <= decision_time
 
 ## 5. Datasetを変更不能なartifactへする
 
-MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、publish後に再読込してcontent identityを検証します。
+MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、公開前の再読込でcontent identityを検証します。
+
+完成済みの内容を一括で公開し、競合する処理が先に作った空フォルダも置き換えません。公開先の環境がこの操作に対応していない場合は、上書きや部分的なコピーに切り替えず中止します。
 
 銘柄名、特徴量名、出来高単位、calendarなどの意味も、保存した識別情報と照合します。数値配列が同じでも意味を変更したデータを古いIDで受理しません。意図した変更は新しいcontent identityを作ります。
 

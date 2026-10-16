@@ -25,10 +25,11 @@ def test_forwarding_artifact_codec_is_absent() -> None:
     assert not (PACKAGE / "artifacts" / "codec.py").exists()
 
 
-def test_candidate_and_study_publishers_use_the_shared_directory_primitive() -> None:
+def test_artifact_publishers_use_the_shared_directory_primitive() -> None:
     modules = (
         PACKAGE / "evaluation" / "runs" / "artifact.py",
         PACKAGE / "evaluation" / "experiments" / "store.py",
+        PACKAGE / "data" / "artifacts" / "publication.py",
     )
     for path in modules:
         tree = ast.parse(path.read_text(encoding="utf-8"))

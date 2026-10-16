@@ -203,6 +203,35 @@ jobs:
           module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
           test "$module" = "$expected"
 
+  artifact-publication:
+    name: Artifact Publication (${{ matrix.os }})
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Artifact publication tests
+        run: uv run --no-sync python -m pytest -q tests/artifacts tests/data/test_market_artifact.py
 
   ppo-runtime:
     name: PPO Runtime${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}

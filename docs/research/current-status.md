@@ -2,6 +2,24 @@
 
 更新基準: 2026-10-16 (JST)
 
+## Issue #899: exclusive artifact directory publication
+
+Canonical market datasets now use the same native no-replace directory primitive
+as run, study, policy and transition artifacts after real staged codec/identity
+validation. A destination entry created after the precheck, including an empty
+directory, cannot be replaced. Missing native capability and unsupported
+filesystems fail closed; existing Windows lock retries and private-stage cleanup
+remain bounded. Artifact formats, bytes and identities are unchanged.
+
+The regression uses the real canonical codec/loader and actual rename operation:
+both affected paths failed on the pre-fix Linux/Btrfs source, while Windows was
+a passing platform control. Native ABI/error/path tests and a synchronized
+two-contender publication check cover the shared primitive. Linux, Windows and
+macOS runner verification and fresh final-head independent source review remain
+required for integration. This changes artifact publication only; it does not
+rerun the frozen Issue #888 measurements or establish market profitability,
+R3 admission, unused/final eligibility or live readiness.
+
 ## Issue #903: session cash-interest basis repair
 
 The public stateful executor can now process a held position's processing-bar

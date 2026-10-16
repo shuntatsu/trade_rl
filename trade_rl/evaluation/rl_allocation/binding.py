@@ -14,6 +14,25 @@ from trade_rl.simulation import MarketExecutor
 from trade_rl.strategies.forecasts.training_trace import _timestamp
 
 
+def _episode_times(values: np.ndarray) -> np.ndarray | tuple[np.datetime64, ...]:
+    if (
+        type(values) is not np.ndarray
+        or values.ndim != 1
+        or values.dtype.kind != "M"
+        or np.datetime_data(values.dtype)[0] == "generic"
+    ):
+        return tuple(_timestamp(value, field="episode_time") for value in values)
+    normalized = values.astype("datetime64[ns]")
+    invalid = (
+        np.isnat(values)
+        | np.isnat(normalized)
+        | (normalized.astype(values.dtype) != values)
+    )
+    if invalid.any():
+        _timestamp(values[int(invalid.argmax())], field="episode_time")
+    return normalized
+
+
 def validate_runtime_binding(
     dataset: MarketDataset,
     bound: BoundObjectiveClock,
@@ -57,10 +76,7 @@ def validate_runtime_binding(
         raise ValueError(
             "declared profile or action recipe differs from actual runtime"
         )
-    times = tuple(
-        _timestamp(t, field="episode_time")
-        for t in dataset.timestamps[start_index : stop_index + 1]
-    )
+    times = _episode_times(dataset.timestamps[start_index : stop_index + 1])
     for actual, declared in (
         (times[0], objective.evaluation_start),
         (times[-1], objective.evaluation_stop_exclusive),

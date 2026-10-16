@@ -317,6 +317,35 @@ recipe, market-data scope or research authorization. Passing the software oracle
 does not establish a speedup, historical execution equivalence, Step 0 acceptance
 without exact-head independent review, R3 admission or profitability.
 
+## Issue #888 separate 9f artificial observation
+
+The later frozen source `9f81bf65efc5` completed the original four-case v3
+artificial protocol, separately from the historical FACE wave above. Native
+elapsed seconds were 182.5728450 (100 advances), 1,141.8562424 (400),
+4,469.0162443 (1,600 without profiling), and 3,421.9653949 (the separate
+profiled 1,600 case). Each is one first-vintage actor observation, with zero
+reserve advances. CASH, vintage transitions and the full 6,599-advance plan
+remain unattempted. Partial native receipts retain `integrity_failure` and
+their child/arm `FAILED` classification. The profiled and unprofiled durations
+do not establish a speedup; the observations had no exclusive CPU isolation.
+
+The original summary completed, every supervisor returned zero and reported
+zero remaining owned processes. Profile-on/off 1,600 receipts matched all
+13,468,893 canonical payload bytes, including provenance; their compressed
+file hashes differ. All 99 retained original files were independently rehashed.
+The separate
+[9f artificial prerelease](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-artificial-v3-9f81-20261016)
+pins that exact source. All three assets were downloaded and their hashes
+verified after upload. The old FACE release and its asset bindings were
+preserved.
+
+The final 9f profile also contains negative `isinstance` primitive and total
+call counters. Global totals, aggregate denominators and derived call rates
+remain unusable. Individual nonnegative timing rows are diagnostic only;
+inclusive cumulative times overlap. No native speedup, complexity order,
+full-48 runtime bound, historical cross-HEAD execution equality, Step 0-wide
+acceptance, R3, profit, unused/final admission or live readiness follows.
+
 ## Issue #888 training-trace clock validation
 
 The retained artificial profile identifies scalar `_timestamp` validation as a
@@ -356,8 +385,8 @@ exact round-trip masks. The original scalar validator still handles the first
 invalid element, including failure ordering for mixed NaT and precision loss.
 No clock validation, immutable copy, causal row check, stream digest or runtime
 mutation guard is omitted or cached. Other owners' scalar clock calls remain
-unchanged. Independent integer/Gregorian-clock tests cover complete trace
-payloads and digests, and a scoped profiler checks a constant scalar-dispatch
+unchanged by that trace optimization. Independent integer/Gregorian-clock tests
+cover complete trace payloads and digests, and a scoped profiler checks a constant scalar-dispatch
 budget on valid long traces without a wall-time test threshold.
 
 The terminal oracle compares the legacy scalar vector path with the actual
@@ -368,6 +397,47 @@ readback and actor/reserve progress remain equal with all provenance retained.
 Existing memo-hit and mutation-refusal oracles remain separate. Native speedup,
 full-48 feasibility, R3, profit and economic/live authorization do not follow
 from constructor timing or these software oracles.
+
+## Issue #888 runtime episode clock validation
+
+The runtime binder validates the declared episode at construction, reset and
+every step. Its private normalization now uses fresh NaT and exact nanosecond
+round-trip masks for plain one-dimensional datetime arrays with concrete units.
+The first invalid timestamp still uses the unchanged scalar validator, before
+either declared UTC endpoint. Unsupported carriers retain scalar behavior;
+Python-integer interval subtraction and every profile guard remain unchanged.
+There is no input-identity cache or new runtime/economic configuration.
+
+Dedicated regressions require independent UTC/calendar and large-integer
+expectations, exact error precedence, repeated mutation refusal and public
+step admission. A scoped profiler checks two endpoint scalar calls per valid
+binder invocation. The same-HEAD terminal oracle retains every canonical plan,
+native receipt and expected-plan readback byte for long, short, partial closing
+and nonzero cash carry, and witnesses both real validation routes. These are
+software contracts; native throughput, full-48 feasibility, profit and economic
+authorization require separate evidence.
+
+An artificial public-binder microbenchmark ran once at clean committed source
+`8b267bd6d237`, on Windows/Python 3.12.0/NumPy 1.26.4. It used the same fixture
+runtime and synthetic hourly timestamp carrier for both helper routes, one
+warmup and five observations per route/size, with alternating pair order.
+Median elapsed milliseconds were:
+
+| Selected timestamp rows | Scalar reference | Array normalization |
+| --- | ---: | ---: |
+| 64 | 1.0305 | 0.3117 |
+| 6,528 | 91.8052 | 17.3272 |
+
+All 20 timed observations and four warmups retained matching Python-integer UTC
+expectations, inputs and runtime provenance. The result JSON SHA-256 is
+`e3fc1e66046b7553b3e852d7d5f581e1ae04297dbad401aec949c56eb86422d6`.
+The fixed protocol, runner, raw observations and independent checks accompany
+the [binder timing evidence](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-binding-clock-8b267bd6d-20261016).
+The timestamp carrier deliberately bypasses Dataset construction; this measures
+only the public binder, with no market or economic replay. Exclusive CPU
+isolation was not established. The measured source stays pinned to `8b267bd6d237`;
+later documentation commits do not rebind it. These local observations provide
+no native/full-matrix timing or profitability conclusion.
 
 ## Generic software PR review policy (2026-10-14)
 

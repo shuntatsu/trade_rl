@@ -119,6 +119,38 @@ def test_learning_environment_uses_common_action_execution_without_a_second_ledg
     ).read_text(encoding="utf-8")
 
 
+def test_runtime_clock_admission_is_rechecked_at_each_environment_boundary():
+    tree = ast.parse(
+        (PACKAGE / "evaluation/rl_allocation/env.py").read_text(encoding="utf-8")
+    )
+    environment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "AllocationTradingEnv"
+    )
+    methods = {
+        node.name: node
+        for node in environment.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    for name in ("__init__", "validate_binding"):
+        assert any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "validate_runtime_binding"
+            for node in ast.walk(methods[name])
+        ), name
+    for name in ("reset", "step"):
+        assert any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+            and node.func.attr == "validate_binding"
+            for node in ast.walk(methods[name])
+        ), name
+
+
 def test_protocol_receipt_and_model_have_no_reverse_or_optional_static_imports():
     for name in ("allocation_protocol_receipt", "allocation_model"):
         imports = ImportCollector(ROOT / "trade_rl").collect(

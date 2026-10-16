@@ -666,6 +666,19 @@ RL-feature availability and the shared final-risk/canonical transition.
 evaluation/rl_allocation owns actual episode binding, the Gym adapter, explicit
 SB3 fitting and sampled-source receipts. It owns no second PnL ledger.
 
+`rl_allocation/binding.py` owns the runtime episode clock scan. Construction
+calls this admission directly; `validate_binding` repeats it on every reset and
+step. Its private array normalization validates current contents on each call,
+without a cache or new public switch. Plain one-dimensional datetime arrays
+with a concrete unit use NaT and exact nanosecond round-trip masks; the first
+invalid element still goes through the shared scalar validator. Generic-unit,
+object and subclass carriers retain scalar behavior. All timestamp validation
+precedes start/stop endpoint checks, followed by unchanged Python-integer gap
+arithmetic. The helper owns no Dataset loading, profile identity or execution.
+Same-HEAD terminal tests compare complete canonical plans, native receipts and
+expected-plan readback for long, short, partial-close and cash-carry cases,
+including all provenance, while witnessing both actual validation routes.
+
 strategies/rl/allocation_policy.py owns pure profile/recipe/observation encoding.
 allocation_model and allocation_artifact own inference and write-once verified
 policy loading; allocation_*_receipt, allocation_receipt_time,

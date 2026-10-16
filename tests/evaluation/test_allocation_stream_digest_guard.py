@@ -1,5 +1,8 @@
 """Global allocation guards must observe live simple-stream contents."""
 
+from contextlib import contextmanager
+from importlib import import_module
+
 import pytest
 
 from tests.evaluation.test_allocation_global_execution import capability, declare
@@ -7,6 +10,22 @@ from tests.evaluation.test_allocation_nonrl_walk_forward import (
     global_control_fixture,
     global_control_folds,
 )
+
+
+@contextmanager
+def _digest_getter_route(monkeypatch, route):
+    if route == "reference":
+        memo = import_module(
+            "trade_rl.evaluation.rl_allocation._simple_stream_digest"
+        ).SimpleStreamDigestMemo
+        with monkeypatch.context() as scoped:
+            scoped.setattr(memo, "get", lambda _self, stream: stream.digest)
+            yield
+        return
+    if route == "optimized":
+        yield
+        return
+    raise AssertionError(f"unknown digest route: {route}")
 
 
 def _mutate_future_packet(env):
@@ -17,20 +36,25 @@ def _mutate_future_packet(env):
     )
 
 
-def test_future_packet_mutation_after_declaration_rejects_before_reset(monkeypatch):
+@pytest.mark.parametrize("route", ["reference", "optimized"])
+def test_future_packet_mutation_after_declaration_rejects_before_reset(
+    monkeypatch, route
+):
     api = capability()
     env, folds = global_control_fixture(), global_control_folds(7)
     plan = declare(api, env, folds)
     _mutate_future_packet(env)
     monkeypatch.setattr(env, "reset", lambda **_: pytest.fail("reset before refusal"))
 
-    with pytest.raises(ValueError, match="current declaration|source/runtime"):
-        api.run_declared_global_allocation_execution(folds, env, plan)
+    with _digest_getter_route(monkeypatch, route):
+        with pytest.raises(ValueError, match="current declaration|source/runtime"):
+            api.run_declared_global_allocation_execution(folds, env, plan)
 
     assert not hasattr(env, "book")
 
 
-def test_future_packet_mutation_during_action_prevents_native_fill(monkeypatch):
+@pytest.mark.parametrize("route", ["reference", "optimized"])
+def test_future_packet_mutation_during_action_prevents_native_fill(monkeypatch, route):
     import trade_rl.evaluation.allocation_nonrl_walk_forward as nonrl
     from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
         AllocationFoldPolicy,
@@ -54,8 +78,11 @@ def test_future_packet_mutation_during_action_prevents_native_fill(monkeypatch):
 
     monkeypatch.setattr(nonrl, "AllocationFoldPolicy", policy_with_mutating_action)
 
-    with pytest.raises(ValueError, match="source/runtime contents changed") as raised:
-        api.run_declared_global_allocation_execution(folds, env, plan)
+    with _digest_getter_route(monkeypatch, route):
+        with pytest.raises(
+            ValueError, match="source/runtime contents changed"
+        ) as raised:
+            api.run_declared_global_allocation_execution(folds, env, plan)
 
     receipt = raised.value.global_execution_receipt.payload
     assert calls == [True]
@@ -66,8 +93,9 @@ def test_future_packet_mutation_during_action_prevents_native_fill(monkeypatch):
     assert env.index == 6 and env.book.fill_count == 0
 
 
+@pytest.mark.parametrize("route", ["reference", "optimized"])
 def test_post_native_future_packet_mutation_retains_event_as_integrity_failure(
-    monkeypatch,
+    monkeypatch, route
 ):
     api = capability()
     env, folds = global_control_fixture(), global_control_folds(7)
@@ -81,8 +109,11 @@ def test_post_native_future_packet_mutation_retains_event_as_integrity_failure(
 
     monkeypatch.setattr(env, "step", mutate_after_native_step)
 
-    with pytest.raises(ValueError, match="source/runtime contents changed") as raised:
-        api.run_declared_global_allocation_execution(folds, env, plan)
+    with _digest_getter_route(monkeypatch, route):
+        with pytest.raises(
+            ValueError, match="source/runtime contents changed"
+        ) as raised:
+            api.run_declared_global_allocation_execution(folds, env, plan)
 
     receipt = raised.value.global_execution_receipt.payload
     row = receipt["rows"][0]

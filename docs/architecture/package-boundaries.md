@@ -616,6 +616,18 @@ payload cache, fitting, execution, Dataset loading or research authorization.
 The existing source-envelope/runtime helpers retain their canonical public path;
 the collector's private path changes only repeated stream digest computation.
 
+Same-source regression tests compare full canonical plans and native receipts
+through complete terminal closing. The reference leg replaces only the private
+memo getter with the current public stream digest; the optimized leg runs the
+original getter, with a scoped profiler witnessing actual warm reuse. Neither
+leg changes provenance, source files, stream serialization or native guards.
+Historical release gzip pins and public-reader compatibility are separate tests;
+the execution oracle does not require cross-source identity or deterministic
+gzip transport. The repository-driver fixture oracle reuses one frozen artificial
+plan for complete reference/optimized matched arms through the ordinary one-pair
+inline route; it is not a parallel-process oracle. No production mode switch or
+new public capability is added.
+
 `evaluation/forecast_allocation.py` exposes `HorizonCostEstimates`,
 `propose_forecast_target` and `execute_forecast_proposal`. It validates exact
 current snapshot/horizon/valuation, then invokes the existing allocation

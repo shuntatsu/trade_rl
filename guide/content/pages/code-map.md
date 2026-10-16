@@ -14,6 +14,8 @@
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
 | artifacts / research evidence | runや研究判断を再現可能な証拠として固定 | strategy runtime |
 
+データセット・モデル・評価結果は共通の公開処理で完成済みの内容を一括保存します。競合相手の保存先は空でも置き換えず、失敗時は各保存処理が自分の準備用フォルダだけを片付けます。
+
 ## Dependency direction
 
 ```text

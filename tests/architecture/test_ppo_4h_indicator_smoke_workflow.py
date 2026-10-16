@@ -111,7 +111,7 @@ def test_actual_ci_event_conditions_route_the_same_full_jobs(
     event, action, base, changed, expected, smoke
 ):
     head = "research/ppo-4h-indicator-smoke" if smoke else "codex/child"
-    for job in ("core", "ppo-runtime", "guide"):
+    for job in ("core", "ppo-runtime", "guide", "artifact-publication"):
         assert bool(_routes(job, event, action, base, changed, head)) is expected
     gate_expected = expected or event == "pull_request_review"
     assert bool(_routes("independent-review", event, action, base, changed, head)) is (
@@ -152,7 +152,7 @@ def test_actual_ci_event_conditions_route_the_same_full_jobs(
 @pytest.mark.parametrize(
     "state", ["", "skipped", "pending", "failure", "cancelled", "success"]
 )
-def test_actual_comprehensive_scripts_require_three_successes(gate, job, state):
+def test_actual_comprehensive_scripts_require_each_runtime_success(gate, job, state):
     block = _job(gate).split("      - name: Require comprehensive verification", 1)[1]
     script = textwrap.dedent(
         block.split("        run: |\n", 1)[1].split("      - name:", 1)[0]
@@ -167,10 +167,51 @@ def test_actual_comprehensive_scripts_require_three_successes(gate, job, state):
     )
     assert bash is not None
     results = dict.fromkeys(("CORE_RESULT", "PPO_RESULT", "GUIDE_RESULT"), "success")
+    if gate == "independent-review":
+        results["ARTIFACT_PUBLICATION_RESULT"] = "success"
     results[job] = state
     completed = subprocess.run(
         [bash, "-c", script],
         env={**os.environ, **results},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (completed.returncode == 0) is (state == "success")
+
+
+@pytest.mark.parametrize(
+    "state", ["absent", "", "skipped", "pending", "failure", "cancelled", "success"]
+)
+def test_actual_generic_review_script_requires_artifact_publication_success(state):
+    block = _job("independent-review").split(
+        "      - name: Require comprehensive verification", 1
+    )[1]
+    script = textwrap.dedent(
+        block.split("        run: |\n", 1)[1].split("      - name:", 1)[0]
+    )
+    bash = (
+        str(
+            Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+            / "Git/bin/bash.exe"
+        )
+        if os.name == "nt"
+        else shutil.which("bash")
+    )
+    assert bash is not None
+    results = {
+        "CORE_RESULT": "success",
+        "PPO_RESULT": "success",
+        "GUIDE_RESULT": "success",
+    }
+    env = {**os.environ, **results}
+    if state == "absent":
+        env.pop("ARTIFACT_PUBLICATION_RESULT", None)
+    else:
+        env["ARTIFACT_PUBLICATION_RESULT"] = state
+    completed = subprocess.run(
+        [bash, "-c", script],
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -238,6 +279,12 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     )
     assert "name: Generic Independent Research Review" in generic
     assert "name: Independent Research Review" in smoke
+    assert "needs: [core, ppo-runtime, guide, artifact-publication]" in generic
+    assert (
+        "ARTIFACT_PUBLICATION_RESULT: ${{ needs.artifact-publication.result }}"
+        in generic
+    )
+    assert 'test "$ARTIFACT_PUBLICATION_RESULT" = "success"' in generic
     assert "gh api --paginate" in generic
     assert "permissions:\n      pull-requests: read" in generic
     assert "tools/independent_research_review.py" in generic

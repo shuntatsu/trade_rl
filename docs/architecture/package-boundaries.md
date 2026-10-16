@@ -246,7 +246,9 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `artifacts`
 
-汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`はstaging directoryの同一filesystem renameを使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。copy fallbackでatomic性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
+汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`は完成済みstaging directoryを同一filesystem内で排他的に公開する。canonical market publisherも、codec/identity検証の後にこのprimitiveを呼ぶ。事前確認は診断用であり、競合時の既存entry拒否はOSのnative操作で保証する。Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryし、helper失敗時はcaller-owned stagingと競合先を保持する。publisher側のcleanupは自分のprivate stagingに限定する。market data、strategy、evaluation等のupper layerを知らない。
+
+Windowsは既存destinationを拒否するPython [`os.rename`](https://docs.python.org/3.12/library/os.html#os.rename)、Linuxは[`renameat2(RENAME_NOREPLACE)`](https://man7.org/linux/man-pages/man2/rename.2.html)、macOSは[`renamex_np(RENAME_EXCL)`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/stdio.h)を使う。POSIXのnative bindingはfilesystem encodingとthread-local errnoを使い、Cへの変換前にNULを拒否する。未対応platform/library symbolは`ENOTSUP`、native操作の`EINVAL`・`ENOSYS`・`EOPNOTSUPP`・`EXDEV`等は元のerrnoを保持して失敗する。filesystemの対応を暗黙に仮定・cacheせず、通常rename・置換・copyへのfallbackを行わない。directory公開はatomic visibilityだけを保証し、crash durabilityやhostile ancestor/source置換への新しい保証は持たない。`atomic_write_bytes`の既存file置換/fsync契約は別に維持する。
 
 ### `data`
 
@@ -800,7 +802,8 @@ Run/Study consumer is introduced.
 ## Stacked PR verification routing
 
 `.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through
-Lean Core, PPO Runtime and Human Guide at the PR's exact head SHA. PR opened,
+Lean Core, PPO Runtime, Human Guide and the Linux/Windows/macOS Artifact
+Publication matrix at the PR's exact head SHA. PR opened,
 synchronize and reopened events run these jobs; PR edited runs them only when
 the payload contains `changes.base`. Body/title edits skip the same software
 and review jobs, while submitted/edited/dismissed review events remain eligible.
@@ -810,7 +813,9 @@ GitHub may display an unevaluated name expression for skipped jobs; such labels
 are distinct from the exact verification names and do not prove verification ran.
 Non-metadata events retain the existing concurrency group and cancellation policy.
 Both generic and 4h review gates require all three software jobs to succeed;
-empty, skipped, pending and failed results cannot satisfy that prerequisite.
+the generic gate also waits for and requires the native publication matrix.
+Empty, skipped, pending, failed and cancelled results cannot satisfy those
+prerequisites.
 Review events on an unsupported base still run the appropriate review gate,
 which rejects the skipped software jobs instead of reporting a skipped gate.
 The existing head-based choice of review checker remains unchanged. Routing

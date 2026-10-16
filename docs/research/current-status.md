@@ -176,6 +176,32 @@ full-size artificial scaling/profile. The proposed deadlines/resource limits are
 not measured full-matrix runtime bounds. No new market costs, fits, replay,
 unused-data access or live routing is authorized by this progress work.
 
+## Issue #907: stopped-attempt receipt reconciliation candidate (2026-10-16)
+
+[Issue #907](https://github.com/shuntatsu/trade_rl/issues/907) tracks a candidate
+software repair for complete receipts left unindexed when their worker stops.
+Prior-source diagnostic evidence remains in the immutable
+[807 diagnostics release](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-diagnostics-8070bfb96-20261016).
+A read-only stopped-receipt reader reuses the existing frozen
+input, plan, and strict terminal-receipt validators. The Windows supervisor can
+publish only its validated updates after its owned process tree is verified
+stopped and the launch HEAD/driver, protocol, current runtime/native provenance
+and market review are rechecked. It first marks the current attempt `FAILED`,
+preserves that failure reason, and writes final manifests after reconciliation.
+The path does not alter public strict resume, retained R1/R2/807 sources, or
+qualification rules. Invalid or partial canonical completion receipts, foreign
+plans, ineligible slots, mutated inputs and symlinked artifacts remain preserved
+and refused. Diagnostic partial sidecars cannot qualify an arm as completed;
+ordinary missing-arm retry semantics remain unchanged. There is no quarantine
+or progress-based qualification. Linux synthetic root-only supervision cannot
+satisfy the owned-tree gate.
+
+The repair remains a **DRAFT candidate**, not an accepted system change. Acceptance
+requires a committed-head Windows stop/recovery probe, full CI on that exact head,
+and a fresh exact-source review. Retained evidence must remain untouched.
+No full 48-arm run, R3 admission, profit
+claim, unused/final evaluation, or live routing follows from this repair.
+
 ## Issue #888 artificial scaling prefix profile
 
 The repository-only `tools/tier_d_scaling/` harness builds a fixed artificial

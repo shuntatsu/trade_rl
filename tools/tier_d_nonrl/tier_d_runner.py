@@ -80,6 +80,22 @@ CostTables = dict[tuple[int, str], tuple[HorizonCostEstimates, ...]]
 PreparedTables = dict[str, PreparedAllocationMarketInputs]
 
 
+def build_driver_run_provenance(
+    protocol: dict[str, Any], review: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Bind the current driver/runtime exactly as execution and finalization do."""
+    native = build_candidate_run_provenance()
+    return {
+        "source_head": protocol["source_head"],
+        "driver_sha256": source_pins(),
+        "protocol_digest": json_sha256(protocol),
+        "review": review,
+        "python": sys.version,
+        "numpy": np.__version__,
+        "native": native,
+    }
+
+
 def validate_external_review(
     path: Path | None, protocol: dict[str, Any]
 ) -> dict[str, Any]:
@@ -755,16 +771,8 @@ def execute(
         "ARTIFICIAL_SOFTWARE_INTEGRATION_ONLY",
     }:
         validate_progress_policy(protocol.get("progress_policy"))
-    provenance = build_candidate_run_provenance()
-    envelope = {
-        "source_head": protocol["source_head"],
-        "driver_sha256": source_pins(),
-        "protocol_digest": json_sha256(protocol),
-        "review": review,
-        "python": sys.version,
-        "numpy": np.__version__,
-        "native": provenance,
-    }
+    envelope = build_driver_run_provenance(protocol, review)
+    provenance = envelope["native"]
     reused = (
         preflight_resume(resume_from, root, protocol, envelope)
         if resume_from is not None

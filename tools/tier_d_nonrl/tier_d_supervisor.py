@@ -29,7 +29,13 @@ from .tier_d_protocol import (
     validate_committed_source,
     worker_count,
 )
-from .tier_d_records import append_log, output_manifest, write_json
+from .tier_d_records import (
+    append_log,
+    arm_state,
+    output_manifest,
+    read_json,
+    write_json,
+)
 
 
 def process_rss(process: subprocess.Popen[Any]) -> int:
@@ -59,6 +65,41 @@ def mark_attempt_failure(
             if slot["state"] in {"RUNNING", "SUBMITTED"}:
                 slot["state"] = "INTERRUPTED"
         write_json(state_path, state, replace=True)
+
+
+def _publish_stopped_receipts(
+    root: Path,
+    protocol: dict[str, Any],
+    provenance: dict[str, Any],
+    *,
+    owned_tree_stopped: bool,
+) -> dict[str, Any]:
+    """Finalize only this supervisor's stopped attempt; never repair an old source."""
+    if not owned_tree_stopped:
+        return {"state": "SKIPPED_NO_VERIFIED_OWNED_TREE_STOP"}
+    from .resume import reconcile_stopped_receipts
+
+    try:
+        state_path = root / "attempt.json"
+        if root.is_symlink() or state_path.is_symlink() or not state_path.is_file():
+            raise ValueError("stopped attempt state must be a regular file")
+        original_state = state_path.read_bytes()
+        updates = reconcile_stopped_receipts(root, protocol, provenance)
+        if state_path.read_bytes() != original_state:
+            raise ValueError("stopped attempt state changed before reconciliation")
+        state = read_json(state_path)
+        for update in updates:
+            arm_state(
+                state, update["account"], update["scenario"], update["role"]
+            ).update(update)
+        if updates:
+            write_json(state_path, state, replace=True)
+        return {"state": "RECONCILED", "completed_arms": len(updates)}
+    except Exception as error:
+        return {
+            "state": "REFUSED",
+            "failure": {"type": type(error).__name__, "message": str(error)},
+        }
 
 
 def worker_command(
@@ -106,7 +147,11 @@ def supervised_run(
         raise ValueError(
             "market supervision requires Windows aggregate process-tree monitoring"
         )
-    from .tier_d_runner import load_market_protocol, validate_external_review
+    from .tier_d_runner import (
+        build_driver_run_provenance,
+        load_market_protocol,
+        validate_external_review,
+    )
 
     protocol = (
         load_market_protocol(protocol_path, max_workers=max_workers)
@@ -116,6 +161,7 @@ def supervised_run(
     if mode == "market":
         validate_external_review(review_path, protocol)
         validate_committed_source(protocol)
+    launch_head, launch_driver = protocol["source_head"], source_pins()
     root = root.resolve()
     if not root.is_relative_to(ROOT) or root == ROOT:
         raise ValueError("attempt outputs must stay below the assigned ignored scope")
@@ -142,6 +188,7 @@ def supervised_run(
         clock=time.monotonic,
     )
     stalled_arms: list[dict[str, Any]] = []
+    owned_tree_stopped = False
     started, peak_rss, failure = time.monotonic(), 0, None
     next_resource_sample = started + budget["sample_seconds"]
     with (root / "worker.log").open("w", encoding="utf-8") as output:
@@ -255,6 +302,11 @@ def supervised_run(
                     ):
                         if tree is not None:
                             terminate_owned_tree(process, tree)
+                            owned_tree_stopped = (
+                                getattr(tree, "root_identity", None) is not None
+                                and bool(getattr(tree, "owned", {}))
+                                and process.poll() is not None
+                            )
                         elif process.poll() is None:
                             process.terminate()
                             process.wait(timeout=30)
@@ -296,6 +348,47 @@ def supervised_run(
     }
     write_json(root / "supervisor.json", report)
     mark_attempt_failure(artifact_root, failure=failure, returncode=returncode)
+    if failure is not None or returncode != 0:
+        report["receipt_reconciliation"] = {
+            "state": "SKIPPED_NO_VERIFIED_OWNED_TREE_STOP"
+        }
+        if owned_tree_stopped:
+            try:
+                retained_protocol = read_json(artifact_root / "protocol.json")
+                if (
+                    source_head() != launch_head
+                    or source_pins() != launch_driver
+                    or retained_protocol["source_head"] != launch_head
+                ):
+                    raise ValueError("supervised source changed before finalization")
+                if mode == "market":
+                    if json_sha256(retained_protocol) != json_sha256(protocol):
+                        raise ValueError("stopped market protocol differs")
+                    final_review = validate_external_review(
+                        review_path.resolve() if review_path is not None else None,
+                        protocol,
+                    )
+                else:
+                    if (
+                        retained_protocol["scope"]
+                        != "ARTIFICIAL_SOFTWARE_INTEGRATION_ONLY"
+                        or retained_protocol["concurrency"] != protocol["concurrency"]
+                        or retained_protocol["progress_policy"] != progress_policy
+                    ):
+                        raise ValueError("stopped artificial protocol differs")
+                    final_review = None
+                report["receipt_reconciliation"] = _publish_stopped_receipts(
+                    artifact_root,
+                    retained_protocol,
+                    build_driver_run_provenance(retained_protocol, final_review),
+                    owned_tree_stopped=True,
+                )
+            except Exception as error:
+                report["receipt_reconciliation"] = {
+                    "state": "REFUSED",
+                    "failure": {"type": type(error).__name__, "message": str(error)},
+                }
+        write_json(root / "supervisor.json", report, replace=True)
     if artifact_root.exists():
         write_json(
             artifact_root / "output-manifest.json",

@@ -33,10 +33,16 @@ from .tier_d_records import append_log, output_manifest, write_json
 
 
 def process_rss(process: subprocess.Popen[Any]) -> int:
-    fields = (Path("/proc") / str(process.pid) / "status").read_text().splitlines()
-    return (
-        int(next(row for row in fields if row.startswith("VmRSS:")).split()[1]) * 1024
-    )
+    try:
+        fields = (Path("/proc") / str(process.pid) / "status").read_text().splitlines()
+        return (
+            int(next(row for row in fields if row.startswith("VmRSS:")).split()[1])
+            * 1024
+        )
+    except (FileNotFoundError, ProcessLookupError, StopIteration):
+        if process.poll() is not None:
+            return 0
+        raise
 
 
 def mark_attempt_failure(

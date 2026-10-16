@@ -825,8 +825,14 @@ complete artifacts. Corrupt or missing completed receipts fail closed; they are
 never replaced by replay or cash-zero placeholders. Failure in one parallel
 worker cannot erase another worker's completed or partial observations. The
 parent reconciles all started work before finalizing state under the single
-process-tree resource budget. Software CI and JSON review files alone do not
-authorize a market run or establish economic validity.
+process-tree resource budget. After a verified Windows owned-tree stop, the
+supervisor may reread genuine complete receipts from its current failed attempt
+and publish validated arm updates before the final manifest. The attempt remains
+`FAILED` with its original failure reason; progress is not settlement, and
+invalid artifacts stay in place without quarantine or replay. The read-only
+reconciliation path cannot repair a retained resume source, and Linux synthetic
+root-only supervision does not satisfy its owned-tree gate. Software CI and JSON
+review files alone do not authorize a market run or establish economic validity.
 Mutable index publication may retry the same closed staging file for a bounded
 Windows sharing lock; it never retries a native arm or regenerates its payload.
 Persistent publication failure retains the previous index and fails the attempt.

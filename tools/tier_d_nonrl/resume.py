@@ -15,6 +15,9 @@ from trade_rl.evaluation.allocation_settled_forecast_comparison import (
 from trade_rl.evaluation.allocation_terminal_evidence import (
     TerminalAllocationExecutionReceipt,
 )
+from trade_rl.evaluation.allocation_terminal_execution import (
+    TerminalAllocationExecutionPlan,
+)
 from trade_rl.strategies.forecasts.simple_stream import FrozenSimpleReturnStream
 from trade_rl.strategies.forecasts.simple_stream_io import (
     load_simple_return_stream_artifact,
@@ -48,8 +51,9 @@ def _file(root: Path, relative: str) -> Path:
     return path
 
 
-def _manifest(root: Path) -> dict[str, Any]:
-    value = read_json(_file(root, "output-manifest.json"))
+def _manifest(root: Path, value: object = None) -> dict[str, Any]:
+    if value is None:
+        value = read_json(_file(root, "output-manifest.json"))
     if type(value) is not dict or not value:
         raise ValueError("source has no complete output manifest")
     for relative, pin in value.items():
@@ -153,6 +157,196 @@ class ResumeInputs:
         )
 
 
+@dataclass(frozen=True)
+class _FrozenAttemptInputs:
+    state: dict[str, Any]
+    frozen: dict[str, Any]
+    matrix: SettledNonRLComparisonPlan
+    tables: CostTables
+    streams: dict[str, FrozenSimpleReturnStream]
+    files: tuple[str, ...]
+    plans: dict[tuple[str, str, str], TerminalAllocationExecutionPlan]
+
+
+def _restore_frozen_inputs(
+    source: Path,
+    manifest: dict[str, Any],
+    protocol: dict[str, Any],
+    provenance: dict[str, Any],
+) -> _FrozenAttemptInputs:
+    _same(read_json(source / "protocol.json"), protocol)
+    _same(read_json(source / "provenance.json"), provenance)
+    state = read_json(source / "attempt.json")
+    if (
+        state["status"] not in {"FAILED", "COMPLETED"}
+        or not state.get("matrix_digest")
+        or not state.get("freeze_digest")
+    ):
+        raise ValueError(
+            "resume source requires a terminal attempt and a complete frozen matrix"
+        )
+    frozen = closed(
+        read_json(source / "freeze.json"),
+        {
+            "schema",
+            "protocol_digest",
+            "provenance_digest",
+            "matrix_digest",
+            "matrix_file",
+            "costs_digest",
+            "costs_file",
+            "forecasts",
+            "pairs",
+        },
+    )
+    if (
+        frozen["schema"] != "tier_d_frozen_inputs_v1"
+        or content_digest(frozen) != state["freeze_digest"]
+        or frozen["protocol_digest"] != content_digest(protocol)
+        or frozen["provenance_digest"] != content_digest(provenance)
+        or frozen["matrix_digest"] != state["matrix_digest"]
+    ):
+        raise ValueError("source freeze differs from its original pins")
+    files = ["freeze.json"]
+    for metadata_key in ("matrix_file", "costs_file"):
+        metadata = closed(frozen[metadata_key], {"path", "sha256", "bytes"})
+        _same(
+            manifest[metadata["path"]],
+            {k: metadata[k] for k in ("sha256", "bytes")},
+        )
+        files.append(metadata["path"])
+    matrix = restore_matrix(
+        load_gzip(_file(source, frozen["matrix_file"]["path"])),
+        expected_digest=frozen["matrix_digest"],
+    )
+    tables = restore_costs(
+        load_gzip(_file(source, frozen["costs_file"]["path"])),
+        expected_digest=frozen["costs_digest"],
+    )
+    _same(list(matrix.accounts), protocol["accounts"])
+    _same(list(matrix.scenarios), protocol["scenarios"])
+    configurations = {c["id"]: c for c in protocol["configurations"]}
+    if type(frozen["forecasts"]) is not dict or set(frozen["forecasts"]) != set(
+        configurations
+    ):
+        raise ValueError("source forecast roster differs")
+    streams = {}
+    for configuration, metadata in frozen["forecasts"].items():
+        metadata = closed(metadata, {"path", "sha256", "bytes", "dataset_id"})
+        _same(
+            manifest[metadata["path"]],
+            {k: metadata[k] for k in ("sha256", "bytes")},
+        )
+        if metadata["dataset_id"] != protocol["dataset"]["dataset_id"]:
+            raise ValueError("source forecast Dataset differs")
+        streams[configuration] = load_simple_return_stream_artifact(
+            _file(source, metadata["path"]),
+            expected_digest=metadata["sha256"],
+            expected_dataset_id=metadata["dataset_id"],
+        )
+        files.append(metadata["path"])
+    declarations = {}
+    if type(frozen["pairs"]) is not list:
+        raise ValueError("source pair roster must be a list")
+    for pair in frozen["pairs"]:
+        pair = closed(pair, {"configuration", "account", "scenario", "symbol_index"})
+        pair_key = pair["account"], pair["scenario"]
+        if (
+            pair_key in declarations
+            or pair["configuration"] not in configurations
+            or type(pair["symbol_index"]) is not int
+        ):
+            raise ValueError("duplicate or foreign source pair")
+        declarations[pair_key] = pair
+    if set(declarations) != {g.key for g in matrix.controls}:
+        raise ValueError("source pair roster differs from frozen matrix")
+    plans = {}
+    for group in matrix.ordered_groups:
+        pair = declarations[group.key]
+        common = group.nonrl_plan.native_plan.payload["common"]
+        configuration = pair["configuration"]
+        symbol = protocol["dataset"]["fit_symbols"][pair["symbol_index"]]
+        scenario = "COST2L0" if pair["scenario"] == "COST2L0" else "BASEL0"
+        rows = [
+            row.payload()
+            for row in tables[configurations[configuration]["horizon_hours"], scenario]
+            if row.symbol == symbol
+        ]
+        rows.sort(key=lambda row: (row["symbol"], row["decision_time"]))
+        if (
+            common["symbol_index"] != pair["symbol_index"]
+            or common["dataset_id"] != protocol["dataset"]["dataset_id"]
+            or common["forecast_context_digest"]
+            != frozen["forecasts"][configuration]["sha256"]
+            or common["cost_beliefs_digest"] != content_digest(rows)
+            or common["implementation_digest"]
+            != provenance["native"]["implementation_digest"]
+            or common["runtime_environment_digest"]
+            != provenance["native"]["runtime_environment_digest"]
+        ):
+            raise ValueError("source matrix/forecast/cost/provenance binding differs")
+        for role, plan in zip(protocol["roles"], group.plans, strict=True):
+            plans[*group.key, role] = plan
+    expected = [
+        (a, s, r)
+        for a in protocol["accounts"]
+        for s in protocol["scenarios"]
+        for r in protocol["roles"]
+    ]
+    if [(s["account"], s["scenario"], s["role"]) for s in state["arms"]] != expected:
+        raise ValueError("source arm roster differs")
+    return _FrozenAttemptInputs(
+        state, frozen, matrix, tables, streams, tuple(files), plans
+    )
+
+
+def _completed_receipt_files(
+    source: Path,
+    state: dict[str, Any],
+    plans: dict[tuple[str, str, str], TerminalAllocationExecutionPlan],
+    manifest: dict[str, Any],
+) -> tuple[str, ...]:
+    files: list[str] = []
+    for slot in state["arms"]:
+        arm_key = slot["account"], slot["scenario"], slot["role"]
+        relative = f"receipts/{arm_key[0]}_{arm_key[1]}_{arm_key[2]}.json.gz"
+        if slot["state"] == "COMPLETED":
+            metadata = closed(slot["receipt"], {"path", "sha256", "bytes"})
+            if (
+                metadata["path"] != relative
+                or slot["plan_digest"] != plans[arm_key].digest
+            ):
+                raise ValueError("completed source slot references a foreign receipt")
+            _same(manifest[relative], {k: metadata[k] for k in ("sha256", "bytes")})
+            raw = load_gzip(_file(source, relative))
+            receipt = TerminalAllocationExecutionReceipt.from_payload(
+                raw, expected_plan=plans[arm_key]
+            )
+            if (
+                raw["status"] != "completed"
+                or raw["settlement_complete"] is not True
+                or receipt.digest != slot["receipt_digest"]
+            ):
+                raise ValueError("completed source receipt is stale or partial")
+            files.append(relative)
+        elif (
+            slot["state"]
+            not in {
+                "UNATTEMPTED",
+                "FAILED",
+                "INTERRUPTED",
+                "CANCELLED_BEFORE_START",
+            }
+            or relative in manifest
+        ):
+            raise ValueError("source has an ambiguous, active, or unaccounted receipt")
+    if state["status"] == "COMPLETED" and any(
+        s["state"] != "COMPLETED" for s in state["arms"]
+    ):
+        raise ValueError("source claims completion without every receipt")
+    return tuple(files)
+
+
 def preflight_resume(
     source: Path,
     destination: Path,
@@ -170,176 +364,11 @@ def preflight_resume(
             raise ValueError("new attempt must not be inside the preserved source")
         manifest_digest = file_sha256(_file(source, "output-manifest.json"))
         manifest = _manifest(source)
-        _same(read_json(source / "protocol.json"), protocol)
-        _same(read_json(source / "provenance.json"), provenance)
-        state = read_json(source / "attempt.json")
-        if (
-            state["status"] not in {"FAILED", "COMPLETED"}
-            or not state.get("matrix_digest")
-            or not state.get("freeze_digest")
-        ):
-            raise ValueError(
-                "resume source requires a terminal attempt and a complete frozen matrix"
-            )
-        frozen = closed(
-            read_json(source / "freeze.json"),
-            {
-                "schema",
-                "protocol_digest",
-                "provenance_digest",
-                "matrix_digest",
-                "matrix_file",
-                "costs_digest",
-                "costs_file",
-                "forecasts",
-                "pairs",
-            },
-        )
-        if (
-            frozen["schema"] != "tier_d_frozen_inputs_v1"
-            or content_digest(frozen) != state["freeze_digest"]
-            or frozen["protocol_digest"] != content_digest(protocol)
-            or frozen["provenance_digest"] != content_digest(provenance)
-            or frozen["matrix_digest"] != state["matrix_digest"]
-        ):
-            raise ValueError("source freeze differs from its original pins")
-        files = ["freeze.json"]
-        for metadata_key in ("matrix_file", "costs_file"):
-            metadata = closed(frozen[metadata_key], {"path", "sha256", "bytes"})
-            _same(
-                manifest[metadata["path"]],
-                {k: metadata[k] for k in ("sha256", "bytes")},
-            )
-            files.append(metadata["path"])
-        matrix = restore_matrix(
-            load_gzip(_file(source, frozen["matrix_file"]["path"])),
-            expected_digest=frozen["matrix_digest"],
-        )
-        tables = restore_costs(
-            load_gzip(_file(source, frozen["costs_file"]["path"])),
-            expected_digest=frozen["costs_digest"],
-        )
-        _same(list(matrix.accounts), protocol["accounts"])
-        _same(list(matrix.scenarios), protocol["scenarios"])
-        configurations = {c["id"]: c for c in protocol["configurations"]}
-        if type(frozen["forecasts"]) is not dict or set(frozen["forecasts"]) != set(
-            configurations
-        ):
-            raise ValueError("source forecast roster differs")
-        streams = {}
-        for configuration, metadata in frozen["forecasts"].items():
-            metadata = closed(metadata, {"path", "sha256", "bytes", "dataset_id"})
-            _same(
-                manifest[metadata["path"]],
-                {k: metadata[k] for k in ("sha256", "bytes")},
-            )
-            if metadata["dataset_id"] != protocol["dataset"]["dataset_id"]:
-                raise ValueError("source forecast Dataset differs")
-            streams[configuration] = load_simple_return_stream_artifact(
-                _file(source, metadata["path"]),
-                expected_digest=metadata["sha256"],
-                expected_dataset_id=metadata["dataset_id"],
-            )
-            files.append(metadata["path"])
-        declarations = {}
-        if type(frozen["pairs"]) is not list:
-            raise ValueError("source pair roster must be a list")
-        for pair in frozen["pairs"]:
-            pair = closed(
-                pair, {"configuration", "account", "scenario", "symbol_index"}
-            )
-            pair_key = pair["account"], pair["scenario"]
-            if (
-                pair_key in declarations
-                or pair["configuration"] not in configurations
-                or type(pair["symbol_index"]) is not int
-            ):
-                raise ValueError("duplicate or foreign source pair")
-            declarations[pair_key] = pair
-        if set(declarations) != {g.key for g in matrix.controls}:
-            raise ValueError("source pair roster differs from frozen matrix")
-        plans = {}
-        for group in matrix.ordered_groups:
-            pair = declarations[group.key]
-            common = group.nonrl_plan.native_plan.payload["common"]
-            configuration = pair["configuration"]
-            symbol = protocol["dataset"]["fit_symbols"][pair["symbol_index"]]
-            scenario = "COST2L0" if pair["scenario"] == "COST2L0" else "BASEL0"
-            rows = [
-                row.payload()
-                for row in tables[
-                    configurations[configuration]["horizon_hours"], scenario
-                ]
-                if row.symbol == symbol
-            ]
-            rows.sort(key=lambda row: (row["symbol"], row["decision_time"]))
-            if (
-                common["symbol_index"] != pair["symbol_index"]
-                or common["dataset_id"] != protocol["dataset"]["dataset_id"]
-                or common["forecast_context_digest"]
-                != frozen["forecasts"][configuration]["sha256"]
-                or common["cost_beliefs_digest"] != content_digest(rows)
-                or common["implementation_digest"]
-                != provenance["native"]["implementation_digest"]
-                or common["runtime_environment_digest"]
-                != provenance["native"]["runtime_environment_digest"]
-            ):
-                raise ValueError(
-                    "source matrix/forecast/cost/provenance binding differs"
-                )
-            for role, plan in zip(protocol["roles"], group.plans, strict=True):
-                plans[*group.key, role] = plan
-        expected = [
-            (a, s, r)
-            for a in protocol["accounts"]
-            for s in protocol["scenarios"]
-            for r in protocol["roles"]
+        inputs = _restore_frozen_inputs(source, manifest, protocol, provenance)
+        files = [
+            *inputs.files,
+            *_completed_receipt_files(source, inputs.state, inputs.plans, manifest),
         ]
-        if [
-            (s["account"], s["scenario"], s["role"]) for s in state["arms"]
-        ] != expected:
-            raise ValueError("source arm roster differs")
-        for slot in state["arms"]:
-            arm_key = slot["account"], slot["scenario"], slot["role"]
-            relative = f"receipts/{arm_key[0]}_{arm_key[1]}_{arm_key[2]}.json.gz"
-            if slot["state"] == "COMPLETED":
-                metadata = closed(slot["receipt"], {"path", "sha256", "bytes"})
-                if (
-                    metadata["path"] != relative
-                    or slot["plan_digest"] != plans[arm_key].digest
-                ):
-                    raise ValueError(
-                        "completed source slot references a foreign receipt"
-                    )
-                _same(manifest[relative], {k: metadata[k] for k in ("sha256", "bytes")})
-                raw = load_gzip(_file(source, relative))
-                receipt = TerminalAllocationExecutionReceipt.from_payload(
-                    raw, expected_plan=plans[arm_key]
-                )
-                if (
-                    raw["status"] != "completed"
-                    or raw["settlement_complete"] is not True
-                    or receipt.digest != slot["receipt_digest"]
-                ):
-                    raise ValueError("completed source receipt is stale or partial")
-                files.append(relative)
-            elif (
-                slot["state"]
-                not in {
-                    "UNATTEMPTED",
-                    "FAILED",
-                    "INTERRUPTED",
-                    "CANCELLED_BEFORE_START",
-                }
-                or relative in manifest
-            ):
-                raise ValueError(
-                    "source has an ambiguous, active, or unaccounted receipt"
-                )
-        if state["status"] == "COMPLETED" and any(
-            s["state"] != "COMPLETED" for s in state["arms"]
-        ):
-            raise ValueError("source claims completion without every receipt")
         _same(manifest, _manifest(source))
         if file_sha256(source / "output-manifest.json") != manifest_digest:
             raise ValueError("source manifest changed during reuse validation")
@@ -347,13 +376,93 @@ def preflight_resume(
             source,
             manifest_digest,
             manifest,
-            frozen,
-            matrix,
-            tables,
-            streams,
+            inputs.frozen,
+            inputs.matrix,
+            inputs.tables,
+            inputs.streams,
             tuple(files),
         )
     except (OSError, KeyError, TypeError, IndexError, OverflowError) as error:
         raise ValueError(
             "invalid or incomplete resume source; preserve it and start fresh"
+        ) from error
+
+
+def reconcile_stopped_receipts(
+    source: Path, protocol: dict[str, Any], provenance: dict[str, Any]
+) -> tuple[dict[str, Any], ...]:
+    """Read candidate updates; only a stopped attempt's owner may publish them.
+
+    This does not repair retained sources or admit them for reuse. The supervisor
+    must first verify that its owned process tree is gone. It can then publish
+    these updates in its current failed attempt before the final manifest.
+    """
+    try:
+        if source.is_symlink() or not source.is_dir():
+            raise ValueError("stopped attempt must be a regular directory")
+        source = source.resolve(strict=True)
+        # Reject links before hashing a snapshot, including unmanifested entries.
+        for path in source.rglob("*"):
+            if path.is_symlink():
+                raise ValueError("stopped attempt contains a symlink")
+            if path.is_file():
+                _file(source, path.relative_to(source).as_posix())
+        manifest = _manifest(source, output_manifest(source))
+        inputs = _restore_frozen_inputs(source, manifest, protocol, provenance)
+        if inputs.state["status"] != "FAILED":
+            raise ValueError("stopped reconciliation requires a failed current attempt")
+        expected_receipts = {
+            f"receipts/{account}_{scenario}_{role}{suffix}"
+            for account, scenario, role in inputs.plans
+            for suffix in (".json.gz", ".partial.json.gz")
+        }
+        if any(
+            PurePosixPath(relative).parts[0] == "receipts"
+            and relative not in expected_receipts
+            for relative in manifest
+        ):
+            raise ValueError("stopped attempt contains a foreign receipt artifact")
+        candidate = inputs.state | {
+            "arms": [dict(slot) for slot in inputs.state["arms"]]
+        }
+        updates = []
+        for slot in candidate["arms"]:
+            arm_key = slot["account"], slot["scenario"], slot["role"]
+            relative = f"receipts/{arm_key[0]}_{arm_key[1]}_{arm_key[2]}.json.gz"
+            if slot["state"] == "COMPLETED":
+                continue  # The shared strict reader checks its original pins below.
+            if relative not in manifest:
+                if slot["state"] in {"RUNNING", "SUBMITTED"}:
+                    slot["state"] = "INTERRUPTED"
+                continue
+            if slot["state"] not in {"RUNNING", "SUBMITTED", "INTERRUPTED"}:
+                raise ValueError("stopped attempt has an unaccounted receipt")
+            plan = inputs.plans[arm_key]
+            raw = load_gzip(_file(source, relative))
+            receipt = TerminalAllocationExecutionReceipt.from_payload(
+                raw, expected_plan=plan
+            )
+            if raw["status"] != "completed" or raw["settlement_complete"] is not True:
+                raise ValueError("completed source receipt is stale or partial")
+            pin = closed(manifest[relative], {"sha256", "bytes"})
+            update = {
+                "account": arm_key[0],
+                "scenario": arm_key[1],
+                "role": arm_key[2],
+                "state": "COMPLETED",
+                "plan_digest": plan.digest,
+                "receipt_digest": receipt.digest,
+                "receipt": {"path": relative, **pin},
+                "reconciled_after_stop": True,
+            }
+            slot.update(update)
+            updates.append(update)
+        # Validate the entire proposed state, including previously completed
+        # slots, before returning any update. Invalid files stay at their paths.
+        _completed_receipt_files(source, candidate, inputs.plans, manifest)
+        _same(manifest, _manifest(source, output_manifest(source)))
+        return tuple(updates)
+    except (OSError, EOFError, KeyError, TypeError, IndexError, OverflowError) as error:
+        raise ValueError(
+            "invalid stopped attempt; retain every original artifact"
         ) from error

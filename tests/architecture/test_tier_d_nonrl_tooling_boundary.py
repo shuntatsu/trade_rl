@@ -111,3 +111,116 @@ def test_progress_owners_are_repository_diagnostics_without_domain_execution():
         if keyword.arg == "on_advance"
     )
     assert ast.unparse(callback) == "observer.advance"
+
+
+def _calls(function: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.Call, ...]:
+    return tuple(node for node in ast.walk(function) if isinstance(node, ast.Call))
+
+
+def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def test_stopped_receipt_reconciliation_is_read_only_and_uses_financial_reader():
+    owner = ROOT / "tools/tier_d_nonrl"
+    resume_path = owner / "resume.py"
+    resume = ast.parse(resume_path.read_text("utf-8"))
+    reconcile = _function(resume, "reconcile_stopped_receipts")
+    calls = _calls(reconcile)
+    called_names = {
+        node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+        for node in calls
+        if isinstance(node.func, (ast.Attribute, ast.Name))
+    }
+
+    # The candidate reader shares the existing identity and receipt oracles; it
+    # does not execute work or mutate attempt files while it validates them.
+    assert {"_restore_frozen_inputs", "_completed_receipt_files"} <= called_names
+    assert not called_names & {
+        "write_json",
+        "save_gzip",
+        "write_text",
+        "write_bytes",
+        "unlink",
+        "remove",
+        "rmdir",
+        "mkdir",
+        "rename",
+        "replace",
+        "run_terminal_allocation_execution",
+        "carrier",
+        "cost_rows",
+        "restore_costs",
+        "prepare_inputs",
+        "declare_matrix",
+        "fit",
+    }
+    readers = [
+        node
+        for node in calls
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "from_payload"
+    ]
+    assert len(readers) == 1
+    assert any(keyword.arg == "expected_plan" for keyword in readers[0].keywords)
+    assert any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "trade_rl.evaluation.allocation_terminal_evidence"
+        and any(
+            alias.name == "TerminalAllocationExecutionReceipt" for alias in node.names
+        )
+        for node in resume.body
+    )
+
+
+def test_stopped_reconciliation_stays_separate_from_strict_public_resume():
+    owner = ROOT / "tools/tier_d_nonrl"
+    runner = ast.parse((owner / "tier_d_runner.py").read_text("utf-8"))
+    execute = _function(runner, "execute")
+    assert any(
+        isinstance(node.func, ast.Name) and node.func.id == "preflight_resume"
+        for node in _calls(execute)
+    )
+    assert not any(
+        isinstance(node.func, ast.Name) and node.func.id == "reconcile_stopped_receipts"
+        for node in ast.walk(runner)
+        if isinstance(node, ast.Call)
+    )
+
+    supervisor = ast.parse((owner / "tier_d_supervisor.py").read_text("utf-8"))
+    publisher = _function(supervisor, "_publish_stopped_receipts")
+    publish_calls = [
+        node
+        for node in _calls(publisher)
+        if isinstance(node.func, ast.Name)
+        and node.func.id == "reconcile_stopped_receipts"
+    ]
+    assert len(publish_calls) == 1
+    guard = next(
+        node
+        for node in publisher.body
+        if not (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+    )
+    assert isinstance(guard, ast.If)
+    assert ast.unparse(guard.test) == "not owned_tree_stopped"
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_publish_stopped_receipts"
+        and any(
+            keyword.arg == "owned_tree_stopped"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is True
+            for keyword in node.keywords
+        )
+        for node in ast.walk(_function(supervisor, "supervised_run"))
+    )

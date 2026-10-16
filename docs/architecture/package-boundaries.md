@@ -1842,6 +1842,24 @@ process through `/proc/<pid>/status`; descendant RSS is not included. This
 root-only diagnostic does not satisfy the market resource contract, which
 continues to require Windows aggregate process-tree sampling.
 
+For a stopped current attempt, `resume.reconcile_stopped_receipts` is a
+read-only candidate reader. It reuses the frozen input/plan and strict completed
+receipt validators, including the existing financial receipt reader; it does
+not write or delete artifacts, run forecasts/costs, or execute native work. Only
+the supervisor may publish its returned arm updates, after verifying its owned
+Windows process tree has stopped and rechecking the launch source/driver pins,
+protocol and current runtime/native/review provenance. It first marks the
+current attempt `FAILED` and preserves its failure reason, then reconciles
+eligible complete receipts and writes final manifests. Invalid or partial
+canonical completion receipts, foreign plans, ineligible slots, mutated inputs
+and symlinked artifacts are refused without changing their bytes. Diagnostic
+partial sidecars remain preserved and do not qualify an arm as completed;
+ordinary missing-arm retry semantics remain unchanged. There is no quarantine
+or progress-based qualification. Ordinary public
+resume still uses strict `preflight_resume` against an immutable prior source.
+Linux synthetic root-only supervision cannot satisfy the owned-tree gate and
+skips this reconciliation.
+
 The result-blind v3 protocol fixes the no-progress policy before execution:
 600 seconds per started arm with expected advances remaining, sampled every
 second. This is an initial proposal, not a measured market runtime bound. The

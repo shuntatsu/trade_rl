@@ -205,8 +205,18 @@ identity were not established.
 At FACE, clean package closure passed 12/12 gates. Exact-head
 [CI 38770180118](https://github.com/shuntatsu/trade_rl/actions/runs/38770180118)
 passed Core (6,151 tests), PPO (346) and Guide; Generic independent research
-review was `PENDING` and failed, so the overall workflow is `FAILURE`. Step 0
-acceptance remains `INCOMPLETE` pending fresh different-model exact-head review.
+review was `PENDING` and failed, so that workflow remains `FAILURE`.
+The later publishing HEAD `1c7e60353956` and byte-oracle HEAD `f02bb33f0f3e`
+received fresh AGY `gemini-4-argon-high` / high software reviews
+([publishing review](https://github.com/shuntatsu/trade_rl/pull/895#pullrequestreview-5541913280),
+[byte-oracle review](https://github.com/shuntatsu/trade_rl/pull/896#pullrequestreview-5541767726)).
+Their review-triggered full CI runs
+[38835303030](https://github.com/shuntatsu/trade_rl/actions/runs/38835303030) and
+[38833039633](https://github.com/shuntatsu/trade_rl/actions/runs/38833039633)
+passed Core, PPO Runtime, Guide and the actual Generic review job. Their earlier
+failed workflows and historical failed checks remain retained. These later
+software gates do not rebind the frozen FACE measurements or establish a
+complexity order, full-matrix runtime bound or whole-scope Step 0 acceptance.
 Historical release execution equivalence, R3, unused/final evaluation, full-48
 completion, after-fee profit, adoption, WINNER and live readiness remain
 unestablished.
@@ -255,6 +265,35 @@ compressed-file determinism. This contract changes no runtime guard, economic
 recipe, market-data scope or research authorization. Passing the software oracle
 does not establish a speedup, historical execution equivalence, Step 0 acceptance
 without exact-head independent review, R3 admission or profitability.
+
+## Issue #888 training-trace clock validation
+
+The retained artificial profile identifies scalar `_timestamp` validation as a
+local target (1,067.061 seconds of profiled self time). Invalid aggregate call
+counts are not used as rates, and inclusive times are not added. A separate
+artificial constructor benchmark fixes 64 and 19,008 pooled rows, nanosecond and
+second input units, one warmup and five repetitions per case. It measures only
+`ForecastTrainingTrace` construction and validates complete payload bytes and
+digests against independent integer clock values after every observation.
+This is not a Dataset preparation, native execution or market measurement.
+
+The implementation replaces per-row Python dispatch with per-call array NaT and
+exact round-trip masks. The original scalar validator still handles the first
+invalid element, including failure ordering for mixed NaT and precision loss.
+No clock validation, immutable copy, causal row check, stream digest or runtime
+mutation guard is omitted or cached. Other owners' scalar clock calls remain
+unchanged. Independent integer/Gregorian-clock tests cover complete trace
+payloads and digests, and a scoped profiler checks a constant scalar-dispatch
+budget on valid long traces without a wall-time test threshold.
+
+The terminal oracle compares the legacy scalar vector path with the actual
+array path within one HEAD for long, short, partial closing and CASH carry.
+Both legs use the public stream digest so a test-only scalar function cannot
+change memo-hit behavior between them. Complete plans, receipts, expected-plan
+readback and actor/reserve progress remain equal with all provenance retained.
+Existing memo-hit and mutation-refusal oracles remain separate. Native speedup,
+full-48 feasibility, R3, profit and economic/live authorization do not follow
+from constructor timing or these software oracles.
 
 ## Generic software PR review policy (2026-10-14)
 

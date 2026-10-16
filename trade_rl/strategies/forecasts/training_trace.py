@@ -22,12 +22,17 @@ def _vector(value: np.ndarray, *, dtype: str, count: int) -> np.ndarray:
     original = np.asarray(value)
     if original.shape != (count,):
         raise ValueError("trace arrays must match row_symbols")
-    if dtype == "datetime64[ns]":
-        if original.dtype.kind != "M":
-            raise ValueError("trace clocks must contain timestamps")
-        for timestamp in original:
-            _timestamp(timestamp, field="trace clock")
+    if dtype == "datetime64[ns]" and original.dtype.kind != "M":
+        raise ValueError("trace clocks must contain timestamps")
     normalized = np.asarray(original, dtype=dtype)
+    if dtype == "datetime64[ns]":
+        invalid = (
+            np.isnat(original)
+            | np.isnat(normalized)
+            | (normalized.astype(original.dtype) != original)
+        )
+        if invalid.any():
+            _timestamp(original[int(invalid.argmax())], field="trace clock")
     return np.frombuffer(normalized.tobytes(), dtype=normalized.dtype)
 
 

@@ -330,6 +330,11 @@ Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winne
 `training_trace` freezes its actual pooled symbol, feature row, label endpoint,
 prices and publication clocks. Ridge fitting consumes that same selected-row
 object through one solver; it does not select rows a second time.
+Trace clock arrays retain per-construction NaT and exact nanosecond round-trip
+validation through array masks. An invalid vector uses the existing scalar
+validator on its first invalid element, preserving failure category and order.
+Normalized arrays still own immutable byte copies; input identity does not
+permit validation reuse. Other forecast owners retain the scalar clock API.
 
 `strategies.forecasts.stream` owns the simulated availability block, Ridge
 vintage, packet and immutable stream JSON contracts. `prequential` fits each

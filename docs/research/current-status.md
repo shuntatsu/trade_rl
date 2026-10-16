@@ -16,7 +16,10 @@ both affected paths failed on the pre-fix Linux/Btrfs source, while Windows was
 a passing platform control. Native ABI/error/path tests and a synchronized
 two-contender publication check cover the shared primitive. Linux, Windows and
 macOS runner verification and fresh final-head independent source review remain
-required for integration. This changes artifact publication only; it does not
+required for integration. The generic review gate waits for the full native
+publication matrix and requires its success alongside Core, PPO and Guide;
+missing, skipped, pending, failed or cancelled results cannot satisfy the gate.
+This changes artifact publication only; it does not
 rerun the frozen Issue #888 measurements or establish market profitability,
 R3 admission, unused/final eligibility or live readiness.
 

@@ -802,7 +802,8 @@ Run/Study consumer is introduced.
 ## Stacked PR verification routing
 
 `.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through
-Lean Core, PPO Runtime and Human Guide at the PR's exact head SHA. PR opened,
+Lean Core, PPO Runtime, Human Guide and the Linux/Windows/macOS Artifact
+Publication matrix at the PR's exact head SHA. PR opened,
 synchronize and reopened events run these jobs; PR edited runs them only when
 the payload contains `changes.base`. Body/title edits skip the same software
 and review jobs, while submitted/edited/dismissed review events remain eligible.
@@ -812,7 +813,9 @@ GitHub may display an unevaluated name expression for skipped jobs; such labels
 are distinct from the exact verification names and do not prove verification ran.
 Non-metadata events retain the existing concurrency group and cancellation policy.
 Both generic and 4h review gates require all three software jobs to succeed;
-empty, skipped, pending and failed results cannot satisfy that prerequisite.
+the generic gate also waits for and requires the native publication matrix.
+Empty, skipped, pending, failed and cancelled results cannot satisfy those
+prerequisites.
 Review events on an unsupported base still run the appropriate review gate,
 which rejects the skipped software jobs instead of reporting a skipped gate.
 The existing head-based choice of review checker remains unchanged. Routing

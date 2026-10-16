@@ -2,6 +2,20 @@
 
 更新基準: 2026-10-16 (JST)
 
+## Issue #903: session cash-interest basis repair
+
+The public stateful executor can now process a held position's processing-bar
+dividend together with closed-session gap interest without cloning a temporary
+book whose NAV exceeds its last observed peak. BookState accrues interest once
+on the explicit signed cash basis; the existing gap/processing split, dividend
+ordering and open/end-bar drawdown observations remain unchanged.
+
+This is a synthetic software regression repair, including independent interest
+arithmetic and a falling-close control against a new intrabar peak. It does not
+rerun or rebind the frozen Issue #888 artificial measurements, establish market
+profitability, or grant R3, unused/final or live eligibility. Final-head full
+software gates and independent source review remain required for integration.
+
 ## Issue #901: compatibility close-liquidation repair
 
 The unprofiled `MarketExecutor.liquidate_at_close` shortcut now applies actual

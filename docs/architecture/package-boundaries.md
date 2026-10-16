@@ -1812,6 +1812,11 @@ readback. Workers write disjoint journals. The parent publishes verified records
 to the canonical attempt log, including while parallel futures are unfinished.
 Reused receipts do not open another native journal.
 
+On Linux, explicit synthetic-mode supervision samples only the worker root
+process through `/proc/<pid>/status`; descendant RSS is not included. This
+root-only diagnostic does not satisfy the market resource contract, which
+continues to require Windows aggregate process-tree sampling.
+
 The result-blind v3 protocol fixes the no-progress policy before execution:
 600 seconds per started arm with expected advances remaining, sampled every
 second. This is an initial proposal, not a measured market runtime bound. The

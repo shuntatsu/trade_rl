@@ -206,10 +206,10 @@ At FACE, clean package closure passed 12/12 gates. Exact-head
 [CI 38770180118](https://github.com/shuntatsu/trade_rl/actions/runs/38770180118)
 passed Core (6,151 tests), PPO (346) and Guide; Generic independent research
 review was `PENDING` and failed, so the overall workflow is `FAILURE`. Step 0
-acceptance remains `INCOMPLETE` pending fresh different-model exact-head review
-and the cross-source old-release execution-byte comparison contract. Historical
-release equivalence, R3, unused/final evaluation, full-48 completion, after-fee
-profit, adoption, WINNER and live readiness remain unestablished.
+acceptance remains `INCOMPLETE` pending fresh different-model exact-head review.
+Historical release execution equivalence, R3, unused/final evaluation, full-48
+completion, after-fee profit, adoption, WINNER and live readiness remain
+unestablished.
 
 The fixed artificial release fixture in
 `tests/evaluation/fixtures/issue888_release_v1/` retains the original compressed
@@ -217,10 +217,44 @@ native plan and NONRL/CASH receipts. Public-reader regressions pin their
 compressed SHA-256 values and exact canonical round trips of the embedded native
 and terminal plans and receipts, preserving the original source and plan digests.
 This verifies reader compatibility only. It runs no Dataset preparation or native
-execution and does not establish historical execution equivalence. Cross-source
-plan/receipt byte equality also remains unresolved because implementation
-provenance binds the runtime source files; source pins must not be bypassed to
-claim equality.
+execution and does not establish historical execution equivalence.
+
+## Issue #888 execution-byte comparison contract (2026-10-16)
+
+The owner approved separate historical-compatibility and same-source execution
+oracles. Historical release files retain their original compressed bytes,
+SHA-256 pins and source/plan identities, with public-reader round trips checked
+separately. Cross-revision plan and receipt equality is not required: their
+implementation provenance intentionally binds different runtime source files.
+No identity field may be removed, replaced or rebound to manufacture equality.
+
+The execution oracle compares the complete canonical plan and receipt bytes
+between the reference and optimized routes within one exact source HEAD, with
+fresh equivalent artificial accounts and unchanged inputs, costs, risk and
+execution settings. Every field, including implementation/runtime provenance,
+remains in the comparison. For the run-local simple-stream memo, the reference
+route calls the current public stream serializer on every collector check; the
+optimized route executes the original guarded memo. A route witness must show
+that both paths actually ran and that the optimized path reused a warm digest.
+Global execution and complete terminal closing require separate coverage,
+including actor/reserve progress, public receipt readback, flat terminal state
+and mutation refusal at the existing guard boundaries.
+
+The driver-level oracle additionally uses the 256 × 2 × 6 artificial fixture:
+one shared frozen plan and inputs, two fresh execution destinations, and complete
+NONRL/CASH arms with 32 actor and eight reserve advances each. Original source
+attempt and input bytes must stay unchanged. The driver's ordinary one-pair
+inline route keeps the test-only getter selection in the same process; it
+establishes native payload parity, not process-parallel scheduling, speedup or
+full-size market throughput.
+
+These are full native payload bytes, not a projection of financial fields.
+Gzip headers are a transport concern: their original raw bytes stay pinned in
+the historical fixture, while canonical payload equality makes no claim of
+compressed-file determinism. This contract changes no runtime guard, economic
+recipe, market-data scope or research authorization. Passing the software oracle
+does not establish a speedup, historical execution equivalence, Step 0 acceptance
+without exact-head independent review, R3 admission or profitability.
 
 ## Generic software PR review policy (2026-10-14)
 

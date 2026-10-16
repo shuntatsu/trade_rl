@@ -327,3 +327,163 @@ def test_partial_resume_reuses_nonrl_receipt_without_refit_or_recost(
     assert set(resumed_journals) == {f"{next(iter(cash_arm_ids))}.jsonl"}
     assert_completed_progress_journal(next(iter(resumed_journals.values())))
     assert output_snapshot(source) == source_before
+
+
+def test_same_head_memo_routes_preserve_full_native_pair_artifacts(
+    tmp_path, monkeypatch
+):
+    """Compare public-digest and memo routes on one real inline native pair."""
+    module = runner()
+    dataset_root, dataset, protocol = artificial_inputs(tmp_path, module, max_workers=1)
+    protocol["scenarios"] = ["BASEL2"]
+    protocol["budget"]["native_arms"] = 2
+    assert protocol["scope"] == "ARTIFICIAL_SOFTWARE_INTEGRATION_ONLY"
+    assert protocol["dataset"]["dimensions"] == [256, 2, 6]
+    assert protocol["concurrency"]["max_workers"] == 1
+    assert protocol["resource_proposal"]["maximum_inflight_pairs"] == 1
+    assert protocol["scenarios"] == ["BASEL2"]
+    assert protocol["budget"]["native_arms"] == 2
+    assert protocol["budget"]["total_native_advances"] == 80
+
+    calls = install_call_spies(module, monkeypatch)
+    frozen_root = tmp_path / "frozen-source"
+
+    class PreparedOnly(RuntimeError):
+        pass
+
+    def stop_after_freeze(*args, **kwargs):
+        raise PreparedOnly("stop after the artificial matrix is frozen")
+
+    with monkeypatch.context() as preparation_only:
+        preparation_only.setattr(module, "execute_pairs", stop_after_freeze)
+        with pytest.raises(PreparedOnly, match="matrix is frozen"):
+            module.execute(frozen_root, dataset_root, dataset, protocol)
+
+    frozen_state = json.loads(
+        (frozen_root / "attempt.json").read_text(encoding="utf-8")
+    )
+    assert frozen_state["status"] == "FAILED"
+    assert frozen_state["matrix_digest"]
+    assert frozen_state["freeze_digest"]
+    assert [arm["role"] for arm in frozen_state["arms"]] == ["nonrl", "cash"]
+    assert all(arm["state"] == "UNATTEMPTED" for arm in frozen_state["arms"])
+    assert not list((frozen_root / "receipts").glob("*.json.gz"))
+    assert calls["cost_rows"] > 0
+    assert calls["prepare_allocation_market_inputs"] > 0
+    assert calls["run_terminal_allocation_execution"] == 0
+
+    frozen_snapshot = output_snapshot(frozen_root)
+    dataset_snapshot = output_snapshot(dataset_root)
+    frozen_protocol = (frozen_root / "protocol.json").read_bytes()
+    source_pins = module.source_pins()
+    frozen_plan_bytes = gzip.decompress(
+        (frozen_root / "native-plan.json.gz").read_bytes()
+    )
+
+    memo_module = importlib.import_module(
+        "trade_rl.evaluation.rl_allocation._simple_stream_digest"
+    )
+    memo_type = memo_module.SimpleStreamDigestMemo
+    original_get = memo_type.get
+    measured_calls = importlib.import_module(
+        "tests.evaluation.test_simple_stream_digest_memo"
+    ).measured_calls
+
+    destinations = {
+        "reference": tmp_path / "reference-route",
+        "optimized": tmp_path / "optimized-route",
+    }
+    route_observations = {name: [] for name in destinations}
+    route_results = {}
+
+    def execute_route(name, getter):
+        for key in calls:
+            calls[key] = 0
+        with monkeypatch.context() as selected_route:
+            selected_route.setattr(memo_type, "get", getter)
+            result = module.execute(
+                destinations[name],
+                dataset_root,
+                dataset,
+                protocol,
+                resume_from=frozen_root,
+            )
+
+        assert calls == {
+            "cost_rows": 0,
+            "prepare_allocation_market_inputs": 0,
+            "run_terminal_allocation_execution": 2,
+        }
+        assert result["scope"] == "ARTIFICIAL_SOFTWARE_INTEGRATION_ONLY"
+        assert result["status"] == "COMPLETED"
+        assert result["completed_arms"] == result["attempted_arms"] == 2
+        assert result["reused_arms"] == 0
+        assert result["public_calls"]["cost_producers"] == 0
+        assert result["public_calls"]["prepare_calls"] == 0
+        assert len(result["pairs"]) == 1
+
+        destination = destinations[name]
+        attempt = json.loads((destination / "attempt.json").read_text(encoding="utf-8"))
+        assert attempt["status"] == "COMPLETED"
+        assert [arm["role"] for arm in attempt["arms"]] == ["nonrl", "cash"]
+        assert all(arm["state"] == "COMPLETED" for arm in attempt["arms"])
+        assert (destination / "protocol.json").read_bytes() == frozen_protocol
+        assert output_snapshot(frozen_root) == frozen_snapshot
+        assert output_snapshot(dataset_root) == dataset_snapshot
+        route_results[name] = result
+
+    reference_observations = route_observations["reference"]
+
+    def reference_get(self, stream):
+        value, content_digest_calls = measured_calls(lambda: stream.digest)
+        reference_observations.append(content_digest_calls)
+        return value
+
+    execute_route("reference", reference_get)
+    assert reference_observations
+    assert all(count > 0 for count in reference_observations)
+
+    optimized_observations = route_observations["optimized"]
+
+    def optimized_get(self, stream):
+        value, content_digest_calls = measured_calls(lambda: original_get(self, stream))
+        optimized_observations.append(content_digest_calls)
+        return value
+
+    execute_route("optimized", optimized_get)
+    assert optimized_observations
+    assert any(count > 0 for count in optimized_observations)
+    assert any(count == 0 for count in optimized_observations)
+
+    reference_root = destinations["reference"]
+    optimized_root = destinations["optimized"]
+    reference_plan = reference_root / "native-plan.json.gz"
+    optimized_plan = optimized_root / "native-plan.json.gz"
+    assert gzip.decompress(reference_plan.read_bytes()) == frozen_plan_bytes
+    assert gzip.decompress(optimized_plan.read_bytes()) == frozen_plan_bytes
+
+    reference_receipts = {
+        path.name: gzip.decompress(path.read_bytes())
+        for path in (reference_root / "receipts").glob("*.json.gz")
+    }
+    optimized_receipts = {
+        path.name: gzip.decompress(path.read_bytes())
+        for path in (optimized_root / "receipts").glob("*.json.gz")
+    }
+    assert reference_receipts.keys() == optimized_receipts.keys()
+    assert len(reference_receipts) == 2
+    assert reference_receipts == optimized_receipts
+
+    reference_journals = progress_journals(reference_root)
+    optimized_journals = progress_journals(optimized_root)
+    assert reference_journals.keys() == optimized_journals.keys()
+    assert len(reference_journals) == 2
+    assert reference_journals == optimized_journals
+    for raw in (*reference_journals.values(), *optimized_journals.values()):
+        assert_completed_progress_journal(raw)
+
+    assert module.source_pins() == source_pins
+    assert output_snapshot(frozen_root) == frozen_snapshot
+    assert output_snapshot(dataset_root) == dataset_snapshot
+    assert route_results["reference"]["attempted_arms"] == 2
+    assert route_results["optimized"]["attempted_arms"] == 2

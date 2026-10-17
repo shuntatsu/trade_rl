@@ -34,7 +34,7 @@ from trade_rl.evaluation.rl_allocation.settled_training_source import (
 from trade_rl.evaluation.rl_allocation.transition_facts import (
     _json,
     _pending,
-    validate_allocation_execution_facts_v2,
+    validate_allocation_execution_facts_v3,
     validate_terminal_allocation_facts,
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
@@ -1115,7 +1115,7 @@ def _row(
             "risk_config": _json(context.risk_config),
             "current_weights": current.tolist(),
         }
-        validate_allocation_execution_facts_v2(
+        validate_allocation_execution_facts_v3(
             complete,
             context.recipe,
             dataset_id=context.dataset.dataset_id,

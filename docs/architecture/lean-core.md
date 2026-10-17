@@ -733,7 +733,10 @@ drawdown refresh on a detached BookState copy reject already-dead margin states
 and missing latched drawdown evidence; the original book is not mutated.
 Risk requires `drawdown_start < drawdown_stop <= 20%`; the canonical latched maximum
 drawdown is used. This guardrail cannot cap losses across gaps or missed fills.
-Static exposure limits are intersected before optimization; subsequent risk,
+Static exposure limits and the executor's shorting permission are intersected
+before optimization. With shorting disabled the lower bound is nonnegative;
+positive configured minima remain in force and an empty intersection rejects.
+Subsequent risk,
 quantization, order rejection, capacity and margin may change the submitted or
 realized allocation. Thus this is a scalar surrogate optimum **before final
 hard-risk projection**, not an executable or globally optimal net-profit claim.
@@ -1794,24 +1797,32 @@ need not equal forecast estimates or CASH charges. These checks preserve the
 existing observed-cost, intrabar-DD and historical source-authentication limits;
 they do not widen the separate bounded 42-array native-capture profile.
 
-## Versioned global static-cap verification
+## Versioned global target-bound verification
 
-New global execution receipts use `allocation_global_execution_receipt_v2`.
+Short-disabled global execution receipts use
+`allocation_global_execution_receipt_v3`. Short-enabled execution retains v2
+bytes because its target bounds are unchanged; the version is selected from
+the plan's pinned actual execution policy.
 Their closed native reader reconstructs only the allocator's static bounds from
 the original recipe intersected with `min(actual risk.max_abs_weight, actual
-cost.max_leverage)`, matching the existing native proposal owner. Allocator
+cost.max_leverage)` and nonnegative weights when actual shorting is disabled,
+matching the native proposal owner. Allocator
 aversion/turnover, original recipe identity and every other transition check stay
 exact. Canonical hard risk still applies once at execution; drawdown scaling is
 not folded into those static bounds.
 
 Complete native `execution_policy_v2` fields, scalar/vector types, ranges and
 retained-debt economics are admitted before account reset/backend load and for
-every v2 receipt, including empty failures. No missing defaults or inferred cost
+every v2/v3 receipt, including empty failures. No missing defaults or inferred cost
 limits are supplied. Immutable receipt schema selects the same validator for
-accepted facts and recorded rejections. Historical v1 bytes, success/failure
-meaning and error order remain strict; they are never automatically upgraded.
+accepted facts and recorded rejections. Historical v1/v2 bytes, success/failure
+meaning and error order remain strict; v2 retains its symmetric cap intersection
+and neither version is automatically upgraded. Relabelling a long-only receipt
+cannot substitute one version's allocator semantics for another's.
 Plans, recipes, detached native fact shapes, fee receipts and historical
-actor/scheduled trace validation retain their original contracts. Capped global
+actor/scheduled trace validation retain their original contracts. Current
+source-bound settled checks use v3; their bounded native profile is not widened
+to admit unsupported execution configurations. Capped global
 observations compose with existing comparison and terminal owners without a new
 ledger; historical capped trace admission remains a separate boundary.
 

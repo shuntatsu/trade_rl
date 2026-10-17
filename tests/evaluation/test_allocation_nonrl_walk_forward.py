@@ -583,6 +583,7 @@ def test_unsupported_native_allocation_profile_rejected_before_reset(
 def global_control_fixture(
     *,
     mode="residual",
+    lower_weight=0.0,
     cash_rate=None,
     insolvent_short=False,
     zero_later_volume=False,
@@ -590,7 +591,8 @@ def global_control_fixture(
 ):
     """Literal H4/C1000 native carrier; coefficients are declared, never fitted."""
     _, (original,) = fixture(ranges=((6, 10),), mode=mode, **arguments)
-    dataset, allocator = original.dataset, original.allocator
+    dataset = original.dataset
+    allocator = replace(original.allocator, lower_weight=lower_weight)
     if cash_rate is not None:
         dataset = replace(dataset, cash_rate=np.full(12, cash_rate, dtype=np.float64))
     if zero_later_volume:
@@ -676,6 +678,63 @@ def global_nonrl_capability():
     assert hasattr(api, "run_global_nonrl_allocation"), "global NONRL runner is missing"
     assert hasattr(api, "GlobalNonRLAllocationResult"), "global NONRL result is missing"
     return api
+
+
+@pytest.mark.parametrize("allow_short", [False, True])
+def test_global_nonrl_closes_held_long_before_terminal_when_shorting_disabled(
+    allow_short, monkeypatch
+):
+    env = global_control_fixture(
+        signals=(1, -1, -1, -1),
+        lower_weight=-0.5,
+        cost_changes={"allow_short": allow_short},
+    )
+    native_step = env.step
+    actions = []
+
+    def step(action):
+        actions.append(action)
+        result = native_step(action)
+        if len(actions) == 1:
+            assert env.book.quantities[0] == 5
+            assert env.book.cash == 499
+            assert env.book.portfolio_value == 1049
+            assert env.book.total_cost == 1
+            assert env.book.fill_count == 1
+        elif len(actions) == 2:
+            # Check the actor transition itself; terminal cleanup cannot mask it.
+            assert env.index == 8 < env.stop_index
+            assert not result[2] and not result[3]
+            target = -0.5 if allow_short else 0.0
+            assert result[-1]["action_proposal"].target_weight == target
+            assert result[-1]["risk_target"].weights[0] == target
+            quantity = -0.5 * 1049 / 110 if allow_short else 0.0
+            sale_notional = (5 - quantity) * 110
+            assert env.book.quantities[0] == pytest.approx(quantity)
+            assert env.book.cash == pytest.approx(499 + sale_notional * (1 - 0.002))
+            assert env.book.total_cost == pytest.approx(1 + sale_notional * 0.002)
+            assert env.book.fill_count == 2
+            assert not env.order_book.active_orders
+            assert any(
+                event.event_type == "filled" and event.filled_quantity < 0
+                for event in result[-1]["execution"].order_events
+            )
+            if not allow_short:
+                assert env.book.exact_quantities == (0,)
+        return result
+
+    monkeypatch.setattr(env, "step", step)
+    result = global_nonrl_capability().run_global_nonrl_allocation(
+        global_control_folds(7), env
+    )
+    assert actions == [2, 2, 2, 2]
+    assert result.walk_forward.stitched.boundaries == ((6, 7), (7, 10))
+    if not allow_short:
+        assert env.book.quantities[0] == 0
+        assert env.book.cash == pytest.approx(1047.9)
+        assert env.book.total_cost == pytest.approx(2.1)
+        assert env.book.fill_count == 2
+        assert not env.order_book.active_orders
 
 
 @pytest.mark.parametrize("boundary", [7, 9])

@@ -1,6 +1,27 @@
 # Current research status
 
-更新基準: 2026-10-16 (JST)
+更新基準: 2026-10-17 (JST)
+
+## Issue #909: long-only target feasibility candidate
+
+The composed after-cost allocator now intersects its target interval with the
+actual executor's shorting permission before optimization. A negative forecast
+can therefore select cash and close a held long through normal fee-bearing
+execution when shorting is disabled. Previously, the symmetric default interval
+could request a sign-crossing sell that admission rejected as `shorting_disabled`,
+leaving the long untouched. Configured positive minimum weights and explicit
+empty-domain rejection remain in force; short-enabled targets are unchanged.
+Current short-disabled global receipts use v3 to verify this domain; unchanged
+short-enabled execution retains its complete v2 bytes. Historical v1/v2 readers
+preserve their bytes and prior meaning, including a pinned old v2 crossing-sale
+rejection; changing its schema does not qualify it as repaired execution.
+
+Fixed-input tests inspect the actual global NONRL actor before terminal handling,
+using independent quantity/cash/fee arithmetic and a short-enabled control.
+This is a synthetic software repair candidate. Exact-head full gates and
+independent source review remain required. It does not change the frozen
+Issue #888 measurements or establish profitability, R3, unused/final eligibility
+or live readiness.
 
 ## Issue #899: exclusive artifact directory publication
 

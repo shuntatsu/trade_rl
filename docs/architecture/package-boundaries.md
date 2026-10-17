@@ -592,6 +592,14 @@ immutable input/proposal content.
 It builds account provenance from existing BookState/order owners, applies
 canonical risk once and invokes simulation-owned target execution. It must
 not use `execute_interval`'s compatibility cache or own cash/P&L updates.
+Its proposal domain intersects configured allocator bounds with execution
+leverage, static risk caps and the actual executor's shorting permission.
+Shorting disabled sets a nonnegative lower bound before optimization; a
+positive configured minimum stays positive and an empty intersection rejects.
+Current short-disabled global receipts use v3 target-bound verification;
+short-enabled execution retains v2 bytes under its unchanged bounds. Historical
+v1/v2 receipt readers retain their original semantics; current source-bound
+settled validation shares v3 without expanding its bounded native profile.
 `simulation/targets/execution.py` owns the opt-in quantity-HOLD cancellation
 and one-bar execution path, without a dependency on strategy/evaluation.
 

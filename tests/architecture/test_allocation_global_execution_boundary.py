@@ -10,7 +10,7 @@ def test_versioned_global_verification_does_not_upgrade_historical_trace_owners(
     owners = {
         "transition_validation.py": "validate_allocation_execution_facts",
         "scheduled_transition_validation.py": "validate_allocation_execution_facts",
-        "global_execution_context.py": "validate_allocation_execution_facts_v2",
+        "global_execution_context.py": "validate_allocation_execution_facts_v3",
     }
     for name, expected in owners.items():
         path = ROOT / "trade_rl/evaluation/rl_allocation" / name

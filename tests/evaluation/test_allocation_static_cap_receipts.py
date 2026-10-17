@@ -111,25 +111,85 @@ def test_literal_v1_multiple_invalid_fields_keep_original_error_order(
     assert str(raised.value) == message
 
 
+def test_literal_v2_long_only_rejection_keeps_original_bytes_and_meaning(monkeypatch):
+    # Produced by clean 269502a: the historical actor rejected the crossing sell.
+    raw = (
+        FIXTURES / "allocation_global_v2_long_only_crossing_rejected.json"
+    ).read_bytes()
+    assert len(raw) == 109882
+    assert sha256(raw).hexdigest() == (
+        "d540f6496fe5baf00de30c7ac8165ae2f351ce49c3fe552d425f812f0f2c73b7"
+    )
+    api = capability()
+    monkeypatch.setattr(
+        api,
+        "build_candidate_run_provenance",
+        lambda: pytest.fail("historical reader queried live provenance"),
+    )
+    restored = api.GlobalAllocationExecutionReceipt.from_payload(json.loads(raw))
+    assert restored._bytes == raw
+    assert restored.payload["status"] == "completed"
+    second = restored.payload["rows"][1]["native"]
+    assert second["book"]["exact_quantities"] == ["5"]
+    assert second["book"]["cash"] == 499
+    assert second["order_events"][-1]["reason"] == "shorting_disabled"
+    relabeled = deepcopy(restored.payload)
+    relabeled["schema"] = "allocation_global_execution_receipt_v3"
+    with pytest.raises(ValueError, match="native reconstruction"):
+        api.GlobalAllocationExecutionReceipt.from_payload(relabeled)
+
+
+def test_declared_long_only_actor_and_current_receipt_agree_before_terminal():
+    env = global_control_fixture(
+        signals=(1, -1, -1, -1),
+        lower_weight=-0.5,
+        cost_changes={"allow_short": False},
+    )
+    api, folds = capability(), global_control_folds(7)
+    receipt = api.run_declared_global_allocation_execution(
+        folds, env, declare(api, env, folds)
+    ).receipt
+    assert receipt.payload["status"] == "completed"
+    assert receipt.payload["schema"] == "allocation_global_execution_receipt_v3"
+    second = receipt.payload["rows"][1]
+    assert second["native_validation_failure"] is None
+    assert second["native"]["book"]["exact_quantities"] == ["0"]
+    assert second["native"]["book"]["cash"] == pytest.approx(1047.9)
+    assert env.book.fill_count == 2 and not env.order_book.active_orders
+    restored = api.GlobalAllocationExecutionReceipt.from_payload(receipt.payload)
+    assert restored._bytes == receipt._bytes
+    relabeled = deepcopy(receipt.payload)
+    relabeled["schema"] = "allocation_global_execution_receipt_v2"
+    with pytest.raises(ValueError, match="native reconstruction"):
+        api.GlobalAllocationExecutionReceipt.from_payload(relabeled)
+
+
 @pytest.mark.parametrize(
     ("risk_cap", "leverage", "expected_upper"),
     [(0.4, 1.0, 0.4), (1.0, 0.3, 0.3), (0.4, 0.3, 0.3)],
 )
+@pytest.mark.parametrize("allow_short", [False, True])
 @pytest.mark.parametrize("kind", ["nonrl", "cash"])
-def test_lawful_native_static_caps_complete(risk_cap, leverage, expected_upper, kind):
+def test_lawful_native_static_caps_complete(
+    risk_cap, leverage, expected_upper, allow_short, kind
+):
     api = capability()
     env = global_control_fixture(
         mode="direct" if kind == "cash" else "residual",
         risk=PreTradeRiskConfig(
             max_gross=1.0, max_abs_weight=risk_cap, max_turnover=None
         ),
-        cost_changes={"max_leverage": leverage},
+        cost_changes={"allow_short": allow_short, "max_leverage": leverage},
     )
     folds = global_control_folds(7)
     plan = declare(api, env, folds, kind=kind)
     result = api.run_declared_global_allocation_execution(folds, env, plan)
     receipt = result.receipt.payload
-    assert receipt["schema"] == "allocation_global_execution_receipt_v2"
+    assert receipt["schema"] == (
+        "allocation_global_execution_receipt_v3"
+        if not allow_short
+        else "allocation_global_execution_receipt_v2"
+    )
     assert receipt["status"] == "completed"
     assert receipt["reset_count"] == 1
     assert len(receipt["rows"]) == 4
@@ -160,9 +220,9 @@ def capped_cash_execution():
     return plan, api.run_declared_global_allocation_execution(folds, env, plan)
 
 
-def validate_v2(native, raw, *, action=2, cost=None, recipe=None):
+def validate_current(native, raw, *, action=2, cost=None, recipe=None):
     runtime = raw["plan"]["cell"]["runtime"]
-    return transition_facts.validate_allocation_execution_facts_v2(
+    return transition_facts.validate_allocation_execution_facts_v3(
         native,
         runtime["recipe"] if recipe is None else recipe,
         dataset_id=raw["plan"]["common"]["dataset_id"],
@@ -222,7 +282,7 @@ def test_coherently_rebuilt_cash_proposal_cannot_forge_effective_allocator(
     native["proposal_digest"] = proposal.digest
     native["decision_digest"] = decision.decision_digest
     with pytest.raises(ValueError, match="native reconstruction"):
-        validate_v2(native, raw, action=0)
+        validate_current(native, raw, action=0)
 
 
 @pytest.mark.parametrize("field", ["fee_rate", "random_seed", "allow_short"])
@@ -231,7 +291,7 @@ def test_unchanged_cap_cost_drift_rejects_stale_economics(field):
     cost = deepcopy(raw["plan"]["cell"]["runtime"]["cost_payload"])
     cost[field] = {"fee_rate": 0.004, "random_seed": 77, "allow_short": False}[field]
     with pytest.raises(ValueError, match="actual cost differs"):
-        validate_v2(raw["rows"][0]["native"], raw, cost=cost)
+        validate_current(raw["rows"][0]["native"], raw, cost=cost)
 
 
 @pytest.mark.parametrize("pin_changed", [False, True])
@@ -244,7 +304,7 @@ def test_risk_content_or_pin_drift_remains_rejected(pin_changed):
     else:
         native["risk_config"]["max_abs_weight"] = 0.3
     with pytest.raises(ValueError, match="risk config differs"):
-        validate_v2(native, raw, recipe=recipe)
+        validate_current(native, raw, recipe=recipe)
 
 
 BAD_COST_CHANGES = [
@@ -356,7 +416,7 @@ def test_valid_empty_v2_failure_is_readable_but_not_completed():
 
 def test_complete_actual_cost_is_admitted_before_native_reset(monkeypatch):
     # Native config construction historically accepts numeric bools. Keep v1
-    # plan semantics, but refuse a new v2 execution before touching its ledger.
+    # plan semantics, but refuse a new v3 execution before touching its ledger.
     env = global_control_fixture(cost_changes={"fee_rate": True})
     api, folds = capability(), global_control_folds(7)
     plan = declare(api, env, folds)
@@ -381,7 +441,7 @@ def test_immutable_schema_dispatch_refuses_old_capped_failure_as_v2():
         capability().GlobalAllocationExecutionReceipt.from_payload(raw)
 
 
-def test_immutable_schema_dispatch_refuses_capped_v2_success_as_v1(
+def test_immutable_schema_dispatch_refuses_current_success_as_v1(
     capped_cash_execution,
 ):
     raw = capped_cash_execution[1].receipt.payload
@@ -390,7 +450,7 @@ def test_immutable_schema_dispatch_refuses_capped_v2_success_as_v1(
         capability().GlobalAllocationExecutionReceipt.from_payload(raw)
 
 
-@pytest.mark.parametrize("schema", ["allocation_global_execution_receipt_v3", {}, []])
+@pytest.mark.parametrize("schema", ["allocation_global_execution_receipt_v4", {}, []])
 def test_unknown_receipt_version_is_refused_with_historical_error(schema):
     _, raw = historical("capped_failure")
     raw["schema"] = schema
@@ -663,7 +723,7 @@ def test_flat_utility_preserves_actual_hold_or_nearest_feasible_cap(flat_prices)
 
 
 @pytest.mark.parametrize("kind", ["cash", "nonrl"])
-def test_capped_v2_reaches_existing_exact_comparison_evidence(
+def test_capped_current_reaches_existing_exact_comparison_evidence(
     kind,
     capped_cash_execution,
 ):

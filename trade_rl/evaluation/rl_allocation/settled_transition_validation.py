@@ -26,7 +26,7 @@ from trade_rl.evaluation.rl_allocation.transition_facts import (
     _json,
     _pending,
     _returned_book,
-    validate_allocation_execution_facts_v2,
+    validate_allocation_execution_facts_v3,
     validate_terminal_allocation_facts,
 )
 from trade_rl.risk.pretrade import PreTradeRisk
@@ -440,7 +440,9 @@ def _source_decision(
     cap = min(env.risk_config.max_abs_weight, env.execution_cost.max_leverage)
     resolved = replace(
         env.allocator,
-        lower_weight=max(env.allocator.lower_weight, -cap),
+        lower_weight=max(
+            env.allocator.lower_weight, -cap if env.execution_cost.allow_short else 0.0
+        ),
         upper_weight=min(env.allocator.upper_weight, cap),
     )
     _same(_json(decision.baseline.allocator), _json(resolved))
@@ -1270,7 +1272,7 @@ def _native_transition(
                 "risk_config": _json(env.risk_config),
                 "current_weights": current.tolist(),
             }
-            validate_allocation_execution_facts_v2(
+            validate_allocation_execution_facts_v3(
                 complete,
                 env.recipe,
                 dataset_id=env.dataset.dataset_id,

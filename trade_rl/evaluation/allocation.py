@@ -197,11 +197,13 @@ def propose_nonrl_target(
     if inputs.horizon_end < executor.dataset.timestamps[first_eligible]:
         raise ValueError("return horizon ends before the first eligible processing bar")
     cap = min(pretrade_risk.config.max_abs_weight, executor.cost.max_leverage)
-    # Static bounds are intersected here; drawdown projection occurs only once,
-    # at execution, so a held position is not implicitly scaled twice.
+    # Static bounds include actual shorting permission. Drawdown projection occurs
+    # only at execution, so a held position is not implicitly scaled twice.
     resolved = replace(
         allocator,
-        lower_weight=max(allocator.lower_weight, -cap),
+        lower_weight=max(
+            allocator.lower_weight, -cap if executor.cost.allow_short else 0.0
+        ),
         upper_weight=min(allocator.upper_weight, cap),
     )
     return resolved.propose(inputs, context)

@@ -1071,6 +1071,17 @@ through canonical fills/carry/corporate actions. A fixed terminal horizon,
 forced close, walk-forward state, cost calibration and a finite economic trial
 budget are not defined by this software and remain required before research.
 
+The composed optimizer must respect the actual executor's existing shorting
+permission. Its configured interval is intersected with static risk/leverage
+caps and, when shorting is disabled, nonnegative weights before optimization.
+This preserves positive configured minima and rejects an empty intersection;
+it does not clip orders or weaken final hard risk. A G2 counterexample opens
+five units at100 with initial cash1000 and a 0.002 fee, then supplies negative
+alpha at110. Before terminal handling, the long-only actor must close through
+ordinary execution, leaving quantity0, cash1047.9 and cumulative fees2.1.
+The short-enabled control instead crosses to a genuine negative position.
+These are fixed-input synthetic cash/quantity oracles, not market edge evidence.
+
 G0/G1 counterfactuals are fee-only cash, useful-signal entry, asymmetrical entry
 and reversal costs, held-short funding/borrow, signed cash return, risk interior
 solutions, exact ties and over-cap/empty feasible intervals. G2 uses independent

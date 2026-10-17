@@ -315,6 +315,32 @@ def validate_allocation_execution_facts_v2(
         raise ValueError("invalid closed transition economics") from error
 
 
+def validate_allocation_execution_facts_v3(
+    value: object,
+    recipe: dict[str, Any],
+    *,
+    dataset_id: str,
+    action_code: int,
+    actual_cost_payload: object,
+) -> float:
+    """Verify executable target bounds, including actual shorting permission."""
+    try:
+        cost = validate_allocation_execution_cost_payload(
+            actual_cost_payload,
+            economics_digest=recipe["runtime_profile"]["economics_digest"],
+        )
+        return _validate_execution_facts(
+            value,
+            recipe,
+            dataset_id=dataset_id,
+            action_code=action_code,
+            actual_cost=cost,
+            respect_shorting_permission=True,
+        )
+    except (KeyError, TypeError, OverflowError, RecursionError, IndexError) as error:
+        raise ValueError("invalid closed transition economics") from error
+
+
 def validate_terminal_allocation_facts(
     value: object,
     *,
@@ -563,6 +589,7 @@ def _validate_execution_facts(
     dataset_id: str,
     action_code: int,
     actual_cost: ExecutionCostConfig | None = None,
+    respect_shorting_permission: bool = False,
 ) -> float:
     _native_json(value)
     raw = _closed(
@@ -649,9 +676,12 @@ def _validate_execution_facts(
             raise ValueError("transition risk config differs from recipe")
         original = _construct(AfterCostTargetAllocator, recipe["allocator"])
         cap = min(cap_risk.max_abs_weight, actual_cost.max_leverage)
+        lower = (
+            0.0 if respect_shorting_permission and not actual_cost.allow_short else -cap
+        )
         resolved = replace(
             original,
-            lower_weight=max(original.lower_weight, -cap),
+            lower_weight=max(original.lower_weight, lower),
             upper_weight=min(original.upper_weight, cap),
         )
         _same(_json(allocator), _json(resolved))

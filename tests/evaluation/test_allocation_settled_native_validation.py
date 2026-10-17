@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
 import math
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -55,7 +56,7 @@ _ROSTER = (
 )
 
 
-def _declarations(case):
+def _declarations(case, *, allow_short=True):
     """Literal declared coefficients and sources; no solver or native call."""
     name, actor_steps, reserve_steps, mode, _ = case
     horizon = actor_steps + reserve_steps
@@ -188,7 +189,10 @@ def _declarations(case):
     )
     stream = FrozenSimpleReturnStream(dataset.dataset_id, (vintage,), packets)
     cost = replace(
-        ExecutionCostConfig.zero(), fee_rate=1 / 128, max_participation_rate=1.0
+        ExecutionCostConfig.zero(),
+        fee_rate=1 / 128,
+        max_participation_rate=1.0,
+        allow_short=allow_short,
     )
     risk = PreTradeRiskConfig(
         max_gross=1.0,
@@ -673,14 +677,14 @@ def _capture_frontier(env):
         )
 
 
-def _collect_case(case):
+def _collect_case(case, *, allow_short=True):
     """One fresh account, one reset; never continue or flatten after failure."""
     from trade_rl.evaluation.rl_allocation.settled_env import (
         SettledAllocationTradingEnv,
     )
 
     owner = _owner()
-    declared = _declarations(case)
+    declared = _declarations(case, allow_short=allow_short)
     context = owner.SettledNativeValidationContext(**declared)
     env = SettledAllocationTradingEnv(**declared)
     name, _, _, _, actions = case
@@ -874,6 +878,55 @@ def test_native_batch_literal_wealth_and_admission(native_batch):
             "returned_frontier"
         ]["native_account"]["book"]["max_drawdown"]
         == 0.25390625
+    )
+
+
+@pytest.mark.parametrize("allow_short", [False, True])
+def test_actual_native_capture_resolves_negative_allocator_floor_by_permission(
+    allow_short,
+):
+    collected = _collect_case(_ROSTER[3], allow_short=allow_short)
+
+    assert collected["caught"] is None
+    assert collected["source_envelope_parity"]
+    capture = collected["capture"].payload()
+    transition = json.loads(bytes.fromhex(capture["actor_calls"][0]["transition_hex"]))
+    actor = transition["rows"][0]
+    baseline_allocator = actor["proposal"]["decision"]["baseline"]["allocator"]
+    expected_lower = -0.5 if allow_short else 0.0
+    assert baseline_allocator["lower_weight"] == expected_lower
+    assert actor["proposal"]["target_weight"] == expected_lower
+
+    report = _verify(collected).payload()
+    frontier = capture["returned_frontier"]["native_account"]
+    assert frontier["active_orders"] == []
+    assert frontier["book"]["exact_quantities"] == ["0"]
+    if allow_short:
+        assert report["full_structural_settlement"] is True
+        assert report["admitted"] is True
+        assert report["counts"]["validated_native_rows"] == 2
+        assert frontier["book"]["equity"] == 992.1875
+        assert frontier["book"]["total_cost"] == 7.8125
+        assert frontier["book"]["fill_count"] == 2
+    else:
+        assert report["admitted"] is False
+        assert "PROFILE_UNSUPPORTED" in report["limitations"]
+        assert report["counts"]["validated_native_rows"] == 0
+        assert frontier["book"]["cash"] == 1000.0
+        assert frontier["book"]["total_cost"] == 0.0
+        assert frontier["book"]["fill_count"] == 0
+
+    # Exercise the source-derived decision validator on this actual native row;
+    # the broader public verifier intentionally declines this long-only profile.
+    owner = _owner()
+    decision = owner.native._decision(
+        collected["context"], actor["proposal"]["decision"]
+    )
+    owner.native._source_decision(
+        collected["context"],
+        6,
+        capture["opening"]["native_account"],
+        decision,
     )
 
 

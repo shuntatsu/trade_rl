@@ -74,6 +74,7 @@ from trade_rl.evaluation.rl_allocation.transition_facts import (
     validate_allocation_execution_cost_payload,
     validate_allocation_execution_facts,
     validate_allocation_execution_facts_v2,
+    validate_allocation_execution_facts_v3,
 )
 from trade_rl.evaluation.robustness.closed_trades import ClosedTradeDiagnostics
 from trade_rl.evaluation.robustness.walk_forward.folds import (
@@ -954,9 +955,10 @@ def _receipt(value: object) -> dict[str, Any]:
     if raw["schema"] not in (
         "allocation_global_execution_receipt_v1",
         "allocation_global_execution_receipt_v2",
+        "allocation_global_execution_receipt_v3",
     ):
         raise ValueError("unknown global execution receipt schema")
-    cost_aware = raw["schema"] == "allocation_global_execution_receipt_v2"
+    cost_aware = raw["schema"] != "allocation_global_execution_receipt_v1"
     plan = GlobalAllocationExecutionPlan.from_payload(raw["plan"])
     common, cell = plan.payload["common"], plan.payload["cell"]
     if cost_aware:
@@ -967,7 +969,12 @@ def _receipt(value: object) -> dict[str, Any]:
 
     def validate_native(native: object, action_code: int) -> float:
         if cost_aware:
-            return validate_allocation_execution_facts_v2(
+            validator = (
+                validate_allocation_execution_facts_v3
+                if raw["schema"] == "allocation_global_execution_receipt_v3"
+                else validate_allocation_execution_facts_v2
+            )
+            return validator(
                 native,
                 cell["runtime"]["recipe"],
                 dataset_id=common["dataset_id"],
@@ -1496,7 +1503,7 @@ def _make_receipt(
         json.loads(
             canonical_json_bytes(
                 {
-                    "schema": "allocation_global_execution_receipt_v2",
+                    "schema": "allocation_global_execution_receipt_v3",
                     "plan": plan.payload,
                     "common_digest": plan.common_digest,
                     "cell_plan_digest": plan.cell_plan_digest,

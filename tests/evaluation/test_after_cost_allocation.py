@@ -181,6 +181,47 @@ def test_useful_signal_executes_after_risk_with_independent_net_cash_oracle():
     np.testing.assert_array_equal(result.risk_target.weights, [0.5])
 
 
+@pytest.mark.parametrize("allow_short, expected", [(False, 0.0), (True, -0.5)])
+def test_negative_alpha_respects_actual_execution_shorting_permission(
+    allow_short, expected
+):
+    dataset = market()
+    ex = executor(dataset, allow_short=allow_short)
+    proposal = propose(
+        ex,
+        book(dataset, 5.0),
+        OrderBookState.empty(),
+        signal=-0.10,
+        controller=risk(0.5),
+    )
+    assert proposal.target_weight == expected
+    assert proposal.allocator.lower_weight == expected
+
+
+@pytest.mark.parametrize(
+    "lower, upper, expected", [(0.2, 0.5, 0.2), (-0.5, -0.1, None)]
+)
+def test_long_only_feasibility_preserves_configured_interval(lower, upper, expected):
+    dataset = market()
+    ex = executor(dataset, allow_short=False)
+    arguments = dict(
+        account_id="independent-S0",
+        inputs=inputs(ex, signal=-0.10),
+        allocator=AfterCostTargetAllocator(lower_weight=lower, upper_weight=upper),
+        pretrade_risk=risk(),
+        symbol_index=0,
+        start_index=0,
+    )
+    if expected is None:
+        with pytest.raises(ValueError, match="bounds|feasible"):
+            propose_nonrl_target(ex, book(dataset), OrderBookState.empty(), **arguments)
+    else:
+        proposal = propose_nonrl_target(
+            ex, book(dataset), OrderBookState.empty(), **arguments
+        )
+        assert proposal.target_weight == expected
+
+
 def test_partial_fill_preserves_residual_then_changed_target_replaces_only_delta():
     dataset = market(volume=1.0)
     ex, bk, orders = executor(dataset), book(dataset, 2.0), OrderBookState.empty()

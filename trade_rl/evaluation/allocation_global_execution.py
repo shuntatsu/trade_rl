@@ -1503,7 +1503,10 @@ def _make_receipt(
         json.loads(
             canonical_json_bytes(
                 {
-                    "schema": "allocation_global_execution_receipt_v3",
+                    # Short-enabled bounds are unchanged; retain their bytes.
+                    "schema": "allocation_global_execution_receipt_v2"
+                    if plan.payload["cell"]["runtime"]["cost_payload"]["allow_short"]
+                    else "allocation_global_execution_receipt_v3",
                     "plan": plan.payload,
                     "common_digest": plan.common_digest,
                     "cell_plan_digest": plan.cell_plan_digest,

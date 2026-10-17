@@ -11,7 +11,8 @@ execution when shorting is disabled. Previously, the symmetric default interval
 could request a sign-crossing sell that admission rejected as `shorting_disabled`,
 leaving the long untouched. Configured positive minimum weights and explicit
 empty-domain rejection remain in force; short-enabled targets are unchanged.
-Current global receipts use v3 to verify this domain. Historical v1/v2 readers
+Current short-disabled global receipts use v3 to verify this domain; unchanged
+short-enabled execution retains its complete v2 bytes. Historical v1/v2 readers
 preserve their bytes and prior meaning, including a pinned old v2 crossing-sale
 rejection; changing its schema does not qualify it as repaired execution.
 

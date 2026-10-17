@@ -1799,7 +1799,10 @@ they do not widen the separate bounded 42-array native-capture profile.
 
 ## Versioned global target-bound verification
 
-New global execution receipts use `allocation_global_execution_receipt_v3`.
+Short-disabled global execution receipts use
+`allocation_global_execution_receipt_v3`. Short-enabled execution retains v2
+bytes because its target bounds are unchanged; the version is selected from
+the plan's pinned actual execution policy.
 Their closed native reader reconstructs only the allocator's static bounds from
 the original recipe intersected with `min(actual risk.max_abs_weight, actual
 cost.max_leverage)` and nonnegative weights when actual shorting is disabled,

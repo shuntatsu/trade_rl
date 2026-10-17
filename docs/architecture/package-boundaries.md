@@ -596,7 +596,8 @@ Its proposal domain intersects configured allocator bounds with execution
 leverage, static risk caps and the actual executor's shorting permission.
 Shorting disabled sets a nonnegative lower bound before optimization; a
 positive configured minimum stays positive and an empty intersection rejects.
-Current closed global receipts use v3 target-bound verification. Historical
+Current short-disabled global receipts use v3 target-bound verification;
+short-enabled execution retains v2 bytes under its unchanged bounds. Historical
 v1/v2 receipt readers retain their original semantics; current source-bound
 settled validation shares v3 without expanding its bounded native profile.
 `simulation/targets/execution.py` owns the opt-in quantity-HOLD cancellation

@@ -365,6 +365,8 @@ def test_shared_reserve_preserves_complete_legacy_terminal_bytes(monkeypatch):
     raw = api.run_terminal_allocation_execution(
         folds, env, plans(api, env, folds)
     ).payload
+    assert env.execution_cost.allow_short is True
+    assert raw["native_receipt"]["schema"] == "allocation_global_execution_receipt_v2"
     assert sha256(canonical_json_bytes(raw)).hexdigest() == (
         "4c6d5d10f56667eb5d9c5365e68f65e6818354da74926c8c1f63c45112ac3259"
     )

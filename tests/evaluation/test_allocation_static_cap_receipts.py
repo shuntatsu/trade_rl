@@ -168,21 +168,28 @@ def test_declared_long_only_actor_and_current_receipt_agree_before_terminal():
     ("risk_cap", "leverage", "expected_upper"),
     [(0.4, 1.0, 0.4), (1.0, 0.3, 0.3), (0.4, 0.3, 0.3)],
 )
+@pytest.mark.parametrize("allow_short", [False, True])
 @pytest.mark.parametrize("kind", ["nonrl", "cash"])
-def test_lawful_native_static_caps_complete(risk_cap, leverage, expected_upper, kind):
+def test_lawful_native_static_caps_complete(
+    risk_cap, leverage, expected_upper, allow_short, kind
+):
     api = capability()
     env = global_control_fixture(
         mode="direct" if kind == "cash" else "residual",
         risk=PreTradeRiskConfig(
             max_gross=1.0, max_abs_weight=risk_cap, max_turnover=None
         ),
-        cost_changes={"max_leverage": leverage},
+        cost_changes={"allow_short": allow_short, "max_leverage": leverage},
     )
     folds = global_control_folds(7)
     plan = declare(api, env, folds, kind=kind)
     result = api.run_declared_global_allocation_execution(folds, env, plan)
     receipt = result.receipt.payload
-    assert receipt["schema"] == "allocation_global_execution_receipt_v3"
+    assert receipt["schema"] == (
+        "allocation_global_execution_receipt_v3"
+        if not allow_short
+        else "allocation_global_execution_receipt_v2"
+    )
     assert receipt["status"] == "completed"
     assert receipt["reset_count"] == 1
     assert len(receipt["rows"]) == 4
@@ -549,7 +556,7 @@ def test_infeasible_cap_or_allocator_turnover_keeps_original_failure(turnover):
             folds, env, declare(api, env, folds)
         )
     raw = raised.value.global_execution_receipt.payload
-    assert raw["schema"] == "allocation_global_execution_receipt_v3"
+    assert raw["schema"] == "allocation_global_execution_receipt_v2"
     assert raw["status"] == "integrity_failure"
     assert all(row["native"] is None for row in raw["rows"])
     assert env.book.fill_count == 0
@@ -582,7 +589,7 @@ def test_capped_native_account_closes_with_independent_literal_fees(
     raw = result.payload
     prefix = raw["native_receipt"]
     book = prefix["rows"][0]["native"]["book"]
-    assert prefix["schema"] == "allocation_global_execution_receipt_v3"
+    assert prefix["schema"] == "allocation_global_execution_receipt_v2"
     assert book["exact_quantities"] == [str(quantity)]
     assert book["cash"] == pytest.approx(
         1000.0 - quantity * 100.0 - quantity * 100.0 * 0.002
@@ -604,7 +611,7 @@ def test_default_risk_capped_prefix_can_reach_genuinely_unsettled_close():
         folds, env, native_plan, settlement_stop_index=8
     )
     raw = terminal.run_terminal_allocation_execution(folds, env, plan).payload
-    assert raw["native_receipt"]["schema"] == "allocation_global_execution_receipt_v3"
+    assert raw["native_receipt"]["schema"] == "allocation_global_execution_receipt_v2"
     assert raw["native_receipt"]["rows"][0]["native"]["book"]["exact_quantities"] == [
         "4"
     ]

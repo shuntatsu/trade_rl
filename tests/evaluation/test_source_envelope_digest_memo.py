@@ -615,12 +615,8 @@ def test_get_from_env_warm_hit_skips_array_sha256_and_digest(env):
     memo = api()()
     stream_memo = SimpleStreamDigestMemo()
     original = context.allocation_source_envelope_digest(env)
-    first, cold_sha = _sha256_invocations(
-        lambda: memo.get_from_env(env, stream_memo)
-    )
-    second, warm_sha = _sha256_invocations(
-        lambda: memo.get_from_env(env, stream_memo)
-    )
+    first, cold_sha = _sha256_invocations(lambda: memo.get_from_env(env, stream_memo))
+    second, warm_sha = _sha256_invocations(lambda: memo.get_from_env(env, stream_memo))
     array_count = len(env.dataset.identity_arrays()) - 1
     assert first == second == original
     assert cold_sha >= array_count

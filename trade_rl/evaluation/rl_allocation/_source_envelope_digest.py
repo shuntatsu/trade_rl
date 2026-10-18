@@ -614,7 +614,6 @@ class SourceEnvelopeDigestMemo:
         self._attempted = False
         self._baseline: tuple[object, str] | None = None
 
-
     def get_from_env(
         self,
         env: Any,

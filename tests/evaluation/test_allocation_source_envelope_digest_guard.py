@@ -32,9 +32,8 @@ def _envelope_getter_route(monkeypatch, route):
             scoped.setattr(
                 module.SourceEnvelopeDigestMemo,
                 "get_from_env",
-                lambda _self, env, stream_memo, *, pin=module.allocation_array_pin,
-                digest=module.hashing.content_digest: context._source_envelope_digest(
-                    env, stream_memo
+                lambda _self, env, stream_memo, *, pin=module.allocation_array_pin, digest=module.hashing.content_digest: (
+                    context._source_envelope_digest(env, stream_memo)
                 ),
             )
             yield
@@ -299,9 +298,7 @@ def _run_terminal_route(route, monkeypatch, operation):
             digest=memo_module.hashing.content_digest,
         ):
             getter_calls.append(None)
-            return original_get(
-                self, env, stream_memo, pin=pin, digest=digest
-            )
+            return original_get(self, env, stream_memo, pin=pin, digest=digest)
 
         replacement = original_get_with_count
         profiled_code = original_get.__code__
@@ -321,6 +318,7 @@ def _run_terminal_route(route, monkeypatch, operation):
         assert payload_reads[0] > 0  # first baseline
         assert all(count == 0 for count in payload_reads[1:])
     return result
+
 
 @pytest.mark.parametrize(
     ("case", "carrier_kwargs", "kind", "stop"),

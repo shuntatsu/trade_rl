@@ -19,7 +19,7 @@ from tests.evaluation.test_allocation_nonrl_walk_forward import (
 from tests.evaluation.test_allocation_terminal_execution import carrier, plans
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
-
+from trade_rl.evaluation.rl_allocation import global_execution_context as context
 
 
 @contextmanager
@@ -28,10 +28,6 @@ def _envelope_getter_route(monkeypatch, route):
         module = import_module(
             "trade_rl.evaluation.rl_allocation._source_envelope_digest"
         )
-        from trade_rl.evaluation.rl_allocation import (
-            global_execution_context as context,
-        )
-
         with monkeypatch.context() as scoped:
             scoped.setattr(
                 module.SourceEnvelopeDigestMemo,
@@ -273,8 +269,6 @@ def _run_terminal_route(route, monkeypatch, operation):
     memo_module = import_module(
         "trade_rl.evaluation.rl_allocation._source_envelope_digest"
     )
-    from trade_rl.evaluation.rl_allocation import global_execution_context as context
-
     memo_type = memo_module.SourceEnvelopeDigestMemo
     original_get = memo_type.get_from_env
     getter_calls = []

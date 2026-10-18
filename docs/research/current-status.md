@@ -683,8 +683,19 @@ Windows/Python 3.12.0/NumPy 1.26.4, per-advance digest verification dropped from
 `76.818 ms` to `14.465 ms` (`5.31x` speedup: `SimpleStreamDigestMemo.get` from
 `27.208 ms` to `7.878 ms`, net `SourceEnvelopeDigestMemo` overhead from
 `48.307 ms` to `5.030 ms`, and `DeclaredSourceDigestMemo.get` `1.556 ms`).
-The measured source stays pinned to `6f9f74136887`; later documentation commits
-do not rebind it.
+
+At implementation commit `fcae9e288c2549b933352fde84e3c7d957dcb7cd`, `_simple_stream_digest.py`
+accepts empty `dtype.metadata` (`mappingproxy({})`) produced by NumPy `datetime64[ns]`
+unpickling across `ProcessPoolExecutor` worker processes (`bool(dtype.metadata)`), allowing
+unpickled stream instances to successfully arm their warm baseline memo and avoid 1.1s/step
+digest recomputations in parallel workers. On a 16-core machine across 50 steps of full
+terminal execution with `ProgressJournal` advances:
+- 4 workers achieved `98.08 ms / step` average warm latency (wall time `32.58s` including initial setup).
+- 6 workers achieved `125.77 ms / step` average warm latency (wall time `41.69s` including initial setup).
+Although per-worker latency increases by ~28% due to cache/memory contention, 6 workers
+delivers ~17% higher overall throughput for the 48-cell Tier D matrix (~1.89h vs ~2.21h).
+The measured source stays pinned to `fcae9e288c2549b933352fde84e3c7d957dcb7cd`; later
+documentation commits do not rebind it.
 
 ## Generic software PR review policy (2026-10-14)
 

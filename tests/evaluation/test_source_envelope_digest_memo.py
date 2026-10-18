@@ -587,3 +587,103 @@ def test_json_encoder_method_changes_after_warming_use_public_digest(
     prefix2, arrays2 = _inputs(env)
     result, digest_calls, _ = measured_calls(lambda: memo.get(env, prefix2, arrays2))
     assert result == expected and digest_calls > 0
+
+
+def test_get_from_env_warm_skips_array_pins_and_matches_canonical(env):
+    memo = api()()
+    stream_memo = context.SimpleStreamDigestMemo()
+    expected = context.allocation_source_envelope_digest(env)
+
+    # First call: baseline arming
+    first = memo.get_from_env(env, stream_memo)
+    assert first == expected
+    assert memo._baseline is not None
+
+    # Track calls to allocation_array_pin, content_digest, and payload during second call
+    pin_calls = 0
+    digest_calls = 0
+    payload_calls = 0
+    pin_code = context.allocation_array_pin.__code__
+    digest_code = hashing.content_digest.__code__
+    payload_code = forecast_allocation.HorizonCostEstimates.payload.__code__
+
+    def profile(frame: FrameType, event: str, _arg: object) -> None:
+        nonlocal pin_calls, digest_calls, payload_calls
+        if event == "call":
+            if frame.f_code is pin_code:
+                pin_calls += 1
+            elif frame.f_code is digest_code:
+                digest_calls += 1
+            elif frame.f_code is payload_code:
+                payload_calls += 1
+
+    previous = sys.getprofile()
+    try:
+        sys.setprofile(profile)
+        second = memo.get_from_env(env, stream_memo)
+    finally:
+        sys.setprofile(previous)
+
+    assert second == expected
+    assert pin_calls == 0
+    assert digest_calls == 0
+    assert payload_calls == 0
+
+
+def test_get_from_env_inplace_array_mutation_refuses_stale_cache(env):
+    memo = api()()
+    first = memo.get_from_env(env, None)
+
+    original_close = env.dataset.close
+    new_close = np.array(original_close, copy=True)
+    new_close[env.start_index, 0] += 100.0
+    object.__setattr__(env.dataset, "close", new_close)
+
+    try:
+        second = memo.get_from_env(env, None)
+        expected = context.allocation_source_envelope_digest(env)
+        assert second == expected != first
+    finally:
+        object.__setattr__(env.dataset, "close", original_close)
+
+
+def test_get_from_env_unstable_arm_refuses_baseline(env):
+    memo = api()()
+    code = hashing.content_digest.__code__
+    changed = False
+    original_close = env.dataset.close
+
+    def mutate_during_digest(frame: FrameType, event: str, _arg: object) -> None:
+        nonlocal changed
+        if event == "call" and frame.f_code is code and not changed:
+            changed = True
+            new_close = np.array(original_close, copy=True)
+            new_close[env.start_index, 0] += 50.0
+            object.__setattr__(env.dataset, "close", new_close)
+
+    previous = sys.getprofile()
+    try:
+        sys.setprofile(mutate_during_digest)
+        memo.get_from_env(env, None)
+    finally:
+        sys.setprofile(previous)
+        object.__setattr__(env.dataset, "close", original_close)
+
+    # Because array mutated during first evaluation, baseline arming must be refused
+    assert memo._baseline is None
+
+
+def test_get_from_env_fallback_when_pin_overridden(env):
+    memo = api()()
+    custom_pin_calls = 0
+
+    def custom_pin(arr: np.ndarray) -> dict[str, object]:
+        nonlocal custom_pin_calls
+        custom_pin_calls += 1
+        return context.allocation_array_pin(arr)
+
+    result = memo.get_from_env(env, None, pin=custom_pin)
+    assert result == context.allocation_source_envelope_digest(env)
+    assert custom_pin_calls > 0
+    # Because custom pin was provided, baseline should not be armed
+    assert memo._baseline is None

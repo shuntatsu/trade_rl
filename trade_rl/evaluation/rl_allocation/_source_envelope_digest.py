@@ -8,6 +8,7 @@ tampering or concurrent graph mutation.
 
 from __future__ import annotations
 
+import hashlib
 import operator
 import struct
 from collections import defaultdict
@@ -25,6 +26,9 @@ import numpy as np
 
 from trade_rl.artifacts import canonical, hashing
 from trade_rl.evaluation import forecast_allocation
+from trade_rl.evaluation.rl_allocation._declared_source_digest import (
+    allocation_array_pin,
+)
 from trade_rl.strategies import allocation as allocation_strategy
 
 _CLASSES = (
@@ -153,6 +157,7 @@ _BINDINGS = tuple(
     (module, name, *_entry(getattr(module, name)))
     for module, name in (
         (canonical.math, "isfinite"),
+        (hashlib, "sha256"),
         (np, "int64"),
         (np, "datetime64"),
         (np, "ndarray"),
@@ -160,9 +165,13 @@ _BINDINGS = tuple(
         (np, "asarray"),
         (np, "isnat"),
         (np, "isfinite"),
+        (np, "ascontiguousarray"),
     )
 )
+_PIN_ENTRY = _entry(allocation_array_pin)
+_ORIGINAL_PIN = allocation_array_pin
 _DIGEST_ENTRY = _entry(hashing.content_digest)
+_ORIGINAL_DIGEST = hashing.content_digest
 _DIGEST_FUNC = hashing.content_digest
 
 _ComplexFuncCheck = tuple[
@@ -309,7 +318,16 @@ def _same(value: object, original: object, metadata: object) -> bool:
     return _metadata(value) == metadata
 
 
-def _implementation_matches() -> bool:
+def _implementation_matches(
+    pin: Callable[[np.ndarray], dict[str, Any]] | None = None,
+    digest: Callable[[object], str] | None = None,
+) -> bool:
+    if pin is not None and (pin is not _ORIGINAL_PIN or not _same(pin, *_PIN_ENTRY)):
+        return False
+    if digest is not None and (
+        digest is not _ORIGINAL_DIGEST or not _same(digest, *_DIGEST_ENTRY)
+    ):
+        return False
     for (
         cls,
         schema,
@@ -569,6 +587,116 @@ def _state(
         return None
 
 
+def _is_standard_env(env: Any) -> bool:
+    if vars(object).get("__getattribute__") is not _OBJECT_GETATTRIBUTE:
+        return False
+    env_type = type(env)
+    for base in env_type.__mro__:
+        if base is not object:
+            b_dict = vars(base)
+            if (
+                "__getattribute__" in b_dict
+                or "__getattr__" in b_dict
+                or "_estimates" in b_dict
+                or any(attr in b_dict for attr in _ENV_ATTRS)
+            ):
+                return False
+    try:
+        env_dict = object.__getattribute__(env, "__dict__")
+    except AttributeError:
+        return False
+    if type(env_dict) is not dict or "_estimates" not in env_dict:
+        return False
+    if any(attr not in env_dict for attr in _ENV_ATTRS):
+        return False
+    if "dataset" not in env_dict:
+        return False
+    if (
+        type(dict.__getitem__(env_dict, "start_index")) is not int
+        or type(dict.__getitem__(env_dict, "stop_index")) is not int
+        or type(dict.__getitem__(env_dict, "symbol_index")) is not int
+        or type(dict.__getitem__(env_dict, "feature_indices")) is not tuple
+        or type(dict.__getitem__(env_dict, "account_id")) is not str
+    ):
+        return False
+    return True
+
+
+def _is_standard_dataset(dataset: Any) -> bool:
+    if vars(object).get("__getattribute__") is not _OBJECT_GETATTRIBUTE:
+        return False
+    ds_type = type(dataset)
+    for base in ds_type.__mro__:
+        if base is not object:
+            b_dict = vars(base)
+            if "__getattribute__" in b_dict or "__getattr__" in b_dict:
+                return False
+            for attr in ("identity_arrays", "identity_contract_payload"):
+                if attr in b_dict and not isinstance(
+                    b_dict[attr],
+                    (
+                        FunctionType,
+                        BuiltinFunctionType,
+                        MethodDescriptorType,
+                        WrapperDescriptorType,
+                    ),
+                ):
+                    return False
+            if "dataset_id" in b_dict:
+                val = b_dict["dataset_id"]
+                if isinstance(val, property) or (
+                    hasattr(val, "__get__")
+                    and type(val).__name__ != "member_descriptor"
+                ):
+                    return False
+            if "n_bars" in b_dict:
+                val = b_dict["n_bars"]
+                if (
+                    hasattr(val, "__get__")
+                    and not isinstance(val, (property, FunctionType))
+                    and type(val).__name__ != "member_descriptor"
+                ):
+                    return False
+            if "feature_names" in b_dict:
+                val = b_dict["feature_names"]
+                if (
+                    hasattr(val, "__get__")
+                    and not isinstance(val, (property, FunctionType))
+                    and type(val).__name__ != "member_descriptor"
+                ):
+                    return False
+    try:
+        ds_dict = object.__getattribute__(dataset, "__dict__")
+    except AttributeError:
+        ds_dict = None
+    if ds_dict is not None:
+        if type(ds_dict) is not dict:
+            return False
+        if any(
+            attr in ds_dict
+            for attr in (
+                "identity_arrays",
+                "identity_contract_payload",
+                "dataset_id",
+                "n_bars",
+                "feature_names",
+            )
+        ):
+            return False
+    dataset_id = getattr(dataset, "dataset_id", None)
+    n_bars = getattr(dataset, "n_bars", None)
+    feature_names = getattr(dataset, "feature_names", None)
+    if type(dataset_id) is not str:
+        return False
+    if type(n_bars) is not int:
+        return False
+    if not isinstance(feature_names, (list, tuple)) or any(
+        type(x) is not str for x in feature_names
+    ):
+        return False
+    return True
+
+
 def _public_digest(
     env: Any,
     prefix: dict[str, Any],
@@ -576,6 +704,51 @@ def _public_digest(
     *,
     digest: Callable[[object], str] = hashing.content_digest,
 ) -> str:
+    return digest(
+        {
+            **prefix,
+            "cost_beliefs": [
+                env._estimates[key].payload() for key in sorted(env._estimates)
+            ],
+            "arrays": arrays,
+        }
+    )
+
+
+def _public_digest_from_env(
+    env: Any,
+    stream_memo: Any | None = None,
+    *,
+    pin: Callable[[np.ndarray], dict[str, Any]] = allocation_array_pin,
+    digest: Callable[[object], str] = hashing.content_digest,
+) -> str:
+    dataset = env.dataset
+    arrays = {}
+    for name, values in dataset.identity_arrays().items():
+        if name == "global_features":
+            continue
+        if name in ("features", "feature_available"):
+            selected = values[env.start_index : env.stop_index, env.symbol_index][
+                :, list(env.feature_indices)
+            ]
+        elif values.ndim > 0 and values.shape[0] == dataset.n_bars:
+            selected = values[env.start_index : env.stop_index + 1]
+        else:
+            selected = values
+        arrays[name] = pin(selected)
+    prefix = {
+        "schema": "allocation_fee_global_source_envelope_v1",
+        "dataset_id": dataset.dataset_id,
+        "dataset_contract": dataset.identity_contract_payload(),
+        "symbol_index": env.symbol_index,
+        "feature_indices": list(env.feature_indices),
+        "feature_names": list(dataset.feature_names),
+        "range": [env.start_index, env.stop_index],
+        "account_id": env.account_id,
+        "forecast_context_digest": (
+            env.stream.digest if stream_memo is None else stream_memo.get(env.stream)
+        ),
+    }
     return digest(
         {
             **prefix,
@@ -615,4 +788,219 @@ class SourceEnvelopeDigestMemo:
         value = _public_digest(env, prefix, arrays, digest=digest)
         if before is not None and _state(env, prefix, arrays, digest) == before:
             self._baseline = before, value
+        return value
+
+    def get_from_env(
+        self,
+        env: Any,
+        stream_memo: Any | None,
+        *,
+        pin: Callable[[np.ndarray], dict[str, Any]] = allocation_array_pin,
+        digest: Callable[[object], str] = hashing.content_digest,
+    ) -> str:
+        dataset = env.dataset
+        fast_path = (
+            _implementation_matches(pin, digest)
+            and _is_standard_env(env)
+            and _is_standard_dataset(dataset)
+        )
+
+        raw_identity = dataset.identity_arrays()
+        if fast_path and type(raw_identity) is not dict:
+            fast_path = False
+
+        arrays: dict[str, Any] = {}
+        array_snapshots: list[tuple[str, str, tuple[int, ...], bytes]] = []
+        selected_refs: list[np.ndarray] = []
+
+        for name, values in raw_identity.items():
+            if name == "global_features":
+                continue
+            if name in ("features", "feature_available"):
+                selected = values[env.start_index : env.stop_index, env.symbol_index][
+                    :, list(env.feature_indices)
+                ]
+            elif values.ndim > 0 and values.shape[0] == dataset.n_bars:
+                selected = values[env.start_index : env.stop_index + 1]
+            else:
+                selected = values
+
+            if fast_path:
+                if (
+                    type(name) is not str
+                    or type(values) is not np.ndarray
+                    or type(selected) is not np.ndarray
+                ):
+                    fast_path = False
+                    for s_name, s_dtype, s_shape, s_bytes in array_snapshots:
+                        arrays[s_name] = {
+                            "dtype": s_dtype,
+                            "shape": list(s_shape),
+                            "sha256": hashlib.sha256(s_bytes).hexdigest(),
+                        }
+                    arrays[name] = pin(selected)
+                else:
+                    raw_bytes = np.ascontiguousarray(selected).tobytes()
+                    array_snapshots.append(
+                        (name, selected.dtype.str, tuple(selected.shape), raw_bytes)
+                    )
+                    selected_refs.append(selected)
+            else:
+                arrays[name] = pin(selected)
+
+        dataset_id = dataset.dataset_id
+        contract = dataset.identity_contract_payload()
+        symbol_index = env.symbol_index
+        feature_indices = list(env.feature_indices)
+        feature_names = list(dataset.feature_names)
+        range_val = [env.start_index, env.stop_index]
+        account_id = env.account_id
+        forecast_context_digest = (
+            env.stream.digest if stream_memo is None else stream_memo.get(env.stream)
+        )
+
+        prefix = {
+            "schema": "allocation_fee_global_source_envelope_v1",
+            "dataset_id": dataset_id,
+            "dataset_contract": contract,
+            "symbol_index": symbol_index,
+            "feature_indices": feature_indices,
+            "feature_names": feature_names,
+            "range": range_val,
+            "account_id": account_id,
+            "forecast_context_digest": forecast_context_digest,
+        }
+
+        if fast_path:
+            try:
+                state = (
+                    _freeze_json(prefix),
+                    tuple(array_snapshots),
+                    _estimates_state(env._estimates),
+                )
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                fast_path = False
+                for s_name, s_dtype, s_shape, s_bytes in array_snapshots:
+                    arrays[s_name] = {
+                        "dtype": s_dtype,
+                        "shape": list(s_shape),
+                        "sha256": hashlib.sha256(s_bytes).hexdigest(),
+                    }
+
+        if fast_path:
+            if self._baseline is not None and state == self._baseline[0]:
+                return self._baseline[1]
+
+            computed_arrays = {
+                name: {
+                    "dtype": s_dtype,
+                    "shape": list(s_shape),
+                    "sha256": hashlib.sha256(s_bytes).hexdigest(),
+                }
+                for name, s_dtype, s_shape, s_bytes in array_snapshots
+            }
+            value = digest(
+                {
+                    **prefix,
+                    "cost_beliefs": [
+                        env._estimates[key].payload() for key in sorted(env._estimates)
+                    ],
+                    "arrays": computed_arrays,
+                }
+            )
+            if not self._attempted:
+                self._attempted = True
+                is_stable = True
+                env_dict = getattr(env, "__dict__", None)
+                if env_dict is not None:
+                    if type(env_dict) is not dict:
+                        is_stable = False
+                    elif (
+                        env_dict.get("start_index") != range_val[0]
+                        or env_dict.get("stop_index") != range_val[1]
+                        or env_dict.get("symbol_index") != symbol_index
+                        or env_dict.get("feature_indices") != tuple(feature_indices)
+                        or env_dict.get("account_id") != account_id
+                        or env_dict.get("dataset") is not dataset
+                        or env_dict.get("_estimates") is not env._estimates
+                    ):
+                        is_stable = False
+                else:
+                    if (
+                        getattr(env, "start_index", None) != range_val[0]
+                        or getattr(env, "stop_index", None) != range_val[1]
+                        or getattr(env, "symbol_index", None) != symbol_index
+                        or getattr(env, "feature_indices", None)
+                        != tuple(feature_indices)
+                        or getattr(env, "account_id", None) != account_id
+                        or getattr(env, "dataset", None) is not dataset
+                        or getattr(env, "_estimates", None) is not env._estimates
+                    ):
+                        is_stable = False
+
+                ds_dict = getattr(dataset, "__dict__", None)
+                if ds_dict is not None:
+                    if type(ds_dict) is not dict:
+                        is_stable = False
+                    elif (
+                        ds_dict.get("dataset_id") != dataset_id
+                        or ds_dict.get("n_bars") != dataset.n_bars
+                        or tuple(ds_dict.get("feature_names", ()))
+                        != tuple(feature_names)
+                    ):
+                        is_stable = False
+                else:
+                    if (
+                        getattr(dataset, "dataset_id", None) != dataset_id
+                        or getattr(dataset, "n_bars", None) != dataset.n_bars
+                        or tuple(getattr(dataset, "feature_names", ()))
+                        != tuple(feature_names)
+                    ):
+                        is_stable = False
+
+                if is_stable:
+                    for sel, (s_name, s_dtype, s_shape, s_bytes) in zip(
+                        selected_refs, array_snapshots, strict=True
+                    ):
+                        if (
+                            sel.dtype.str != s_dtype
+                            or tuple(sel.shape) != s_shape
+                            or np.ascontiguousarray(sel).tobytes() != s_bytes
+                        ):
+                            is_stable = False
+                            break
+                        cur_arr = getattr(dataset, s_name, None)
+                        if isinstance(cur_arr, np.ndarray) and cur_arr is not sel:
+                            if s_name in ("features", "feature_available"):
+                                cur_sel = cur_arr[
+                                    env.start_index : env.stop_index, env.symbol_index
+                                ][:, list(env.feature_indices)]
+                            elif (
+                                cur_arr.ndim > 0 and cur_arr.shape[0] == dataset.n_bars
+                            ):
+                                cur_sel = cur_arr[env.start_index : env.stop_index + 1]
+                            else:
+                                cur_sel = cur_arr
+                            if (
+                                cur_sel.dtype.str != s_dtype
+                                or tuple(cur_sel.shape) != s_shape
+                                or np.ascontiguousarray(cur_sel).tobytes() != s_bytes
+                            ):
+                                is_stable = False
+                                break
+                if is_stable:
+                    self._baseline = state, value
+            return value
+
+        value = digest(
+            {
+                **prefix,
+                "cost_beliefs": [
+                    env._estimates[key].payload() for key in sorted(env._estimates)
+                ],
+                "arrays": arrays,
+            }
+        )
+        if not self._attempted:
+            self._attempted = True
         return value

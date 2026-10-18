@@ -35,6 +35,15 @@ def _envelope_getter_route(monkeypatch, route):
                     module._public_digest(env, prefix, arrays, digest=digest)
                 ),
             )
+            scoped.setattr(
+                module.SourceEnvelopeDigestMemo,
+                "get_from_env",
+                lambda _self, env, stream_memo, *, pin=module.allocation_array_pin, digest=module.hashing.content_digest: (
+                    module._public_digest_from_env(
+                        env, stream_memo, pin=pin, digest=digest
+                    )
+                ),
+            )
             yield
         return
     if route == "optimized":
@@ -268,34 +277,46 @@ def _run_terminal_route(route, monkeypatch, operation):
         "trade_rl.evaluation.rl_allocation._source_envelope_digest"
     )
     memo_type = memo_module.SourceEnvelopeDigestMemo
-    original_get = memo_type.get
+    original_get_from_env = memo_type.get_from_env
     getter_calls = []
 
     if route == "reference":
 
-        def public_get(
-            _self, env, prefix, arrays, *, digest=memo_module.hashing.content_digest
+        def public_get_from_env(
+            _self,
+            env,
+            stream_memo,
+            *,
+            pin=memo_module.allocation_array_pin,
+            digest=memo_module.hashing.content_digest,
         ):
             getter_calls.append(None)
-            return memo_module._public_digest(env, prefix, arrays, digest=digest)
+            return memo_module._public_digest_from_env(
+                env, stream_memo, pin=pin, digest=digest
+            )
 
-        replacement = public_get
-        profiled_code = public_get.__code__
+        replacement = public_get_from_env
+        profiled_code = public_get_from_env.__code__
     elif route == "optimized":
 
-        def original_get_with_count(
-            self, env, prefix, arrays, *, digest=memo_module.hashing.content_digest
+        def original_get_from_env_with_count(
+            self,
+            env,
+            stream_memo,
+            *,
+            pin=memo_module.allocation_array_pin,
+            digest=memo_module.hashing.content_digest,
         ):
             getter_calls.append(None)
-            return original_get(self, env, prefix, arrays, digest=digest)
+            return original_get_from_env(self, env, stream_memo, pin=pin, digest=digest)
 
-        replacement = original_get_with_count
-        profiled_code = original_get.__code__
+        replacement = original_get_from_env_with_count
+        profiled_code = original_get_from_env.__code__
     else:
         raise AssertionError(f"unknown envelope route: {route}")
 
     with monkeypatch.context() as scoped:
-        scoped.setattr(memo_type, "get", replacement)
+        scoped.setattr(memo_type, "get_from_env", replacement)
         with _payload_reads_inside(profiled_code) as payload_reads:
             result = operation()
 

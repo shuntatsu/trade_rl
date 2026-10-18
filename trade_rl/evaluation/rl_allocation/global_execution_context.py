@@ -62,6 +62,10 @@ def _source_envelope_digest(
     stream_memo: SimpleStreamDigestMemo | None,
     envelope_memo: SourceEnvelopeDigestMemo | None = None,
 ) -> str:
+    if envelope_memo is not None:
+        return envelope_memo.get_from_env(
+            env, stream_memo, pin=allocation_array_pin, digest=content_digest
+        )
     dataset = env.dataset
     arrays = {}
     for name, values in dataset.identity_arrays().items():
@@ -89,17 +93,15 @@ def _source_envelope_digest(
             env.stream.digest if stream_memo is None else stream_memo.get(env.stream)
         ),
     }
-    if envelope_memo is None:
-        return content_digest(
-            {
-                **prefix,
-                "cost_beliefs": [
-                    env._estimates[key].payload() for key in sorted(env._estimates)
-                ],
-                "arrays": arrays,
-            }
-        )
-    return envelope_memo.get(env, prefix, arrays, digest=content_digest)
+    return content_digest(
+        {
+            **prefix,
+            "cost_beliefs": [
+                env._estimates[key].payload() for key in sorted(env._estimates)
+            ],
+            "arrays": arrays,
+        }
+    )
 
 
 def allocation_execution_runtime(env: AllocationTradingEnv) -> dict[str, Any]:

@@ -1,0 +1,24 @@
+name: Issue888 Ruff Format Differential Audit
+on:
+  push:
+    branches:
+      - codex/issue888-ruff-format-audit
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pinned candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f1656155a1957f52c3b99ad0630103fbd13e5f1d
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --locked --extra dev
+      - name: Ruff format candidate diff (no writes)
+        run: uv run ruff format --diff trade_rl/evaluation/rl_allocation/_source_envelope_digest.py tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py

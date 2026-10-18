@@ -639,33 +639,19 @@ route. Cold stability checks reread live selected references and cost fields,
 but **do not** re-call `identity_arrays()`, `identity_contract_payload()`
 or the stream memo.
 
-A limited, **non-repository** NumPy/Python synthetic proxy was executed
-to test the expected cost tradeoff. This is not a direct benchmark of
-`get_from_env`, not pinned project Python/NumPy, not a market-data run,
-and not evidence for native 6,599-advance/full-48 throughput.
-
-- Runtime: Python 3.13.5 / NumPy 2.3.5; unisolated shared container.
-- Inputs: eight deterministic synthetic arrays, 124,800 logical bytes:
-  1,600×6 float32 features, 1,600×6 boolean availability and six
-  1,600-element float64 market arrays.
-- Protocol: fixed input roster, five untimed warmup pairs, then ten paired
-  observations per implementation; 25 invocations per observation,
-  alternating path order. Reference pins each of eight arrays with fresh
-  SHA-256; proxy fast route copies C-order bytes and compares snapshots
-  against its initial baseline, with no array SHA on a warm call.
-- First observed batch medians: reference `0.08613 ms/call`, warm snapshot
-  `0.00980 ms/call` (ratio `8.79×`). Ranges: `0.08196–0.10233`
-  and `0.00870–0.03437 ms/call` respectively.
-- A fresh repetition of the same one-off script yielded medians
-  `0.08019` and `0.00891 ms/call` (ratio `9.00×`), demonstrating
-  run-to-run variability; neither ratio is a measured repository speedup.
-- The snapshots reconstruct the same array pin hashes on these artificial
-  inputs. The private proxy script was not checked into the repository,
-  so this narrow standalone timing is not durable execution authority.
+There is **no verified wall-time performance measurement for this slice**.
+A standalone synthetic timing was described in an earlier draft, but neither
+the executable benchmark nor its raw observations are available for verification.
+Those figures are excluded from this current research authority. The only
+confirmed computational reduction is the targeted unit-test observation:
+unchanged warm-hit array SHA-256 calls fall to zero while the digest equals
+the public reference; cold calls retain the full array-pin calculations.
+A reproducible source-bound benchmark must be captured separately before
+claiming an actual speedup.
 
 Software verification, separate from the proxy measurement:
 - Exact tested source HEAD:
-  `ade5a704cd5d8f143bbcabb5750d7595cb3d4383`.
+  `ade5a704cd5d`.
 - [Pinned targeted CI](https://github.com/shuntatsu/trade_rl/actions/runs/39142169737)
   checked out that exact commit and completed: **132 passed** across the
   source-envelope memo, source-envelope guard, declared-source memo and

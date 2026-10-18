@@ -774,3 +774,50 @@ def test_get_from_env_identity_callbacks_before_prefix_descriptors(env, monkeypa
             "identity_contract_payload",
         ]
     )
+
+
+def test_get_from_env_patched_pin_falls_back_without_caching(env):
+    memo = api()()
+    module = memo_module()
+    prefix, arrays = _inputs(env)
+
+    def different_pin(values):
+        result = module.allocation_array_pin(values)
+        return {**result, "sha256": "0" * 64}
+
+    altered_arrays = {name: {**value, "sha256": "0" * 64} for name, value in arrays.items()}
+    expected = hashing.content_digest(
+        {
+            **prefix,
+            "cost_beliefs": [
+                env._estimates[key].payload() for key in sorted(env._estimates)
+            ],
+            "arrays": altered_arrays,
+        }
+    )
+    result = memo.get_from_env(env, None, pin=different_pin)
+    assert result == expected
+    assert memo._baseline is None
+
+
+def test_get_from_env_explicit_public_pin_remains_fast_on_warm_calls(env):
+    from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+        SimpleStreamDigestMemo,
+    )
+
+    memo = api()()
+    stream_memo = SimpleStreamDigestMemo()
+    kwargs = {
+        "pin": context.allocation_array_pin,
+        "digest": hashing.content_digest,
+    }
+    expected = context.allocation_source_envelope_digest(env)
+    first, cold_sha = _sha256_invocations(
+        lambda: memo.get_from_env(env, stream_memo, **kwargs)
+    )
+    second, warm_sha = _sha256_invocations(
+        lambda: memo.get_from_env(env, stream_memo, **kwargs)
+    )
+    assert first == second == expected
+    assert cold_sha >= len(env.dataset.identity_arrays()) - 1
+    assert warm_sha == 0

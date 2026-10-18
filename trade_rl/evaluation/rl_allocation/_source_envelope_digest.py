@@ -27,20 +27,7 @@ import numpy as np
 
 from trade_rl.artifacts import canonical, hashing
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation import forecast_allocation
-from trade_rl.evaluation.rl_allocation._declared_source_digest import (
-    _implementation_matches as _array_implementation_matches,
-)
-from trade_rl.evaluation.rl_allocation._declared_source_digest import (
-    _is_standard_dataset,
-    _is_standard_env,
-    allocation_array_pin,
-)
-from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
-    SimpleStreamDigestMemo,
-)
-from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.strategies import allocation as allocation_strategy
 
 _CLASSES = (
@@ -180,10 +167,148 @@ _BINDINGS = tuple(
 )
 _DIGEST_ENTRY = _entry(hashing.content_digest)
 _DIGEST_FUNC = hashing.content_digest
-_IDENTITY_ARRAYS_ENTRY = _entry(MarketDataset.identity_arrays)
-_IDENTITY_CONTRACT_ENTRY = _entry(MarketDataset.identity_contract_payload)
-_N_BARS_ENTRY = _entry(MarketDataset.n_bars)
-_STREAM_GET_ENTRY = _entry(SimpleStreamDigestMemo.get)
+
+
+# Keep the same pin bytecode as the public declared-source implementation.
+def allocation_array_pin(values: np.ndarray) -> dict[str, Any]:
+    return {
+        "dtype": values.dtype.str,
+        "shape": list(values.shape),
+        "sha256": hashlib.sha256(np.ascontiguousarray(values).tobytes()).hexdigest(),
+    }
+
+
+_PIN_ENTRY = _entry(allocation_array_pin)
+_PIN_CODE = allocation_array_pin.__code__
+_HASH_SHA256 = hashlib.sha256
+_NP_ASCONTIGUOUS = np.ascontiguousarray
+
+
+def _native_type(value: object, *, module: str, name: str) -> bool:
+    kind = type(value)
+    return kind.__module__ == module and kind.__qualname__ == name
+
+
+def _native_stream_memo(value: object) -> bool:
+    if value is None:
+        return True
+    if not _native_type(
+        value,
+        module="trade_rl.evaluation.rl_allocation._simple_stream_digest",
+        name="SimpleStreamDigestMemo",
+    ):
+        return False
+    try:
+        if "get" in vars(value):
+            return False
+    except TypeError:
+        return False
+    method = vars(type(value)).get("get")
+    return (
+        type(method) is FunctionType
+        and method.__qualname__ == "SimpleStreamDigestMemo.get"
+    )
+
+
+def _standard_env_graph(env: Any) -> bool:
+    if vars(object).get("__getattribute__") is not _OBJECT_GETATTRIBUTE:
+        return False
+    for base in type(env).__mro__:
+        if base is object:
+            continue
+        namespace = vars(base)
+        if (
+            "__getattribute__" in namespace
+            or "__getattr__" in namespace
+            or "_estimates" in namespace
+            or any(attr in namespace for attr in ("dataset", "stream", *_ENV_ATTRS))
+        ):
+            return False
+    try:
+        state = object.__getattribute__(env, "__dict__")
+    except AttributeError:
+        return False
+    return (
+        type(state) is dict
+        and all(
+            name in state
+            for name in ("dataset", "stream", "_estimates", *_ENV_ATTRS)
+        )
+        and type(dict.__getitem__(state, "start_index")) is int
+        and type(dict.__getitem__(state, "stop_index")) is int
+        and type(dict.__getitem__(state, "feature_indices")) is tuple
+    )
+
+
+def _standard_dataset_graph(dataset: Any) -> bool:
+    if vars(object).get("__getattribute__") is not _OBJECT_GETATTRIBUTE:
+        return False
+    for base in type(dataset).__mro__:
+        if base is object:
+            continue
+        namespace = vars(base)
+        if "__getattribute__" in namespace or "__getattr__" in namespace:
+            return False
+        if any(
+            key in namespace and type(namespace[key]) is not FunctionType
+            for key in ("identity_arrays", "identity_contract_payload")
+        ):
+            return False
+        if "dataset_id" in namespace and hasattr(
+            namespace["dataset_id"], "__get__"
+        ):
+            return False
+        if "n_bars" in namespace and not isinstance(
+            namespace["n_bars"], (property, FunctionType)
+        ):
+            return False
+    try:
+        instance = object.__getattribute__(dataset, "__dict__")
+    except AttributeError:
+        instance = None
+    if instance is not None and (
+        type(instance) is not dict
+        or any(
+            name in instance
+            for name in (
+                "identity_arrays",
+                "identity_contract_payload",
+                "dataset_id",
+                "n_bars",
+            )
+        )
+    ):
+        return False
+    return type(dataset.dataset_id) is str and type(dataset.n_bars) is int
+
+
+def _pin_has_reference_implementation(pin: object) -> bool:
+    """Conservatively admit only the known pure array-pin bytecode contract."""
+    if type(pin) is not FunctionType:
+        return False
+    if (
+        pin is allocation_array_pin
+        and _same(pin, *_PIN_ENTRY)
+    ):
+        return True
+    if (
+        pin.__module__ != "trade_rl.evaluation.rl_allocation._declared_source_digest"
+        or pin.__qualname__ != "allocation_array_pin"
+        or pin.__defaults__ is not None
+        or pin.__kwdefaults__ is not None
+        or pin.__globals__.get("np") is not np
+        or pin.__globals__.get("hashlib") is not hashlib
+    ):
+        return False
+    code = pin.__code__
+    return (
+        code.co_code == _PIN_CODE.co_code
+        and code.co_consts == _PIN_CODE.co_consts
+        and code.co_names == _PIN_CODE.co_names
+        and code.co_varnames == _PIN_CODE.co_varnames
+        and code.co_argcount == _PIN_CODE.co_argcount
+        and code.co_kwonlyargcount == _PIN_CODE.co_kwonlyargcount
+    )
 
 _ComplexFuncCheck = tuple[
     str,
@@ -617,7 +742,7 @@ class SourceEnvelopeDigestMemo:
     def get_from_env(
         self,
         env: Any,
-        stream_memo: SimpleStreamDigestMemo | None,
+        stream_memo: Any | None,
         *,
         pin: Callable[[np.ndarray], dict[str, Any]] = allocation_array_pin,
         digest: Callable[[object], str] = content_digest,
@@ -631,23 +756,19 @@ class SourceEnvelopeDigestMemo:
         dataset = env.dataset
         identity = dataset.identity_arrays()
         fast_path = (
-            type(env) is AllocationTradingEnv
-            and type(dataset) is MarketDataset
+            _native_type(
+                env,
+                module="trade_rl.evaluation.rl_allocation.env",
+                name="AllocationTradingEnv",
+            )
+            and _native_type(
+                dataset, module="trade_rl.data.market", name="MarketDataset"
+            )
             and type(identity) is dict
-            and _same(MarketDataset.identity_arrays, *_IDENTITY_ARRAYS_ENTRY)
-            and _same(
-                MarketDataset.identity_contract_payload, *_IDENTITY_CONTRACT_ENTRY
-            )
-            and _same(MarketDataset.n_bars, *_N_BARS_ENTRY)
-            and (
-                stream_memo is None
-                or (
-                    type(stream_memo) is SimpleStreamDigestMemo
-                    and "get" not in vars(stream_memo)
-                    and _same(SimpleStreamDigestMemo.get, *_STREAM_GET_ENTRY)
-                )
-            )
-            and _array_implementation_matches(pin, digest)
+            and _native_stream_memo(stream_memo)
+            and _pin_has_reference_implementation(pin)
+            and hashlib.sha256 is _HASH_SHA256
+            and np.ascontiguousarray is _NP_ASCONTIGUOUS
             and digest is _DIGEST_FUNC
             and _same(digest, *_DIGEST_ENTRY)
             and _implementation_matches()
@@ -713,7 +834,16 @@ class SourceEnvelopeDigestMemo:
         # Instance descriptor checks follow *all* public prefix callbacks.  A
         # failed guard hashes the prior byte snapshots rather than replaying
         # identity_arrays(), its iteration, the contract or the stream memo.
-        if fast_path and not (_is_standard_env(env) and _is_standard_dataset(dataset)):
+        if fast_path and not (
+            _standard_env_graph(env)
+            and _standard_dataset_graph(dataset)
+            and _native_stream_memo(stream_memo)
+            and _pin_has_reference_implementation(pin)
+            and hashlib.sha256 is _HASH_SHA256
+            and np.ascontiguousarray is _NP_ASCONTIGUOUS
+            and _same(digest, *_DIGEST_ENTRY)
+            and _implementation_matches()
+        ):
             arrays = {
                 name: {
                     "dtype": dtype_str,

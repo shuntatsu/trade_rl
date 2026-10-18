@@ -532,6 +532,52 @@ to `5f4d453b7bea`; later documentation commits do not rebind it. These local
 observations establish bounded software runtime memoization contracts only;
 they provide no native/full-matrix extrapolation or economic/live authority.
 
+## Issue #888 declared-source digest memo
+
+The native global execution collector now pairs its stream and source-envelope
+digest memos with a private run-local declared-source digest memo. Each
+consistency check still evaluates Dataset `identity_arrays()`, contract
+payload, `dataset_id`, and horizon boundaries in their canonical sequence, then
+verifies array pins (shape, strides, dtype, and memoryview) against the initial
+value snapshot before reusing the initial declared-source digest. Unsupported
+mappings, subclasses, non-finite arrays, or changed serializer bindings fall
+back to the public canonical digest path.
+
+Unit, boundary and same-HEAD terminal regressions cover array mutations before
+reset, during action, after native step and at observer callbacks, plus long,
+short, partial-close and cash-carry byte parity. These software checks do not
+rebind frozen artificial measurements (`FACE`, `9f81`, `8070bfb96`), do not
+extrapolate full-48 wall time and grant no R3, unused/final or live authority.
+
+A controlled benchmark ran at clean candidate source `4ab496eff8ee`, on
+Windows/Python 3.12.0/NumPy 1.26.4. It evaluated synthetic array datasets of
+sizes 10, 50, 100, 500, and 1000 with alternating pair order, one warmup and
+ten timed observations per route/size. Median elapsed milliseconds were:
+
+| Dataset rows | Public digest reference | Memo warm hit |
+| ---: | ---: | ---: |
+| 10 | 0.2730 | 0.1248 |
+| 50 | 0.2230 | 0.1023 |
+| 100 | 0.2290 | 0.1038 |
+| 500 | 0.3192 | 0.1450 |
+| 1000 | 0.2348 | 0.1070 |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), the six boundary checks
+per execution reduce public declared-source `content_digest` calls from 24 to 4.
+Full terminal execution retains identical plan and native receipt bytes:
+`nonrl-long` plan `327b24bb5211342c3a849bd68d682221084a0679c18bb46d57460562edaba289` / receipt `31ca2b2adbf7427ce4564543d2c806a54b48237753b75b551d5ff297701e5588`,
+`nonrl-short` plan `d254a80600423ceee5307357e5ae37feb55f7a572f9f0ea0373c243d3091f940` / receipt `42dcf28389b67df6140e148fe945a8fb3cdba5740e8126ca57f8d35e56a269fe`,
+`nonrl-partial-close-then-flat` plan `fde09da4997075f409f7569d30f2cad8165bf6aab697a8d9ccd084a9e150b424` / receipt `685131f23d3e54cf7f4436b9b6948555d1d7bb74c5cc87f8beb8a8e7201c298e`,
+and `cash-nonzero-carry` plan `ebd3f3f03952d153eac4151ea6534b116bad1a9743cc50a5a32a5f7aedb5b71e` / receipt `0494ee1a8df6a11d0612d33472843f7d1311e795ca986b413335bc24c723a3e9`.
+
+The result JSON SHA-256 is
+`8f2083be8930b7052ff84a17af293ea0ec11a75ba9aab759294e185ec45e096e`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `4ab496eff8ee`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

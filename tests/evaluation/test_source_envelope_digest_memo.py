@@ -738,3 +738,37 @@ def test_get_from_env_changed_cost_serializer_falls_back(env, monkeypatch):
         expected = context.allocation_source_envelope_digest(env)
         actual = memo.get_from_env(env, None)
         assert actual == expected and actual != original_digest
+
+
+def test_get_from_env_identity_callbacks_before_prefix_descriptors(env, monkeypatch):
+    from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+        SimpleStreamDigestMemo,
+    )
+
+    original_arrays = type(env.dataset).identity_arrays
+    original_contract = type(env.dataset).identity_contract_payload
+    observed: list[str] = []
+
+    def observed_arrays(dataset):
+        observed.append("identity_arrays")
+        return original_arrays(dataset)
+
+    def observed_contract(dataset):
+        observed.append("identity_contract_payload")
+        return original_contract(dataset)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(env.dataset), "identity_arrays", observed_arrays)
+        patch.setattr(
+            type(env.dataset), "identity_contract_payload", observed_contract
+        )
+        original = context._source_envelope_digest(env, SimpleStreamDigestMemo())
+        reference_events = observed[:]
+        observed.clear()
+        result = api()().get_from_env(env, SimpleStreamDigestMemo())
+
+    assert result == original
+    assert reference_events == observed == [
+        "identity_arrays",
+        "identity_contract_payload",
+    ]

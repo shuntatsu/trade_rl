@@ -629,9 +629,11 @@ class SourceEnvelopeDigestMemo:
         stream memo after those callbacks. Custom graphs keep the public route.
         """
         dataset = env.dataset
+        identity = dataset.identity_arrays()
         fast_path = (
             type(env) is AllocationTradingEnv
             and type(dataset) is MarketDataset
+            and type(identity) is dict
             and _same(MarketDataset.identity_arrays, *_IDENTITY_ARRAYS_ENTRY)
             and _same(
                 MarketDataset.identity_contract_payload, *_IDENTITY_CONTRACT_ENTRY
@@ -645,17 +647,11 @@ class SourceEnvelopeDigestMemo:
                     and _same(SimpleStreamDigestMemo.get, *_STREAM_GET_ENTRY)
                 )
             )
-            and _is_standard_env(env)
-            and _is_standard_dataset(dataset)
             and _array_implementation_matches(pin, digest)
             and digest is _DIGEST_FUNC
             and _same(digest, *_DIGEST_ENTRY)
             and _implementation_matches()
         )
-        identity = dataset.identity_arrays()
-        if type(identity) is not dict:
-            fast_path = False
-
         arrays: dict[str, Any] = {}
         array_snapshots: list[tuple[str, str, tuple[int, ...], bytes]] = []
         original_arrays: list[tuple[str, np.ndarray]] = []
@@ -714,6 +710,19 @@ class SourceEnvelopeDigestMemo:
             ),
         }
 
+        # Instance descriptor checks follow *all* public prefix callbacks.  A
+        # failed guard hashes the prior byte snapshots rather than replaying
+        # identity_arrays(), its iteration, the contract or the stream memo.
+        if fast_path and not (_is_standard_env(env) and _is_standard_dataset(dataset)):
+            arrays = {
+                name: {
+                    "dtype": dtype_str,
+                    "shape": list(shape),
+                    "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+                }
+                for name, dtype_str, shape, raw_bytes in array_snapshots
+            }
+            fast_path = False
         if not fast_path:
             return self.get(env, prefix, arrays, digest=digest)
 

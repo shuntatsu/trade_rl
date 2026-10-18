@@ -1,4 +1,4 @@
-name: Issue888 Final Pinned Whole-Envelope Verification
+name: Issue888 Pinned Memo Guard Diagnosis
 on:
   push:
     branches:
@@ -6,10 +6,10 @@ on:
 permissions:
   contents: read
 jobs:
-  final:
+  inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact final source
+      - name: Checkout candidate exact SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 7a06267d08d10de4712ccd22510e654f25282c44
@@ -18,18 +18,42 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           python-version: "3.12"
-      - name: Install pinned Python tools
+      - name: Install
         run: uv sync --locked --extra dev
-      - name: Ruff
-        run: uv run ruff check trade_rl tests tools
-      - name: Formatter delta (diagnostic)
-        run: uv run ruff format --diff trade_rl/evaluation/rl_allocation/_source_envelope_digest.py tests/evaluation/test_source_envelope_digest_memo.py || true
-      - name: Mypy Linux
-        run: uv run mypy --platform linux trade_rl
-      - name: Targeted envelope and terminal oracle pytest
+      - name: Source-envelope fast-path diagnostic
         run: |
-          uv run pytest -q tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py tests/evaluation/test_declared_source_digest_memo.py tests/evaluation/test_allocation_terminal_execution.py
-      - name: Full Core pytest
-        run: uv run pytest -q tests
-      - name: Human Guide content contract
-        run: uv run python guide/tools/content_contract.py --check
+          uv run python - <<'PY'
+          from tests.evaluation.test_allocation_nonrl_walk_forward import global_control_fixture
+          from trade_rl.evaluation.rl_allocation import _source_envelope_digest as s
+          from trade_rl.evaluation.rl_allocation._declared_source_digest import allocation_array_pin
+          from trade_rl.evaluation.rl_allocation._simple_stream_digest import SimpleStreamDigestMemo
+          from trade_rl.artifacts.hashing import content_digest
+          import hashlib, numpy as np
+          env=global_control_fixture()
+          ds=env.dataset
+          stream=SimpleStreamDigestMemo()
+          checks={
+            'env_type':s._native_type(env,module='trade_rl.evaluation.rl_allocation.env',name='AllocationTradingEnv'),
+            'dataset_type':s._native_type(ds,module='trade_rl.data.market',name='MarketDataset'),
+            'native_stream':s._native_stream_memo(stream),
+            'standard_env':s._standard_env_graph(env),
+            'standard_dataset':s._standard_dataset_graph(ds),
+            'pin_external':s._pin_has_reference_implementation(allocation_array_pin),
+            'pin_default':s._pin_has_reference_implementation(s.allocation_array_pin),
+            'sha256':hashlib.sha256 is s._HASH_SHA256,
+            'np':np.ascontiguousarray is s._NP_ASCONTIGUOUS,
+            'digest_identity':content_digest is s._DIGEST_FUNC,
+            'digest_metadata':s._same(content_digest,*s._DIGEST_ENTRY),
+            'serializer':s._implementation_matches(),
+            'pin_code_eq': allocation_array_pin.__code__.co_code==s._PIN_CODE.co_code,
+            'pin_consts_eq':allocation_array_pin.__code__.co_consts==s._PIN_CODE.co_consts,
+          }
+          print('GUARD_RESULT',checks)
+          print('ENV_MRO',[type(x).__name__ for x in type(env).__mro__])
+          print('ENV_KEYS',list(vars(env)))
+          print('ENV_CLASSES_WITH_KEYS',[(b.__name__, [x for x in ('__getattribute__','__getattr__','dataset','stream','_estimates','feature_indices','symbol_index','start_index','stop_index','account_id') if x in vars(b)]) for b in type(env).__mro__])
+          print('DATASET_CLASS',type(ds), 'HAS_DICT',hasattr(ds,'__dict__'))
+          print('DATASET_MRO',[(b.__name__,[x for x in ('__getattribute__','__getattr__','identity_arrays','identity_contract_payload','dataset_id','n_bars') if x in vars(b)]) for b in type(ds).__mro__])
+          memo=s.SourceEnvelopeDigestMemo()
+          print('DIGEST_EQUAL',memo.get_from_env(env,stream,pin=allocation_array_pin,digest=content_digest)==memo.get_from_env(env,stream,pin=allocation_array_pin,digest=content_digest),'BASELINE',memo._baseline is not None)
+          PY

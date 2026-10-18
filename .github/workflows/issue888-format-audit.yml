@@ -1,4 +1,4 @@
-name: Issue888 Ruff Format Differential Audit
+name: Issue888 Pinned Envelope Regression Verification
 on:
   push:
     branches:
@@ -6,19 +6,28 @@ on:
 permissions:
   contents: read
 jobs:
-  audit:
+  targeted:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout pinned candidate
+      - name: Checkout exact candidate HEAD
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: f1656155a1957f52c3b99ad0630103fbd13e5f1d
+          ref: ade5a704cd5d8f143bbcabb5750d7595cb3d4383
           persist-credentials: false
       - name: Setup uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           python-version: "3.12"
-      - name: Install
+      - name: Install pinned dependencies
         run: uv sync --locked --extra dev
-      - name: Ruff format candidate diff (no writes)
-        run: uv run ruff format --diff trade_rl/evaluation/rl_allocation/_source_envelope_digest.py tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Ruff format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy Linux
+        run: uv run mypy --platform linux trade_rl
+      - name: Selected memo and native terminal pytest
+        run: |
+          uv run pytest -q tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py tests/evaluation/test_declared_source_digest_memo.py tests/evaluation/test_allocation_terminal_execution.py
+      - name: Guide source content contract
+        run: uv run python guide/tools/content_contract.py --check

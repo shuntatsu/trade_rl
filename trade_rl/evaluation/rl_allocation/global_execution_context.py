@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from hashlib import sha256
 from numbers import Integral
 from typing import Any
 
@@ -14,6 +13,11 @@ from trade_rl.evaluation.allocation_comparison_evidence import (
     allocation_fold_plan_digest,
 )
 from trade_rl.evaluation.allocation_decision import AllocationActionExecutionResult
+from trade_rl.evaluation.rl_allocation._declared_source_digest import (
+    DeclaredSourceDigestMemo,
+    _declared_source_digest,
+    allocation_array_pin,
+)
 from trade_rl.evaluation.rl_allocation._native_progress import (
     AllocationAdvanceObserver,
     notify_advance,
@@ -46,14 +50,6 @@ from trade_rl.strategies.rl.allocation_fee_stress import (
     retained_debt_economics_digest,
 )
 from trade_rl.strategies.rl.allocation_model import AllocationPPOPolicy
-
-
-def allocation_array_pin(values: np.ndarray) -> dict[str, Any]:
-    return {
-        "dtype": values.dtype.str,
-        "shape": list(values.shape),
-        "sha256": sha256(np.ascontiguousarray(values).tobytes()).hexdigest(),
-    }
 
 
 def allocation_source_envelope_digest(env: AllocationTradingEnv) -> str:
@@ -154,25 +150,7 @@ def _execution_runtime(
 
 def global_declared_source_digest(env: AllocationTradingEnv) -> str:
     """Full shared raw scope, independent of actor-selected columns/preprocessing."""
-    arrays = {}
-    for name, values in env.dataset.identity_arrays().items():
-        if name == "global_features":
-            continue
-        selected = values
-        if values.ndim > 0 and values.shape[0] == env.dataset.n_bars:
-            selected = values[env.start_index : env.stop_index + 1]
-        if not np.isfinite(selected).all():
-            raise ValueError("declared global source arrays must be finite")
-        arrays[name] = allocation_array_pin(selected)
-    return content_digest(
-        {
-            "schema": "allocation_global_declared_source_v1",
-            "dataset_contract": env.dataset.identity_contract_payload(),
-            "dataset_id": env.dataset.dataset_id,
-            "range": [env.start_index, env.stop_index],
-            "arrays": arrays,
-        }
-    )
+    return _declared_source_digest(env, None)
 
 
 def _invalid_return(action: object, error: ValueError) -> dict[str, Any]:
@@ -265,11 +243,13 @@ class GlobalAllocationExecutionCollector:
         self.economic_stop_consistent = False
         self._stream_digest = SimpleStreamDigestMemo()
         self._source_envelope_digest = SourceEnvelopeDigestMemo()
+        self._declared_source_digest = DeclaredSourceDigestMemo()
 
     def _consistent(self) -> None:
         if (
             self.env.dataset is not self.dataset
-            or global_declared_source_digest(self.env) != self.common["source_digest"]
+            or _declared_source_digest(self.env, self._declared_source_digest)
+            != self.common["source_digest"]
             or canonical_json_bytes(
                 _execution_runtime(
                     self.env,

@@ -486,6 +486,52 @@ isolation was not established. The measured source stays pinned to `8b267bd6d237
 later documentation commits do not rebind it. These local observations provide
 no native/full-matrix timing or profitability conclusion.
 
+## Issue #888 source-envelope cost-roster digest memo
+
+The native global execution collector now pairs its stream digest memo with a
+private run-local source-envelope digest memo. Each consistency check still
+evaluates Dataset array pins, contract metadata, environment fields and the
+stream digest in their original order, then observes every `HorizonCostEstimates`
+record and field in sorted key order before reusing the initial envelope digest.
+Unsupported mappings, subclasses, non-nanosecond/NaT clocks, non-finite floats
+and changed serializer bindings fall back to a single public cost-payload pass
+reusing the already captured non-cost prefix.
+
+Unit, boundary and same-HEAD terminal regressions cover field/roster mutations
+before reset, during action, after native step and at observer callbacks, plus
+long, short, partial-close and cash-carry byte parity. These software checks do
+not rebind frozen artificial measurements (`FACE`, `9f81`, `8070bfb96`), do not
+extrapolate full-48 wall time and grant no R3, unused/final or live authority.
+
+A controlled benchmark ran at clean candidate source `5f4d453b7bea`, on
+Windows/Python 3.12.0/NumPy 1.26.4. It evaluated synthetic cost rosters of sizes
+1, 10, 50, and 100 with alternating pair order, one warmup and ten timed
+observations per route/size. Median elapsed milliseconds were:
+
+| Cost estimates | Public digest reference | Memo warm hit |
+| ---: | ---: | ---: |
+| 1 | 0.1923 | 0.1159 |
+| 10 | 0.2815 | 0.1383 |
+| 50 | 0.5503 | 0.1442 |
+| 100 | 0.9107 | 0.1916 |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), the six boundary
+envelope checks per execution reduce public `HorizonCostEstimates.payload` calls
+from 24 to 4 (and 240 to 40 on 10-estimate equivalent rosters). Full terminal
+execution retains identical plan and native receipt bytes:
+`nonrl-long` plan `b1a6a5eeed175250279d1ab92e1cab10d928fc6d6f3cecb73d90bcb3bc13cbc8` / receipt `50bc31a2444aee399d6930e27cec115a03f2be974253498375b2654a73a9ea75`,
+`nonrl-short` plan `dffb737f2f1cdf113e065bb660813848ab81d75e0f7ee21ee7cb71529646fbcb` / receipt `90e016564414c49c67938560ee2d1223d685c127672f68056649bd90126ee523`,
+`nonrl-partial-close-then-flat` plan `ea80732b9b45fad5f5a9014905a9a137cdda1ea12955eaafe355f926349149a2` / receipt `6e982b6896f67bcbaa5be619e8781c47663aceed0e6b3b15a1dc6d5c85c161c6`,
+and `cash-nonzero-carry` plan `f0692d3039071dfa2ef18186004c5e981c1f7540680ebc3fef786407c3f0af18` / receipt `f7744566b5816f89513e26b016615855200a69649348c987340577549619a19c`.
+
+The result JSON SHA-256 is
+`f19c6b86e3ce4dd9b17affbd17c3b5575e6d65e6e1bdb88e50cd9fac089e1ee2`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `5f4d453b7bea`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

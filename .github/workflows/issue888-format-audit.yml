@@ -12,7 +12,7 @@ jobs:
       - name: Checkout exact final source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 3fe293915317d3af031e790a6d446edfaed8c699
+          ref: 7a06267d08d10de4712ccd22510e654f25282c44
           persist-credentials: false
       - name: Setup uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4

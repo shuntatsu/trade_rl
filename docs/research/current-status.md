@@ -622,6 +622,56 @@ to `ff3b71301b84`; later documentation commits do not rebind it. These local
 observations establish bounded software runtime memoization contracts only;
 they provide no native/full-matrix extrapolation or economic/live authority.
 
+## Issue #888 whole-envelope array-pin snapshot candidate (2026-10-19)
+
+The next isolated source-only performance slice follows the n1600 hotpath
+commit `cda814b65` on branch `codex/issue888-whole-envelope-arrays`.
+It changes only the memo-enabled source-envelope route: the original
+`allocation_source_envelope_digest(env)` remains the reference, and
+`SourceEnvelopeDigestMemo.get(env, prefix, arrays)` stays available for
+direct tests. The new `get_from_env` captures dtype, shape and C-order bytes
+for every non-global identity array **when that array is originally pinned**,
+before contract metadata and stream callbacks. It evaluates the complete
+prefix once in original order and freezes cost-estimate state. Matching warm
+states return the original digest without per-array SHA-256 recomputation;
+cold/miss paths hash that call's stored bytes. Unsupported or patched
+implementations use the original public pin/digest route. The cold stability
+check does not call `identity_arrays()`, `identity_contract_payload()` or
+`stream_memo.get()` again.
+
+An isolated, **non-repository** NumPy/Python proxy measurement was made to
+check the expected direction and scope before interpreting actual CI results.
+It is not a benchmark of `get_from_env`, the full envelope, the repository's
+pinned Python 3.12 / NumPy 1.26.4 environment, or a native market replay.
+
+- Runtime: Python 3.13.5, NumPy 2.3.5; shared unisolated container.
+- Input: eight fixed synthetic arrays totaling 176,080 logical bytes; a
+  1,600-row float32 feature array and boolean mask plus six numeric arrays.
+- Protocol: one identical source roster, five warmup pairs, then ten paired
+  observations per path; 25 calls per observation; path order alternates.
+- Comparator: reference dtype/shape/8×SHA-256 per call versus a fresh C-order
+  byte snapshot/tuple equality with a stored baseline and zero new array
+  SHA-256 computations on an unchanged warm state.
+- Medians: reference `0.12872 ms/call`, snapshot warm
+  `0.01461 ms/call` (ratio `8.81×` in this **proxy only**);
+  observed ranges `0.11798–0.14813` and `0.01308–0.02271 ms/call`.
+- Byte equivalence: the reference array pins and pins reconstructed from
+  snapshots matched for this manufactured roster. No test of full native
+  plan/receipt bytes was executed in this container.
+
+The new tests are designed to check original callback order, warmed SHA-256
+call-count elimination, mutations of features/masks/market arrays, custom
+MRO/descriptor fallback, changed cost serializer bindings, and all four
+native terminal cases against the same-source public oracle. **These tests,
+Ruff, format, Mypy, content contract, and exact-head CI have not been executed
+here** because the target `trade_rl` checkout is not attached to this
+environment. The uploaded implementation source is a candidate, not verified
+software evidence until the repository checks run and independent review
+receipts are attached. The public previous-source evidence remains frozen.
+No market data was read, no R3/all48 or measured production speedup is
+established, and no profitability, unused/final or live authorization follows
+from this work.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

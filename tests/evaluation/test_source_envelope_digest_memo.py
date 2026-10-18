@@ -759,16 +759,18 @@ def test_get_from_env_identity_callbacks_before_prefix_descriptors(env, monkeypa
 
     with monkeypatch.context() as patch:
         patch.setattr(type(env.dataset), "identity_arrays", observed_arrays)
-        patch.setattr(
-            type(env.dataset), "identity_contract_payload", observed_contract
-        )
+        patch.setattr(type(env.dataset), "identity_contract_payload", observed_contract)
         original = context._source_envelope_digest(env, SimpleStreamDigestMemo())
         reference_events = observed[:]
         observed.clear()
         result = api()().get_from_env(env, SimpleStreamDigestMemo())
 
     assert result == original
-    assert reference_events == observed == [
-        "identity_arrays",
-        "identity_contract_payload",
-    ]
+    assert (
+        reference_events
+        == observed
+        == [
+            "identity_arrays",
+            "identity_contract_payload",
+        ]
+    )

@@ -22,6 +22,9 @@ from trade_rl.evaluation.rl_allocation._native_progress import (
 from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
     SimpleStreamDigestMemo,
 )
+from trade_rl.evaluation.rl_allocation._source_envelope_digest import (
+    SourceEnvelopeDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
@@ -59,7 +62,9 @@ def allocation_source_envelope_digest(env: AllocationTradingEnv) -> str:
 
 
 def _source_envelope_digest(
-    env: AllocationTradingEnv, stream_memo: SimpleStreamDigestMemo | None
+    env: AllocationTradingEnv,
+    stream_memo: SimpleStreamDigestMemo | None,
+    envelope_memo: SourceEnvelopeDigestMemo | None = None,
 ) -> str:
     dataset = env.dataset
     arrays = {}
@@ -75,27 +80,30 @@ def _source_envelope_digest(
         else:
             selected = values
         arrays[name] = allocation_array_pin(selected)
-    return content_digest(
-        {
-            "schema": "allocation_fee_global_source_envelope_v1",
-            "dataset_id": dataset.dataset_id,
-            "dataset_contract": dataset.identity_contract_payload(),
-            "symbol_index": env.symbol_index,
-            "feature_indices": list(env.feature_indices),
-            "feature_names": list(dataset.feature_names),
-            "range": [env.start_index, env.stop_index],
-            "account_id": env.account_id,
-            "forecast_context_digest": (
-                env.stream.digest
-                if stream_memo is None
-                else stream_memo.get(env.stream)
-            ),
-            "cost_beliefs": [
-                env._estimates[key].payload() for key in sorted(env._estimates)
-            ],
-            "arrays": arrays,
-        }
-    )
+    prefix = {
+        "schema": "allocation_fee_global_source_envelope_v1",
+        "dataset_id": dataset.dataset_id,
+        "dataset_contract": dataset.identity_contract_payload(),
+        "symbol_index": env.symbol_index,
+        "feature_indices": list(env.feature_indices),
+        "feature_names": list(dataset.feature_names),
+        "range": [env.start_index, env.stop_index],
+        "account_id": env.account_id,
+        "forecast_context_digest": (
+            env.stream.digest if stream_memo is None else stream_memo.get(env.stream)
+        ),
+    }
+    if envelope_memo is None:
+        return content_digest(
+            {
+                **prefix,
+                "cost_beliefs": [
+                    env._estimates[key].payload() for key in sorted(env._estimates)
+                ],
+                "arrays": arrays,
+            }
+        )
+    return envelope_memo.get(env, prefix, arrays, digest=content_digest)
 
 
 def allocation_execution_runtime(env: AllocationTradingEnv) -> dict[str, Any]:
@@ -103,7 +111,9 @@ def allocation_execution_runtime(env: AllocationTradingEnv) -> dict[str, Any]:
 
 
 def _execution_runtime(
-    env: AllocationTradingEnv, stream_memo: SimpleStreamDigestMemo | None
+    env: AllocationTradingEnv,
+    stream_memo: SimpleStreamDigestMemo | None,
+    envelope_memo: SourceEnvelopeDigestMemo | None = None,
 ) -> dict[str, Any]:
     if (
         type(env) is not AllocationTradingEnv
@@ -136,7 +146,9 @@ def _execution_runtime(
     return {
         "recipe": env.recipe,
         "cost_payload": actual,
-        "source_context_digest": _source_envelope_digest(env, stream_memo),
+        "source_context_digest": _source_envelope_digest(
+            env, stream_memo, envelope_memo
+        ),
     }
 
 
@@ -252,12 +264,19 @@ class GlobalAllocationExecutionCollector:
         self.error: Exception | None = None
         self.economic_stop_consistent = False
         self._stream_digest = SimpleStreamDigestMemo()
+        self._source_envelope_digest = SourceEnvelopeDigestMemo()
 
     def _consistent(self) -> None:
         if (
             self.env.dataset is not self.dataset
             or global_declared_source_digest(self.env) != self.common["source_digest"]
-            or canonical_json_bytes(_execution_runtime(self.env, self._stream_digest))
+            or canonical_json_bytes(
+                _execution_runtime(
+                    self.env,
+                    self._stream_digest,
+                    self._source_envelope_digest,
+                )
+            )
             != canonical_json_bytes(self.cell["runtime"])
         ):
             raise ValueError("global declared source/runtime contents changed")

@@ -809,17 +809,20 @@ to the existing source-envelope and execution guards. Compatible subclasses keep
 their virtual digest-property behavior. This is serialization work reduction,
 not a change to forecast units, clocks, model values or economic accounting.
 
-The native global execution collector may retain one private run-local simple
-stream digest memo. Each original consistency boundary still compares current
-packet values and all nested native record fields and array contents against
-the initial value snapshot. Array dtype, shape, strides and scalar types remain
-observable. The memo retains no mutable payload and never refreshes the frozen
-plan or its initial authority after a mismatch. Unknown carriers, subclasses or
-changed serializer contracts use the current public digest calculation. Public
-declaration/runtime helpers continue to calculate canonical identities directly;
-cost, source, clock and policy checks keep their existing timing. This is a
-single-process optimization, not protection against arbitrary hostile Python
-code or concurrent unsynchronized mutation.
+The native global execution collector may retain private run-local simple
+stream and source-envelope digest memos. Each original consistency boundary
+still evaluates non-cost source/array inputs in their canonical order and
+compares current packet values, cost-estimate records and all nested native
+fields and array contents against the initial value snapshot. Array dtype,
+shape, strides and scalar types remain observable. Neither memo retains mutable
+payloads or refreshes the frozen plan or its initial authority after a
+mismatch. Unknown carriers, subclasses, unsupported mappings or changed
+serializer contracts use the current public digest calculation without
+re-executing earlier callbacks. Public declaration/runtime helpers continue to
+calculate canonical identities directly; cost, source, clock and policy checks
+keep their existing timing. This is a single-process optimization, not
+protection against arbitrary hostile Python code or concurrent unsynchronized
+mutation.
 
 The repository Tier D runner publishes each forecast, frozen input, plan and
 receipt once into a fresh attempt destination. A technical retry preserves its

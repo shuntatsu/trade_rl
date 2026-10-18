@@ -630,13 +630,16 @@ execution. `simple_stream.py` owns separate versioned records/reader;
 directly exports the six simple APIs from their owners. Tier-1 exports and old
 log records retain their meanings.
 
-`evaluation/rl_allocation/_simple_stream_digest.py` is a private value-guarded
-memo used only by the native global execution collector. It reads native forecast
-records and current array bytes, with canonical fallback for unsupported or
-changed serializer contracts. It owns no public facade, persisted identity,
-payload cache, fitting, execution, Dataset loading or research authorization.
-The existing source-envelope/runtime helpers retain their canonical public path;
-the collector's private path changes only repeated stream digest computation.
+`evaluation/rl_allocation/_simple_stream_digest.py` and
+`evaluation/rl_allocation/_source_envelope_digest.py` are private value-guarded
+memos used only by the native global execution collector. They read native
+forecast/cost records and current array pins/bytes after the existing non-cost
+envelope inputs, with single-pass canonical fallback for unsupported mappings,
+subclasses or changed serializer contracts. Neither owns a public facade,
+persisted identity, payload cache, fitting, execution, Dataset loading or
+research authorization. The existing source-envelope/runtime helpers retain
+their canonical public path; the collector's private path changes only repeated
+stream and source-envelope digest computation.
 
 Same-source regression tests compare full canonical plans and native receipts
 through complete terminal closing. The reference leg replaces only the private

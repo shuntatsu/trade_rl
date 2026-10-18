@@ -133,6 +133,55 @@ def test_stream_memo_is_private_and_does_not_own_execution_or_persistence():
     }
 
 
+def test_source_envelope_memo_is_private_and_does_not_own_execution_or_persistence():
+    path = ROOT / "trade_rl/evaluation/rl_allocation/_source_envelope_digest.py"
+    assert path.is_file(), "private source-envelope memo is missing"
+    tree = ast.parse(path.read_text("utf-8"))
+    imports = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not any(
+        name.startswith(
+            (
+                "trade_rl.data",
+                "trade_rl.risk",
+                "trade_rl.simulation",
+                "trade_rl.evaluation.runs",
+                "trade_rl.evaluation.experiments",
+                "trade_rl.evaluation.final_test",
+                "trade_rl.evaluation.rl_allocation",
+            )
+        )
+        for name in imports
+    )
+    assert not imports & {
+        "pickle",
+        "pathlib",
+        "subprocess",
+        "torch",
+        "stable_baselines3",
+        "gymnasium",
+    }
+    assert "__all__" not in {
+        node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+    }
+    calls = {
+        ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)
+    }
+    assert not calls & {
+        "open",
+        "fit",
+        "env.step",
+        "env.reset",
+        "json.dumps",
+        "json.dump",
+        "propose_forecast_target",
+        "execute_forecast_proposal",
+    }
+
+
 def test_forecast_controls_preflight_stays_in_native_plan_owner_before_execution():
     upper = ROOT / "trade_rl/evaluation/allocation_global_execution.py"
     tree = ast.parse(upper.read_text("utf-8"))

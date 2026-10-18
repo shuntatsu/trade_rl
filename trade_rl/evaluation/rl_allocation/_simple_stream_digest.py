@@ -438,7 +438,7 @@ def _freeze(value: Any) -> object:
             dtype.hasobject
             or dtype.fields is not None
             or dtype.subdtype is not None
-            or dtype.metadata is not None
+            or bool(dtype.metadata)
             or dtype.kind not in "biufMm"
         ):
             raise TypeError("unsupported array dtype")

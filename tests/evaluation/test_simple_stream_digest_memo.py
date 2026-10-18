@@ -286,3 +286,17 @@ def test_warm_hit_mutation_rejected_for_coercible_types(
         assert result == expected
     finally:
         object.__setattr__(packet, field, orig_val)
+
+
+def test_unpickled_stream_arms_baseline_and_hits_warm_fast(stream):
+    import pickle
+
+    unpickled = pickle.loads(pickle.dumps(stream))
+    memo = api()()
+    first = memo.get(unpickled)
+    assert memo._baseline is not None
+    assert first == stream.digest
+
+    second, calls = measured_calls(lambda: memo.get(unpickled))
+    assert second == first
+    assert calls == 0

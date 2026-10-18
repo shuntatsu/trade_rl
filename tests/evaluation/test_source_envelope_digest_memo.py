@@ -716,3 +716,17 @@ def test_get_from_env_warm_hit_mutation_rejected_for_coercible_types(
         assert result == expected
     finally:
         object.__setattr__(target, field, orig_val)
+
+
+def test_unpickled_env_arms_baseline_and_hits_warm_fast(env):
+    import pickle
+
+    unpickled_env = pickle.loads(pickle.dumps(env))
+    stream_memo = context.SimpleStreamDigestMemo()
+    memo = api()()
+    first = memo.get_from_env(unpickled_env, stream_memo)
+    assert memo._baseline is not None
+    assert first == context.allocation_source_envelope_digest(env)
+
+    second = memo.get_from_env(unpickled_env, stream_memo)
+    assert second == first

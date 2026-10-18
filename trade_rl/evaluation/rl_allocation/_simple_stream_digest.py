@@ -495,7 +495,8 @@ def _packets(values: object) -> object:
     flat = np.fromiter(
         chain.from_iterable(features), dtype="<f8", count=int(lengths.sum())
     )
-    return tuple(numeric), lengths.tobytes(), flat.tobytes(), text
+    flat_fields = tuple(chain.from_iterable(map(_GET, values)))
+    return tuple(numeric), lengths.tobytes(), flat.tobytes(), text, flat_fields
 
 
 def _state(stream: simple_stream.FrozenSimpleReturnStream) -> object | None:
@@ -528,16 +529,42 @@ class SimpleStreamDigestMemo:
         self._baseline: tuple[object, str] | None = None
 
     def get(self, stream: simple_stream.FrozenSimpleReturnStream) -> str:
-        before = _state(stream)
         if self._attempted:
-            if (
-                self._baseline is not None
-                and before is not None
-                and before == self._baseline[0]
-            ):
-                return self._baseline[1]
+            if self._baseline is not None:
+                b_state, b_value = self._baseline
+                b_state_t = cast(tuple[Any, ...], b_state)
+                try:
+                    if (
+                        type(stream) is simple_stream.FrozenSimpleReturnStream
+                        and _implementation_matches()
+                        and stream.dataset_id == b_state_t[0][1]
+                        and _freeze(stream.vintages) == b_state_t[1]
+                    ):
+                        packets = stream.packets
+                        b_packets_state = b_state_t[2]
+                        b_flat_fields = b_packets_state[4]
+                        if type(packets) is tuple and len(packets) * len(
+                            _PACKET_FIELDS
+                        ) == len(b_flat_fields):
+                            if set(map(type, packets)) == {
+                                simple_stream.SimpleReturnPacket
+                            }:
+                                if all(
+                                    map(
+                                        operator.is_,
+                                        chain.from_iterable(map(_GET, packets)),
+                                        b_flat_fields,
+                                    )
+                                ):
+                                    return b_value
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    pass
+                before = _state(stream)
+                if before is not None and before == b_state:
+                    return b_value
             return stream.digest
         self._attempted = True
+        before = _state(stream)
         value = stream.digest  # Preserve public failures; no cache is armed on error.
         if before is not None and _state(stream) == before:
             self._baseline = before, value

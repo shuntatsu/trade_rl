@@ -257,3 +257,32 @@ def test_json_encoder_method_changes_after_warming_use_public_digest(
     assert expected != initial
     result, calls = measured_calls(lambda: memo.get(stream))
     assert result == expected and calls > 0
+
+
+@pytest.mark.parametrize(
+    ("field", "initial", "mutated"),
+    [
+        ("expected_simple_return", 0.0, -0.0),
+        ("feature_values", (0.0,), (-0.0,)),
+        ("horizon_seconds", 86400, 86400.0),
+        ("horizon_seconds", 1, True),
+    ],
+)
+def test_warm_hit_mutation_rejected_for_coercible_types(
+    stream, field, initial, mutated
+):
+    packet = stream.packets[-1]
+    orig_val = getattr(packet, field)
+    try:
+        object.__setattr__(packet, field, initial)
+        memo = api()()
+        baseline = memo.get(stream)
+        assert memo._baseline is not None
+
+        object.__setattr__(packet, field, mutated)
+        result = memo.get(stream)
+        expected = stream.digest
+        assert baseline != expected
+        assert result == expected
+    finally:
+        object.__setattr__(packet, field, orig_val)

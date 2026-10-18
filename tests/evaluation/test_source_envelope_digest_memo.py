@@ -687,3 +687,32 @@ def test_get_from_env_fallback_when_pin_overridden(env):
     assert custom_pin_calls > 0
     # Because custom pin was provided, baseline should not be armed
     assert memo._baseline is None
+
+
+@pytest.mark.parametrize(
+    ("field", "initial", "mutated"),
+    [
+        ("funding_return", 0.0, -0.0),
+        ("buy_cost", 0.0, 0),
+        ("funding_return", 1.0, True),
+    ],
+)
+def test_get_from_env_warm_hit_mutation_rejected_for_coercible_types(
+    env, field, initial, mutated
+):
+    stream_memo = context.SimpleStreamDigestMemo()
+    memo = api()()
+    target = env._estimates[sorted(env._estimates)[-1]]
+    orig_val = getattr(target, field)
+    try:
+        object.__setattr__(target, field, initial)
+        baseline = memo.get_from_env(env, stream_memo)
+        assert memo._baseline is not None
+
+        object.__setattr__(target, field, mutated)
+        result = memo.get_from_env(env, stream_memo)
+        expected = context.allocation_source_envelope_digest(env)
+        assert baseline != expected
+        assert result == expected
+    finally:
+        object.__setattr__(target, field, orig_val)

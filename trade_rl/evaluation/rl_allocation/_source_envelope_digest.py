@@ -14,6 +14,7 @@ import struct
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import MISSING, fields
+from itertools import chain
 from types import (
     BuiltinFunctionType,
     FunctionType,
@@ -519,8 +520,12 @@ def _estimates_state(estimates: object) -> object:
     if not np.isfinite(arr_f).all():
         raise TypeError("nonfinite float")
     floats = tuple(arr_f[i].tobytes() for i in range(6))
+    text_digest = hashlib.sha256(
+        "".join(cols[0] + cols[4] + cols[11]).encode()
+    ).digest()
+    flat_fields = tuple(chain.from_iterable(map(_GET, ordered)))
 
-    return clocks, floats, text
+    return clocks, floats, text_digest, flat_fields
 
 
 def _state(
@@ -873,6 +878,48 @@ class SourceEnvelopeDigestMemo:
         }
 
         if fast_path:
+            if self._baseline is not None:
+                b_state, b_value = self._baseline
+                b_state_t = cast(tuple[Any, ...], b_state)
+                try:
+                    frozen_prefix = _freeze_json(prefix)
+                    if (
+                        frozen_prefix == b_state_t[0]
+                        and tuple(array_snapshots) == b_state_t[1]
+                    ):
+                        b_estimates_state = b_state_t[2]
+                        b_flat_fields = b_estimates_state[3]
+                        est = env._estimates
+                        if type(est) is dict and len(est) * len(
+                            _ESTIMATE_FIELDS
+                        ) == len(b_flat_fields):
+                            keys = tuple(dict.keys(est))
+                            if _exact(keys, int):
+                                values = tuple(dict.values(est))
+                                if _exact(
+                                    values, forecast_allocation.HorizonCostEstimates
+                                ):
+                                    if all(
+                                        keys[i] < keys[i + 1]
+                                        for i in range(len(keys) - 1)
+                                    ):
+                                        ordered = values
+                                    else:
+                                        ordered = tuple(
+                                            dict.__getitem__(est, k)
+                                            for k in sorted(keys)
+                                        )
+                                    if not ordered or all(
+                                        map(
+                                            operator.is_,
+                                            chain.from_iterable(map(_GET, ordered)),
+                                            b_flat_fields,
+                                        )
+                                    ):
+                                        return b_value
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    pass
+
             try:
                 state = (
                     _freeze_json(prefix),

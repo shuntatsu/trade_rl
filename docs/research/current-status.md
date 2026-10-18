@@ -639,15 +639,35 @@ route. Cold stability checks reread live selected references and cost fields,
 but **do not** re-call `identity_arrays()`, `identity_contract_payload()`
 or the stream memo.
 
-There is **no verified wall-time performance measurement for this slice**.
-A standalone synthetic timing was described in an earlier draft, but neither
-the executable benchmark nor its raw observations are available for verification.
-Those figures are excluded from this current research authority. The only
-confirmed computational reduction is the targeted unit-test observation:
-unchanged warm-hit array SHA-256 calls fall to zero while the digest equals
-the public reference; cold calls retain the full array-pin calculations.
-A reproducible source-bound benchmark must be captured separately before
-claiming an actual speedup.
+The preliminary timing figures previously drafted without a retained script
+or raw observations are excluded. A separately recorded **same-source bounded
+artificial benchmark** now provides inspectable timing observations at source
+`c846afaa1ffb` ([GitHub Actions run 39150402856](https://github.com/shuntatsu/trade_rl/actions/runs/39150402856)).
+The original reference and new memo route shared the same synthetic
+`global_control_fixture`, stream memo, initial source, estimator roster and
+digest; every timed call returned the reference digest.
+
+- Environment: Ubuntu GitHub-hosted runner, Python 3.12.3, NumPy 1.26.4,
+  non-isolated shared CI host.
+- Scope: **4 synthetic actor rows**, **41 non-global array pins** per
+  reference evaluation, not full historical/data-source or 6,599-arm input.
+- Protocol: five untimed warm-up pairs, then 12 alternated-order paired
+  measurements of ten complete calls per path, using `perf_counter_ns`;
+  the current whole-envelope memo starts from a cold first invocation.
+- Median wall time per complete call: reference **0.4808599 ms**, memo warm
+  **0.3082936 ms** (median reference/memo ratio **1.5597×**).
+- Observed sample range: reference **0.4675421–0.4916731 ms**, memo
+  **0.2904220–0.3756611 ms**; 12 raw paired observations per route are in
+  the linked job log. The process was not CPU-isolated, so this is an
+  observation, not a statistically controlled speedup guarantee.
+- Exact same-call digest equality and warm-array SHA elimination are separately
+  checked by the source-bound regressions; memo reuse cannot be inferred
+  from elapsed time alone.
+
+No inference about asymptotic scaling, market-native runtime, 6,599 advances,
+48-cell throughput, or economic outcome is licensed by this small-fixture
+benchmark. A later larger synthetic benchmark must separately preserve
+complete economic receipts and source/protocol provenance.
 
 Software verification, separate from the proxy measurement:
 - Exact tested source HEAD:

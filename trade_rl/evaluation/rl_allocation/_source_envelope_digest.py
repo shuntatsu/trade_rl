@@ -762,6 +762,7 @@ class SourceEnvelopeDigestMemo:
                     ]
                     == prefix["range"]
                     and env_dict.get("account_id") == prefix["account_id"]
+                    and dataset is not None
                     and dataset.dataset_id == prefix["dataset_id"]
                     and list(dataset.feature_names) == prefix["feature_names"]
                     and _estimates_state(env_dict["_estimates"]) == state[2]

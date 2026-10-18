@@ -624,53 +624,68 @@ they provide no native/full-matrix extrapolation or economic/live authority.
 
 ## Issue #888 whole-envelope array-pin snapshot candidate (2026-10-19)
 
-The next isolated source-only performance slice follows the n1600 hotpath
-commit `cda814b65` on branch `codex/issue888-whole-envelope-arrays`.
-It changes only the memo-enabled source-envelope route: the original
-`allocation_source_envelope_digest(env)` remains the reference, and
-`SourceEnvelopeDigestMemo.get(env, prefix, arrays)` stays available for
-direct tests. The new `get_from_env` captures dtype, shape and C-order bytes
-for every non-global identity array **when that array is originally pinned**,
-before contract metadata and stream callbacks. It evaluates the complete
-prefix once in original order and freezes cost-estimate state. Matching warm
-states return the original digest without per-array SHA-256 recomputation;
-cold/miss paths hash that call's stored bytes. Unsupported or patched
-implementations use the original public pin/digest route. The cold stability
-check does not call `identity_arrays()`, `identity_contract_payload()` or
-`stream_memo.get()` again.
+The isolated source-envelope performance slice is on
+`codex/issue888-whole-envelope-arrays`, based on `cda814b65`. Only the
+memo-enabled path changes: `allocation_source_envelope_digest(env)`
+remains the public reference and the existing
+`SourceEnvelopeDigestMemo.get(env, prefix, arrays)` stays available for direct
+unit tests. In `get_from_env`, selected identity-array dtype/shape/C-order
+bytes are captured when the reference would pin each array, before contract
+metadata and stream callbacks. The original prefix order and live cost
+state are retained. Stable warm calls avoid per-array SHA-256 and the final
+envelope content digest; cold/miss calls hash the same invocation's captured
+bytes. Unsupported or modified implementations use the original pin/digest
+route. Cold stability checks reread live selected references and cost fields,
+but **do not** re-call `identity_arrays()`, `identity_contract_payload()`
+or the stream memo.
 
-An isolated, **non-repository** NumPy/Python proxy measurement was made to
-check the expected direction and scope before interpreting actual CI results.
-It is not a benchmark of `get_from_env`, the full envelope, the repository's
-pinned Python 3.12 / NumPy 1.26.4 environment, or a native market replay.
+A limited, **non-repository** NumPy/Python synthetic proxy was executed
+to test the expected cost tradeoff. This is not a direct benchmark of
+`get_from_env`, not pinned project Python/NumPy, not a market-data run,
+and not evidence for native 6,599-advance/full-48 throughput.
 
-- Runtime: Python 3.13.5, NumPy 2.3.5; shared unisolated container.
-- Input: eight fixed synthetic arrays totaling 176,080 logical bytes; a
-  1,600-row float32 feature array and boolean mask plus six numeric arrays.
-- Protocol: one identical source roster, five warmup pairs, then ten paired
-  observations per path; 25 calls per observation; path order alternates.
-- Comparator: reference dtype/shape/8×SHA-256 per call versus a fresh C-order
-  byte snapshot/tuple equality with a stored baseline and zero new array
-  SHA-256 computations on an unchanged warm state.
-- Medians: reference `0.12872 ms/call`, snapshot warm
-  `0.01461 ms/call` (ratio `8.81×` in this **proxy only**);
-  observed ranges `0.11798–0.14813` and `0.01308–0.02271 ms/call`.
-- Byte equivalence: the reference array pins and pins reconstructed from
-  snapshots matched for this manufactured roster. No test of full native
-  plan/receipt bytes was executed in this container.
+- Runtime: Python 3.13.5 / NumPy 2.3.5; unisolated shared container.
+- Inputs: eight deterministic synthetic arrays, 124,800 logical bytes:
+  1,600×6 float32 features, 1,600×6 boolean availability and six
+  1,600-element float64 market arrays.
+- Protocol: fixed input roster, five untimed warmup pairs, then ten paired
+  observations per implementation; 25 invocations per observation,
+  alternating path order. Reference pins each of eight arrays with fresh
+  SHA-256; proxy fast route copies C-order bytes and compares snapshots
+  against its initial baseline, with no array SHA on a warm call.
+- First observed batch medians: reference `0.08613 ms/call`, warm snapshot
+  `0.00980 ms/call` (ratio `8.79×`). Ranges: `0.08196–0.10233`
+  and `0.00870–0.03437 ms/call` respectively.
+- A fresh repetition of the same one-off script yielded medians
+  `0.08019` and `0.00891 ms/call` (ratio `9.00×`), demonstrating
+  run-to-run variability; neither ratio is a measured repository speedup.
+- The snapshots reconstruct the same array pin hashes on these artificial
+  inputs. The private proxy script was not checked into the repository,
+  so this narrow standalone timing is not durable execution authority.
 
-The new tests are designed to check original callback order, warmed SHA-256
-call-count elimination, mutations of features/masks/market arrays, custom
-MRO/descriptor fallback, changed cost serializer bindings, and all four
-native terminal cases against the same-source public oracle. **These tests,
-Ruff, format, Mypy, content contract, and exact-head CI have not been executed
-here** because the target `trade_rl` checkout is not attached to this
-environment. The uploaded implementation source is a candidate, not verified
-software evidence until the repository checks run and independent review
-receipts are attached. The public previous-source evidence remains frozen.
-No market data was read, no R3/all48 or measured production speedup is
-established, and no profitability, unused/final or live authorization follows
-from this work.
+Software verification, separate from the proxy measurement:
+- Exact tested source HEAD:
+  `ade5a704cd5d8f143bbcabb5750d7595cb3d4383`.
+- [Pinned targeted CI](https://github.com/shuntatsu/trade_rl/actions/runs/39142169737)
+  checked out that exact commit and completed: **132 passed** across the
+  source-envelope memo, source-envelope guard, declared-source memo and
+  terminal-execution test modules; Ruff pass, format pass (837 files),
+  `mypy --platform linux trade_rl` passed (292 source files), and
+  `guide/tools/content_contract.py --check` passed.
+- The new regressions cover warm hash reduction, in-place array mutation,
+  altered cost serializer, custom MRO fallback, reference callback ordering
+  and four native terminal case byte-parity routes. This does not establish
+  full-repository tests or the separate full-PR CI/review gate.
+- Failed earlier Fast Push attempts (Ruff import placement, formatter and
+  Mypy narrowing) were retained; the final pinned-source Fast Push
+  [run 39142096277](https://github.com/shuntatsu/trade_rl/actions/runs/39142096277)
+  passed all five code/type steps. Corrections were pushed as additional
+  non-force commits: the resulting branch has **more than the requested two
+  commits**. The history was not rewritten to hide failed checks.
+
+Frozen `FACE`, `9f81` and `8070bfb96` evidence remains independent.
+No real market data, R3, unused/final data, positive after-cost profit or live
+trading is authorized by this software optimization.
 
 ## Generic software PR review policy (2026-10-14)
 

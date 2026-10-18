@@ -26,10 +26,11 @@ import numpy as np
 
 from trade_rl.artifacts import canonical, hashing
 from trade_rl.evaluation import forecast_allocation
-from trade_rl.evaluation.rl_allocation._declared_source_digest import (
+from trade_rl.strategies import allocation as allocation_strategy
+
+from ._declared_source_digest import (
     allocation_array_pin,
 )
-from trade_rl.strategies import allocation as allocation_strategy
 
 _CLASSES = (
     forecast_allocation.HorizonCostEstimates,

@@ -1,13 +1,15 @@
 """Run-local optimization of the source-envelope digest, never an authority.
 
-Every hit rereads all non-cost envelope fields, array pins, and native cost
-estimate fields. Unsupported graphs or changed implementations use the current
-public digest. This is not protection against arbitrary Python process
+Every hit observes the original envelope fields and native cost estimates.
+For standard graphs the array bytes are snapshotted once per evaluation, avoiding
+repeated SHA-256 work on warm hits. Unsupported graphs use the public digest.
+This is not protection against arbitrary Python process
 tampering or concurrent graph mutation.
 """
 
 from __future__ import annotations
 
+import hashlib
 import operator
 import struct
 from collections import defaultdict
@@ -24,7 +26,21 @@ from typing import Any, cast
 import numpy as np
 
 from trade_rl.artifacts import canonical, hashing
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation import forecast_allocation
+from trade_rl.evaluation.rl_allocation._declared_source_digest import (
+    _implementation_matches as _array_implementation_matches,
+)
+from trade_rl.evaluation.rl_allocation._declared_source_digest import (
+    _is_standard_dataset,
+    _is_standard_env,
+    allocation_array_pin,
+)
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
+from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.strategies import allocation as allocation_strategy
 
 _CLASSES = (
@@ -164,6 +180,10 @@ _BINDINGS = tuple(
 )
 _DIGEST_ENTRY = _entry(hashing.content_digest)
 _DIGEST_FUNC = hashing.content_digest
+_IDENTITY_ARRAYS_ENTRY = _entry(MarketDataset.identity_arrays)
+_IDENTITY_CONTRACT_ENTRY = _entry(MarketDataset.identity_contract_payload)
+_N_BARS_ENTRY = _entry(MarketDataset.n_bars)
+_STREAM_GET_ENTRY = _entry(SimpleStreamDigestMemo.get)
 
 _ComplexFuncCheck = tuple[
     str,
@@ -593,6 +613,184 @@ class SourceEnvelopeDigestMemo:
     def __init__(self) -> None:
         self._attempted = False
         self._baseline: tuple[object, str] | None = None
+
+
+    def get_from_env(
+        self,
+        env: Any,
+        stream_memo: SimpleStreamDigestMemo | None,
+        *,
+        pin: Callable[[np.ndarray], dict[str, Any]] = allocation_array_pin,
+        digest: Callable[[object], str] = content_digest,
+    ) -> str:
+        """Snapshot array pins in reference order; reuse only a stable first digest.
+
+        A miss hashes the bytes captured before the contract and stream callbacks.
+        Nothing rereads identity_arrays(), identity_contract_payload(), or the
+        stream memo after those callbacks. Custom graphs keep the public route.
+        """
+        dataset = env.dataset
+        fast_path = (
+            type(env) is AllocationTradingEnv
+            and type(dataset) is MarketDataset
+            and _same(MarketDataset.identity_arrays, *_IDENTITY_ARRAYS_ENTRY)
+            and _same(
+                MarketDataset.identity_contract_payload, *_IDENTITY_CONTRACT_ENTRY
+            )
+            and _same(MarketDataset.n_bars, *_N_BARS_ENTRY)
+            and (
+                stream_memo is None
+                or (
+                    type(stream_memo) is SimpleStreamDigestMemo
+                    and "get" not in vars(stream_memo)
+                    and _same(SimpleStreamDigestMemo.get, *_STREAM_GET_ENTRY)
+                )
+            )
+            and _is_standard_env(env)
+            and _is_standard_dataset(dataset)
+            and _array_implementation_matches(pin, digest)
+            and digest is _DIGEST_FUNC
+            and _same(digest, *_DIGEST_ENTRY)
+            and _implementation_matches()
+        )
+        identity = dataset.identity_arrays()
+        if type(identity) is not dict:
+            fast_path = False
+
+        arrays: dict[str, Any] = {}
+        array_snapshots: list[tuple[str, str, tuple[int, ...], bytes]] = []
+        original_arrays: list[tuple[str, np.ndarray]] = []
+        for name, values in identity.items():
+            if name == "global_features":
+                continue
+            if name in ("features", "feature_available"):
+                selected = values[env.start_index : env.stop_index, env.symbol_index][
+                    :, list(env.feature_indices)
+                ]
+            elif values.ndim > 0 and values.shape[0] == dataset.n_bars:
+                selected = values[env.start_index : env.stop_index + 1]
+            else:
+                selected = values
+
+            if fast_path and (
+                type(name) is not str
+                or type(values) is not np.ndarray
+                or type(selected) is not np.ndarray
+            ):
+                # Convert the already captured prefix now, before evaluating
+                # later entries; never replay earlier identity-array reads.
+                for old_name, dtype_str, shape, raw_bytes in array_snapshots:
+                    arrays[old_name] = {
+                        "dtype": dtype_str,
+                        "shape": list(shape),
+                        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+                    }
+                fast_path = False
+            if fast_path:
+                array_snapshots.append(
+                    (
+                        name,
+                        selected.dtype.str,
+                        tuple(selected.shape),
+                        np.ascontiguousarray(selected).tobytes(),
+                    )
+                )
+                original_arrays.append((name, values))
+            else:
+                arrays[name] = pin(selected)
+
+        prefix = {
+            "schema": "allocation_fee_global_source_envelope_v1",
+            "dataset_id": dataset.dataset_id,
+            "dataset_contract": dataset.identity_contract_payload(),
+            "symbol_index": env.symbol_index,
+            "feature_indices": list(env.feature_indices),
+            "feature_names": list(dataset.feature_names),
+            "range": [env.start_index, env.stop_index],
+            "account_id": env.account_id,
+            "forecast_context_digest": (
+                env.stream.digest
+                if stream_memo is None
+                else stream_memo.get(env.stream)
+            ),
+        }
+
+        if not fast_path:
+            return self.get(env, prefix, arrays, digest=digest)
+
+        try:
+            state = (
+                _freeze_json(prefix),
+                tuple(array_snapshots),
+                _estimates_state(env._estimates),
+            )
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            state = None
+        if (
+            state is not None
+            and self._baseline is not None
+            and state == self._baseline[0]
+        ):
+            return self._baseline[1]
+
+        # Every cold/miss/fallback hashes the *current call's* snapshots.
+        # No callback above is re-evaluated, even when cost fields are changed.
+        arrays = {
+            name: {
+                "dtype": dtype_str,
+                "shape": list(shape),
+                "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            }
+            for name, dtype_str, shape, raw_bytes in array_snapshots
+        }
+        if state is None:
+            return self.get(env, prefix, arrays, digest=digest)
+        value = _public_digest(env, prefix, arrays, digest=digest)
+
+        if not self._attempted:
+            self._attempted = True
+            try:
+                env_dict = object.__getattribute__(env, "__dict__")
+                stable = (
+                    type(env_dict) is dict
+                    and env_dict.get("dataset") is dataset
+                    and env_dict.get("symbol_index") == prefix["symbol_index"]
+                    and list(env_dict.get("feature_indices", ()))
+                    == prefix["feature_indices"]
+                    and [
+                        env_dict.get("start_index"),
+                        env_dict.get("stop_index"),
+                    ]
+                    == prefix["range"]
+                    and env_dict.get("account_id") == prefix["account_id"]
+                    and dataset.dataset_id == prefix["dataset_id"]
+                    and list(dataset.feature_names) == prefix["feature_names"]
+                    and _estimates_state(env_dict["_estimates"]) == state[2]
+                )
+                if stable:
+                    for (name, values), (_, dtype_str, shape, raw_bytes) in zip(
+                        original_arrays, array_snapshots, strict=True
+                    ):
+                        if name in ("features", "feature_available"):
+                            selected = values[
+                                env.start_index : env.stop_index, env.symbol_index
+                            ][:, list(env.feature_indices)]
+                        elif values.ndim > 0 and values.shape[0] == dataset.n_bars:
+                            selected = values[env.start_index : env.stop_index + 1]
+                        else:
+                            selected = values
+                        if (
+                            selected.dtype.str != dtype_str
+                            or tuple(selected.shape) != shape
+                            or np.ascontiguousarray(selected).tobytes() != raw_bytes
+                        ):
+                            stable = False
+                            break
+                if stable:
+                    self._baseline = state, value
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                pass
+        return value
 
     def get(
         self,

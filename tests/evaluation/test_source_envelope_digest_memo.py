@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import sys
 from collections import OrderedDict
@@ -587,3 +588,157 @@ def test_json_encoder_method_changes_after_warming_use_public_digest(
     prefix2, arrays2 = _inputs(env)
     result, digest_calls, _ = measured_calls(lambda: memo.get(env, prefix2, arrays2))
     assert result == expected and digest_calls > 0
+
+
+def _sha256_invocations(operation: Callable[[], object]) -> tuple[object, int]:
+    calls = 0
+    previous = sys.getprofile()
+
+    def profile(_frame: FrameType, event: str, arg: object) -> None:
+        nonlocal calls
+        if event == "c_call" and arg is hashlib.sha256:
+            calls += 1
+
+    try:
+        sys.setprofile(profile)
+        result = operation()
+    finally:
+        sys.setprofile(previous)
+    return result, calls
+
+
+def test_get_from_env_warm_hit_skips_array_sha256_and_digest(env):
+    from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+        SimpleStreamDigestMemo,
+    )
+
+    memo = api()()
+    stream_memo = SimpleStreamDigestMemo()
+    original = context.allocation_source_envelope_digest(env)
+    first, cold_sha = _sha256_invocations(
+        lambda: memo.get_from_env(env, stream_memo)
+    )
+    second, warm_sha = _sha256_invocations(
+        lambda: memo.get_from_env(env, stream_memo)
+    )
+    array_count = len(env.dataset.identity_arrays()) - 1
+    assert first == second == original
+    assert cold_sha >= array_count
+    assert warm_sha == 0
+    assert memo._baseline is not None
+
+
+@pytest.mark.parametrize(
+    "array_name",
+    ("features", "feature_available", "close", "open", "funding_rate", "volume"),
+)
+def test_get_from_env_in_place_array_mutation_matches_reference(env, array_name):
+    from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+        SimpleStreamDigestMemo,
+    )
+
+    dataset = env.dataset
+    values = getattr(dataset, array_name).copy()
+    object.__setattr__(dataset, array_name, values)
+    memo = api()()
+    stream_memo = SimpleStreamDigestMemo()
+    before = memo.get_from_env(env, stream_memo)
+    assert memo.get_from_env(env, stream_memo) == before
+
+    if values.ndim == 3:
+        index = (env.start_index, env.symbol_index, env.feature_indices[0])
+    else:
+        index = (env.start_index, env.symbol_index)
+    old = values[index]
+    values[index] = not bool(old) if values.dtype.kind == "b" else old + 1
+    expected = context.allocation_source_envelope_digest(env)
+    assert expected != before
+    assert memo.get_from_env(env, stream_memo) == expected
+
+
+def test_get_from_env_contract_callback_preserves_one_pass_and_pin_order(
+    monkeypatch,
+):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+    )
+    from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+        SimpleStreamDigestMemo,
+    )
+
+    observations = []
+    for route in ("reference", "optimized"):
+        env = global_control_fixture()
+        dataset = env.dataset
+        mutable = dataset.features.copy()
+        object.__setattr__(dataset, "features", mutable)
+        stream_memo = SimpleStreamDigestMemo()
+        events: list[str] = []
+        original_arrays = type(dataset).identity_arrays
+        original_contract = type(dataset).identity_contract_payload
+        original_get = stream_memo.get
+
+        def counted_arrays(self):
+            events.append("arrays")
+            return original_arrays(self)
+
+        def mutating_contract(self):
+            events.append("contract")
+            mutable[env.start_index, env.symbol_index, env.feature_indices[0]] += 1
+            return original_contract(self)
+
+        def counted_stream(stream):
+            events.append("stream")
+            return original_get(stream)
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(type(dataset), "identity_arrays", counted_arrays)
+            scoped.setattr(
+                type(dataset), "identity_contract_payload", mutating_contract
+            )
+            scoped.setattr(stream_memo, "get", counted_stream)
+            if route == "reference":
+                digest = context._source_envelope_digest(env, stream_memo)
+            else:
+                digest = api()().get_from_env(env, stream_memo)
+        assert events == ["arrays", "contract", "stream"]
+        observations.append(digest)
+    assert observations[0] == observations[1]
+
+
+def test_get_from_env_custom_mro_falls_back_without_repeated_callbacks(env):
+    from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+        SimpleStreamDigestMemo,
+    )
+
+    class WrappedEnv:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    wrapper = WrappedEnv(env)
+    stream_memo = SimpleStreamDigestMemo()
+    expected = context._source_envelope_digest(wrapper, stream_memo)
+    memo = api()()
+    actual = memo.get_from_env(wrapper, stream_memo)
+    assert actual == expected
+    assert memo._baseline is None
+
+
+def test_get_from_env_changed_cost_serializer_falls_back(env, monkeypatch):
+    memo = api()()
+    original_digest = memo.get_from_env(env, None)
+    original_method = forecast_allocation.HorizonCostEstimates.payload
+
+    def altered_payload(self):
+        return {**original_method(self), "new_contract_probe": True}
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            forecast_allocation.HorizonCostEstimates, "payload", altered_payload
+        )
+        expected = context.allocation_source_envelope_digest(env)
+        actual = memo.get_from_env(env, None)
+        assert actual == expected and actual != original_digest

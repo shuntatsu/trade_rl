@@ -21,18 +21,24 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
 
 
+
 @contextmanager
 def _envelope_getter_route(monkeypatch, route):
     if route == "reference":
         module = import_module(
             "trade_rl.evaluation.rl_allocation._source_envelope_digest"
         )
+        from trade_rl.evaluation.rl_allocation import (
+            global_execution_context as context,
+        )
+
         with monkeypatch.context() as scoped:
             scoped.setattr(
                 module.SourceEnvelopeDigestMemo,
-                "get",
-                lambda _self, env, prefix, arrays, *, digest=module.hashing.content_digest: (
-                    module._public_digest(env, prefix, arrays, digest=digest)
+                "get_from_env",
+                lambda _self, env, stream_memo, *, pin=module.allocation_array_pin,
+                digest=module.hashing.content_digest: context._source_envelope_digest(
+                    env, stream_memo
                 ),
             )
             yield
@@ -267,27 +273,41 @@ def _run_terminal_route(route, monkeypatch, operation):
     memo_module = import_module(
         "trade_rl.evaluation.rl_allocation._source_envelope_digest"
     )
+    from trade_rl.evaluation.rl_allocation import global_execution_context as context
+
     memo_type = memo_module.SourceEnvelopeDigestMemo
-    original_get = memo_type.get
+    original_get = memo_type.get_from_env
     getter_calls = []
 
     if route == "reference":
 
         def public_get(
-            _self, env, prefix, arrays, *, digest=memo_module.hashing.content_digest
+            _self,
+            env,
+            stream_memo,
+            *,
+            pin=memo_module.allocation_array_pin,
+            digest=memo_module.hashing.content_digest,
         ):
             getter_calls.append(None)
-            return memo_module._public_digest(env, prefix, arrays, digest=digest)
+            return context._source_envelope_digest(env, stream_memo)
 
         replacement = public_get
         profiled_code = public_get.__code__
     elif route == "optimized":
 
         def original_get_with_count(
-            self, env, prefix, arrays, *, digest=memo_module.hashing.content_digest
+            self,
+            env,
+            stream_memo,
+            *,
+            pin=memo_module.allocation_array_pin,
+            digest=memo_module.hashing.content_digest,
         ):
             getter_calls.append(None)
-            return original_get(self, env, prefix, arrays, digest=digest)
+            return original_get(
+                self, env, stream_memo, pin=pin, digest=digest
+            )
 
         replacement = original_get_with_count
         profiled_code = original_get.__code__
@@ -295,7 +315,7 @@ def _run_terminal_route(route, monkeypatch, operation):
         raise AssertionError(f"unknown envelope route: {route}")
 
     with monkeypatch.context() as scoped:
-        scoped.setattr(memo_type, "get", replacement)
+        scoped.setattr(memo_type, "get_from_env", replacement)
         with _payload_reads_inside(profiled_code) as payload_reads:
             result = operation()
 
@@ -304,10 +324,9 @@ def _run_terminal_route(route, monkeypatch, operation):
     if route == "reference":
         assert all(count > 0 for count in payload_reads)
     else:
-        assert payload_reads[0] > 0  # initial baseline arm
-        assert all(count == 0 for count in payload_reads[1:])  # warm hits
+        assert payload_reads[0] > 0  # first baseline
+        assert all(count == 0 for count in payload_reads[1:])
     return result
-
 
 @pytest.mark.parametrize(
     ("case", "carrier_kwargs", "kind", "stop"),

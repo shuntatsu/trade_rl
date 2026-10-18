@@ -578,6 +578,50 @@ to `4ab496eff8ee`; later documentation commits do not rebind it. These local
 observations establish bounded software runtime memoization contracts only;
 they provide no native/full-matrix extrapolation or economic/live authority.
 
+## Issue #888 n1600 hotpath optimization
+
+The runtime interval binding checks and stream/source-envelope digest memos now
+feature dedicated vectorized and C-iterator hotpath accelerations for 1,600-step
+episodes (`n1600`) and 6,599-step full arms. In `validate_runtime_binding`,
+timestamp array interval verification uses 2's-complement overflow-safe NumPy
+strided vectorized diffs (`times.view(np.int64)`) whenever timestamps are stored
+as `np.ndarray`, reducing per-call interval validation from 1.21 ms to 0.05 ms
+(24.3x speedup).
+
+In `SimpleStreamDigestMemo`, module bindings and class contracts are pre-classified
+at import time into direct object identities, parameterless simple functions,
+and complex default-checked functions, avoiding repeated runtime introspection.
+In `_freeze`, homogenous string tuples (`tuple[str, ...]`) are fast-pathed as
+`(kind, str, value)`, cutting stream vintage inspection. In `_packets`, the
+`_CLOCK` dtype validation checks `for x in col: if x.dtype != _NS:` directly
+without set/map overhead, and `np.fromiter` preallocates flat feature arrays
+with explicit `count=int(lengths.sum())`. In `SourceEnvelopeDigestMemo`,
+`_estimates_state` similarly replaces scalar `getattr(x, "dtype", None)` with
+direct `x.dtype != _NS`.
+
+A controlled benchmark ran at clean candidate source `ff3b71301b84`, on
+Windows/Python 3.12.0/NumPy 1.26.4:
+
+| Component | Baseline / Reference | Accelerated hotpath | Speedup |
+| :--- | ---: | ---: | ---: |
+| `validate_runtime_binding` (1,600 intervals) | 1.2087 ms | 0.0498 ms | 24.25x |
+| `SimpleStreamDigestMemo.get` warm hit (stream) | 0.2612 ms | 0.1285 ms | 2.03x |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), full terminal execution
+retains identical plan and native receipt bytes:
+`nonrl-long` plan `327b24bb5211342c3a849bd68d682221084a0679c18bb46d57460562edaba289` / receipt `31ca2b2adbf7427ce4564543d2c806a54b48237753b75b551d5ff297701e5588`,
+`nonrl-short` plan `d254a80600423ceee5307357e5ae37feb55f7a572f9f0ea0373c243d3091f940` / receipt `42dcf28389b67df6140e148fe945a8fb3cdba5740e8126ca57f8d35e56a269fe`,
+`nonrl-partial-close-then-flat` plan `fde09da4997075f409f7569d30f2cad8165bf6aab697a8d9ccd084a9e150b424` / receipt `685131f23d3e54cf7f4436b9b6948555d1d7bb74c5cc87f8beb8a8e7201c298e`,
+and `cash-nonzero-carry` plan `ebd3f3f03952d153eac4151ea6534b116bad1a9743cc50a5a32a5f7aedb5b71e` / receipt `0494ee1a8df6a11d0612d33472843f7d1311e795ca986b413335bc24c723a3e9`.
+
+The result JSON SHA-256 is
+`9b58f4893ba40083395f05045b7873fe6331fbe9e950629bd110ef4b0ed2edaa`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `ff3b71301b84`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

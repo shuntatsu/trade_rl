@@ -12,7 +12,7 @@ jobs:
       - name: Checkout candidate exact SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 7a06267d08d10de4712ccd22510e654f25282c44
+          ref: f2238d03ae0cb80eab7f6b702cf67b5d31dd44d0
           persist-credentials: false
       - name: Setup uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -20,6 +20,10 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --locked --extra dev
+      - name: Ruff formatter delta
+        run: uv run ruff format --diff trade_rl/evaluation/rl_allocation/_source_envelope_digest.py tests/evaluation/test_source_envelope_digest_memo.py || true
+      - name: Targeted source-envelope and architecture pytest
+        run: uv run pytest -q tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py tests/architecture/test_allocation_global_execution_boundary.py tests/architecture/test_current_docs_layout.py
       - name: Source-envelope fast-path diagnostic
         run: |
           uv run python - <<'PY'

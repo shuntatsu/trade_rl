@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import operator
 import struct
+from collections import defaultdict
 from dataclasses import MISSING, fields
 from itertools import chain
 from types import (
@@ -163,29 +164,264 @@ _BINDINGS = tuple(
 )
 
 
+_ComplexFuncCheck = tuple[
+    str,
+    FunctionType,
+    Any,
+    tuple[object, ...] | None,
+    dict[str, object] | None,
+    object,
+    object,
+]
+_ClassCheck = tuple[
+    type,
+    tuple[str, ...] | None,
+    int,
+    tuple[tuple[str, object], ...],
+    tuple[tuple[str, FunctionType, Any], ...],
+    tuple[_ComplexFuncCheck, ...],
+    tuple[tuple[str, object, object], ...],
+]
+_ModuleCheck = tuple[
+    Any,
+    tuple[tuple[str, object], ...],
+    tuple[tuple[str, FunctionType, Any], ...],
+    tuple[_ComplexFuncCheck, ...],
+    tuple[tuple[str, object, object], ...],
+]
+
+
+def _build_optimized_class_checks() -> tuple[_ClassCheck, ...]:
+    checks: list[_ClassCheck] = []
+    for cls, schema, entries in _CLASS_CONTRACT:
+        identities: list[tuple[str, object]] = []
+        simple_funcs: list[tuple[str, FunctionType, Any]] = []
+        complex_funcs: list[_ComplexFuncCheck] = []
+        others: list[tuple[str, object, object]] = []
+        for name, orig, meta in entries:
+            if meta is None:
+                identities.append((name, orig))
+            elif type(orig) is FunctionType and meta is not _UNKNOWN:
+                orig_def = orig.__defaults__
+                orig_kw = (
+                    dict(orig.__kwdefaults__)
+                    if orig.__kwdefaults__ is not None
+                    else None
+                )
+                meta_tuple = (
+                    meta
+                    if isinstance(meta, tuple) and len(meta) == 3
+                    else (None, None, None)
+                )
+                if orig_def is None and orig_kw is None:
+                    simple_funcs.append((name, orig, orig.__code__))
+                else:
+                    complex_funcs.append(
+                        (
+                            name,
+                            orig,
+                            orig.__code__,
+                            orig_def,
+                            orig_kw,
+                            meta_tuple[1],
+                            meta_tuple[2],
+                        )
+                    )
+            else:
+                others.append((name, orig, meta))
+        checks.append(
+            (
+                cls,
+                schema,
+                len(entries),
+                tuple(identities),
+                tuple(simple_funcs),
+                tuple(complex_funcs),
+                tuple(others),
+            )
+        )
+    return tuple(checks)
+
+
+def _build_optimized_module_checks() -> tuple[_ModuleCheck, ...]:
+    grouped: dict[Any, list[tuple[str, object, object]]] = defaultdict(list)
+    for module, name, orig, meta in _BINDINGS:
+        grouped[module].append((name, orig, meta))
+    checks: list[_ModuleCheck] = []
+    for module, entries in grouped.items():
+        identities: list[tuple[str, object]] = []
+        simple_funcs: list[tuple[str, FunctionType, Any]] = []
+        complex_funcs: list[_ComplexFuncCheck] = []
+        others: list[tuple[str, object, object]] = []
+        for name, orig, meta in entries:
+            if meta is None:
+                identities.append((name, orig))
+            elif type(orig) is FunctionType and meta is not _UNKNOWN:
+                orig_def = orig.__defaults__
+                orig_kw = (
+                    dict(orig.__kwdefaults__)
+                    if orig.__kwdefaults__ is not None
+                    else None
+                )
+                meta_tuple = (
+                    meta
+                    if isinstance(meta, tuple) and len(meta) == 3
+                    else (None, None, None)
+                )
+                if orig_def is None and orig_kw is None:
+                    simple_funcs.append((name, orig, orig.__code__))
+                else:
+                    complex_funcs.append(
+                        (
+                            name,
+                            orig,
+                            orig.__code__,
+                            orig_def,
+                            orig_kw,
+                            meta_tuple[1],
+                            meta_tuple[2],
+                        )
+                    )
+            else:
+                others.append((name, orig, meta))
+        checks.append(
+            (
+                module,
+                tuple(identities),
+                tuple(simple_funcs),
+                tuple(complex_funcs),
+                tuple(others),
+            )
+        )
+    return tuple(checks)
+
+
+_OPTIMIZED_CLASS_CHECKS = _build_optimized_class_checks()
+_OPTIMIZED_MODULE_CHECKS = _build_optimized_module_checks()
+
+
 def _same(value: object, original: object, metadata: object) -> bool:
-    return (
-        value is original and metadata is not _UNKNOWN and _metadata(value) == metadata
-    )
+    if value is not original or metadata is _UNKNOWN:
+        return False
+    if metadata is None:
+        return True
+    return _metadata(value) == metadata
 
 
 def _implementation_matches() -> bool:
-    for cls, schema, entries in _CLASS_CONTRACT:
+    for (
+        cls,
+        schema,
+        expected_len,
+        identities,
+        simple_funcs,
+        complex_funcs,
+        others,
+    ) in _OPTIMIZED_CLASS_CHECKS:
+        c_dict = vars(cls)
+        if len(c_dict) != expected_len:
+            return False
         if (
             schema is not None
-            and tuple(f.name for f in fields(cast(Any, cls))) != schema
-            or len(vars(cls)) != len(entries)
+            and tuple(getattr(cls, "__dataclass_fields__", ())) != schema
         ):
             return False
-        if any(
-            not _same(vars(cls).get(name), original, metadata)
-            for name, original, metadata in entries
-        ):
-            return False
-    return all(
-        _same(vars(module).get(name), original, metadata)
-        for module, name, original, metadata in _BINDINGS
-    )
+        for name, expected in identities:
+            if c_dict.get(name) is not expected:
+                return False
+        for name, orig, code in simple_funcs:
+            val = c_dict.get(name)
+            if (
+                val is not orig
+                or getattr(val, "__code__", None) is not code
+                or getattr(val, "__defaults__", None) is not None
+                or getattr(val, "__kwdefaults__", None) is not None
+            ):
+                return False
+        for (
+            name,
+            orig,
+            code,
+            orig_def,
+            orig_kw,
+            d_frozen,
+            kw_frozen,
+        ) in complex_funcs:
+            val = c_dict.get(name)
+            if val is not orig or getattr(val, "__code__", None) is not code:
+                return False
+            val_def = getattr(val, "__defaults__", None)
+            if orig_def is None:
+                if val_def is not None:
+                    return False
+            elif val_def is not orig_def and (
+                type(val_def) is not tuple or _defaults(val_def) != d_frozen
+            ):
+                return False
+            val_kw = getattr(val, "__kwdefaults__", None)
+            if orig_kw is None:
+                if val_kw is not None:
+                    return False
+            elif val_kw != orig_kw:
+                return False
+        for other_name, other_orig, meta in others:
+            if not _same(c_dict.get(other_name), other_orig, meta):
+                return False
+
+    for (
+        module,
+        identities,
+        simple_funcs,
+        complex_funcs,
+        others,
+    ) in _OPTIMIZED_MODULE_CHECKS:
+        m_dict = vars(module)
+        for name, expected in identities:
+            if m_dict.get(name) is not expected:
+                return False
+        for name, orig, code in simple_funcs:
+            val = m_dict.get(name)
+            if (
+                val is not orig
+                or getattr(val, "__code__", None) is not code
+                or getattr(val, "__defaults__", None) is not None
+                or getattr(val, "__kwdefaults__", None) is not None
+            ):
+                return False
+        for (
+            name,
+            orig,
+            code,
+            orig_def,
+            orig_kw,
+            d_frozen,
+            kw_frozen,
+        ) in complex_funcs:
+            val = m_dict.get(name)
+            if val is not orig or getattr(val, "__code__", None) is not code:
+                return False
+            val_def = getattr(val, "__defaults__", None)
+            if orig_def is None:
+                if val_def is not None:
+                    return False
+            elif val_def is not orig_def and (
+                type(val_def) is not tuple or _defaults(val_def) != d_frozen
+            ):
+                return False
+            val_kw = getattr(val, "__kwdefaults__", None)
+            if orig_kw is None:
+                if val_kw is not None:
+                    return False
+            elif val_kw != orig_kw:
+                return False
+        for other_name, other_orig, meta in others:
+            if not _same(m_dict.get(other_name), other_orig, meta):
+                return False
+    return True
+
+
+def _exact(values: tuple[Any, ...], kind: type) -> bool:
+    return set(map(type, values)) == {kind}
 
 
 def _freeze(value: Any) -> object:
@@ -208,16 +444,14 @@ def _freeze(value: Any) -> object:
             raise TypeError("unsupported array dtype")
         return kind, dtype.str, value.shape, value.strides, value.tobytes(order="C")
     if kind is tuple:
+        if value and _exact(value, str):
+            return kind, str, value
         return kind, tuple(_freeze(v) for v in value)
     if kind in _CLASSES:
         return kind, tuple(
             (f.name, _freeze(getattr(value, f.name))) for f in fields(value)
         )
     raise TypeError("unsupported type or subclass")
-
-
-def _exact(values: tuple[Any, ...], kind: type) -> bool:
-    return set(map(type, values)) == {kind}
 
 
 def _packets(values: object) -> object:
@@ -237,8 +471,11 @@ def _packets(values: object) -> object:
     numeric = []
     for name in _CLOCK:
         column = columns[name]
-        if not _exact(column, np.datetime64) or set(map(_DTYPE, column)) != {_NS}:
+        if not _exact(column, np.datetime64):
             raise TypeError("unsupported clock")
+        for x in column:
+            if x.dtype != _NS:
+                raise TypeError("unsupported clock")
         numeric.append(np.asarray(column, dtype=_NS).view("<i8").tobytes())
     if not _exact(columns["horizon_seconds"], int):
         raise TypeError("unsupported integer")
@@ -255,7 +492,9 @@ def _packets(values: object) -> object:
     lengths = np.fromiter(map(len, features), dtype="<i8", count=len(features))
     if lengths.min() <= 0:
         raise TypeError("empty features")
-    flat = np.fromiter(chain.from_iterable(features), dtype="<f8")
+    flat = np.fromiter(
+        chain.from_iterable(features), dtype="<f8", count=int(lengths.sum())
+    )
     return tuple(numeric), lengths.tobytes(), flat.tobytes(), text
 
 

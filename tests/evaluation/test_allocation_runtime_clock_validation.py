@@ -539,3 +539,19 @@ def test_long_plain_clock_uses_constant_scalar_timestamp_dispatch(runtime_case) 
         "plain runtime clock normalization should keep scalar dispatch constant "
         f"as episode length grows, saw {len(fields)} calls for {count} timestamps"
     )
+
+
+def test_extreme_int64_overflow_wrap_around_is_rejected(runtime_case) -> None:
+    min_i64 = int(np.iinfo(np.int64).min)
+    max_i64 = int(np.iinfo(np.int64).max)
+    ticks = np.array([min_i64 + 1, max_i64 - 1], dtype=np.int64)
+    values = ticks.view("datetime64[ns]")
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    bound = _bound_for_span(
+        runtime_case,
+        epoch,
+        epoch + timedelta(seconds=3600),
+        step_seconds=3600,
+    )
+    with pytest.raises(ValueError):
+        _invoke(runtime_case, values, bound=bound)

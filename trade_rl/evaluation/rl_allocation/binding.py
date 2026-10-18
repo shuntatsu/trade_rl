@@ -89,9 +89,15 @@ def validate_runtime_binding(
             raise ValueError(
                 "Dataset episode endpoints differ from declared UTC horizon"
             )
-    ticks = tuple(int(t.astype(np.int64)) for t in times)
-    if any(
-        b - a != clock.execution_interval_seconds * 1_000_000_000
-        for a, b in zip(ticks, ticks[1:])
-    ):
-        raise ValueError("Dataset intervals differ from declared financial clock")
+    expected_gap = clock.execution_interval_seconds * 1_000_000_000
+    if type(times) is np.ndarray and 0 < expected_gap <= int(np.iinfo(np.int64).max):
+        ticks_i64 = times.view(np.int64)
+        if ticks_i64.size > 1 and (
+            bool((ticks_i64[1:] <= ticks_i64[:-1]).any())
+            or bool(((ticks_i64[1:] - ticks_i64[:-1]) != expected_gap).any())
+        ):
+            raise ValueError("Dataset intervals differ from declared financial clock")
+    else:
+        ticks = tuple(int(t.astype(np.int64)) for t in times)
+        if any(b - a != expected_gap for a, b in zip(ticks, ticks[1:])):
+            raise ValueError("Dataset intervals differ from declared financial clock")

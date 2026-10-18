@@ -484,7 +484,7 @@ def _estimates_state(estimates: object) -> object:
         if not _exact(col, np.datetime64):
             raise TypeError("unsupported clock")
         for x in col:
-            if getattr(x, "dtype", None) != _NS:
+            if x.dtype != _NS:
                 raise TypeError("unsupported clock")
     arr_c = np.asarray(clock_cols, dtype=_NS)
     if np.isnat(arr_c).any():

@@ -309,6 +309,7 @@ def _pin_has_reference_implementation(pin: object) -> bool:
         and code.co_kwonlyargcount == _PIN_CODE.co_kwonlyargcount
     )
 
+
 _ComplexFuncCheck = tuple[
     str,
     FunctionType,

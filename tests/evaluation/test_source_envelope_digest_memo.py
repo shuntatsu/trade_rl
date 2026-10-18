@@ -801,7 +801,9 @@ def test_get_from_env_patched_pin_falls_back_without_caching(env):
     assert result == expected
     # Legacy get() may cache a custom array mapping; subsequent native pins
     # must nevertheless use fresh content and cannot inherit its digest.
-    assert memo.get_from_env(env, None) == context.allocation_source_envelope_digest(env)
+    assert memo.get_from_env(env, None) == context.allocation_source_envelope_digest(
+        env
+    )
 
 
 def test_get_from_env_explicit_public_pin_remains_fast_on_warm_calls(env):

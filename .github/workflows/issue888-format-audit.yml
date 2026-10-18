@@ -1,4 +1,4 @@
-name: Issue888 Pinned Ruff Formatter Differential
+name: Issue888 Final Pinned Whole-Envelope Verification
 on:
   push:
     branches:
@@ -6,19 +6,30 @@ on:
 permissions:
   contents: read
 jobs:
-  audit:
+  final:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact final source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a348571addd88bfe1cc803c8b3020294f843bbf3
+          ref: 3fe293915317d3af031e790a6d446edfaed8c699
           persist-credentials: false
       - name: Setup uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           python-version: "3.12"
-      - name: Install
+      - name: Install pinned Python tools
         run: uv sync --locked --extra dev
-      - name: Ruff format differential
-        run: uv run ruff format --diff tests/evaluation/test_source_envelope_digest_memo.py
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Ruff format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy Linux
+        run: uv run mypy --platform linux trade_rl
+      - name: Targeted envelope and terminal oracle pytest
+        run: |
+          uv run pytest -q tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py tests/evaluation/test_declared_source_digest_memo.py tests/evaluation/test_allocation_terminal_execution.py
+      - name: Full Core pytest
+        run: uv run pytest -q tests
+      - name: Human Guide content contract
+        run: uv run python guide/tools/content_contract.py --check

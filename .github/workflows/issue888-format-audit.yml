@@ -1,4 +1,4 @@
-name: Issue888 Bounded Source Envelope Benchmark
+name: Issue888 Exact Final Source Verification
 on:
   push:
     branches:
@@ -6,13 +6,14 @@ on:
 permissions:
   contents: read
 jobs:
-  benchmark:
+  quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - name: Checkout pinned source
+      - name: Checkout exact final source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: c846afaa1ffb1c8959dc362100779887de8485d2
+          ref: 500eb29e4af4ff2000e51282c54dc4505c47a2d5
           persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -20,48 +21,33 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --locked --extra dev
-      - name: Paired source-envelope warm benchmark
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Ruff format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy Linux
+        run: uv run mypy --platform linux trade_rl
+      - name: Guide content contract
+        run: uv run python guide/tools/content_contract.py --check
+      - name: Targeted and architecture pytest
         run: |
-          uv run python - <<'PY'
-          import platform
-          import statistics
-          import time
-          import numpy as np
-          from tests.evaluation.test_allocation_nonrl_walk_forward import global_control_fixture
-          from trade_rl.evaluation.rl_allocation.global_execution_context import _source_envelope_digest
-          from trade_rl.evaluation.rl_allocation._simple_stream_digest import SimpleStreamDigestMemo
-          from trade_rl.evaluation.rl_allocation._source_envelope_digest import SourceEnvelopeDigestMemo
-          env = global_control_fixture()
-          stream_memo = SimpleStreamDigestMemo()
-          memo = SourceEnvelopeDigestMemo()
-          reference = lambda: _source_envelope_digest(env, stream_memo)
-          optimized = lambda: _source_envelope_digest(env, stream_memo, memo)
-          digest = reference()
-          assert optimized() == digest
-          ops = (("reference", reference), ("memo", optimized))
-          for _ in range(5):
-              for _, operation in ops:
-                  assert operation() == digest
-          results = {"reference": [], "memo": []}
-          batch_calls = 10
-          pairs = 12
-          for index in range(pairs):
-              for name, operation in (ops if index % 2 == 0 else ops[::-1]):
-                  start = time.perf_counter_ns()
-                  for _ in range(batch_calls):
-                      if operation() != digest:
-                          raise AssertionError("source-envelope digest mismatch")
-                  elapsed = time.perf_counter_ns() - start
-                  results[name].append(elapsed / batch_calls / 1e6)
-          print("SOURCE", "c846afaa1ffb1c8959dc362100779887de8485d2")
-          print("RUNTIME", platform.python_version(), np.__version__)
-          print("SYNTHETIC_ROWS", env.stop_index-env.start_index)
-          print("ARRAY_PINS", len(env.dataset.identity_arrays())-1)
-          print("SAMPLES_PER_PATH", pairs, "CALLS_PER_SAMPLE", batch_calls)
-          print("RAW_MS_PER_CALL", results)
-          median_ref = statistics.median(results["reference"])
-          median_memo = statistics.median(results["memo"])
-          print("MEDIAN_MS_PER_CALL", {"reference":median_ref,"memo":median_memo})
-          print("MEDIAN_RATIO_REF_TO_MEMO",median_ref/median_memo)
-          print("SCOPE", "same-source unisolated artificial small-fixture; no market/full-arm throughput claim")
-          PY
+          uv run pytest -q tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py tests/evaluation/test_declared_source_digest_memo.py tests/evaluation/test_allocation_terminal_execution.py tests/architecture/test_allocation_global_execution_boundary.py tests/architecture/test_current_docs_layout.py
+      - name: Build
+        run: uv build
+  full-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact final source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 500eb29e4af4ff2000e51282c54dc4505c47a2d5
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --locked --extra dev
+      - name: Full Core pytest
+        run: uv run pytest -q tests

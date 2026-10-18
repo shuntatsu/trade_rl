@@ -1,4 +1,4 @@
-name: Issue888 Pinned Envelope Regression Verification
+name: Issue888 Pinned Ruff Formatter Differential
 on:
   push:
     branches:
@@ -6,30 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
-  targeted:
+  audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact candidate HEAD
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9fde7e75757d7b9f577996c1dec49a2a710c20a3
+          ref: a348571addd88bfe1cc803c8b3020294f843bbf3
           persist-credentials: false
       - name: Setup uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           python-version: "3.12"
-      - name: Install pinned dependencies
+      - name: Install
         run: uv sync --locked --extra dev
-      - name: Ruff
-        run: uv run ruff check trade_rl tests tools
-      - name: Ruff format
-        run: uv run ruff format --check trade_rl tests tools
-      - name: Mypy Linux
-        run: uv run mypy --platform linux trade_rl
-      - name: Selected memo and native terminal pytest
-        run: |
-          uv run pytest -q tests/evaluation/test_source_envelope_digest_memo.py tests/evaluation/test_allocation_source_envelope_digest_guard.py tests/evaluation/test_declared_source_digest_memo.py tests/evaluation/test_allocation_terminal_execution.py
-      - name: Full core pytest
-        run: uv run pytest -q tests
-      - name: Guide source content contract
-        run: uv run python guide/tools/content_contract.py --check
+      - name: Ruff format differential
+        run: uv run ruff format --diff tests/evaluation/test_source_envelope_digest_memo.py

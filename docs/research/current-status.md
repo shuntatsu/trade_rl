@@ -662,6 +662,30 @@ to `b406a8db4eb6`; later documentation commits do not rebind it. These local
 observations establish bounded software runtime memoization contracts only;
 they provide no native/full-matrix extrapolation or economic/live authority.
 
+## Issue #888 market-scale warm-hit digest memo optimization
+
+In `SimpleStreamDigestMemo` and `SourceEnvelopeDigestMemo`, cold baseline arming
+retains the complete byte-exact `<f8`/`<i8` `tobytes()` and strict field-type
+verification (`before == _state(...)`), while also recording flat field-object
+reference tuples (`tuple(chain.from_iterable(map(_GET, ...)))`) across the
+validated immutable `SimpleReturnPacket` and `HorizonCostEstimates` instances.
+On warm hits, the memos first verify container and element types plus strict
+object identity (`operator.is_`) across all packet and estimate fields before
+returning the cached digest, falling through to the full byte-exact state
+comparison whenever any reference differs. Because `0.0 is -0.0`, `1 is True`,
+`86400 is 86400.0`, and `0.0 is 0` are all `False` in Python, in-place
+signed-zero and type-coercible mutations via `object.__setattr__` are
+immediately rejected on both `get` and `get_from_env`.
+
+On market-scale stream and cost inputs (`13,054` `SimpleReturnPacket` items and
+`6,527` `HorizonCostEstimates` items) at candidate source `6f9f74136887` on
+Windows/Python 3.12.0/NumPy 1.26.4, per-advance digest verification dropped from
+`76.818 ms` to `14.465 ms` (`5.31x` speedup: `SimpleStreamDigestMemo.get` from
+`27.208 ms` to `7.878 ms`, net `SourceEnvelopeDigestMemo` overhead from
+`48.307 ms` to `5.030 ms`, and `DeclaredSourceDigestMemo.get` `1.556 ms`).
+The measured source stays pinned to `6f9f74136887`; later documentation commits
+do not rebind it.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

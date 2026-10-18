@@ -622,6 +622,46 @@ to `ff3b71301b84`; later documentation commits do not rebind it. These local
 observations establish bounded software runtime memoization contracts only;
 they provide no native/full-matrix extrapolation or economic/live authority.
 
+## Issue #888 whole-envelope arrays memoization
+
+The global execution context and source-envelope memoization now feature
+accelerated full-envelope caching inside `SourceEnvelopeDigestMemo.get_from_env`,
+eliminating 8 redundant SHA-256 array-pin evaluations per advance during warm
+terminal allocation execution.
+
+When `envelope_memo` is supplied, `_source_envelope_digest` delegates directly
+to `envelope_memo.get_from_env(env, stream_memo, pin=..., digest=...)`. The
+accelerator verifies that:
+1. `pin` and `digest` match their standard library / native implementations (`hashlib.sha256`, `np.ascontiguousarray`, `content_digest`, `allocation_array_pin`).
+2. `env` and `dataset` adhere to standard attributes without overrides, descriptors, or custom `__getattr__`/`__getattribute__` (supporting slots dataclass descriptors like `MarketDataset`).
+3. Single-pass traversal extracts array byte snapshots in reference order before prefix contract generation, ensuring identical bytes even if subsequent calls in-place mutate the source.
+4. Warm baseline hits return the cached digest directly, bypassing 8 calls to `allocation_array_pin` (which each compute full SHA-256 over contiguous array bytes).
+5. Unstable arming (in-place mutation during the initial baseline calculation) and cache misses safely fallback to the canonical reference evaluation path without corrupting memo state.
+
+A controlled benchmark ran at clean candidate source `b406a8db4eb6`, on
+Windows/Python 3.12.0/NumPy 1.26.4:
+
+| Component | Baseline / Reference | Accelerated warm hit | Speedup |
+| :--- | ---: | ---: | ---: |
+| `_source_envelope_digest` (8 array pins + envelope) | 0.3521 ms | 0.2187 ms | 1.61x |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), full terminal execution
+retains identical plan and native receipt bytes:
+`nonrl-long` plan `d643f10009f5c7607ff72c7a973bff28594d73aef49b0436760227ab441b658e` / receipt `79487dabb879f23a492466479521bfe0680cefa108aa5eebceb9f14a54e0b325` (median: 500.25 ms),
+`nonrl-short` plan `9ad05b944839c6bae524a6074963d787757ef47c4b39ee9c8155cd6963b86304` / receipt `6562e8c159713d2ccdabbdf93192248b23d8f406ba9c396e6f01d70ae09b92be` (median: 546.85 ms),
+`nonrl-partial-close-then-flat` plan `20a25877810ef506865a8e462c78a75f8292b5ffa5536e038de522c15f24df5b` / receipt `125760e81e156f2ae043eb427df021806fecdc57e3ef811c502f094f84f91357` (median: 512.78 ms),
+and `cash-nonzero-carry` plan `c37f5eb61af38457f8e87d51e946230bee8a96cc6b272506e5be4ac954ce4d02` / receipt `eca18e8049e9adb5ae5d3917ebef6825ece7723a3474c93101efd40e59a98c08` (median: 706.50 ms).
+
+The measurements JSON SHA-256 is
+`1670734de5406d6385b87e90f0debc7665d5e2377295824dff1448c20d7547d9`.
+The next design hypothesis JSON SHA-256 is
+`db4525f9ccbbd7bc80d1f0f594430a7b337a4aac63087e45385baa29f7489b76`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `b406a8db4eb6`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

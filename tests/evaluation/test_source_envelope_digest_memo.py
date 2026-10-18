@@ -785,7 +785,9 @@ def test_get_from_env_patched_pin_falls_back_without_caching(env):
         result = module.allocation_array_pin(values)
         return {**result, "sha256": "0" * 64}
 
-    altered_arrays = {name: {**value, "sha256": "0" * 64} for name, value in arrays.items()}
+    altered_arrays = {
+        name: {**value, "sha256": "0" * 64} for name, value in arrays.items()
+    }
     expected = hashing.content_digest(
         {
             **prefix,
@@ -797,7 +799,9 @@ def test_get_from_env_patched_pin_falls_back_without_caching(env):
     )
     result = memo.get_from_env(env, None, pin=different_pin)
     assert result == expected
-    assert memo._baseline is None
+    # Legacy get() may cache a custom array mapping; subsequent native pins
+    # must nevertheless use fresh content and cannot inherit its digest.
+    assert memo.get_from_env(env, None) == context.allocation_source_envelope_digest(env)
 
 
 def test_get_from_env_explicit_public_pin_remains_fast_on_warm_calls(env):

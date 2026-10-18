@@ -231,8 +231,7 @@ def _standard_env_graph(env: Any) -> bool:
     return (
         type(state) is dict
         and all(
-            name in state
-            for name in ("dataset", "stream", "_estimates", *_ENV_ATTRS)
+            name in state for name in ("dataset", "stream", "_estimates", *_ENV_ATTRS)
         )
         and type(dict.__getitem__(state, "start_index")) is int
         and type(dict.__getitem__(state, "stop_index")) is int
@@ -254,10 +253,13 @@ def _standard_dataset_graph(dataset: Any) -> bool:
             for key in ("identity_arrays", "identity_contract_payload")
         ):
             return False
-        if "dataset_id" in namespace and hasattr(
-            namespace["dataset_id"], "__get__"
-        ):
-            return False
+        if "dataset_id" in namespace:
+            descriptor = namespace["dataset_id"]
+            if isinstance(descriptor, property) or (
+                hasattr(descriptor, "__get__")
+                and type(descriptor).__name__ != "member_descriptor"
+            ):
+                return False
         if "n_bars" in namespace and not isinstance(
             namespace["n_bars"], (property, FunctionType)
         ):
@@ -286,10 +288,7 @@ def _pin_has_reference_implementation(pin: object) -> bool:
     """Conservatively admit only the known pure array-pin bytecode contract."""
     if type(pin) is not FunctionType:
         return False
-    if (
-        pin is allocation_array_pin
-        and _same(pin, *_PIN_ENTRY)
-    ):
+    if pin is allocation_array_pin and _same(pin, *_PIN_ENTRY):
         return True
     if (
         pin.__module__ != "trade_rl.evaluation.rl_allocation._declared_source_digest"

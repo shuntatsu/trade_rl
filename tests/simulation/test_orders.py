@@ -288,7 +288,9 @@ def test_integer_identity_alias_never_admits_changed_economic_quantity() -> None
         OrderIntent.from_mapping(asdict(mutated))
     with pytest.raises(OrderDomainError, match="identity digest mismatch"):
         TerminalOrderArchive(
-            (PendingOrder.from_intent(mutated).cancel(
-                processing_index=6, reason="forged-quantity"
-            ),)
+            (
+                PendingOrder.from_intent(mutated).cancel(
+                    processing_index=6, reason="forged-quantity"
+                ),
+            )
         )

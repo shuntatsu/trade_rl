@@ -347,9 +347,38 @@ class OrderIntent:
             replaced_order_id=optional_string("replaced_order_id"),
             reduce_only=reduce_only,
         )
-        if restored.order_id != string("order_id"):
-            raise OrderDomainError("order intent identity digest mismatch")
-        return restored
+        original_id = string("order_id")
+        if restored.order_id == original_id:
+            return restored
+
+        # Historical OrderIntent.create() hashed caller-supplied JSON numeric
+        # types *before* normalizing its stored quantity/prices/equity to
+        # floats. A genuine order created from 1 rather than 1.0 therefore
+        # has another SHA-256 despite identical saved financial values.
+        # Admit only exact, finite integer/float JSON aliases of those fields,
+        # without ever modifying the originally issued order ID.
+        identity = restored.canonical_payload()
+        identity.pop("order_id")
+        identity["schema_version"] = "order_intent_v1"
+        aliases = tuple(
+            field
+            for field in (
+                "requested_quantity",
+                "limit_price",
+                "stop_price",
+                "submission_reference_price",
+                "decision_equity",
+            )
+            if type(identity.get(field)) is float and identity[field].is_integer()
+        )
+        for mask in range(1, 1 << len(aliases)):
+            candidate = identity.copy()
+            for index, field in enumerate(aliases):
+                if mask & (1 << index):
+                    candidate[field] = int(candidate[field])
+            if hashlib.sha256(canonical_json_bytes(candidate)).hexdigest() == original_id:
+                return replace(restored, order_id=original_id)
+        raise OrderDomainError("order intent identity digest mismatch")
 
 
 @dataclass(frozen=True, slots=True)

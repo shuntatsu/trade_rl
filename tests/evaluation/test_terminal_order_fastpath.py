@@ -401,3 +401,32 @@ def test_archived_digest_falls_back_if_json_encoder_is_patched(
         expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
         assert expected != original_bytes
         assert _archived_context_digest(payload, archive) == expected
+
+
+def test_archived_digest_falls_back_if_json_mapping_converter_is_patched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.artifacts import canonical
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.allocation import _archived_context_digest
+
+    archive = TerminalOrderArchive((_make_terminal_order(0),))
+    payload = {
+        "schema": "independent_allocation_context_v1",
+        "book": {"cash": 1000.0},
+    }
+    standard = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+    assert _archived_context_digest(payload, archive) == standard
+    original = canonical._mapping_value
+
+    def changed_mapping(value):
+        converted = original(value)
+        if "terminal_reason" in converted:
+            converted["terminal_reason"] = "changed-mapping"
+        return converted
+
+    with monkeypatch.context() as patch:
+        patch.setattr(canonical, "_mapping_value", changed_mapping)
+        expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+        assert expected != standard
+        assert _archived_context_digest(payload, archive) == expected

@@ -1,4 +1,4 @@
-"""The independent arithmetic kernel cannot reuse the native accounting answer."""
+"""Independent market facts and accounting cannot reuse native execution answers."""
 
 import ast
 import sys
@@ -22,7 +22,7 @@ def _imports(path: Path, *, require_absolute: bool = False) -> set[str]:
 
 
 def test_oracle_uses_only_its_own_arithmetic_and_the_standard_library() -> None:
-    sources = tuple((ROOT / "tools/market_account_oracle").glob("*.py"))
+    sources = tuple((ROOT / "tools/market_account_oracle").rglob("*.py"))
     assert sources
     for path in sources:
         for module in _imports(path, require_absolute=True):

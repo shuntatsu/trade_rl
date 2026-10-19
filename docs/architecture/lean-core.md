@@ -2056,3 +2056,23 @@ Comparison requires exact quantities, closed fields and tolerance
 `1e-8 + 1e-12 × abs(reference)`. Signed drawdown may exceed 100%, while the
 native projection floors equity at zero. The kernel cannot authenticate input
 prices, clocks, policies, intents or accepted-event history.
+
+## Independent MARKET price and capacity facts
+
+`tools.market_account_oracle.market` derives facts from explicit `MarketRow`
+scalars. Execution price uses the current open with binary64 division/round/
+multiply for ticks: ordinary ties-to-even, adverse buys up/sells down, and at
+least one tick.
+
+Capacity reference is separate from execution price. Prior-bar mode requires
+the adjacent row and uses its close and volume; the first row has zero capacity
+without invented history. Processing-bar mode uses the current open and volume
+and accepts no previous row. `base_asset` reports volume times reference-price
+notional and volume divided by multiplier as quantity capacity; `contracts`
+reports volume times multiplier times reference price and volume as quantity
+capacity; `quote_notional` uses volume directly and has no quantity capacity.
+
+These values are raw denominators, not admitted fill limits or participation,
+risk, order-state or allocation decisions. Native execution and accounting
+remain authoritative; offline facts are comparison-only and do not authenticate
+a Dataset, protocol, policy, profile, order, accepted event or clock.

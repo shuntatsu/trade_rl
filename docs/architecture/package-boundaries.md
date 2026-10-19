@@ -1996,3 +1996,16 @@ OHLC/tick prices, order intents, accepted events and clock/phase order. This
 package does not authenticate those inputs, implement margin/order admission,
 or validate a complete 6,599-step flat/no-pending replay; it is not a native
 replay adapter.
+
+## Independent MARKET scalar facts boundary
+
+`tools/market_account_oracle/market.py` is a repository-local standard-library
+module that imports only its own helper. Production `trade_rl` must not import
+it, and it adds no public API. The caller supplies current/optional adjacent
+raw rows, volume unit, multiplier, tick and side; no Dataset/protocol read or
+policy/effective-profile authentication occurs.
+
+The result separates current-open price from raw volume reference and reports
+notional/quantity capacity without order participation, risk, admission,
+allocation or fill decisions. Native execution/accounting remain the sole
+ledger; no `trade_rl` public API is added.

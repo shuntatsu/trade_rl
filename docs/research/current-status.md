@@ -3545,6 +3545,24 @@ effective-profile checks, clock/gap ordering, margin/admission, and complete
 provides no G0–G4, profit, R3, unused-period or live admission, or new financial
 assumptions or production authority.
 
-Full repository gates and final actual-source review remain pending. A prior
+The arithmetic kernel has separate software-source review and local validation;
+these do not supply raw-source authentication or a complete B4 replay. Its prior
 design-only review is not source approval. Issue #810 and the profitable-system
 objective remain incomplete.
+
+## Issue #810: independent MARKET scalar facts capability
+
+`tools.market_account_oracle.market` derives a MARKET execution price from an
+explicit current open and raw capacity from explicit caller-selected row facts.
+Prior-bar mode uses only the adjacent prior close and volume, with zero capacity
+at the first row; processing-bar mode uses current open and volume. Base-asset,
+contract and quote-notional units retain distinct multiplier conversions.
+Tick rounding follows the binary64 division/round/multiply contract, including
+adverse buy-up/sell-down and a one-tick minimum.
+
+These are comparison-only raw denominator facts, not fills or participation
+limits. Dataset/protocol/policy/profile authentication, full OHLC/STOP and order
+replay, accepted events, margin/admission, complete 6,599-step execution, and
+formal G0–G4 or economic evidence remain outside this capability. Independent
+source review and final full gates are required for this addition; it grants no
+profit, real-data R3, unused-period or live authority.

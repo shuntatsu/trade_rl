@@ -2412,3 +2412,18 @@ OHLC/tick and effective-profile validation, clock/gap ordering, margin/admission
 and a complete 6,599-step flat/no-pending replay remain adapter work. The kernel
 is not full B4 and establishes no G0–G4, profit, R3, unused-period or live
 admission.
+
+## Independent MARKET scalar facts contract
+
+The bounded `market_order_facts` primitive accepts caller-selected raw rows,
+reporting tick-adjusted current-open price and capacity from adjacent prior
+close/volume or current open/volume. Binary64 ticks, adverse side rounding and
+unit conversion are software semantics; raw capacity is not an admitted fill
+or cost result.
+
+The caller must bind source/protocol identity, policy, effective profile,
+intent, accepted events and clocks. There is no Dataset authentication, full
+OHLC/STOP processing, margin/admission, accepted-order replay or complete
+6,599-step flat/no-pending run. This is not full B4 and grants no G0–G4, profit,
+real-data R3, unused-period or live authority. Native execution/accounting
+remains the sole authoritative ledger and comparison target.

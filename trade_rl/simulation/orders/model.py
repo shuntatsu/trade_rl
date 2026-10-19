@@ -81,7 +81,7 @@ def _quantity_tolerance(*values: float) -> float:
 
 
 def _validate_positive(name: str, value: float) -> None:
-    if not _is_finite(value) or value <= 0.0:
+    if isinstance(value, (bool, np.bool_)) or not _is_finite(value) or value <= 0.0:
         raise OrderDomainError(f"{name} must be finite and positive")
 
 
@@ -163,7 +163,8 @@ class OrderIntent:
         ):
             raise OrderDomainError("symbol_index must be a non-negative integer")
         if (
-            not _is_finite(requested_quantity)
+            isinstance(requested_quantity, (bool, np.bool_))
+            or not _is_finite(requested_quantity)
             or abs(requested_quantity) <= _QUANTITY_TOLERANCE
         ):
             raise OrderDomainError("requested_quantity must be finite and non-zero")

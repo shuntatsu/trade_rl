@@ -363,3 +363,43 @@ def test_context_streams_immutable_terminal_bytes_without_materializing_payload(
         )
 
     assert actual.state_digest == expected.state_digest
+
+
+def test_archived_digest_falls_back_if_json_encoder_is_patched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.artifacts import canonical
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.allocation import _archived_context_digest
+
+    archive = TerminalOrderArchive((_make_terminal_order(0),))
+    payload = {
+        "schema": "independent_allocation_context_v1",
+        "account_id": "test",
+        "book": {"cash": 1000.0},
+    }
+    original_bytes = content_digest(
+        {**payload, "terminal_orders": archive.asdict_tuple}
+    )
+    assert _archived_context_digest(payload, archive) == original_bytes
+
+    original = canonical.json.JSONEncoder.iterencode
+
+    def changed_encoder(self, value, _one_shot=False):
+        if isinstance(value, dict) and value.get("terminal_orders"):
+            value = {
+                **value,
+                "terminal_orders": [
+                    {**row, "terminal_reason": "changed-codec"}
+                    for row in value["terminal_orders"]
+                ],
+            }
+        yield from original(self, value, _one_shot)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(canonical.json.JSONEncoder, "iterencode", changed_encoder)
+        expected = content_digest(
+            {**payload, "terminal_orders": archive.asdict_tuple}
+        )
+        assert expected != original_bytes
+        assert _archived_context_digest(payload, archive) == expected

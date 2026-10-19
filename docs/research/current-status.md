@@ -3525,3 +3525,26 @@ forecast fit, native market replay, economic result or live authority. The
 whole-Dataset reconstruction and formally reviewed after-cost comparison
 remain separate prerequisites; Issue #810 and profitable-system evidence
 remain incomplete.
+
+## Issue #810: independent diagnostic account arithmetic software candidate
+
+The repository-local `tools/market_account_oracle/` kernel derives account
+arithmetic from explicit primitives without importing production `trade_rl`.
+It retains signed exact-rational inventory, uses a local 50-digit Decimal
+context, and separates contract from execution-cost multipliers. Fill, carry
+and marked-wealth reporting uses conservative float projections; selected
+settlement proceeds use exact rational products before Decimal reporting.
+Unsupported stochastic slippage fails closed.
+
+Synthetic falsifiers cover coherent observed-value tampering, exact-third
+settlement, caller Decimal-context isolation, signed drawdown beyond 100%, and
+lot, maker/taker, funding and borrow contracts. They test manufactured
+arithmetic only. Raw source/policy and order authentication, OHLC/tick and
+effective-profile checks, clock/gap ordering, margin/admission, and complete
+6,599-step flat/no-pending replay remain absent. This kernel is not full B4 and
+provides no G0–G4, profit, R3, unused-period or live admission, or new financial
+assumptions or production authority.
+
+Full repository gates and final actual-source review remain pending. A prior
+design-only review is not source approval. Issue #810 and the profitable-system
+objective remain incomplete.

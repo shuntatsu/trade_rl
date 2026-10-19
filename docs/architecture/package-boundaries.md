@@ -1980,3 +1980,19 @@ It does not execute the full 48-arm comparison, establish full-matrix runtime,
 or claim release byte-equivalence. Its source belongs to normal repository Ruff,
 format, and research-tool Mypy checks; the architecture contract keeps imports
 and path references within the artificial repository-only boundary.
+
+## Independent diagnostic account arithmetic
+
+`tools/market_account_oracle/` is a repository-local, standard-library package
+that imports only its own modules. It has no production `trade_rl` dependency;
+runtime modules must not import it, and its output does not extend a production
+API. `numbers.py` parses primitive values, `costs.py` calculates deterministic
+charges, `account.py` tracks independent account state, and `evidence.py`
+checks exact quantities and closed observed fields. Native `BookState`, interval
+returns and aggregate costs are never its answer.
+
+The caller must bind raw source/protocol identity, effective policies,
+OHLC/tick prices, order intents, accepted events and clock/phase order. This
+package does not authenticate those inputs, implement margin/order admission,
+or validate a complete 6,599-step flat/no-pending replay; it is not a native
+replay adapter.

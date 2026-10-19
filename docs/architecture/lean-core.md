@@ -2023,3 +2023,36 @@ observed terminal wealth but cannot qualify. A primary NONRL-minus-CASH delta
 requires fresh native admission for both arms. No supplied report flag can
 authorize this computation. The result is neither market profit evidence nor
 historical authentication of execution or learned source consumption.
+
+## Independent diagnostic account arithmetic
+
+`tools/market_account_oracle/` is an offline repository-only kernel that derives
+an account from explicit primitives; it is not a replay validator or production
+execution authority. Its modules use only the standard library and their own
+package. Production `trade_rl` code must not import it.
+
+Inventory remains exact signed `Fraction` state, with quantized fills requiring
+signed integer lots and a positive decimal step. Fill cash, funding, borrow,
+dividends and marked wealth use conservative float projections. Selected
+settlement proceeds use exact rational products of quantity, price, multiplier
+and recovery before Decimal reporting. Monetary calculations use a local
+50-digit Decimal context and leave caller precision unchanged.
+
+Deterministic charges use independently derived notional and the maximum of
+quote-notional and quantity-capacity participation. Base/row and maker/taker
+fees, half maker/full taker spread, square-root impact and the execution-cost
+multiplier stay distinct from the contract multiplier. Native costs and account
+values are comparison-only; stochastic slippage fails closed until its draw
+and stream are bound.
+
+Funding is due-masked and signed without annualization. Borrow and signed cash
+interest use explicit rates and year fractions; negative cash interest remains
+negative. Split, dividend, settlement, terminal valuation, transition order
+and observation timing are explicit. Emergency termination moves marked wealth
+to cash, retaining debt or flooring at zero, without a fill; repeating the same
+terminal mode is idempotent.
+
+Comparison requires exact quantities, closed fields and tolerance
+`1e-8 + 1e-12 × abs(reference)`. Signed drawdown may exceed 100%, while the
+native projection floors equity at zero. The kernel cannot authenticate input
+prices, clocks, policies, intents or accepted-event history.

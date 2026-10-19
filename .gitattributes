@@ -2,3 +2,4 @@
 /report/ppo-btc-relative-feature-ablation-g4-20260922.json -text whitespace=cr-at-eol
 tools/tier_d_nonrl/*.py text eol=lf
 tools/tier_d_scaling/*.py text eol=lf
+tools/market_account_oracle/*.py text eol=lf

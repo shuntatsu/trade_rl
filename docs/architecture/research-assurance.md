@@ -2393,3 +2393,22 @@ nonlinear impact and forecast carry are explicit cost proxies; matching policies
 does not equate forecast estimates to realized charges. A future generated-cost
 Study must separately pin its full declared cost recipe and its relation to the
 actual executor. No original failed learning or sealed workflow is retried.
+
+## Independent diagnostic account arithmetic G2 contract
+
+A result-blind G2 adapter may use this kernel only with primitives bound to the
+exact source, protocol, policies, clocks, intents, accepted events and transition
+phases. It must derive inventory, cash, costs, carry, settlement, wealth and
+terminal state independently; native books, interval returns, quantities and
+aggregate costs remain comparison-only. Quantities compare exactly, observed
+fields close strictly, and monetary tolerance stays fixed at
+`1e-8 + 1e-12 × abs(reference)`.
+
+Synthetic falsifiers include coherent cash/wealth/cost tampering, exact-third
+settlement, caller Decimal-context isolation and signed drawdown beyond 100%,
+plus lot, fee/spread, funding and borrow cases. Stochastic slippage fails closed.
+These cases test manufactured arithmetic only. Source and order authentication,
+OHLC/tick and effective-profile validation, clock/gap ordering, margin/admission
+and a complete 6,599-step flat/no-pending replay remain adapter work. The kernel
+is not full B4 and establishes no G0–G4, profit, R3, unused-period or live
+admission.

@@ -1,0 +1,29 @@
+name: Issue888 Numeric Identity Regression Probe
+on:
+  push:
+    branches:
+      - codex/issue888-terminal-archive-integrity
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install locked project
+        run: uv sync --locked --extra dev
+      - name: Targeted lint and format
+        run: |
+          uv run ruff check tests/simulation/test_orders.py trade_rl/simulation/orders/model.py
+          uv run ruff format --check tests/simulation/test_orders.py trade_rl/simulation/orders/model.py
+      - name: Numeric identity and rejection regressions
+        run: |
+          uv run pytest -q tests/simulation/test_orders.py tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_after_cost_allocation.py tests/simulation/test_market_order_profile.py

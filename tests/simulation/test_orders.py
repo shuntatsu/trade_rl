@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import asdict, replace
 
 import numpy as np
 import pytest
@@ -245,3 +246,49 @@ def test_order_event_payload_is_canonical_and_digest_helper_matches_codec() -> N
     assert payload["path_points"] == [100.0, 105.0, 95.0, 101.0]
     expected = hashlib.sha256(canonical_json_bytes({"a": 1, "b": [2, 3]})).hexdigest()
     assert execution_policy_digest({"b": [2, 3], "a": 1}) == expected
+
+
+@pytest.mark.parametrize(
+    "numeric_input",
+    [
+        {"requested_quantity": 3},
+        {"limit_price": 99},
+        {"submission_reference_price": 100},
+        {"decision_equity": 1000},
+        {
+            "requested_quantity": 3,
+            "limit_price": 99,
+            "submission_reference_price": 100,
+            "decision_equity": 1000,
+        },
+        {"order_type": OrderType.STOP_MARKET, "limit_price": None, "stop_price": 95},
+    ],
+)
+def test_historical_integer_input_order_identity_survives_archive(
+    numeric_input: dict[str, object],
+) -> None:
+    """create() historically pins input JSON numerics before float normalization."""
+    created = _intent(**numeric_input)
+    assert OrderIntent.from_mapping(asdict(created)) == created
+
+    terminal = PendingOrder.from_intent(created).cancel(
+        processing_index=6, reason="historical-number"
+    )
+    assert PendingOrder.from_mapping(asdict(terminal)) == terminal
+    archive = TerminalOrderArchive((terminal,))
+    assert archive[-1] == terminal
+    assert archive[-1].intent.order_id == created.order_id
+    assert archive.asdict_tuple == (asdict(terminal),)
+
+
+def test_integer_identity_alias_never_admits_changed_economic_quantity() -> None:
+    canonical = _intent(requested_quantity=3)
+    mutated = replace(canonical, requested_quantity=4.0)
+    with pytest.raises(OrderDomainError, match="identity digest mismatch"):
+        OrderIntent.from_mapping(asdict(mutated))
+    with pytest.raises(OrderDomainError, match="identity digest mismatch"):
+        TerminalOrderArchive(
+            (PendingOrder.from_intent(mutated).cancel(
+                processing_index=6, reason="forged-quantity"
+            ),)
+        )

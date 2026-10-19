@@ -793,9 +793,7 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     def asdict_tuple(self) -> tuple[dict[str, object], ...]:
         # Materialize at the explicit full-history evidence boundary only.
         # Every mapping is fresh, so a consumer cannot change archived facts.
-        return tuple(
-            json.loads(node._order_bytes) for node in self._ordered_nodes()
-        )
+        return tuple(json.loads(node._order_bytes) for node in self._ordered_nodes())
 
     @property
     def order_ids_at_max_submit(self) -> frozenset[str]:

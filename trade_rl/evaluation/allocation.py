@@ -36,8 +36,6 @@ from trade_rl.strategies.allocation import (
 )
 
 
-# Streaming remains an optimization, never a new source identity.  Any change to
-# the public canonical serializer uses the ordinary full-content digest instead.
 _CANONICAL_DIGEST = content_digest
 _CANONICAL_DIGEST_CODE = content_digest.__code__
 _CANONICAL_ENCODER = canonical_json_bytes

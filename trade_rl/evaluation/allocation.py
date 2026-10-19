@@ -8,8 +8,8 @@ forecasts nor runs a Study, and its supplied estimates are not economic evidence
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields, replace
-from hashlib import sha256
 from fractions import Fraction
+from hashlib import sha256
 
 import numpy as np
 

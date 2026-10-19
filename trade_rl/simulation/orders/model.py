@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass, replace
@@ -680,14 +681,21 @@ class PendingOrder:
 
 @dataclass(frozen=True, slots=True, weakref_slot=True, eq=False)
 class _TerminalOrderNode:
-    order: PendingOrder
+    # Only immutable bytes belong to a published history node.  Neither the
+    # caller's PendingOrder nor a mutable asdict() mapping is retained.
+    _order_bytes: bytes
     previous: _TerminalOrderNode | None
     length: int
     max_submit_index: int
     order_ids_at_max_submit: frozenset[str]
     max_clock_index: int
-    asdict_payload: dict[str, object]
-    asdict_tuple: tuple[dict[str, object], ...]
+
+    @property
+    def order(self) -> PendingOrder:
+        # Detached validated view: changing an exposed dataclass (even through
+        # object.__setattr__) cannot poison earlier account snapshots or a
+        # previously cached archive-progress digest.
+        return PendingOrder.from_mapping(json.loads(self._order_bytes))
 
 
 class TerminalOrderArchive(Sequence[PendingOrder]):
@@ -718,8 +726,12 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
             raise OrderDomainError(
                 "terminal order exact_cumulative_filled_quantity missing"
             )
-        asdict_payload = asdict(order)
-        submit_index = order.intent.submit_index
+        # Raw dataclass construction can bypass OrderIntent.create() and keep
+        # a forged order_id despite frozen=True.  Verify the full canonical
+        # mapping exactly once per added terminal, before sealing its bytes.
+        validated = PendingOrder.from_mapping(asdict(order))
+        order_bytes = canonical_json_bytes(asdict(validated))
+        submit_index = validated.intent.submit_index
         previous_max = -1 if previous is None else previous.max_submit_index
         if submit_index > previous_max:
             max_submit_index = submit_index
@@ -746,20 +758,13 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
             if previous is None
             else max(previous.max_clock_index, order_clock)
         )
-        asdict_tuple = (
-            (asdict_payload,)
-            if previous is None
-            else previous.asdict_tuple + (asdict_payload,)
-        )
         return _TerminalOrderNode(
-            order=order,
+            _order_bytes=order_bytes,
             previous=previous,
             length=1 if previous is None else previous.length + 1,
             max_submit_index=max_submit_index,
             order_ids_at_max_submit=ids,
             max_clock_index=max_clock_index,
-            asdict_payload=asdict_payload,
-            asdict_tuple=asdict_tuple,
         )
 
     @classmethod
@@ -786,7 +791,11 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
 
     @property
     def asdict_tuple(self) -> tuple[dict[str, object], ...]:
-        return () if self._tail is None else self._tail.asdict_tuple
+        # Materialize at the explicit full-history evidence boundary only.
+        # Every mapping is fresh, so a consumer cannot change archived facts.
+        return tuple(
+            json.loads(node._order_bytes) for node in self._ordered_nodes()
+        )
 
     @property
     def order_ids_at_max_submit(self) -> frozenset[str]:
@@ -795,13 +804,17 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     def __len__(self) -> int:
         return 0 if self._tail is None else self._tail.length
 
-    def __iter__(self) -> Iterator[PendingOrder]:
-        reverse: list[PendingOrder] = []
+    def _ordered_nodes(self) -> Iterator[_TerminalOrderNode]:
+        reverse: list[_TerminalOrderNode] = []
         node = self._tail
         while node is not None:
-            reverse.append(node.order)
+            reverse.append(node)
             node = node.previous
         yield from reversed(reverse)
+
+    def __iter__(self) -> Iterator[PendingOrder]:
+        for node in self._ordered_nodes():
+            yield node.order
 
     @overload
     def __getitem__(self, index: int) -> PendingOrder: ...

@@ -798,6 +798,11 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         ) + b"]"
         return tuple(json.loads(raw))
 
+    def _canonical_order_json_chunks(self) -> Iterator[bytes]:
+        """Yield sealed canonical per-order bytes without materializing mappings."""
+        for node in self._ordered_nodes():
+            yield node._order_bytes
+
     @property
     def order_ids_at_max_submit(self) -> frozenset[str]:
         return frozenset() if self._tail is None else self._tail.order_ids_at_max_submit

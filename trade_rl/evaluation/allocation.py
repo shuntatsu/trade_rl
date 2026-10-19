@@ -8,10 +8,12 @@ forecasts nor runs a Study, and its supplied estimates are not economic evidence
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields, replace
+from hashlib import sha256
 from fractions import Fraction
 
 import numpy as np
 
+from trade_rl.artifacts import canonical, canonical_json_bytes, hashing
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.simulation.accounting import BookState
@@ -32,6 +34,56 @@ from trade_rl.strategies.allocation import (
     AllocationInputs,
     AllocationProposal,
 )
+
+
+
+# Streaming remains an optimization, never a new source identity.  Any change to
+# the public canonical serializer uses the ordinary full-content digest instead.
+_CANONICAL_DIGEST = content_digest
+_CANONICAL_DIGEST_CODE = content_digest.__code__
+_CANONICAL_ENCODER = canonical_json_bytes
+_CANONICAL_ENCODER_CODE = canonical_json_bytes.__code__
+_CANONICAL_VALUE = canonical.to_json_value
+_CANONICAL_VALUE_CODE = canonical.to_json_value.__code__
+_CANONICAL_DUMPS = canonical.json.dumps
+_CANONICAL_DUMPS_CODE = canonical.json.dumps.__code__
+_TERMINAL_JSON_SUFFIX = b'"terminal_orders":[]}'
+
+
+def _archived_context_digest(
+    payload: dict[str, object], archive: TerminalOrderArchive
+) -> str:
+    """SHA-256 the *same* canonical payload without decoding sealed history.
+
+    The terminal_orders field is last under the current sorted-key JSON
+    contract.  Verify that exact byte boundary, and fail over to the public
+    serializer whenever its contract or bindings have been changed.
+    """
+    compatible = (
+        content_digest is _CANONICAL_DIGEST
+        and content_digest.__code__ is _CANONICAL_DIGEST_CODE
+        and hashing.canonical_json_bytes is _CANONICAL_ENCODER
+        and canonical_json_bytes is _CANONICAL_ENCODER
+        and canonical_json_bytes.__code__ is _CANONICAL_ENCODER_CODE
+        and canonical.to_json_value is _CANONICAL_VALUE
+        and canonical.to_json_value.__code__ is _CANONICAL_VALUE_CODE
+        and canonical.json.dumps is _CANONICAL_DUMPS
+        and canonical.json.dumps.__code__ is _CANONICAL_DUMPS_CODE
+    )
+    if compatible:
+        encoded = canonical_json_bytes({**payload, "terminal_orders": ()})
+        if encoded.endswith(_TERMINAL_JSON_SUFFIX):
+            digest = sha256(encoded[:-2])
+            separator = b""
+            for item in archive._canonical_order_json_chunks():
+                digest.update(separator)
+                digest.update(item)
+                separator = b","
+            digest.update(b"]}")
+            return digest.hexdigest()
+    return content_digest(
+        {**payload, "terminal_orders": archive.asdict_tuple}
+    )
 
 
 def _context(
@@ -146,24 +198,28 @@ def _context(
             value.tolist() if isinstance(value, np.ndarray) else value
         )
     book_facts["exact_quantities"] = tuple(str(q) for q in quantities)
-    state_digest = content_digest(
-        {
-            "schema": "independent_allocation_context_v1",
-            "account_id": account_id,
-            "dataset_id": dataset.dataset_id,
-            "execution_policy": executor.execution_policy_digest,
-            "risk_config": pretrade_risk.config,
-            "symbol_index": symbol_index,
-            "decision_index": start_index,
-            "decision_time": str(dataset.timestamps[start_index]),
-            "book": book_facts,
-            "active_orders": tuple(asdict(order) for order in order_book.active_orders),
-            "terminal_orders": (
-                order_book.terminal_orders.asdict_tuple
-                if isinstance(order_book.terminal_orders, TerminalOrderArchive)
-                else tuple(asdict(order) for order in order_book.terminal_orders)
-            ),
-        }
+    state_payload: dict[str, object] = {
+        "schema": "independent_allocation_context_v1",
+        "account_id": account_id,
+        "dataset_id": dataset.dataset_id,
+        "execution_policy": executor.execution_policy_digest,
+        "risk_config": pretrade_risk.config,
+        "symbol_index": symbol_index,
+        "decision_index": start_index,
+        "decision_time": str(dataset.timestamps[start_index]),
+        "book": book_facts,
+        "active_orders": tuple(asdict(order) for order in order_book.active_orders),
+    }
+    archive = order_book.terminal_orders
+    state_digest = (
+        _archived_context_digest(state_payload, archive)
+        if isinstance(archive, TerminalOrderArchive)
+        else content_digest(
+            {
+                **state_payload,
+                "terminal_orders": tuple(asdict(order) for order in archive),
+            }
+        )
     )
     remaining = sum(
         (Fraction(str(order.remaining_quantity)) for order in order_book.active_orders),

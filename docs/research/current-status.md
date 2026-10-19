@@ -3598,3 +3598,19 @@ values or calculate PnL. Intent/fill, margin, runtime clock/carry conformance an
 complete 6,599-advance financial replay remain unfinished. It does not establish formal
 G0/G2, full B4, profit, R3, unused-period or live evidence; the frozen protocol and
 financial assumptions remain unchanged.
+
+## Issue #810: per-advance order-event evidence reader
+
+The offline `tools.market_replay_oracle` facade now includes a bounded reader for one
+caller-pinned, single-symbol `order_events` batch (1 MiB / 4,096-event limits). It checks
+strict JSON, closed v1/v2 fields, caller-expected dataset/policy/symbol, decision and
+processing index/time pairs, processing-only fills, and per-batch sequence numbering.
+V2 fill quantities require a signed integer lot count and a positive matching lot step;
+their exact `Fraction` product must conservatively project to the stored float. V1 fills
+require zero effective lot, and v1 non-fills must contain zero fill values.
+
+This is parsed event evidence only. Effective-lot derivation, source/receipt/attempt
+authentication, intent history, admission, native costs/accounting and full 6,599-step
+replay remain unresolved. It does not complete B4 or protocol-authenticated v4, change
+the frozen G v3 financial assumptions, or establish G0/G2, profit, R3, unused-period or
+live authority.

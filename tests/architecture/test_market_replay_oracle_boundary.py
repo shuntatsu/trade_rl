@@ -89,6 +89,10 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "NativeSourcePin",
         "FrozenAttemptBinding",
         "load_pinned_attempt",
+        "EventBatchPin",
+        "OrderEventContext",
+        "OrderEventEvidence",
+        "read_pinned_order_events",
     ]
 
     exports = None

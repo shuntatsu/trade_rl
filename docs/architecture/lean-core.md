@@ -2111,3 +2111,25 @@ not import or execute native code, fit forecasts, inspect result values, or calc
 Order intent/fill, margin, clock/carry behavior, and the complete 6,599-advance financial
 replay remain unbound. Frozen financial assumptions and protocol bytes are unchanged;
 this is not full B4 or G0/G2 evidence.
+
+## Per-advance pinned order-event evidence
+
+`tools.market_replay_oracle.read_pinned_order_events` parses one caller-pinned,
+single-symbol `order_events` JSON batch: at most 1 MiB and 4,096 events. Strict UTF-8
+JSON rejects duplicate keys and non-finite constants; closed `order_event_v1` and
+`order_event_v2` schemas reject unknown fields. The caller context binds dataset and
+execution-policy digests, symbol, and both decision/processing index-time pairs. Each
+event must match one pair; fills are restricted to the processing pair, and batch
+sequences restart at zero.
+
+Non-fills use v1 with zero filled quantity, null execution price and zero notional.
+V1 fills require an effective lot of zero. V2 fills require a nonzero signed integer
+lot count and a positive lot step equal to the caller's expected lot; the exact
+`Fraction` product must project conservatively to the reported float. Parsed evidence
+is immutable, and `payload()` returns a detached mapping.
+
+This reader does not derive the effective lot or authenticate source, outer receipt,
+attempt, intent or order history. It does not perform admission, native cost/accounting,
+or a complete 6,599-advance flat replay. Native execution/accounting remain authoritative;
+full B4 and protocol-authenticated v4 replay remain incomplete, with financial
+assumptions and the frozen G v3 protocol unchanged.

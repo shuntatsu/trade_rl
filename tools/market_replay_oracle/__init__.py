@@ -6,6 +6,12 @@ from tools.market_replay_oracle.artifact import (
     load_pinned_v4,
 )
 from tools.market_replay_oracle.binding import FrozenAttemptBinding, load_pinned_attempt
+from tools.market_replay_oracle.events import (
+    EventBatchPin,
+    OrderEventContext,
+    OrderEventEvidence,
+    read_pinned_order_events,
+)
 from tools.market_replay_oracle.protocol import ProtocolPin
 from tools.market_replay_oracle.source import NativeSourcePin
 
@@ -17,4 +23,8 @@ __all__ = [
     "NativeSourcePin",
     "FrozenAttemptBinding",
     "load_pinned_attempt",
+    "EventBatchPin",
+    "OrderEventContext",
+    "OrderEventEvidence",
+    "read_pinned_order_events",
 ]

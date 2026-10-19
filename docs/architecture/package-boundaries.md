@@ -2031,7 +2031,9 @@ API and is not a complete B4 adapter.
 `tools.market_replay_oracle` remains an offline research-tools package with no production
 `trade_rl` dependency; production modules must not import it. Its closed public facade
 exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
-`ProtocolPin`, `NativeSourcePin`, `FrozenAttemptBinding`, and `load_pinned_attempt`.
+`ProtocolPin`, `NativeSourcePin`, `FrozenAttemptBinding`, `load_pinned_attempt`,
+`EventBatchPin`, `OrderEventContext`, `OrderEventEvidence`, and
+`read_pinned_order_events`.
 The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
 manifest, supported static profile fingerprints, and verified Dataset pins. It binds
 the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
@@ -2043,3 +2045,17 @@ This is static input identity and mapping only. Source snapshots do not attest t
 executing process, provider or external venue, and the package does not execute or import
 native market code. Full intent/fill/margin/carry validation and the complete 6,599-step
 financial replay remain outside the boundary.
+
+## Per-advance event reader boundary
+
+`events.py` checks one caller-pinned, bounded JSON array for a single symbol and adjacent
+decision/processing advance. It enforces closed v1/v2 fields, expected dataset, policy
+and symbol, the corresponding timestamp for either index, processing-only fills, and
+sequence numbering from zero within each batch. V2 fill evidence uses a signed integer
+lot count, a positive caller-matched lot step and an exact `Fraction` witness whose
+reported float is conservative; v1 fills require zero effective lot, while v1 non-fills
+must carry no fill.
+
+The result is immutable parsed evidence, not accepted-order or accounting authority.
+The caller must authenticate the outer receipt/attempt and derive effective-lot context;
+intent history, admission, costs and a complete B4 replay remain outside the package.

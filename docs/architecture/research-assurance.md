@@ -2459,3 +2459,19 @@ economic outputs or computes PnL. It does not establish that execution honored c
 orders, fills, margin or carry, and it does not reconstruct the full 6,599-advance
 financial ledger. Formal G0/G2, full B4 and economic qualification remain separate and
 incomplete; financial assumptions and the frozen protocol are unchanged.
+
+## Per-advance event evidence is not an execution oracle
+
+The pinned event reader verifies one caller-pinned JSON batch for a single symbol and
+adjacent decision/processing clocks, with strict closed v1/v2 fields and a 1 MiB / 4,096
+event bound. Event indices and timestamps must match the supplied context; fills may
+occur only at processing time. V1 non-fills carry no fill, v1 fills require zero lot,
+and v2 fills carry a signed integer lot count and positive matching lot step whose exact
+`Fraction` product conservatively projects to the reported float. Sequence numbering
+restarts at zero for each batch.
+
+The context and byte pin are caller supplied; this parser does not derive effective lot,
+authenticate source/outer receipt/attempt, reconstruct order intent/history, or prove
+admission. It does not calculate costs or account transitions and is not the complete
+6,599-advance B4 replay or a protocol-authenticated v4 check. No G0/G2, profit, R3 or
+live authority follows; native execution/accounting remain the only authoritative ledger.

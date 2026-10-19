@@ -55,6 +55,15 @@ def _archived_context_digest(
         and canonical.to_json_value.__code__ is _CANONICAL_VALUE_CODE
         and canonical.json.dumps is _CANONICAL_DUMPS
         and canonical.json.dumps.__code__ is _CANONICAL_DUMPS_CODE
+        and canonical.json.JSONEncoder is _CANONICAL_JSON_ENCODER
+        and canonical.json.JSONEncoder.encode is _CANONICAL_JSON_ENCODE
+        and canonical.json.JSONEncoder.encode.__code__ is _CANONICAL_JSON_ENCODE_CODE
+        and canonical.json.JSONEncoder.iterencode is _CANONICAL_JSON_ITERENCODE
+        and canonical.json.JSONEncoder.iterencode.__code__
+        is _CANONICAL_JSON_ITERENCODE_CODE
+        and canonical.json.JSONEncoder.default is _CANONICAL_JSON_DEFAULT
+        and canonical.json.JSONEncoder.default.__code__
+        is _CANONICAL_JSON_DEFAULT_CODE
     )
     if compatible:
         encoded = canonical_json_bytes({**payload, "terminal_orders": ()})
@@ -78,6 +87,13 @@ _CANONICAL_VALUE = canonical.to_json_value
 _CANONICAL_VALUE_CODE = canonical.to_json_value.__code__
 _CANONICAL_DUMPS = canonical.json.dumps
 _CANONICAL_DUMPS_CODE = canonical.json.dumps.__code__
+_CANONICAL_JSON_ENCODER = canonical.json.JSONEncoder
+_CANONICAL_JSON_ENCODE = canonical.json.JSONEncoder.encode
+_CANONICAL_JSON_ENCODE_CODE = canonical.json.JSONEncoder.encode.__code__
+_CANONICAL_JSON_ITERENCODE = canonical.json.JSONEncoder.iterencode
+_CANONICAL_JSON_ITERENCODE_CODE = canonical.json.JSONEncoder.iterencode.__code__
+_CANONICAL_JSON_DEFAULT = canonical.json.JSONEncoder.default
+_CANONICAL_JSON_DEFAULT_CODE = canonical.json.JSONEncoder.default.__code__
 _TERMINAL_JSON_SUFFIX = b'"terminal_orders":[]}'
 
 

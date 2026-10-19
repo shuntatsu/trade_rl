@@ -304,3 +304,62 @@ def test_terminal_archive_rejects_noncanonical_intent_at_trust_boundary(
         TerminalOrderArchive((forged,))
     with pytest.raises(OrderDomainError, match="order intent identity digest mismatch"):
         OrderBookState(active_orders=(), terminal_orders=(forged,))
+
+
+def test_context_streams_immutable_terminal_bytes_without_materializing_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.evaluation.test_after_cost_allocation import market
+    from trade_rl.evaluation.allocation import _context
+    from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+    from trade_rl.simulation.accounting import BookState
+    from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
+
+    dataset = market()
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        [0.0] * dataset.n_symbols,
+        1000.0,
+        dataset.resolved_array("mark_price")[0],
+        1000.0,
+    )
+    risk = PreTradeRisk(PreTradeRiskConfig(drawdown_start=0.1, drawdown_stop=0.2))
+    archived = (
+        _make_terminal_order(0),
+        replace(_make_terminal_order(1), terminal_reason="正常終了"),
+        _make_terminal_order(2),
+    )
+    order_book = OrderBookState(active_orders=(), terminal_orders=archived)
+
+    class LegacyOrderBook:
+        active_orders = ()
+        terminal_orders = archived
+
+    expected = _context(
+        executor,
+        book,
+        LegacyOrderBook(),  # type: ignore[arg-type]
+        account_id="test",
+        pretrade_risk=risk,
+        symbol_index=0,
+        start_index=4,
+    )
+
+    def no_materialization(_archive: TerminalOrderArchive) -> object:
+        pytest.fail("hotpath materialized terminal history as dicts")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            TerminalOrderArchive, "asdict_tuple", property(no_materialization)
+        )
+        actual = _context(
+            executor,
+            book,
+            order_book,
+            account_id="test",
+            pretrade_risk=risk,
+            symbol_index=0,
+            start_index=4,
+        )
+
+    assert actual.state_digest == expected.state_digest

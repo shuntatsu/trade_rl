@@ -942,6 +942,38 @@ Two locally bound H2 folds do not become compatible with an H4 policy by adding
 their durations. Cost/risk stress still requires separate explicit admission.
 
 
+
+## Terminal-order archive and canonical evidence boundary
+
+`simulation/orders/model.py` owns the persistent `TerminalOrderArchive` and
+its terminal-order validation. `OrderBookState` normalizes untrusted terminal
+sequences, and new terminal transitions pass through
+`PendingOrder.from_mapping` once before appending. The archive owns immutable,
+canonical per-order JSON bytes in a linked historical prefix, **not** growing
+copies of every previous mapping. Its public order views and `asdict_tuple`
+materialization are detached; callers cannot mutate older order evidence or
+previous snapshots by changing returned dictionaries, dataclasses or the
+objects originally submitted. Ordinary `object.__setattr__` attacks on
+**private** node internals are outside this Python-level guarantee.
+
+`evaluation/allocation.py::_archived_context_digest` consumes the same sealed
+JSON bytes through a streaming SHA-256 only when the public canonical JSON
+serializer and its encoder/conversion helpers are unchanged. Any unsupported
+codec goes through the original public `content_digest` and fresh materialized
+order payload; state digest bytes, sorting and numeric semantics remain those
+of the original allocator. `_native_progress.py` retains its incremental
+node-keyed terminal SHA-256, now safe from mutations of exposed order views.
+This is an **O(n) retained-archive** representation with O(1) structural
+append in the number of old orders, but canonical validation/serialization of
+the *new* order still costs work. A complete context digest still visits every
+retained terminal byte: O(n) per read, potentially O(T²) over T advancing
+steps. This is not a claim of end-to-end linear replay time.
+
+This optimization changes neither execution fill/cost policy nor the
+canonical account ledger, risk guard, ordering clocks or tiered research
+authorization. Order-history readback and signed economic close remain
+separately validated.
+
 ## Allocation continuous-account handoff ownership
 
 `evaluation/rl_allocation/continuation.py` owns the first bounded P5 handoff

@@ -692,21 +692,80 @@ digest recomputations in parallel workers. On a 16-core machine across 50 steps 
 terminal execution with `ProgressJournal` advances:
 - 4 workers achieved `98.08 ms / step` average warm latency (wall time `32.58s` including initial setup).
 - 6 workers achieved `125.77 ms / step` average warm latency (wall time `41.69s` including initial setup).
-Although per-worker latency increases by ~28% due to cache/memory contention, 6 workers
-delivers ~17% higher overall throughput for the 48-cell Tier D matrix (~1.89h vs ~2.21h).
+Although per-worker latency increased by ~28% under this measured
+50-step artificial prefix, six workers had ~17% greater aggregate prefix
+throughput. The ~1.89h vs ~2.21h all-48 estimates were a **linear projection,
+not measured full-arm/full-matrix wall time**.
 The measured source stays pinned to `fcae9e288c25`; later
 documentation commits do not rebind it.
 
 At implementation commit `8b74dfba4`, `TerminalOrderArchive` and `_TerminalOrderNode`
-provide incremental $O(1)$ metadata caching (`asdict_tuple`, `max_clock_index`) and
-`_native_progress.py` adopts `weakref.WeakKeyDictionary` incremental hash caching.
+introduced incremental clock metadata and `weakref.WeakKeyDictionary`-based
+terminal hash caching. **Historical limitation:** each newly appended node
+also copied its complete `asdict_tuple` prefix. That version retained O(n²)
+tuple references and did O(n) copying per appended order; its `asdict_tuple`
+was not O(1) to construct.
 Across 2,000 accumulated terminal orders on Windows/Python 3.12.0:
 - `_terminal_orders_sha256` dropped from `60.4 ms` to `0.61 ms` (`99.2x` speedup).
 - `snapshot_allocation_account` per-call overhead dropped from `100.8 ms` to `26.59 ms` (`3.79x` speedup).
 - `_context` dropped from `64.2 ms` to `27.54 ms` (`2.33x` speedup).
 Combined per-advance overhead for 2,000 terminal orders dropped from ~`486 ms / step` to ~`108 ms / step`
-(`4.5x` speedup), eliminating the quadratic $O(T^2)$ episode bottleneck as $t \to 6,599$.
+(`4.5x` speedup) in that bounded Windows benchmark. This **does not**
+demonstrate complete removal of the O(T²) end-to-end episode cost: the
+historical tuple prefixes remained quadratic in retained references and
+whole-context identity had to inspect terminal history repeatedly.
 The measured source stays pinned to `8b74dfba4`; later documentation commits do not rebind it.
+
+
+## Issue #888: terminal-order archive integrity repair (2026-10-19)
+
+A follow-up source-only fix is based on #912 HEAD `dbc97f4e16f7`, with
+a dedicated branch `codex/issue888-terminal-archive-integrity`. On the
+original #912 code, seven purpose-built negative tests failed, reproducing
+noncanonical terminal intent acceptance, mutable order/map aliasing and O(n²)
+retained `asdict_tuple` prefixes. The repaired archive validates each
+terminal intent and exact fill evidence **before** sealing its per-order
+canonical bytes. Public order and mapping views are detached. Its
+`_context` reader streams sealed bytes in canonical sorted-key order, rather
+than rematerializing all orders on each decision. The original public digest
+is the fallback when the serializer or JSON converter/encoder functions
+change; tests check both normal and patched-encoder equivalence.
+
+The [bounded GitHub Actions measurement](https://github.com/shuntatsu/trade_rl/actions/runs/39207003158)
+compared the unmodified #912 archive with the candidate on the same
+non-isolated Ubuntu runner, Python 3.12, using identical fabricated terminal
+orders. Measurements are **single source-bound artificial runs**, not live
+market performance, and the approximate retained-byte figure counts only
+copied old tuple references versus sealed per-order byte payloads, not complete
+process RSS.
+
+| Terminal orders | Original append (ms) | Sealed append (ms) | Original retained proxy | Sealed retained proxy |
+| --- | ---: | ---: | ---: | ---: |
+| 100 | 1.29 | 9.97 | 40,400 bytes | 82,974 bytes |
+| 400 | 5.65 | 39.01 | 641,600 bytes | 332,874 bytes |
+| 1,600 | 34.30 | 156.22 | 10,246,400 bytes | 1,334,276 bytes |
+
+**Trade-off:** sealing, revalidation and canonical encoding make individual
+appends slower for these sizes. Reading an entire historical mapping also
+becomes slower; the hot context digest no longer performs that operation.
+A separate [paired synthetic context digest benchmark](https://github.com/shuntatsu/trade_rl/actions/runs/39207003158)
+used seven alternating reference/stream measurements at each length. Every
+result matched the original public `content_digest` exactly.
+
+| Terminal orders | Public full context digest median | Sealed-byte stream median |
+| --- | ---: | ---: |
+| 100 | 1.9365 ms | 0.0927 ms |
+| 400 | 7.5808 ms | 0.2946 ms |
+| 1,600 | 32.5067 ms | 1.1428 ms |
+| 6,599 | 138.9096 ms | 4.5605 ms |
+
+The 6,599 here is a **count of fabricated terminal orders, not the 6,599
+native actor advances in one Tier D arm**. All paths remain O(n) in total
+history bytes per complete context check; the replacement removes the repeated
+mapping reconstruction, not every source of O(T²) end-to-end work.
+The hot observable state and underlying account economics must still match
+all native terminal byte oracles in the final same-HEAD full test run; CI Green
+does not authorize R3, adoption, unused data, paper or live trading.
 
 ## Generic software PR review policy (2026-10-14)
 

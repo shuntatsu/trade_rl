@@ -28,3 +28,57 @@ jobs:
           uv run ruff format --check tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_allocation_snapshot.py
       - name: Archive and snapshot regression pytest
         run: uv run pytest -q tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_allocation_snapshot.py
+      - name: Checkout #912 baseline for bounded comparison
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: dbc97f4e16f78a476960edac8e19d23602205e4d
+          path: comparison-base
+          persist-credentials: false
+      - name: Paired bounded terminal archive benchmark
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/order_archive_bench.py" <<'PY'
+          import gc
+          import json
+          import sys
+          import time
+          from tests.evaluation.test_terminal_order_fastpath import _make_terminal_order
+          from trade_rl.evaluation.rl_allocation._native_progress import _terminal_orders_sha256
+          from trade_rl.simulation.orders.model import TerminalOrderArchive
+          variant = sys.argv[1]
+          for n in (100, 400, 1600):
+              orders = tuple(_make_terminal_order(i) for i in range(n))
+              for warm in range(2):
+                  archive = TerminalOrderArchive()
+                  gc.collect()
+                  t0=time.perf_counter_ns()
+                  for order in orders:
+                      archive=archive.append(order)
+                  append_ms=(time.perf_counter_ns()-t0)/1e6
+                  t0=time.perf_counter_ns()
+                  payload=archive.asdict_tuple
+                  read_ms=(time.perf_counter_ns()-t0)/1e6
+                  t0=time.perf_counter_ns()
+                  first=_terminal_orders_sha256(archive)
+                  cold_ms=(time.perf_counter_ns()-t0)/1e6
+                  t0=time.perf_counter_ns()
+                  assert _terminal_orders_sha256(archive)==first
+                  warm_ms=(time.perf_counter_ns()-t0)/1e6
+                  assert len(payload)==n
+                  if warm:
+                      node=archive._tail
+                      retained=0
+                      while node is not None:
+                          if hasattr(node, "_order_bytes"):
+                              retained+=len(node._order_bytes)
+                          else:
+                              retained+=len(node.asdict_tuple)*8
+                          node=node.previous
+                      print("ARCHIVE_MEASUREMENT",json.dumps({"variant":variant,"n":n,"append_ms":append_ms,"read_ms":read_ms,"cold_sha_ms":cold_ms,"warm_sha_ms":warm_ms,"approx_retained_bytes":retained},sort_keys=True))
+          PY
+          (
+            cd comparison-base
+            uv sync --locked --extra dev >/dev/null
+            PYTHONPATH=. uv run python "$RUNNER_TEMP/order_archive_bench.py" baseline
+          )
+          PYTHONPATH=. uv run python "$RUNNER_TEMP/order_archive_bench.py" candidate

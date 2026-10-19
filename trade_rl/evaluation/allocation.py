@@ -46,7 +46,13 @@ def _archived_context_digest(
     serializer whenever its contract or bindings have been changed.
     """
     compatible = (
-        content_digest is _CANONICAL_DIGEST
+        type(archive) is TerminalOrderArchive
+        and TerminalOrderArchive._canonical_order_json_chunks is _ARCHIVE_CHUNKS
+        and TerminalOrderArchive._canonical_order_json_chunks.__code__
+        is _ARCHIVE_CHUNKS_CODE
+        and TerminalOrderArchive._ordered_nodes is _ARCHIVE_NODES
+        and TerminalOrderArchive._ordered_nodes.__code__ is _ARCHIVE_NODES_CODE
+        and content_digest is _CANONICAL_DIGEST
         and content_digest.__code__ is _CANONICAL_DIGEST_CODE
         and hashing.canonical_json_bytes is _CANONICAL_ENCODER
         and canonical_json_bytes is _CANONICAL_ENCODER
@@ -86,6 +92,10 @@ def _archived_context_digest(
     return content_digest({**payload, "terminal_orders": archive.asdict_tuple})
 
 
+_ARCHIVE_CHUNKS = TerminalOrderArchive._canonical_order_json_chunks
+_ARCHIVE_CHUNKS_CODE = TerminalOrderArchive._canonical_order_json_chunks.__code__
+_ARCHIVE_NODES = TerminalOrderArchive._ordered_nodes
+_ARCHIVE_NODES_CODE = TerminalOrderArchive._ordered_nodes.__code__
 _CANONICAL_DIGEST = content_digest
 _CANONICAL_DIGEST_CODE = content_digest.__code__
 _CANONICAL_ENCODER = canonical_json_bytes

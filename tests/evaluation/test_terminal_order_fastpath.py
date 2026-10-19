@@ -430,3 +430,37 @@ def test_archived_digest_falls_back_if_json_mapping_converter_is_patched(
         expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
         assert expected != standard
         assert _archived_context_digest(payload, archive) == expected
+
+
+def test_archived_digest_rejects_custom_archive_serializer() -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.allocation import _archived_context_digest
+
+    class CustomArchive(TerminalOrderArchive):
+        def _canonical_order_json_chunks(self):
+            yield b'{"forged":true}'
+
+    archive = CustomArchive((_make_terminal_order(0),))
+    payload = {"schema": "independent_allocation_context_v1", "book": {"cash": 10.0}}
+    expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+    assert _archived_context_digest(payload, archive) == expected
+
+
+def test_archived_digest_rejects_modified_native_archive_serializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.allocation import _archived_context_digest
+
+    archive = TerminalOrderArchive((_make_terminal_order(0),))
+    payload = {"schema": "independent_allocation_context_v1", "book": {"cash": 10.0}}
+    expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+
+    def changed_chunks(_archive: TerminalOrderArchive):
+        yield b'{"forged":true}'
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            TerminalOrderArchive, "_canonical_order_json_chunks", changed_chunks
+        )
+        assert _archived_context_digest(payload, archive) == expected

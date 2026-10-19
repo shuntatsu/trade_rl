@@ -12,6 +12,10 @@ from tools.market_replay_oracle.events import (
     OrderEventEvidence,
     read_pinned_order_events,
 )
+from tools.market_replay_oracle.exact_fill_binding import (
+    ExactFillAttemptBinding,
+    load_pinned_exact_fill_attempt,
+)
 from tools.market_replay_oracle.protocol import ProtocolPin
 from tools.market_replay_oracle.source import NativeSourcePin
 
@@ -27,4 +31,6 @@ __all__ = [
     "OrderEventContext",
     "OrderEventEvidence",
     "read_pinned_order_events",
+    "ExactFillAttemptBinding",
+    "load_pinned_exact_fill_attempt",
 ]

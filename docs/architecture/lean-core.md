@@ -2133,3 +2133,30 @@ attempt, intent or order history. It does not perform admission, native cost/acc
 or a complete 6,599-advance flat replay. Native execution/accounting remain authoritative;
 full B4 and protocol-authenticated v4 replay remain incomplete, with financial
 assumptions and the frozen G v3 protocol unchanged.
+
+## H-bound v4 exact-fill attempt context
+
+The separately versioned H path uses `protocol_v4.py` to validate the closed
+`issue810_tier_d_nonrl48_result_blind_v4` contract and expand the same frozen 48-arm,
+actor/vintage/reserve schedule against verified content. It preserves the G-bound v3
+protocol and loader as-is; v4 inputs are not relabeled as v3 or sent through the v3
+schedule validator. The v4 protocol pins an exact H source revision and leaves every
+frozen financial, calendar, capital, risk, cost, and acceptance field unchanged. A v4
+attempt requires its own protocol bytes and identity.
+
+`exact_fill_binding.py` adds `load_pinned_exact_fill_attempt` and
+`ExactFillAttemptBinding.event_context(account, scenario, role, count)`. For one arm and
+advance, the binding derives adjacent decision and processing indices/timestamps from
+verified content and reads the effective lot at the processing row. Under the frozen
+nominal settings, the step is the resolved dataset lot bounded by the configured lot
+floor, then multiplied by the frozen lot stress factor; the optional market-order
+profile is absent. A positive step requires an `order_event_v2` signed-count/step
+witness. A zero step permits the writer-compatible `order_event_v1` reported-float
+quantity path. Non-fills remain v1. Monetary calculations retain their existing float
+semantics.
+
+This binds static inputs for a single event-reader context, not execution. It does not
+collect or authenticate the outer attempt/receipt/progress, establish order-intent or
+admission history, reconcile all actor and reserve advances, or calculate an independent
+cash/equity ledger. The full 6,599-advance B4 replay and G0/G2 evidence remain incomplete;
+no R3, G3/G4, profit, unused-period, or live authority follows.

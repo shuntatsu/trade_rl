@@ -93,6 +93,8 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "OrderEventContext",
         "OrderEventEvidence",
         "read_pinned_order_events",
+        "ExactFillAttemptBinding",
+        "load_pinned_exact_fill_attempt",
     ]
 
     exports = None

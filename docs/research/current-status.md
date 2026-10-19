@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-19 (JST)
+更新基準: 2026-10-20 (JST)
 
 ## Issue #909: long-only target feasibility candidate
 
@@ -96,6 +96,24 @@ only. It does not close the independent raw-market B4 ledger, establish a market
 result, or authorize frozen-R3 execution, G3/G4, profit claims, or live use.
 Exact-head verification and the applicable architecture/contract checks remain
 integration prerequisites.
+
+## Issue #810: H-bound exact-fill attempt context candidate
+
+A separate v4 protocol path is being added for the H exact-fill event source. It pins an
+exact source revision, retains the frozen v3 financial and 48-arm schedule fields, and
+requires a fresh v4 protocol/attempt identity rather than relabeling a v3 attempt. The
+v4 static binder derives `event_context(account, scenario, role, count)` from pinned
+protocol, source, and verified Dataset content. It binds both adjacent clock rows and
+the effective lot at the processing index. Positive effective lots require the v2 signed
+count/step witness; the v1 reported-float fill is accepted only for a verified zero
+effective lot. Existing monetary calculations remain unchanged.
+
+This context capability is not a complete event-chain collector or independent ledger.
+Outer receipt/progress binding, order-intent/admission evidence, full actor-plus-reserve
+reconciliation, terminal flat/no-pending proof, and the independent raw-market B4 ledger
+remain open. It establishes no G0/G2, frozen-R3 execution authority, G3/G4, profit,
+unused-period, or live eligibility. Exact-head software verification and source review
+remain required.
 
 ## 結論
 

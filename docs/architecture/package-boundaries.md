@@ -2032,8 +2032,9 @@ API and is not a complete B4 adapter.
 `trade_rl` dependency; production modules must not import it. Its closed public facade
 exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
 `ProtocolPin`, `NativeSourcePin`, `FrozenAttemptBinding`, `load_pinned_attempt`,
-`EventBatchPin`, `OrderEventContext`, `OrderEventEvidence`, and
-`read_pinned_order_events`.
+`EventBatchPin`, `OrderEventContext`, `OrderEventEvidence`,
+`read_pinned_order_events`, `ExactFillAttemptBinding`, and
+`load_pinned_exact_fill_attempt`.
 The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
 manifest, supported static profile fingerprints, and verified Dataset pins. It binds
 the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
@@ -2045,6 +2046,20 @@ This is static input identity and mapping only. Source snapshots do not attest t
 executing process, provider or external venue, and the package does not execute or import
 native market code. Full intent/fill/margin/carry validation and the complete 6,599-step
 financial replay remain outside the boundary.
+
+The H-bound `exact_fill_binding.py` path is distinct from `load_pinned_attempt` and its
+G-bound v3 protocol. It consumes the exact-source v4 protocol through an independent v4
+validator/schedule path; it does not coerce v4 to v3. `ExactFillAttemptBinding.event_context`
+derives a one-advance `OrderEventContext` from verified processing-row content, including
+the effective lot used to validate v1/v2 event quantities. The v4 protocol keeps the
+frozen financial and schedule fields unchanged. Only the two binding names above are
+added to the closed facade; protocol-v4 loading and schedule helpers remain module-local.
+
+This remains static input binding. It does not verify an outer attempt receipt or
+progress stream, collect a complete 6,599-advance event chain, prove intent/admission or
+terminal settlement, or build an independent accounting ledger. Native execution and
+accounting remain authoritative; the H-bound context is not full B4 or research
+authorization.
 
 ## Per-advance event reader boundary
 

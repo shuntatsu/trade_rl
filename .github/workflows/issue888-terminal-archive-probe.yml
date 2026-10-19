@@ -20,6 +20,10 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --locked --extra dev
+      - name: Import and formatter delta (diagnostic)
+        run: |
+          uv run ruff check --diff trade_rl/evaluation/allocation.py || true
+          uv run ruff format --diff trade_rl/evaluation/allocation.py || true
       - name: Formatter delta (diagnostic)
         run: uv run ruff format --diff trade_rl/simulation/orders/model.py || true
       - name: Ruff and format

@@ -464,3 +464,29 @@ def test_archived_digest_rejects_modified_native_archive_serializer(
             TerminalOrderArchive, "_canonical_order_json_chunks", changed_chunks
         )
         assert _archived_context_digest(payload, archive) == expected
+
+
+def test_large_archive_pickle_roundtrip_is_iterative_and_receipt_exact() -> None:
+    import pickle
+
+    orders = tuple(_make_terminal_order(i) for i in range(6599))
+    archive = TerminalOrderArchive(orders)
+    serialized = pickle.dumps(archive, protocol=pickle.HIGHEST_PROTOCOL)
+    restored = pickle.loads(serialized)
+    assert isinstance(restored, TerminalOrderArchive)
+    assert len(restored) == len(orders)
+    assert restored.asdict_tuple == archive.asdict_tuple
+    assert _terminal_orders_sha256(restored) == _terminal_orders_sha256(archive)
+    assert restored.max_clock_index == archive.max_clock_index
+
+    # A later append may not affect any earlier native execution snapshot.
+    next_order = _make_terminal_order(6599)
+    appended = restored.append(next_order)
+    assert len(restored) == len(orders)
+    assert len(appended) == len(orders) + 1
+    assert appended[-1].order_id == next_order.order_id
+    assert restored[-1].order_id == orders[-1].order_id
+
+    order_book = OrderBookState(active_orders=(), terminal_orders=archive)
+    copied_book = pickle.loads(pickle.dumps(order_book))
+    assert copied_book.terminal_orders.asdict_tuple == archive.asdict_tuple

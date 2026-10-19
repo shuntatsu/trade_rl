@@ -776,6 +776,15 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     def append(self, order: PendingOrder) -> TerminalOrderArchive:
         return self._from_tail(self._next_node(self._tail, order))
 
+    def __reduce__(
+        self,
+    ) -> tuple[type[TerminalOrderArchive], tuple[tuple[PendingOrder, ...]]]:
+        # Pickle cannot recursively traverse a linked multi-thousand-node
+        # chain on normal Python recursion limits. Flatten only at this
+        # explicit process-transport boundary; the constructor validates and
+        # seals the restored orders in original chronological order.
+        return type(self), (tuple(self),)
+
     def canonical_payload(self) -> tuple[PendingOrder, ...]:
         """Expose the historical tuple shape at serialization boundaries."""
 

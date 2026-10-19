@@ -2025,3 +2025,21 @@ The verifier does not authenticate a protocol, source origin, consumed window or
 effective profile, and does not replay causal features, fills, carry, margin or account
 transitions. Native execution and accounting remain authoritative. It adds no production
 API and is not a complete B4 adapter.
+
+## Frozen attempt binding facade
+
+`tools.market_replay_oracle` remains an offline research-tools package with no production
+`trade_rl` dependency; production modules must not import it. Its closed public facade
+exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
+`ProtocolPin`, `NativeSourcePin`, `FrozenAttemptBinding`, and `load_pinned_attempt`.
+The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
+manifest, supported static profile fingerprints, and verified Dataset pins. It binds
+the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
+reserve intervals and checks complete effective policy dictionaries alongside separate
+canonical digests. The added facade does not expose a production API or change financial
+parameters or the frozen protocol.
+
+This is static input identity and mapping only. Source snapshots do not attest to an
+executing process, provider or external venue, and the package does not execute or import
+native market code. Full intent/fill/margin/carry validation and the complete 6,599-step
+financial replay remain outside the boundary.

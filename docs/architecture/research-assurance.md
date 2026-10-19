@@ -2442,3 +2442,20 @@ funding, borrow, risk, margin, terminal settlement or profit. In particular,
 `funding_due` remains an identity-bound array; no rule equates it with
 `funding_event_count`. No G0/G2, formal research approval, R3, profit, unused-period or
 live authority follows from content verification.
+
+## Frozen attempt input binding remains a static prerequisite
+
+The pinned attempt layer binds raw caller-pinned protocol bytes, an exact native source
+HEAD and raw snapshot manifest, supported static profile source fingerprints, and the
+verified raw Dataset pins. It maps the frozen 48-arm configuration, symbol, scenario and
+role roster to UTC actor windows, vintage transitions and reserve intervals. Complete
+effective policy dictionaries are compared directly; independently derived canonical
+digests are secondary consistency checks. The runtime economic window is 6,527 actor
+hours; forecast horizons of 24 and 72 hours are distinct.
+
+This verifies declared static inputs and their mapping, not the running process, provider
+or external venue. It neither imports nor executes native code, fits forecasts, reads
+economic outputs or computes PnL. It does not establish that execution honored clocks,
+orders, fills, margin or carry, and it does not reconstruct the full 6,599-advance
+financial ledger. Formal G0/G2, full B4 and economic qualification remain separate and
+incomplete; financial assumptions and the frozen protocol are unchanged.

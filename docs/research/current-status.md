@@ -3581,3 +3581,20 @@ authentication, consumed-window authorization, effective-profile validation,
 causal-feature validation, or financial replay. It adds no execution/accounting
 authority and establishes no full B4, G0/G2, R3, profit, unused-period or live evidence.
 Research status and existing financial assumptions are unchanged.
+
+## Issue #810: static frozen-attempt input binding
+
+The attempt-binding layer combines caller-pinned protocol bytes, exact source HEAD and
+raw snapshot manifest, supported static profile fingerprints, and the independently
+verified raw Dataset pins. It maps the frozen 48-arm configuration/symbol/scenario/role
+roster to UTC actor windows, vintage transitions and reserve intervals, and compares
+complete effective policy dictionaries with separately derived canonical digests as
+secondary checks. The runtime economic window covers 6,527 actor hours; 24- and
+72-hour forecast horizons remain separate.
+
+This is static source and input binding only. It does not attest to a running process,
+provider or external venue, import or execute native code, fit forecasts, inspect result
+values or calculate PnL. Intent/fill, margin, runtime clock/carry conformance and the
+complete 6,599-advance financial replay remain unfinished. It does not establish formal
+G0/G2, full B4, profit, R3, unused-period or live evidence; the frozen protocol and
+financial assumptions remain unchanged.

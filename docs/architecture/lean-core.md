@@ -2093,3 +2093,21 @@ resolved from the raw cadence. Funding due is bound as data and is not inferred 
 funding-event counts. The caller supplies the path and pins. This verifies content
 consistency only; it does not establish source origin, protocol scope, effective rules,
 causal features, or financial validity.
+
+## Static frozen-attempt input binding
+
+`tools.market_replay_oracle.load_pinned_attempt` binds caller-pinned raw protocol bytes,
+an exact native source HEAD and raw snapshot manifest, supported static profile source
+fingerprints, and the independently verified raw Dataset pins. The result maps the
+frozen 48-arm configuration, symbol, scenario and role to UTC actor windows, vintages
+and reserve intervals. It compares complete effective policy dictionaries; independently
+derived canonical digests are a secondary consistency check, not a substitute for those
+values.
+
+The runtime economic window covers all 6,527 actor hours. The 24- and 72-hour forecast
+horizons are separate inputs. These static bytes identify declared source and inputs;
+they do not attest to a runtime process, provider, or external venue. The boundary does
+not import or execute native code, fit forecasts, inspect result values, or calculate PnL.
+Order intent/fill, margin, clock/carry behavior, and the complete 6,599-advance financial
+replay remain unbound. Frozen financial assumptions and protocol bytes are unchanged;
+this is not full B4 or G0/G2 evidence.

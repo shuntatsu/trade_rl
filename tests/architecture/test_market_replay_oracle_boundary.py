@@ -76,3 +76,35 @@ def test_both_research_typing_routes_include_verifier() -> None:
     assert workflow.count("tools/market_replay_oracle") == 2
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
     assert "tools/market_replay_oracle/*.py text eol=lf" in attributes
+
+
+def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
+    facade = ROOT / OWNER.replace(".", "/") / "__init__.py"
+    tree = ast.parse(facade.read_text(encoding="utf-8"))
+    expected = [
+        "DatasetContentPin",
+        "VerifiedDatasetContent",
+        "load_pinned_v4",
+        "ProtocolPin",
+        "NativeSourcePin",
+        "FrozenAttemptBinding",
+        "load_pinned_attempt",
+    ]
+
+    exports = None
+    imported_names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            imported_names.update(alias.asname or alias.name for alias in node.names)
+        elif isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            ):
+                exports = ast.literal_eval(node.value)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "__all__":
+                exports = ast.literal_eval(node.value)
+
+    assert exports == expected
+    assert len(imported_names.intersection(expected)) == len(expected)

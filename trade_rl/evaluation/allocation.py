@@ -70,6 +70,8 @@ def _archived_context_digest(
         and canonical.json.dumps is _CANONICAL_DUMPS
         and canonical.json.dumps.__code__ is _CANONICAL_DUMPS_CODE
         and canonical.json.JSONEncoder is _CANONICAL_JSON_ENCODER
+        and canonical.json.JSONEncoder.__init__ is _CANONICAL_JSON_INIT
+        and canonical.json.JSONEncoder.__init__.__code__ is _CANONICAL_JSON_INIT_CODE
         and canonical.json.JSONEncoder.encode is _CANONICAL_JSON_ENCODE
         and canonical.json.JSONEncoder.encode.__code__ is _CANONICAL_JSON_ENCODE_CODE
         and canonical.json.JSONEncoder.iterencode is _CANONICAL_JSON_ITERENCODE
@@ -113,6 +115,8 @@ _CANONICAL_FIELDS = canonical.fields
 _CANONICAL_DUMPS = canonical.json.dumps
 _CANONICAL_DUMPS_CODE = canonical.json.dumps.__code__
 _CANONICAL_JSON_ENCODER = canonical.json.JSONEncoder
+_CANONICAL_JSON_INIT = canonical.json.JSONEncoder.__init__
+_CANONICAL_JSON_INIT_CODE = canonical.json.JSONEncoder.__init__.__code__
 _CANONICAL_JSON_ENCODE = canonical.json.JSONEncoder.encode
 _CANONICAL_JSON_ENCODE_CODE = canonical.json.JSONEncoder.encode.__code__
 _CANONICAL_JSON_ITERENCODE = canonical.json.JSONEncoder.iterencode

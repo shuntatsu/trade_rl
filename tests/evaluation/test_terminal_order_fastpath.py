@@ -432,6 +432,49 @@ def test_archived_digest_falls_back_if_json_mapping_converter_is_patched(
         assert _archived_context_digest(payload, archive) == expected
 
 
+@pytest.mark.parametrize("change", ["replacement", "in_place_code"])
+def test_archived_digest_falls_back_if_json_encoder_initializer_changes(
+    monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    from types import FunctionType
+
+    from trade_rl.artifacts import canonical
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.allocation import _archived_context_digest
+
+    archive = TerminalOrderArchive((_make_terminal_order(0),))
+    payload = {"schema": "independent_allocation_context_v1", "book": {"cash": 10.0}}
+    standard = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+    assert _archived_context_digest(payload, archive) == standard
+    initializer = canonical.json.JSONEncoder.__init__
+    original = FunctionType(
+        initializer.__code__,
+        initializer.__globals__,
+        argdefs=initializer.__defaults__,
+        closure=initializer.__closure__,
+    )
+    original.__kwdefaults__ = initializer.__kwdefaults__
+
+    def changed_initializer(self, *args, **kwargs):
+        self._context_guard_original_initializer(*args, **kwargs)
+        self.item_separator = ", "
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            canonical.json.JSONEncoder,
+            "_context_guard_original_initializer",
+            original,
+            raising=False,
+        )
+        if change == "replacement":
+            patch.setattr(canonical.json.JSONEncoder, "__init__", changed_initializer)
+        else:
+            patch.setattr(initializer, "__code__", changed_initializer.__code__)
+        expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+        assert expected != standard
+        assert _archived_context_digest(payload, archive) == expected
+
+
 def test_archived_digest_rejects_custom_archive_serializer() -> None:
     from trade_rl.artifacts.hashing import content_digest
     from trade_rl.evaluation.allocation import _archived_context_digest

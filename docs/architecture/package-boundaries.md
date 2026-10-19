@@ -964,7 +964,10 @@ objects originally submitted. Ordinary `object.__setattr__` attacks on
 
 `evaluation/allocation.py::_archived_context_digest` consumes the same sealed
 JSON bytes through a streaming SHA-256 only when the public canonical JSON
-serializer and its encoder/conversion helpers are unchanged. Any unsupported
+serializer and its encoder/conversion helpers are unchanged. The JSON encoder's
+initializer must retain both its function and code identity: a changed constructor
+can alter nested order separators while the empty-history suffix still matches.
+Any unsupported
 codec, altered archive method or nonstandard archive subclass goes
 through the original public `content_digest` and fresh materialized order
 payload; state digest bytes, sorting and numeric semantics remain those

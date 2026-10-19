@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-17 (JST)
+更新基準: 2026-10-19 (JST)
 
 ## Issue #909: long-only target feasibility candidate
 
@@ -741,6 +741,15 @@ change; tests check normal, patched-encoder/mapping and
 nonstandard archive subclass/method equivalence. The 6,599-terminal-order
 pickle round-trip is independently tested so `ProcessPoolExecutor` transport
 does not recursively serialize thousands of linked nodes.
+
+An additional exact-`7ce694a9a09b` counterexample changed only the JSON encoder
+initializer to select another item separator. The empty-history suffix still
+matched, but streaming retained old per-order bytes while the public serializer
+encoded different nested order bytes. Both initializer replacement and in-place
+code replacement were RED. The streaming guard now checks the initializer's
+function and code identity and uses the existing public digest fallback after
+either change. This repair supplies no new native R3 execution, market result,
+throughput measurement or unused/final/live authority.
 
 The [bounded GitHub Actions measurement](https://github.com/shuntatsu/trade_rl/actions/runs/39207003158)
 compared the unmodified #912 archive with the candidate on the same

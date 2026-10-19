@@ -2076,3 +2076,20 @@ These values are raw denominators, not admitted fill limits or participation,
 risk, order-state or allocation decisions. Native execution and accounting
 remain authoritative; offline facts are comparison-only and do not authenticate
 a Dataset, protocol, policy, profile, order, accepted event or clock.
+
+## Pinned v4 Dataset content verifier
+
+`tools/market_replay_oracle.load_pinned_v4` checks a caller-supplied root against exact
+`DatasetContentPin` byte lengths and SHA-256 values (manifest at most 1 MiB; NPZ at most
+64 MiB). It requires exactly the two regular artifact files, bounds the ZIP central
+directory before constructing its entry list, then validates the v4 manifest and all 43
+stored NPY members, requiring equal activity-mask aliases, with headers bounded to 4,096
+bytes before creating immutable `numpy.frombuffer` views. It recomputes the manifest
+digest and the v7 identity over the fixed 42-array order and scalar contract.
+
+This verifier accepts continuous 24/7 regular clocks, nanosecond timestamps and
+supported little-endian primitive arrays in C order; `nominal_bar_hours=None` is
+resolved from the raw cadence. Funding due is bound as data and is not inferred from
+funding-event counts. The caller supplies the path and pins. This verifies content
+consistency only; it does not establish source origin, protocol scope, effective rules,
+causal features, or financial validity.

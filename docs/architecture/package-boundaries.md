@@ -2009,3 +2009,19 @@ The result separates current-open price from raw volume reference and reports
 notional/quantity capacity without order participation, risk, admission,
 allocation or fill decisions. Native execution/accounting remain the sole
 ledger; no `trade_rl` public API is added.
+
+## Pinned market artifact content boundary
+
+`tools/market_replay_oracle/` is an offline, comparison-only verifier using Python’s
+standard library, NumPy and its own modules. `artifact.py` checks caller-pinned v4 file
+bytes, bounded stored-NPZ structure and the resolved scalar contract; `identity.py`
+independently recomputes the v7 array identity. The `asset_active` and `symbol_active`
+aliases must agree; read-only array views are created only after all member headers
+pass. It does not import `tools.market_account_oracle` or production `trade_rl`;
+production modules must not import it. Both research-tool Mypy routes include this
+package.
+
+The verifier does not authenticate a protocol, source origin, consumed window or
+effective profile, and does not replay causal features, fills, carry, margin or account
+transitions. Native execution and accounting remain authoritative. It adds no production
+API and is not a complete B4 adapter.

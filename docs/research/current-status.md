@@ -3566,3 +3566,18 @@ replay, accepted events, margin/admission, complete 6,599-step execution, and
 formal G0–G4 or economic evidence remain outside this capability. Independent
 source review and final full gates are required for this addition; it grants no
 profit, real-data R3, unused-period or live authority.
+
+## Issue #810: pinned v4 market content verifier capability
+
+`tools/market_replay_oracle/` verifies caller-pinned v4 `manifest.json` and `arrays.npz`
+bytes, bounds and checks all 43 stored NPY headers, including activity-mask alias
+equality, before exposing immutable array views, and independently recomputes the v7
+content identity and scalar contract. Its accepted clock is continuous 24/7 with regular
+nanosecond rows; an unspecified nominal interval is derived from that cadence.
+`funding_due` is preserved as content and is not inferred from the event-count array.
+
+This is content consistency under caller-supplied root and pins, not protocol/source
+authentication, consumed-window authorization, effective-profile validation,
+causal-feature validation, or financial replay. It adds no execution/accounting
+authority and establishes no full B4, G0/G2, R3, profit, unused-period or live evidence.
+Research status and existing financial assumptions are unchanged.

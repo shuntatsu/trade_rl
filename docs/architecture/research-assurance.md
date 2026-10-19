@@ -2427,3 +2427,18 @@ OHLC/STOP processing, margin/admission, accepted-order replay or complete
 6,599-step flat/no-pending run. This is not full B4 and grants no G0–G4, profit,
 real-data R3, unused-period or live authority. Native execution/accounting
 remains the sole authoritative ledger and comparison target.
+
+## Pinned content checks do not authorize research inputs
+
+The v4/v7 content verifier proves that two files match caller-supplied hashes and sizes,
+that the bounded artifact structure is valid, and that the independently recomputed
+content identity agrees with its stored and caller-pinned IDs. The caller-provided root
+and pins are not authenticated by this check. It cannot establish protocol/source
+provenance, a consumed time window, effective profile, causal feature availability, or
+that any native execution consumed these bytes.
+
+The check is not an economic oracle or full B4 replay: it does not interpret fills,
+funding, borrow, risk, margin, terminal settlement or profit. In particular,
+`funding_due` remains an identity-bound array; no rule equates it with
+`funding_event_count`. No G0/G2, formal research approval, R3, profit, unused-period or
+live authority follows from content verification.

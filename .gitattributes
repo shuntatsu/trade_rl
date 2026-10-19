@@ -3,3 +3,4 @@
 tools/tier_d_nonrl/*.py text eol=lf
 tools/tier_d_scaling/*.py text eol=lf
 tools/market_account_oracle/*.py text eol=lf
+tools/market_replay_oracle/*.py text eol=lf

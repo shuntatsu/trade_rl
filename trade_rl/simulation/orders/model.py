@@ -360,22 +360,22 @@ class OrderIntent:
         identity = restored.canonical_payload()
         identity.pop("order_id")
         identity["schema_version"] = "order_intent_v1"
-        aliases = tuple(
-            field
-            for field in (
-                "requested_quantity",
-                "limit_price",
-                "stop_price",
-                "submission_reference_price",
-                "decision_equity",
-            )
-            if type(identity.get(field)) is float and identity[field].is_integer()
-        )
+        aliases: list[tuple[str, int]] = []
+        for field in (
+            "requested_quantity",
+            "limit_price",
+            "stop_price",
+            "submission_reference_price",
+            "decision_equity",
+        ):
+            numeric = identity.get(field)
+            if isinstance(numeric, float) and numeric.is_integer():
+                aliases.append((field, int(numeric)))
         for mask in range(1, 1 << len(aliases)):
             candidate = identity.copy()
-            for index, field in enumerate(aliases):
+            for index, (field, integer_value) in enumerate(aliases):
                 if mask & (1 << index):
-                    candidate[field] = int(candidate[field])
+                    candidate[field] = integer_value
             candidate_id = hashlib.sha256(canonical_json_bytes(candidate)).hexdigest()
             if candidate_id == original_id:
                 return replace(restored, order_id=original_id)

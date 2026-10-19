@@ -1,8 +1,10 @@
 """File bindings and ZIP limits must precede untrusted parsing or allocation."""
 
 import hashlib
+import io
 import json
 import struct
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -70,3 +72,28 @@ def test_returned_arrays_do_not_alias_files_modified_after_verification(
     before = loaded.arrays["close"].copy()
     (tmp_path / "arrays.npz").write_bytes(b"replacement outside the verified view")
     np.testing.assert_array_equal(loaded.arrays["close"], before)
+
+
+def test_nul_truncated_zip_member_cannot_impersonate_a_declared_array(
+    tmp_path: Path,
+) -> None:
+    original = _write_fixture(tmp_path)
+    path = tmp_path / "arrays.npz"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(path) as source, zipfile.ZipFile(buffer, "w") as output:
+        for info in source.infolist():
+            name = "close.npyXX" if info.filename == "close.npy" else info.filename
+            output.writestr(name, source.read(info))
+    raw = buffer.getvalue()
+    assert raw.count(b"close.npyXX") == 2  # Local and central names retain length.
+    raw = raw.replace(b"close.npyXX", b"close.npy\x00x")
+    path.write_bytes(raw)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["arrays_digest"] = hashlib.sha256(raw).hexdigest()
+    manifest["artifact_digest"] = hashlib.sha256(
+        _canonical({k: v for k, v in manifest.items() if k != "artifact_digest"})
+    ).hexdigest()
+    manifest_path.write_bytes(_canonical(manifest))
+    with pytest.raises(ValueError, match="NPZ|member"):
+        load_pinned_v4(tmp_path, _pin(tmp_path, original.dataset_id))

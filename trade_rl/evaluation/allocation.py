@@ -36,7 +36,6 @@ from trade_rl.strategies.allocation import (
 )
 
 
-
 # Streaming remains an optimization, never a new source identity.  Any change to
 # the public canonical serializer uses the ordinary full-content digest instead.
 _CANONICAL_DIGEST = content_digest
@@ -81,9 +80,7 @@ def _archived_context_digest(
                 separator = b","
             digest.update(b"]}")
             return digest.hexdigest()
-    return content_digest(
-        {**payload, "terminal_orders": archive.asdict_tuple}
-    )
+    return content_digest({**payload, "terminal_orders": archive.asdict_tuple})
 
 
 def _context(

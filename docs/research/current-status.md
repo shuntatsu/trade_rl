@@ -729,7 +729,10 @@ canonical bytes. Public order and mapping views are detached. Its
 `_context` reader streams sealed bytes in canonical sorted-key order, rather
 than rematerializing all orders on each decision. The original public digest
 is the fallback when the serializer or JSON converter/encoder functions
-change; tests check both normal and patched-encoder equivalence.
+change; tests check normal, patched-encoder/mapping and
+nonstandard archive subclass/method equivalence. The 6,599-terminal-order
+pickle round-trip is independently tested so `ProcessPoolExecutor` transport
+does not recursively serialize thousands of linked nodes.
 
 The [bounded GitHub Actions measurement](https://github.com/shuntatsu/trade_rl/actions/runs/39207003158)
 compared the unmodified #912 archive with the candidate on the same

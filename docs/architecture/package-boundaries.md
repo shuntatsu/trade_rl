@@ -959,8 +959,9 @@ objects originally submitted. Ordinary `object.__setattr__` attacks on
 `evaluation/allocation.py::_archived_context_digest` consumes the same sealed
 JSON bytes through a streaming SHA-256 only when the public canonical JSON
 serializer and its encoder/conversion helpers are unchanged. Any unsupported
-codec goes through the original public `content_digest` and fresh materialized
-order payload; state digest bytes, sorting and numeric semantics remain those
+codec, altered archive method or nonstandard archive subclass goes
+through the original public `content_digest` and fresh materialized order
+payload; state digest bytes, sorting and numeric semantics remain those
 of the original allocator. `_native_progress.py` retains its incremental
 node-keyed terminal SHA-256, now safe from mutations of exposed order views.
 This is an **O(n) retained-archive** representation with O(1) structural
@@ -968,6 +969,14 @@ append in the number of old orders, but canonical validation/serialization of
 the *new* order still costs work. A complete context digest still visits every
 retained terminal byte: O(n) per read, potentially O(T²) over T advancing
 steps. This is not a claim of end-to-end linear replay time.
+
+At an explicit process-worker transport boundary, `TerminalOrderArchive.__reduce__`
+flattens the sealed linked history into one ordered tuple of detached validated
+`PendingOrder` values for pickle, then restores the archive through its
+normal validating constructor. That one-off O(n) transport avoids recursively
+pickling thousands of linked nodes (the 6,599-node case is a separate
+regression); it is not a new persisted research artifact or an authority
+to restart an economically terminated account.
 
 This optimization changes neither execution fill/cost policy nor the
 canonical account ledger, risk guard, ordering clocks or tiered research

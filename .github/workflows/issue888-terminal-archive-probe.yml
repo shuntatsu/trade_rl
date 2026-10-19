@@ -88,3 +88,38 @@ jobs:
             PYTHONPATH=. uv run python "$RUNNER_TEMP/order_archive_bench.py" baseline
           )
           PYTHONPATH=. uv run python "$RUNNER_TEMP/order_archive_bench.py" candidate
+
+      - name: Bounded canonical context streaming benchmark
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import json
+          import statistics
+          import time
+          from tests.evaluation.test_terminal_order_fastpath import _make_terminal_order
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.allocation import _archived_context_digest
+          from trade_rl.simulation.orders.model import TerminalOrderArchive
+          print("CONTEXT_STREAM_BENCHMARK_SCOPE artificial source-bound non-isolated small input")
+          for n in (100, 400, 1600, 6599):
+              orders=tuple(_make_terminal_order(i) for i in range(n))
+              archive=TerminalOrderArchive(orders)
+              payload={"schema":"independent_allocation_context_v1","account_id":"S0","book":{"cash":1000.0,"mark_prices":[100.0]},"risk_config":{"drawdown_stop":0.2}}
+              ref=lambda: content_digest({**payload,"terminal_orders":archive.asdict_tuple})
+              fast=lambda: _archived_context_digest(payload,archive)
+              first=ref()
+              assert fast()==first
+              for _ in range(3):
+                  assert ref()==fast()==first
+              measurements={"ref":[],"fast":[]}
+              for pair in range(7):
+                  methods=(("ref",ref),("fast",fast))
+                  if pair%2: methods=tuple(reversed(methods))
+                  for name,method in methods:
+                      start=time.perf_counter_ns()
+                      value=method()
+                      elapsed=(time.perf_counter_ns()-start)/1e6
+                      assert value==first
+                      measurements[name].append(elapsed)
+              print("CONTEXT_STREAM_MEASUREMENT",json.dumps({"n":n,"ref_median_ms":statistics.median(measurements["ref"]),"fast_median_ms":statistics.median(measurements["fast"]),"ref_samples_ms":measurements["ref"],"fast_samples_ms":measurements["fast"]},sort_keys=True))
+          PY

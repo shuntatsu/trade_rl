@@ -3665,3 +3665,14 @@ freshness, runtime provenance and both consumers' exact inputs. Existing H/G
 attempts cannot be promoted by this static check. Outer receipt verification,
 intent/admission, independent accounting and terminal settlement remain open;
 no new fit, market run, profit, full B4, formal G0/G2 or live evidence is supplied.
+
+## Issue #810: bounded original-receipt parser candidate
+
+The active full-B4 integration now includes a bounded streaming gzip/JSON
+reader for caller-pinned original receipt files. It verifies the compressed
+input and complete stream while selecting actor or reserve rows; these rows
+remain provisional until verification finishes. Manufactured 6,599-row parser
+fixtures establish parser mechanics only, not native execution or a completed
+attempt. Outer receipt binding, order intent and witness closure, independent
+accounting, and terminal settlement remain open in this single integration
+workstream. No full B4, formal G0/G2, profit, R3, or live authority is claimed.

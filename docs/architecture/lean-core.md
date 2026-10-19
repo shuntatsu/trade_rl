@@ -2204,3 +2204,17 @@ only when a subsequent outer binding establishes actual freshness, execution
 provenance and both consumers' exact inputs. Existing attempts cannot acquire
 freshness through a copied file, new UUID or static pair. Runtime binding,
 intent/admission, full financial replay and terminal proof remain required.
+
+## Bounded original-receipt scan candidate
+
+The separate `tools.market_b4_oracle` package currently provides a bounded
+streaming gzip/JSON reader for original receipt files. It checks the pinned
+compressed bytes, decompression and JSON limits, and selects actor or reserve
+rows. Row values remain provisional until the full stream and gzip trailer
+verify; the scan reports structural counts only. It does not derive order
+intent, validate native execution semantics, or maintain an account ledger.
+
+Manufactured 6,599-row parser fixtures measure parser mechanics only. They are
+not a native full-run positive or a B4 result. One coherent full-B4 integration
+remains in progress; intent, accounting and outer-evidence closure are still
+required. No economic assumptions or execution authority change here.

@@ -2121,3 +2121,15 @@ It reads only two bounded protocol files, rejects same-file aliases and observed
 raw-byte changes, and grants only `STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope.
 Outer attempt freshness, runtime consumer binding, receipt authentication and
 financial replay remain separate responsibilities.
+
+## Bounded original-receipt reader boundary
+
+`tools.market_b4_oracle` owns a structural streaming reader for caller-pinned
+original gzip receipts. The package is outside `trade_rl` production imports;
+its dependency boundary is the standard library, NumPy, its own modules, and
+public replay/account facades. It enforces compressed/decompressed and JSON
+limits while selecting actor or reserve rows. A completed scan proves byte and
+row-structure properties only; selected rows remain provisional until the
+whole stream verifies. It does not close intent, account, order-witness or
+outer-attempt evidence. Manufactured full-count fixtures are parser tests,
+not native executions. Full B4 remains one integrated workstream.

@@ -2512,3 +2512,14 @@ established by an outer runtime/provenance binding before admission; an existing
 attempt, copied protocol or new identifier cannot satisfy that requirement.
 Design review, static equality and software tests supply no full B4, formal
 G0/G2, economic, R3, unused-period or live authorization.
+
+## Structural receipt scanning is provisional input evidence
+
+The bounded receipt reader checks pinned compressed bytes, gzip integrity,
+streaming decompression limits and strict JSON structure while selecting actor
+or reserve rows. Its count and scan proof describe parser input only; yielded
+rows remain provisional until the complete stream verifies. Manufactured
+6,599-row fixtures test parser mechanics, not a native full run. This reader
+does not bind an outer attempt, order intent, accepted-fill history, independent
+accounting or terminal settlement. Full B4, formal G0/G2 and economic evidence
+remain unestablished by this component; no financial conditions change.

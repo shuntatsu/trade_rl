@@ -63,8 +63,18 @@ def test_zero_residual_preserves_captured_legacy_identity_and_complete_trace():
                     evidence.funding_rates, evidence.mark_prices, strict=True
                 )
             )
-            # This golden predates only the additional funding-product field.
+            # This golden predates the additional funding-product field.
             del record["funding_price_rates"]
+        for event, record in zip(
+            execution.order_events, snapshot["order_events"], strict=True
+        ):
+            # This unquantized fixture retains v1 canonical bytes. Dataclass
+            # inspection also sees the new defaults; remove only those fields
+            # before checking every earlier field against the original golden.
+            assert event.schema_version == "order_event_v1"
+            assert event.filled_lot_count is None and event.lot_size == 0.0
+            assert record.pop("filled_lot_count") is None
+            assert record.pop("lot_size") == 0.0
         return snapshot
 
     ex, book, orders, kwargs = setup()

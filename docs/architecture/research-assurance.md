@@ -2495,3 +2495,20 @@ them. Source bytes, manifests, receipts, attempt identity and the outer tree are
 authenticated. Intent/admission, independent charges/carry/settlement/drawdown and
 terminal-flat proof remain required for full B4; this component grants no G0/G1/G2,
 R3, profit, unused-period or live authority.
+
+## Native/comparison declaration equality is static evidence
+
+H's unchanged native runner accepts its source-bound v3 declaration; the
+independent exact-fill comparator consumes a distinct H-bound v4 declaration.
+`load_declared_protocol_pair` pins both documents independently and requires
+their complete shared declarations to agree. It does not relabel native v3 as
+v4, modify the producer, or change any financial assumption or acceptance gate.
+
+Software falsifiers cover coherently rehashed shared-field changes, foreign
+source heads, schema confusion, malformed/oversized JSON, same-file aliases and
+observed changes during validation. Positive equality and raw pin rechecks do
+not prove future process consumption or freshness. A fresh execution must be
+established by an outer runtime/provenance binding before admission; an existing
+attempt, copied protocol or new identifier cannot satisfy that requirement.
+Design review, static equality and software tests supply no full B4, formal
+G0/G2, economic, R3, unused-period or live authorization.

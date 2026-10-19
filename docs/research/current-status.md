@@ -3641,10 +3641,27 @@ one-bar clocks and parses batches. Empty arrays count as present; absent, null a
 non-array batches reject. Invalid native clocks remain rejected coverage, not
 accepted evidence.
 
-Manufactured row, verifier and architecture cases pass locally. Exact-head independent
-review and required full gates remain pending; no market runtime results are asserted. Input is parsed row
+Manufactured row, verifier and architecture cases exercise this software boundary.
+Independent review and full-gate evidence are bound to each PR's exact source revision;
+no market runtime results are asserted. Input is parsed row
 dictionaries, not original bytes or an authenticated receipt. Prefix/presence counts
 do not establish a completed attempt. Outer-tree/attempt verification,
 intent/admission, independent accounting and terminal settlement remain necessary
 for full B4. G v3 and financial assumptions are unchanged; no formal G0-G2, R3,
 profit, unused-period or live authority follows.
+
+## Issue #810: distinct native/comparison declaration pair candidate
+
+The next static prerequisite pairs the unchanged H native v3 protocol with the
+separate H-bound v4 comparison declaration. Independent source reconstruction
+and public-loader readback agree on H's declaration for four workers. Pairing
+checks complete shared-field equality and both independent raw pins, retaining
+distinct immutable snapshots without relabeling either document.
+
+The design received a result-blind AGY review. Implementation source review and
+required final gates remain separate. A future fresh H v3 execution can use the
+distinct v4 comparison document only with an outer binding that proves actual
+freshness, runtime provenance and both consumers' exact inputs. Existing H/G
+attempts cannot be promoted by this static check. Outer receipt verification,
+intent/admission, independent accounting and terminal settlement remain open;
+no new fit, market run, profit, full B4, formal G0/G2 or live evidence is supplied.

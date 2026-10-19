@@ -2178,3 +2178,29 @@ an error object; reserve `clock_valid` must be boolean. False clocks remain reje
 evidence. The one-pass callback streams immutable advances without retaining the
 chain; this does not replace outer receipt, intent/admission, independent accounting
 or terminal proof.
+
+## Distinct native and comparison protocol declarations
+
+`load_declared_protocol_pair` checks two independently pinned, distinct regular
+files. The native H document retains its v3 schema; the comparator document
+retains its v4 schema and exact-fill declaration. H is pinned to
+`d361b6e3c3cdc83a8f5f05da9f82e1f72b66e3e5`. Its `market_protocol(max_workers=4)`
+declaration was independently reconstructed from committed source constants and
+pure functions, then checked against the native public loader control. Its
+6,776-byte canonical SHA-256 is
+`742e883b405a0d7f600998b820a190f872673f1a439d56dd3b8001a6cf017393`.
+
+The pair loader preserves the existing G/v3 and H/v4 loaders. Both files are
+bounded to 1 MiB and parsed with strict JSON rules. Projecting v4 by removing only
+`exact_fill_evidence` and restoring the v3 schema must equal the complete H/v3
+declaration. All shared source, schedule, policy and financial fields therefore
+remain fixed. The returned frozen object retains separate raw pins and immutable
+canonical byte snapshots under scope `STATIC_DECLARED_PROTOCOL_PAIR_ONLY`.
+Same-file aliases reject, and both raw pins are rechecked before return.
+
+This relationship does not attest which bytes a later process consumes. A fresh
+H native v3 execution may be paired with the distinct comparator v4 declaration
+only when a subsequent outer binding establishes actual freshness, execution
+provenance and both consumers' exact inputs. Existing attempts cannot acquire
+freshness through a copied file, new UUID or static pair. Runtime binding,
+intent/admission, full financial replay and terminal proof remain required.

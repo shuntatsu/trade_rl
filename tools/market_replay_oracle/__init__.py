@@ -22,6 +22,10 @@ from tools.market_replay_oracle.exact_fill_binding import (
     load_pinned_exact_fill_attempt,
 )
 from tools.market_replay_oracle.protocol import ProtocolPin
+from tools.market_replay_oracle.protocol_pair import (
+    DeclaredProtocolPair,
+    load_declared_protocol_pair,
+)
 from tools.market_replay_oracle.source import NativeSourcePin
 
 __all__ = [
@@ -41,4 +45,6 @@ __all__ = [
     "BoundEventAdvance",
     "BoundEventRowCoverage",
     "walk_bound_event_rows",
+    "DeclaredProtocolPair",
+    "load_declared_protocol_pair",
 ]

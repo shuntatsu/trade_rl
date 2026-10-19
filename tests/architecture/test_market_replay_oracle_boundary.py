@@ -98,6 +98,8 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "BoundEventAdvance",
         "BoundEventRowCoverage",
         "walk_bound_event_rows",
+        "DeclaredProtocolPair",
+        "load_declared_protocol_pair",
     ]
 
     exports = None

@@ -2035,7 +2035,8 @@ exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
 `EventBatchPin`, `OrderEventContext`, `OrderEventEvidence`,
 `read_pinned_order_events`, `ExactFillAttemptBinding`,
 `load_pinned_exact_fill_attempt`, `BoundEventAdvance`, `BoundEventRowCoverage`, and
-`walk_bound_event_rows`.
+`walk_bound_event_rows`, plus `DeclaredProtocolPair` and
+`load_declared_protocol_pair`.
 The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
 manifest, supported static profile fingerprints, and verified Dataset pins. It binds
 the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
@@ -2109,3 +2110,14 @@ not to total process memory. The facade adds only the two immutable coverage typ
 and walker. Outer receipt/progress/attempt verification, full chain closure,
 intent/admission, independent accounting and terminal settlement remain required for
 B4.
+
+## Declared protocol pair boundary
+
+`protocol_pair.py` separately compares H's native v3 declaration with the H-bound
+v4 comparison declaration. It imports neither the native runner nor production
+code, and it leaves both existing protocol loaders unchanged. Its public frozen
+result keeps independent `ProtocolPin` objects and immutable canonical bytes.
+It reads only two bounded protocol files, rejects same-file aliases and observed
+raw-byte changes, and grants only `STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope.
+Outer attempt freshness, runtime consumer binding, receipt authentication and
+financial replay remain separate responsibilities.

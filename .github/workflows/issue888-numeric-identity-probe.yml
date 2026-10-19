@@ -20,10 +20,13 @@ jobs:
           python-version: "3.12"
       - name: Install locked project
         run: uv sync --locked --extra dev
+      - name: Ruff exact format differential
+        run: uv run ruff format --diff tests/simulation/test_orders.py || true
       - name: Targeted lint and format
         run: |
           uv run ruff check tests/simulation/test_orders.py trade_rl/simulation/orders/model.py
           uv run ruff format --check tests/simulation/test_orders.py trade_rl/simulation/orders/model.py
       - name: Numeric identity and rejection regressions
+        if: always()
         run: |
           uv run pytest -q tests/simulation/test_orders.py tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_after_cost_allocation.py tests/simulation/test_market_order_profile.py

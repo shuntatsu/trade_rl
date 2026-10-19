@@ -26,6 +26,8 @@ jobs:
           uv run ruff format --diff trade_rl/evaluation/allocation.py || true
       - name: Formatter delta (diagnostic)
         run: uv run ruff format --diff trade_rl/simulation/orders/model.py || true
+      - name: Test source formatter diff
+        run: uv run ruff format --diff tests/evaluation/test_terminal_order_fastpath.py || true
       - name: Ruff and format
         run: |
           uv run ruff check tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_allocation_snapshot.py

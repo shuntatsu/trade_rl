@@ -1,0 +1,28 @@
+name: Issue888 Terminal Archive Regression Probe
+on:
+  push:
+    branches:
+      - codex/issue888-terminal-archive-integrity
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --locked --extra dev
+      - name: Ruff and format
+        run: |
+          uv run ruff check tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_allocation_snapshot.py
+          uv run ruff format --check tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_allocation_snapshot.py
+      - name: Archive and snapshot regression pytest
+        run: uv run pytest -q tests/evaluation/test_terminal_order_fastpath.py tests/evaluation/test_allocation_snapshot.py

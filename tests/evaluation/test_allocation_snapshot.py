@@ -620,3 +620,16 @@ def test_public_progress_above_native_minimum_fill_remains_observable(requested)
     assert item.active_orders[0]["exact_cumulative_filled_quantity"] == str(
         Fraction("1.1e-12")
     )
+
+
+def test_snapshot_rejects_forged_terminal_order_before_account_evidence() -> None:
+    executor, book, risk = runtime()
+    valid = order(executor).cancel(processing_index=1, reason="cancelled")
+    accepted = OrderBookState(active_orders=(), terminal_orders=(valid,))
+    baseline = capture(executor, book, risk, accepted)
+    assert baseline.source_state_digest
+
+    forged = replace(valid, intent=replace(valid.intent, order_id="f" * 64))
+    with pytest.raises(ValueError, match="order intent identity digest mismatch"):
+        invalid = OrderBookState(active_orders=(), terminal_orders=(forged,))
+        capture(executor, book, risk, invalid)

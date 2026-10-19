@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict
+from dataclasses import asdict, fields, replace
 
 import pytest
 
@@ -13,6 +13,7 @@ from trade_rl.evaluation.rl_allocation._native_progress import (
 )
 from trade_rl.evaluation.rl_allocation.transition_facts import _pending
 from trade_rl.simulation.orders.model import (
+    OrderBookState,
     OrderDomainError,
     OrderIntent,
     OrderType,
@@ -210,3 +211,96 @@ def test_terminal_order_clock_ahead_rejection_parity() -> None:
         start_index=4,
     )
     assert ctx_archive.state_digest == ctx_tuple.state_digest
+
+
+def test_archive_retains_only_linear_immutable_snapshots() -> None:
+    """Appending may not retain a copied all-history tuple per node."""
+    archive = TerminalOrderArchive()
+    originals = []
+    past = [archive]
+    for index in range(128):
+        order = _make_terminal_order(index)
+        originals.append(order)
+        archive = archive.append(order)
+        past.append(archive)
+
+    node = archive._tail
+    seen = []
+    while node is not None:
+        names = {field.name for field in fields(node)}
+        assert "_order_bytes" in names
+        assert "asdict_tuple" not in names
+        assert "asdict_payload" not in names
+        assert type(node._order_bytes) is bytes
+        seen.append(node)
+        node = node.previous
+    assert len(seen) == 128
+    assert sum(len(node._order_bytes) for node in seen) == sum(
+        len(canonical_json_bytes(asdict(order))) for order in originals
+    )
+    assert past[0].asdict_tuple == ()
+    for index in (1, 2, 64, 128):
+        assert past[index].asdict_tuple == tuple(
+            asdict(order) for order in originals[:index]
+        )
+
+
+def test_archive_seals_original_order_and_detaches_public_order_views() -> None:
+    original = _make_terminal_order(0)
+    expected = asdict(original)
+    archive = TerminalOrderArchive((original,))
+    cached = _terminal_orders_sha256(archive)
+
+    # A caller retaining the original PendingOrder is not allowed to alter
+    # native archive facts after a successful append.
+    object.__setattr__(original, "terminal_reason", "changed_after_append")
+    assert asdict(archive[-1]) == expected
+
+    # The public iterator/index accessors expose detached objects, not the
+    # sealed order owned by the archive or its cached progress digest.
+    exposed = archive[-1]
+    object.__setattr__(exposed, "terminal_reason", "changed_in_view")
+    object.__setattr__(exposed.intent, "target_identity", "changed_in_view")
+    assert asdict(next(iter(archive))) == expected
+
+    tail = archive._tail
+    assert tail is not None
+    internal_view = tail.order
+    object.__setattr__(internal_view, "terminal_reason", "changed_via_tail")
+    assert asdict(archive[-1]) == expected
+
+    assert _terminal_orders_sha256(archive) == cached
+    assert _terminal_orders_sha256(tuple(archive)) == cached
+
+
+def test_archive_asdict_materialization_does_not_alias_future_receipts() -> None:
+    orders = tuple(_make_terminal_order(i) for i in range(4))
+    archive = TerminalOrderArchive(orders)
+    before = canonical_json_bytes(tuple(asdict(order) for order in orders))
+    earlier = archive.asdict_tuple
+    earlier[0]["intent"]["target_identity"] = "forged"
+    earlier[-1]["terminal_reason"] = "forged"
+    assert canonical_json_bytes(archive.asdict_tuple) == before
+
+    branched = archive.append(_make_terminal_order(10))
+    assert canonical_json_bytes(archive.asdict_tuple) == before
+    assert canonical_json_bytes(branched.asdict_tuple[:-1]) == before
+    assert _terminal_orders_sha256(archive) == _terminal_orders_sha256(tuple(orders))
+
+
+@pytest.mark.parametrize(
+    "change", ["order_id", "target_identity", "execution_policy_digest"]
+)
+def test_terminal_archive_rejects_noncanonical_intent_at_trust_boundary(
+    change: str,
+) -> None:
+    original = _make_terminal_order(0)
+    invalid_value = "f" * 64 if change != "target_identity" else "forged-identity"
+    forged = replace(
+        original,
+        intent=replace(original.intent, **{change: invalid_value}),
+    )
+    with pytest.raises(OrderDomainError, match="order intent identity digest mismatch"):
+        TerminalOrderArchive((forged,))
+    with pytest.raises(OrderDomainError, match="order intent identity digest mismatch"):
+        OrderBookState(active_orders=(), terminal_orders=(forged,))

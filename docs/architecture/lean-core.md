@@ -2162,3 +2162,19 @@ collect or authenticate the outer attempt/receipt/progress, establish order-inte
 admission history, reconcile all actor and reserve advances, or calculate an independent
 cash/equity ledger. The full 6,599-advance B4 replay and G0/G2 evidence remain incomplete;
 no R3, G3/G4, profit, unused-period, or live authority follows.
+
+## Streaming bound event-row coverage
+
+`walk_bound_event_rows` observes one frozen arm across 6,527 actor rows `[2903,
+9430)` and 72 reserve rows `[9430, 9502)`, totaling 6,599 one-bar advances. Actor
+rows match `ExactFillAttemptBinding.event_context(account, scenario, role, count)`
+for outer decision clocks and native decision/processing clocks and symbol; reserve rows bind outer
+start/processing clocks. When native output exists, `native.execution.next_index`
+matches the expected processing index and `bars_advanced == 1`.
+
+Each `order_events` batch uses the existing reader: `[]` is present, while missing,
+null or non-array rejects. Actor `native_validation_failure` is required as null or
+an error object; reserve `clock_valid` must be boolean. False clocks remain rejected
+evidence. The one-pass callback streams immutable advances without retaining the
+chain; this does not replace outer receipt, intent/admission, independent accounting
+or terminal proof.

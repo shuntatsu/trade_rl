@@ -95,6 +95,9 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "read_pinned_order_events",
         "ExactFillAttemptBinding",
         "load_pinned_exact_fill_attempt",
+        "BoundEventAdvance",
+        "BoundEventRowCoverage",
+        "walk_bound_event_rows",
     ]
 
     exports = None

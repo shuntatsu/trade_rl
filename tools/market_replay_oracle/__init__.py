@@ -6,6 +6,11 @@ from tools.market_replay_oracle.artifact import (
     load_pinned_v4,
 )
 from tools.market_replay_oracle.binding import FrozenAttemptBinding, load_pinned_attempt
+from tools.market_replay_oracle.event_chain import (
+    BoundEventAdvance,
+    BoundEventRowCoverage,
+    walk_bound_event_rows,
+)
 from tools.market_replay_oracle.events import (
     EventBatchPin,
     OrderEventContext,
@@ -33,4 +38,7 @@ __all__ = [
     "read_pinned_order_events",
     "ExactFillAttemptBinding",
     "load_pinned_exact_fill_attempt",
+    "BoundEventAdvance",
+    "BoundEventRowCoverage",
+    "walk_bound_event_rows",
 ]

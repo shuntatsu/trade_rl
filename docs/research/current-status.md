@@ -3632,3 +3632,19 @@ authentication, intent history, admission, native costs/accounting and full 6,59
 replay remain unresolved. It does not complete B4 or protocol-authenticated v4, change
 the frozen G v3 financial assumptions, or establish G0/G2, profit, R3, unused-period or
 live authority.
+
+## Issue #810: streaming bound event-row coverage candidate
+
+The candidate walker streams one arm: 6,527 actor advances `[2903, 9430)` and 72
+reserve advances `[9430, 9502)`. It binds actor rows to event contexts, checks
+one-bar clocks and parses batches. Empty arrays count as present; absent, null and
+non-array batches reject. Invalid native clocks remain rejected coverage, not
+accepted evidence.
+
+Manufactured row, verifier and architecture cases pass locally. Exact-head independent
+review and required full gates remain pending; no market runtime results are asserted. Input is parsed row
+dictionaries, not original bytes or an authenticated receipt. Prefix/presence counts
+do not establish a completed attempt. Outer-tree/attempt verification,
+intent/admission, independent accounting and terminal settlement remain necessary
+for full B4. G v3 and financial assumptions are unchanged; no formal G0-G2, R3,
+profit, unused-period or live authority follows.

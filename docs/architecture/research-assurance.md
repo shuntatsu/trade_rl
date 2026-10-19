@@ -2475,3 +2475,23 @@ authenticate source/outer receipt/attempt, reconstruct order intent/history, or 
 admission. It does not calculate costs or account transitions and is not the complete
 6,599-advance B4 replay or a protocol-authenticated v4 check. No G0/G2, profit, R3 or
 live authority follows; native execution/accounting remain the only authoritative ledger.
+
+## Bound event-row coverage is a software prerequisite only
+
+The G0-shaped software question is whether a one-pass walk preserves frozen
+actor/reserve clocks while reporting batch presence and rejected native rows. It is
+not the economic G0 hypothesis or a formal G0 disposition. G1 fixes one arm, 6,527
+actor advances, 72 reserve advances, source and financial assumptions; risk, cost,
+capital and adoption thresholds do not change.
+
+G2 falsifiers include absent/null/non-array versus empty batches, shifted/duplicate
+clocks, foreign context, skipped advances, malformed failure/clock fields, missing
+non-tail native data, callback errors and incomplete prefixes. `clock_valid ==
+false` remains rejected; batch presence may be complete while rows are rejected.
+These are software cases, not market observations or economic results.
+
+Rows are caller-supplied dictionaries and canonical batch bytes are derived from
+them. Source bytes, manifests, receipts, attempt identity and the outer tree are not
+authenticated. Intent/admission, independent charges/carry/settlement/drawdown and
+terminal-flat proof remain required for full B4; this component grants no G0/G1/G2,
+R3, profit, unused-period or live authority.

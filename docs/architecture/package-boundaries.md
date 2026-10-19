@@ -2033,8 +2033,9 @@ API and is not a complete B4 adapter.
 exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
 `ProtocolPin`, `NativeSourcePin`, `FrozenAttemptBinding`, `load_pinned_attempt`,
 `EventBatchPin`, `OrderEventContext`, `OrderEventEvidence`,
-`read_pinned_order_events`, `ExactFillAttemptBinding`, and
-`load_pinned_exact_fill_attempt`.
+`read_pinned_order_events`, `ExactFillAttemptBinding`,
+`load_pinned_exact_fill_attempt`, `BoundEventAdvance`, `BoundEventRowCoverage`, and
+`walk_bound_event_rows`.
 The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
 manifest, supported static profile fingerprints, and verified Dataset pins. It binds
 the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
@@ -2052,8 +2053,8 @@ G-bound v3 protocol. It consumes the exact-source v4 protocol through an indepen
 validator/schedule path; it does not coerce v4 to v3. `ExactFillAttemptBinding.event_context`
 derives a one-advance `OrderEventContext` from verified processing-row content, including
 the effective lot used to validate v1/v2 event quantities. The v4 protocol keeps the
-frozen financial and schedule fields unchanged. Only the two binding names above are
-added to the closed facade; protocol-v4 loading and schedule helpers remain module-local.
+frozen financial and schedule fields unchanged. The H-bound path contributes the two
+binding names above; protocol-v4 loading and schedule helpers remain module-local.
 
 This remains static input binding. It does not verify an outer attempt receipt or
 progress stream, collect a complete 6,599-advance event chain, prove intent/admission or
@@ -2074,3 +2075,37 @@ must carry no fill.
 The result is immutable parsed evidence, not accepted-order or accounting authority.
 The caller must authenticate the outer receipt/attempt and derive effective-lot context;
 intent history, admission, costs and a complete B4 replay remain outside the package.
+
+## Streaming bound event-row coverage
+
+`walk_bound_event_rows` accepts parsed actor/reserve row dictionaries for one arm.
+Direct dictionary validation avoids a duplicate projection schema; its one-pass
+callback lets a later accounting consumer handle advances without retaining all
+batches. It composes with H-bound exact-source v4 contexts and leaves G-bound v3
+unchanged.
+
+The schedule is 6,527 actor advances `[2903, 9430)` plus 72 reserve advances `[9430,
+9502)`. Actor rows bind outer/native decision and processing clocks and symbol;
+reserve rows bind outer start/processing clocks. When native output exists,
+`native.execution.next_index` must match the expected processing index and
+`bars_advanced == 1`. Actor `native_validation_failure` is required as null or an
+error object; reserve `clock_valid` is boolean. False clock rows are retained as
+rejected. `native is None` is allowed only for the final actor when there is no
+reserve and no validation failure.
+
+`order_events: []` is present and valid; missing, null or non-array rejects. Each
+batch uses `read_pinned_order_events`. The callback emits immutable
+`BoundEventAdvance(count, phase, context, events, native_rejected)`, with parsed
+event tuples, including rejected native rows, or `None` for an explicit missing
+actor-native tail; callback errors propagate without
+a summary. `BoundEventRowCoverage` reports the binding digest, arm,
+expected/observed actor/reserve counts, parsed batches, event count, rejected native
+rows and tail-native-missing state. `all_expected_batches_present` is presence only
+and may be true with rejects; prefix coverage never qualifies a completed attempt.
+
+Inputs are parsed dictionaries, not original receipt/source bytes; canonical batch
+bytes are derived in memory. The existing 1 MiB/event-count limits apply per batch,
+not to total process memory. The facade adds only the two immutable coverage types
+and walker. Outer receipt/progress/attempt verification, full chain closure,
+intent/admission, independent accounting and terminal settlement remain required for
+B4.

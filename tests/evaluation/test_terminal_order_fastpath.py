@@ -398,8 +398,6 @@ def test_archived_digest_falls_back_if_json_encoder_is_patched(
 
     with monkeypatch.context() as patch:
         patch.setattr(canonical.json.JSONEncoder, "iterencode", changed_encoder)
-        expected = content_digest(
-            {**payload, "terminal_orders": archive.asdict_tuple}
-        )
+        expected = content_digest({**payload, "terminal_orders": archive.asdict_tuple})
         assert expected != original_bytes
         assert _archived_context_digest(payload, archive) == expected

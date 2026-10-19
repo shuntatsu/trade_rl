@@ -725,7 +725,15 @@ original #912 code, seven purpose-built negative tests failed, reproducing
 noncanonical terminal intent acceptance, mutable order/map aliasing and O(n²)
 retained `asdict_tuple` prefixes. The repaired archive validates each
 terminal intent and exact fill evidence **before** sealing its per-order
-canonical bytes. Public order and mapping views are detached. Its
+canonical bytes. Subsequent full-Core integration checks exposed two historically
+legitimate orders created from raw integer quantities/prices, whose IDs were
+hashed before the stored numeric representation became float. A separate
+exact-numeric-alias regression was RED for six legitimate combinations,
+then GREEN without changing the issued IDs or the original clock/market-order
+test assertions. Additional seven RED cases showed that Python/NumPy boolean
+numeric fields were accepted or raised an unrelated serialization exception;
+creation now rejects these as domain errors before hashing. A changed
+economic quantity still cannot impersonate any accepted integer/float alias. Public order and mapping views are detached. Its
 `_context` reader streams sealed bytes in canonical sorted-key order, rather
 than rematerializing all orders on each decision. The original public digest
 is the fallback when the serializer or JSON converter/encoder functions

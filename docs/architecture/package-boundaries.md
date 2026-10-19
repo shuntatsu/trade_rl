@@ -950,7 +950,13 @@ its terminal-order validation. `OrderBookState` normalizes untrusted terminal
 sequences, and new terminal transitions pass through
 `PendingOrder.from_mapping` once before appending. The archive owns immutable,
 canonical per-order JSON bytes in a linked historical prefix, **not** growing
-copies of every previous mapping. Its public order views and `asdict_tuple`
+copies of every previous mapping. `OrderIntent.create` historically hashes
+integer-versus-float JSON representations before normalizing stored financial
+values to floats. Its mapping reader therefore verifies only the finitely
+enumerable exact integer/float aliases of integral financial fields and
+preserves the originally issued order ID; altered quantities and other
+unexplained identities fail closed. Python/NumPy boolean financial inputs
+are rejected before identity generation. Its public order views and `asdict_tuple`
 materialization are detached; callers cannot mutate older order evidence or
 previous snapshots by changing returned dictionaries, dataclasses or the
 objects originally submitted. Ordinary `object.__setattr__` attacks on

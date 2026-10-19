@@ -697,6 +697,17 @@ delivers ~17% higher overall throughput for the 48-cell Tier D matrix (~1.89h vs
 The measured source stays pinned to `fcae9e288c25`; later
 documentation commits do not rebind it.
 
+At implementation commit `8b74dfba4`, `TerminalOrderArchive` and `_TerminalOrderNode`
+provide incremental $O(1)$ metadata caching (`asdict_tuple`, `max_clock_index`) and
+`_native_progress.py` adopts `weakref.WeakKeyDictionary` incremental hash caching.
+Across 2,000 accumulated terminal orders on Windows/Python 3.12.0:
+- `_terminal_orders_sha256` dropped from `60.4 ms` to `0.61 ms` (`99.2x` speedup).
+- `snapshot_allocation_account` per-call overhead dropped from `100.8 ms` to `26.59 ms` (`3.79x` speedup).
+- `_context` dropped from `64.2 ms` to `27.54 ms` (`2.33x` speedup).
+Combined per-advance overhead for 2,000 terminal orders dropped from ~`486 ms / step` to ~`108 ms / step`
+(`4.5x` speedup), eliminating the quadratic $O(T^2)$ episode bottleneck as $t \to 6,599$.
+The measured source stays pinned to `8b74dfba4`; later documentation commits do not rebind it.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

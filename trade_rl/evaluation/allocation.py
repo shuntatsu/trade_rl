@@ -16,7 +16,11 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import MarketExecutor
-from trade_rl.simulation.orders.model import OrderBookState, OrderType
+from trade_rl.simulation.orders.model import (
+    OrderBookState,
+    OrderType,
+    TerminalOrderArchive,
+)
 from trade_rl.simulation.stateful.execution import StatefulExecutionResult
 from trade_rl.simulation.targets.execution import (
     execute_quantity_hold_statefully,
@@ -116,15 +120,20 @@ def _context(
             or (order.trigger_index is not None and order.trigger_index > start_index)
         ):
             raise ValueError("pending order clock is incompatible with this decision")
-    if any(
-        order.intent.submit_index > start_index
-        or (
-            order.last_processed_index is not None
-            and order.last_processed_index > start_index
+    terminal_clock_ahead = (
+        order_book.terminal_orders.max_clock_index > start_index
+        if isinstance(order_book.terminal_orders, TerminalOrderArchive)
+        else any(
+            order.intent.submit_index > start_index
+            or (
+                order.last_processed_index is not None
+                and order.last_processed_index > start_index
+            )
+            or (order.trigger_index is not None and order.trigger_index > start_index)
+            for order in order_book.terminal_orders
         )
-        or (order.trigger_index is not None and order.trigger_index > start_index)
-        for order in order_book.terminal_orders
-    ):
+    )
+    if terminal_clock_ahead:
         raise ValueError("terminal order clock is ahead of the decision")
     # Bind the full canonical book, including accepted exact quantity evidence.
     # No free-cash reservation, reconstructed P&L or second ledger is invented.
@@ -149,8 +158,10 @@ def _context(
             "decision_time": str(dataset.timestamps[start_index]),
             "book": book_facts,
             "active_orders": tuple(asdict(order) for order in order_book.active_orders),
-            "terminal_orders": tuple(
-                asdict(order) for order in order_book.terminal_orders
+            "terminal_orders": (
+                order_book.terminal_orders.asdict_tuple
+                if isinstance(order_book.terminal_orders, TerminalOrderArchive)
+                else tuple(asdict(order) for order in order_book.terminal_orders)
             ),
         }
     )

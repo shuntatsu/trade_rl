@@ -678,13 +678,16 @@ class PendingOrder:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True, eq=False)
 class _TerminalOrderNode:
     order: PendingOrder
     previous: _TerminalOrderNode | None
     length: int
     max_submit_index: int
     order_ids_at_max_submit: frozenset[str]
+    max_clock_index: int
+    asdict_payload: dict[str, object]
+    asdict_tuple: tuple[dict[str, object], ...]
 
 
 class TerminalOrderArchive(Sequence[PendingOrder]):
@@ -709,6 +712,13 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         previous: _TerminalOrderNode | None,
         order: PendingOrder,
     ) -> _TerminalOrderNode:
+        if not order.terminal:
+            raise OrderDomainError("terminal archive requires terminal orders")
+        if order.exact_cumulative_filled_quantity is None:
+            raise OrderDomainError(
+                "terminal order exact_cumulative_filled_quantity missing"
+            )
+        asdict_payload = asdict(order)
         submit_index = order.intent.submit_index
         previous_max = -1 if previous is None else previous.max_submit_index
         if submit_index > previous_max:
@@ -723,12 +733,33 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         else:
             max_submit_index = previous_max
             ids = frozenset() if previous is None else previous.order_ids_at_max_submit
+
+        order_clock = max(
+            submit_index,
+            order.last_processed_index
+            if order.last_processed_index is not None
+            else -1,
+            order.trigger_index if order.trigger_index is not None else -1,
+        )
+        max_clock_index = (
+            order_clock
+            if previous is None
+            else max(previous.max_clock_index, order_clock)
+        )
+        asdict_tuple = (
+            (asdict_payload,)
+            if previous is None
+            else previous.asdict_tuple + (asdict_payload,)
+        )
         return _TerminalOrderNode(
             order=order,
             previous=previous,
             length=1 if previous is None else previous.length + 1,
             max_submit_index=max_submit_index,
             order_ids_at_max_submit=ids,
+            max_clock_index=max_clock_index,
+            asdict_payload=asdict_payload,
+            asdict_tuple=asdict_tuple,
         )
 
     @classmethod
@@ -748,6 +779,14 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     @property
     def max_submit_index(self) -> int:
         return -1 if self._tail is None else self._tail.max_submit_index
+
+    @property
+    def max_clock_index(self) -> int:
+        return -1 if self._tail is None else self._tail.max_clock_index
+
+    @property
+    def asdict_tuple(self) -> tuple[dict[str, object], ...]:
+        return () if self._tail is None else self._tail.asdict_tuple
 
     @property
     def order_ids_at_max_submit(self) -> frozenset[str]:

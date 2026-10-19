@@ -17,6 +17,7 @@ from trade_rl.simulation.orders.model import (
     _QUANTITY_TOLERANCE,
     OrderBookState,
     PendingOrder,
+    TerminalOrderArchive,
     _quantity_tolerance,
 )
 from trade_rl.simulation.quantities import exact_quantity, parse_quantity
@@ -62,7 +63,12 @@ def snapshot_allocation_account(
     book.validate_processing_clock(
         dataset_id=dataset.dataset_id, index=start_index, require_known=True
     )
-    for order in (*order_book.active_orders, *order_book.terminal_orders):
+    orders_to_check = (
+        order_book.active_orders
+        if isinstance(order_book.terminal_orders, TerminalOrderArchive)
+        else (*order_book.active_orders, *order_book.terminal_orders)
+    )
+    for order in orders_to_check:
         # Raw dataclass construction does not enforce canonical intent identity.
         restored = PendingOrder.from_mapping(asdict(order))
         assert restored.exact_cumulative_filled_quantity is not None

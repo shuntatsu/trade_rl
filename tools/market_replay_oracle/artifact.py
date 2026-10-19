@@ -200,8 +200,7 @@ def _arrays(raw: bytes, descriptions: object) -> dict[str, NDArray[Any]]:
             if (
                 len(members) != len(_NAMES)
                 or any(i.orig_filename != i.filename for i in members)
-                or {i.filename for i in members}
-                != {name + ".npy" for name in _NAMES}
+                or {i.filename for i in members} != {name + ".npy" for name in _NAMES}
             ):
                 raise ValueError("NPZ requires exactly the unique 43 safe NPY members")
             if sum(i.file_size for i in members) > len(raw):

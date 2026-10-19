@@ -62,8 +62,7 @@ def _archived_context_digest(
         and canonical.json.JSONEncoder.iterencode.__code__
         is _CANONICAL_JSON_ITERENCODE_CODE
         and canonical.json.JSONEncoder.default is _CANONICAL_JSON_DEFAULT
-        and canonical.json.JSONEncoder.default.__code__
-        is _CANONICAL_JSON_DEFAULT_CODE
+        and canonical.json.JSONEncoder.default.__code__ is _CANONICAL_JSON_DEFAULT_CODE
     )
     if compatible:
         encoded = canonical_json_bytes({**payload, "terminal_orders": ()})

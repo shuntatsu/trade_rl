@@ -22,6 +22,7 @@ from trade_rl.simulation.quantities import (
 )
 
 ORDER_EVENT_SCHEMA = "order_event_v1"
+ORDER_EVENT_LOT_SCHEMA = "order_event_v2"
 _QUANTITY_TOLERANCE = 1e-12
 _QUANTITY_ULPS = 32
 
@@ -1044,12 +1045,34 @@ class OrderEvent:
     path_mode: str
     path_points: tuple[float, ...]
     reduce_only: bool = False
+    filled_lot_count: int | None = None
+    lot_size: float = 0.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.reduce_only, bool):
             raise OrderDomainError("reduce_only must be a boolean")
-        if self.schema_version != ORDER_EVENT_SCHEMA:
+        if self.schema_version not in (ORDER_EVENT_SCHEMA, ORDER_EVENT_LOT_SCHEMA):
             raise OrderDomainError("order event schema is unsupported")
+        if self.schema_version == ORDER_EVENT_SCHEMA:
+            if self.filled_lot_count is not None or self.lot_size != 0.0:
+                raise OrderDomainError("legacy order events have no exact lot evidence")
+        else:
+            if (
+                self.event_type not in {"filled", "partial_fill"}
+                or isinstance(self.lot_size, bool)
+                or not _is_finite(self.lot_size)
+                or self.lot_size <= 0.0
+                or self.filled_lot_count is None
+            ):
+                raise OrderDomainError("exact lot evidence requires a quantized fill")
+            try:
+                accepted_fill_quantity(
+                    self.filled_quantity,
+                    lot_size=self.lot_size,
+                    lot_count=self.filled_lot_count,
+                )
+            except ValueError as error:
+                raise OrderDomainError("invalid exact fill lot evidence") from error
         if (
             isinstance(self.sequence, bool)
             or not isinstance(self.sequence, int)
@@ -1153,11 +1176,19 @@ class OrderEvent:
             "timestamp_ns",
             "trigger_segment",
         }
+        schema = value.get("schema_version")
+        if schema == ORDER_EVENT_LOT_SCHEMA:
+            required |= {"filled_lot_count", "lot_size"}
         if set(value) not in (required, required | {"reduce_only"}):
             raise OrderDomainError("order event field closure mismatch")
         reduce_only = value.get("reduce_only", False)
         if not isinstance(reduce_only, bool):
             raise OrderDomainError("reduce_only must be a boolean")
+        lot_count = value.get("filled_lot_count")
+        if lot_count is not None and (
+            isinstance(lot_count, bool) or not isinstance(lot_count, int)
+        ):
+            raise OrderDomainError("filled_lot_count must be an integer or null")
 
         def string(field: str) -> str:
             raw = value[field]
@@ -1231,6 +1262,8 @@ class OrderEvent:
             path_mode=string("path_mode"),
             path_points=tuple(float(item) for item in raw_path_points),
             reduce_only=reduce_only,
+            filled_lot_count=lot_count,
+            lot_size=number("lot_size") if schema == ORDER_EVENT_LOT_SCHEMA else 0.0,
         )
 
     def canonical_payload(self) -> dict[str, object]:
@@ -1238,6 +1271,9 @@ class OrderEvent:
         payload["previous_status"] = self.previous_status.value
         payload["new_status"] = self.new_status.value
         payload["path_points"] = list(self.path_points)
+        if self.schema_version == ORDER_EVENT_SCHEMA:
+            payload.pop("filled_lot_count")
+            payload.pop("lot_size")
         if not self.reduce_only:
             payload.pop("reduce_only")
         return payload

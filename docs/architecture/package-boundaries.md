@@ -979,6 +979,15 @@ the *new* order still costs work. A complete context digest still visits every
 retained terminal byte: O(n) per read, potentially O(T²) over T advancing
 steps. This is not a claim of end-to-end linear replay time.
 
+`OrderEvent` and its closed mapping reader/canonical payload also belong to
+`simulation/orders/model.py`. The stateful runtime consumes that lower-level
+event type; the order model does not depend on stateful runtime or evaluation.
+OrderEvent v2 carries the allocator's accepted signed lot count and effective
+lot size for quantized complete/partial fills, while v1 decoding and canonical
+bytes retain their original field set. Monetary fill calculations remain on
+the existing float path. This event evidence does not by itself provide an
+independent raw-market B4 account ledger.
+
 At an explicit process-worker transport boundary, `TerminalOrderArchive.__reduce__`
 flattens the sealed linked history into one ordered tuple of detached validated
 `PendingOrder` values for pickle, then restores the archive through its

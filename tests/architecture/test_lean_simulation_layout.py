@@ -156,3 +156,40 @@ def test_simulation_tree_has_no_retired_private_imports_or_upward_dependencies()
         if invalid:
             offenders.append((str(path.relative_to(ROOT)), invalid))
     assert offenders == []
+
+
+def test_order_event_codec_is_owned_below_stateful_runtime() -> None:
+    model_path = SIMULATION / "orders" / "model.py"
+    runtime_path = SIMULATION / "stateful" / "runtime.py"
+    model_tree = ast.parse(model_path.read_text(encoding="utf-8"))
+    runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8"))
+
+    order_event = next(
+        node
+        for node in model_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "OrderEvent"
+    )
+    owned_methods = {
+        node.name
+        for node in order_event.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert {"from_mapping", "canonical_payload"} <= owned_methods
+
+    runtime_imports_model_event = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "trade_rl.simulation.orders.model"
+        and any(alias.name == "OrderEvent" for alias in node.names)
+        for node in runtime_tree.body
+    )
+    assert runtime_imports_model_event
+
+    model_imports = _imported_modules(model_path)
+    assert not any(
+        module == prefix or module.startswith(prefix + ".")
+        for module in model_imports
+        for prefix in (
+            "trade_rl.simulation.stateful",
+            "trade_rl.evaluation",
+        )
+    )

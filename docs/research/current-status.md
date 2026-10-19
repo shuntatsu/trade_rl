@@ -85,6 +85,18 @@ or a liquidation-cost calibration. Final-head full CI and formal independent
 research approval remain integration requirements. No economic result, sealed
 rerun, unused-future opening or live-order eligibility is established.
 
+## Issue #810: exact accepted-fill event evidence candidate
+
+OrderEvent v2 records the allocator's accepted signed lot count and effective
+lot size for quantized complete and partial fills, and validates their projected
+quantity against the existing float `filled_quantity`. The strict v1 mapping
+reader and canonical payload retain their previous fields and bytes; monetary
+fill calculations remain unchanged. This is a source-level evidence improvement
+only. It does not close the independent raw-market B4 ledger, establish a market
+result, or authorize frozen-R3 execution, G3/G4, profit claims, or live use.
+Exact-head verification and the applicable architecture/contract checks remain
+integration prerequisites.
+
 ## 結論
 
 Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。

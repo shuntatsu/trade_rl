@@ -388,6 +388,8 @@ class StatefulSymbolFillProcessor:
                     ),
                     processing_index=processing_index,
                     filled_quantity=allocation.filled_quantity,
+                    filled_lot_count=allocation.filled_lot_count,
+                    lot_size=allocation.lot_size,
                     execution_price=execution_price,
                     filled_notional=allocation.filled_notional,
                     capacity_before=allocation.capacity_before,

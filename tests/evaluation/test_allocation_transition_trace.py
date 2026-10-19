@@ -122,6 +122,39 @@ def test_detached_book_reads_never_touch_original_exact_cache(monkeypatch):
     env.step(3)
 
 
+def test_quantized_fill_evidence_survives_trace_freeze_and_strict_readback():
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        freeze_allocation_execution,
+        validate_allocation_execution_facts,
+    )
+    from trade_rl.simulation.orders.model import OrderEvent
+
+    args = literal_args(volume=1)
+    args["execution_cost"] = replace(args["execution_cost"], lot_size=0.25)
+    env = AllocationTradingEnv(**opt_in(args))
+    env.reset()
+    observed = []
+    env._transition_recorder = SimpleNamespace(
+        freeze_execution=lambda result: (
+            observed.append(freeze_allocation_execution(env, result)) or observed[-1]
+        )
+    )
+    _, reward, _, _, _ = env.step(3)
+    facts = json.loads(observed[0])
+    fills = [event for event in facts["order_events"] if event["filled_quantity"]]
+    assert len(fills) == 1
+    assert fills[0]["schema_version"] == "order_event_v2"
+    assert fills[0]["filled_lot_count"] == 4 and fills[0]["lot_size"] == 0.25
+    assert facts["book"]["exact_quantities"] == ["1"]
+    assert OrderEvent.from_mapping(fills[0]).canonical_payload() == fills[0]
+    assert (
+        validate_allocation_execution_facts(
+            facts, env.recipe, dataset_id=env.dataset.dataset_id, action_code=3
+        )
+        == reward
+    )
+
+
 def recorder_module():
     return import_module("trade_rl.evaluation.rl_allocation.transition_trace")
 

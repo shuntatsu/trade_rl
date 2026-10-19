@@ -793,9 +793,9 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     def asdict_tuple(self) -> tuple[dict[str, object], ...]:
         # Materialize at the explicit full-history evidence boundary only.
         # Every mapping is fresh, so a consumer cannot change archived facts.
-        raw = b"[" + b",".join(
-            node._order_bytes for node in self._ordered_nodes()
-        ) + b"]"
+        raw = (
+            b"[" + b",".join(node._order_bytes for node in self._ordered_nodes()) + b"]"
+        )
         return tuple(json.loads(raw))
 
     def _canonical_order_json_chunks(self) -> Iterator[bytes]:

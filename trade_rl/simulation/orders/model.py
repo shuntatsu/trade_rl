@@ -376,7 +376,8 @@ class OrderIntent:
             for index, field in enumerate(aliases):
                 if mask & (1 << index):
                     candidate[field] = int(candidate[field])
-            if hashlib.sha256(canonical_json_bytes(candidate)).hexdigest() == original_id:
+            candidate_id = hashlib.sha256(canonical_json_bytes(candidate)).hexdigest()
+            if candidate_id == original_id:
                 return replace(restored, order_id=original_id)
         raise OrderDomainError("order intent identity digest mismatch")
 

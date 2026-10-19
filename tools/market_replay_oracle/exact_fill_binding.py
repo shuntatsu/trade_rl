@@ -69,6 +69,8 @@ class ExactFillAttemptBinding(FrozenAttemptBinding):
             or np.isnat(times).any()
         ):
             raise ValueError("immutable verified lot/clock content is required")
+        if self._clock[2] >= times.shape[0]:
+            raise ValueError("bound settlement stop exceeds verified clock rows")
         expected: dict[tuple[str, str, str], tuple[int, str]] = {}
         for arm in payload["schedule"]["arms"]:
             profile = payload["profiles"][arm["scenario"]]

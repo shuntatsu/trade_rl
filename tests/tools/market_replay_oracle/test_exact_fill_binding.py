@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -125,6 +126,17 @@ def test_context_rejects_initial_outside_or_noninteger_progress(count: object) -
 def test_context_rejects_foreign_arm(account: str, scenario: str, role: str) -> None:
     with pytest.raises(ValueError):
         _binding().event_context(account, scenario, role, 1)
+
+
+@pytest.mark.parametrize("terminal", [9504, 10000])
+def test_constructor_rejects_a_settlement_stop_outside_verified_rows(
+    terminal: int,
+) -> None:
+    binding = _binding()
+    payload = binding.payload()
+    payload["clock"]["settlement_stop"] = terminal
+    with pytest.raises(ValueError, match="settlement stop.*clock rows"):
+        replace(binding, _canonical_payload=canonical(payload))
 
 
 @pytest.mark.parametrize(

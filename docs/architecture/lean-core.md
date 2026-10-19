@@ -2143,6 +2143,8 @@ protocol and loader as-is; v4 inputs are not relabeled as v3 or sent through the
 schedule validator. The v4 protocol pins an exact H source revision and leaves every
 frozen financial, calendar, capital, risk, cost, and acceptance field unchanged. A v4
 attempt requires its own protocol bytes and identity.
+The frozen Dataset root names a Windows drive path. Loader integration requires that
+declared Windows host; other hosts reject the path instead of silently remapping it.
 
 `exact_fill_binding.py` adds `load_pinned_exact_fill_attempt` and
 `ExactFillAttemptBinding.event_context(account, scenario, role, count)`. For one arm and

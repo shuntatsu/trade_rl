@@ -294,3 +294,22 @@ def test_integer_identity_alias_never_admits_changed_economic_quantity() -> None
                 ),
             )
         )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"requested_quantity": True},
+        {"requested_quantity": np.bool_(True)},
+        {"submission_reference_price": True},
+        {"submission_reference_price": np.bool_(True)},
+        {"decision_equity": True},
+        {"limit_price": True},
+        {"order_type": OrderType.STOP_MARKET, "limit_price": None, "stop_price": True},
+    ],
+)
+def test_order_intent_rejects_boolean_financial_inputs(
+    invalid: dict[str, object],
+) -> None:
+    with pytest.raises(OrderDomainError, match="must be finite"):
+        _intent(**invalid)

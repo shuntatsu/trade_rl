@@ -53,6 +53,14 @@ def _archived_context_digest(
         and canonical_json_bytes.__code__ is _CANONICAL_ENCODER_CODE
         and canonical.to_json_value is _CANONICAL_VALUE
         and canonical.to_json_value.__code__ is _CANONICAL_VALUE_CODE
+        and canonical._mapping_value is _CANONICAL_MAPPING_VALUE
+        and canonical._mapping_value.__code__ is _CANONICAL_MAPPING_VALUE_CODE
+        and canonical._dataclass_value is _CANONICAL_DATACLASS_VALUE
+        and canonical._dataclass_value.__code__ is _CANONICAL_DATACLASS_VALUE_CODE
+        and canonical._datetime_value is _CANONICAL_DATETIME_VALUE
+        and canonical._datetime_value.__code__ is _CANONICAL_DATETIME_VALUE_CODE
+        and canonical.is_dataclass is _CANONICAL_IS_DATACLASS
+        and canonical.fields is _CANONICAL_FIELDS
         and canonical.json.dumps is _CANONICAL_DUMPS
         and canonical.json.dumps.__code__ is _CANONICAL_DUMPS_CODE
         and canonical.json.JSONEncoder is _CANONICAL_JSON_ENCODER
@@ -84,6 +92,14 @@ _CANONICAL_ENCODER = canonical_json_bytes
 _CANONICAL_ENCODER_CODE = canonical_json_bytes.__code__
 _CANONICAL_VALUE = canonical.to_json_value
 _CANONICAL_VALUE_CODE = canonical.to_json_value.__code__
+_CANONICAL_MAPPING_VALUE = canonical._mapping_value
+_CANONICAL_MAPPING_VALUE_CODE = canonical._mapping_value.__code__
+_CANONICAL_DATACLASS_VALUE = canonical._dataclass_value
+_CANONICAL_DATACLASS_VALUE_CODE = canonical._dataclass_value.__code__
+_CANONICAL_DATETIME_VALUE = canonical._datetime_value
+_CANONICAL_DATETIME_VALUE_CODE = canonical._datetime_value.__code__
+_CANONICAL_IS_DATACLASS = canonical.is_dataclass
+_CANONICAL_FIELDS = canonical.fields
 _CANONICAL_DUMPS = canonical.json.dumps
 _CANONICAL_DUMPS_CODE = canonical.json.dumps.__code__
 _CANONICAL_JSON_ENCODER = canonical.json.JSONEncoder

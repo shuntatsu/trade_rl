@@ -36,17 +36,6 @@ from trade_rl.strategies.allocation import (
 )
 
 
-_CANONICAL_DIGEST = content_digest
-_CANONICAL_DIGEST_CODE = content_digest.__code__
-_CANONICAL_ENCODER = canonical_json_bytes
-_CANONICAL_ENCODER_CODE = canonical_json_bytes.__code__
-_CANONICAL_VALUE = canonical.to_json_value
-_CANONICAL_VALUE_CODE = canonical.to_json_value.__code__
-_CANONICAL_DUMPS = canonical.json.dumps
-_CANONICAL_DUMPS_CODE = canonical.json.dumps.__code__
-_TERMINAL_JSON_SUFFIX = b'"terminal_orders":[]}'
-
-
 def _archived_context_digest(
     payload: dict[str, object], archive: TerminalOrderArchive
 ) -> str:
@@ -79,6 +68,17 @@ def _archived_context_digest(
             digest.update(b"]}")
             return digest.hexdigest()
     return content_digest({**payload, "terminal_orders": archive.asdict_tuple})
+
+
+_CANONICAL_DIGEST = content_digest
+_CANONICAL_DIGEST_CODE = content_digest.__code__
+_CANONICAL_ENCODER = canonical_json_bytes
+_CANONICAL_ENCODER_CODE = canonical_json_bytes.__code__
+_CANONICAL_VALUE = canonical.to_json_value
+_CANONICAL_VALUE_CODE = canonical.to_json_value.__code__
+_CANONICAL_DUMPS = canonical.json.dumps
+_CANONICAL_DUMPS_CODE = canonical.json.dumps.__code__
+_TERMINAL_JSON_SUFFIX = b'"terminal_orders":[]}'
 
 
 def _context(

@@ -459,8 +459,16 @@ class OwnedBinary64Account:
         if not math.isfinite(amount) or amount < 0.0:
             raise ValueError("borrow amount must be finite and non-negative")
         if amount > 0.0:
-            self._cash -= amount
-            self._borrow_cost += amount
+            cash_after = self._cash - amount
+            borrow_after = self._borrow_cost + amount
+            wealth_after = float(cash_after + self.position_values.sum())
+            if not all(
+                math.isfinite(value)
+                for value in (cash_after, borrow_after, wealth_after)
+            ):
+                raise ValueError("borrow would make account non-finite")
+            self._cash = cash_after
+            self._borrow_cost = borrow_after
             self._refresh_economic_state()
         return amount
 

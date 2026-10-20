@@ -149,6 +149,7 @@ def _context(
         or not 0 <= symbol_index < dataset.n_symbols
     ):
         raise ValueError("selected symbol is outside the dataset")
+    book.validate_processing_clock(dataset_id=dataset.dataset_id, index=start_index)
     latency = executor.cost.order_latency_bars
     if (
         executor.cost.order_type != "market"

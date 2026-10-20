@@ -242,6 +242,26 @@ def canonical_assumptions(value: AllocationAssumptions) -> bytes:
     ).encode("utf-8")
 
 
+def cost_estimates_payload(source, *, buy_cost: float = 0.001):
+    decision = source.decision_time_ns
+    return {
+        "schema": "horizon_cost_estimates_v1",
+        "valuation_basis": "same_close_price_return",
+        "cost_basis": "declared_initial_notional_rates",
+        "symbol": source.symbol,
+        "decision_time": decision,
+        "available_at": decision,
+        "horizon_end": decision + source.expected_horizon_seconds * 1_000_000_000,
+        "source_identity": "f" * 64,
+        "buy_cost": buy_cost,
+        "sell_cost": 0.002,
+        "exit_cost": 0.003,
+        "funding_return": 0.004,
+        "borrow_return": 0.005,
+        "cash_return": 0.006,
+    }
+
+
 def test_index_matches_full_legacy_stream_for_multiple_symbols_and_vintages():
     payload, source, costs = make_multivintage_payload()
     raw = encode(payload)
@@ -264,6 +284,71 @@ def test_index_matches_full_legacy_stream_for_multiple_symbols_and_vintages():
         assert indexed == legacy
         assert canonical_assumptions(indexed) == canonical_assumptions(legacy)
         assert indexed.expected_simple_return == expected_return
+
+
+def test_allocation_source_identity_matches_the_closed_expected_digest():
+    payload, source, _ = _fixture()
+    index = make_index(encode(payload))
+    estimates = cost_estimates_payload(source)
+
+    actual = index.allocation_source_identity(source, cost_estimates_payload=estimates)
+    packet = payload["packets"][0]
+    expected_payload = {
+        "schema": "forecast_allocation_source_v1",
+        "dataset_id": source.dataset_id,
+        "packet": packet["digest"],
+        "vintage": packet["vintage_digest"],
+        "estimates": estimates,
+    }
+    expected = hashlib.sha256(
+        json.dumps(
+            expected_payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+    assert actual == expected
+    assert len(actual) == 64
+
+
+def test_allocation_source_identity_rejects_foreign_dataset_snapshot():
+    payload, source, _ = _fixture()
+    index = make_index(encode(payload))
+    foreign = replace(source, dataset_id="b" * 64)
+
+    with pytest.raises(ValueError, match="Dataset identities differ"):
+        index.allocation_source_identity(
+            foreign, cost_estimates_payload=cost_estimates_payload(foreign)
+        )
+
+
+def test_allocation_source_identity_rejects_mutated_owned_forecast_inputs():
+    payload, source, _ = _fixture()
+    index = make_index(encode(payload))
+    changed_features = list(source.feature_values)
+    changed_features[2] += 0.01
+    changed = replace(source, feature_values=tuple(changed_features))
+
+    with pytest.raises(ValueError, match="packet features differ"):
+        index.allocation_source_identity(
+            changed, cost_estimates_payload=cost_estimates_payload(changed)
+        )
+
+
+def test_allocation_source_identity_changes_when_a_cost_input_changes():
+    payload, source, _ = _fixture()
+    index = make_index(encode(payload))
+    original = index.allocation_source_identity(
+        source, cost_estimates_payload=cost_estimates_payload(source)
+    )
+    changed = index.allocation_source_identity(
+        source, cost_estimates_payload=cost_estimates_payload(source, buy_cost=0.002)
+    )
+
+    assert changed != original
 
 
 def test_index_metadata_is_immutable_and_does_not_expose_payload_or_rows():

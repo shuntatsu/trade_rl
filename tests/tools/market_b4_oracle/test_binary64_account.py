@@ -26,6 +26,7 @@ from tools.market_b4_oracle.binary64_account import (
     FundingMarkEvent,
     MarginEvent,
     OwnedBinary64Account,
+    RetainedTerminationEvent,
     RevaluationEvent,
     SettlementEvent,
     TerminationEvent,
@@ -106,6 +107,148 @@ def _reference(
         multipliers=multipliers,
         peak_value=peak,
     )
+
+
+@pytest.mark.parametrize("termination", ["open_gap", "execution_cost", "borrow"])
+def test_retained_termination_flattens_and_records_zero_funding_return_like_native(
+    tmp_path, termination: str
+) -> None:
+    from tools.tier_d_nonrl.tier_d_fixture import write_artificial_dataset
+
+    dataset = write_artificial_dataset(tmp_path / "artificial-terminal-event")
+    executor = MarketExecutor(
+        dataset, ExecutionCostConfig(), insolvency_valuation="retain_debt"
+    )
+    if termination in {"open_gap", "borrow"}:
+        native = _book(
+            cash=100.0,
+            quantities=(Fraction(-1), Fraction(0)),
+            marks=(100.0, 100.0),
+            multipliers=(1.0, 1.0),
+            peak=100.0,
+        )
+        owned = OwnedBinary64Account(
+            cash=100.0,
+            exact_quantities=(Fraction(0), Fraction(0)),
+            marks=(100.0, 100.0),
+            multipliers=(1.0, 1.0),
+        )
+        owned.apply(
+            ExecutionEvent(
+                deltas=(Fraction(-1), Fraction(0)),
+                fill_prices=(100.0, 100.0),
+                cost_amount=0.0,
+                turnover=0.0,
+            )
+        )
+        if termination == "open_gap":
+            gap_marks = np.array([300.0, 100.0])
+            native.revalue(gap_marks)
+            owned.apply(RevaluationEvent((300.0, 100.0)))
+        else:
+            native.charge_borrow(200.0)
+            owned.apply(BorrowEvent((2.0, 0.0), 1.0))
+    else:
+        native = _book(
+            cash=100.0,
+            quantities=(Fraction(0), Fraction(0)),
+            marks=(100.0, 100.0),
+            multipliers=(1.0, 1.0),
+            peak=100.0,
+        )
+        owned = OwnedBinary64Account(
+            cash=100.0,
+            exact_quantities=(Fraction(0), Fraction(0)),
+            marks=(100.0, 100.0),
+            multipliers=(1.0, 1.0),
+        )
+        native.execute_quantity_deltas(
+            fill_prices=np.array([100.0, 100.0]),
+            quantity_deltas=(Fraction(1), Fraction(0)),
+            cost_amount=101.0,
+            turnover=1.0,
+        )
+        owned.apply(
+            ExecutionEvent(
+                deltas=(Fraction(1), Fraction(0)),
+                fill_prices=(100.0, 100.0),
+                cost_amount=101.0,
+                turnover=1.0,
+            )
+        )
+
+    assert native.insolvent and owned.insolvent
+    marks = native.mark_prices.copy()
+    executor._flatten_after_termination(native, marks)
+    native.mark_to_market(
+        mark_prices=marks,
+        funding_amount=0.0,
+        period_start_value=100.0,
+    )
+    owned.apply(
+        RetainedTerminationEvent(
+            mark_prices=tuple(float(value) for value in marks),
+            period_start_value=100.0,
+        )
+    )
+
+    _assert_same_account(owned, native)
+
+
+def test_retained_termination_rejects_nonfinite_return_atomically() -> None:
+    owned = OwnedBinary64Account(
+        cash=100.0,
+        exact_quantities=(Fraction(1), Fraction(0)),
+        marks=(100.0, 100.0),
+        multipliers=(1.0, 1.0),
+    )
+    owned.apply(TerminationEvent("margin_call"))
+    before = owned.snapshot()
+
+    with pytest.raises(ValueError, match="terminal return must remain finite"):
+        owned.apply(
+            RetainedTerminationEvent(
+                mark_prices=(100.0, 100.0),
+                period_start_value=math.nextafter(0.0, 1.0),
+            )
+        )
+
+    assert owned.snapshot() == before
+
+
+def test_retained_termination_clamps_negative_ratio_overflow_like_native() -> None:
+    marks = np.array([1.0, 1.0], dtype=np.float64)
+    native = BookState(
+        quantities=np.zeros(2, dtype=np.float64),
+        cash=-1e308,
+        mark_prices=marks,
+        peak_value=1e-12,
+        contract_multipliers=np.ones(2, dtype=np.float64),
+    )
+    owned = OwnedBinary64Account(
+        cash=-1e308,
+        exact_quantities=(Fraction(0), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e-12,
+    )
+
+    assert native.insolvent and owned.insolvent
+    native_return = native.mark_to_market(
+        mark_prices=marks,
+        funding_amount=0.0,
+        period_start_value=1e-12,
+    )
+    assert native_return == -1.0 + 1e-12
+
+    owned.apply(
+        RetainedTerminationEvent(
+            mark_prices=(1.0, 1.0),
+            period_start_value=1e-12,
+        )
+    )
+
+    _assert_same_account(owned, native)
 
 
 def test_one_ulp_wealth_is_owned_binary64_not_decimal_seeded_from_native() -> None:

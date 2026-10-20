@@ -2139,8 +2139,10 @@ not native executions. Full B4 remains one integrated workstream.
 file roster, bounded reads, file identities and link/alias confinement before
 returning an immutable index. An explicit recheck detects observed changes;
 the index does not lock files or attest their producing process. Its read
-budgets do not replace the native execution resource limits. Outer witness
-authentication and financial validation remain open integration work.
+budgets do not replace the native execution resource limits. The index exposes a
+bounded single-file reader so a path replacement or growth cannot bypass the
+per-input ceiling. Outer witness authentication and financial validation remain
+open integration work.
 
 `allocation_choice.py` implements only the single-symbol after-cost allocation
 calculation. `frozen_forecast.py`, `frozen_decision.py` and `expected_intent.py`

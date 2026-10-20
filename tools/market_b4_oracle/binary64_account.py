@@ -133,6 +133,14 @@ class TerminationEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class RetainedTerminationEvent:
+    """Flatten an already-insolvent retained-debt book and close the bar return."""
+
+    mark_prices: tuple[float, float]
+    period_start_value: float
+
+
+@dataclass(frozen=True, slots=True)
 class MarginEvent:
     max_leverage: float
     maintenance_margin_rate: float
@@ -151,6 +159,7 @@ AccountEvent: TypeAlias = (
     | RevaluationEvent
     | DrawdownObservation
     | TerminationEvent
+    | RetainedTerminationEvent
     | MarginEvent
 )
 
@@ -362,10 +371,41 @@ class OwnedBinary64Account:
             self._insolvent = True
             self._termination_reason = event.reason
             return None
+        if type(event) is RetainedTerminationEvent:
+            self._retained_termination(event)
+            return None
         if type(event) is MarginEvent:
             self._margin(event)
             return None
         raise UnsupportedTransition("unsupported account event type")
+
+    def _retained_termination(self, event: RetainedTerminationEvent) -> None:
+        if not self._insolvent:
+            raise ValueError("retained termination requires an insolvent account")
+        marks = _float_pair(event.mark_prices, "mark_prices", positive=True)
+        starting = _float(event.period_start_value, "period_start_value")
+        if starting <= 0.0:
+            raise ValueError("period_start_value must be positive")
+        value = self.wealth
+        candidate_peak = max(self._peak_value, max(value, 0.0))
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            terminal_return = max(
+                float(np.float64(value) / np.float64(starting) - 1.0),
+                -1.0 + 1e-12,
+            )
+            terminal_drawdown = 1.0 - max(value, 0.0) / max(candidate_peak, _MIN_EQUITY)
+        if not all(
+            math.isfinite(candidate)
+            for candidate in (value, terminal_return, terminal_drawdown)
+        ):
+            raise ValueError("terminal return must remain finite")
+        self._cash = value
+        self._quantities = (Fraction(0), Fraction(0))
+        self._marks = marks
+        self._margin_used = 0.0
+        self._maintenance_margin = 0.0
+        self._maintenance_requirement = 0.0
+        self._mark_to_market(marks, 0.0, starting)
 
     def _margin(self, event: MarginEvent) -> None:
         leverage = _float(event.max_leverage, "max_leverage")

@@ -5,13 +5,16 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from hashlib import sha256
 from types import MappingProxyType
 from typing import Mapping, cast
 
 from tools.market_b4_oracle.allocation_choice import AllocationAssumptions
+from tools.market_b4_oracle.decision_identity import canonical_json_bytes
 
 from .frozen_forecast import (
     OwnedDecisionSnapshot,
+    _validate_owner,
     bind_frozen_forecast_assumptions,
 )
 
@@ -82,6 +85,15 @@ def _json_int(value: str) -> int:
         ) from error
     if not finite:
         raise ValueError("JSON integer literal is outside finite binary64 range")
+    return result
+
+
+def _finite_float(value: object, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be finite numeric data")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be finite numeric data")
     return result
 
 
@@ -278,6 +290,73 @@ class FrozenForecastIndex:
     def metadata(self) -> ForecastIndexMetadata:
         return self.__metadata
 
+    def assert_bound_arm_scope(
+        self,
+        *,
+        source: OwnedDecisionSnapshot,
+        expected_alpha: float,
+        expected_horizon_hours: int,
+        expected_feature_indices: tuple[int, ...],
+        expected_prediction_symbols: tuple[str, ...],
+        expected_vintage_count: int | None,
+    ) -> None:
+        """Check every parsed vintage against one frozen protocol arm."""
+        if type(source) is not OwnedDecisionSnapshot:
+            raise ValueError("forecast arm scope requires an owned source row")
+        alpha = _finite_float(expected_alpha, name="protocol ridge alpha")
+        if alpha <= 0.0:
+            raise ValueError("protocol ridge alpha must be positive")
+        horizon = _ordinary_int(expected_horizon_hours, name="protocol horizon")
+        if (
+            type(expected_feature_indices) is not tuple
+            or any(
+                type(index) is not int or index < 0
+                for index in expected_feature_indices
+            )
+            or len(expected_feature_indices) != len(set(expected_feature_indices))
+            or type(expected_prediction_symbols) is not tuple
+            or not expected_prediction_symbols
+            or any(
+                type(symbol) is not str or not symbol
+                for symbol in expected_prediction_symbols
+            )
+            or len(expected_prediction_symbols) != len(set(expected_prediction_symbols))
+            or type(expected_vintage_count) not in (int, type(None))
+            or (expected_vintage_count is not None and expected_vintage_count <= 0)
+        ):
+            raise ValueError("protocol forecast arm declaration is malformed")
+        if (
+            self.__top_metadata["dataset_id"] != source.dataset_id
+            or source.symbol not in expected_prediction_symbols
+            or expected_feature_indices != tuple(range(len(source.feature_names)))
+        ):
+            raise ValueError("forecast source differs from the bound arm roster")
+        if (
+            expected_vintage_count is not None
+            and len(self.__vintage_index) != expected_vintage_count
+        ):
+            raise ValueError("forecast vintage count differs from the bound arm")
+
+        for vintage in self.__vintage_index.values():
+            if type(vintage) is not dict:
+                raise ValueError("forecast vintage is malformed")
+            model = vintage.get("model")
+            if type(model) is not dict:
+                raise ValueError("forecast vintage model is malformed")
+            _, model_horizon, feature_indices = _validate_owner(vintage, source=source)
+            prediction_symbols = vintage.get("prediction_symbols")
+            model_alpha = _finite_float(model.get("alpha"), name="vintage alpha")
+            if (
+                model_alpha != alpha
+                or model_horizon != horizon
+                or feature_indices != expected_feature_indices
+                or type(prediction_symbols) is not list
+                or tuple(prediction_symbols) != expected_prediction_symbols
+            ):
+                raise ValueError(
+                    "forecast vintage differs from the bound configuration"
+                )
+
     def lookup(
         self,
         source: OwnedDecisionSnapshot,
@@ -302,6 +381,112 @@ class FrozenForecastIndex:
             source=source,
             cost_assumptions=cost_assumptions,
         )
+
+    def allocation_source_identity(
+        self,
+        source: OwnedDecisionSnapshot,
+        *,
+        cost_estimates_payload: Mapping[str, object],
+    ) -> str:
+        """Derive the native allocation-source digest from pinned packet facts."""
+        if type(source) is not OwnedDecisionSnapshot:
+            raise ValueError("requires an exact owned-decision snapshot")
+        if type(cost_estimates_payload) is not dict or set(cost_estimates_payload) != {
+            "schema",
+            "valuation_basis",
+            "cost_basis",
+            "symbol",
+            "decision_time",
+            "available_at",
+            "horizon_end",
+            "source_identity",
+            "buy_cost",
+            "sell_cost",
+            "exit_cost",
+            "funding_return",
+            "borrow_return",
+            "cash_return",
+        }:
+            raise ValueError("cost estimate payload has an unsupported field set")
+        decision = source.decision_time_ns
+        if (
+            cost_estimates_payload["schema"] != "horizon_cost_estimates_v1"
+            or cost_estimates_payload["valuation_basis"] != "same_close_price_return"
+            or cost_estimates_payload["cost_basis"] != "declared_initial_notional_rates"
+            or cost_estimates_payload["symbol"] != source.symbol
+            or cost_estimates_payload["decision_time"] != decision
+            or type(cost_estimates_payload["available_at"]) is not int
+            or cost_estimates_payload["available_at"] > decision
+            or cost_estimates_payload["horizon_end"]
+            != decision + source.expected_horizon_seconds * 1_000_000_000
+        ):
+            raise ValueError("cost estimates do not match the owned decision clock")
+        _sha256(cost_estimates_payload["source_identity"], name="cost.source_identity")
+        for name in (
+            "buy_cost",
+            "sell_cost",
+            "exit_cost",
+            "funding_return",
+            "borrow_return",
+            "cash_return",
+        ):
+            value = cost_estimates_payload[name]
+            _finite_float(value, name=f"cost estimate {name}")
+
+        packet = self.__packet_index.get((source.symbol, decision))
+        if packet is None:
+            raise ValueError("owned decision clock does not resolve to a packet")
+        vintage_digest = _sha256(
+            packet.get("vintage_digest"), name="packet.vintage_digest"
+        )
+        if vintage_digest not in self.__vintage_index:
+            raise ValueError("packet does not resolve to a frozen vintage")
+        expected_return = packet.get("expected_simple_return")
+        return_variance = packet.get("fit_prefix_marginal_variance")
+        expected_return_value = _finite_float(
+            expected_return, name="forecast expected_simple_return"
+        )
+        return_variance_value = _finite_float(
+            return_variance, name="forecast fit_prefix_marginal_variance"
+        )
+        self.lookup(
+            source,
+            cost_assumptions=AllocationAssumptions(
+                expected_simple_return=expected_return_value,
+                return_variance=return_variance_value,
+                buy_cost=_finite_float(
+                    cost_estimates_payload["buy_cost"], name="cost buy_cost"
+                ),
+                sell_cost=_finite_float(
+                    cost_estimates_payload["sell_cost"], name="cost sell_cost"
+                ),
+                exit_cost=_finite_float(
+                    cost_estimates_payload["exit_cost"], name="cost exit_cost"
+                ),
+                funding_return=_finite_float(
+                    cost_estimates_payload["funding_return"],
+                    name="cost funding_return",
+                ),
+                borrow_return=_finite_float(
+                    cost_estimates_payload["borrow_return"],
+                    name="cost borrow_return",
+                ),
+                cash_return=_finite_float(
+                    cost_estimates_payload["cash_return"], name="cost cash_return"
+                ),
+            ),
+        )
+        return sha256(
+            canonical_json_bytes(
+                {
+                    "schema": "forecast_allocation_source_v1",
+                    "dataset_id": source.dataset_id,
+                    "packet": _sha256(packet.get("digest"), name="packet.digest"),
+                    "vintage": vintage_digest,
+                    "estimates": dict(cost_estimates_payload),
+                }
+            )
+        ).hexdigest()
 
 
 __all__ = [

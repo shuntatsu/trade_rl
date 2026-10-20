@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from tools.market_b4_oracle.output_index import ArtifactPin, load_pinned_output_index
+from tools.market_b4_oracle.output_index import (
+    ArtifactPin,
+    capture_output_manifest_pin,
+    load_pinned_output_index,
+)
 
 
 def _pin(raw: bytes) -> ArtifactPin:
@@ -42,6 +46,69 @@ def test_indexes_all_original_files_including_empty_streams(tmp_path: Path) -> N
         index.pin("absent.json")
     with pytest.raises(ValueError):
         index.path("absent.json")
+
+
+def test_outer_owner_can_capture_a_bounded_manifest_pin(tmp_path: Path) -> None:
+    _write(tmp_path, {"attempt.json": b"{}"})
+
+    observed_pin = capture_output_manifest_pin(tmp_path)
+
+    assert load_pinned_output_index(tmp_path, observed_pin).manifest_pin == observed_pin
+
+
+def test_bounded_read_enforces_pin_limit_replacement_and_growth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "attempt"
+    root.mkdir()
+    pin = _write(root, {"attempt.json": b"{}"})
+    index = load_pinned_output_index(root, pin)
+    assert index.read_pinned_bytes("attempt.json", maximum=2) == b"{}"
+    with pytest.raises(ValueError, match="caller read limit"):
+        index.read_pinned_bytes("attempt.json", maximum=1)
+
+    path = root / "attempt.json"
+    path.unlink()
+    path.write_bytes(b"[]")
+    with pytest.raises(ValueError, match="replaced|identity|byte length|pin"):
+        index.read_pinned_bytes("attempt.json", maximum=2)
+
+    pin = _write(root, {"attempt.json": b"{}"})
+    index = load_pinned_output_index(root, pin)
+    original_open = Path.open
+
+    class GrowAfterFirstRead:
+        def __init__(self, inner) -> None:
+            self._inner = inner
+            self._grown = False
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._inner.__exit__(*args)
+
+        def fileno(self):
+            return self._inner.fileno()
+
+        def read(self, size: int = -1):
+            data = self._inner.read(size)
+            if not self._grown:
+                self._grown = True
+                with original_open(path, "ab") as append:
+                    append.write(b"more than the pinned bytes")
+            return data
+
+    def growing_open(target: Path, mode: str = "r", *args, **kwargs):
+        inner = original_open(target, mode, *args, **kwargs)
+        if target == path and mode == "rb":
+            return GrowAfterFirstRead(inner)
+        return inner
+
+    monkeypatch.setattr(Path, "open", growing_open)
+    with pytest.raises(ValueError, match="grew beyond its pin"):
+        index.read_pinned_bytes("attempt.json", maximum=2)
 
 
 @pytest.mark.parametrize("size", [True, -1, 1.0, "1"])

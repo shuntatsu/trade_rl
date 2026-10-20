@@ -251,6 +251,16 @@ class NativeOutputIndex:
         except OSError as error:
             raise ValueError("indexed artifact is no longer present") from error
 
+    def read_pinned_bytes(self, name: str, *, maximum: int) -> bytes:
+        """Read one indexed file with a caller-specific hard byte ceiling."""
+        if type(maximum) is not int or maximum < 0:
+            raise ValueError("indexed read maximum must be a nonnegative integer")
+        pin = self.pin(name)
+        if pin.bytes > maximum:
+            raise ValueError("indexed artifact exceeds its caller read limit")
+        identity = dict(self._identities)[_name(name)]
+        return _read(self.path(name), pin, identity, retain=True)
+
     def receipt_rows(
         self,
         name: str,
@@ -326,3 +336,39 @@ def load_pinned_output_index(
         return result
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("invalid or changed original output manifest") from error
+
+
+def capture_output_manifest_pin(root: Path) -> ArtifactPin:
+    """Observe the current manifest through a bounded read for an outer owner.
+
+    This returns only the exact bytes seen at this path. It does not prove which
+    process wrote them; callers must bind the result to an independently
+    observed attempt before treating it as an output index.
+    """
+    try:
+        root = _root(Path(root))
+        path = root / _MANIFEST
+        before = _information(path)
+        if not 0 < before.st_size <= _MANIFEST_LIMIT:
+            raise ValueError("output manifest exceeds its bounded metadata limit")
+        identity = _stamp(before)
+        digest = hashlib.sha256()
+        size = 0
+        with path.open("rb") as stream:
+            opened = _stamp(os.fstat(stream.fileno()))
+            if opened[:4] != identity[:4]:
+                raise ValueError("output manifest changed while opening")
+            while chunk := stream.read(_CHUNK):
+                size += len(chunk)
+                if size > min(before.st_size, _MANIFEST_LIMIT):
+                    raise ValueError("output manifest grew beyond its bound")
+                digest.update(chunk)
+            if _stamp(os.fstat(stream.fileno())) != opened:
+                raise ValueError("output manifest changed while reading")
+        if size != before.st_size or _stamp(_information(path)) != identity:
+            raise ValueError("output manifest changed during outer readback")
+        return ArtifactPin(size, digest.hexdigest())
+    except OSError as error:
+        raise ValueError(
+            "output manifest is unavailable for bounded pinning"
+        ) from error

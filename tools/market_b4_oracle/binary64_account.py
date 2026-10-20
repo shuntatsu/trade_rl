@@ -519,13 +519,16 @@ class OwnedBinary64Account:
         cash_after = self._cash + float(funding)
         if not math.isfinite(cash_after):
             raise ValueError("funding would make cash non-finite")
+        funding_total_after = self._funding_pnl + float(funding)
+        if not math.isfinite(funding_total_after):
+            raise ValueError("funding cumulative total would become non-finite")
         self._revalue(marks, cash_after=cash_after, period_start_value=starting)
         value = self.wealth
         if not math.isfinite(value):
             raise ValueError("portfolio value became non-finite")
         net_return = max(value / starting - 1.0, -1.0 + 1e-12)
         self._update_drawdown()
-        self._funding_pnl += float(funding)
+        self._funding_pnl = funding_total_after
         self._returns_history.append(float(net_return))
         return float(net_return)
 

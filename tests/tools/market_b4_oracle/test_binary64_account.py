@@ -539,6 +539,30 @@ def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots()
     assert abs(float(reference.snapshot().settlement_proceeds) - actual) < 1e-12
 
 
+def test_rejected_funding_return_overflow_preserves_account_state() -> None:
+    # Both wealth and the declared period starting value are finite positive
+    # binary64 values, yet their quotient overflows a binary64 net return.
+    account = OwnedBinary64Account(
+        cash=1e308,
+        exact_quantities=(Fraction(0), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    before = account.snapshot()
+    assert math.isfinite(before.wealth)
+    with pytest.raises(ValueError, match="non-finite.*return"):
+        account.apply(
+            FundingMarkEvent(
+                price_rates=(0.0, 0.0),
+                due=(False, False),
+                mark_prices=(1.0, 1.0),
+                period_start_value=1e-308,
+            )
+        )
+    assert account.snapshot() == before
+
+
 @pytest.mark.parametrize("event_type", ["revaluation", "funding"])
 def test_nonfinite_mark_does_not_mutate_owned_account(event_type: str) -> None:
     # Every input is finite, as is opening equity, but doubling a huge long

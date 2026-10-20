@@ -539,6 +539,38 @@ def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots()
     assert abs(float(reference.snapshot().settlement_proceeds) - actual) < 1e-12
 
 
+def test_rejected_cumulative_funding_overflow_preserves_account_state() -> None:
+    # Two finite funding credits can overflow their cumulative reporting
+    # amount even when interleaved borrowing keeps cash and wealth finite.
+    account = OwnedBinary64Account(
+        cash=-1e308,
+        exact_quantities=(Fraction(13 * 10**307), Fraction(-(10**307))),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    credit = dict(
+        price_rates=(0.0, 9.0),
+        due=(False, True),
+        mark_prices=(1.0, 1.0),
+    )
+    assert math.isfinite(account.wealth) and account.wealth > 0.0
+    account.apply(
+        FundingMarkEvent(**credit, period_start_value=account.wealth)
+    )
+    account.apply(
+        BorrowEvent(annual_rates=(0.0, 4.0), year_fraction=1.0)
+    )
+    before = account.snapshot()
+    assert math.isfinite(before.cash) and math.isfinite(before.wealth)
+    assert math.isfinite(before.funding_pnl)
+    with pytest.raises(ValueError, match="funding.*non-finite"):
+        account.apply(
+            FundingMarkEvent(**credit, period_start_value=account.wealth)
+        )
+    assert account.snapshot() == before
+
+
 def test_rejected_funding_return_overflow_preserves_account_state() -> None:
     # Both wealth and the declared period starting value are finite positive
     # binary64 values, yet their quotient overflows a binary64 net return.

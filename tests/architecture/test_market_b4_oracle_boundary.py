@@ -8,6 +8,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = "tools.market_b4_oracle"
+INTERNAL_SEMANTIC_COMPONENTS = frozenset(
+    {
+        "binary64_account.py",
+        "decision_identity.py",
+        "expected_intent.py",
+        "frozen_decision.py",
+        "frozen_forecast.py",
+        "frozen_forecast_index.py",
+    }
+)
 PUBLIC_FACADES = {
     "tools.market_account_oracle",
     "tools.market_replay_oracle",
@@ -140,3 +150,19 @@ def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> 
 
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
     assert "tools/market_b4_oracle/*.py text eol=lf" in attributes
+
+
+def test_identity_composer_stays_internal_and_reuses_expected_intent():
+    package = ROOT / "tools" / "market_b4_oracle"
+    existing = {path.name for path in package.glob("*.py")}
+    assert INTERNAL_SEMANTIC_COMPONENTS <= existing
+    assert not (
+        {"ActorIdentity", "OwnedAccountComponents", "build_actor_identity"}
+        & _public_exports(OWNER.replace(".", "/"))
+    )
+
+    imports = _resolved_imports(package / "decision_identity.py")
+    assert any(
+        module == "tools.market_b4_oracle.expected_intent" and "ExpectedIntent" in names
+        for module, names in imports
+    )

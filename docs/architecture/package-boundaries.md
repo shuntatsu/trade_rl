@@ -2143,9 +2143,21 @@ budgets do not replace the native execution resource limits. Outer witness
 authentication and financial validation remain open integration work.
 
 `allocation_choice.py` implements only the single-symbol after-cost allocation
-calculation. It imports no production strategy, uses rational utility comparison
-and preserves the declared binary64 candidate/tie rules. Clocked frozen-forecast
-lookup, final hard risk, action mapping, order identity and reconciliation belong
-to the still-open composition path. Tests may compare manufactured assumptions
-with the production optimizer; that differential check is software evidence,
-not an independent financial replay.
+calculation. `frozen_forecast.py`, `frozen_decision.py` and `expected_intent.py`
+provide consecutive comparison primitives over caller-owned parsed forecast,
+decision-row, cost, inventory and pending-order facts. A caller may pass the forecast
+assumptions through after-cost choice and fixed action/risk projection, then reconcile
+the resulting weights into expected MARKET/GTC intents; no orchestrating driver is
+added. These modules are internal comparison components and are not added to a
+package facade. Their tests compare manufactured inputs with current public
+native APIs; that is software evidence, not an independent financial replay. Forecast
+bytes/source, account-phase ownership, root-owned retry/attempt identity, order
+admission/lifecycle, accepted-fill accounting and complete terminal closure remain
+outside this boundary. `frozen_forecast_index.py` is another internal comparison helper: its supplied byte pin identifies caller input only, and its selected-pair view does not authenticate forecast provenance or the full source stream. It is not added to the package facade.
+
+`binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
+
+
+## Internal decision identity comparison
+
+`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. The six semantic comparison components remain outside production; none authenticates source ownership or closes the attempt/accounting boundary.

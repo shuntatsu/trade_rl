@@ -2531,3 +2531,34 @@ metadata and hashes. Files remain subject to the trusted-host immutability
 assumption. Independent allocation arithmetic receives supplied horizon
 assumptions only. Hand-calculated and differential manufactured cases do not
 authenticate forecasts, intents, accepted fills, account transitions or profits.
+
+## Frozen decision-to-intent primitives remain caller-input software
+
+The internal B4 comparison modules expose consecutive primitives for an already-
+parsed forecast packet and caller-owned row facts: the declared after-cost allocation
+calculation, fixed action/risk projection, and expected two-symbol MARKET/GTC intent
+reconciliation. A caller can pass the outputs between steps, but no end-to-end driver
+is provided. Policy values and cost assumptions remain frozen; these primitives add
+no data, cost, risk, or adoption rule. Synthetic and public-API differential
+tests are software falsifiers, not market evidence or a formal G0/G1/G2 disposition.
+
+These functions do not authenticate original forecast or Dataset bytes, establish
+that the supplied decision facts belong to a bound account phase, authenticate a
+root-owned retry/attempt identity, derive runtime risk/feasibility from a native book,
+admit or execute orders, verify accepted fills, reconstruct carry/settlement/drawdown,
+or close the 6,599 actor/reserve advances.
+Caller-owned values can still be inconsistent with a native run. Full outer-attempt
+binding, independent order admission and accounting, and terminal-flat/no-pending
+proof remain required for B4. No formal G0-G2, R3, profit, unused-period, or live
+authority follows from these software primitives.
+
+## Caller-pinned frozen forecast index
+
+`FrozenForecastIndex` verifies the caller-supplied byte count and SHA-256 before strict JSON decoding, bounds the input at 64 MiB and numeric tokens at 4,096 characters, and rejects duplicate packet keys, vintage digests, unresolved references, and oversized structures. It indexes one already-pinned stream and sends a derived two-row packet/vintage view through the frozen forecast adapter. The selected view is not a new full-stream canonical digest and does not establish source authorship, Dataset provenance, native consumption, an economic result, full B4, formal G0-G2, or research approval.
+
+The scalar `binary64_account.py` compatibility view keeps an independently owned binary64 account beside the exact Fraction/Decimal reference ledger. It is initialized only with caller-supplied state and explicit events, never native observed financial values. Explicit cross-margin events include maintenance, collateral haircut, refreshed deficit and terminal flattening; isolated margin and splits remain unsupported. This primitive does not authenticate rows, coordinate phases, derive admission, or close full B4. Manufactured and differential cases provide no formal G0/G1/G2 or economic result.
+
+
+## Identity reconstruction is not source or attempt admission
+
+The internal identity composer hashes explicit context, proposal, action, risk-target, and order fields. Manufactured and public-API differential cases check serialization contracts only; they do not prove that caller values belong to an original receipt or fresh attempt. Forecast/source lineage, native clock and margin checks, complete order-history ownership, accepted-fill accounting, and terminal closure remain required. No economic or formal G0-G2 evidence follows from identity parity.

@@ -3686,9 +3686,20 @@ manifest's author, the root launch or runtime consumption. Failed and partial
 native attempts retain their original artifacts and do not acquire full-B4
 status through this file index.
 
-Independent scalar allocation arithmetic now recomputes the frozen after-cost
-objective, including transaction/exit costs, cash/funding/borrow assumptions,
-variance penalty, turnover bounds and exact tie rules. Manufactured analytic
-cases cover its mathematics. The frozen forecast reader, final hard-risk/action
-projection and expected-intent/lifecycle driver remain open; this arithmetic
-component neither refits forecasts nor supplies a market result.
+The package now contains separate caller-input forecast, independent after-cost
+allocation/action-risk, and expected two-symbol MARKET/GTC intent primitives.
+Manufactured cases and comparisons with public native APIs cover these software
+steps only; no end-to-end driver is included. Forecast/source bytes, account-phase ownership,
+root-owned retry/attempt identity, order admission and lifecycle, accepted-fill
+accounting, and full actor/reserve terminal closure remain open. The composition does not refit forecasts, consume a
+market run, or establish full B4, G0/G2, profit, R3, unused-period, or live authority;
+financial assumptions remain unchanged. A bounded frozen-forecast index now complements these comparison primitives: it checks a caller-supplied raw byte pin, decodes once, and looks up a selected packet/vintage pair. The lookup reuses the semantic adapter but grants no source authentication or end-to-end B4 authority; its 64 MiB input and 4,096-character numeric-token caps are parser limits, not RSS guarantees.
+
+A separate internal binary64 scalar projection now exercises H-compatible cash and wealth operation order against the public BookState using only caller-owned synthetic opening facts and explicit events, alongside the Fraction/Decimal reference ledger. It is not a row-level replay or financial result. Its explicit cross-margin event now reproduces maintenance, collateral haircut, deficit reset and terminal flattening, including binary64 tolerance boundaries. Isolated margin, split transitions, source and receipt authentication, phase coordination, intent/admission, and outer-attempt closure remain incomplete; no economic assumptions change.
+
+
+## Issue #810: caller-owned decision identity comparison
+
+The full-B4 comparison package now has an internal identity builder for explicit context and actor components, including risk-target identities and MARKET/GTC order payloads. Order-ID generation reuses the package's expected-intent primitive. The builder reproduces hashes from supplied components; it does not authenticate a forecast, Dataset, account phase, or attempt. Context admission, root-owned attempt binding, order lifecycle, independent accounting, and terminal-flat/no-pending evidence remain incomplete. This software component establishes no full B4, G0-G2, profit, R3, unused-period, or live authority, and changes no financial assumptions.
+
+Development is paused at these internal comparison primitives. Fresh exact-head independent review and repository/CI closure for the added primitives remain pending, as does the complete frozen 48-cell B4 run. The separate manifest-alias fix in PR #926 is integrated into this active workstream; the proposal-clock admission fix in PR #927 remains a separate candidate. No economic acceptance or live readiness is established.

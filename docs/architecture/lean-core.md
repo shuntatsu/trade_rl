@@ -2222,7 +2222,22 @@ required. No economic assumptions or execution authority change here.
 The integration also pins H's self-excluding output-manifest file roster and
 connects its original gzip pins to the actor/reserve reader. This inventory
 detects observed content, identity and metadata changes, without attesting a
-producing process or freezing future files. Independent scalar allocation
-arithmetic recomputes the declared after-cost utility from supplied assumptions,
-using exact comparisons of binary64 coefficients and the fixed tie rules.
-Neither component yet authenticates forecast packets or creates an order.
+producing process or freezing future files. The internal `frozen_forecast.py`,
+`frozen_decision.py` and `expected_intent.py` modules provide consecutive comparison
+steps: bind an already-parsed forecast to caller-owned decision facts and costs, run
+the independent after-cost choice with fixed action/risk projection, then reconcile
+caller-owned state into expected two-symbol MARKET/GTC intents. Callers may pass one
+step's output to the next; no end-to-end row-to-order driver is added. These remain
+comparison primitives: they do not read or authenticate forecast/source bytes, derive
+an owned account phase, authenticate a root-owned retry/attempt identity, admit or
+execute orders, verify fills, maintain the full cash/carry ledger, or settle the
+complete actor/reserve window. Native execution/accounting remain the comparison target; full
+B4, G0/G2 and economic qualification remain incomplete, with no financial assumptions
+or execution authority changed. The internal `frozen_forecast_index.py` checks a caller-supplied raw byte-count/SHA-256 pin before one bounded JSON decode, rejects duplicate keys and numeric tokens over 4,096 characters, and builds packet/vintage maps once. A lookup passes only the selected packet/vintage pair as a derived view to the existing semantic adapter; this does not authenticate a producer, Dataset lineage, or runtime consumption.
+
+The internal `binary64_account.py` is a scalar binary64 compatibility view alongside the independent Fraction/Decimal reference account. It starts only from caller-owned opening cash, exact quantities, marks and multipliers, then consumes explicit account events; it is never seeded from native BookState or receipt financial fields. Its explicit cross-margin event reproduces maintenance, collateral haircut, deficit reset and termination flattening under floor-zero or retained-debt valuation. Isolated margin and split transitions are unsupported and unknown events fail closed. It does not authenticate inputs, coordinate lifecycle or order admission, or complete full B4; the existing full-run, G0/G2 and economic-evidence gaps remain.
+
+
+## Caller-owned actor identity composition
+
+The internal `decision_identity.py` reconstructs context, proposal, action, risk-target, and MARKET/GTC order identity payloads from explicit caller-owned fields. It delegates order-intent validation and ID calculation to `expected_intent.ExpectedIntent`; it does not infer that those fields came from an original Dataset, receipt, account phase, or attempt. Context admission, forecast lineage, order history ownership, execution, and accounting remain separate full-B4 work.

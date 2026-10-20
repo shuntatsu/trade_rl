@@ -2218,3 +2218,11 @@ Manufactured 6,599-row parser fixtures measure parser mechanics only. They are
 not a native full-run positive or a B4 result. One coherent full-B4 integration
 remains in progress; intent, accounting and outer-evidence closure are still
 required. No economic assumptions or execution authority change here.
+
+The integration also pins H's self-excluding output-manifest file roster and
+connects its original gzip pins to the actor/reserve reader. This inventory
+detects observed content, identity and metadata changes, without attesting a
+producing process or freezing future files. Independent scalar allocation
+arithmetic recomputes the declared after-cost utility from supplied assumptions,
+using exact comparisons of binary64 coefficients and the fixed tie rules.
+Neither component yet authenticates forecast packets or creates an order.

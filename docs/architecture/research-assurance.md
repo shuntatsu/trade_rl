@@ -2523,3 +2523,11 @@ rows remain provisional until the complete stream verifies. Manufactured
 does not bind an outer attempt, order intent, accepted-fill history, independent
 accounting or terminal settlement. Full B4, formal G0/G2 and economic evidence
 remain unestablished by this component; no financial conditions change.
+
+The output-file index requires an independently supplied manifest byte pin;
+manifest consistency cannot establish root-launch authorship or consumption.
+File reads are bounded and explicit rechecks compare original identities,
+metadata and hashes. Files remain subject to the trusted-host immutability
+assumption. Independent allocation arithmetic receives supplied horizon
+assumptions only. Hand-calculated and differential manufactured cases do not
+authenticate forecasts, intents, accepted fills, account transitions or profits.

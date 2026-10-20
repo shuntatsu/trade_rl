@@ -119,6 +119,14 @@ def test_production_modules_do_not_import_the_composition_package() -> None:
             )
 
 
+def test_unfinished_composition_facade_grants_no_public_result_api() -> None:
+    assert _public_exports(OWNER.replace(".", "/")) == set()
+    tree = ast.parse((ROOT / "tools/market_b4_oracle/__init__.py").read_text())
+    assert len(tree.body) == 1 and isinstance(tree.body[0], ast.Expr)
+    assert isinstance(tree.body[0].value, ast.Constant)
+    assert isinstance(tree.body[0].value.value, str)
+
+
 def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     routes = [

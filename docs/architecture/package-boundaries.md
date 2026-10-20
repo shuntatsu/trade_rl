@@ -2133,3 +2133,19 @@ row-structure properties only; selected rows remain provisional until the
 whole stream verifies. It does not close intent, account, order-witness or
 outer-attempt evidence. Manufactured full-count fixtures are parser tests,
 not native executions. Full B4 remains one integrated workstream.
+
+`output_index.py` verifies the native writer's flat, self-excluding
+`output-manifest.json` against a caller-supplied byte pin. It checks the exact
+file roster, bounded reads, file identities and link/alias confinement before
+returning an immutable index. An explicit recheck detects observed changes;
+the index does not lock files or attest their producing process. Its read
+budgets do not replace the native execution resource limits. Outer witness
+authentication and financial validation remain open integration work.
+
+`allocation_choice.py` implements only the single-symbol after-cost allocation
+calculation. It imports no production strategy, uses rational utility comparison
+and preserves the declared binary64 candidate/tie rules. Clocked frozen-forecast
+lookup, final hard risk, action mapping, order identity and reconciliation belong
+to the still-open composition path. Tests may compare manufactured assumptions
+with the production optimizer; that differential check is software evidence,
+not an independent financial replay.

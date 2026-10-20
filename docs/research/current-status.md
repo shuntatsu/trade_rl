@@ -3676,3 +3676,19 @@ fixtures establish parser mechanics only, not native execution or a completed
 attempt. Outer receipt binding, order intent and witness closure, independent
 accounting, and terminal settlement remain open in this single integration
 workstream. No full B4, formal G0/G2, profit, R3, or live authority is claimed.
+
+The same integration now checks the native flat output manifest against its
+caller-pinned original bytes and exact file roster. Bounded reads retain the
+original file identities, reject links and path aliases, and expose explicit
+rechecks. Actor and reserve readers obtain the same gzip pin from this index.
+This joins file and row-structure verification; it does not authenticate the
+manifest's author, the root launch or runtime consumption. Failed and partial
+native attempts retain their original artifacts and do not acquire full-B4
+status through this file index.
+
+Independent scalar allocation arithmetic now recomputes the frozen after-cost
+objective, including transaction/exit costs, cash/funding/borrow assumptions,
+variance penalty, turnover bounds and exact tie rules. Manufactured analytic
+cases cover its mathematics. The frozen forecast reader, final hard-risk/action
+projection and expected-intent/lifecycle driver remain open; this arithmetic
+component neither refits forecasts nor supplies a market result.

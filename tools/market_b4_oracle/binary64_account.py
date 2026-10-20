@@ -614,10 +614,13 @@ class OwnedBinary64Account:
             prospective_wealth = float(proposed_cash + projected.sum())
         if not math.isfinite(prospective_wealth):
             raise ValueError("revaluation would make portfolio value non-finite")
-        if period_start_value is not None and not math.isfinite(
-            prospective_wealth / period_start_value - 1.0
-        ):
-            raise ValueError("funding would make net return non-finite")
+        if period_start_value is not None:
+            # Match the native lower-return floor before checking finiteness.
+            prospective_return = max(
+                prospective_wealth / period_start_value - 1.0, -1.0 + 1e-12
+            )
+            if not math.isfinite(prospective_return):
+                raise ValueError("funding would make net return non-finite")
         self._cash = proposed_cash
         self._marks = marks
         self._refresh_economic_state()

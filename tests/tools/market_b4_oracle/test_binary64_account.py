@@ -549,24 +549,27 @@ def test_rejected_cumulative_funding_overflow_preserves_account_state() -> None:
         multipliers=(1.0, 1.0),
         peak_value=1e308,
     )
-    credit = dict(
-        price_rates=(0.0, 9.0),
-        due=(False, True),
-        mark_prices=(1.0, 1.0),
-    )
     assert math.isfinite(account.wealth) and account.wealth > 0.0
     account.apply(
-        FundingMarkEvent(**credit, period_start_value=account.wealth)
+        FundingMarkEvent(
+            price_rates=(0.0, 9.0),
+            due=(False, True),
+            mark_prices=(1.0, 1.0),
+            period_start_value=account.wealth,
+        )
     )
-    account.apply(
-        BorrowEvent(annual_rates=(0.0, 4.0), year_fraction=1.0)
-    )
+    account.apply(BorrowEvent(annual_rates=(0.0, 4.0), year_fraction=1.0))
     before = account.snapshot()
     assert math.isfinite(before.cash) and math.isfinite(before.wealth)
     assert math.isfinite(before.funding_pnl)
     with pytest.raises(ValueError, match="funding.*non-finite"):
         account.apply(
-            FundingMarkEvent(**credit, period_start_value=account.wealth)
+            FundingMarkEvent(
+                price_rates=(0.0, 9.0),
+                due=(False, True),
+                mark_prices=(1.0, 1.0),
+                period_start_value=account.wealth,
+            )
         )
     assert account.snapshot() == before
 

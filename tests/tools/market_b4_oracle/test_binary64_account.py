@@ -539,6 +539,30 @@ def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots()
     assert abs(float(reference.snapshot().settlement_proceeds) - actual) < 1e-12
 
 
+def test_rejected_funding_cash_overflow_preserves_account_state() -> None:
+    # All inputs and the derived funding transfer are finite binary64 values,
+    # but posting the transfer would overflow cash before wealth validation.
+    account = OwnedBinary64Account(
+        cash=1e308,
+        exact_quantities=(Fraction(-(10**307)), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    before = account.snapshot()
+    assert math.isfinite(before.wealth)
+    with pytest.raises(ValueError, match="non-finite"):
+        account.apply(
+            FundingMarkEvent(
+                price_rates=(9.0, 0.0),
+                due=(True, False),
+                mark_prices=(1.0, 1.0),
+                period_start_value=before.wealth,
+            )
+        )
+    assert account.snapshot() == before
+
+
 def test_unknown_or_unsupported_transitions_fail_closed() -> None:
     owned = OwnedBinary64Account(
         cash=10.0,

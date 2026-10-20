@@ -2160,7 +2160,7 @@ and formal independent research approval remain integration requirements.
 
 `BoundObjectiveClock` により、新規bindingではUTC評価期間とeconomic horizonの一致を整数秒で要求し、個別宣言のdigestを同時に固定する。小数秒を丸めた期間や不一致の時計は拒否する。profile内容やruntimeの検証へは接続されていない。
 
-これはP0の初期software capabilityであり、P0全体完了や経済仮説の成立ではない。現在のPPO log報酬・独立銘柄訓練・Run/Study reader・歴史的選定基準は維持する。PR #794のtraining discount objectiveとこのbusiness objectiveは別の責務で、gamma/GAEの既定値を重複変更しない。PR #790のshared-cash replayもjoint learning済みとは扱わない。
+これはP0の初期software capabilityであり、P0全体完了や経済仮説の成立ではない。現在のPPO log報酬・独立銘柄訓練・Run/Study reader・歴史的選定基準は維持する。既存のtraining discount objectiveとこのbusiness objectiveは別の責務で、gamma/GAEの既定値を重複変更しない。既存のshared-cash replayもjoint learning済みとは扱わない。
 
 次段階は参照したrisk/economics/運用recipeの検証と、既存executorを使ったtraining/replay parity、上流のprequential packet、金融clock/終端のadapter整合、合成市場での学習可能性の検査である。これらの不足を閉じ、fresh result-blind G0-G2 reviewと正式な有限予算研究契約を結果前に固定するまで、新規G4実行へ進まない。実データfit/replay、未使用future開封、封印run再試行、live発注はこの変更では実施しない。利益性、WINNER/NO_WINNER/INVALIDの経済判断はまだ未確立である。
 
@@ -3702,4 +3702,4 @@ A separate internal binary64 scalar projection now exercises H-compatible cash a
 
 The full-B4 comparison package now has an internal identity builder for explicit context and actor components, including risk-target identities and MARKET/GTC order payloads. Order-ID generation reuses the package's expected-intent primitive. The builder reproduces hashes from supplied components; it does not authenticate a forecast, Dataset, account phase, or attempt. Context admission, root-owned attempt binding, order lifecycle, independent accounting, and terminal-flat/no-pending evidence remain incomplete. This software component establishes no full B4, G0-G2, profit, R3, unused-period, or live authority, and changes no financial assumptions.
 
-Development is paused at these internal comparison primitives. Fresh exact-head independent review and repository/CI closure for the added primitives remain pending, as does the complete frozen 48-cell B4 run. The separate manifest-alias fix in PR #926 is integrated into this active workstream; the proposal-clock admission fix in PR #927 remains a separate candidate. No economic acceptance or live readiness is established.
+Development is paused at these internal comparison primitives. Fresh exact-head independent review and repository/CI closure for the added primitives remain pending, as does the complete frozen 48-cell B4 run. The separately reviewed manifest-alias self-entry fix is integrated into this active workstream; the proposal-clock admission correction remains an independent, unmerged candidate. Exact software PR/commit evidence remains in the linked issue history, not this current authority document. No economic acceptance or live readiness is established.

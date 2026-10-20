@@ -149,6 +149,10 @@ def _context(
         or not 0 <= symbol_index < dataset.n_symbols
     ):
         raise ValueError("selected symbol is outside the dataset")
+    # Reject stale/foreign known clocks before generating a proposal, not only
+    # when the canonical executor eventually attempts the next interval.
+    # Unknown clocks remain valid for the legacy/bootstrap account contract.
+    book.validate_processing_clock(dataset_id=dataset.dataset_id, index=start_index)
     latency = executor.cost.order_latency_bars
     if (
         executor.cost.order_type != "market"

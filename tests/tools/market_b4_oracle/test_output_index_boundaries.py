@@ -203,3 +203,32 @@ def test_case_alias_is_rejected_before_any_artifact_is_opened(
     with pytest.raises(ValueError, match="case aliases"):
         load_pinned_output_index(tmp_path, _pin(raw))
     assert opened == [manifest_path]
+
+
+@pytest.mark.parametrize("alias", ["OUTPUT-MANIFEST.JSON", "Output-Manifest.Json"])
+def test_rejects_case_variant_of_manifest_before_roster_comparison(
+    tmp_path: Path, alias: str
+) -> None:
+    """A case alias of the self-excluding manifest is never an artifact entry."""
+    row = {"bytes": 0, "sha256": _SHA}
+    raw = json.dumps({alias: row}, separators=(",", ":")).encode("utf-8")
+    (tmp_path / _MANIFEST).write_bytes(raw)
+
+    with pytest.raises(ValueError, match="self-excluding"):
+        load_pinned_output_index(tmp_path, _pin(raw))
+
+
+def test_rejects_real_manifest_case_alias_file_on_case_sensitive_volume(
+    tmp_path: Path,
+) -> None:
+    """A complete, pinned shadow file must not pass as an extra artifact."""
+    root = tmp_path / "attempt"
+    root.mkdir()
+    alias = "OUTPUT-MANIFEST.JSON"
+    (root / alias).write_bytes(b"shadow")
+    if (root / _MANIFEST).exists():
+        pytest.skip("volume aliases filenames by case; cannot create both files")
+    pin = _write(root, {alias: b"shadow"})
+
+    with pytest.raises(ValueError, match="self-excluding"):
+        load_pinned_output_index(root, pin)

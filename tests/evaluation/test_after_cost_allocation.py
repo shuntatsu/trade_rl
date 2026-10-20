@@ -313,7 +313,7 @@ def test_nonrl_proposal_rejects_replayed_known_account_clock() -> None:
         propose(ex, first.execution.book, first.execution.order_book, index=0)
 
 
-def test_nonrl_proposal_checks_known_dataset_clock_without_requiring_legacy_bootstrap() -> None:
+def test_nonrl_proposal_checks_known_clock_and_legacy_bootstrap() -> None:
     dataset = market()
     ex, bk, orders = executor(dataset), book(dataset), OrderBookState.empty()
     # Historical bootstrap books without an as-of clock retain their contract.

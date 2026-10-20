@@ -2137,7 +2137,9 @@ not native executions. Full B4 remains one integrated workstream.
 `output_index.py` verifies the native writer's flat, self-excluding
 `output-manifest.json` against a caller-supplied byte pin. It checks the exact
 file roster, bounded reads, file identities and link/alias confinement before
-returning an immutable index. An explicit recheck detects observed changes;
+returning an immutable index. Manifest paths reject normalized and casefold
+aliases, Unicode control characters, Windows device names, links/reparse points,
+and hard-link aliases. An explicit recheck detects observed changes;
 the index does not lock files or attest their producing process. Its read
 budgets do not replace the native execution resource limits. Outer witness
 authentication and financial validation remain open integration work.

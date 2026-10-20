@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -57,7 +58,7 @@ def _name(value: object) -> str:
             part in {".", ".."}
             or part.endswith((".", " "))
             or part.split(".", 1)[0].upper() in _DEVICES
-            or any(ord(char) < 32 for char in part)
+            or any(unicodedata.category(char) == "Cc" for char in part)
             for part in path.parts
         )
     ):

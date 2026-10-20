@@ -508,7 +508,10 @@ class OwnedBinary64Account:
     def _mark_to_market(
         self, marks: tuple[float, float], funding: float, starting: float
     ) -> float:
-        self._cash += float(funding)
+        cash_after = self._cash + float(funding)
+        if not math.isfinite(cash_after):
+            raise ValueError("funding would make cash non-finite")
+        self._cash = cash_after
         self._revalue(marks)
         value = self.wealth
         if not math.isfinite(value):

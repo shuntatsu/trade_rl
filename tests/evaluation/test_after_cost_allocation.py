@@ -300,6 +300,10 @@ def test_nonrl_proposal_rejects_replayed_known_account_clock() -> None:
     # when its market marks/cash are identical to the earlier decision.
     dataset = market(next_close=100.0)
     ex, bk, orders = executor(dataset), book(dataset), OrderBookState.empty()
+    # Explicitly opt into the processing-clock contract; legacy unbound books
+    # intentionally remain unbound after an execution interval.
+    bk.as_of_index = 0
+    bk.as_of_dataset_id = dataset.dataset_id
     first = apply(ex, bk, orders, propose(ex, bk, orders))
     assert first.execution.next_index == 1
     assert first.execution.book.as_of_index == 1

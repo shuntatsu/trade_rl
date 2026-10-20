@@ -519,8 +519,7 @@ class OwnedBinary64Account:
         cash_after = self._cash + float(funding)
         if not math.isfinite(cash_after):
             raise ValueError("funding would make cash non-finite")
-        self._cash = cash_after
-        self._revalue(marks)
+        self._revalue(marks, cash_after=cash_after)
         value = self.wealth
         if not math.isfinite(value):
             raise ValueError("portfolio value became non-finite")
@@ -596,7 +595,22 @@ class OwnedBinary64Account:
         self._update_drawdown()
         return proceeds
 
-    def _revalue(self, marks: tuple[float, float]) -> None:
+    def _revalue(
+        self, marks: tuple[float, float], *, cash_after: float | None = None
+    ) -> None:
+        proposed_cash = self._cash if cash_after is None else cash_after
+        # Project the next two-slot valuation before changing either cash or
+        # marks. A finite input price and quantity can still overflow on multiply.
+        with np.errstate(over="ignore", invalid="ignore"):
+            projected = (
+                np.asarray(self.projected_quantities, dtype=np.float64)
+                * np.asarray(marks, dtype=np.float64)
+                * np.asarray(self._multipliers, dtype=np.float64)
+            )
+            prospective_wealth = float(proposed_cash + projected.sum())
+        if not math.isfinite(prospective_wealth):
+            raise ValueError("revaluation would make portfolio value non-finite")
+        self._cash = proposed_cash
         self._marks = marks
         self._refresh_economic_state()
 

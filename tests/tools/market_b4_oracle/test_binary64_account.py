@@ -539,6 +539,34 @@ def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots()
     assert abs(float(reference.snapshot().settlement_proceeds) - actual) < 1e-12
 
 
+@pytest.mark.parametrize("event_type", ["revaluation", "funding"])
+def test_nonfinite_mark_does_not_mutate_owned_account(event_type: str) -> None:
+    # Every input is finite, as is opening equity, but doubling a huge long
+    # makes the projected mark notional overflow. Rejection must be atomic.
+    account = OwnedBinary64Account(
+        cash=-9e307,
+        exact_quantities=(Fraction(10**308), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    before = account.snapshot()
+    assert math.isfinite(before.wealth) and before.wealth > 0.0
+    event = (
+        RevaluationEvent(mark_prices=(2.0, 1.0))
+        if event_type == "revaluation"
+        else FundingMarkEvent(
+            price_rates=(0.0, 0.0),
+            due=(False, False),
+            mark_prices=(2.0, 1.0),
+            period_start_value=before.wealth,
+        )
+    )
+    with pytest.raises(ValueError, match="non-finite"):
+        account.apply(event)
+    assert account.snapshot() == before
+
+
 def test_rejected_borrow_cash_overflow_preserves_account_state() -> None:
     # A positive-wealth, mixed long/short account can have negative cash.
     # The borrowed short liability is finite, but paying it would overflow cash.

@@ -2544,11 +2544,12 @@ assumption. Independent allocation arithmetic receives supplied horizon
 assumptions only. Hand-calculated and differential manufactured cases do not
 authenticate forecasts, intents, accepted fills, account transitions or profits.
 
-## Frozen row replay remains comparison-only
+## Frozen replay and receipt comparison remain unauthenticated
 
-The internal B4 comparison path now includes `FrozenMarketReplay`, which starts from caller-owned account facts and advances one selected symbol through actor and reserve rows. It derives MARKET/GTC admission, fills, fees, carry, account events, drawdown and terminal settlement from raw inputs. Public-native artificial comparisons cover 32 actor and 8 reserve advances across the frozen BASEL0, COST2L0 and BASEL2 profiles, both roles, horizons and symbol slots.
+The internal B4 comparison components connect a pinned forecast view and caller-owned row facts to frozen allocation, action/risk projection, MARKET/GTC intent, owned fills, binary64 account events, carry and reserve settlement. The indexed receipt consumer scans actor and reserve rows to EOF, compares row projections and rebuilt actor identity, checks the frozen forecast vintages and receipt plan declarations against the arm, then verifies terminal-flat/no-active state. H/v3 receipt rows remain separate from the V4 exact-fill event walker. Its return value is a comparison-complete record only.
 
-The row driver does not consume an original receipt or authenticate a producer, runtime, Dataset lineage, or root-owned attempt. Its caller-supplied pins remain comparison inputs. It has not completed a frozen 48-cell replay and establishes no formal G0-G2, R3, profit, unused-period, or live authority. No financial assumptions or execution authority change.
+The matrix entry derives the exact 48-arm roster from the validated protocol pair and Dataset binding, applies the selected-arm consumer, and brackets bounded per-file reads with shared before/after whole-index and static-input checks. It has not consumed a native 48-arm output tree. Caller pins do not authenticate a producing process or runtime; the consumer does not establish a root-owned attempt, Full B4, G0-G2, R3, profit, unused-period, or live authority. No financial assumptions or execution authority change.
+
 
 ## Caller-pinned frozen forecast index
 

@@ -3708,6 +3708,21 @@ A separate internal binary64 scalar projection now exercises H-compatible cash a
 
 The full-B4 comparison package has an internal identity builder for explicit context and actor components, including risk-target identities and MARKET/GTC order payloads. Order-ID generation reuses the package's expected-intent primitive. The builder reproduces hashes from supplied components; it does not authenticate a forecast, Dataset, account phase, or attempt. The public NONRL allocation proposal path validates a known BookState processing clock against the selected Dataset and requires an exact decision-index match. Unknown-clock bootstrap remains supported. This is early admission validation; it does not claim duplicate-fill or P&L repair. Context admission, root-owned attempt binding, order lifecycle, independent accounting, and terminal-flat/no-pending evidence remain incomplete. These software components establish no full B4, G0-G2, profit, R3, unused-period, or live authority, and change no financial assumptions.
 
+The internal row driver now has an H/v3 indexed receipt consumer that runs the
+owned replay across actor and reserve rows, waits for both structural scans to
+reach EOF, rebuilds and compares every actor identity digest, checks every
+indexed forecast vintage against the selected configuration's alpha, horizon,
+feature roster and prediction symbols, checks the native plan/runtime/cost/risk
+declarations against the frozen binding, compares final settlement, and
+rechecks the indexed forecast and output tree. Public-native artificial 32+8
+comparisons complete for NONRL and CASH; missing actor rows, mutated actor
+identity, a switched alpha stream, mismatched cost profile and a corrupt gzip
+tail reject without returning a completion record. Bounded file reads stop
+when a file grows beyond its pin. This is software evidence only. The current
+composed head still requires fresh exact-head independent review and full
+repository/CI closure; the complete frozen 48-cell B4 run remains unexecuted.
+No economic acceptance or live readiness is established.
+
 Before a native 48-arm run, one matched artificial NONRL/CASH component-loop pair
 must each complete 6,527 actor plus 72 reserve advances, with nonzero actor
 decisions/fills and terminal reserve settlement. The proposed operator will use a

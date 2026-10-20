@@ -2243,6 +2243,23 @@ maps once. A lookup passes only the selected packet/vintage pair as a derived vi
 to the existing semantic adapter; this does not authenticate a producer, Dataset
 lineage, or runtime consumption.
 
+`offline_replay_consumer.py` joins the indexed original receipt to the H/v3
+owned row driver. It advances actor then reserve rows, requires complete EOF
+proofs for both scans, compares fills, orders and every book projection, and
+rechecks the forecast bytes and output tree before returning a comparison-only
+record. Order-event parser bytes are a derived canonical projection, not the
+original raw event batch; the pinned gzip and manifest remain the enclosing
+source evidence. Each actor row's baseline, context, decision, action, and
+selected identity digests are rebuilt and compared with the owned replay; plan
+clocks, horizon, initial capital, runtime, cost, and risk are also checked
+against the frozen binding. Before row consumption, each parsed forecast
+vintage is checked against the selected configuration's alpha, horizon,
+features, and prediction-symbol roster. The consumer does not treat H/v3 rows
+as V4 exact-fill events. Its bounded output-index reads enforce a per-file byte
+ceiling across path changes. The result explicitly carries no outer-attempt
+authentication or Full-B4 authorization; source/runtime witness integration
+and the frozen 48-cell financial replay remain incomplete.
+
 The internal `binary64_account.py` is a scalar binary64 compatibility view alongside the independent Fraction/Decimal reference account. It starts only from caller-owned opening cash, exact quantities, marks and multipliers, then consumes explicit account events; it is never seeded from native BookState or receipt financial fields. Its explicit cross-margin event reproduces maintenance, collateral haircut, deficit reset and termination flattening under floor-zero or retained-debt valuation. Isolated margin and split transitions are unsupported and unknown events fail closed. It does not authenticate inputs, coordinate lifecycle or order admission, or complete full B4; the existing full-run, G0/G2 and economic-evidence gaps remain.
 
 

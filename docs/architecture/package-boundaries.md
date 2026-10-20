@@ -2163,9 +2163,28 @@ alpha, horizon, feature selection, and prediction-symbol roster with the selecte
 protocol configuration; it does not authenticate forecast provenance or fit
 lineage.
 
+`offline_replay_consumer.py` composes the output index, H/v3 actor and reserve
+streaming scans, the public order-event parser, and the owned raw-row driver.
+It must exhaust both scans before it returns a comparison-complete record,
+compare every selected row and final flat/no-active state, and recheck the
+forecast and original output tree afterward. Its event parser receives a
+canonical projection of event objects already parsed from a receipt; that
+projection pin is derived data, while the original gzip and output-manifest
+pins remain the upper-level evidence. H/v3 rows are not relabeled as V4 or
+passed to the V4 exact-fill walker. For every actor row it rebuilds the native
+baseline, context, decision, action, and selected identity digests from the
+receipt projection and compares them with the independently advanced owned
+identity. Before consuming rows, it binds every parsed forecast vintage to the
+selected configuration's alpha, horizon, declared feature roster, and symbols.
+It also checks the receipt's plan, clock, initial-capital, horizon, runtime,
+cost, and risk declarations against the frozen binding. Even with source,
+Dataset and protocol readback pins, the result does not authenticate an outer
+attempt or authorize Full B4. The module remains internal and outside
+production imports.
+
 `binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
 
 
 ## Internal decision identity comparison
 
-`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. `frozen_market_replay.py` composes the internal semantic components into the owned row driver. These comparison components remain internal; they do not authenticate source ownership or close the attempt/accounting boundary.
+`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. `frozen_market_replay.py` composes the internal semantic components into the owned row driver, and `offline_replay_consumer.py` provides selected-arm receipt comparison plus a roster-derived 48-arm matrix consumer. The matrix entry shares only outer whole-index and static-input checks, preserves bounded per-file pins, and returns comparison-only status. Native execution imports remain confined to tests; these components remain outside production and the package facade.

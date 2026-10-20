@@ -558,6 +558,69 @@ def test_signed_large_position_gross_overflow_rejects_atomically() -> None:
     assert owned.snapshot() == before
 
 
+def test_funding_return_ratio_overflow_rejects_without_account_mutation() -> None:
+    # The start and ending wealth are individually finite binary64 values,
+    # but the ratio itself overflows: a reporting failure must be atomic.
+    account = OwnedBinary64Account(
+        cash=1e308,
+        exact_quantities=(Fraction(0), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    before = account.snapshot()
+    assert math.isfinite(before.wealth)
+    with pytest.raises(
+        ValueError, match="funding mark must preserve finite account values"
+    ):
+        account.apply(
+            FundingMarkEvent(
+                price_rates=(0.0, 0.0),
+                due=(False, False),
+                mark_prices=(1.0, 1.0),
+                period_start_value=1e-308,
+            )
+        )
+    assert account.snapshot() == before
+
+
+def test_cumulative_funding_pnl_overflow_rejects_without_mutation() -> None:
+    # Each funding transfer is finite; borrowing between the transfers keeps
+    # cash/wealth finite but their running funding-PnL sum would overflow.
+    account = OwnedBinary64Account(
+        cash=-1e308,
+        exact_quantities=(Fraction(13 * 10**307), Fraction(-(10**307))),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    assert math.isfinite(account.wealth) and account.wealth > 0.0
+    account.apply(
+        FundingMarkEvent(
+            price_rates=(0.0, 9.0),
+            due=(False, True),
+            mark_prices=(1.0, 1.0),
+            period_start_value=account.wealth,
+        )
+    )
+    account.apply(BorrowEvent(annual_rates=(0.0, 4.0), year_fraction=1.0))
+    before = account.snapshot()
+    assert math.isfinite(before.cash) and math.isfinite(before.wealth)
+    assert before.funding_pnl == 9e307
+    with pytest.raises(
+        ValueError, match="funding mark must preserve finite account values"
+    ):
+        account.apply(
+            FundingMarkEvent(
+                price_rates=(0.0, 9.0),
+                due=(False, True),
+                mark_prices=(1.0, 1.0),
+                period_start_value=before.wealth,
+            )
+        )
+    assert account.snapshot() == before
+
+
 def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots() -> (
     None
 ):

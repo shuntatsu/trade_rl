@@ -3687,13 +3687,19 @@ native attempts retain their original artifacts and do not acquire full-B4
 status through this file index.
 
 The package now contains separate caller-input forecast, independent after-cost
-allocation/action-risk, and expected two-symbol MARKET/GTC intent primitives.
-Manufactured cases and comparisons with public native APIs cover these software
-steps only; no end-to-end driver is included. Forecast/source bytes, account-phase ownership,
-root-owned retry/attempt identity, order admission and lifecycle, accepted-fill
-accounting, and full actor/reserve terminal closure remain open. The composition does not refit forecasts, consume a
-market run, or establish full B4, G0/G2, profit, R3, unused-period, or live authority;
-financial assumptions remain unchanged. A bounded frozen-forecast index now complements these comparison primitives: it checks a caller-supplied raw byte pin, decodes once, and looks up a selected packet/vintage pair. The lookup reuses the semantic adapter but grants no source authentication or end-to-end B4 authority; its 64 MiB input and 4,096-character numeric-token caps are parser limits, not RSS guarantees.
+allocation/action-risk, expected two-symbol MARKET/GTC intent and bounded owned-row
+driver components. Public-native artificial comparisons exercise 32 actor and 8
+reserve rows across the exact frozen BASEL0/COST2L0/BASEL2 profiles, nonrl/cash
+roles, 24/72-hour horizons and both symbol slots. This is software evidence only;
+caller pins do not establish source producer, runtime consumer or root-attempt
+authentication. The driver does not consume an authenticated original run or
+establish the full frozen financial 48-cell replay. G0/G2, profit, R3, unused-period,
+and live authority remain unestablished; financial assumptions remain unchanged.
+A bounded frozen-forecast index complements these components: it checks a
+caller-supplied raw byte pin, decodes once, and looks up a selected packet/vintage
+pair. The lookup reuses the semantic adapter but grants no source authentication;
+its 64 MiB input and 4,096-character numeric-token caps are parser limits, not RSS
+guarantees.
 
 A separate internal binary64 scalar projection now exercises H-compatible cash and wealth operation order against the public BookState using only caller-owned synthetic opening facts and explicit events, alongside the Fraction/Decimal reference ledger. It is not a row-level replay or financial result. Its explicit cross-margin event now reproduces maintenance, collateral haircut, deficit reset and terminal flattening, including binary64 tolerance boundaries. Isolated margin, split transitions, source and receipt authentication, phase coordination, intent/admission, and outer-attempt closure remain incomplete; no economic assumptions change.
 
@@ -3702,4 +3708,14 @@ A separate internal binary64 scalar projection now exercises H-compatible cash a
 
 The full-B4 comparison package has an internal identity builder for explicit context and actor components, including risk-target identities and MARKET/GTC order payloads. Order-ID generation reuses the package's expected-intent primitive. The builder reproduces hashes from supplied components; it does not authenticate a forecast, Dataset, account phase, or attempt. The public NONRL allocation proposal path validates a known BookState processing clock against the selected Dataset and requires an exact decision-index match. Unknown-clock bootstrap remains supported. This is early admission validation; it does not claim duplicate-fill or P&L repair. Context admission, root-owned attempt binding, order lifecycle, independent accounting, and terminal-flat/no-pending evidence remain incomplete. These software components establish no full B4, G0-G2, profit, R3, unused-period, or live authority, and change no financial assumptions.
 
-Issue #810 development remains active at these comparison primitives. Fresh exact-head independent review and repository/CI closure remain pending, as does the complete frozen 48-cell B4 run. No economic acceptance or live readiness is established.
+Before a native 48-arm run, one matched artificial NONRL/CASH component-loop pair
+must each complete 6,527 actor plus 72 reserve advances, with nonzero actor
+decisions/fills and terminal reserve settlement. The proposed operator will use a
+separate artificial Dataset/protocol/receipt under the pinned H interpreter,
+working directory and import root, calling unchanged public H Dataset and market
+execution APIs. Its outputs remain artificial evidence and do not impersonate a
+frozen H/v3-H/v4 attempt or confer authentication. The long synthetic pair has not
+run; the existing 32+8 comparisons and bounded 640-step profile do not meet this
+prerequisite. No 6,599-step pair, native 48-arm, repository-wide final-gate,
+economic, unused-period or live evidence is claimed. The current worktree is still
+development code; these interfaces do not promote it to Full-B4 authority.

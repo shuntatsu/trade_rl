@@ -156,9 +156,9 @@ class OwnedAccountComponents:
 
 @dataclass(frozen=True, slots=True)
 class OwnedIntentComponents:
-    """Intent fields excluding all identity hashes, which are rebuilt here."""
+    """Intent fields excluding hashes, which are rebuilt from a builder source."""
 
-    identity_source: ActorIdentity
+    identity_source: ActorIdentity | ActorIntentBasis
     dataset_id: str
     execution_policy_digest: str
     symbol_index: int
@@ -210,13 +210,47 @@ class ActorIdentity:
     current_weights: tuple[float, float]
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class ActorIntentBasis:
+    """Internal compact target data for owned orders; not a provenance token."""
+
+    target_identity: str
+
+    def __new__(cls) -> ActorIntentBasis:
+        raise TypeError("ActorIntentBasis must be created by the internal factory")
+
+
+def _actor_intent_basis_from_identity(
+    identity: ActorIdentity | None,
+) -> ActorIntentBasis | None:
+    """Copy an ActorIdentity target into the internal compact order representation."""
+    if identity is None:
+        return None
+    if not isinstance(identity, ActorIdentity):
+        raise TypeError("compact intent basis requires an ActorIdentity builder result")
+    try:
+        target_identity = identity.target_identity
+    except AttributeError as error:
+        raise ValueError("ActorIdentity input is missing target_identity") from error
+    if target_identity is None:
+        raise ValueError("unchanged actor target cannot source a submitted order")
+    output = object.__new__(ActorIntentBasis)
+    object.__setattr__(output, "target_identity", target_identity)
+    return output
+
+
 def _order_mapping(
     order: OwnedPendingOrder, account: OwnedAccountComponents
 ) -> dict[str, Any]:
     intent = order.intent
-    if not isinstance(intent.identity_source, ActorIdentity):
-        raise ValueError("order identity source must be a builder result")
-    target_identity = intent.identity_source.target_identity
+    if not isinstance(intent.identity_source, (ActorIdentity, ActorIntentBasis)):
+        raise ValueError(
+            "order identity source must be a builder result or compact intent basis"
+        )
+    try:
+        target_identity = intent.identity_source.target_identity
+    except AttributeError as error:
+        raise ValueError("order identity source is missing target_identity") from error
     if target_identity is None:
         raise ValueError("unchanged prior target cannot source a submitted order")
     if (

@@ -2146,20 +2146,26 @@ open integration work.
 
 `allocation_choice.py` implements only the single-symbol after-cost allocation
 calculation. `frozen_forecast.py`, `frozen_decision.py` and `expected_intent.py`
-provide consecutive comparison primitives over caller-owned parsed forecast,
-decision-row, cost, inventory and pending-order facts. A caller may pass the forecast
-assumptions through after-cost choice and fixed action/risk projection, then reconcile
-the resulting weights into expected MARKET/GTC intents; no orchestrating driver is
-added. These modules are internal comparison components and are not added to a
-package facade. Their tests compare manufactured inputs with current public
-native APIs; that is software evidence, not an independent financial replay. Forecast
-bytes/source, account-phase ownership, root-owned retry/attempt identity, order
-admission/lifecycle, accepted-fill accounting and complete terminal closure remain
-outside this boundary. `frozen_forecast_index.py` is another internal comparison helper: its supplied byte pin identifies caller input only, and its selected-pair view does not authenticate forecast provenance or the full source stream. It is not added to the package facade.
+provide comparison components over caller-owned parsed forecast, decision-row, cost,
+inventory and pending-order facts. The internal `frozen_market_replay.py` connects
+them into a bounded one-symbol driver for caller-pinned dataset content, forecast
+bytes and frozen protocol bindings. It derives row admissions, MARKET/GTC fills,
+account events and reserve settlement from its owned state and raw rows; the other
+symbol slot must remain flat. Public-native 32-actor/8-reserve artificial comparisons
+cover the exact frozen BASEL0, COST2L0 and BASEL2 profiles, nonrl/cash roles, 24/72
+hour horizons and both symbol slots. This is software evidence only. Caller pins do
+not authenticate producers, runtime consumption or root-owned attempts, and this
+driver does not establish original-run provenance, full frozen 48-cell closure or a
+financial replay. These modules stay internal and are not added to a facade.
+`frozen_forecast_index.py` checks a caller-supplied byte pin and selected
+packet/vintage pair. Its arm-scope check compares each already-indexed vintage's
+alpha, horizon, feature selection, and prediction-symbol roster with the selected
+protocol configuration; it does not authenticate forecast provenance or fit
+lineage.
 
 `binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
 
 
 ## Internal decision identity comparison
 
-`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. The six semantic comparison components remain outside production; none authenticates source ownership or closes the attempt/accounting boundary.
+`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. `frozen_market_replay.py` composes the internal semantic components into the owned row driver. These comparison components remain internal; they do not authenticate source ownership or close the attempt/accounting boundary.

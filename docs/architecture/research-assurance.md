@@ -2524,6 +2524,18 @@ does not bind an outer attempt, order intent, accepted-fill history, independent
 accounting or terminal settlement. Full B4, formal G0/G2 and economic evidence
 remain unestablished by this component; no financial conditions change.
 
+Before a native frozen 48-arm run, the current gate plan requires one matched,
+artificial NONRL/CASH component-loop pair to complete all 6,527 actor and 72
+reserve advances per arm, including nonzero actor decisions/fills and terminal
+reserve settlement. A test-owned operator will run outside the frozen H checkout
+under its pinned interpreter, cwd and import root, and call unchanged public H
+Dataset and market execution APIs on a distinct synthetic Dataset/protocol. Its
+receipt and identity must remain explicitly artificial; this does not attest a
+frozen H/v3-H/v4 attempt or authorize the 48-arm consumer. The existing 32+8
+public-native fixtures and bounded 640-step profile do not satisfy that
+long-window prerequisite. It has not been run; it is mechanical software evidence
+only, not a native attempt or economic result.
+
 The output-file index requires an independently supplied manifest byte pin;
 manifest consistency cannot establish root-launch authorship or consumption.
 File reads are bounded and explicit rechecks compare original identities,
@@ -2532,25 +2544,11 @@ assumption. Independent allocation arithmetic receives supplied horizon
 assumptions only. Hand-calculated and differential manufactured cases do not
 authenticate forecasts, intents, accepted fills, account transitions or profits.
 
-## Frozen decision-to-intent primitives remain caller-input software
+## Frozen row replay remains comparison-only
 
-The internal B4 comparison modules expose consecutive primitives for an already-
-parsed forecast packet and caller-owned row facts: the declared after-cost allocation
-calculation, fixed action/risk projection, and expected two-symbol MARKET/GTC intent
-reconciliation. A caller can pass the outputs between steps, but no end-to-end driver
-is provided. Policy values and cost assumptions remain frozen; these primitives add
-no data, cost, risk, or adoption rule. Synthetic and public-API differential
-tests are software falsifiers, not market evidence or a formal G0/G1/G2 disposition.
+The internal B4 comparison path now includes `FrozenMarketReplay`, which starts from caller-owned account facts and advances one selected symbol through actor and reserve rows. It derives MARKET/GTC admission, fills, fees, carry, account events, drawdown and terminal settlement from raw inputs. Public-native artificial comparisons cover 32 actor and 8 reserve advances across the frozen BASEL0, COST2L0 and BASEL2 profiles, both roles, horizons and symbol slots.
 
-These functions do not authenticate original forecast or Dataset bytes, establish
-that the supplied decision facts belong to a bound account phase, authenticate a
-root-owned retry/attempt identity, derive runtime risk/feasibility from a native book,
-admit or execute orders, verify accepted fills, reconstruct carry/settlement/drawdown,
-or close the 6,599 actor/reserve advances.
-Caller-owned values can still be inconsistent with a native run. Full outer-attempt
-binding, independent order admission and accounting, and terminal-flat/no-pending
-proof remain required for B4. No formal G0-G2, R3, profit, unused-period, or live
-authority follows from these software primitives.
+The row driver does not consume an original receipt or authenticate a producer, runtime, Dataset lineage, or root-owned attempt. Its caller-supplied pins remain comparison inputs. It has not completed a frozen 48-cell replay and establishes no formal G0-G2, R3, profit, unused-period, or live authority. No financial assumptions or execution authority change.
 
 ## Caller-pinned frozen forecast index
 

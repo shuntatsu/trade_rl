@@ -62,7 +62,7 @@ def _name(value: object) -> str:
         )
     ):
         raise ValueError("artifact path has an unsafe or normalized alias")
-    if path.name == _MANIFEST:
+    if path.name.casefold() == _MANIFEST.casefold():
         raise ValueError("output manifest must be self-excluding")
     return value
 

@@ -295,6 +295,40 @@ def test_hard_drawdown_risk_overrides_quantity_hold():
     assert result.execution.book.fill_count == 1
 
 
+def test_nonrl_proposal_rejects_replayed_known_account_clock() -> None:
+    # An actual completed no-trade interval advances the account clock even
+    # when its market marks/cash are identical to the earlier decision.
+    dataset = market(next_close=100.0)
+    ex, bk, orders = executor(dataset), book(dataset), OrderBookState.empty()
+    first = apply(ex, bk, orders, propose(ex, bk, orders))
+    assert first.execution.next_index == 1
+    assert first.execution.book.as_of_index == 1
+    assert first.execution.book.as_of_dataset_id == dataset.dataset_id
+    np.testing.assert_array_equal(
+        first.execution.book.mark_prices, dataset.resolved_array("mark_price")[0]
+    )
+    assert first.execution.book.exact_quantities == (Fraction(0),)
+
+    with pytest.raises(ValueError, match="account processing clock"):
+        propose(ex, first.execution.book, first.execution.order_book, index=0)
+
+
+def test_nonrl_proposal_checks_known_dataset_clock_without_requiring_legacy_bootstrap() -> None:
+    dataset = market()
+    ex, bk, orders = executor(dataset), book(dataset), OrderBookState.empty()
+    # Historical bootstrap books without an as-of clock retain their contract.
+    assert bk.as_of_index is None
+    assert propose(ex, bk, orders).target_weight == 0.0
+
+    bk.as_of_index = 0
+    bk.as_of_dataset_id = "e" * 64
+    with pytest.raises(ValueError, match="account processing clock"):
+        propose(ex, bk, orders)
+
+    bk.as_of_dataset_id = dataset.dataset_id
+    assert propose(ex, bk, orders).target_weight == 0.0
+
+
 @pytest.mark.parametrize(
     "drift", ["holdings", "pending", "account", "risk", "policy", "dataset"]
 )

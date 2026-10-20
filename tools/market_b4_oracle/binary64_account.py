@@ -519,7 +519,7 @@ class OwnedBinary64Account:
         cash_after = self._cash + float(funding)
         if not math.isfinite(cash_after):
             raise ValueError("funding would make cash non-finite")
-        self._revalue(marks, cash_after=cash_after)
+        self._revalue(marks, cash_after=cash_after, period_start_value=starting)
         value = self.wealth
         if not math.isfinite(value):
             raise ValueError("portfolio value became non-finite")
@@ -596,7 +596,11 @@ class OwnedBinary64Account:
         return proceeds
 
     def _revalue(
-        self, marks: tuple[float, float], *, cash_after: float | None = None
+        self,
+        marks: tuple[float, float],
+        *,
+        cash_after: float | None = None,
+        period_start_value: float | None = None,
     ) -> None:
         proposed_cash = self._cash if cash_after is None else cash_after
         # Project the next two-slot valuation before changing either cash or
@@ -610,6 +614,10 @@ class OwnedBinary64Account:
             prospective_wealth = float(proposed_cash + projected.sum())
         if not math.isfinite(prospective_wealth):
             raise ValueError("revaluation would make portfolio value non-finite")
+        if period_start_value is not None and not math.isfinite(
+            prospective_wealth / period_start_value - 1.0
+        ):
+            raise ValueError("funding would make net return non-finite")
         self._cash = proposed_cash
         self._marks = marks
         self._refresh_economic_state()

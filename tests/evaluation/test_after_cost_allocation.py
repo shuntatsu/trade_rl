@@ -164,6 +164,80 @@ def test_fee_only_market_stays_cash_without_orders_or_costs():
     assert result.execution.order_events == ()
 
 
+def test_known_processing_clock_requires_same_index_and_rejects_stale_or_future():
+    dataset = market()
+    ex = executor(dataset)
+    bootstrap_book = book(dataset)
+    orders = OrderBookState.empty()
+
+    # An unknown clock remains a caller-declared bootstrap.
+    propose(ex, bootstrap_book, orders, index=0)
+    initial = replace(
+        bootstrap_book,
+        as_of_index=0,
+        as_of_dataset_id=dataset.dataset_id,
+    )
+    starting_proposal = propose(ex, initial, orders, index=0)
+    advanced = apply(ex, initial, orders, starting_proposal, index=0)
+    assert advanced.execution.next_index == 1
+    assert advanced.execution.book.as_of_index == 1
+    assert advanced.execution.book.as_of_dataset_id == dataset.dataset_id
+    assert advanced.execution.book.exact_quantities == (Fraction(0),)
+    assert advanced.execution.book.cash == initial.cash
+    assert advanced.execution.book.fill_count == 0
+    assert advanced.execution.order_events == ()
+
+    with pytest.raises(ValueError, match="processing clock"):
+        propose(
+            ex,
+            advanced.execution.book,
+            advanced.execution.order_book,
+            index=0,
+        )
+
+    same_index = propose(
+        ex,
+        advanced.execution.book,
+        advanced.execution.order_book,
+        index=1,
+    )
+    assert same_index.context.decision_time == dataset.timestamps[1]
+    with pytest.raises(ValueError, match="processing clock"):
+        propose(
+            ex,
+            advanced.execution.book,
+            advanced.execution.order_book,
+            index=2,
+        )
+
+
+def test_known_processing_clock_rejects_a_foreign_dataset():
+    dataset = market()
+    ex = executor(dataset)
+    initial = replace(
+        book(dataset),
+        as_of_index=0,
+        as_of_dataset_id=dataset.dataset_id,
+    )
+    orders = OrderBookState.empty()
+    advanced = apply(
+        ex,
+        initial,
+        orders,
+        propose(ex, initial, orders, index=0),
+        index=0,
+    )
+    foreign_executor = executor(replace(dataset, dataset_id="e" * 64))
+
+    with pytest.raises(ValueError, match="processing clock"):
+        propose(
+            foreign_executor,
+            advanced.execution.book,
+            advanced.execution.order_book,
+            index=1,
+        )
+
+
 def test_useful_signal_executes_after_risk_with_independent_net_cash_oracle():
     dataset = market(next_close=110.0)
     ex, bk, orders = (

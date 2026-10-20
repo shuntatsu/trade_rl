@@ -256,17 +256,45 @@ class OwnedBinary64Account:
     def projected_quantities(self) -> tuple[float, float]:
         return _project(self._quantities[0]), _project(self._quantities[1])
 
+    def _position_values_for(
+        self,
+        quantities: tuple[Fraction, Fraction],
+        marks: tuple[float, float],
+    ) -> np.ndarray:
+        quantity_values = np.asarray(
+            (_project(quantities[0]), _project(quantities[1])), dtype=np.float64
+        )
+        mark_values = np.asarray(marks, dtype=np.float64)
+        multiplier_values = np.asarray(self._multipliers, dtype=np.float64)
+        with np.errstate(over="ignore", invalid="ignore"):
+            positions = quantity_values * mark_values * multiplier_values
+        if not np.isfinite(positions).all():
+            raise ValueError("position values must remain finite")
+        return positions
+
+    def _account_value_for(
+        self,
+        cash: float,
+        quantities: tuple[Fraction, Fraction],
+        marks: tuple[float, float],
+    ) -> tuple[np.ndarray, float]:
+        if not math.isfinite(cash):
+            raise ValueError("cash must remain finite")
+        positions = self._position_values_for(quantities, marks)
+        with np.errstate(over="ignore", invalid="ignore"):
+            value = float(cash + positions.sum())
+        if not math.isfinite(value):
+            raise ValueError("portfolio value became non-finite")
+        return positions, value
+
     @property
     def position_values(self) -> np.ndarray:
-        quantities = np.asarray(self.projected_quantities, dtype=np.float64)
-        marks = np.asarray(self._marks, dtype=np.float64)
-        multipliers = np.asarray(self._multipliers, dtype=np.float64)
-        return quantities * marks * multipliers
+        return self._position_values_for(self._quantities, self._marks)
 
     @property
     def wealth(self) -> float:
         # Preserve H's full two-slot ndarray multiply and reduction shape.
-        return float(self._cash + self.position_values.sum())
+        return self._account_value_for(self._cash, self._quantities, self._marks)[1]
 
     @property
     def max_drawdown(self) -> float:
@@ -350,17 +378,23 @@ class OwnedBinary64Account:
         if event.insolvency_valuation not in {"floor_zero", "retain_debt"}:
             raise ValueError("unsupported insolvency valuation")
 
-        positions = self.position_values
-        value = self.wealth
-        gross = float(np.abs(positions).sum())
-        used = gross / leverage
-        required = rate * gross
-        collateral = float(
-            self._cash
-            + np.minimum(positions, 0.0).sum()
-            + haircut * np.maximum(positions, 0.0).sum()
+        positions, value = self._account_value_for(
+            self._cash, self._quantities, self._marks
         )
-        if not all(math.isfinite(item) for item in (gross, used, required, collateral)):
+        with np.errstate(over="ignore", invalid="ignore"):
+            gross = float(np.abs(positions).sum())
+            used = gross / leverage
+            required = rate * gross
+            collateral = float(
+                self._cash
+                + np.minimum(positions, 0.0).sum()
+                + haircut * np.maximum(positions, 0.0).sum()
+            )
+            deficit = max(0.0, required - max(value, 0.0))
+            deficit = max(deficit, required - collateral, 0.0)
+        if not all(
+            math.isfinite(item) for item in (gross, used, required, collateral, deficit)
+        ):
             raise ValueError("margin calculation must preserve finite values")
 
         # The book-level margin check precedes the executor's haircut check.
@@ -371,7 +405,7 @@ class OwnedBinary64Account:
         self._margin_deficit = max(0.0, required - max(value, 0.0))
         if value > 0.0 and required > 0.0 and value < required - _TOLERANCE:
             self._terminate("margin_call")
-        self._margin_deficit = max(self._margin_deficit, required - collateral, 0.0)
+        self._margin_deficit = deficit
         if collateral + _TOLERANCE < required:
             self._terminate("margin_call")
         if self._insolvent:
@@ -415,12 +449,14 @@ class OwnedBinary64Account:
         turnover_after = self._turnover_total + turnover
         cost_after = self._total_cost + cost
         with np.errstate(over="ignore", invalid="ignore"):
-            equity_after = float(
-                cash_after + (target_projection * mark_array * multiplier_array).sum()
+            position_values_after = target_projection * mark_array * multiplier_array
+            equity_after = float(cash_after + position_values_after.sum())
+        if (
+            not all(
+                math.isfinite(value)
+                for value in (cash_after, turnover_after, cost_after, equity_after)
             )
-        if not all(
-            math.isfinite(value)
-            for value in (cash_after, turnover_after, cost_after, equity_after)
+            or not np.isfinite(position_values_after).all()
         ):
             raise ValueError("execution must preserve finite account values")
 
@@ -448,19 +484,28 @@ class OwnedBinary64Account:
             raise ValueError(
                 "borrow rates, year fraction and multiplier must be non-negative"
             )
-        amount = float(
-            np.sum(
-                np.maximum(-self.position_values, 0.0)
-                * np.asarray(rates, dtype=np.float64)
+        positions = self.position_values
+        with np.errstate(over="ignore", invalid="ignore"):
+            amount = float(
+                np.sum(
+                    np.maximum(-positions, 0.0) * np.asarray(rates, dtype=np.float64)
+                )
+                * year_fraction
+                * multiplier
             )
-            * year_fraction
-            * multiplier
-        )
-        if not math.isfinite(amount) or amount < 0.0:
+        cash_after = self._cash - amount
+        borrow_cost_after = self._borrow_cost + amount
+        if (
+            not math.isfinite(amount)
+            or amount < 0.0
+            or not math.isfinite(cash_after)
+            or not math.isfinite(borrow_cost_after)
+        ):
             raise ValueError("borrow amount must be finite and non-negative")
+        self._account_value_for(cash_after, self._quantities, self._marks)
         if amount > 0.0:
-            self._cash -= amount
-            self._borrow_cost += amount
+            self._cash = cash_after
+            self._borrow_cost = borrow_cost_after
             self._refresh_economic_state()
         return amount
 
@@ -476,10 +521,16 @@ class OwnedBinary64Account:
         )
         amount = float(basis * rate * fraction)
         cash_after = self._cash + amount
-        if not math.isfinite(amount) or not math.isfinite(cash_after):
+        interest_after = self._cash_interest + amount
+        if (
+            not math.isfinite(amount)
+            or not math.isfinite(cash_after)
+            or not math.isfinite(interest_after)
+        ):
             raise ValueError("cash interest must preserve finite account values")
+        self._account_value_for(cash_after, self._quantities, self._marks)
         self._cash = cash_after
-        self._cash_interest += amount
+        self._cash_interest = interest_after
         self._refresh_economic_state()
         return amount
 
@@ -499,7 +550,15 @@ class OwnedBinary64Account:
         multipliers = np.asarray(self._multipliers, dtype=np.float64)
         rate_array = np.asarray(rates, dtype=np.float64)
         due_array = np.asarray(event.due, dtype=np.float64)
-        funding = -float(np.dot(quantities * multipliers, rate_array * due_array))
+        with np.errstate(over="ignore", invalid="ignore"):
+            quantity_multipliers = quantities * multipliers
+            due_rates = rate_array * due_array
+            funding = -float(np.dot(quantity_multipliers, due_rates))
+        if (
+            not np.isfinite(quantity_multipliers).all()
+            or not np.isfinite(due_rates).all()
+        ):
+            raise ValueError("funding inputs must preserve finite arithmetic")
         if not math.isfinite(funding):
             raise ValueError("funding amount must remain finite")
         self._mark_to_market(marks, funding, starting)
@@ -508,14 +567,17 @@ class OwnedBinary64Account:
     def _mark_to_market(
         self, marks: tuple[float, float], funding: float, starting: float
     ) -> float:
-        self._cash += float(funding)
-        self._revalue(marks)
-        value = self.wealth
-        if not math.isfinite(value):
-            raise ValueError("portfolio value became non-finite")
+        cash_after = self._cash + float(funding)
+        funding_pnl_after = self._funding_pnl + float(funding)
+        _, value = self._account_value_for(cash_after, self._quantities, marks)
         net_return = max(value / starting - 1.0, -1.0 + 1e-12)
+        if not math.isfinite(funding_pnl_after) or not math.isfinite(net_return):
+            raise ValueError("funding mark must preserve finite account values")
+        self._cash = cash_after
+        self._marks = marks
+        self._refresh_economic_state()
         self._update_drawdown()
-        self._funding_pnl += float(funding)
+        self._funding_pnl = funding_pnl_after
         self._returns_history.append(float(net_return))
         return float(net_return)
 
@@ -527,10 +589,16 @@ class OwnedBinary64Account:
             np.dot(quantities * multipliers, np.asarray(dividends, dtype=np.float64))
         )
         cash_after = self._cash + amount
-        if not math.isfinite(amount) or not math.isfinite(cash_after):
+        dividend_after = self._dividend + amount
+        if (
+            not math.isfinite(amount)
+            or not math.isfinite(cash_after)
+            or not math.isfinite(dividend_after)
+        ):
             raise ValueError("dividend must preserve finite account values")
+        self._account_value_for(cash_after, self._quantities, self._marks)
         self._cash = cash_after
-        self._dividend += amount
+        self._dividend = dividend_after
         self._refresh_economic_state()
         return amount
 
@@ -572,20 +640,28 @@ class OwnedBinary64Account:
         except OverflowError as error:
             raise ValueError("settlement proceeds exceed binary64 range") from error
         cash_after = self._cash + proceeds
-        if not math.isfinite(proceeds) or not math.isfinite(cash_after):
-            raise ValueError("settlement must preserve finite account values")
-        self._cash = cash_after
-        self._quantities = (
+        settlement_after = self._settlement_proceeds + proceeds
+        quantities_after = (
             Fraction(0) if event.mask[0] else self._quantities[0],
             Fraction(0) if event.mask[1] else self._quantities[1],
         )
+        if (
+            not math.isfinite(proceeds)
+            or not math.isfinite(cash_after)
+            or not math.isfinite(settlement_after)
+        ):
+            raise ValueError("settlement must preserve finite account values")
+        self._account_value_for(cash_after, quantities_after, prices)
+        self._cash = cash_after
+        self._quantities = quantities_after
         self._marks = prices
-        self._settlement_proceeds += proceeds
+        self._settlement_proceeds = settlement_after
         self._refresh_economic_state()
         self._update_drawdown()
         return proceeds
 
     def _revalue(self, marks: tuple[float, float]) -> None:
+        self._account_value_for(self._cash, self._quantities, marks)
         self._marks = marks
         self._refresh_economic_state()
 

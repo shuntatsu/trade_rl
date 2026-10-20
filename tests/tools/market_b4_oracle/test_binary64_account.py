@@ -471,6 +471,93 @@ def test_fill_exhaustion_and_borrow_insolvency_are_distinct() -> None:
     assert debt.max_drawdown == 1.0
 
 
+def test_borrow_cash_overflow_rejects_before_mutating_account() -> None:
+    owned = OwnedBinary64Account(
+        cash=-1.5e308,
+        exact_quantities=(Fraction("-1e307"), Fraction("1.7e308")),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1.0e307,
+    )
+    before = owned.snapshot()
+
+    with pytest.raises(
+        ValueError, match="borrow.*finite|account values|portfolio value"
+    ):
+        owned.apply(
+            BorrowEvent(
+                annual_rates=(4.0, 0.0),
+                year_fraction=1.0,
+                rate_multiplier=1.0,
+            )
+        )
+
+    assert owned.snapshot() == before
+
+
+def test_funding_cash_overflow_rejects_before_mutating_account() -> None:
+    owned = OwnedBinary64Account(
+        cash=1.6e308,
+        exact_quantities=(Fraction("-1.5e308"), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1.0e308,
+    )
+    before = owned.snapshot()
+
+    with pytest.raises(ValueError, match="funding|cash|portfolio value"):
+        owned.apply(
+            FundingMarkEvent(
+                price_rates=(1.0, 0.0),
+                due=(True, False),
+                mark_prices=(1.0, 1.0),
+                period_start_value=1.0e308,
+            )
+        )
+
+    assert owned.snapshot() == before
+
+
+def test_signed_large_position_mark_overflow_rejects_without_changing_snapshot() -> (
+    None
+):
+    owned = OwnedBinary64Account(
+        cash=1000.0,
+        exact_quantities=(Fraction("1.2e308"), Fraction("-1.2e308")),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1000.0,
+    )
+    before = owned.snapshot()
+
+    with pytest.raises(ValueError, match="position values|portfolio value"):
+        owned.apply(RevaluationEvent(mark_prices=(2.0, 1.0)))
+
+    assert owned.snapshot() == before
+
+
+def test_signed_large_position_gross_overflow_rejects_atomically() -> None:
+    owned = OwnedBinary64Account(
+        cash=1000.0,
+        exact_quantities=(Fraction("1.2e308"), Fraction("-1.2e308")),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1000.0,
+    )
+    before = owned.snapshot()
+
+    with pytest.raises(ValueError, match="margin calculation"):
+        owned.apply(
+            MarginEvent(
+                max_leverage=2.0,
+                maintenance_margin_rate=0.25,
+                collateral_haircut=1.0,
+            )
+        )
+
+    assert owned.snapshot() == before
+
+
 def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots() -> (
     None
 ):

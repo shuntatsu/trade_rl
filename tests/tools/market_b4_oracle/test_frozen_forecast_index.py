@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 from dataclasses import FrozenInstanceError, asdict, replace
 
 import numpy as np
@@ -54,7 +55,10 @@ def _fixture():
         feature_indices=(2, 4),
         feature_names=("feature_2", "feature_4"),
         features=np.array([[0.2, 0.3], [0.4, 0.5]], dtype=np.float64),
-        labels=np.log(np.array([1.1, 0.9], dtype=np.float64)),
+        labels=np.array(
+            [math.log(110.0 / 100.0), math.log(90.0 / 100.0)],
+            dtype=np.float64,
+        ),
         sample_weights=np.ones(2, dtype=np.float64),
         label_end_times=trace.end_times,
         fit_cutoff=np.datetime64(_ns(3), "ns"),

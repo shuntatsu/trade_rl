@@ -586,7 +586,7 @@ def test_rejected_funding_return_overflow_preserves_account_state() -> None:
     )
     before = account.snapshot()
     assert math.isfinite(before.wealth)
-    with pytest.raises(ValueError, match="non-finite.*return"):
+    with pytest.raises(ValueError, match="funding.*return.*non-finite"):
         account.apply(
             FundingMarkEvent(
                 price_rates=(0.0, 0.0),

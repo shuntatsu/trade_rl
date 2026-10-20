@@ -3723,6 +3723,20 @@ composed head still requires fresh exact-head independent review and full
 repository/CI closure; the complete frozen 48-cell B4 run remains unexecuted.
 No economic acceptance or live readiness is established.
 
+The coordinator also derives the exact four-configuration × two-symbol ×
+three-scenario × two-role roster from the validated H/v3-H/v4 pair and exposes a
+shared-index comparison entry that brackets bounded arm reads with two whole-index
+rechecks. `build_frozen_h_launch_plan` creates a typed offline plan binding the
+frozen source, Dataset, review bytes, cwd, executable, exact argv and fresh separate
+roots. The separate `run_and_consume_frozen_h_market_matrix` entry connects that
+plan to the root-owned process witness and shared 48-arm consumer. The default CLI
+remains offline-plan-only. An artificial join-unit test stubs both the typed-run
+result and matrix comparison; it checks the success control flow and keeps all
+authorization flags false, but does not spawn a process or execute the consumer.
+The separate low-level artificial witness tests do not cover the typed H helper's
+successful child lifecycle. The consumer has not read a native output tree, and no
+native H process has been started or root-witnessed.
+
 Before a native 48-arm run, one matched artificial NONRL/CASH component-loop pair
 must each complete 6,527 actor plus 72 reserve advances, with nonzero actor
 decisions/fills and terminal reserve settlement. The proposed operator will use a

@@ -148,10 +148,75 @@ def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> 
     ]
     assert len(routes) == 2
     assert all("tools/market_b4_oracle" in line for line in routes)
+    assert all("tools/market_b4_outer_runner.py" in line for line in routes)
     assert workflow.count("tools/market_b4_oracle") == 2
 
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
     assert "tools/market_b4_oracle/*.py text eol=lf" in attributes
+    assert "tools/market_b4_outer_runner.py text eol=lf" in attributes
+
+
+def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> None:
+    runner = (ROOT / "tools/market_b4_outer_runner.py").read_text(encoding="utf-8")
+    runner_tree = ast.parse(runner)
+    main = next(
+        node
+        for node in runner_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    observer = (ROOT / "tools/market_b4_oracle/outer_witness.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"native execution requires a frozen H source-root' in runner
+    assert '"process_started": False' in runner
+    assert "def run_and_consume_frozen_h_market_matrix(" in runner
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "Popen"
+        for node in ast.walk(main)
+    )
+    assert '"tools" / "tier_d_nonrl" / "tier_d_process_tree.py"' in observer
+
+
+def test_frozen_h_plan_and_matrix_consumer_remain_unlaunched_comparison_scope() -> None:
+    runner_path = ROOT / "tools/market_b4_outer_runner.py"
+    runner = runner_path.read_text(encoding="utf-8")
+    runner_tree = ast.parse(runner)
+    plan_builder = next(
+        node
+        for node in runner_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "build_frozen_h_launch_plan"
+    )
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "Popen"
+        for node in ast.walk(plan_builder)
+    )
+    assert '"tools.tier_d_nonrl"' in runner
+    assert '"--mode"' in runner and '"market"' in runner
+    assert '"--worker"' not in runner
+    assert '"--resume-from"' not in runner
+
+    consumer_path = ROOT / "tools/market_b4_oracle/offline_replay_consumer.py"
+    consumer = consumer_path.read_text(encoding="utf-8")
+    consumer_tree = ast.parse(consumer)
+    matrix_consumer = next(
+        node
+        for node in consumer_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "consume_indexed_market_matrix"
+    )
+    assert (
+        sum(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "recheck"
+            for node in ast.walk(matrix_consumer)
+        )
+        == 2
+    )
+    assert "output_index_rechecks=2" in consumer
+    assert "full_b4_authorized: Literal[False] = False" in consumer
+    assert "def derive_frozen_native_market_roster(" in consumer
 
 
 def test_identity_composer_stays_internal_and_reuses_expected_intent():

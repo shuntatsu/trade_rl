@@ -2182,9 +2182,23 @@ Dataset and protocol readback pins, the result does not authenticate an outer
 attempt or authorize Full B4. The module remains internal and outside
 production imports.
 
+`tools/market_b4_outer_runner.py` is separate repository tooling around that
+comparison boundary. Its CLI is offline-plan-only. The root process records exact
+start and finish pins, source/runtime identity, child PID/birth identity, and an
+empty owned process tree; post-launch failures preserve a separate failure record
+and never publish a comparison success. The observer pins its
+`tools/tier_d_nonrl/tier_d_process_tree.py` dependency and refuses process creation
+on platforms without the frozen Windows process-tree observer. Its current child
+entry is artificial-comparison-only; it rejects arbitrary Python commands for a
+native binding until a frozen H source-root, native CLI, working directory, fresh
+attempt root, and output path are bound together. An observed artificial child and
+copied fixture remain comparison evidence only, with Full B4 false. These modules
+do not change the native producer, expose a facade, or grant research or live
+authority.
+
 `binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
 
 
 ## Internal decision identity comparison
 
-`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. `frozen_market_replay.py` composes the internal semantic components into the owned row driver, and `offline_replay_consumer.py` provides selected-arm receipt comparison plus a roster-derived 48-arm matrix consumer. The matrix entry shares only outer whole-index and static-input checks, preserves bounded per-file pins, and returns comparison-only status. Native execution imports remain confined to tests; these components remain outside production and the package facade.
+`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. `frozen_market_replay.py` composes the internal semantic components, and `offline_replay_consumer.py` provides a selected-arm consumer plus a 48-arm roster-derived matrix consumer. The matrix consumer shares only the outer before/after whole-index and static-input checks; it preserves bounded per-file pins and returns comparison-only status. Native execution imports remain confined to tests. These components remain outside production and the package facade. The separate outer observer records a root-owned synthetic process boundary; `build_frozen_h_launch_plan` creates a typed, plan-only binding for H's exact public market CLI, source cwd and fresh roots but does not start native H. Native attempt ownership and Full-B4 authority remain unestablished.

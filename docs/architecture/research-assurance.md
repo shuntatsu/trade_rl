@@ -2544,12 +2544,49 @@ assumption. Independent allocation arithmetic receives supplied horizon
 assumptions only. Hand-calculated and differential manufactured cases do not
 authenticate forecasts, intents, accepted fills, account transitions or profits.
 
-## Frozen replay and receipt comparison remain unauthenticated
+## Frozen decision-to-intent replay and outer-attempt boundary
 
-The internal B4 comparison components connect a pinned forecast view and caller-owned row facts to frozen allocation, action/risk projection, MARKET/GTC intent, owned fills, binary64 account events, carry and reserve settlement. The indexed receipt consumer scans actor and reserve rows to EOF, compares row projections and rebuilt actor identity, checks the frozen forecast vintages and receipt plan declarations against the arm, then verifies terminal-flat/no-active state. H/v3 receipt rows remain separate from the V4 exact-fill event walker. Its return value is a comparison-complete record only.
+The internal B4 comparison modules connect a pinned forecast view and caller-owned
+row facts to the frozen after-cost allocation, action/risk projection, expected
+MARKET/GTC intent, owned fills, binary64 account events, carry, and reserve settlement.
+`FrozenMarketReplay` advances this state from raw rows; `offline_replay_consumer.py`
+scans both actor and reserve receipt phases to EOF, compares each native row and
+canonical actor identity against the independent owned replay, then checks final-flat
+and no-active-order state. The selected-arm consumer can report a pinned-input
+comparison for one account, scenario and role. Public-native artificial fixtures cover
+32 actor plus 8 reserve rows for the frozen profiles, horizons, roles and symbol slots.
 
-The matrix entry derives the exact 48-arm roster from the validated protocol pair and Dataset binding, applies the selected-arm consumer, and brackets bounded per-file reads with shared before/after whole-index and static-input checks. It has not consumed a native 48-arm output tree. Caller pins do not authenticate a producing process or runtime; the consumer does not establish a root-owned attempt, Full B4, G0-G2, R3, profit, unused-period, or live authority. No financial assumptions or execution authority change.
+The current native matrix entry derives an exact 48-arm roster from the validated
+H/v3-H/v4 pair and caller-pinned Dataset: four forecast configurations, two symbols,
+three frozen scenarios and two standalone roles. It checks the frozen plan and
+forecast roster, brackets arm-by-arm bounded reads with one output-index recheck at
+each outer edge, and rechecks static H/Dataset inputs at those same edges. Its result
+remains a pinned-input comparison; it has not consumed a native 48-arm output tree.
 
+The exercised root-owned observer workflows use explicitly artificial children.
+Its failure path retains a start record and observed child/tree cleanup facts
+without publishing a successful finish or manifest pin; its Windows process-tree
+dependency is pinned into the observer source closure. A copied artificial receipt
+can still be compared, but the result remains `ARTIFICIAL_COMPARISON_COMPLETE`,
+unauthenticated, and unauthorized. The typed `build_frozen_h_launch_plan`
+validates distinct H/v3 and H/v4 pins, the frozen H source/Dataset pins, a
+byte-pinned review record, the H Python executable, the exact public
+`tools.tier_d_nonrl --mode market` argv and working directory, and separate fresh
+child-output and ignored observer-witness roots. Plan construction is offline.
+`run_and_consume_frozen_h_market_matrix` connects the typed plan, root process
+witness and exact 48-arm consumer. A positive orchestration test stubs the observed
+execution and matrix comparison to exercise this success branch; it does not start
+a process or execute the consumer. The actual native path has not been invoked or
+root-witnessed.
+
+These components do not establish a native full frozen 48-arm comparison or consume
+its 6,527 actor and 72 reserve rows per arm. Full B4 remains false until the long
+synthetic prerequisite above and then a source-bound native launch witness, exact
+input and output pins, complete roster/window coverage, both
+phase EOF checks, canonical identity and financial comparisons, final-flat/no-pending
+state, final source recheck, and required repository gates all pass on one committed
+HEAD. Synthetic and public-API differential tests are software falsifiers only; they
+provide no formal G0-G2, R3, profit, unused-period, or live authority.
 
 ## Caller-pinned frozen forecast index
 

@@ -100,6 +100,9 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "walk_bound_event_rows",
         "DeclaredProtocolPair",
         "load_declared_protocol_pair",
+        "ARRAY_FIELDS",
+        "canonical",
+        "content_id",
     ]
 
     exports = None

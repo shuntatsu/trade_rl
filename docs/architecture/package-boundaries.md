@@ -2216,8 +2216,11 @@ alone is insufficient.
 `tools/market_b4_outer_runner.py` is separate repository tooling around that
 comparison boundary. Its CLI is offline-plan-only. The root process records exact
 start and finish pins, source/runtime identity, child PID/birth identity, and an
-empty owned process tree; post-launch failures preserve a separate failure record
-and never publish a comparison success. The observer pins its
+empty owned process tree only when the sample has no ambiguous identities;
+ambiguous or unclassified samples fail closed. Post-launch failures preserve a
+separate failure record and never publish a comparison success. Cleanup leaves
+ambiguous identities untouched and cannot attest an empty tree while they remain.
+The observer pins its
 `tools/tier_d_nonrl/tier_d_process_tree.py` dependency and refuses process creation
 on platforms without the frozen Windows process-tree observer. Its current child
 entry is artificial-comparison-only; it rejects arbitrary Python commands for a

@@ -1634,7 +1634,18 @@ def _observe_owned_tree(
 ) -> dict[str, object]:
     deadline = time.monotonic() + timeout_seconds
     while True:
-        tree.sample()
+        sample = tree.sample()
+        ambiguous_members = getattr(sample, "ambiguous_members", None)
+        if ambiguous_members is None:
+            raise RuntimeError(
+                "root-observed process tree sample omitted ambiguity classification"
+            )
+        if ambiguous_members:
+            raise RuntimeError(
+                "root-observed process tree contains ambiguous process identities"
+            )
+        if getattr(sample, "members", None) is None:
+            raise RuntimeError("root-observed process tree sample omitted members")
         if process.poll() is not None:
             break
         if time.monotonic() >= deadline:
@@ -1643,7 +1654,19 @@ def _observe_owned_tree(
     exit_code = process.wait()
     while True:
         sample = tree.sample()
-        if not sample.members:
+        ambiguous_members = getattr(sample, "ambiguous_members", None)
+        if ambiguous_members is None:
+            raise RuntimeError(
+                "root-observed process tree sample omitted ambiguity classification"
+            )
+        if ambiguous_members:
+            raise RuntimeError(
+                "root-observed process tree contains ambiguous process identities"
+            )
+        members = getattr(sample, "members", None)
+        if members is None:
+            raise RuntimeError("root-observed process tree sample omitted members")
+        if not members:
             break
         if time.monotonic() >= deadline:
             raise TimeoutError("root-observed child descendants did not exit")
@@ -1663,10 +1686,12 @@ def _observe_owned_tree(
 
 def _child_observation(process: Any, tree: Any) -> dict[str, object]:
     observation_error: str | None = None
+    tree_observation_failed = False
     sample = getattr(tree, "last_sample", None)
     try:
         sample = tree.sample()
     except Exception as error:
+        tree_observation_failed = True
         observation_error = f"{type(error).__name__}: {str(error)[:300]}"
     root_identity = getattr(tree, "root_identity", None)
     identities = getattr(tree, "owned", {})
@@ -1688,12 +1713,25 @@ def _child_observation(process: Any, tree: Any) -> dict[str, object]:
                 f"exit poll {type(error).__name__}: {str(error)[:300]}"
             )
     members = getattr(sample, "members", None)
+    ambiguous_members = getattr(sample, "ambiguous_members", None)
+    if ambiguous_members:
+        owned_tree_empty = False
+        observation_error = observation_error or (
+            "ambiguous process identities prevent an empty-tree observation"
+        )
+    elif tree_observation_failed or members is None or ambiguous_members is None:
+        owned_tree_empty = None
+        observation_error = observation_error or (
+            "process-tree sample omitted member or ambiguity classification"
+        )
+    else:
+        owned_tree_empty = not members
     return {
         "pid": root_pid,
         "birth_ticks": birth_ticks,
         "exit_code": return_code,
         "exit_observed": return_code is not None,
-        "owned_tree_empty": not members if members is not None else None,
+        "owned_tree_empty": owned_tree_empty,
         "observed_process_identities": [
             list(identity) for identity in sorted(identities)
         ],
@@ -1746,7 +1784,18 @@ def _cleanup_owned_tree(process: Any, tree: Any) -> dict[str, object]:
                     f"final tree sample {type(error).__name__}: {str(error)[:300]}"
                 )
                 break
-            if not sample.members:
+            ambiguous_members = getattr(sample, "ambiguous_members", None)
+            if ambiguous_members is None:
+                errors.append("final tree sample omitted ambiguity classification")
+                break
+            if ambiguous_members:
+                errors.append("final tree sample contains ambiguous process identities")
+                break
+            members = getattr(sample, "members", None)
+            if members is None:
+                errors.append("final tree sample omitted process members")
+                break
+            if not members:
                 tree_empty = True
                 break
             time.sleep(_SAMPLE_INTERVAL_SECONDS)

@@ -452,6 +452,7 @@ def test_timeout_after_popen_reaps_process_and_records_failure(
     class FakeSample:
         def __init__(self, members: tuple[object, ...]) -> None:
             self.members = members
+            self.ambiguous_members: tuple[object, ...] = ()
 
     class FakeTree:
         def __init__(self) -> None:
@@ -525,6 +526,115 @@ def test_timeout_after_popen_reaps_process_and_records_failure(
     assert any(
         "synthetic exit poll failure" in row for row in failure["cleanup"]["errors"]
     )
+
+
+def test_root_attempt_rejects_ambiguous_only_snapshot_without_empty_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.market_b4_oracle.output_index import ArtifactPin
+    from tools.market_b4_outer_runner import _run_root_observed_attempt
+    from tools.tier_d_nonrl.tier_d_process_tree import (
+        ProcessTreeSample,
+        ProcessUsage,
+    )
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._root_owned_process_tree_supported",
+        lambda: True,
+    )
+
+    root = ProcessUsage(pid=12345, parent_pid=1, creation_ticks=99, rss_bytes=0)
+    ambiguous_child = ProcessUsage(
+        pid=23456, parent_pid=root.pid, creation_ticks=100, rss_bytes=4096
+    )
+    sample = ProcessTreeSample(
+        members=(),
+        root_pid=root.pid,
+        owned_members=(),
+        ambiguous_members=(ambiguous_child,),
+    )
+
+    class FinishedProcess:
+        pid = root.pid
+        returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def terminate(self) -> None:
+            pytest.fail("an already-finished root should not be terminated")
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None or timeout > 0
+            return self.returncode
+
+    class SnapshotTree:
+        def __init__(self) -> None:
+            self.root_identity = root.identity
+            self.owned = {root.identity: 0}
+            self.last_sample = sample
+
+        def sample(self) -> ProcessTreeSample:
+            self.last_sample = sample
+            return sample
+
+    process = FinishedProcess()
+    tree = SnapshotTree()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output_root = tmp_path / "output"
+    witness_root = tmp_path / "witness"
+    source = {
+        "closure_sha256": "a" * 64,
+        "files": [],
+        "runtime": {"packages": {"numpy": "2", "trade-rl": "2"}},
+        "repository_head": "b" * 40,
+        "working_tree_clean": False,
+        "git_status_sha256": "c" * 64,
+    }
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.implementation_source_identity",
+        lambda _: source,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._git_readback",
+        lambda _: ("b" * 40, False, "c" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess.Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._new_process_tree", lambda _: tree
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._stop_owned_tree", lambda *_: None
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.capture_output_manifest_pin",
+        lambda _: ArtifactPin(1, "d" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.load_pinned_output_index",
+        lambda *args: object(),
+    )
+
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        _run_root_observed_attempt(
+            argv=[str(Path(__import__("sys").executable).absolute()), "-c", "pass"],
+            repository=repository,
+            output_root=output_root,
+            witness_root=witness_root,
+            input_authority={"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+            timeout_seconds=1.0,
+        )
+
+    assert not (witness_root / "finish.json").exists()
+    failure = json.loads((witness_root / "failure.json").read_text(encoding="utf-8"))
+    assert failure["child"]["owned_tree_empty"] is False
+    assert failure["cleanup"]["status"] == "CLEANUP_INCOMPLETE"
+    assert failure["cleanup"]["owned_tree_empty"] is False
+    assert any("ambiguous" in row for row in failure["cleanup"]["errors"])
 
 
 @pytest.mark.skipif(

@@ -27,6 +27,7 @@ def install(
     exits=(0,),
     orphan=False,
     rss_excess=False,
+    late_orphan=False,
     provider_failure=False,
     cleanup_failure=False,
 ):
@@ -53,7 +54,7 @@ def install(
                     raise subprocess.TimeoutExpired("MANUFACTURED", timeout)
                 clock[0] += 2
                 self.returncode = outcome
-                if not orphan:
+                if not orphan and not late_orphan:
                     state.leaf_alive = False
             state.reaped = True
             return self.returncode
@@ -70,7 +71,7 @@ def install(
         rows = [ProcessUsage(99, 1, 99, 999_000_000)]
         if process.returncode is None:
             rows.append(ProcessUsage(10, 1, 100, 4_000_000))
-        if state.leaf_alive:
+        if state.leaf_alive and not (late_orphan and process.returncode is None):
             rss = (
                 module.LIMITS["rss_bytes"] + 1
                 if rss_excess and clock[0] > 0
@@ -100,8 +101,10 @@ def install(
             sample = tree.sample()
         except OSError:
             sample = tree.last_sample
-        kills.extend(member.pid for member in sample.members)
+        kills.extend(member.pid for member in sample.owned_members)
         assert 99 not in kills
+        if sample.ambiguous_members:
+            raise RuntimeError("ambiguous RSS-only rows remain; refusing cleanup")
         state.leaf_alive = False
         if process.returncode is None:
             process.terminate()
@@ -226,6 +229,23 @@ def test_zero_exit_with_owned_orphan_is_failed_and_cleaned(tmp_path, monkeypatch
     assert "descendant" in value["failure"] and value["returncode"] == 0
     assert kills == [20] and state.unrelated_alive and not state.leaf_alive
     assert value["owned_members_remaining"] == 0 and state.reaped
+
+
+def test_late_ambiguous_orphan_blocks_success_and_is_never_killed(
+    tmp_path, monkeypatch
+):
+    module, root = api(), tmp_path / "late-ambiguous"
+    _, state, kills, _ = install(module, monkeypatch, root, late_orphan=True)
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 1
+
+    value = report(root)
+    assert value["status"] == "FAILED"
+    assert "ambiguous" in value["failure"]
+    assert kills == []
+    assert state.leaf_alive and state.reaped
+    assert value["owned_members_remaining"] == 0
+    assert value["ambiguous_rss_members_remaining"] == 1
 
 
 def test_owned_leaf_found_by_final_verification_is_also_cleaned(tmp_path, monkeypatch):

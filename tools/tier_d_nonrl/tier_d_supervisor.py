@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from .progress import validate_progress_policy
 from .progress_io import ProgressReader
-from .tier_d_process_tree import ProcessTree, terminate_owned_tree
+from .tier_d_process_tree import ProcessTree, ProcessTreeSample, terminate_owned_tree
 from .tier_d_process_tree import ProcessUsage as ProcessUsage
 from .tier_d_protocol import (
     IMPLEMENTATION_MODEL,
@@ -205,7 +205,11 @@ def supervised_run(
                         "resource_sample",
                         rss_bytes=initial_sample.rss_bytes,
                         root_rss_bytes=initial_sample.root_rss_bytes,
-                        owned_process_count=len(initial_sample.members),
+                        rss_attributed_process_count=len(initial_sample.members),
+                        owned_process_count=len(initial_sample.owned_members),
+                        ambiguous_rss_process_count=len(
+                            initial_sample.ambiguous_members
+                        ),
                         disk_bytes=sum(
                             path.stat().st_size
                             for path in root.rglob("*")
@@ -253,9 +257,15 @@ def supervised_run(
                         root_rss_bytes=sample.root_rss_bytes
                         if sample is not None
                         else rss,
-                        owned_process_count=len(sample.members)
+                        owned_process_count=len(sample.owned_members)
                         if sample is not None
                         else 1,
+                        rss_attributed_process_count=len(sample.members)
+                        if sample is not None
+                        else 1,
+                        ambiguous_rss_process_count=len(sample.ambiguous_members)
+                        if sample is not None
+                        else 0,
                         disk_bytes=disk,
                         elapsed_seconds=elapsed,
                     )
@@ -279,26 +289,37 @@ def supervised_run(
                 failure = "operator interruption; retain partial attempt"
             finally:
                 try:
-                    survivors: tuple[ProcessUsage, ...] = ()
+                    owned_survivors: tuple[ProcessUsage, ...] = ()
+                    ambiguous_survivors: tuple[ProcessUsage, ...] = ()
+                    final_sample: ProcessTreeSample | None = None
                     if tree is not None:
                         if failure is None and process.returncode in (None, 0):
                             try:
-                                survivors = tree.sample().members
+                                final_sample = tree.sample()
                             except Exception as sampling_error:
                                 failure = f"final ownership sample failed: {type(sampling_error).__name__}: {sampling_error}"
-                                survivors = (
-                                    tree.last_sample.members if tree.last_sample else ()
-                                )
+                                final_sample = tree.last_sample
                         else:
-                            survivors = (
-                                tree.last_sample.members if tree.last_sample else ()
-                            )
-                    if survivors and process.poll() is not None and failure is None:
-                        failure = "owned descendants remained after worker exit; retain partial attempt"
+                            final_sample = tree.last_sample
+                        if final_sample is not None:
+                            owned_survivors = final_sample.owned_members
+                            ambiguous_survivors = final_sample.ambiguous_members
+                    if ambiguous_survivors and failure is None:
+                        failure = (
+                            "ambiguous RSS-attributed processes remained after worker exit; "
+                            "retain partial attempt"
+                        )
+                    elif (
+                        owned_survivors
+                        and process.poll() is not None
+                        and failure is None
+                    ):
+                        failure = "verified owned descendants remained after worker exit; retain partial attempt"
                     if (
                         failure is not None
                         or process.returncode not in (None, 0)
-                        or survivors
+                        or owned_survivors
+                        or ambiguous_survivors
                     ):
                         if tree is not None:
                             terminate_owned_tree(process, tree)
@@ -307,6 +328,8 @@ def supervised_run(
                                 and bool(getattr(tree, "owned", {}))
                                 and process.poll() is not None
                             )
+                            owned_survivors = ()
+                            ambiguous_survivors = ()
                         elif process.poll() is None:
                             process.terminate()
                             process.wait(timeout=30)
@@ -315,6 +338,9 @@ def supervised_run(
                     failure = (
                         f"{failure}; {cleanup_error}" if failure else cleanup_error
                     )
+                    if tree is not None and tree.last_sample is not None:
+                        owned_survivors = tree.last_sample.owned_members
+                        ambiguous_survivors = tree.last_sample.ambiguous_members
                     if process.poll() is None:
                         process.terminate()
                         process.wait(timeout=30)
@@ -338,6 +364,11 @@ def supervised_run(
         "child_returncode": returncode,
         "elapsed_seconds": final_elapsed,
         "sampled_peak_rss_bytes": peak_rss or None,
+        "rss_attributed_processes_remaining": len(
+            owned_survivors + ambiguous_survivors
+        ),
+        "ambiguous_rss_processes_remaining": len(ambiguous_survivors),
+        "verified_owned_processes_remaining": len(owned_survivors),
         "final_disk_bytes": final_disk,
         "limits": budget,
         "progress_policy": progress_policy,

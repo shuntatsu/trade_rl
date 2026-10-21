@@ -45,6 +45,8 @@ def test_snapshot_sums_redirector_and_all_lawful_descendants_only():
     assert sample.rss_bytes == 41
     assert sample.root_rss_bytes == 4
     assert [member.pid for member in sample.members] == [10, 20, 21]
+    assert [member.pid for member in sample.owned_members] == [10, 20, 21]
+    assert sample.ambiguous_members == ()
 
 
 def test_creation_identity_refuses_pid_reuse_and_impossible_parent_age():
@@ -73,8 +75,164 @@ def test_process_tree_counts_child_first_seen_after_redirector_exit():
     assert sample.root_rss_bytes == 0
     assert sample.rss_bytes == 248_800_000
 
-
 def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
+    tree = api().ProcessTree(10)
+    tree.observe((node(10, 1, 100, 4_400_000),))
+
+    replacement = node(10, 1, 200, 1_000_000)
+    unrelated_child = node(20, 10, 201, 248_800_000)
+    sample = tree.observe((replacement, unrelated_child))
+
+    assert sample.members == ()
+    assert sample.rss_bytes == 0
+
+def test_process_tree_counts_child_first_seen_after_parent_exits():
+    tree = api().ProcessTree(10)
+    redirector = node(10, 1, 100, 4_400_000)
+    tree.observe((redirector,))
+
+    late_child = node(20, 10, 101, 248_800_000)
+    child_older_than_parent = node(21, 10, 99, 900_000)
+    sample = tree.observe((child_older_than_parent, late_child))
+
+    assert sample.members == (late_child,)
+    assert sample.root_rss_bytes == 0
+    assert sample.rss_bytes == 248_800_000
+
+
+def test_late_process_attribution_is_rss_only_and_propagates_ambiguity():
+    tree = api().ProcessTree(10)
+    redirector = node(10, 1, 100, 4_400_000)
+    tree.observe((redirector,))
+    replacement = node(10, 1, 200, 1_000_000)
+    assert tree.observe((replacement,)).members == ()
+
+    # The replacement exits before its child is visible. The stale parent PID
+    # is enough for RSS attribution, but never proves that child is ours.
+    late_child = node(20, 10, 201, 248_800_000)
+    late_grandchild = node(21, 20, 202, 3_000_000)
+    sample = tree.observe((late_grandchild, late_child))
+
+    assert sample.members == (late_child, late_grandchild)
+    assert sample.owned_members == ()
+    assert sample.ambiguous_members == (late_child, late_grandchild)
+    assert tree.owned == {redirector.identity: 0}
+
+
+def test_pid_reuse_after_parent_exit_never_grants_kill_authority(monkeypatch):
+    module = api()
+    redirector = node(10, 1, 100, 4_400_000)
+    replacement = node(10, 1, 200, 1_000_000)
+    late_child = node(20, 10, 201, 248_800_000)
+    tree = module.ProcessTree(10, provider=lambda: (redirector,))
+    tree.sample()
+    tree.observe((replacement,))
+    tree.provider = lambda: (late_child,)
+    kill_payloads = []
+
+    class FinishedProcess:
+        def poll(self):
+            return 0
+
+        def wait(self, timeout):
+            assert timeout == 30
+            return 0
+
+        def terminate(self):
+            pytest.fail("an already-finished root should not be terminated")
+
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: kill_payloads.append(kwargs["input"]),
+    )
+
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        module.terminate_owned_tree(FinishedProcess(), tree)
+
+    assert kill_payloads == []
+    assert tree.last_sample.ambiguous_members == (late_child,)
+    assert tree.last_sample.owned_members == ()
+
+
+def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
+    tmp_path, monkeypatch
+):
+    module = api()
+    monkeypatch.setattr(module, "os", SimpleNamespace(name="nt", environ=os.environ))
+    root = tmp_path / "ambiguous-supervisor"
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    protocol = market_protocol()
+    monkeypatch.setattr(module, "market_protocol", lambda **kwargs: protocol)
+
+    redirector = node(10, 1, 100, 4_400_000)
+    late_child = node(20, 10, 101, 248_800_000)
+    sample = ProcessTreeSample(
+        (redirector, late_child),
+        10,
+        owned_members=(redirector,),
+        ambiguous_members=(late_child,),
+    )
+    cleanup_calls = []
+    sample_for_tree = sample
+
+    class FinishedProcess:
+        pid = 10
+        returncode = 0
+
+        def __enter__(self):
+            initialize_attempt(root / "attempt", protocol)
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            pytest.fail("the completed worker is already reaped")
+
+        def wait(self, timeout):
+            return self.returncode
+
+    process = FinishedProcess()
+
+    class AmbiguousTree:
+        root_identity = redirector.identity
+        owned = {redirector.identity: 0}
+        last_sample = sample_for_tree
+
+        def __init__(self, pid):
+            assert pid == process.pid
+
+        def sample(self):
+            return sample
+
+    def refuse_ambiguous_cleanup(owned_process, tree):
+        assert owned_process is process
+        assert tree.last_sample.owned_members == (redirector,)
+        assert tree.last_sample.ambiguous_members == (late_child,)
+        cleanup_calls.append(True)
+        raise RuntimeError("ambiguous RSS-only rows remain; refusing cleanup")
+
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(module, "ProcessTree", AmbiguousTree)
+    monkeypatch.setattr(module, "terminate_owned_tree", refuse_ambiguous_cleanup)
+
+    assert module.supervised_run("synthetic", root, None) == 1
+    report = json.loads((root / "supervisor.json").read_text())
+    attempt = json.loads((root / "attempt/attempt.json").read_text())
+    assert report["status"] == "FAILED"
+    assert "ambiguous" in report["failure"]
+    assert report["receipt_reconciliation"]["state"] == (
+        "SKIPPED_NO_VERIFIED_OWNED_TREE_STOP"
+    )
+    assert cleanup_calls == [True]
+    assert all(row["state"] == "UNATTEMPTED" for row in attempt["arms"])
+
+
+def test_process_tree_does_not_attach_to_visible_reused_parent_pid():
     tree = api().ProcessTree(10)
     tree.observe((node(10, 1, 100, 4_400_000),))
 
@@ -105,13 +263,20 @@ def test_nonzero_child_exit_finalizes_failed_without_invented_arm_receipts(tmp_p
 def test_actual_windows_redirector_memory_and_owned_leaf_termination(tmp_path):
     module = api()
     ready = tmp_path / "leaf-ready.txt"
-    child_code = (
+    leaf_code = (
         "import pathlib,sys,time; "
         "payload=bytearray(24*1024*1024); "
         "pathlib.Path(sys.argv[1]).write_text('ready'); "
         "time.sleep(30)"
     )
-    process = subprocess.Popen([sys.executable, "-B", "-c", child_code, str(ready)])
+    root_code = (
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable,'-B','-c',sys.argv[2],sys.argv[1]]); "
+        "time.sleep(30)"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-B", "-c", root_code, str(ready), leaf_code]
+    )
     tree = module.ProcessTree(process.pid)
     try:
         deadline = time.monotonic() + 10
@@ -184,7 +349,10 @@ def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
 
         def __init__(self, pid):
             self.last_sample = ProcessTreeSample(
-                (node(10, 1, 100, 4), node(20, 10, 101, 30)), 10
+                (node(10, 1, 100, 4), node(20, 10, 101, 30)),
+                10,
+                owned_members=(node(10, 1, 100, 4), node(20, 10, 101, 30)),
+                ambiguous_members=(),
             )
 
         def sample(self):

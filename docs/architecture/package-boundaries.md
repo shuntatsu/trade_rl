@@ -1909,15 +1909,18 @@ readback. Workers write disjoint journals. The parent publishes verified records
 to the canonical attempt log, including while parallel futures are unfinished.
 Reused receipts do not open another native journal.
 
-The Windows sampler retains observed owned `(PID, creation time)` identities
-across snapshots. If a venv redirector exits before its child first appears in
-a later snapshot, a child row can be associated through the retained parent PID
-when its observed creation time is not later than the child's. A currently
-visible process with the same PID but a different creation identity is not
-treated as that parent. This remains a bounded sampled correlation, not proof of
-lineage: a replacement that reuses the PID and exits between samples cannot be
-distinguished from the observed parent using these fields alone, and short-lived
-processes may be missed.
+The Windows sampler keeps RSS attribution separate from kill authorization.
+`ProcessTreeSample.members` is the RSS-attributed union;
+`owned_members` contains only process identities reached through a verified
+same-snapshot parent chain (or an unchanged identity verified by an earlier
+snapshot); `ambiguous_members` contains rows attributed only through historical
+PID/time correlation. A parent PID can be reused and its replacement can exit
+between samples, so a later child may appear to match the old parent even when
+it is unrelated. Historical-only rows and their descendants contribute to the
+RSS measurement but are never added to the kill list. Cleanup rechecks process
+creation time and terminates only verified owned identities. Any ambiguous row
+still present at final verification leaves the attempt failed/partial and
+blocks stopped-receipt reconciliation; it is not killed or called owned.
 
 On Linux, explicit synthetic-mode supervision samples only the worker root
 process through `/proc/<pid>/status`; descendant RSS is not included. This

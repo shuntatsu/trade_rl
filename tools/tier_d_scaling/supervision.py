@@ -65,6 +65,7 @@ def supervised(command: list[str], root: Path) -> int:
     cleanup_errors: list[str] = []
     final_violation: list[str] = []
     owned_remaining: int | None = None
+    ambiguous_remaining: int | None = None
     reaped = False
 
     def sample(stage: str) -> dict[str, Any]:
@@ -75,7 +76,9 @@ def supervised(command: list[str], root: Path) -> int:
         usage: dict[str, Any] = {
             "rss_bytes": observed.rss_bytes,
             "root_rss_bytes": observed.root_rss_bytes,
-            "owned_process_count": len(observed.members),
+            "rss_attributed_process_count": len(observed.members),
+            "owned_process_count": len(observed.owned_members),
+            "ambiguous_rss_process_count": len(observed.ambiguous_members),
             "disk_bytes": _disk_bytes(root),
             "elapsed_seconds": monotonic() - started,
         }
@@ -122,15 +125,31 @@ def supervised(command: list[str], root: Path) -> int:
                     usage = sample("final")
                     final_violation = _violations(usage, limits)
                     owned_remaining = usage["owned_process_count"]
+                    ambiguous_remaining = usage["ambiguous_rss_process_count"]
                 except Exception as error:
                     final_sample_error = f"{type(error).__name__}: {error}"
                 if owned_remaining and returncode is not None:
-                    failure = failure or "owned descendants remained after worker exit"
-                if failure or final_violation or final_sample_error or owned_remaining:
+                    failure = (
+                        failure
+                        or "verified owned descendants remained after worker exit"
+                    )
+                if ambiguous_remaining and returncode is not None:
+                    failure = (
+                        failure
+                        or "ambiguous RSS-attributed processes remained after worker exit"
+                    )
+                if (
+                    failure
+                    or final_violation
+                    or final_sample_error
+                    or owned_remaining
+                    or ambiguous_remaining
+                ):
                     try:
                         if tree is None:
                             raise RuntimeError("owned process tree is unavailable")
-                        # This helper uses retained identities if fresh CIM fails.
+                        # Historical PID matches count toward RSS only and are
+                        # never included in the helper's kill list.
                         terminate_owned_tree(process, tree)
                     except Exception as error:
                         cleanup_errors.append(f"{type(error).__name__}: {error}")
@@ -141,19 +160,30 @@ def supervised(command: list[str], root: Path) -> int:
                     reaped = True
                     if tree is None:
                         raise RuntimeError("owned process verification is unavailable")
-                    owned_remaining = None
-                    owned_remaining = len(tree.sample().members)
+                    final_sample = tree.sample()
+                    owned_remaining = len(final_sample.owned_members)
+                    ambiguous_remaining = len(final_sample.ambiguous_members)
                     if owned_remaining:
                         failure = (
-                            failure or "owned descendants remained after worker exit"
+                            failure
+                            or "verified owned descendants remained after worker exit"
                         )
-                        owned_remaining = None
                         terminate_owned_tree(process, tree)
-                        owned_remaining = len(tree.sample().members)
+                        final_sample = tree.sample()
+                        owned_remaining = len(final_sample.owned_members)
+                        ambiguous_remaining = len(final_sample.ambiguous_members)
                         if owned_remaining:
                             raise RuntimeError(
-                                "owned process descendants survived cleanup"
+                                "verified owned process descendants survived cleanup"
                             )
+                    if ambiguous_remaining:
+                        failure = (
+                            failure
+                            or "ambiguous RSS-attributed processes remain; refusing completion"
+                        )
+                        raise RuntimeError(
+                            "ambiguous RSS-attributed processes remain; refusing cleanup verification"
+                        )
                 except Exception as error:
                     cleanup_errors.append(f"{type(error).__name__}: {error}")
     elapsed = monotonic() - started
@@ -175,6 +205,7 @@ def supervised(command: list[str], root: Path) -> int:
         or final_sample_error
         or returncode != 0
         or owned_remaining != 0
+        or ambiguous_remaining != 0
     )
     summary: dict[str, Any] = {
         "scope": "ARTIFICIAL_SCALING_SUPERVISION_ONLY",
@@ -186,6 +217,7 @@ def supervised(command: list[str], root: Path) -> int:
         "final_violation": final_violation,
         "final_sample_error": final_sample_error,
         "owned_members_remaining": owned_remaining,
+        "ambiguous_rss_members_remaining": ambiguous_remaining,
         "worker_reaped": reaped,
         "peak_rss_bytes": peak_rss,
         "peak_disk_bytes": peak_disk,

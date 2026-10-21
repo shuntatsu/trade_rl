@@ -20,6 +20,7 @@ INTERNAL_SEMANTIC_COMPONENTS = frozenset(
         "frozen_forecast_index.py",
         "frozen_market_replay.py",
         "offline_replay_consumer.py",
+        "outer_witness.py",
     }
 )
 PUBLIC_FACADES = {

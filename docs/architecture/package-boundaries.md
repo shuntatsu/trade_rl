@@ -2140,7 +2140,9 @@ not native executions. Full B4 remains one integrated workstream.
 `output_index.py` verifies the native writer's flat, self-excluding
 `output-manifest.json` against a caller-supplied byte pin. It checks the exact
 file roster, bounded reads, file identities and link/alias confinement before
-returning an immutable index. An explicit recheck detects observed changes;
+returning an immutable index. Manifest paths reject normalized and casefold
+aliases, Unicode control characters, Windows device names, links/reparse points,
+and hard-link aliases. An explicit recheck detects observed changes;
 the index does not lock files or attest their producing process. Its read
 budgets do not replace the native execution resource limits. The index exposes a
 bounded single-file reader so a path replacement or growth cannot bypass the
@@ -2185,6 +2187,14 @@ Dataset and protocol readback pins, the result does not authenticate an outer
 attempt or authorize Full B4. The module remains internal and outside
 production imports.
 
+`outer_witness.py` provides immutable pins and bounded canonical readback for
+root-owned start/finish records. It does not create or observe processes, and
+parsing a record does not grant attempt or research authority; process and OS
+ownership remain with the downstream `tools.market_b4_outer_runner` owner. The
+source-identity roster requires that owner, so end-to-end root authentication
+fails closed until it is present in the composed tree. Direct record parsing
+alone is insufficient.
+
 `tools/market_b4_outer_runner.py` is separate repository tooling around that
 comparison boundary. Its CLI is offline-plan-only. The root process records exact
 start and finish pins, source/runtime identity, child PID/birth identity, and an
@@ -2220,8 +2230,9 @@ unchanged. The pair wrapper requires exact output roster and root-process
 bindings, then checks the output forecast against Q's canonical fixed-recipe
 bytes before any receipt scan. It sends both arms through the owned replay and
 uses child summary/runtime fields only as crosschecks. All authority flags remain
-false. These are implementation contracts; until the complete synthetic pair
-has run, they do not establish a matched pair or native H evidence.
+false. The Q-only replay and H-shaped receipt regression are software evidence
+only. Until a pinned-H operator run produces receipts that the root-side consumer
+independently matches, this path establishes no matched H pair or native evidence.
 
 `binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
 

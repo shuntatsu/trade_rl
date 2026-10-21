@@ -280,14 +280,8 @@ def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
 
     redirector = node(10, 1, 100, 4_400_000)
     late_child = node(20, 10, 101, 248_800_000)
-    sample = ProcessTreeSample(
-        (redirector, late_child),
-        10,
-        owned_members=(redirector,),
-        ambiguous_members=(late_child,),
-    )
+    snapshots = [(redirector,), (late_child,)]
     cleanup_calls = []
-    sample_for_tree = sample
 
     class FinishedProcess:
         pid = 10
@@ -311,20 +305,14 @@ def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
 
     process = FinishedProcess()
 
-    class AmbiguousTree:
-        root_identity = redirector.identity
-        owned = {redirector.identity: 0}
-        last_sample = sample_for_tree
-
+    class AmbiguousTree(ProcessTree):
         def __init__(self, pid):
             assert pid == process.pid
-
-        def sample(self):
-            return sample
+            super().__init__(pid, provider=lambda: snapshots.pop(0))
 
     def refuse_ambiguous_cleanup(owned_process, tree):
         assert owned_process is process
-        assert tree.last_sample.owned_members == (redirector,)
+        assert tree.last_sample.owned_members == ()
         assert tree.last_sample.ambiguous_members == (late_child,)
         cleanup_calls.append(True)
         raise RuntimeError("ambiguous RSS-only rows remain; refusing cleanup")
@@ -341,6 +329,18 @@ def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
     assert report["receipt_reconciliation"]["state"] == (
         "SKIPPED_NO_VERIFIED_OWNED_TREE_STOP"
     )
+    assert report["sampled_peak_rss_bytes"] == late_child.rss_bytes
+    progress_records = [
+        json.loads(line) for line in (root / "progress.jsonl").read_text().splitlines()
+    ]
+    resource_samples = [
+        row for row in progress_records if row["event"] == "resource_sample"
+    ]
+    assert [row["rss_bytes"] for row in resource_samples] == [
+        redirector.rss_bytes,
+        late_child.rss_bytes,
+    ]
+    assert resource_samples[-1]["ambiguous_rss_process_count"] == 1
     assert cleanup_calls == [True]
     assert all(row["state"] == "UNATTEMPTED" for row in attempt["arms"])
 

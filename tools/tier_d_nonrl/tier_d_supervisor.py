@@ -292,10 +292,12 @@ def supervised_run(
                     owned_survivors: tuple[ProcessUsage, ...] = ()
                     ambiguous_survivors: tuple[ProcessUsage, ...] = ()
                     final_sample: ProcessTreeSample | None = None
+                    final_sample_is_fresh = False
                     if tree is not None:
                         if failure is None and process.returncode in (None, 0):
                             try:
                                 final_sample = tree.sample()
+                                final_sample_is_fresh = True
                             except Exception as sampling_error:
                                 failure = f"final ownership sample failed: {type(sampling_error).__name__}: {sampling_error}"
                                 final_sample = tree.last_sample
@@ -304,6 +306,27 @@ def supervised_run(
                         if final_sample is not None:
                             owned_survivors = final_sample.owned_members
                             ambiguous_survivors = final_sample.ambiguous_members
+                            if final_sample_is_fresh:
+                                peak_rss = max(peak_rss, final_sample.rss_bytes)
+                                append_log(
+                                    root,
+                                    "resource_sample",
+                                    rss_bytes=final_sample.rss_bytes,
+                                    root_rss_bytes=final_sample.root_rss_bytes,
+                                    rss_attributed_process_count=len(
+                                        final_sample.members
+                                    ),
+                                    owned_process_count=len(final_sample.owned_members),
+                                    ambiguous_rss_process_count=len(
+                                        final_sample.ambiguous_members
+                                    ),
+                                    disk_bytes=sum(
+                                        path.stat().st_size
+                                        for path in root.rglob("*")
+                                        if path.is_file()
+                                    ),
+                                    elapsed_seconds=time.monotonic() - started,
+                                )
                     if ambiguous_survivors and failure is None:
                         failure = (
                             "ambiguous RSS-attributed processes remained after worker exit; "

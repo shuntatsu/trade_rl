@@ -60,6 +60,32 @@ def test_creation_identity_refuses_pid_reuse_and_impossible_parent_age():
     assert reused.members == ()
 
 
+def test_process_tree_counts_child_first_seen_after_redirector_exit():
+    tree = api().ProcessTree(10)
+    redirector = node(10, 1, 100, 4_400_000)
+    tree.observe((redirector,))
+
+    late_child = node(20, 10, 101, 248_800_000)
+    too_early_child = node(21, 10, 99, 900_000)
+    sample = tree.observe((too_early_child, late_child))
+
+    assert sample.members == (late_child,)
+    assert sample.root_rss_bytes == 0
+    assert sample.rss_bytes == 248_800_000
+
+
+def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
+    tree = api().ProcessTree(10)
+    tree.observe((node(10, 1, 100, 4_400_000),))
+
+    replacement = node(10, 1, 200, 1_000_000)
+    unrelated_child = node(20, 10, 201, 248_800_000)
+    sample = tree.observe((replacement, unrelated_child))
+
+    assert sample.members == ()
+    assert sample.rss_bytes == 0
+
+
 def test_nonzero_child_exit_finalizes_failed_without_invented_arm_receipts(tmp_path):
     tmp_path = tmp_path / "attempt"
     state = initialize_attempt(tmp_path, market_protocol())

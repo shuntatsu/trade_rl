@@ -1909,6 +1909,16 @@ readback. Workers write disjoint journals. The parent publishes verified records
 to the canonical attempt log, including while parallel futures are unfinished.
 Reused receipts do not open another native journal.
 
+The Windows sampler retains observed owned `(PID, creation time)` identities
+across snapshots. If a venv redirector exits before its child first appears in
+a later snapshot, a child row can be associated through the retained parent PID
+when its observed creation time is not later than the child's. A currently
+visible process with the same PID but a different creation identity is not
+treated as that parent. This remains a bounded sampled correlation, not proof of
+lineage: a replacement that reuses the PID and exits between samples cannot be
+distinguished from the observed parent using these fields alone, and short-lived
+processes may be missed.
+
 On Linux, explicit synthetic-mode supervision samples only the worker root
 process through `/proc/<pid>/status`; descendant RSS is not included. This
 root-only diagnostic does not satisfy the market resource contract, which

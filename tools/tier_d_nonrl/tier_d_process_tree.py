@@ -82,13 +82,34 @@ class ProcessTree:
             if row.identity in self.owned
         }
         while True:
-            additions = [
-                (row, selected[row.parent_pid][1] + 1)
-                for row in snapshot
-                if row.pid not in selected
-                and row.parent_pid in selected
-                and row.creation_ticks >= selected[row.parent_pid][0].creation_ticks
-            ]
+            known_parents: dict[int, list[tuple[int, int]]] = {}
+            for (pid, creation_ticks), depth in self.owned.items():
+                known_parents.setdefault(pid, []).append((creation_ticks, depth))
+
+            additions: list[tuple[ProcessUsage, int]] = []
+            for row in snapshot:
+                if row.pid in selected:
+                    continue
+                current_parent = selected.get(row.parent_pid)
+                if current_parent is not None:
+                    if row.creation_ticks >= current_parent[0].creation_ticks:
+                        additions.append((row, current_parent[1] + 1))
+                    continue
+
+                # A venv redirector can exit before the next sample sees the
+                # interpreter it launched. Retain observed parent identities so
+                # that late child rows remain attributable after that exit.
+                if row.parent_pid in rows:
+                    continue  # The visible PID is a different, unowned process.
+                candidates = [
+                    (creation_ticks, depth)
+                    for creation_ticks, depth in known_parents.get(row.parent_pid, [])
+                    if creation_ticks <= row.creation_ticks
+                ]
+                if candidates:
+                    _, parent_depth = max(candidates)
+                    additions.append((row, parent_depth + 1))
+
             if not additions:
                 break
             for row, depth in additions:

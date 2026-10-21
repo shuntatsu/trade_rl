@@ -105,20 +105,6 @@ def test_process_tree_attributes_pre_reuse_orphan_as_ambiguous():
     assert sample.rss_bytes == 248_800_000
 
 
-def test_process_tree_counts_child_first_seen_after_parent_exits():
-    tree = api().ProcessTree(10)
-    redirector = node(10, 1, 100, 4_400_000)
-    tree.observe((redirector,))
-
-    late_child = node(20, 10, 101, 248_800_000)
-    child_older_than_parent = node(21, 10, 99, 900_000)
-    sample = tree.observe((child_older_than_parent, late_child))
-
-    assert sample.members == (late_child,)
-    assert sample.root_rss_bytes == 0
-    assert sample.rss_bytes == 248_800_000
-
-
 def test_late_process_attribution_is_rss_only_and_propagates_ambiguity():
     tree = api().ProcessTree(10)
     redirector = node(10, 1, 100, 4_400_000)

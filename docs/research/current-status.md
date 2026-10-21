@@ -2188,6 +2188,23 @@ held-quantity corporate-action wealth. Costs, carry, variance and conditional
 expectations are uncalibrated. Future actions never filter present predictions.
 Old log/PPO/Run/Study semantics and the 20% research DD guardrail are retained.
 
+The existing synthetic signature-cost integration already compares public
+preparation, fitting, cost, proposal and execution on datasets with altered
+future suffixes, but the fixture has zero forecast and variance, so both sides
+choose CASH and do not fill.
+Additional metamorphic cases extend that coverage through public preparation,
+prequential fitting, declared horizon-cost estimation and same-close allocation
+on paired datasets with an identical prefix through decision time. They compare
+the selected numeric snapshot, forecast, six cost rates, account context and an
+unsaturated nonzero target/objective after future price, funding, other-symbol,
+feature and resulting-label suffix changes. A changed mature prefix label is a
+positive sensitivity control. A separate pair preserves the first eligible
+processing bar and compares its one-step fill/account result while poisoning
+only later rows. Dataset, stream, cost-source and proposal digests may change
+with the full source identity and are not equality targets. This remains
+synthetic software coverage: historical point-in-time source availability,
+calibration, profit and economic authority are not established.
+
 The candidate preserves exact P0/P2/allocation histories for review. Remaining
 Issue #810 requirements include full order/account state for common RL consumers,
 the full financial runtime and continuous-account walk-forward, cost/capacity

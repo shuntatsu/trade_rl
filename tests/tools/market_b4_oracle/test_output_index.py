@@ -155,6 +155,17 @@ def test_rejects_unsafe_or_self_referential_manifest_paths(
         load_pinned_output_index(tmp_path, _pin(raw))
 
 
+def test_rejects_unicode_control_character_in_manifest_path(tmp_path: Path) -> None:
+    name = "logs/receipt\x7f.json"
+    try:
+        pin = _write(tmp_path, {name: b"{}"})
+    except OSError as error:
+        pytest.skip(f"host cannot create a control-character path: {error}")
+
+    with pytest.raises(ValueError, match="unsafe|control"):
+        load_pinned_output_index(tmp_path, pin)
+
+
 @pytest.mark.parametrize(
     "raw",
     [

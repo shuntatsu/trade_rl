@@ -191,6 +191,7 @@ def test_frozen_h_spawn_uses_only_planned_identity_and_child_cwd(
     import tools.market_b4_outer_runner as outer
 
     plan, _ = _frozen_h_plan(tmp_path)
+    monkeypatch.setattr(outer, "_root_owned_process_tree_supported", lambda: True)
     plan.observer_repository.mkdir(parents=True)
     plan.child_source_root.mkdir(parents=True)
     plan.supervisor_attempt_root.parent.mkdir(parents=True)

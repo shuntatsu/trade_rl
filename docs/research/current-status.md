@@ -3739,12 +3739,37 @@ native H process has been started or root-witnessed.
 
 Before a native 48-arm run, one matched artificial NONRL/CASH component-loop pair
 must each complete 6,527 actor plus 72 reserve advances, with nonzero actor
-decisions/fills and terminal reserve settlement. The proposed operator will use a
-separate artificial Dataset/protocol/receipt under the pinned H interpreter,
-working directory and import root, calling unchanged public H Dataset and market
-execution APIs. Its outputs remain artificial evidence and do not impersonate a
-frozen H/v3-H/v4 attempt or confer authentication. The long synthetic pair has not
-run; the existing 32+8 comparisons and bounded 640-step profile do not meet this
-prerequisite. No 6,599-step pair, native 48-arm, repository-wide final-gate,
-economic, unused-period or live evidence is claimed. The current worktree is still
-development code; these interfaces do not promote it to Full-B4 authority.
+decisions/fills and terminal reserve settlement. The fixed synthetic schedule
+requires an actor-boundary fill followed by a first-reserve zero-target close;
+every actor/reserve row also checks that no active order targets the other
+symbol. The coordinator now contains an
+offline typed plan and a tracked fixed-input operator for that artificial path.
+The operator is designed to use a separate artificial Dataset/protocol/receipt
+under the pinned H interpreter, working directory and import root, calling
+unchanged public H Dataset and market execution APIs. The plan pins the complete
+deterministic input, forecast, cost, risk and execution recipe; the operator
+reports the Dataset identity derived by H's builder. Its outputs remain artificial
+and do not impersonate a frozen H/v3-H/v4 attempt or confer authentication. The
+pinned-H operator has not been launched, and no pinned-H-generated pair has run;
+the existing 32+8 comparisons and bounded 640-step profile do not meet this
+prerequisite. No pinned-H 6,599-step pair, native 48-arm, repository-wide
+final-gate, economic, unused-period or live evidence is claimed. The current
+worktree remains development code; these interfaces do not promote it to Full-B4
+authority.
+
+The typed artificial recipe now fixes a no-fit projection with intercept -0.02
+and a coefficient derived from the stored float32 feature range, producing
+predeclared baseline and pulse returns of -0.02 and +0.02. Its training rows are
+trace provenance only, not fitted Ridge evidence. The Q adapter independently
+reconstructs Dataset identity and the complete canonical forecast stream; the
+pair consumer checks those exact forecast bytes before scanning either receipt.
+A bounded Q-only after-cost oracle covers the three vintage baselines and pulses
+plus the final actor decision against the pinned cost recipe. The Q-only synthetic
+software replay then consumed all 6,599 actor and reserve advances per role
+(6,527 actor plus 72 reserve; 13,198 advances total) for NONRL and CASH. It
+checked required NONRL actor fill indices 2906, 5090, 7298 and 9430, the reserve
+close at 9431, no CASH fills, and terminal flat/no-active-order closure. A
+separate regression with fabricated H-shaped receipt rows checks actor index
+extraction only; it did not launch the pinned-H operator or call H execution
+APIs. The actual pinned-H pair, native 48-arm, economic evaluation,
+unused-period evaluation and live evidence remain unrun.

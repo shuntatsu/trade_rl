@@ -2527,14 +2527,36 @@ remain unestablished by this component; no financial conditions change.
 Before a native frozen 48-arm run, the current gate plan requires one matched,
 artificial NONRL/CASH component-loop pair to complete all 6,527 actor and 72
 reserve advances per arm, including nonzero actor decisions/fills and terminal
-reserve settlement. A test-owned operator will run outside the frozen H checkout
-under its pinned interpreter, cwd and import root, and call unchanged public H
-Dataset and market execution APIs on a distinct synthetic Dataset/protocol. Its
-receipt and identity must remain explicitly artificial; this does not attest a
-frozen H/v3-H/v4 attempt or authorize the 48-arm consumer. The existing 32+8
-public-native fixtures and bounded 640-step profile do not satisfy that
-long-window prerequisite. It has not been run; it is mechanical software evidence
-only, not a native attempt or economic result.
+reserve settlement. Its fixed synthetic schedule includes a final actor-boundary
+exposure fill and requires the zero-target close to fill on the first reserve
+processing bar; each row also checks that no active order targets the other
+symbol. The coordinator now contains an offline typed plan and a
+tracked fixed-input operator for that artificial path. The operator is designed
+to run outside the frozen H checkout under its pinned interpreter, cwd and import
+root, and call unchanged public H Dataset and market execution APIs on a distinct
+synthetic Dataset/protocol. Its plan binds the full deterministic input, cost,
+risk, forecast and execution recipe; the operator must emit its actual
+builder-derived synthetic Dataset identity. Its receipt and identity remain
+explicitly artificial; this does not attest a frozen H/v3-H/v4 attempt or
+authorize the 48-arm consumer. The existing 32+8 public-native fixtures and
+bounded 640-step profile do not satisfy that long-window prerequisite. The
+pinned-H operator has not been launched; no pinned-H-generated long pair or
+actual H component integration has run. The Q-side synthetic replay described
+below is software-only and is not a native attempt or economic result.
+
+The result-blind forecast recipe fixes a no-fit intercept of -0.02 and derives
+the slope from the stored float32 feature range so nonpulse and pulse returns are
+-0.02 and +0.02. Training rows are trace provenance, not fitted or calibrated
+evidence. The Q-side adapter reconstructs the full Dataset identity and canonical
+forecast bytes independently; the artificial pair consumer compares those bytes
+before receipt scanning. The Q-only synthetic software replay consumed all 6,599
+actor and reserve advances per role (6,527 actor plus 72 reserve; 13,198 total)
+for NONRL and CASH. It checked the required NONRL actor fill indices 2906, 5090,
+7298 and 9430, the reserve close at 9431, no CASH fills, and terminal flat/no-
+active-order closure. A separate regression with fabricated H-shaped receipt rows
+checks actor index extraction only; it did not launch the pinned-H operator or call
+H execution APIs. The actual pinned-H pair and native 48-arm remain unrun, as do
+economic, unused-period and live evaluations.
 
 The output-file index requires an independently supplied manifest byte pin;
 manifest consistency cannot establish root-launch authorship or consumption.

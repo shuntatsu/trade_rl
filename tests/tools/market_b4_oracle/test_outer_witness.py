@@ -421,6 +421,11 @@ def test_timeout_after_popen_reaps_process_and_records_failure(
 ) -> None:
     from tools.market_b4_outer_runner import _run_root_observed_attempt
 
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._root_owned_process_tree_supported",
+        lambda: True,
+    )
+
     class FakeProcess:
         pid = 12345
         returncode: int | None = None

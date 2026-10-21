@@ -2036,7 +2036,10 @@ exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
 `read_pinned_order_events`, `ExactFillAttemptBinding`,
 `load_pinned_exact_fill_attempt`, `BoundEventAdvance`, `BoundEventRowCoverage`, and
 `walk_bound_event_rows`, plus `DeclaredProtocolPair` and
-`load_declared_protocol_pair`.
+`load_declared_protocol_pair`. The same facade exposes the independent Dataset
+identity primitives `ARRAY_FIELDS`, `canonical`, and `content_id` for internal
+comparison tools that must rebuild a pinned Dataset identity without importing
+the implementation submodule directly.
 The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
 manifest, supported static profile fingerprints, and verified Dataset pins. It binds
 the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
@@ -2195,6 +2198,30 @@ attempt root, and output path are bound together. An observed artificial child a
 copied fixture remain comparison evidence only, with Full B4 false. These modules
 do not change the native producer, expose a facade, or grant research or live
 authority.
+
+`tools/market_b4_artificial_component_operator.py` is a separate tracked H-only
+child for one fixed synthetic NONRL/CASH component pair. It builds in-memory bars
+and a fixed no-fit projection, then calls the unchanged public H Dataset and market
+execution APIs. The predeclared model has intercept -0.02 and derives its first
+coefficient from the stored float32 feature range so baseline and pulse packets
+are exactly -0.02 and +0.02. Training rows are trace provenance only; no Ridge
+fit or calibration is claimed. It accepts only the fixed
+`ARTIFICIAL_COMPARISON_ONLY` recipe and runs under the pinned H source, virtual
+environment, working directory, and import root; it imports no Q comparator or
+native market CLI. Its bounded synthetic receipts and runtime manifest do not authenticate its producer or grant native-attempt, Full-B4, research, or live authority.
+
+`artificial_spec.py` validates the exact typed synthetic recipe before any
+derived values are built. `artificial_component.py` independently reconstructs
+the raw arrays, Dataset identity and canonical forecast bytes from that recipe,
+using the public replay-identity facade rather than the H builder or operator.
+For this artificial schema only, the Q binding separately pins BTC as the fit
+source and BTC/ETH as prediction symbols; the generic v3 `fit_symbols` binding is
+unchanged. The pair wrapper requires exact output roster and root-process
+bindings, then checks the output forecast against Q's canonical fixed-recipe
+bytes before any receipt scan. It sends both arms through the owned replay and
+uses child summary/runtime fields only as crosschecks. All authority flags remain
+false. These are implementation contracts; until the complete synthetic pair
+has run, they do not establish a matched pair or native H evidence.
 
 `binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
 

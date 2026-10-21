@@ -276,6 +276,47 @@ def test_indexed_row_consumer_compares_full_window_and_rejects_missing_actor_row
                 **kwargs,
             )
 
+    if role == "nonrl":
+        changed_fill_event = json.loads(json.dumps(native))
+        fill_event = next(
+            event
+            for row in changed_fill_event["native_receipt"]["rows"]
+            for event in row["native"]["order_events"]
+            if event["event_type"] in {"filled", "partial_fill"}
+        )
+        fill_event["execution_price"] += 0.01
+        with pytest.raises(
+            ValueError, match="observed fill batch differs|native fill events differ"
+        ):
+            consume_indexed_market_arm(
+                output_index=indexed_output(
+                    changed_fill_event, "indexed-mutated-fill-event"
+                ),
+                **kwargs,
+            )
+
+    changed_terminal_cash = json.loads(json.dumps(native))
+    changed_terminal_cash["final_book"]["cash"] += 1.0
+    with pytest.raises(ValueError, match="native cash differs from the owned replay"):
+        consume_indexed_market_arm(
+            output_index=indexed_output(
+                changed_terminal_cash, "indexed-mutated-terminal-cash"
+            ),
+            **kwargs,
+        )
+
+    changed_terminal_quantity = json.loads(json.dumps(native))
+    changed_terminal_quantity["final_book"]["exact_quantities"] = ["1", "0"]
+    with pytest.raises(
+        ValueError, match="native exact quantities differ from the owned replay"
+    ):
+        consume_indexed_market_arm(
+            output_index=indexed_output(
+                changed_terminal_quantity, "indexed-mutated-terminal-quantity"
+            ),
+            **kwargs,
+        )
+
     changed_profile = json.loads(json.dumps(native))
     plan = changed_profile["plan"]
     plan["native_plan"]["cell"]["runtime"]["cost_payload"]["multiplier"] += 1.0

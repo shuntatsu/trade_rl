@@ -21,6 +21,7 @@ from tools.market_replay_oracle.exact_fill_binding import (
     ExactFillAttemptBinding,
     load_pinned_exact_fill_attempt,
 )
+from tools.market_replay_oracle.identity import ARRAY_FIELDS, canonical, content_id
 from tools.market_replay_oracle.protocol import ProtocolPin
 from tools.market_replay_oracle.protocol_pair import (
     DeclaredProtocolPair,
@@ -47,4 +48,7 @@ __all__ = [
     "walk_bound_event_rows",
     "DeclaredProtocolPair",
     "load_declared_protocol_pair",
+    "ARRAY_FIELDS",
+    "canonical",
+    "content_id",
 ]

@@ -11,6 +11,8 @@ OWNER = "tools.market_b4_oracle"
 INTERNAL_SEMANTIC_COMPONENTS = frozenset(
     {
         "binary64_account.py",
+        "artificial_component.py",
+        "artificial_spec.py",
         "decision_identity.py",
         "expected_intent.py",
         "frozen_decision.py",
@@ -122,6 +124,11 @@ def test_composition_imports_are_limited_to_stdlibrary_numpy_and_public_facades(
             assert not module.startswith("trade_rl"), (path.relative_to(ROOT), module)
 
 
+def test_replay_identity_primitives_are_exported_by_the_public_facade() -> None:
+    exports = _public_exports("tools/market_replay_oracle")
+    assert {"ARRAY_FIELDS", "canonical", "content_id"} <= exports
+
+
 def test_production_modules_do_not_import_the_composition_package() -> None:
     for path in (ROOT / "trade_rl").rglob("*.py"):
         for module, _ in _resolved_imports(path):
@@ -149,11 +156,61 @@ def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> 
     assert len(routes) == 2
     assert all("tools/market_b4_oracle" in line for line in routes)
     assert all("tools/market_b4_outer_runner.py" in line for line in routes)
+    assert all(
+        "tools/market_b4_artificial_component_operator.py" in line for line in routes
+    )
     assert workflow.count("tools/market_b4_oracle") == 2
+    assert workflow.count("tools/market_b4_artificial_component_operator.py") == 2
 
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
     assert "tools/market_b4_oracle/*.py text eol=lf" in attributes
     assert "tools/market_b4_outer_runner.py text eol=lf" in attributes
+    assert "tools/market_b4_artificial_component_operator.py text eol=lf" in attributes
+
+
+def test_artificial_h_operator_has_no_q_comparator_or_native_market_cli_imports() -> (
+    None
+):
+    path = ROOT / "tools/market_b4_artificial_component_operator.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for module, _ in _resolved_imports(path):
+        root = module.split(".", 1)[0]
+        assert (
+            root in sys.stdlib_module_names
+            or root == "numpy"
+            or module == "trade_rl"
+            or module.startswith(("trade_rl.", "tools.tier_d_nonrl"))
+        ), (module,)
+        assert not module.startswith(
+            (
+                "tools.market_b4_oracle",
+                "tools.market_b4_outer_runner",
+                "tools.market_replay_oracle",
+                "tools.market_account_oracle",
+            )
+        ), (module,)
+    forbidden_calls = {"fit", "fit_predict", "run_market", "prepare_inputs"}
+    assert not any(
+        isinstance(node, ast.Call)
+        and (
+            (isinstance(node.func, ast.Name) and node.func.id in forbidden_calls)
+            or (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in forbidden_calls
+            )
+        )
+        for node in ast.walk(tree)
+    )
+
+
+def test_artificial_h_operator_boundary_is_documented() -> None:
+    boundaries = (ROOT / "docs/architecture/package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    assert "`tools/market_b4_artificial_component_operator.py`" in boundaries
+    assert "ARTIFICIAL_COMPARISON_ONLY" in boundaries
+    assert "do not authenticate its producer" in boundaries
 
 
 def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> None:

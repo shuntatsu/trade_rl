@@ -17,6 +17,10 @@ from typing import Literal, cast
 
 import numpy as np
 
+from tools.market_b4_oracle.artificial_component import (
+    ArtificialComponentInputs,
+    verify_artificial_component_forecast,
+)
 from tools.market_b4_oracle.decision_identity import (
     canonical_json_bytes as _identity_canonical_json_bytes,
 )
@@ -85,6 +89,9 @@ class IndexedMarketComparison:
     reserve_rows: int
     actor_scan: ReceiptScan
     reserve_scan: ReceiptScan
+    actor_fill_processing_indices: tuple[int, ...]
+    reserve_fill_processing_indices: tuple[int, ...]
+    plan_digest: str
     forecast_sha256: str
     runtime_environment_sha256: str | None
     output_index_rechecked: bool
@@ -1071,6 +1078,7 @@ def _metadata_arm(
     reserve_plan_digest: str,
     *,
     expected_runtime_environment_sha256: str | None = None,
+    expected_forecast_sha256: str | None = None,
 ) -> None:
     plan = metadata.get("plan")
     if type(plan) is not dict:
@@ -1137,6 +1145,10 @@ def _metadata_arm(
         raise ValueError(
             "receipt runtime/cost/risk profile differs from frozen binding"
         )
+    if expected_forecast_sha256 is not None and common.get(
+        "forecast_context_digest"
+    ) != _sha(expected_forecast_sha256, "expected forecast context digest"):
+        raise ValueError("receipt plan forecast identity differs from Q's fixed bytes")
     _sha(common.get("source_digest"), "native source digest")
     _sha(common.get("implementation_digest"), "native implementation digest")
     runtime_environment_sha256 = _sha(
@@ -1224,6 +1236,7 @@ def _consume_indexed_market_arm(
     binding: FrozenMarketBinding,
     role: Literal["NONRL", "CASH"],
     reserve_plan_digest: str,
+    artificial_inputs: object | None = None,
     static_inputs: StaticInputReadback | None = None,
     expected_runtime_environment_sha256: str | None = None,
     whole_index_recheck: bool,
@@ -1266,6 +1279,22 @@ def _consume_indexed_market_arm(
     if policy != expected_policy:
         raise ValueError("execution policy differs from the selected frozen arm")
 
+    protocol = binding.protocol_document
+    expected_artificial_forecast_sha256: str | None = None
+    if protocol.get("schema") == "issue810_artificial_h_component_q_binding_v1":
+        if (
+            type(artificial_inputs) is not ArtificialComponentInputs
+            or artificial_inputs.content is not content
+            or binding.protocol_canonical
+            != artificial_inputs.protocol_document_canonical
+            or forecast_name != "forecasts/simple-return-stream.json"
+        ):
+            raise ValueError(
+                "artificial comparison requires its exact Q-owned source and forecast"
+            )
+    elif artificial_inputs is not None:
+        raise ValueError("Q artificial inputs cannot bind a different protocol")
+
     static_before: (
         tuple[DeclaredProtocolPair, FrozenAttemptBinding, VerifiedDatasetContent] | None
     ) = None
@@ -1275,10 +1304,21 @@ def _consume_indexed_market_arm(
         )
     if whole_index_recheck:
         output_index.recheck()
+    if protocol.get("schema") == "issue810_artificial_h_component_q_binding_v1":
+        expected_artificial_forecast_sha256 = verify_artificial_component_forecast(
+            output_index=output_index,
+            inputs=cast(ArtificialComponentInputs, artificial_inputs),
+        )
     forecast_pin = output_index.pin(forecast_name)
     forecast_bytes = _read_indexed_bytes(
         output_index, forecast_name, _MAX_FORECAST_BYTES
     )
+    if (
+        expected_artificial_forecast_sha256 is not None
+        and hashlib.sha256(forecast_bytes).hexdigest()
+        != expected_artificial_forecast_sha256
+    ):
+        raise ValueError("artificial forecast changed after exact recipe validation")
     forecast_index = FrozenForecastIndex(
         forecast_bytes,
         pinned_bytes=forecast_pin.bytes,
@@ -1290,7 +1330,6 @@ def _consume_indexed_market_arm(
         binding=binding,
         reserve_plan_digest=reserve_plan_digest,
     )
-    protocol = binding.protocol_document
     configurations = protocol.get("configurations")
     configuration_rows = (
         [
@@ -1311,7 +1350,17 @@ def _consume_indexed_market_arm(
         raise ValueError("frozen protocol is missing the selected forecast arm")
     configuration = cast(dict[str, object], configuration_rows[0])
     feature_names = tuple(cast(list[str], dataset["feature_names"]))
-    prediction_symbols = tuple(cast(list[str], dataset["fit_symbols"]))
+    prediction_roster = (
+        dataset.get("prediction_symbols")
+        if binding.comparison_only
+        and protocol.get("schema") == "issue810_artificial_h_component_q_binding_v1"
+        else dataset.get("fit_symbols")
+    )
+    if type(prediction_roster) is not list or any(
+        type(value) is not str for value in prediction_roster
+    ):
+        raise ValueError("frozen protocol has no exact prediction-symbol roster")
+    prediction_symbols = tuple(cast(list[str], prediction_roster))
     horizon_hours = configuration.get("horizon_hours")
     if (
         type(horizon_hours) is not int
@@ -1342,6 +1391,7 @@ def _consume_indexed_market_arm(
 
     actor_reader = output_index.receipt_rows(receipt_name, phase="actor")
     actor_seen = 0
+    actor_fill_processing_indices: list[int] = []
     metadata: dict[str, object] | None = None
     for row in actor_reader:
         actor_seen += 1
@@ -1362,6 +1412,8 @@ def _consume_indexed_market_arm(
         )
         if advance.phase != "actor" or advance.processing_index != processing:
             raise ValueError("owned replay left actor phase before its bound row")
+        if advance.owned_fills:
+            actor_fill_processing_indices.append(processing)
         _compare_actor_identity(native, advance)
         _compare_event_effects(events, observed_fills, replay, advance)
         _compare_orders(native, replay, advance, prior_terminal)
@@ -1384,6 +1436,7 @@ def _consume_indexed_market_arm(
 
     reserve_reader = output_index.receipt_rows(receipt_name, phase="reserve")
     reserve_seen = 0
+    reserve_fill_processing_indices: list[int] = []
     for row in reserve_reader:
         reserve_seen += 1
         if reserve_seen > replay.window.reserve_advances:
@@ -1403,6 +1456,8 @@ def _consume_indexed_market_arm(
         )
         if advance.phase != "reserve" or advance.processing_index != processing:
             raise ValueError("owned replay left reserve phase before its bound row")
+        if advance.owned_fills:
+            reserve_fill_processing_indices.append(processing)
         _compare_event_effects(events, observed_fills, replay, advance)
         if advance.actor_identity is not None:
             raise ValueError("reserve submissions differ from owned reserve identity")
@@ -1439,6 +1494,7 @@ def _consume_indexed_market_arm(
         replay,
         reserve_plan_digest,
         expected_runtime_environment_sha256=expected_runtime_environment_sha256,
+        expected_forecast_sha256=forecast_index.metadata.pinned_sha256,
     )
     _compare_book(
         metadata.get("final_book"),
@@ -1489,6 +1545,9 @@ def _consume_indexed_market_arm(
         reserve_rows=reserve_scan.reserve_rows,
         actor_scan=actor_scan,
         reserve_scan=reserve_scan,
+        actor_fill_processing_indices=tuple(actor_fill_processing_indices),
+        reserve_fill_processing_indices=tuple(reserve_fill_processing_indices),
+        plan_digest=_sha(metadata.get("plan_digest"), "plan_digest"),
         forecast_sha256=forecast_index.metadata.pinned_sha256,
         runtime_environment_sha256=expected_runtime_environment_sha256,
         output_index_rechecked=whole_index_recheck,
@@ -1506,6 +1565,7 @@ def consume_indexed_market_arm(
     binding: FrozenMarketBinding,
     role: Literal["NONRL", "CASH"],
     reserve_plan_digest: str,
+    artificial_inputs: object | None = None,
     static_inputs: StaticInputReadback | None = None,
     expected_runtime_environment_sha256: str | None = None,
 ) -> IndexedMarketComparison:
@@ -1519,6 +1579,7 @@ def consume_indexed_market_arm(
         binding=binding,
         role=role,
         reserve_plan_digest=reserve_plan_digest,
+        artificial_inputs=artificial_inputs,
         static_inputs=static_inputs,
         expected_runtime_environment_sha256=expected_runtime_environment_sha256,
         whole_index_recheck=True,
@@ -1654,6 +1715,7 @@ def _validate_root_observed_attempt(
     output_index: NativeOutputIndex,
     content: VerifiedDatasetContent,
     binding: FrozenMarketBinding,
+    artificial_inputs: object | None = None,
     static_inputs: StaticInputReadback | None,
     root_witness: RootObservedAttempt | None,
     expected_start_pin: WitnessFilePin | None,
@@ -1706,9 +1768,24 @@ def _validate_root_observed_attempt(
     ):
         raise ValueError("root-observed binding or Dataset differs from the consumer")
     if binding.comparison_only:
+        artificial_protocol = binding.protocol_document.get("schema") == (
+            "issue810_artificial_h_component_q_binding_v1"
+        )
+        expected_scope = (
+            "ARTIFICIAL_H_COMPONENT_ONLY"
+            if artificial_protocol
+            else "ARTIFICIAL_COMPARISON_ONLY"
+        )
+        if artificial_protocol and (
+            type(artificial_inputs) is not ArtificialComponentInputs
+            or authority.get("component_spec_sha256") != artificial_inputs.spec_sha256
+            or authority.get("outer_attempt_authenticated") is not False
+            or authority.get("full_b4_authorized") is not False
+        ):
+            raise ValueError("root-observed artificial plan differs from Q's spec")
         if (
             static_inputs is not None
-            or authority.get("scope") != "ARTIFICIAL_COMPARISON_ONLY"
+            or authority.get("scope") != expected_scope
             or authority.get("protocols") is not None
             or authority.get("native_source") is not None
         ):
@@ -1777,6 +1854,7 @@ def consume_root_observed_market_arm(
     binding: FrozenMarketBinding,
     role: Literal["NONRL", "CASH"],
     reserve_plan_digest: str,
+    artificial_inputs: object | None = None,
     static_inputs: StaticInputReadback | None = None,
     root_witness: RootObservedAttempt | None = None,
     expected_start_pin: WitnessFilePin | None = None,
@@ -1787,6 +1865,7 @@ def consume_root_observed_market_arm(
         output_index=output_index,
         content=content,
         binding=binding,
+        artificial_inputs=artificial_inputs,
         static_inputs=static_inputs,
         root_witness=root_witness,
         expected_start_pin=expected_start_pin,
@@ -1801,6 +1880,7 @@ def consume_root_observed_market_arm(
         binding=binding,
         role=role,
         reserve_plan_digest=reserve_plan_digest,
+        artificial_inputs=artificial_inputs,
         static_inputs=static_inputs,
     )
     if (

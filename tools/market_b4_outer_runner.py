@@ -23,6 +23,7 @@ from tomllib import loads as toml_loads
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 
+from tools.market_b4_oracle.artificial_spec import is_artificial_h_component_spec
 from tools.market_b4_oracle.outer_witness import (
     FrozenHRuntimePin,
     RootObservedAttempt,
@@ -38,6 +39,7 @@ from tools.market_b4_oracle.output_index import (
     capture_output_manifest_pin,
     load_pinned_output_index,
 )
+from tools.market_replay_oracle.source import NativeSourcePin, verify_native_source
 
 _MAX_ARGV_ITEMS = 128
 _MAX_ARGV_STRING_BYTES = 8192
@@ -108,6 +110,11 @@ print(json.dumps({
 """
 
 
+def _root_owned_process_tree_supported() -> bool:
+    """Return whether this host has the frozen Windows process-tree observer."""
+    return os.name == "nt"
+
+
 @dataclass(frozen=True, slots=True)
 class RootObservedExecution:
     """An output index paired with external root-owned start/finish pins."""
@@ -117,9 +124,11 @@ class RootObservedExecution:
     expected_start_pin: WitnessFilePin
     expected_finish_pin: WitnessFilePin
     input_authority: dict[str, object]
-    scope: Literal["ARTIFICIAL_COMPARISON_ONLY", "NATIVE_H3_V4_ROOT_OBSERVED"] = (
-        "ARTIFICIAL_COMPARISON_ONLY"
-    )
+    scope: Literal[
+        "ARTIFICIAL_COMPARISON_ONLY",
+        "ARTIFICIAL_H_COMPONENT_PROCESS_OBSERVED_ONLY",
+        "NATIVE_H3_V4_ROOT_OBSERVED",
+    ] = "ARTIFICIAL_COMPARISON_ONLY"
     full_b4_authorized: Literal[False] = False
 
 
@@ -143,7 +152,27 @@ class RootObservedHMarketMatrix:
     full_b4_authorized: Literal[False] = False
 
 
+@dataclass(frozen=True, slots=True)
+class RootObservedArtificialHComponentPair:
+    """Independent Q replay of both fixed artificial roles; never Full-B4."""
+
+    execution: RootObservedExecution
+    comparisons: tuple[Any, Any]
+    scope: Literal["ARTIFICIAL_H_COMPONENT_Q_PAIR_COMPARISON_COMPLETE"] = (
+        "ARTIFICIAL_H_COMPONENT_Q_PAIR_COMPARISON_COMPLETE"
+    )
+    outer_attempt_authenticated: Literal[False] = False
+    full_b4_authorized: Literal[False] = False
+    research_authorized: Literal[False] = False
+
+
 _FROZEN_H_PLAN_TOKEN = object()
+_ARTIFICIAL_H_PLAN_TOKEN = object()
+
+_ARTIFICIAL_H_OPERATOR_RELATIVE = Path(
+    "tools/market_b4_artificial_component_operator.py"
+)
+_ARTIFICIAL_H_PLAN_SCHEMA = "issue810_artificial_h_component_plan_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +226,148 @@ class FrozenHLaunchPlan:
         )
         if self.argv != expected:
             raise ValueError("frozen H plan differs from its fixed public CLI")
+
+
+@dataclass(frozen=True, slots=True)
+class ArtificialHComponentPlan:
+    """Typed plan for a fixed synthetic H component operator, never native H."""
+
+    observer_repository: Path
+    observer_source_sha256: str
+    observer_head_sha: str
+    child_source_root: Path
+    child_source_pin: NativeSourcePin
+    child_python: Path
+    runtime_pin: FrozenHRuntimePin
+    operator_path: Path
+    operator_sha256: str
+    component_spec_canonical: bytes
+    component_spec_sha256: str
+    input_plan_path: Path
+    input_plan_canonical: bytes
+    output_root: Path
+    witness_root: Path
+    attempt_uuid: str
+    argv: tuple[str, ...]
+    input_authority_canonical: bytes
+    scope: Literal["ARTIFICIAL_H_COMPONENT_PLAN_ONLY"] = (
+        "ARTIFICIAL_H_COMPONENT_PLAN_ONLY"
+    )
+    process_started: Literal[False] = False
+    outer_attempt_authenticated: Literal[False] = False
+    full_b4_authorized: Literal[False] = False
+    _plan_token: object = dataclass_field(repr=False, compare=False, default=None)
+
+    def __post_init__(self) -> None:
+        if (
+            self._plan_token is not _ARTIFICIAL_H_PLAN_TOKEN
+            or self.scope != "ARTIFICIAL_H_COMPONENT_PLAN_ONLY"
+            or self.process_started is not False
+            or self.outer_attempt_authenticated is not False
+            or self.full_b4_authorized is not False
+            or type(self.child_source_pin) is not NativeSourcePin
+            or type(self.runtime_pin) is not FrozenHRuntimePin
+            or self.runtime_pin.source_root != self.child_source_root
+            or self.runtime_pin.python_executable != self.child_python
+            or self.child_python
+            != self.child_source_root / ".venv" / "Scripts" / "python.exe"
+            or self.operator_path
+            != self.observer_repository / _ARTIFICIAL_H_OPERATOR_RELATIVE
+            or not _valid_sha256(self.observer_source_sha256)
+            or not _valid_sha256(self.operator_sha256)
+            or not _valid_sha256(self.component_spec_sha256)
+            or type(self.component_spec_canonical) is not bytes
+            or hashlib.sha256(self.component_spec_canonical).hexdigest()
+            != self.component_spec_sha256
+            or type(self.input_plan_canonical) is not bytes
+            or type(self.input_authority_canonical) is not bytes
+            or not _is_uuid_hex(self.attempt_uuid)
+            or self.output_root == self.witness_root
+            or self.output_root.is_relative_to(self.witness_root)
+            or self.witness_root.is_relative_to(self.output_root)
+        ):
+            raise ValueError("artificial H component plan is malformed")
+        spec = _parse_canonical_object(self.component_spec_canonical)
+        document = _parse_canonical_object(self.input_plan_canonical)
+        authority = _parse_canonical_object(self.input_authority_canonical)
+        if (
+            not _is_artificial_h_component_spec(spec)
+            or document.get("schema") != _ARTIFICIAL_H_PLAN_SCHEMA
+            or document.get("scope") != "ARTIFICIAL_H_COMPONENT_ONLY"
+            or document.get("component_spec") != spec
+            or document.get("component_spec_sha256") != self.component_spec_sha256
+            or document.get("attempt_uuid") != self.attempt_uuid
+            or document.get("output_root") != str(self.output_root)
+            or document.get("outer_attempt_authenticated") is not False
+            or document.get("full_b4_authorized") is not False
+            or authority.get("scope") != "ARTIFICIAL_H_COMPONENT_ONLY"
+            or authority.get("component_spec_sha256") != self.component_spec_sha256
+            or authority.get("attempt_uuid") != self.attempt_uuid
+            or authority.get("outer_attempt_authenticated") is not False
+            or authority.get("full_b4_authorized") is not False
+            or self.argv
+            != _artificial_h_component_argv(
+                child_python=self.child_python,
+                operator_path=self.operator_path,
+                input_plan_path=self.input_plan_path,
+            )
+        ):
+            raise ValueError(
+                "artificial H component plan differs from its pinned input"
+            )
+
+    @property
+    def component_spec(self) -> dict[str, object]:
+        return json.loads(self.component_spec_canonical)
+
+    @property
+    def input_authority(self) -> dict[str, object]:
+        return json.loads(self.input_authority_canonical)
+
+
+def _valid_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _is_uuid_hex(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 32
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _parse_canonical_object(raw: bytes) -> dict[str, object]:
+    value = json.loads(raw)
+    if type(value) is not dict or _canonical(value) != raw:
+        raise ValueError("artificial H plan JSON is not a canonical object")
+    return value
+
+
+def _is_artificial_h_component_spec(value: object) -> bool:
+    return is_artificial_h_component_spec(value)
+
+
+def _artificial_h_component_argv(
+    *, child_python: Path, operator_path: Path, input_plan_path: Path
+) -> tuple[str, ...]:
+    if any(
+        not isinstance(path, Path) or not path.is_absolute()
+        for path in (child_python, operator_path, input_plan_path)
+    ):
+        raise ValueError("artificial H component paths must be absolute")
+    return (
+        str(child_python),
+        "-I",
+        "-B",
+        str(operator_path),
+        "--plan",
+        str(input_plan_path),
+    )
 
 
 def _frozen_h_public_argv(
@@ -385,7 +556,7 @@ def _run_frozen_h_attempt(
 ) -> RootObservedExecution:
     """Start only the plan's fixed H CLI and bind it to the root witness."""
     authority = _frozen_h_plan_authority(plan)
-    if os.name != "nt":
+    if not _root_owned_process_tree_supported():
         raise RuntimeError("frozen H market supervision requires Windows")
     _assert_frozen_h_runtime_pin_current(plan.runtime_pin, plan.child_source_root)
     reprobed_runtime = capture_frozen_h_runtime_pin(plan.child_source_root)
@@ -412,6 +583,7 @@ def _run_frozen_h_attempt(
         attempt_uuid=plan.attempt_uuid,
         child_cwd=plan.child_source_root,
         frozen_h_plan=plan,
+        _completion_scope="NATIVE_H3_V4_ROOT_OBSERVED",
     )
 
 
@@ -563,6 +735,431 @@ def build_frozen_h_launch_plan(
         input_authority_canonical=_canonical(authority),
         _plan_token=_FROZEN_H_PLAN_TOKEN,
     )
+
+
+def _artificial_h_environment_policy(
+    child_source_root: Path, operator_path: Path, environment: dict[str, str]
+) -> dict[str, object]:
+    if (
+        type(environment) is not dict
+        or set(environment) - set(_ENVIRONMENT_ALLOWLIST)
+        or environment.get("PYTHONDONTWRITEBYTECODE") != "1"
+        or environment.get("PYTHONUTF8") != "1"
+        or set(_IMPORT_RESOLUTION_ENVIRONMENT) & set(environment)
+        or set(_NUMERICAL_THREAD_ENVIRONMENT) & set(environment)
+    ):
+        raise ValueError("artificial H operator environment violates its fixed policy")
+    return {
+        "schema": "issue810_artificial_h_environment_policy_v1",
+        "supervisor_values_sha256": {
+            key: hashlib.sha256(value.encode("utf-8")).hexdigest()
+            for key, value in sorted(environment.items())
+        },
+        "absent_import_resolution": list(_IMPORT_RESOLUTION_ENVIRONMENT),
+        "absent_numerical_threads": list(_NUMERICAL_THREAD_ENVIRONMENT),
+        "worker": {
+            "inherits": "supervisor_allowlist_only",
+            "isolated_python": True,
+            "python_executable": str(
+                child_source_root / ".venv" / "Scripts" / "python.exe"
+            ),
+            "cwd": str(child_source_root),
+            "operator": str(operator_path),
+            "pythonpath": "absent",
+            "source_root_added_after_operator_validation": str(child_source_root),
+        },
+    }
+
+
+def _artificial_h_plan_document(
+    *,
+    component_spec: dict[str, object],
+    component_spec_sha256: str,
+    child_source_root: Path,
+    child_source_pin: NativeSourcePin,
+    runtime_pin: FrozenHRuntimePin,
+    operator_path: Path,
+    operator_sha256: str,
+    output_root: Path,
+    attempt_uuid: str,
+) -> dict[str, object]:
+    return {
+        "schema": _ARTIFICIAL_H_PLAN_SCHEMA,
+        "scope": "ARTIFICIAL_H_COMPONENT_ONLY",
+        "attempt_uuid": attempt_uuid,
+        "child_source": {
+            "root": str(child_source_root),
+            "head_sha": child_source_pin.head_sha,
+            "snapshot_sha256": child_source_pin.snapshot_sha256,
+        },
+        "runtime_pin": runtime_pin.authority_payload(),
+        "operator": {"path": str(operator_path), "sha256": operator_sha256},
+        "component_spec": component_spec,
+        "component_spec_sha256": component_spec_sha256,
+        "output_root": str(output_root),
+        "outer_attempt_authenticated": False,
+        "full_b4_authorized": False,
+    }
+
+
+def _artificial_h_plan_authority(
+    *,
+    observer_repository: Path,
+    observer_source_sha256: str,
+    observer_head_sha: str,
+    child_source_root: Path,
+    child_source_pin: NativeSourcePin,
+    runtime_pin: FrozenHRuntimePin,
+    operator_path: Path,
+    operator_sha256: str,
+    component_spec_sha256: str,
+    input_plan_path: Path,
+    input_plan_sha256: str,
+    output_root: Path,
+    witness_root: Path,
+    attempt_uuid: str,
+    argv: tuple[str, ...],
+    environment_policy: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "scope": "ARTIFICIAL_H_COMPONENT_ONLY",
+        "observer_source": {
+            "root": str(observer_repository),
+            "head_sha": observer_head_sha,
+            "closure_sha256": observer_source_sha256,
+            "working_tree_clean": True,
+        },
+        "child_source": {
+            "root": str(child_source_root),
+            "head_sha": child_source_pin.head_sha,
+            "snapshot_sha256": child_source_pin.snapshot_sha256,
+        },
+        "runtime_pin": runtime_pin.authority_payload(),
+        "operator": {"path": str(operator_path), "sha256": operator_sha256},
+        "component_spec_sha256": component_spec_sha256,
+        "input_plan": {
+            "path": str(input_plan_path),
+            "sha256": input_plan_sha256,
+        },
+        "attempt_uuid": attempt_uuid,
+        "argv": list(argv),
+        "cwd": str(child_source_root),
+        "output_root": str(output_root),
+        "witness_root": str(witness_root),
+        "environment_policy": environment_policy,
+        "outer_attempt_authenticated": False,
+        "full_b4_authorized": False,
+    }
+
+
+def build_artificial_h_component_plan(
+    *,
+    observer_repository: Path,
+    child_source_root: Path,
+    source_pin: NativeSourcePin,
+    runtime_pin: FrozenHRuntimePin,
+    component_spec: dict[str, object],
+    input_plan_path: Path,
+    output_root: Path,
+    witness_root: Path,
+) -> ArtificialHComponentPlan:
+    """Build an offline typed plan for the fixed artificial H component path."""
+    if not _is_artificial_h_component_spec(component_spec):
+        raise ValueError("artificial H component specification is not the fixed scope")
+    if (
+        type(source_pin) is not NativeSourcePin
+        or type(runtime_pin) is not FrozenHRuntimePin
+    ):
+        raise ValueError(
+            "artificial H component requires exact source and runtime pins"
+        )
+    observer_repository = _safe_target(observer_repository, must_exist=True)
+    child_source_root = _safe_target(child_source_root, must_exist=True)
+    if (
+        observer_repository == child_source_root
+        or runtime_pin.source_root != child_source_root
+    ):
+        raise ValueError(
+            "artificial H source must be separately pinned from the observer"
+        )
+    child_python = runtime_pin.python_executable
+    _assert_frozen_h_runtime_pin_current(runtime_pin, child_source_root)
+    observed_runtime = capture_frozen_h_runtime_pin(child_source_root)
+    if observed_runtime.authority_payload() != runtime_pin.authority_payload():
+        raise ValueError("artificial H runtime changed before plan creation")
+    source_readback = verify_native_source(child_source_root, source_pin)
+    if (
+        source_readback.get("head_sha") != source_pin.head_sha
+        or source_readback.get("snapshot_sha256") != source_pin.snapshot_sha256
+        or source_readback.get("scope") != "STATIC_SOURCE_BYTES_NOT_RUNTIME_ATTESTATION"
+    ):
+        raise ValueError("artificial H source does not match its static byte pin")
+
+    operator_path = observer_repository / _ARTIFICIAL_H_OPERATOR_RELATIVE
+    operator_path = operator_path.absolute()
+    from tools.market_b4_oracle.outer_witness import _read_source_file
+
+    _, operator_bytes = _read_source_file(operator_path)
+    if not 0 < len(operator_bytes) <= 4 * 1024**2:
+        raise ValueError("artificial H operator source is outside its bounded pin")
+    operator_sha256 = hashlib.sha256(operator_bytes).hexdigest()
+
+    verify_root = _safe_target(
+        observer_repository / "output" / "verify", must_exist=True
+    )
+    input_plan_path = _safe_target(input_plan_path, must_exist=False)
+    output_root = _safe_target(output_root, must_exist=False)
+    witness_root = _safe_target(witness_root, must_exist=False)
+    if (
+        any(
+            path == verify_root or not path.is_relative_to(verify_root)
+            for path in (input_plan_path, output_root, witness_root)
+        )
+        or output_root == witness_root
+        or output_root.is_relative_to(witness_root)
+        or witness_root.is_relative_to(output_root)
+    ):
+        raise ValueError("artificial H plans and artifacts require fresh verify roots")
+    if (
+        input_plan_path == output_root
+        or input_plan_path.is_relative_to(output_root)
+        or output_root.is_relative_to(input_plan_path)
+    ):
+        raise ValueError("artificial H input plan must be separate from child output")
+    observer_identity = implementation_source_identity(observer_repository)
+    observer_head, observer_clean, observer_status_sha256 = _git_readback(
+        observer_repository
+    )
+    if (
+        observer_clean is not True
+        or type(observer_identity.get("closure_sha256")) is not str
+        or not _valid_sha256(observer_identity.get("closure_sha256"))
+    ):
+        raise ValueError("artificial H plan requires a clean pinned observer source")
+
+    component_spec_canonical = _canonical(component_spec)
+    component_spec_sha256 = hashlib.sha256(component_spec_canonical).hexdigest()
+    attempt_uuid = uuid4().hex
+    argv = _artificial_h_component_argv(
+        child_python=child_python,
+        operator_path=operator_path,
+        input_plan_path=input_plan_path,
+    )
+    input_document = _artificial_h_plan_document(
+        component_spec=component_spec,
+        component_spec_sha256=component_spec_sha256,
+        child_source_root=child_source_root,
+        child_source_pin=source_pin,
+        runtime_pin=runtime_pin,
+        operator_path=operator_path,
+        operator_sha256=operator_sha256,
+        output_root=output_root,
+        attempt_uuid=attempt_uuid,
+    )
+    input_plan_canonical = _canonical(input_document)
+    environment_policy = _artificial_h_environment_policy(
+        child_source_root, operator_path, _observer_environment()
+    )
+    input_authority = _artificial_h_plan_authority(
+        observer_repository=observer_repository,
+        observer_source_sha256=str(observer_identity["closure_sha256"]),
+        observer_head_sha=observer_head,
+        child_source_root=child_source_root,
+        child_source_pin=source_pin,
+        runtime_pin=runtime_pin,
+        operator_path=operator_path,
+        operator_sha256=operator_sha256,
+        component_spec_sha256=component_spec_sha256,
+        input_plan_path=input_plan_path,
+        input_plan_sha256=hashlib.sha256(input_plan_canonical).hexdigest(),
+        output_root=output_root,
+        witness_root=witness_root,
+        attempt_uuid=attempt_uuid,
+        argv=argv,
+        environment_policy=environment_policy,
+    )
+    return ArtificialHComponentPlan(
+        observer_repository=observer_repository,
+        observer_source_sha256=str(observer_identity["closure_sha256"]),
+        observer_head_sha=observer_head,
+        child_source_root=child_source_root,
+        child_source_pin=source_pin,
+        child_python=child_python,
+        runtime_pin=runtime_pin,
+        operator_path=operator_path,
+        operator_sha256=operator_sha256,
+        component_spec_canonical=component_spec_canonical,
+        component_spec_sha256=component_spec_sha256,
+        input_plan_path=input_plan_path,
+        input_plan_canonical=input_plan_canonical,
+        output_root=output_root,
+        witness_root=witness_root,
+        attempt_uuid=attempt_uuid,
+        argv=argv,
+        input_authority_canonical=_canonical(input_authority),
+        _plan_token=_ARTIFICIAL_H_PLAN_TOKEN,
+    )
+
+
+def _artificial_h_plan_authority_payload(
+    plan: ArtificialHComponentPlan,
+) -> dict[str, object]:
+    if (
+        type(plan) is not ArtificialHComponentPlan
+        or plan._plan_token is not _ARTIFICIAL_H_PLAN_TOKEN
+    ):
+        raise ValueError("artificial H execution requires an exact typed plan")
+    authority = _parse_canonical_object(plan.input_authority_canonical)
+    if _canonical(authority) != plan.input_authority_canonical:
+        raise ValueError("artificial H plan authority is not canonical")
+    return authority
+
+
+def _assert_artificial_h_plan_current(
+    plan: ArtificialHComponentPlan, *, input_plan_written: bool = False
+) -> None:
+    authority = _artificial_h_plan_authority_payload(plan)
+    observer = authority.get("observer_source")
+    if type(observer) is not dict:
+        raise ValueError("artificial H plan lacks its observer source binding")
+    observer_identity = implementation_source_identity(plan.observer_repository)
+    observer_head, observer_clean, _ = _git_readback(plan.observer_repository)
+    if (
+        observer.get("root") != str(plan.observer_repository)
+        or observer.get("closure_sha256") != observer_identity.get("closure_sha256")
+        or observer.get("head_sha") != observer_head
+        or observer_head != plan.observer_head_sha
+        or observer_clean is not True
+        or observer.get("working_tree_clean") is not True
+    ):
+        raise ValueError("artificial H observer source changed after plan creation")
+    source_readback = verify_native_source(
+        plan.child_source_root, plan.child_source_pin
+    )
+    if (
+        source_readback.get("head_sha") != plan.child_source_pin.head_sha
+        or source_readback.get("snapshot_sha256")
+        != plan.child_source_pin.snapshot_sha256
+        or source_readback.get("scope") != "STATIC_SOURCE_BYTES_NOT_RUNTIME_ATTESTATION"
+    ):
+        raise ValueError("artificial H source changed after plan creation")
+    _assert_frozen_h_runtime_pin_current(plan.runtime_pin, plan.child_source_root)
+    current_runtime = capture_frozen_h_runtime_pin(plan.child_source_root)
+    if current_runtime.authority_payload() != plan.runtime_pin.authority_payload():
+        raise ValueError("artificial H runtime changed after plan creation")
+    from tools.market_b4_oracle.outer_witness import _read_source_file
+
+    _, operator_bytes = _read_source_file(plan.operator_path)
+    if hashlib.sha256(operator_bytes).hexdigest() != plan.operator_sha256:
+        raise ValueError("artificial H operator changed after plan creation")
+    if authority.get("environment_policy") != _artificial_h_environment_policy(
+        plan.child_source_root, plan.operator_path, _observer_environment()
+    ):
+        raise ValueError("artificial H launch environment changed after plan creation")
+    if input_plan_written:
+        _, raw = _read_source_file(plan.input_plan_path)
+        if raw != plan.input_plan_canonical:
+            raise ValueError("artificial H input plan changed after it was written")
+    elif plan.input_plan_path.exists():
+        raise FileExistsError("artificial H input plan path must be fresh")
+
+
+def _artificial_h_start_record(plan: ArtificialHComponentPlan) -> dict[str, object]:
+    authority = _artificial_h_plan_authority_payload(plan)
+    child = authority.get("child_source")
+    if type(child) is not dict:
+        raise ValueError("artificial H plan lacks a child source binding")
+    return {
+        "schema": "issue810_root_owned_attempt_start_v1",
+        "attempt_uuid": plan.attempt_uuid,
+        "argv": list(plan.argv),
+        "cwd": str(plan.child_source_root),
+        "output_root": str(plan.output_root),
+        "input_authority": authority,
+        "child_environment_policy": authority.get("environment_policy"),
+    }
+
+
+def _assert_artificial_h_start_matches_plan(
+    plan: ArtificialHComponentPlan, start: dict[str, object]
+) -> None:
+    expected = _artificial_h_start_record(plan)
+    if (
+        type(start) is not dict
+        or start.get("schema") != expected["schema"]
+        or start.get("attempt_uuid") != expected["attempt_uuid"]
+        or start.get("argv") != expected["argv"]
+        or start.get("cwd") != expected["cwd"]
+        or start.get("output_root") != expected["output_root"]
+        or start.get("input_authority") != expected["input_authority"]
+        or start.get("child_environment_policy") != expected["child_environment_policy"]
+    ):
+        raise ValueError("artificial H start witness differs from its typed plan")
+
+
+def _assert_artificial_h_operator_runtime_report(
+    plan: ArtificialHComponentPlan, output_index: NativeOutputIndex
+) -> None:
+    try:
+        raw = output_index.read_pinned_bytes("operator-runtime.json", maximum=16 * 1024)
+        report = _parse_canonical_object(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError(
+            "artificial H operator runtime report is absent or malformed"
+        ) from error
+    runtime_pin = plan.runtime_pin.authority_payload()
+    runtime = runtime_pin.get("runtime_environment")
+    packages = runtime.get("packages") if type(runtime) is dict else None
+    h_site = plan.child_source_root / ".venv" / "Lib" / "site-packages"
+    try:
+        numpy_origin = Path(str(report.get("numpy_origin"))).absolute()
+    except (OSError, TypeError, ValueError) as error:
+        raise ValueError(
+            "artificial H operator imported an invalid NumPy origin"
+        ) from error
+    expected = {
+        "schema": "issue810_artificial_h_operator_runtime_v1",
+        "scope": "ARTIFICIAL_COMPARISON_ONLY",
+        "attempt_uuid": plan.attempt_uuid,
+        "input_plan_sha256": hashlib.sha256(plan.input_plan_canonical).hexdigest(),
+        "operator_sha256": plan.operator_sha256,
+        "python_executable": str(plan.child_python),
+        "prefix": str(plan.child_source_root / ".venv"),
+        "source_root": str(plan.child_source_root),
+        "runtime_environment": runtime,
+        "runtime_environment_sha256": runtime_pin.get("runtime_environment_sha256"),
+        "numpy_version": packages.get("numpy") if type(packages) is dict else None,
+        "trade_rl_origin": str(plan.child_source_root / "trade_rl" / "__init__.py"),
+        "tier_d_nonrl_origin": str(
+            plan.child_source_root / "tools" / "tier_d_nonrl" / "__init__.py"
+        ),
+        "outer_attempt_authenticated": False,
+        "full_b4_authorized": False,
+    }
+    if (
+        set(report)
+        != {
+            "schema",
+            "scope",
+            "attempt_uuid",
+            "input_plan_sha256",
+            "operator_sha256",
+            "python_executable",
+            "prefix",
+            "source_root",
+            "runtime_environment",
+            "runtime_environment_sha256",
+            "numpy_version",
+            "numpy_origin",
+            "trade_rl_origin",
+            "tier_d_nonrl_origin",
+            "outer_attempt_authenticated",
+            "full_b4_authorized",
+        }
+        or any(report.get(key) != value for key, value in expected.items())
+        or not numpy_origin.is_relative_to(h_site)
+    ):
+        raise ValueError("artificial H runtime report differs from its typed plan")
 
 
 def capture_frozen_h_runtime_pin(child_source_root: Path) -> FrozenHRuntimePin:
@@ -1216,20 +1813,36 @@ def _run_root_observed_attempt(
     attempt_uuid: str | None = None,
     child_cwd: Path | None = None,
     frozen_h_plan: FrozenHLaunchPlan | None = None,
+    artificial_h_plan: ArtificialHComponentPlan | None = None,
+    _completion_scope: Literal[
+        "ARTIFICIAL_COMPARISON_ONLY", "NATIVE_H3_V4_ROOT_OBSERVED"
+    ]
+    | None = None,
 ) -> RootObservedExecution:
     if frozen_h_plan is not None and type(frozen_h_plan) is not FrozenHLaunchPlan:
         raise ValueError("fixed child binding requires an exact frozen H plan")
-    command = _validate_argv(
-        argv,
-        expected_executable=(
-            frozen_h_plan.child_python if frozen_h_plan is not None else None
-        ),
+    if (
+        artificial_h_plan is not None
+        and type(artificial_h_plan) is not ArtificialHComponentPlan
+    ):
+        raise ValueError("artificial child binding requires an exact component plan")
+    if frozen_h_plan is not None and artificial_h_plan is not None:
+        raise ValueError(
+            "one process attempt cannot combine native and artificial plans"
+        )
+    expected_executable = (
+        frozen_h_plan.child_python
+        if frozen_h_plan is not None
+        else artificial_h_plan.child_python
+        if artificial_h_plan is not None
+        else None
     )
+    command = _validate_argv(argv, expected_executable=expected_executable)
     repository = _safe_target(repository, must_exist=True)
     witness_root = _safe_target(witness_root, must_exist=False)
-    if frozen_h_plan is None:
+    if frozen_h_plan is None and artificial_h_plan is None:
         output_root = _safe_target(output_root, must_exist=False)
-    else:
+    elif frozen_h_plan is not None:
         supervisor_root = _safe_target(
             frozen_h_plan.supervisor_attempt_root, must_exist=False
         )
@@ -1240,14 +1853,22 @@ def _run_root_observed_attempt(
         ):
             raise ValueError("frozen H output root is not the exact fresh plan target")
         output_root = frozen_h_plan.output_root
-    execution_cwd = (
-        repository if child_cwd is None else _safe_target(child_cwd, must_exist=True)
-    )
-    if frozen_h_plan is None:
-        if attempt_uuid is not None or child_cwd is not None:
-            raise ValueError("fixed child binding requires a frozen H launch plan")
-        attempt_uuid = uuid4().hex
     else:
+        assert artificial_h_plan is not None
+        output_root = _safe_target(output_root, must_exist=False)
+        if (
+            output_root != artificial_h_plan.output_root
+            or Path(witness_root) != artificial_h_plan.witness_root
+            or Path(repository) != artificial_h_plan.observer_repository
+        ):
+            raise ValueError("artificial H output roots differ from the typed plan")
+        output_root = artificial_h_plan.output_root
+    if frozen_h_plan is not None:
+        execution_cwd = _safe_target(child_cwd or repository, must_exist=True)
+        if _completion_scope != "NATIVE_H3_V4_ROOT_OBSERVED":
+            raise ValueError(
+                "native H process requires the fixed native completion scope"
+            )
         if (
             type(frozen_h_plan) is not FrozenHLaunchPlan
             or frozen_h_plan._plan_token is not _FROZEN_H_PLAN_TOKEN
@@ -1278,6 +1899,52 @@ def _run_root_observed_attempt(
                 ),
             },
         )
+    elif artificial_h_plan is not None:
+        if attempt_uuid is not None or child_cwd is not None:
+            raise ValueError("artificial H child fields are fixed by its typed plan")
+        execution_cwd = _safe_target(
+            artificial_h_plan.child_source_root, must_exist=True
+        )
+        attempt_uuid = artificial_h_plan.attempt_uuid
+        if (
+            artificial_h_plan._plan_token is not _ARTIFICIAL_H_PLAN_TOKEN
+            or artificial_h_plan.observer_repository != repository
+            or artificial_h_plan.output_root != output_root
+            or artificial_h_plan.witness_root != witness_root
+            or artificial_h_plan.child_source_root != execution_cwd
+            or artificial_h_plan.argv != command
+            or _canonical(_artificial_h_plan_authority_payload(artificial_h_plan))
+            != _canonical(input_authority)
+            or _completion_scope != "ARTIFICIAL_COMPARISON_ONLY"
+        ):
+            raise ValueError("artificial H process fields differ from the typed plan")
+        _assert_artificial_h_plan_current(artificial_h_plan)
+        _assert_artificial_h_start_matches_plan(
+            artificial_h_plan, _artificial_h_start_record(artificial_h_plan)
+        )
+    else:
+        execution_cwd = repository
+        if attempt_uuid is not None or child_cwd is not None:
+            raise ValueError("fixed child binding requires a frozen H launch plan")
+        attempt_uuid = uuid4().hex
+    if _completion_scope not in (
+        None,
+        "ARTIFICIAL_COMPARISON_ONLY",
+        "NATIVE_H3_V4_ROOT_OBSERVED",
+    ):
+        raise ValueError("root observer completion scope is unsupported")
+    if frozen_h_plan is None and _completion_scope == "NATIVE_H3_V4_ROOT_OBSERVED":
+        raise ValueError("native completion scope requires its exact frozen H plan")
+    if (
+        artificial_h_plan is None
+        and frozen_h_plan is None
+        and _completion_scope
+        not in (
+            None,
+            "ARTIFICIAL_COMPARISON_ONLY",
+        )
+    ):
+        raise ValueError("unplanned process attempts remain artificial only")
     if (
         output_root == witness_root
         or output_root.is_relative_to(witness_root)
@@ -1299,6 +1966,10 @@ def _run_root_observed_attempt(
     child_environment_policy = (
         _frozen_h_environment_policy(execution_cwd, process_environment)
         if frozen_h_plan is not None
+        else _artificial_h_environment_policy(
+            execution_cwd, artificial_h_plan.operator_path, process_environment
+        )
+        if artificial_h_plan is not None
         else {
             "schema": "issue810_root_environment_policy_v1",
             "values_sha256": {
@@ -1313,6 +1984,10 @@ def _run_root_observed_attempt(
         )
         if child_environment_policy != planned_environment_policy:
             raise ValueError("frozen H launch environment differs from its plan")
+    if artificial_h_plan is not None:
+        planned_authority = _artificial_h_plan_authority_payload(artificial_h_plan)
+        if child_environment_policy != planned_authority.get("environment_policy"):
+            raise ValueError("artificial H process environment differs from its plan")
     witness_root.mkdir(parents=False, exist_ok=False)
     start_path = witness_root / "start.json"
     finish_path = witness_root / "finish.json"
@@ -1336,6 +2011,17 @@ def _run_root_observed_attempt(
             "PYTHONUTF8",
         ],
     }
+    if artificial_h_plan is not None:
+        plan_document = _parse_canonical_object(artificial_h_plan.input_plan_canonical)
+        plan_pin = _write_exclusive_record(
+            artificial_h_plan.input_plan_path, plan_document
+        )
+        if (
+            plan_pin.byte_count != len(artificial_h_plan.input_plan_canonical)
+            or plan_pin.sha256
+            != hashlib.sha256(artificial_h_plan.input_plan_canonical).hexdigest()
+        ):
+            raise ValueError("artificial H input plan write differs from its typed pin")
     start_pin = _write_exclusive_record(start_path, start_value)
     process = None
     tree = None
@@ -1346,7 +2032,7 @@ def _run_root_observed_attempt(
     original_error: BaseException | None = None
     original_traceback = None
     try:
-        if os.name != "nt":
+        if not _root_owned_process_tree_supported():
             raise RuntimeError(
                 "root-owned process-tree observation is unavailable on this OS"
             )
@@ -1367,6 +2053,10 @@ def _run_root_observed_attempt(
             raise RuntimeError("root-observed child exited unsuccessfully")
         manifest_pin = capture_output_manifest_pin(output_root)
         output_index = load_pinned_output_index(output_root, manifest_pin)
+        if artificial_h_plan is not None:
+            _assert_artificial_h_operator_runtime_report(
+                artificial_h_plan, output_index
+            )
         source_after = implementation_source_identity(repository)
         head_after, clean_after, status_after = _git_readback(repository)
         finish_source = {
@@ -1394,6 +2084,10 @@ def _run_root_observed_attempt(
                 != frozen_h_plan.runtime_pin.authority_payload()
             ):
                 raise ValueError("frozen H runtime or import resolution changed")
+        if artificial_h_plan is not None:
+            _assert_artificial_h_plan_current(
+                artificial_h_plan, input_plan_written=True
+            )
     except BaseException as error:
         original_error = error
         original_traceback = error.__traceback__
@@ -1475,8 +2169,292 @@ def _run_root_observed_attempt(
         scope=(
             "NATIVE_H3_V4_ROOT_OBSERVED"
             if frozen_h_plan is not None
+            else "ARTIFICIAL_H_COMPONENT_PROCESS_OBSERVED_ONLY"
+            if artificial_h_plan is not None
             else "ARTIFICIAL_COMPARISON_ONLY"
         ),
+    )
+
+
+def run_artificial_h_component_attempt(
+    *, plan: ArtificialHComponentPlan, timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS
+) -> RootObservedExecution:
+    """Observe only the exact fixed artificial H child process and output tree."""
+    if type(plan) is not ArtificialHComponentPlan:
+        raise ValueError("artificial H execution requires its exact typed plan")
+    authority = _artificial_h_plan_authority_payload(plan)
+    _assert_artificial_h_start_matches_plan(plan, _artificial_h_start_record(plan))
+    return _run_root_observed_attempt(
+        argv=plan.argv,
+        repository=plan.observer_repository,
+        output_root=plan.output_root,
+        witness_root=plan.witness_root,
+        input_authority=authority,
+        timeout_seconds=timeout_seconds,
+        artificial_h_plan=plan,
+        _completion_scope="ARTIFICIAL_COMPARISON_ONLY",
+    )
+
+
+def _artificial_receipt_plan_digest(
+    *,
+    output_index: NativeOutputIndex,
+    receipt_name: str,
+    inputs: Any,
+    binding: Any,
+    policy: Any,
+) -> str:
+    """Read the receipt's plan identity, then validate its semantics from Q."""
+    from tools.market_b4_oracle.frozen_market_replay import FrozenMarketReplay
+    from tools.market_b4_oracle.offline_replay_consumer import _metadata_arm
+
+    reader = output_index.receipt_rows(receipt_name, phase="actor")
+    for _ in reader:
+        pass
+    metadata = reader.metadata
+    plan = metadata.get("plan")
+    if type(plan) is not dict:
+        raise ValueError("artificial receipt omits its terminal plan")
+    digest = hashlib.sha256(_canonical(plan)).hexdigest()
+    replay = FrozenMarketReplay(
+        content=inputs.content,
+        policy=policy,
+        binding=binding,
+        reserve_plan_digest=digest,
+    )
+    # The child plan digest is only an order-identity key. Its schema, source
+    # clocks, costs, capital, risk and role must independently satisfy Q's
+    # fixed spec before that digest is used to compare any receipt row.
+    _metadata_arm(
+        metadata,
+        replay,
+        digest,
+        expected_forecast_sha256=hashlib.sha256(
+            inputs.forecast_payload_canonical
+        ).hexdigest(),
+    )
+    return digest
+
+
+def run_and_consume_artificial_h_component_pair(
+    *,
+    plan: ArtificialHComponentPlan,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> RootObservedArtificialHComponentPair:
+    """Run H's fixed synthetic operator, then independently replay both roles."""
+    if type(plan) is not ArtificialHComponentPlan:
+        raise ValueError("artificial pair requires its exact typed plan")
+    authority = _artificial_h_plan_authority_payload(plan)
+    spec = plan.component_spec
+    from tools.market_b4_oracle.artificial_component import (
+        artificial_component_binding,
+        build_artificial_component_inputs,
+        verify_artificial_component_forecast,
+    )
+
+    inputs = build_artificial_component_inputs(spec)
+    if (
+        inputs.spec_sha256 != plan.component_spec_sha256
+        or authority.get("component_spec_sha256") != inputs.spec_sha256
+        or authority.get("scope") != "ARTIFICIAL_H_COMPONENT_ONLY"
+        or authority.get("outer_attempt_authenticated") is not False
+        or authority.get("full_b4_authorized") is not False
+    ):
+        raise ValueError("Q artificial source differs from the exact typed plan")
+
+    execution = run_artificial_h_component_attempt(
+        plan=plan, timeout_seconds=timeout_seconds
+    )
+    if (
+        execution.scope != "ARTIFICIAL_H_COMPONENT_PROCESS_OBSERVED_ONLY"
+        or execution.full_b4_authorized is not False
+        or execution.input_authority != authority
+        or execution.output_index._root.resolve() != plan.output_root.resolve()
+    ):
+        raise ValueError("artificial child process differs from its observed plan")
+    start, finish = execution.root_witness.readback(
+        expected_start_pin=execution.expected_start_pin,
+        expected_finish_pin=execution.expected_finish_pin,
+    )
+    _assert_artificial_h_start_matches_plan(plan, start)
+    child = finish.get("child")
+    manifest = finish.get("output_manifest")
+    if (
+        type(child) is not dict
+        or child.get("exit_code") != 0
+        or child.get("owned_tree_empty") is not True
+        or type(manifest) is not dict
+        or manifest
+        != {
+            "bytes": execution.output_index.manifest_pin.bytes,
+            "sha256": execution.output_index.manifest_pin.sha256,
+        }
+        or start.get("input_authority") != authority
+    ):
+        raise ValueError("artificial output lacks its exact root-owned process pins")
+
+    expected_files = {
+        "component-result.json",
+        "forecasts/simple-return-stream.json",
+        "operator-runtime.json",
+        "receipts/cash.json.gz",
+        "receipts/nonrl.json.gz",
+    }
+    if set(execution.output_index.files) != expected_files:
+        raise ValueError("artificial H output does not match the exact pair roster")
+    execution.output_index.recheck()
+    _assert_artificial_h_operator_runtime_report(plan, execution.output_index)
+    forecast_sha256 = verify_artificial_component_forecast(
+        output_index=execution.output_index,
+        inputs=inputs,
+    )
+    result = _parse_canonical_object(
+        execution.output_index.read_pinned_bytes(
+            "component-result.json", maximum=4 * 1024**2
+        )
+    )
+    expected_result_fields = {
+        "schema",
+        "scope",
+        "component_spec_sha256",
+        "synthetic_dataset_id",
+        "synthetic_protocol_id",
+        "roles",
+        "terminal_plan_digests",
+        "outer_attempt_authenticated",
+        "full_b4_authorized",
+        "research_authorized",
+        "forecast_stream",
+    }
+    roles = result.get("roles")
+    plan_digests = result.get("terminal_plan_digests")
+    forecast_stream = result.get("forecast_stream")
+    if (
+        set(result) != expected_result_fields
+        or result.get("schema") != "issue810_artificial_h_component_result_v1"
+        or result.get("scope") != "ARTIFICIAL_COMPARISON_ONLY"
+        or result.get("component_spec_sha256") != inputs.spec_sha256
+        or result.get("synthetic_dataset_id") != inputs.content.dataset_id
+        or result.get("synthetic_protocol_id") != spec.get("protocol_id")
+        or result.get("outer_attempt_authenticated") is not False
+        or result.get("full_b4_authorized") is not False
+        or result.get("research_authorized") is not False
+        or type(roles) is not dict
+        or set(roles) != {"nonrl", "cash"}
+        or type(plan_digests) is not dict
+        or set(plan_digests) != {"NONRL", "CASH"}
+        or type(forecast_stream) is not dict
+        or forecast_stream
+        != {
+            "path": "forecasts/simple-return-stream.json",
+            "sha256": forecast_sha256,
+            "dataset_id": inputs.content.dataset_id,
+        }
+    ):
+        raise ValueError("artificial H summary differs from the fixed pair inputs")
+
+    from tools.market_b4_oracle.offline_replay_consumer import (
+        consume_root_observed_market_arm,
+    )
+
+    comparisons = []
+    for role in ("NONRL", "CASH"):
+        role_key = role.lower()
+        role_result = roles.get(role_key)
+        summary_plan_digest = plan_digests.get(role)
+        if (
+            type(role_result) is not dict
+            or set(role_result)
+            != {
+                "actor_rows",
+                "reserve_rows",
+                "actor_fill_processing_indices",
+                "reserve_fill_processing_indices",
+                "terminal_flat",
+                "active_orders",
+                "terminal_plan_digest",
+            }
+            or type(summary_plan_digest) is not str
+            or role_result.get("terminal_plan_digest") != summary_plan_digest
+        ):
+            raise ValueError("artificial role summary is malformed")
+        binding, policy = artificial_component_binding(inputs, role)
+        receipt_plan_digest = _artificial_receipt_plan_digest(
+            output_index=execution.output_index,
+            receipt_name=f"receipts/{role_key}.json.gz",
+            inputs=inputs,
+            binding=binding,
+            policy=policy,
+        )
+        if summary_plan_digest != receipt_plan_digest:
+            raise ValueError("artificial role summary plan is not a receipt crosscheck")
+        comparison = consume_root_observed_market_arm(
+            output_index=execution.output_index,
+            receipt_name=f"receipts/{role_key}.json.gz",
+            forecast_name="forecasts/simple-return-stream.json",
+            content=inputs.content,
+            policy=policy,
+            binding=binding,
+            role=role,
+            reserve_plan_digest=receipt_plan_digest,
+            artificial_inputs=inputs,
+            root_witness=execution.root_witness,
+            expected_start_pin=execution.expected_start_pin,
+            expected_finish_pin=execution.expected_finish_pin,
+        )
+        if (
+            comparison.status != "ARTIFICIAL_COMPARISON_COMPLETE"
+            or comparison.account_id != "H24_RIDGE_A1_BTCUSDT"
+            or comparison.scenario != "BASEL0"
+            or comparison.role != role_key
+            or comparison.actor_rows != 6527
+            or comparison.reserve_rows != 72
+            or comparison.plan_digest != receipt_plan_digest
+            or comparison.forecast_sha256 != forecast_sha256
+            or comparison.output_index_rechecked is not True
+            or comparison.static_inputs_rechecked is not False
+            or comparison.root_attempt_observed is not True
+            or comparison.outer_attempt_authenticated is not False
+            or comparison.full_b4_authorized is not False
+            or role_result.get("actor_rows") != comparison.actor_rows
+            or role_result.get("reserve_rows") != comparison.reserve_rows
+            or role_result.get("actor_fill_processing_indices")
+            != list(comparison.actor_fill_processing_indices)
+            or role_result.get("reserve_fill_processing_indices")
+            != list(comparison.reserve_fill_processing_indices)
+            or role_result.get("terminal_flat") is not True
+            or role_result.get("active_orders") != 0
+        ):
+            raise ValueError("Q replay differs from the artificial H role summary")
+        comparisons.append(comparison)
+
+    nonrl, cash = comparisons
+    if (
+        cash.actor_fill_processing_indices
+        or cash.reserve_fill_processing_indices
+        or not all(
+            any(
+                start < processing < stop
+                for processing in nonrl.actor_fill_processing_indices
+            )
+            for start, stop in zip(
+                (2903, 5087, 7295),
+                (5087, 7295, 9430),
+                strict=True,
+            )
+        )
+        or 9430 not in nonrl.actor_fill_processing_indices
+        or (not nonrl.actor_fill_processing_indices)
+        or max(nonrl.actor_fill_processing_indices) != 9430
+        or 9431 not in nonrl.reserve_fill_processing_indices
+    ):
+        raise ValueError(
+            "Q replay omitted a per-vintage fill or the actor/reserve boundary fill"
+        )
+    execution.output_index.recheck()
+    return RootObservedArtificialHComponentPair(
+        execution,
+        (nonrl, cash),
     )
 
 
@@ -1619,8 +2597,6 @@ def run_and_consume_frozen_h_market_matrix(
     This returns root-observed software evidence only. It does not authenticate a
     research attempt or authorize Full-B4.
     """
-    if os.name != "nt":
-        raise RuntimeError("frozen H market supervision requires Windows")
     roster = _assert_frozen_h_matrix_plan(
         plan,
         protocol_pair=protocol_pair,
@@ -1629,6 +2605,8 @@ def run_and_consume_frozen_h_market_matrix(
     )
     if len(roster) != 48:
         raise ValueError("frozen H matrix plan lost its complete arm roster")
+    if not _root_owned_process_tree_supported():
+        raise RuntimeError("frozen H market supervision requires Windows")
     execution = _run_frozen_h_attempt(plan, timeout_seconds=timeout_seconds)
     if (
         execution.scope != "NATIVE_H3_V4_ROOT_OBSERVED"

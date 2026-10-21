@@ -164,6 +164,14 @@ def _digest(value: object, name: str) -> str:
     return value
 
 
+def _sha_matches(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in _SHA for character in value)
+    )
+
+
 def _quantity_completion_tolerance(*values: float) -> float:
     """Match PendingOrder's source tolerance for binary64 lot arithmetic."""
     return max(
@@ -650,7 +658,16 @@ class FrozenMarketBinding:
             if (
                 self.protocol_pair is not None
                 or document.get("scope") != "ARTIFICIAL_COMPARISON_ONLY"
-                or not self.configuration_id.startswith("TEST_")
+                or not (
+                    self.configuration_id.startswith("TEST_")
+                    or (
+                        document.get("schema")
+                        == "issue810_artificial_h_component_q_binding_v1"
+                        and self.configuration_id == "H24_RIDGE_A1"
+                        and _sha_matches(document.get("component_spec_sha256"))
+                        and _sha_matches(document.get("source_protocol_sha256"))
+                    )
+                )
             ):
                 raise ValueError("synthetic binding must remain explicitly artificial")
         else:
@@ -675,7 +692,17 @@ class FrozenMarketBinding:
             or type(self.window) is not FrozenMarketWindow
         ):
             raise ValueError("binding selection fields are malformed")
-        symbols = document.get("dataset", {}).get("fit_symbols")
+        dataset_document = document.get("dataset", {})
+        is_artificial_component = (
+            document.get("schema") == "issue810_artificial_h_component_q_binding_v1"
+        )
+        symbols = (
+            dataset_document.get("symbols")
+            if is_artificial_component
+            else dataset_document.get("fit_symbols")
+        )
+        fit_symbols = dataset_document.get("fit_symbols")
+        prediction_symbols = dataset_document.get("prediction_symbols")
         feature_names = document.get("dataset", {}).get("feature_names")
         configurations = document.get("configurations")
         accounts = document.get("accounts")
@@ -693,6 +720,14 @@ class FrozenMarketBinding:
             or type(roles) is not list
         ):
             raise ValueError("protocol arm roster is incomplete")
+        if is_artificial_component and (
+            fit_symbols != ["BTCUSDT"]
+            or prediction_symbols != ["BTCUSDT", "ETHUSDT"]
+            or symbols != prediction_symbols
+        ):
+            raise ValueError(
+                "artificial fit-source and prediction rosters differ from fixed scope"
+            )
         matches = [
             item
             for item in configurations
@@ -928,7 +963,13 @@ class FrozenMarketBinding:
 
     @property
     def assumptions_identity(self) -> str:
-        return _native_json_sha256(self.protocol_document)
+        document = self.protocol_document
+        if document.get("schema") == "issue810_artificial_h_component_q_binding_v1":
+            return _digest(
+                document.get("source_protocol_sha256"),
+                "source protocol identity",
+            )
+        return _native_json_sha256(document)
 
     @property
     def effective_profile(self) -> dict[str, Any]:
@@ -942,10 +983,15 @@ class FrozenMarketBinding:
     def assert_content(self, content: VerifiedDatasetContent) -> None:
         document = self.protocol_document
         dataset = document["dataset"]
+        expected_symbols = (
+            dataset.get("symbols")
+            if document.get("schema") == "issue810_artificial_h_component_q_binding_v1"
+            else dataset.get("fit_symbols")
+        )
         if (
             content.dataset_id != dataset["dataset_id"]
             or _string_tuple(content.dataset.get("symbols"), "Dataset symbols")
-            != tuple(dataset["fit_symbols"])
+            != tuple(expected_symbols)
             or _string_tuple(content.dataset.get("feature_names"), "Dataset features")
             != tuple(dataset["feature_names"])
         ):

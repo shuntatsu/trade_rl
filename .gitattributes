@@ -6,3 +6,4 @@ tools/market_account_oracle/*.py text eol=lf
 tools/market_replay_oracle/*.py text eol=lf
 tools/market_b4_oracle/*.py text eol=lf
 tools/market_b4_outer_runner.py text eol=lf
+tools/market_b4_artificial_component_operator.py text eol=lf

@@ -375,7 +375,11 @@ class OwnedBinary64Account:
             raise ValueError("invalid margin configuration")
         if event.margin_mode != "cross":
             raise UnsupportedTransition("only two-symbol cross margin is supported")
-        if event.insolvency_valuation not in {"floor_zero", "retain_debt"}:
+        valuation = event.insolvency_valuation
+        if type(valuation) is not str or valuation not in (
+            "floor_zero",
+            "retain_debt",
+        ):
             raise ValueError("unsupported insolvency valuation")
 
         positions, value = self._account_value_for(
@@ -439,12 +443,15 @@ class OwnedBinary64Account:
         mark_array = np.asarray(marks, dtype=np.float64)
         multiplier_array = np.asarray(self._multipliers, dtype=np.float64)
         projected_deltas = (_project(deltas[0]), _project(deltas[1]))
-        signed_notional = math.fsum(
-            quantity * price * multiplier
-            for quantity, price, multiplier in zip(
-                projected_deltas, prices, self._multipliers, strict=True
+        try:
+            signed_notional = math.fsum(
+                quantity * price * multiplier
+                for quantity, price, multiplier in zip(
+                    projected_deltas, prices, self._multipliers, strict=True
+                )
             )
-        )
+        except (OverflowError, ValueError) as error:
+            raise ValueError("execution notional must remain finite") from error
         cash_after = self._cash - (signed_notional + cost)
         turnover_after = self._turnover_total + turnover
         cost_after = self._total_cost + cost

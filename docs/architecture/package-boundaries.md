@@ -2182,6 +2182,14 @@ Dataset and protocol readback pins, the result does not authenticate an outer
 attempt or authorize Full B4. The module remains internal and outside
 production imports.
 
+`outer_witness.py` provides immutable pins and bounded canonical readback for
+root-owned start/finish records. It does not create or observe processes, and
+parsing a record does not grant attempt or research authority; process and OS
+ownership remain with the downstream `tools.market_b4_outer_runner` owner. The
+source-identity roster requires that owner, so end-to-end root authentication
+fails closed until it is present in the composed tree. Direct record parsing
+alone is insufficient.
+
 `binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
 
 

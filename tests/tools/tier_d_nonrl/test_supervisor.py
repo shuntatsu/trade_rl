@@ -75,6 +75,7 @@ def test_process_tree_counts_child_first_seen_after_redirector_exit():
     assert sample.root_rss_bytes == 0
     assert sample.rss_bytes == 248_800_000
 
+
 def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
     tree = api().ProcessTree(10)
     tree.observe((node(10, 1, 100, 4_400_000),))
@@ -85,6 +86,7 @@ def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
 
     assert sample.members == ()
     assert sample.rss_bytes == 0
+
 
 def test_process_tree_counts_child_first_seen_after_parent_exits():
     tree = api().ProcessTree(10)

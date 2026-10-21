@@ -360,6 +360,29 @@ def test_execution_batch_uses_fsum_and_keeps_exact_large_quantities() -> None:
     _assert_same_account(owned, expected)
 
 
+def test_execution_notional_fsum_overflow_rejects_atomically() -> None:
+    owned = OwnedBinary64Account(
+        cash=1000.0,
+        exact_quantities=(Fraction(0), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1000.0,
+    )
+    before = owned.snapshot()
+
+    with pytest.raises(ValueError, match="execution.*finite"):
+        owned.apply(
+            ExecutionEvent(
+                deltas=(Fraction("9e307"), Fraction("9e307")),
+                fill_prices=(1.0, 1.0),
+                cost_amount=0.0,
+                turnover=1e308,
+            )
+        )
+
+    assert owned.snapshot() == before
+
+
 def test_fee_fill_cash_and_two_step_carry_match_reference_and_native() -> None:
     marks = (100.0, 200.0)
     multipliers = (1.0, 2.0)
@@ -679,6 +702,29 @@ def test_signed_large_position_mark_overflow_rejects_without_changing_snapshot()
     assert owned.snapshot() == before
 
 
+def test_funding_mark_value_overflow_rejects_without_changing_snapshot() -> None:
+    owned = OwnedBinary64Account(
+        cash=1000.0,
+        exact_quantities=(Fraction("1.2e308"), Fraction("-1.2e308")),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1000.0,
+    )
+    before = owned.snapshot()
+
+    with pytest.raises(ValueError, match="position values|portfolio value"):
+        owned.apply(
+            FundingMarkEvent(
+                price_rates=(0.0, 0.0),
+                due=(False, False),
+                mark_prices=(2.0, 1.0),
+                period_start_value=1000.0,
+            )
+        )
+
+    assert owned.snapshot() == before
+
+
 def test_signed_large_position_gross_overflow_rejects_atomically() -> None:
     owned = OwnedBinary64Account(
         cash=1000.0,
@@ -699,6 +745,68 @@ def test_signed_large_position_gross_overflow_rejects_atomically() -> None:
         )
 
     assert owned.snapshot() == before
+
+
+def test_funding_return_overflow_rejects_without_account_mutation() -> None:
+    account = OwnedBinary64Account(
+        cash=8e307,
+        exact_quantities=(Fraction(0), Fraction(0)),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=8e307,
+    )
+    before = account.snapshot()
+    assert math.isfinite(before.wealth)
+    with pytest.raises(ValueError, match="preserve finite account values"):
+        account.apply(
+            FundingMarkEvent(
+                price_rates=(0.0, 0.0),
+                due=(False, False),
+                mark_prices=(1.0, 1.0),
+                period_start_value=1e-307,
+            )
+        )
+    assert account.snapshot() == before
+
+
+def test_funding_pnl_overflow_after_borrow_is_atomic() -> None:
+    account = OwnedBinary64Account(
+        cash=-6e307,
+        exact_quantities=(
+            Fraction(145 * 10**306),
+            Fraction(-45 * 10**306),
+        ),
+        marks=(1.0, 1.0),
+        multipliers=(1.0, 1.0),
+        peak_value=1e308,
+    )
+    first_start = account.wealth
+    assert math.isfinite(first_start) and first_start > 0.0
+    first_credit = account.apply(
+        FundingMarkEvent(
+            price_rates=(0.0, 2.0),
+            due=(False, True),
+            mark_prices=(1.0, 1.0),
+            period_start_value=first_start,
+        )
+    )
+    borrow = account.apply(BorrowEvent(annual_rates=(0.0, 1.0), year_fraction=1.0))
+    before = account.snapshot()
+    assert first_credit == 9e307
+    assert borrow == 4.5e307
+    assert math.isfinite(before.cash) and math.isfinite(before.wealth)
+    assert before.funding_pnl == first_credit
+    second_start = before.wealth
+    with pytest.raises(ValueError, match="preserve finite account values"):
+        account.apply(
+            FundingMarkEvent(
+                price_rates=(0.0, 2.0),
+                due=(False, True),
+                mark_prices=(1.0, 1.0),
+                period_start_value=second_start,
+            )
+        )
+    assert account.snapshot() == before
 
 
 def test_settlement_uses_exact_products_then_fsum_and_closes_only_masked_slots() -> (
@@ -797,6 +905,7 @@ def test_unknown_or_unsupported_transitions_fail_closed() -> None:
         (1000.0, (1, 0), 1.0, False, False),
         (-75.0, (1, 0), 1.0, False, False),
         (-80.0, (1, 0), 1.0, False, True),
+        (-80.0, (1, 0), 1.0, True, True),
         (-75.0, (1, 0), 0.95, False, True),
         (125.0, (-1, 0), 1.0, False, False),
         (50.0, (1, -1), 0.5, False, True),
@@ -870,6 +979,7 @@ def test_cross_margin_and_termination_flatten_match_native_from_opening_facts(
         {"collateral_haircut": float("nan")},
         {"collateral_haircut": 1.1},
         {"insolvency_valuation": "unknown"},
+        {"insolvency_valuation": []},
         {"margin_mode": "isolated"},
     ],
 )

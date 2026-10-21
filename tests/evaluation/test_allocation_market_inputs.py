@@ -1222,6 +1222,259 @@ def test_signature_future_changes_keep_economics_and_update_provenance(tmp_path)
     assert decisions[0].decision_digest != decisions[1].decision_digest
 
 
+def _causal_integration_market(*, suffix_start=None, prefix_label_shock=False):
+    from tests.evaluation.test_allocation_costs import market as cost_market
+    from trade_rl.data.build.economics import ExecutionEconomicsProfile
+    from trade_rl.data.contracts import VolumeUnit
+
+    template = cost_market()
+    identity = parse_identity_json(template.identity_payload_json)
+    economics = ExecutionEconomicsProfile.from_payload(identity["execution_economics"])
+    timestamps = time(0) + np.arange(72) * np.timedelta64(1, "h")
+    log_returns = np.resize(np.array([0.3, -0.1]), len(timestamps) - 1)
+    alpha_close = np.empty(len(timestamps), dtype=np.float64)
+    alpha_close[0] = 100.0
+    for index, log_return in enumerate(log_returns):
+        alpha_close[index + 1] = alpha_close[index] * np.exp(log_return)
+    beta_close = np.full(len(timestamps), 50.0)
+    if prefix_label_shock:
+        alpha_close[19] *= 1.5
+
+    series = {}
+    for symbol, original_close in (
+        ("ALPHA", alpha_close),
+        ("BETA", beta_close),
+    ):
+        close = original_close.copy()
+        rates = np.zeros(len(timestamps), dtype=np.float64)
+        counts = np.zeros(len(timestamps), dtype=np.int32)
+        rates[8], rates[16] = 0.0001, 0.0005
+        counts[8], counts[16] = 1, 2
+        if suffix_start is not None:
+            close[suffix_start:] *= 3.0
+            rates[suffix_start:] = -0.05
+            counts[suffix_start:] = 6
+        high = 1.25 * close
+        if suffix_start is not None:
+            high[suffix_start:] = 1.8 * close[suffix_start:]
+        series[symbol] = RawMarketSeries(
+            timestamps=timestamps,
+            open=close,
+            high=high,
+            low=0.75 * close,
+            close=close,
+            volume=np.full(len(timestamps), 100_000.0),
+            funding_rate=rates,
+            tradable=np.ones(len(timestamps), dtype=np.bool_),
+            funding_available=counts > 0,
+            funding_event_count=counts,
+        )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(name="body", kind=FeatureKind.BODY_RETURN),
+            FeatureSpec(name="range", kind=FeatureKind.HIGH_LOW_RANGE),
+        ),
+    )
+    return MarketDatasetBuilder(config).build(
+        InMemoryMarketDataSource(series),
+        tuple(
+            InstrumentContract(
+                symbol,
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            )
+            for symbol in series
+        ),
+        execution_economics=economics,
+    )
+
+
+def _prepared_causal_proposal(root, dataset):
+    prepared = api().prepare_allocation_market_inputs(
+        **generated_arguments(root, dataset)
+    )
+    packet = next(
+        item
+        for item in prepared.stream.packets
+        if item.symbol == "ALPHA" and item.as_of == time(24)
+    )
+    estimates = next(
+        item for item in prepared.costs_by_symbol[0] if item.decision_time == time(24)
+    )
+    executor = MarketExecutor(prepared.dataset, prepared.cost_recipe.execution_cost)
+    book = BookState(
+        quantities=np.zeros(2),
+        cash=1000.0,
+        mark_prices=prepared.dataset.close[24],
+        peak_value=1000.0,
+        as_of_index=24,
+        as_of_dataset_id=prepared.dataset.dataset_id,
+    )
+    orders = OrderBookState.empty()
+    kwargs = dict(
+        account_id="causal-prefix-account",
+        stream=prepared.stream,
+        estimates=estimates,
+        allocator=AfterCostTargetAllocator(
+            lower_weight=0.0, upper_weight=1.0, risk_aversion=1.0
+        ),
+        pretrade_risk=PreTradeRisk(
+            PreTradeRiskConfig(max_abs_weight=1.0, max_turnover=None)
+        ),
+        symbol_index=0,
+        start_index=24,
+        expected_horizon_seconds=3600,
+    )
+    proposal = propose_forecast_target(executor, book, orders, **kwargs)
+    return prepared, packet, estimates, proposal, executor, book, orders, kwargs
+
+
+def _semantic_causal_decision(packet, estimates, proposal):
+    inputs = proposal.inputs
+    context = proposal.context
+    return (
+        packet.symbol,
+        packet.as_of,
+        packet.feature_values,
+        packet.decision_close,
+        packet.expected_simple_return,
+        packet.fit_prefix_marginal_variance,
+        packet.horizon_seconds,
+        estimates.buy_cost,
+        estimates.sell_cost,
+        estimates.exit_cost,
+        estimates.funding_return,
+        estimates.borrow_return,
+        estimates.cash_return,
+        inputs.expected_simple_return,
+        inputs.return_variance,
+        inputs.buy_cost,
+        inputs.sell_cost,
+        inputs.exit_cost,
+        inputs.funding_return,
+        inputs.borrow_return,
+        inputs.cash_return,
+        context.account_id,
+        context.symbol,
+        context.decision_time,
+        context.current_weight,
+        context.quantity,
+        context.cash,
+        context.equity,
+        context.pending_remaining,
+        proposal.target_weight,
+        proposal.objective_value,
+    )
+
+
+def test_public_preparation_proposal_is_invariant_to_future_suffix(tmp_path):
+    baseline = _prepared_causal_proposal(
+        tmp_path / "baseline", _causal_integration_market()
+    )
+    future = _prepared_causal_proposal(
+        tmp_path / "future", _causal_integration_market(suffix_start=25)
+    )
+    left, left_packet, left_cost, left_proposal = baseline[:4]
+    right, right_packet, right_cost, right_proposal = future[:4]
+
+    assert 0.0 < left_proposal.target_weight < 1.0
+    assert _semantic_causal_decision(left_packet, left_cost, left_proposal) == (
+        _semantic_causal_decision(right_packet, right_cost, right_proposal)
+    )
+    assert left.dataset.dataset_id != right.dataset.dataset_id
+    assert left.stream.digest != right.stream.digest
+    assert left.dataset.close[25, 0] != right.dataset.close[25, 0]
+    assert left.dataset.close[25, 1] != right.dataset.close[25, 1]
+    assert (
+        left.dataset.close[25, 0] / left.dataset.close[24, 0]
+        != right.dataset.close[25, 0] / right.dataset.close[24, 0]
+    )
+    assert left.dataset.features[25, 0, 1] != right.dataset.features[25, 0, 1]
+    assert left.dataset.funding_rate[25, 0] != right.dataset.funding_rate[25, 0]
+    assert left_cost.source_identity != right_cost.source_identity
+    assert left_proposal.decision_digest != right_proposal.decision_digest
+
+    # Positive sensitivity control: a changed mature training label must move
+    # the numeric t forecast and target, so the future-equality oracle is live.
+    prefix_control = _prepared_causal_proposal(
+        tmp_path / "prefix-control",
+        _causal_integration_market(prefix_label_shock=True),
+    )
+    _, control_packet, _, control_proposal = prefix_control[:4]
+    assert control_packet.expected_simple_return != left_packet.expected_simple_return
+    assert control_proposal.target_weight != left_proposal.target_weight
+
+
+def test_public_first_execution_step_is_invariant_after_preserved_prefix(tmp_path):
+    from trade_rl.evaluation.forecast_allocation import execute_forecast_proposal
+
+    baseline = _prepared_causal_proposal(
+        tmp_path / "baseline", _causal_integration_market()
+    )
+    future = _prepared_causal_proposal(
+        tmp_path / "future", _causal_integration_market(suffix_start=26)
+    )
+    (
+        left,
+        left_packet,
+        left_cost,
+        left_proposal,
+        left_executor,
+        left_book,
+        left_orders,
+        left_kwargs,
+    ) = baseline
+    (
+        right,
+        right_packet,
+        right_cost,
+        right_proposal,
+        right_executor,
+        right_book,
+        right_orders,
+        right_kwargs,
+    ) = future
+
+    assert _semantic_causal_decision(left_packet, left_cost, left_proposal) == (
+        _semantic_causal_decision(right_packet, right_cost, right_proposal)
+    )
+    np.testing.assert_array_equal(left.dataset.close[25], right.dataset.close[25])
+    np.testing.assert_array_equal(left.dataset.open[25], right.dataset.open[25])
+    np.testing.assert_array_equal(left.dataset.high[25], right.dataset.high[25])
+    np.testing.assert_array_equal(
+        left.dataset.funding_rate[25], right.dataset.funding_rate[25]
+    )
+    assert left.dataset.close[26, 0] != right.dataset.close[26, 0]
+
+    left_result = execute_forecast_proposal(
+        left_executor, left_book, left_orders, left_proposal, **left_kwargs
+    )
+    right_result = execute_forecast_proposal(
+        right_executor, right_book, right_orders, right_proposal, **right_kwargs
+    )
+    left_execution = left_result.execution
+    right_execution = right_result.execution
+    assert left_execution.next_index == right_execution.next_index == 25
+    assert left_execution.bars_advanced == right_execution.bars_advanced == 1
+    assert left_execution.fill_count == right_execution.fill_count == 1
+    assert left_execution.completed_fill_count == right_execution.completed_fill_count
+    assert left_execution.requested_notional == right_execution.requested_notional
+    assert left_execution.filled_notional == right_execution.filled_notional
+    assert left_execution.interval_cost == right_execution.interval_cost
+    assert left_execution.book.as_of_index == right_execution.book.as_of_index == 25
+    np.testing.assert_array_equal(
+        left_execution.book.quantities, right_execution.book.quantities
+    )
+    assert left_execution.book.cash == right_execution.book.cash
+    assert left_execution.book.portfolio_value == right_execution.book.portfolio_value
+    assert left_execution.book.total_cost == right_execution.book.total_cost
+    np.testing.assert_array_equal(
+        left_execution.filled_notional_by_symbol,
+        right_execution.filled_notional_by_symbol,
+    )
+
+
 def test_finer_native_markers_survive_direct_allocation_preparation(tmp_path):
     from tests.data.test_native_cross_asset_alignment import _dataset, _Source, _source
 

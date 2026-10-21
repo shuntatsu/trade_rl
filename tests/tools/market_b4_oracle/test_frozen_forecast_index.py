@@ -351,6 +351,30 @@ def test_allocation_source_identity_changes_when_a_cost_input_changes():
     assert changed != original
 
 
+def test_index_matches_full_legacy_stream_after_row_reordering():
+    payload, source, costs = make_multivintage_payload()
+    payload["packets"].reverse()
+    payload["vintages"].reverse()
+    index = make_index(encode(payload))
+
+    for symbol, hour, values, close in (
+        ("BETA", 9, (0.45, 0.55), 103.0),
+        ("ALPHA", 4, (0.5, 0.7), 100.0),
+        ("BETA", 4, (0.8, 0.9), 102.0),
+        ("ALPHA", 9, (0.25, 0.35), 101.0),
+    ):
+        selected_source = owned_source(
+            source, symbol=symbol, hour=hour, values=values, close=close
+        )
+        legacy = bind_frozen_forecast_assumptions(
+            payload, source=selected_source, cost_assumptions=costs
+        )
+        indexed = index.lookup(selected_source, cost_assumptions=costs)
+        assert type(indexed) is AllocationAssumptions
+        assert indexed == legacy
+        assert canonical_assumptions(indexed) == canonical_assumptions(legacy)
+
+
 def test_index_metadata_is_immutable_and_does_not_expose_payload_or_rows():
     payload, _, _ = make_multivintage_payload()
     raw = encode(payload)
@@ -541,3 +565,14 @@ def test_selected_source_clock_corruption_still_fails_adapter_semantics():
     bad_source = replace(source, source_available_at_ns=_ns(3))
     with pytest.raises(ValueError):
         index.lookup(bad_source, cost_assumptions=costs)
+
+
+def test_missing_symbol_and_clock_fail_closed():
+    payload, source, costs = make_multivintage_payload()
+    index = make_index(encode(payload))
+    missing = owned_source(
+        source, symbol="ALPHA", hour=6, values=(0.6, 0.8), close=101.0
+    )
+
+    with pytest.raises(ValueError, match="does not resolve to a packet"):
+        index.lookup(missing, cost_assumptions=costs)

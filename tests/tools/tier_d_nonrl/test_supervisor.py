@@ -210,6 +210,50 @@ def test_visible_reused_parent_with_older_child_blocks_cleanup_verification(
     assert tree.last_sample.owned_members == ()
 
 
+def test_cleanup_kills_only_verified_members_when_ambiguous_rows_remain(
+    monkeypatch,
+):
+    module = api()
+    root = node(10, 1, 100, 4_400_000)
+    original_child = node(20, 10, 101, 40_000_000)
+    replacement = node(20, 1, 200, 1_000_000)
+    historical_child = node(21, 20, 150, 248_800_000)
+    tree = module.ProcessTree(10)
+    tree.observe((root, original_child))
+    sampled = tree.observe((root, replacement, historical_child))
+    assert sampled.owned_members == (root,)
+    assert sampled.ambiguous_members == (historical_child,)
+
+    snapshots = [(root, replacement, historical_child), (historical_child,)]
+    tree.provider = lambda: snapshots.pop(0)
+    kill_payloads = []
+
+    class FinishedProcess:
+        def poll(self):
+            return 0
+
+        def wait(self, timeout):
+            assert timeout == 30
+            return 0
+
+        def terminate(self):
+            pytest.fail("an already-finished root should not be terminated")
+
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: kill_payloads.append(kwargs["input"]),
+    )
+
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        module.terminate_owned_tree(FinishedProcess(), tree)
+
+    assert len(kill_payloads) == 1
+    assert [row["pid"] for row in json.loads(kill_payloads[0])] == [root.pid]
+    assert tree.last_sample.ambiguous_members == (historical_child,)
+    assert tree.last_sample.owned_members == ()
+
+
 def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
     tmp_path, monkeypatch
 ):

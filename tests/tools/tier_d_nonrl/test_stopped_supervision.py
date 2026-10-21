@@ -78,7 +78,12 @@ def _install_fake_owned_supervisor(
     child_usage = ProcessUsage(
         pid=4101, parent_pid=4100, creation_ticks=101, rss_bytes=12
     )
-    sample = ProcessTreeSample((root_usage, child_usage), root_pid=4100)
+    sample = ProcessTreeSample(
+        (root_usage, child_usage),
+        root_pid=4100,
+        owned_members=(root_usage, child_usage),
+        ambiguous_members=(),
+    )
 
     class FakeProcess:
         pid = 4100
@@ -118,7 +123,11 @@ def _install_fake_owned_supervisor(
                 if tree_identity
                 else {}
             )
-            self.last_sample = sample if tree_identity else ProcessTreeSample((), pid)
+            self.last_sample = (
+                sample
+                if tree_identity
+                else ProcessTreeSample((), pid, owned_members=(), ambiguous_members=())
+            )
             self.stopped = False
             trees.append(self)
 
@@ -330,7 +339,7 @@ def test_supervisor_persists_initial_failure_before_attempt_state_update(
     report = records.read_json(report_path)
     assert report["status"] == "FAILED"
     assert report["failure"] == (
-        "owned descendants remained after worker exit; retain partial attempt"
+        "verified owned descendants remained after worker exit; retain partial attempt"
     )
     assert report["child_returncode"] == 7
     assert "receipt_reconciliation" not in report

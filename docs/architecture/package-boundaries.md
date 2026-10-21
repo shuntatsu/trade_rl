@@ -1909,6 +1909,21 @@ readback. Workers write disjoint journals. The parent publishes verified records
 to the canonical attempt log, including while parallel futures are unfinished.
 Reused receipts do not open another native journal.
 
+The Windows sampler keeps RSS attribution separate from kill authorization.
+`ProcessTreeSample.members` is the RSS-attributed union;
+`owned_members` contains only process identities reached through a verified
+same-snapshot parent chain (or an unchanged identity verified by an earlier
+snapshot); `ambiguous_members` contains rows attributed only through historical
+PID/time correlation. A parent PID can be reused and its replacement can exit
+between samples, so a later child may appear to match the old parent even when
+it is unrelated. If a reused parent PID is still visible but the replacement
+was created after a historical child, that child is also only an ambiguous RSS
+match. Historical-only rows and their descendants contribute to the RSS
+measurement but are never added to the kill list. Cleanup rechecks process
+creation time and terminates only verified owned identities. Any ambiguous row
+still present at final verification leaves the attempt failed/partial and
+blocks stopped-receipt reconciliation; it is not killed or called owned.
+
 On Linux, explicit synthetic-mode supervision samples only the worker root
 process through `/proc/<pid>/status`; descendant RSS is not included. This
 root-only diagnostic does not satisfy the market resource contract, which
@@ -1979,7 +1994,10 @@ The package consumes no real input and its profile grants no economic admission.
 It does not execute the full 48-arm comparison, establish full-matrix runtime,
 or claim release byte-equivalence. Its source belongs to normal repository Ruff,
 format, and research-tool Mypy checks; the architecture contract keeps imports
-and path references within the artificial repository-only boundary.
+and path references within the artificial repository-only boundary. Summary
+qualification requires both the owned-process and ambiguous-RSS-process
+remaining counts in `supervision.json` to be exact integer zero; a missing,
+nonzero, or non-integer count keeps the measurement incomplete.
 
 ## Independent diagnostic account arithmetic
 

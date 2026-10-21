@@ -224,3 +224,65 @@ def test_stopped_reconciliation_stays_separate_from_strict_public_resume():
         )
         for node in ast.walk(_function(supervisor, "supervised_run"))
     )
+
+
+def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_authority():
+    owner = ROOT / "tools/tier_d_nonrl"
+    process_tree_source = (owner / "tier_d_process_tree.py").read_text("utf-8")
+    process_tree = ast.parse(process_tree_source)
+    sample = next(
+        node
+        for node in process_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ProcessTreeSample"
+    )
+    sample_fields = {
+        node.target.id
+        for node in sample.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+    assert {"members", "owned_members", "ambiguous_members"} <= sample_fields
+
+    terminate = _function(process_tree, "terminate_owned_tree")
+    kill_list = next(
+        node.value
+        for node in terminate.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "members"
+            for target in node.targets
+        )
+    )
+    assert ast.unparse(kill_list) == (
+        "[asdict(member) for member in reversed(sample.owned_members)]"
+    )
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "members"
+        for node in ast.walk(terminate)
+    )
+    assert "final_sample.ambiguous_members" in ast.unparse(terminate)
+
+    supervisor_source = (owner / "tier_d_supervisor.py").read_text("utf-8")
+    assert "owned_process_count=len(initial_sample.owned_members)" in supervisor_source
+    assert (
+        "rss_attributed_process_count=len(initial_sample.members)" in supervisor_source
+    )
+    assert "ambiguous_rss_process_count=len(" in supervisor_source
+    assert (
+        "ambiguous RSS-attributed processes remained after worker exit"
+        in supervisor_source
+    )
+
+    scaling_source = (ROOT / "tools/tier_d_scaling/supervision.py").read_text("utf-8")
+    assert '"owned_process_count": len(observed.owned_members)' in scaling_source
+    assert '"rss_attributed_process_count": len(observed.members)' in scaling_source
+    assert (
+        '"ambiguous_rss_process_count": len(observed.ambiguous_members)'
+        in scaling_source
+    )
+    assert '"ambiguous_rss_members_remaining": ambiguous_remaining' in scaling_source
+
+    architecture = (ROOT / "docs/architecture/package-boundaries.md").read_text("utf-8")
+    assert (
+        "Historical-only rows and their descendants contribute to the" in architecture
+    )
+    assert "blocks stopped-receipt reconciliation" in architecture

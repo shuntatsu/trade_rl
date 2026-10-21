@@ -109,7 +109,10 @@ class ProcessTree:
                 if verified_parent is not None:
                     if row.creation_ticks >= verified_parent[0].creation_ticks:
                         owned_additions.append((row, verified_parent[1] + 1))
-                    continue
+                        continue
+                    # This visible parent is newer than the child. A prior
+                    # identity with the same PID may still attribute it, but
+                    # only as ambiguous through the historical fallback.
 
                 # Existing RSS-only rows are already selected. Reconsider
                 # them only through the verified-parent promotion above.
@@ -120,7 +123,10 @@ class ProcessTree:
                 if ambiguous_parent is not None:
                     if row.creation_ticks >= ambiguous_parent[0].creation_ticks:
                         ambiguous_additions.append((row, ambiguous_parent[1] + 1))
-                    continue
+                        continue
+                    # The visible RSS-only parent is newer than the child.
+                    # Historical identities may still attribute it as
+                    # ambiguous, so continue through the historical fallback.
 
                 # A visible parent born no later than this child may own it.
                 # If the PID's visible process was born later, it is a reused

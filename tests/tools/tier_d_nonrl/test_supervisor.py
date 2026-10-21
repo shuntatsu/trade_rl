@@ -65,6 +65,34 @@ def test_creation_identity_refuses_pid_reuse_and_attributes_historical_child_amb
     assert reused.ambiguous_members == (historical_child,)
 
 
+@pytest.mark.parametrize(
+    ("replacement_parent_pid", "owned_pids", "ambiguous_pids"),
+    (
+        (10, (10, 20), (21,)),
+        (30, (10,), (20, 21)),
+    ),
+    ids=("verified-replacement", "ambiguous-replacement"),
+)
+def test_process_tree_attributes_pre_reuse_child_of_reused_parent_ambiguously(
+    replacement_parent_pid, owned_pids, ambiguous_pids
+):
+    tree = api().ProcessTree(10)
+    root = node(10, 1, 100, 4)
+    original_parent = node(20, 10, 101, 30)
+    historical_parent = node(30, 10, 102, 10)
+    tree.observe((root, original_parent, historical_parent))
+
+    replacement_parent = node(20, replacement_parent_pid, 200, 1000)
+    tree.observe((root, replacement_parent))
+    historical_child = node(21, 20, 150, 9)
+    sample = tree.observe((root, replacement_parent, historical_child))
+
+    assert sample.members == (root, replacement_parent, historical_child)
+    assert tuple(member.pid for member in sample.owned_members) == owned_pids
+    assert tuple(member.pid for member in sample.ambiguous_members) == ambiguous_pids
+    assert sample.rss_bytes == 1013
+
+
 def test_process_tree_counts_child_first_seen_after_redirector_exit():
     tree = api().ProcessTree(10)
     redirector = node(10, 1, 100, 4_400_000)
@@ -315,18 +343,6 @@ def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
     )
     assert cleanup_calls == [True]
     assert all(row["state"] == "UNATTEMPTED" for row in attempt["arms"])
-
-
-def test_process_tree_does_not_attach_to_visible_reused_parent_pid():
-    tree = api().ProcessTree(10)
-    tree.observe((node(10, 1, 100, 4_400_000),))
-
-    replacement = node(10, 1, 200, 1_000_000)
-    unrelated_child = node(20, 10, 201, 248_800_000)
-    sample = tree.observe((replacement, unrelated_child))
-
-    assert sample.members == ()
-    assert sample.rss_bytes == 0
 
 
 def test_nonzero_child_exit_finalizes_failed_without_invented_arm_receipts(tmp_path):

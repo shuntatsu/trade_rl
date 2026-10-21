@@ -1916,8 +1916,10 @@ same-snapshot parent chain (or an unchanged identity verified by an earlier
 snapshot); `ambiguous_members` contains rows attributed only through historical
 PID/time correlation. A parent PID can be reused and its replacement can exit
 between samples, so a later child may appear to match the old parent even when
-it is unrelated. Historical-only rows and their descendants contribute to the
-RSS measurement but are never added to the kill list. Cleanup rechecks process
+it is unrelated. If a reused parent PID is still visible but the replacement
+was created after a historical child, that child is also only an ambiguous RSS
+match. Historical-only rows and their descendants contribute to the RSS
+measurement but are never added to the kill list. Cleanup rechecks process
 creation time and terminates only verified owned identities. Any ambiguous row
 still present at final verification leaves the attempt failed/partial and
 blocks stopped-receipt reconciliation; it is not killed or called owned.

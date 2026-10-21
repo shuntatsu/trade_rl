@@ -49,17 +49,20 @@ def test_snapshot_sums_redirector_and_all_lawful_descendants_only():
     assert sample.ambiguous_members == ()
 
 
-def test_creation_identity_refuses_pid_reuse_and_impossible_parent_age():
+def test_creation_identity_refuses_pid_reuse_and_attributes_historical_child_ambiguously():
     tree = api().ProcessTree(10)
     tree.observe((node(10, 1, 100, 4), node(20, 10, 101, 30)))
     orphan = tree.observe((node(20, 10, 101, 31), node(21, 20, 102, 7)))
     assert (
         orphan.rss_bytes == 38
     )  # Owned live descendants remain owned after stub exit.
+    historical_child = node(22, 20, 150, 999)
     reused = tree.observe(
-        (node(10, 1, 200, 4), node(20, 1, 201, 1000), node(22, 20, 150, 999))
+        (node(10, 1, 200, 4), node(20, 1, 201, 1000), historical_child)
     )
-    assert reused.members == ()
+    assert reused.members == (historical_child,)
+    assert reused.owned_members == ()
+    assert reused.ambiguous_members == (historical_child,)
 
 
 def test_process_tree_counts_child_first_seen_after_redirector_exit():
@@ -86,6 +89,20 @@ def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
 
     assert sample.members == ()
     assert sample.rss_bytes == 0
+
+
+def test_process_tree_attributes_pre_reuse_orphan_as_ambiguous():
+    tree = api().ProcessTree(10)
+    tree.observe((node(10, 1, 100, 4_400_000),))
+
+    replacement = node(10, 1, 200, 1_000_000)
+    child_of_historical_parent = node(20, 10, 150, 248_800_000)
+    sample = tree.observe((replacement, child_of_historical_parent))
+
+    assert sample.members == (child_of_historical_parent,)
+    assert sample.owned_members == ()
+    assert sample.ambiguous_members == (child_of_historical_parent,)
+    assert sample.rss_bytes == 248_800_000
 
 
 def test_process_tree_counts_child_first_seen_after_parent_exits():
@@ -154,6 +171,42 @@ def test_pid_reuse_after_parent_exit_never_grants_kill_authority(monkeypatch):
 
     assert kill_payloads == []
     assert tree.last_sample.ambiguous_members == (late_child,)
+    assert tree.last_sample.owned_members == ()
+
+
+def test_visible_reused_parent_with_older_child_blocks_cleanup_verification(
+    monkeypatch,
+):
+    module = api()
+    original = node(10, 1, 100, 4_400_000)
+    replacement = node(10, 1, 200, 1_000_000)
+    child = node(20, 10, 150, 248_800_000)
+    tree = module.ProcessTree(10, provider=lambda: (replacement, child))
+    tree.observe((original,))
+    kill_payloads = []
+
+    class FinishedProcess:
+        def poll(self):
+            return 0
+
+        def wait(self, timeout):
+            assert timeout == 30
+            return 0
+
+        def terminate(self):
+            pytest.fail("an already-finished root should not be terminated")
+
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: kill_payloads.append(kwargs["input"]),
+    )
+
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        module.terminate_owned_tree(FinishedProcess(), tree)
+
+    assert kill_payloads == []
+    assert tree.last_sample.ambiguous_members == (child,)
     assert tree.last_sample.owned_members == ()
 
 

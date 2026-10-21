@@ -122,8 +122,15 @@ class ProcessTree:
                         ambiguous_additions.append((row, ambiguous_parent[1] + 1))
                     continue
 
-                # A visible but unowned PID is a replacement, not a missing parent.
-                if row.parent_pid in rows:
+                # A visible parent born no later than this child may own it.
+                # If the PID's visible process was born later, it is a reused
+                # parent ID; a historical owner can only attribute the child
+                # ambiguously, never grant kill authority.
+                visible_parent = rows.get(row.parent_pid)
+                if (
+                    visible_parent is not None
+                    and visible_parent.creation_ticks <= row.creation_ticks
+                ):
                     continue
                 prior_parents = [
                     (created, depth, verified)

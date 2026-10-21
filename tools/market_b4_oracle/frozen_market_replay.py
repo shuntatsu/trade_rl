@@ -39,6 +39,7 @@ from tools.market_b4_oracle.decision_identity import (
     OwnedIntentComponents,
     OwnedPendingOrder,
     _actor_intent_basis_from_identity,
+    _build_actor_identity_core,
     build_actor_identity,
     canonical_json_bytes,
 )
@@ -81,6 +82,8 @@ _ACTIVE_STATUSES = frozenset(
     {"submitted", "latency_wait", "eligible", "partially_filled"}
 )
 _TERMINAL_STATUSES = frozenset({"filled", "cancelled", "expired", "rejected"})
+_TERMINAL_IDENTITY_CACHE_MAX_ORDER_ENTRIES = 8192
+_TERMINAL_IDENTITY_CACHE_MAX_MAPPING_BYTES = 16 * 1024 * 1024
 _SHA = frozenset("0123456789abcdef")
 _RISK_KEYS = frozenset(
     {
@@ -1100,6 +1103,273 @@ class _OwnedOrder:
         )
 
 
+@dataclass(slots=True)
+class _TerminalProjectionEntry:
+    """One unique order entry with strong direct predecessor/source references."""
+
+    source: _OwnedOrder
+    projection: OwnedPendingOrder
+    predecessor_id: str | None
+    predecessor_source: _OwnedOrder | None
+    mapping_bytes: bytes | None = None
+
+
+class _TerminalIdentityMemo:
+    """Bounded per-replay memo for stable terminal order identity projections."""
+
+    __slots__ = (
+        "scope",
+        "entries",
+        "by_projection_id",
+        "mapping_bytes",
+        "disabled",
+    )
+
+    def __init__(self) -> None:
+        self.scope: tuple[object, ...] | None = None
+        self.entries: dict[str, _TerminalProjectionEntry] = {}
+        self.by_projection_id: dict[int, _TerminalProjectionEntry] = {}
+        self.mapping_bytes = 0
+        self.disabled = False
+
+    def ensure_scope(self, scope: tuple[object, ...]) -> None:
+        if self.scope != scope:
+            self.clear()
+            self.scope = scope
+
+    def clear(self, *, disable: bool = False) -> None:
+        self.entries.clear()
+        self.by_projection_id.clear()
+        self.mapping_bytes = 0
+        self.disabled = disable
+
+    def transaction(self) -> _TerminalIdentityMemoTransaction:
+        return _TerminalIdentityMemoTransaction(self)
+
+
+class _TerminalIdentityMemoTransaction:
+    """Stage projection and canonical-map entries until identity construction succeeds."""
+
+    __slots__ = ("memo", "projections", "by_projection_id", "mappings")
+
+    def __init__(self, memo: _TerminalIdentityMemo) -> None:
+        self.memo = memo
+        self.projections: dict[str, _TerminalProjectionEntry] = {}
+        self.by_projection_id: dict[int, _TerminalProjectionEntry] = {}
+        self.mappings: dict[int, tuple[OwnedPendingOrder, bytes]] = {}
+
+    def projection_for(
+        self, order_id: str, source: _OwnedOrder
+    ) -> OwnedPendingOrder | None:
+        if self.memo.disabled:
+            return None
+        entry = self.projections.get(order_id) or self.memo.entries.get(order_id)
+        if entry is None or entry.source is not source:
+            return None
+        return entry.projection
+
+    def stage_projection(self, entry: _TerminalProjectionEntry) -> None:
+        if self.memo.disabled:
+            return
+        current = self.projections.get(entry.source.intent.order_id)
+        if current is None:
+            current = self.memo.entries.get(entry.source.intent.order_id)
+        if current is not None:
+            if (
+                current.source is not entry.source
+                or current.projection is not entry.projection
+            ):
+                return
+            return
+        if entry.predecessor_id is not None:
+            predecessor = self.projections.get(
+                entry.predecessor_id
+            ) or self.memo.entries.get(entry.predecessor_id)
+            if (
+                predecessor is None
+                or predecessor.source is not entry.predecessor_source
+                or entry.projection.intent.replaced_order is not predecessor.projection
+            ):
+                return
+        elif (
+            entry.predecessor_source is not None
+            or entry.projection.intent.replaced_order is not None
+        ):
+            return
+        self.projections[entry.source.intent.order_id] = entry
+        self.by_projection_id[id(entry.projection)] = entry
+
+    def admits(self, order: OwnedPendingOrder) -> bool:
+        if self.memo.disabled or type(order) is not OwnedPendingOrder:
+            return False
+        entry = self.by_projection_id.get(id(order))
+        if entry is not None and entry.projection is order:
+            return type(order.status) is str and order.status in _TERMINAL_STATUSES
+        entry = self.memo.by_projection_id.get(id(order))
+        return (
+            entry is not None
+            and entry.projection is order
+            and type(order.status) is str
+            and order.status in _TERMINAL_STATUSES
+        )
+
+    def mapping_bytes(self, order: OwnedPendingOrder) -> bytes | None:
+        if self.memo.disabled:
+            return None
+        staged = self.mappings.get(id(order))
+        if staged is not None and staged[0] is order:
+            return staged[1]
+        entry = self.memo.by_projection_id.get(id(order))
+        if entry is None or entry.projection is not order:
+            return None
+        return entry.mapping_bytes
+
+    def stage_mapping(self, order: OwnedPendingOrder, payload: bytes) -> None:
+        if self.admits(order):
+            self.mappings[id(order)] = (order, payload)
+
+    def commit(self) -> bool:
+        """Commit only a complete identity; return false on bounded-cache fallback."""
+        if self.memo.disabled:
+            return True
+        staged_bytes = 0
+        for order, payload in self.mappings.values():
+            entry = self.by_projection_id.get(id(order))
+            if entry is None or entry.projection is not order:
+                entry = self.memo.by_projection_id.get(id(order))
+            if entry is None or entry.projection is not order:
+                continue
+            if entry.mapping_bytes is None:
+                staged_bytes += len(payload)
+            elif entry.mapping_bytes != payload:
+                self.memo.clear(disable=True)
+                return False
+        if (
+            len(self.memo.entries) + len(self.projections)
+            > _TERMINAL_IDENTITY_CACHE_MAX_ORDER_ENTRIES
+            or self.memo.mapping_bytes + staged_bytes
+            > _TERMINAL_IDENTITY_CACHE_MAX_MAPPING_BYTES
+        ):
+            self.memo.clear(disable=True)
+            return False
+        for order_id, entry in self.projections.items():
+            self.memo.entries[order_id] = entry
+            self.memo.by_projection_id[id(entry.projection)] = entry
+        for order, payload in self.mappings.values():
+            entry = self.by_projection_id.get(id(order))
+            if entry is None or entry.projection is not order:
+                entry = self.memo.by_projection_id.get(id(order))
+            if entry is None or entry.projection is not order:
+                continue
+            if entry.mapping_bytes is None:
+                self.memo.mapping_bytes += len(payload)
+                entry.mapping_bytes = payload
+        return True
+
+
+def _cacheable_terminal_projection(
+    source: _OwnedOrder,
+    projection: OwnedPendingOrder,
+    predecessor: OwnedPendingOrder | None,
+) -> bool:
+    """Admit only the exact immutable record graph emitted by this replay."""
+    if (
+        type(source) is not _OwnedOrder
+        or type(source.intent) is not ExpectedIntent
+        or type(source.actor_identity) is not ActorIntentBasis
+        or type(source.actor_identity.target_identity) is not str
+        or type(projection) is not OwnedPendingOrder
+        or type(projection.intent) is not OwnedIntentComponents
+        or type(projection.intent.identity_source) is not ActorIntentBasis
+        or projection.intent.identity_source is not source.actor_identity
+        or type(source.status) is not str
+        or source.status not in _TERMINAL_STATUSES
+        or type(source.exact_filled_quantity) is not Fraction
+        or type(source.cumulative_filled_notional) is not float
+        or (
+            source.last_processed_index is not None
+            and type(source.last_processed_index) is not int
+        )
+        or type(source.terminal_reason) is not str
+        or not source.terminal_reason
+        or type(source.evidence_version) is not int
+    ):
+        return False
+    intent = source.intent
+    if (
+        any(
+            type(value) is not str
+            for value in (
+                intent.order_id,
+                intent.dataset_id,
+                intent.target_identity,
+                intent.execution_policy_digest,
+                intent.order_type,
+                intent.time_in_force,
+            )
+        )
+        or any(
+            type(value) is not int
+            for value in (
+                intent.symbol_index,
+                intent.submit_index,
+                intent.eligible_index,
+            )
+        )
+        or any(
+            type(value) is not float
+            for value in (
+                intent.requested_quantity,
+                intent.submission_reference_price,
+                intent.decision_equity,
+            )
+        )
+        or (intent.limit_price is not None and type(intent.limit_price) is not float)
+        or (intent.stop_price is not None and type(intent.stop_price) is not float)
+        or (intent.expiry_index is not None and type(intent.expiry_index) is not int)
+        or (
+            intent.replaced_order_id is not None
+            and type(intent.replaced_order_id) is not str
+        )
+        or type(intent.reduce_only) is not bool
+    ):
+        return False
+    projected_intent = projection.intent
+    return (
+        projected_intent.dataset_id == intent.dataset_id
+        and projected_intent.execution_policy_digest == intent.execution_policy_digest
+        and projected_intent.symbol_index == intent.symbol_index
+        and projected_intent.requested_quantity == intent.requested_quantity
+        and projected_intent.order_type == intent.order_type
+        and projected_intent.time_in_force == intent.time_in_force
+        and projected_intent.limit_price == intent.limit_price
+        and projected_intent.stop_price == intent.stop_price
+        and projected_intent.submit_index == intent.submit_index
+        and projected_intent.eligible_index == intent.eligible_index
+        and projected_intent.expiry_index == intent.expiry_index
+        and projected_intent.submission_reference_price
+        == intent.submission_reference_price
+        and projected_intent.decision_equity == intent.decision_equity
+        and projected_intent.replaced_order is predecessor
+        and projected_intent.reduce_only is intent.reduce_only
+        and type(projection.remaining_quantity) is float
+        and projection.remaining_quantity == source.remaining_quantity
+        and type(projection.cumulative_filled_quantity) is float
+        and projection.cumulative_filled_quantity
+        == project_quantity(source.exact_filled_quantity)
+        and type(projection.cumulative_filled_notional) is float
+        and projection.cumulative_filled_notional == source.cumulative_filled_notional
+        and type(projection.status) is str
+        and projection.status == source.status
+        and projection.trigger_index is None
+        and projection.last_processed_index == source.last_processed_index
+        and projection.terminal_reason == source.terminal_reason
+        and projection.evidence_version == source.evidence_version
+        and projection.exact_cumulative_filled_quantity
+        == str(source.exact_filled_quantity)
+    )
+
+
 class FrozenMarketReplay:
     """Own one fixed two-slot account, selected-symbol order, and row sequence."""
 
@@ -1116,6 +1386,7 @@ class FrozenMarketReplay:
         "_active",
         "_terminal",
         "_all_orders",
+        "_terminal_identity_memo",
         "_current_index",
         "_last_time_ns",
         "_terminated_early",
@@ -1195,6 +1466,7 @@ class FrozenMarketReplay:
         self._active: dict[str, _OwnedOrder] = {}
         self._terminal: dict[str, _OwnedOrder] = {}
         self._all_orders: dict[str, _OwnedOrder] = {}
+        self._terminal_identity_memo = _TerminalIdentityMemo()
         self._current_index = binding.window.actor_start
         self._last_time_ns = self._time_ns(content, binding.window.actor_start)
         self._terminated_early = False
@@ -1690,6 +1962,20 @@ class FrozenMarketReplay:
         terminal: Mapping[str, _OwnedOrder],
     ) -> ActorIdentity:
         symbols = _string_tuple(self.content.dataset["symbols"], "Dataset symbols")
+        terminal_memo = self._terminal_identity_memo
+        terminal_memo.ensure_scope(
+            (
+                self.binding.account_id,
+                self.content.dataset_id,
+                self.policy.execution_policy_digest,
+                symbols,
+                self.selected_symbol_index,
+            )
+        )
+        if not self._terminal_identity_memo_is_current():
+            terminal_memo.clear()
+        memo_transaction = terminal_memo.transaction()
+        projection_memo: dict[int, tuple[_OwnedOrder, OwnedPendingOrder]] = {}
         risk = {
             "max_gross": self.policy.maximum_gross,
             "max_abs_weight": self.policy.maximum_gross,
@@ -1738,11 +2024,23 @@ class FrozenMarketReplay:
             ),
             book=book,
             active_orders=tuple(
-                self._owned_projection(item, active, terminal)
+                self._owned_projection(
+                    item,
+                    active,
+                    terminal,
+                    projection_memo,
+                    memo_transaction,
+                )
                 for item in active.values()
             ),
             terminal_orders=tuple(
-                self._owned_projection(item, active, terminal)
+                self._owned_projection(
+                    item,
+                    active,
+                    terminal,
+                    projection_memo,
+                    memo_transaction,
+                )
                 for item in terminal.values()
             ),
         )
@@ -1813,6 +2111,20 @@ class FrozenMarketReplay:
             ),
             "pending_count": len(active),
         }
+        identity = _build_actor_identity_core(
+            account,
+            allocation_inputs,
+            allocator,
+            independent_target_weight=baseline_weight,
+            independent_objective_value=objective,
+            decision_fields=decision_fields,
+            action_contract={"mode": action_mode, "scale": 1.0},
+            action_code=action_code,
+            final_risk_weights=final_weights,
+            terminal_memo=memo_transaction,
+        )
+        if memo_transaction.commit():
+            return identity
         return build_actor_identity(
             account,
             allocation_inputs,
@@ -1825,18 +2137,62 @@ class FrozenMarketReplay:
             final_risk_weights=final_weights,
         )
 
+    def _terminal_identity_memo_is_current(self) -> bool:
+        memo = self._terminal_identity_memo
+        for order_id, entry in memo.entries.items():
+            source = entry.source
+            if (
+                source.intent.order_id != order_id
+                or self._terminal.get(order_id) is not source
+                or self._all_orders.get(order_id) is not source
+            ):
+                return False
+            predecessor_id = source.intent.replaced_order_id
+            if predecessor_id != entry.predecessor_id:
+                return False
+            if predecessor_id is None:
+                predecessor_projection = None
+                if entry.predecessor_source is not None:
+                    return False
+            else:
+                if predecessor_id == order_id:
+                    return False
+                predecessor = self._terminal.get(predecessor_id)
+                predecessor_entry = memo.entries.get(predecessor_id)
+                if (
+                    predecessor is None
+                    or predecessor is not entry.predecessor_source
+                    or self._all_orders.get(predecessor_id) is not predecessor
+                    or predecessor_entry is None
+                    or predecessor_entry.source is not predecessor
+                ):
+                    return False
+                predecessor_projection = predecessor_entry.projection
+            if not _cacheable_terminal_projection(
+                source, entry.projection, predecessor_projection
+            ):
+                return False
+        return True
+
     def _owned_projection(
         self,
         order: _OwnedOrder,
         active: Mapping[str, _OwnedOrder],
         terminal: Mapping[str, _OwnedOrder],
-        memo: dict[str, OwnedPendingOrder] | None = None,
+        memo: dict[int, tuple[_OwnedOrder, OwnedPendingOrder]] | None = None,
+        terminal_memo: _TerminalIdentityMemoTransaction | None = None,
     ) -> OwnedPendingOrder:
         cache = {} if memo is None else memo
-        found = cache.get(order.intent.order_id)
-        if found is not None:
-            return found
+        cached = cache.get(id(order))
+        if cached is not None and cached[0] is order:
+            return cached[1]
+        if terminal_memo is not None:
+            found = terminal_memo.projection_for(order.intent.order_id, order)
+            if found is not None:
+                cache[id(order)] = (order, found)
+                return found
         replaced = None
+        predecessor: _OwnedOrder | None = None
         if order.intent.replaced_order_id is not None:
             prior = self._all_orders.get(order.intent.replaced_order_id)
             if prior is None:
@@ -1847,7 +2203,10 @@ class FrozenMarketReplay:
                 raise ValueError(
                     "replaced order identity is missing from owned history"
                 )
-            replaced = self._owned_projection(prior, active, terminal, cache)
+            predecessor = prior
+            replaced = self._owned_projection(
+                prior, active, terminal, cache, terminal_memo
+            )
         if order.actor_identity is None:
             raise ValueError(
                 "reserve identity cannot be projected as an actor identity"
@@ -1881,7 +2240,32 @@ class FrozenMarketReplay:
             evidence_version=order.evidence_version,
             exact_cumulative_filled_quantity=str(order.exact_filled_quantity),
         )
-        cache[order.intent.order_id] = projection
+        cache[id(order)] = (order, projection)
+        order_id = order.intent.order_id
+        current_owner = (
+            self._all_orders.get(order_id) is order
+            and self._terminal.get(order_id) is order
+            and (
+                predecessor is None
+                or (
+                    self._all_orders.get(predecessor.intent.order_id) is predecessor
+                    and self._terminal.get(predecessor.intent.order_id) is predecessor
+                )
+            )
+        )
+        if (
+            terminal_memo is not None
+            and current_owner
+            and _cacheable_terminal_projection(order, projection, replaced)
+        ):
+            terminal_memo.stage_projection(
+                _TerminalProjectionEntry(
+                    source=order,
+                    projection=projection,
+                    predecessor_id=order.intent.replaced_order_id,
+                    predecessor_source=predecessor,
+                )
+            )
         return projection
 
     def _processing_observation(

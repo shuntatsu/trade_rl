@@ -291,3 +291,63 @@ def test_identity_composer_stays_internal_and_reuses_expected_intent():
         module == "tools.market_b4_oracle.expected_intent" and "ExpectedIntent" in names
         for module, names in imports
     )
+
+    identity_tree = ast.parse((package / "decision_identity.py").read_text())
+    public_builder = next(
+        node
+        for node in identity_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "build_actor_identity"
+    )
+    assert not public_builder.args.posonlyargs
+    assert tuple(argument.arg for argument in public_builder.args.args) == (
+        "account",
+        "allocation_inputs",
+        "allocator",
+    )
+    assert public_builder.args.vararg is None
+    assert tuple(argument.arg for argument in public_builder.args.kwonlyargs) == (
+        "independent_target_weight",
+        "independent_objective_value",
+        "decision_fields",
+        "action_contract",
+        "action_code",
+        "final_risk_weights",
+    )
+    assert public_builder.args.kwarg is None
+    assert not public_builder.args.defaults
+    assert public_builder.args.kw_defaults == [None] * 6
+
+    public_mapper = next(
+        node
+        for node in identity_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "owned_order_mapping"
+    )
+    assert not public_mapper.args.posonlyargs
+    assert tuple(argument.arg for argument in public_mapper.args.args) == (
+        "order",
+        "account",
+    )
+    assert public_mapper.args.vararg is None
+    assert not public_mapper.args.kwonlyargs
+    assert public_mapper.args.kwarg is None
+    assert not public_mapper.args.defaults
+    assert not public_mapper.args.kw_defaults
+
+    exported_names = next(
+        ast.literal_eval(node.value)
+        for node in identity_tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        )
+    )
+    assert exported_names == [
+        "ActorIdentity",
+        "OwnedAccountComponents",
+        "OwnedIntentComponents",
+        "OwnedPendingOrder",
+        "build_actor_identity",
+        "canonical_json_bytes",
+        "owned_order_mapping",
+    ]

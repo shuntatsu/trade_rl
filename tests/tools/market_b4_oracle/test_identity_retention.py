@@ -288,10 +288,29 @@ def _run_synthetic_actor_prefix(
     forecast_index = _replay_fixture("_forecast_index", through=actor_stop + 1)
     identities: list[ActorIdentity] = []
     advances: list[Any] = []
-    original_builder = frozen_market_replay.build_actor_identity
+    original_builder = frozen_market_replay._build_actor_identity_core
 
     def observe_builder(*args: Any, **kwargs: Any) -> ActorIdentity:
         identity = original_builder(*args, **kwargs)
+        reference_kwargs = {
+            name: value for name, value in kwargs.items() if name != "terminal_memo"
+        }
+        reference = decision_identity.build_actor_identity(*args, **reference_kwargs)
+        assert identity == reference
+        for name in (
+            "context_state_bytes",
+            "context_bytes",
+            "proposal_bytes",
+            "decision_bytes",
+            "action_bytes",
+            "context_state_digest",
+            "proposal_digest",
+            "decision_digest",
+            "action_digest",
+            "actor_decision_identity",
+            "target_identity",
+        ):
+            assert getattr(identity, name) == getattr(reference, name)
         identities.append(identity)
         return identity
 
@@ -299,7 +318,11 @@ def _run_synthetic_actor_prefix(
         return identity
 
     with monkeypatch.context() as patch:
-        patch.setattr(frozen_market_replay, "build_actor_identity", observe_builder)
+        patch.setattr(
+            frozen_market_replay,
+            "_build_actor_identity_core",
+            observe_builder,
+        )
         if retain_full_identity:
             patch.setattr(
                 frozen_market_replay,

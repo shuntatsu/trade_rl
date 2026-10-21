@@ -14,6 +14,12 @@ from tests.tools.market_b4_oracle._native_replay_fixture import (
     _native_actor_identity_hashes,
     _public_native_fixture,
 )
+from tools.market_b4_oracle import (
+    decision_identity,
+)
+from tools.market_b4_oracle import (
+    frozen_market_replay as replay_module,
+)
 from tools.market_b4_oracle.expected_intent import ExpectedIntent
 from tools.market_b4_oracle.frozen_forecast_index import FrozenForecastIndex
 from tools.market_b4_oracle.frozen_market_replay import (
@@ -297,6 +303,21 @@ def _runner(
     )
 
 
+def _alternate_account_scope(binding: FrozenMarketBinding) -> FrozenMarketBinding:
+    document = binding.protocol_document
+    configuration_id = f"{binding.configuration_id}_CACHE_SCOPE"
+    document["configurations"][0]["id"] = configuration_id
+    symbol = document["dataset"]["fit_symbols"][binding.selected_symbol_index]
+    account_id = f"{configuration_id}_{symbol}"
+    document["accounts"] = [account_id]
+    return replace(
+        binding,
+        protocol_canonical=decision_identity.canonical_json_bytes(document),
+        account_id=account_id,
+        configuration_id=configuration_id,
+    )
+
+
 def test_observed_fill_cannot_drive_account_before_latency_eligibility() -> None:
     runner = _runner(0, latency=2)
     before = runner.account_snapshot
@@ -367,6 +388,269 @@ def test_partial_fill_charges_once_and_later_hold_reconciles_the_remainder() -> 
     assert hold.cancelled_order_ids == (first.new_intent_ids[0],)
     assert runner.account_snapshot.exact_quantities == (Fraction(0), Fraction(0))
     assert runner.active_order_count <= 1
+
+
+def test_terminal_order_intent_is_not_rebuilt_after_its_archive_is_warm(
+    monkeypatch,
+) -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+
+    first = runner.advance(forecast_index=forecast_index, role="NONRL")
+    assert first.owned_fills
+    assert runner._terminal
+    terminal_order_id, terminal_record = next(iter(runner._terminal.items()))
+
+    calls_for_terminal_order = 0
+    original_create = ExpectedIntent.create
+
+    def observe_create(cls, **kwargs):
+        nonlocal calls_for_terminal_order
+        intent = original_create(**kwargs)
+        if intent.order_id == terminal_order_id:
+            calls_for_terminal_order += 1
+        return intent
+
+    monkeypatch.setattr(ExpectedIntent, "create", classmethod(observe_create))
+
+    # The first later actor row builds the identity with this now-terminal order.
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    warm_conversion_count = calls_for_terminal_order
+    assert warm_conversion_count > 0
+
+    for _ in range(2):
+        runner.advance(forecast_index=forecast_index, role="NONRL")
+        assert runner._terminal[terminal_order_id] is terminal_record
+
+    assert calls_for_terminal_order == warm_conversion_count
+
+
+def test_projection_memo_does_not_hide_distinct_source_with_same_order_id() -> None:
+    runner = _runner(0)
+    runner.advance(forecast_index=_forecast_index(through=64), role="NONRL")
+    order_id, source = next(iter(runner._terminal.items()))
+    projection_memo = {}
+
+    original = runner._owned_projection(
+        source, runner._active, runner._terminal, projection_memo
+    )
+    changed_source = replace(source, evidence_version=source.evidence_version + 1)
+    runner._terminal[order_id] = changed_source
+    runner._all_orders[order_id] = changed_source
+    changed = runner._owned_projection(
+        changed_source, runner._active, runner._terminal, projection_memo
+    )
+
+    assert changed is not original
+    assert changed.evidence_version == source.evidence_version + 1
+
+    malformed_source = replace(changed_source, actor_identity=None)
+    runner._terminal[order_id] = malformed_source
+    runner._all_orders[order_id] = malformed_source
+    with pytest.raises(
+        ValueError, match="reserve identity cannot be projected as an actor identity"
+    ):
+        runner._owned_projection(
+            malformed_source, runner._active, runner._terminal, projection_memo
+        )
+
+
+@pytest.mark.parametrize("invalidation", ["scope", "terminal_owner"])
+def test_terminal_identity_memo_rebuilds_after_scope_or_owner_change(
+    invalidation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    terminal_order_id, original_source = next(iter(runner._terminal.items()))
+
+    original_create = ExpectedIntent.create
+    warm_conversions = 0
+
+    def observe_warm_create(cls, **kwargs):
+        nonlocal warm_conversions
+        intent = original_create(**kwargs)
+        if intent.order_id == terminal_order_id:
+            warm_conversions += 1
+        return intent
+
+    monkeypatch.setattr(ExpectedIntent, "create", classmethod(observe_warm_create))
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    assert warm_conversions > 0
+    warm_conversion_count = warm_conversions
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    assert warm_conversions == warm_conversion_count
+
+    if invalidation == "scope":
+        runner.binding = _alternate_account_scope(runner.binding)
+    else:
+        changed = replace(
+            original_source, evidence_version=original_source.evidence_version + 1
+        )
+        runner._terminal[terminal_order_id] = changed
+        runner._all_orders[terminal_order_id] = changed
+
+    core_rebuilds = 0
+    inside_core = False
+
+    def observe_create(cls, **kwargs):
+        nonlocal core_rebuilds
+        intent = original_create(**kwargs)
+        if inside_core and intent.order_id == terminal_order_id:
+            core_rebuilds += 1
+        return intent
+
+    monkeypatch.setattr(ExpectedIntent, "create", classmethod(observe_create))
+    original_core = replay_module._build_actor_identity_core
+    compared = 0
+
+    def compare_with_public_builder(*args, **kwargs):
+        nonlocal compared, inside_core
+        inside_core = True
+        try:
+            identity = original_core(*args, **kwargs)
+        finally:
+            inside_core = False
+        reference_kwargs = {
+            key: value for key, value in kwargs.items() if key != "terminal_memo"
+        }
+        reference = decision_identity.build_actor_identity(*args, **reference_kwargs)
+        assert identity == reference
+        compared += 1
+        return identity
+
+    monkeypatch.setattr(
+        replay_module, "_build_actor_identity_core", compare_with_public_builder
+    )
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+
+    assert compared == 1
+    assert core_rebuilds > 0
+
+
+def test_mutable_terminal_progress_alias_stays_live_in_replay_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    terminal_order_id, source = next(iter(runner._terminal.items()))
+    assert type(source.last_processed_index) is int
+    alias = [source.last_processed_index]
+    aliased_source = replace(source, last_processed_index=alias)
+    runner._terminal[terminal_order_id] = aliased_source
+    runner._all_orders[terminal_order_id] = aliased_source
+
+    original_create = ExpectedIntent.create
+    core_rebuilds = 0
+    inside_core = False
+
+    def observe_create(cls, **kwargs):
+        nonlocal core_rebuilds
+        intent = original_create(**kwargs)
+        if inside_core and intent.order_id == terminal_order_id:
+            core_rebuilds += 1
+        return intent
+
+    monkeypatch.setattr(ExpectedIntent, "create", classmethod(observe_create))
+    original_core = replay_module._build_actor_identity_core
+    compared = 0
+    identities = []
+
+    def compare_with_public_builder(*args, **kwargs):
+        nonlocal compared, inside_core
+        inside_core = True
+        try:
+            identity = original_core(*args, **kwargs)
+        finally:
+            inside_core = False
+        reference_kwargs = {
+            key: value for key, value in kwargs.items() if key != "terminal_memo"
+        }
+        reference = decision_identity.build_actor_identity(*args, **reference_kwargs)
+        assert identity == reference
+        compared += 1
+        identities.append(identity)
+        return identity
+
+    monkeypatch.setattr(
+        replay_module, "_build_actor_identity_core", compare_with_public_builder
+    )
+    first = runner.advance(forecast_index=forecast_index, role="NONRL")
+    assert first.actor_context_bytes is not None
+    alias.append(9_999)
+    second = runner.advance(forecast_index=forecast_index, role="NONRL")
+    assert second.actor_context_bytes is not None
+
+    first_identity, second_identity = identities
+    first_state = json.loads(first_identity.context_state_bytes)
+    second_state = json.loads(second_identity.context_state_bytes)
+    first_rows = first_state["terminal_orders"]
+    second_rows = second_state["terminal_orders"]
+    first_row = next(
+        row for row in first_rows if row["intent"]["order_id"] == terminal_order_id
+    )
+    second_row = next(
+        row for row in second_rows if row["intent"]["order_id"] == terminal_order_id
+    )
+    assert first_row["last_processed_index"] == [source.last_processed_index]
+    assert second_row["last_processed_index"] == alias
+    assert first_identity.context_state_bytes != second_identity.context_state_bytes
+    assert first_identity.context_state_digest != second_identity.context_state_digest
+    assert compared == 2
+    assert core_rebuilds == 2
+
+
+@pytest.mark.parametrize(
+    "capacity_constant",
+    [
+        "_TERMINAL_IDENTITY_CACHE_MAX_ORDER_ENTRIES",
+        "_TERMINAL_IDENTITY_CACHE_MAX_MAPPING_BYTES",
+    ],
+)
+def test_terminal_identity_cache_capacity_uses_uncached_public_parity(
+    capacity_constant: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(replay_module, capacity_constant, 0)
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    original_core = replay_module._build_actor_identity_core
+    compared = 0
+
+    def compare_with_public_builder(*args, **kwargs):
+        nonlocal compared
+        identity = original_core(*args, **kwargs)
+        reference_kwargs = {
+            key: value for key, value in kwargs.items() if key != "terminal_memo"
+        }
+        reference = decision_identity.build_actor_identity(*args, **reference_kwargs)
+        assert identity == reference
+        compared += 1
+        return identity
+
+    monkeypatch.setattr(
+        replay_module, "_build_actor_identity_core", compare_with_public_builder
+    )
+    first = runner.advance(forecast_index=forecast_index, role="NONRL")
+    assert first.owned_fills
+    terminal_order_id = next(iter(runner._terminal))
+
+    calls_for_terminal_order = 0
+    original_create = ExpectedIntent.create
+
+    def observe_create(cls, **kwargs):
+        nonlocal calls_for_terminal_order
+        intent = original_create(**kwargs)
+        if intent.order_id == terminal_order_id:
+            calls_for_terminal_order += 1
+        return intent
+
+    monkeypatch.setattr(ExpectedIntent, "create", classmethod(observe_create))
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+
+    assert calls_for_terminal_order > 0
+    assert compared == 2
+    assert runner._terminal_identity_memo.disabled is True
 
 
 @pytest.mark.parametrize("selected_symbol", [0, 1])

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, fields
+from dataclasses import asdict, fields, replace
 
 import numpy as np
 import pytest
 
+from tools.market_b4_oracle import decision_identity
 from tools.market_b4_oracle.decision_identity import (
     OwnedAccountComponents,
     OwnedIntentComponents,
@@ -408,6 +409,117 @@ def test_terminal_history_is_rebuilt_with_prior_owned_identity():
     assert len(terminal_rows) == 1
     assert terminal_rows[0]["intent"]["order_id"] == native_intent.order_id
     assert built.context_state_digest == content_digest(state_payload)
+
+
+@pytest.mark.parametrize("scope_field", ["dataset_id", "execution_policy_digest"])
+def test_terminal_mapping_cache_does_not_skip_account_scope_checks(
+    scope_field: str,
+) -> None:
+    account = _account()
+    previous = _build(account, action_code=1, risk_weights=(-0.4, -0.0))
+    order = OwnedPendingOrder(
+        intent=OwnedIntentComponents(
+            identity_source=previous,
+            dataset_id=account.dataset_id,
+            execution_policy_digest=account.execution_policy_digest,
+            symbol_index=0,
+            requested_quantity=0.5,
+            order_type="market",
+            time_in_force="gtc",
+            limit_price=None,
+            stop_price=None,
+            submit_index=4,
+            eligible_index=5,
+            expiry_index=None,
+            submission_reference_price=10.0,
+            decision_equity=1022.5,
+        ),
+        remaining_quantity=0.5,
+        status=OrderStatus.CANCELLED,
+        last_processed_index=5,
+        terminal_reason="synthetic-cancel",
+        evidence_version=1,
+        exact_cumulative_filled_quantity="0",
+    )
+    mismatched_account = replace(account, **{scope_field: "f" * 64})
+
+    class CachedMapping:
+        @staticmethod
+        def admits(candidate: OwnedPendingOrder) -> bool:
+            return candidate is order
+
+        @staticmethod
+        def mapping_bytes(candidate: OwnedPendingOrder) -> bytes | None:
+            return b"{}" if candidate is order else None
+
+        @staticmethod
+        def stage_mapping(candidate: OwnedPendingOrder, payload: bytes) -> None:
+            raise AssertionError("a cache hit must not stage a replacement")
+
+    with pytest.raises(ValueError, match="owned order source differs from account"):
+        decision_identity._order_mapping(
+            order,
+            mismatched_account,
+            terminal_memo=CachedMapping(),
+            cache_terminal=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("alias_field", "alias_value"),
+    [
+        ("trigger_index", {"nested": []}),
+        ("last_processed_index", [3]),
+    ],
+)
+def test_terminal_identity_rebuild_observes_mutable_progress_alias(
+    alias_field: str, alias_value: dict[str, list[int]] | list[int]
+) -> None:
+    account = _account()
+    previous = _build(account, action_code=1, risk_weights=(-0.4, -0.0))
+    intent = OwnedIntentComponents(
+        identity_source=previous,
+        dataset_id=account.dataset_id,
+        execution_policy_digest=account.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=0.5,
+        order_type="market",
+        time_in_force="gtc",
+        limit_price=None,
+        stop_price=None,
+        submit_index=4,
+        eligible_index=5,
+        expiry_index=None,
+        submission_reference_price=10.0,
+        decision_equity=1022.5,
+    )
+    terminal = replace(
+        OwnedPendingOrder(
+            intent=intent,
+            remaining_quantity=0.5,
+            status=OrderStatus.CANCELLED,
+            last_processed_index=5,
+            terminal_reason="synthetic-cancel",
+            evidence_version=1,
+            exact_cumulative_filled_quantity="0",
+        ),
+        **{alias_field: alias_value},
+    )
+    account = _account(terminal_orders=(terminal,))
+
+    before = _build(account)
+    if isinstance(alias_value, dict):
+        alias_value["nested"].append(7)
+    else:
+        alias_value.append(7)
+    after = _build(account)
+
+    before_row = json.loads(before.context_state_bytes)["terminal_orders"][0]
+    after_row = json.loads(after.context_state_bytes)["terminal_orders"][0]
+    assert before_row[alias_field] != after_row[alias_field]
+    assert after_row[alias_field] == alias_value
+    assert before.context_state_bytes != after.context_state_bytes
+    assert before.context_state_digest != after.context_state_digest
 
 
 def test_mapping_insertion_order_normalizes_and_equal_signed_zero_is_actor_hold():

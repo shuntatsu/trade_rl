@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from fractions import Fraction
 from hashlib import sha256
-from typing import Any
+from typing import Any, Protocol
 
 from tools.market_b4_oracle.expected_intent import ExpectedIntent
 
@@ -75,6 +75,16 @@ DECISION_FIELDS = frozenset(
         "pending_count",
     }
 )
+
+
+class _TerminalOrderMappingMemo(Protocol):
+    """Private replay-owned cache for immutable terminal order projections."""
+
+    def admits(self, order: OwnedPendingOrder) -> bool: ...
+
+    def mapping_bytes(self, order: OwnedPendingOrder) -> bytes | None: ...
+
+    def stage_mapping(self, order: OwnedPendingOrder, payload: bytes) -> None: ...
 
 
 def _json_value(value: Any) -> Any:
@@ -240,7 +250,11 @@ def _actor_intent_basis_from_identity(
 
 
 def _order_mapping(
-    order: OwnedPendingOrder, account: OwnedAccountComponents
+    order: OwnedPendingOrder,
+    account: OwnedAccountComponents,
+    *,
+    terminal_memo: _TerminalOrderMappingMemo | None = None,
+    cache_terminal: bool = False,
 ) -> dict[str, Any]:
     intent = order.intent
     if not isinstance(intent.identity_source, (ActorIdentity, ActorIntentBasis)):
@@ -258,6 +272,12 @@ def _order_mapping(
         or intent.execution_policy_digest != account.execution_policy_digest
     ):
         raise ValueError("owned order source differs from account dataset/policy")
+
+    if terminal_memo is not None and cache_terminal and terminal_memo.admits(order):
+        cached = terminal_memo.mapping_bytes(order)
+        if cached is not None:
+            return json.loads(cached)
+
     symbol_index = _integer(intent.symbol_index, "symbol_index")
     if symbol_index >= 2:
         raise ValueError("symbol_index is outside the two-symbol identity scope")
@@ -285,7 +305,12 @@ def _order_mapping(
     replaced_id = (
         None
         if intent.replaced_order is None
-        else _order_mapping(intent.replaced_order, account)["intent"]["order_id"]
+        else _order_mapping(
+            intent.replaced_order,
+            account,
+            terminal_memo=terminal_memo,
+            cache_terminal=True,
+        )["intent"]["order_id"]
     )
     rebuilt_intent = ExpectedIntent.create(
         dataset_id=intent.dataset_id,
@@ -337,7 +362,7 @@ def _order_mapping(
     exact = order.exact_cumulative_filled_quantity
     if not isinstance(exact, str) or str(Fraction(exact)) != exact:
         raise ValueError("exact cumulative quantity must be a canonical fraction")
-    return {
+    mapping = {
         "intent": intent_full,
         "remaining_quantity": _number(order.remaining_quantity, "remaining_quantity"),
         "cumulative_filled_quantity": _number(
@@ -353,10 +378,14 @@ def _order_mapping(
         "evidence_version": _integer(order.evidence_version, "evidence_version"),
         "exact_cumulative_filled_quantity": exact,
     }
+    if terminal_memo is not None and cache_terminal and terminal_memo.admits(order):
+        terminal_memo.stage_mapping(order, canonical_json_bytes(mapping))
+    return mapping
 
 
 def _account_state(
     account: OwnedAccountComponents,
+    terminal_memo: _TerminalOrderMappingMemo | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], tuple[float, float]]:
     if (
         not isinstance(account.account_id, str)
@@ -441,9 +470,18 @@ def _account_state(
     ):
         raise ValueError("as_of_dataset_id must be a lowercase SHA256 identity")
 
-    active = tuple(_order_mapping(order, account) for order in account.active_orders)
+    active = tuple(
+        _order_mapping(order, account, terminal_memo=terminal_memo)
+        for order in account.active_orders
+    )
     terminal = tuple(
-        _order_mapping(order, account) for order in account.terminal_orders
+        _order_mapping(
+            order,
+            account,
+            terminal_memo=terminal_memo,
+            cache_terminal=True,
+        )
+        for order in account.terminal_orders
     )
     active_ids = {row["intent"]["order_id"] for row in active}
     terminal_ids = {row["intent"]["order_id"] for row in terminal}
@@ -503,7 +541,7 @@ def _account_state(
     return state_payload, context_fields, weights
 
 
-def build_actor_identity(
+def _build_actor_identity_core(
     account: OwnedAccountComponents,
     allocation_inputs: Mapping[str, Any],
     allocator: Mapping[str, Any],
@@ -514,6 +552,7 @@ def build_actor_identity(
     action_contract: Mapping[str, Any],
     action_code: int,
     final_risk_weights: tuple[float, float],
+    terminal_memo: _TerminalOrderMappingMemo | None,
 ) -> ActorIdentity:
     """Build actor hashes from explicit inputs, never caller-supplied hashes.
 
@@ -521,7 +560,7 @@ def build_actor_identity(
     caller-owned assertions; this function reproduces the payload and hash
     contract but does not validate their source or calculation.
     """
-    state_payload, context, current_weights = _account_state(account)
+    state_payload, context, current_weights = _account_state(account, terminal_memo)
     inputs = _closed_mapping(allocation_inputs, INPUT_FIELDS, "allocation inputs")
     alloc = _closed_mapping(allocator, ALLOCATOR_FIELDS, "allocator")
     decisions = _closed_mapping(decision_fields, DECISION_FIELDS, "decision")
@@ -664,6 +703,38 @@ def build_actor_identity(
     }.items():
         object.__setattr__(output, name, value)
     return output
+
+
+def build_actor_identity(
+    account: OwnedAccountComponents,
+    allocation_inputs: Mapping[str, Any],
+    allocator: Mapping[str, Any],
+    *,
+    independent_target_weight: float,
+    independent_objective_value: float,
+    decision_fields: Mapping[str, Any],
+    action_contract: Mapping[str, Any],
+    action_code: int,
+    final_risk_weights: tuple[float, float],
+) -> ActorIdentity:
+    """Build actor hashes from explicit inputs, never caller-supplied hashes.
+
+    Forecast/source identity, risk result, and optimization result remain
+    caller-owned assertions; this function reproduces the payload and hash
+    contract but does not validate their source or calculation.
+    """
+    return _build_actor_identity_core(
+        account,
+        allocation_inputs,
+        allocator,
+        independent_target_weight=independent_target_weight,
+        independent_objective_value=independent_objective_value,
+        decision_fields=decision_fields,
+        action_contract=action_contract,
+        action_code=action_code,
+        final_risk_weights=final_risk_weights,
+        terminal_memo=None,
+    )
 
 
 def owned_order_mapping(

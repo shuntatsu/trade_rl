@@ -71,6 +71,7 @@ def _supervision(root: Path, **overrides: Any) -> None:
         "returncode": 0,
         "worker_reaped": True,
         "owned_members_remaining": 0,
+        "ambiguous_rss_members_remaining": 0,
         "failure": None,
         "cleanup_error": None,
         "final_violation": [],
@@ -129,6 +130,9 @@ def test_identical_same_plan_profile_bytes_and_curve(tmp_path: Path) -> None:
         "returncode",
         "unreaped",
         "remaining",
+        "ambiguous_missing",
+        "ambiguous_remaining",
+        "ambiguous_bool",
         "failure",
         "cleanup_error",
         "final_violation",
@@ -158,6 +162,12 @@ def test_invalid_or_unbound_supervision_cannot_complete_measurements(
             record["worker_reaped"] = False
         elif invalid_record == "remaining":
             record["owned_members_remaining"] = 1
+        elif invalid_record == "ambiguous_missing":
+            record.pop("ambiguous_rss_members_remaining")
+        elif invalid_record == "ambiguous_remaining":
+            record["ambiguous_rss_members_remaining"] = 1
+        elif invalid_record == "ambiguous_bool":
+            record["ambiguous_rss_members_remaining"] = False
         elif invalid_record == "failure":
             record["failure"] = "worker failed"
         elif invalid_record == "cleanup_error":

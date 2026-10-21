@@ -65,6 +65,8 @@ def _supervision_qualifies(root: Path, measurement: dict[str, Any]) -> bool:
         and record.get("worker_reaped") is True
         and type(record.get("owned_members_remaining")) is int
         and record["owned_members_remaining"] == 0
+        and type(record.get("ambiguous_rss_members_remaining")) is int
+        and record["ambiguous_rss_members_remaining"] == 0
         and "failure" in record
         and record["failure"] is None
         and "cleanup_error" in record

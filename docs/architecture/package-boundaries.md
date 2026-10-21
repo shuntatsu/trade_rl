@@ -1994,7 +1994,10 @@ The package consumes no real input and its profile grants no economic admission.
 It does not execute the full 48-arm comparison, establish full-matrix runtime,
 or claim release byte-equivalence. Its source belongs to normal repository Ruff,
 format, and research-tool Mypy checks; the architecture contract keeps imports
-and path references within the artificial repository-only boundary.
+and path references within the artificial repository-only boundary. Summary
+qualification requires both the owned-process and ambiguous-RSS-process
+remaining counts in `supervision.json` to be exact integer zero; a missing,
+nonzero, or non-integer count keeps the measurement incomplete.
 
 ## Independent diagnostic account arithmetic
 

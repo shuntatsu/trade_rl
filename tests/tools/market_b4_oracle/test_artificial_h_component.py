@@ -465,6 +465,208 @@ def _artificial_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
 
 
+def _prepare_operator_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import tools.market_b4_artificial_component_operator as operator
+    from trade_rl.strategies.forecasts import simple_stream_io
+
+    plan = _artificial_plan(tmp_path, monkeypatch)
+    plan.input_plan_path.write_bytes(plan.input_plan_canonical)
+    monkeypatch.setattr(operator, "__file__", str(plan.operator_path))
+    monkeypatch.setattr(operator.Path, "cwd", lambda: plan.child_source_root)
+    monkeypatch.setattr(
+        operator,
+        "sys",
+        SimpleNamespace(executable=str(plan.child_python)),
+    )
+    monkeypatch.setattr(operator, "_load_h_modules", lambda *_: None)
+    monkeypatch.setattr(
+        operator,
+        "_runtime_report",
+        lambda **_: {"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+    )
+    monkeypatch.setattr(operator, "_build_dataset", lambda _spec: object())
+    monkeypatch.setattr(operator, "_build_stream", lambda *_: object())
+
+    def publish_forecast(path: Path, _stream: object) -> SimpleNamespace:
+        raw = b"synthetic forecast bytes"
+        path.write_bytes(raw)
+        return SimpleNamespace(
+            digest=hashlib.sha256(raw).hexdigest(),
+            dataset_id="synthetic-test-dataset",
+        )
+
+    monkeypatch.setattr(
+        simple_stream_io,
+        "publish_simple_return_stream_artifact",
+        publish_forecast,
+    )
+    return operator, plan
+
+
+def test_operator_main_retains_bounded_failure_after_forecast_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    original_error = RuntimeError("component failed: " + "診断🙂" * 10_000)
+
+    def fail_pair(*_args: object) -> object:
+        def raise_deep(remaining: int) -> None:
+            if remaining:
+                raise_deep(remaining - 1)
+                return
+            raise original_error
+
+        raise_deep(30)
+
+    monkeypatch.setattr(operator, "_run_pair", fail_pair)
+
+    with pytest.raises(RuntimeError) as caught:
+        operator.main(["--plan", str(plan.input_plan_path)])
+
+    assert caught.value is original_error
+    failure_path = plan.output_root / "operator-failure.json"
+    assert failure_path.is_file()
+    raw = failure_path.read_bytes()
+    assert len(raw) <= 16 * 1024
+    record = json.loads(raw)
+    assert raw == _canonical(record)
+    assert record["schema"] == "issue810_artificial_h_operator_failure_v1"
+    assert record["scope"] == "ARTIFICIAL_COMPARISON_ONLY"
+    assert record["attempt_uuid"] == plan.attempt_uuid
+    assert (
+        record["input_plan_sha256"]
+        == hashlib.sha256(plan.input_plan_canonical).hexdigest()
+    )
+    assert record["operator_sha256"] == plan.operator_sha256
+    assert record["phase"] == "run_pair"
+    assert record["outer_attempt_authenticated"] is False
+    assert record["full_b4_authorized"] is False
+    assert record["research_authorized"] is False
+    failure = record["failure"]
+    assert failure["type"] == "RuntimeError"
+    assert "診断🙂" in failure["message"]
+    assert len(failure["message"].encode("utf-8")) <= 2048
+    assert failure["message"].endswith("...[truncated]")
+    trace = failure["traceback"]
+    assert len(trace["frames"]) == 24
+    assert trace["truncated"] is True
+    assert any(frame["function"] == "fail_pair" for frame in trace["frames"])
+    assert (plan.output_root / "operator-runtime.json").is_file()
+    assert (plan.output_root / "forecasts" / "simple-return-stream.json").is_file()
+    assert not (plan.output_root / "component-result.json").exists()
+    assert not (plan.output_root / "output-manifest.json").exists()
+
+
+def test_operator_main_does_not_write_to_an_unvalidated_output_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    document = json.loads(plan.input_plan_canonical)
+    attacker_path = tmp_path / "outside-verify"
+    document["output_root"] = str(attacker_path)
+    plan.input_plan_path.write_bytes(_canonical(document))
+
+    with pytest.raises(
+        ValueError, match="component output root must be fresh under verify"
+    ):
+        operator.main(["--plan", str(plan.input_plan_path)])
+
+    assert not attacker_path.exists()
+    assert not plan.output_root.exists()
+
+
+@pytest.mark.parametrize("diagnostic_conflict", ["already_exists", "write_error"])
+def test_operator_main_preserves_original_failure_if_diagnostic_cannot_be_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostic_conflict: str,
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    original_error = RuntimeError("primary operator failure")
+    failure_path = plan.output_root / "operator-failure.json"
+    preexisting = b"preserve existing bytes"
+
+    if diagnostic_conflict == "write_error":
+        write_json = operator._write_json
+
+        def fail_diagnostic_write(path: Path, value: object) -> None:
+            if path.name == "operator-failure.json":
+                raise OSError("diagnostic storage unavailable")
+            write_json(path, value)
+
+        monkeypatch.setattr(operator, "_write_json", fail_diagnostic_write)
+
+    def fail_pair(output_root: Path, *_args: object) -> object:
+        if diagnostic_conflict == "already_exists":
+            (output_root / failure_path.name).write_bytes(preexisting)
+        raise original_error
+
+    monkeypatch.setattr(operator, "_run_pair", fail_pair)
+
+    with pytest.raises(RuntimeError) as caught:
+        operator.main(["--plan", str(plan.input_plan_path)])
+
+    assert caught.value is original_error
+    if diagnostic_conflict == "already_exists":
+        assert failure_path.read_bytes() == preexisting
+    else:
+        assert not failure_path.exists()
+
+
+def test_operator_main_success_keeps_the_existing_five_file_roster(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+
+    def complete_pair(output_root: Path, *_args: object) -> dict[str, object]:
+        receipt_root = output_root / "receipts"
+        receipt_root.mkdir()
+        (receipt_root / "nonrl.json.gz").write_bytes(b"nonrl receipt")
+        (receipt_root / "cash.json.gz").write_bytes(b"cash receipt")
+        return {"scope": "ARTIFICIAL_COMPARISON_ONLY"}
+
+    monkeypatch.setattr(operator, "_run_pair", complete_pair)
+
+    assert operator.main(["--plan", str(plan.input_plan_path)]) == 0
+    manifest = json.loads((plan.output_root / "output-manifest.json").read_bytes())
+    assert set(manifest) == {
+        "component-result.json",
+        "forecasts/simple-return-stream.json",
+        "operator-runtime.json",
+        "receipts/cash.json.gz",
+        "receipts/nonrl.json.gz",
+    }
+    assert not (plan.output_root / "operator-failure.json").exists()
+
+
+def test_operator_main_removes_success_markers_if_manifest_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    original_error = OSError("manifest storage unavailable")
+
+    def complete_pair(output_root: Path, *_args: object) -> dict[str, object]:
+        receipt_root = output_root / "receipts"
+        receipt_root.mkdir()
+        (receipt_root / "nonrl.json.gz").write_bytes(b"nonrl receipt")
+        (receipt_root / "cash.json.gz").write_bytes(b"cash receipt")
+        return {"scope": "ARTIFICIAL_COMPARISON_ONLY"}
+
+    def fail_manifest(_root: Path) -> None:
+        raise original_error
+
+    monkeypatch.setattr(operator, "_run_pair", complete_pair)
+    monkeypatch.setattr(operator, "_write_manifest", fail_manifest)
+
+    with pytest.raises(OSError) as caught:
+        operator.main(["--plan", str(plan.input_plan_path)])
+
+    assert caught.value is original_error
+    assert not (plan.output_root / "component-result.json").exists()
+    assert not (plan.output_root / "output-manifest.json").exists()
+    assert (plan.output_root / "operator-failure.json").is_file()
+
+
 def test_artificial_h_component_plan_is_typed_and_never_native_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

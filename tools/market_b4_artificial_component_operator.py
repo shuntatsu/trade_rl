@@ -43,6 +43,9 @@ _FEATURES = (
 )
 _MAX_PLAN_BYTES = 1024 * 1024
 _MAX_OUTPUT_FILE_BYTES = 2 * 1024**3
+_MAX_FAILURE_BYTES = 16 * 1024
+_MAX_FAILURE_MESSAGE_BYTES = 2048
+_MAX_FAILURE_TRACEBACK_FRAMES = 24
 
 
 def _canonical(value: object) -> bytes:
@@ -452,6 +455,71 @@ def _write_manifest(root: Path) -> None:
     if not entries:
         raise ValueError("component output manifest cannot be empty")
     _write_json(root / "output-manifest.json", entries)
+
+
+def _bounded_diagnostic_text(value: str, *, maximum_bytes: int) -> str:
+    raw = value.encode("utf-8", errors="replace")
+    if len(raw) <= maximum_bytes:
+        return raw.decode("utf-8")
+    marker = b"...[truncated]"
+    prefix = raw[: maximum_bytes - len(marker)]
+    return prefix.decode("utf-8", errors="ignore") + marker.decode("ascii")
+
+
+def _diagnostic_traceback(error: BaseException) -> dict[str, object]:
+    frames: list[dict[str, object]] = []
+    traceback = error.__traceback__
+    while traceback is not None and len(frames) < _MAX_FAILURE_TRACEBACK_FRAMES:
+        code = traceback.tb_frame.f_code
+        frames.append(
+            {
+                "file": _bounded_diagnostic_text(code.co_filename, maximum_bytes=256),
+                "function": _bounded_diagnostic_text(code.co_name, maximum_bytes=128),
+                "line": traceback.tb_lineno,
+            }
+        )
+        traceback = traceback.tb_next
+    return {"frames": frames, "truncated": traceback is not None}
+
+
+def _write_failure_diagnostic(
+    *,
+    output_root: Path,
+    plan_raw: bytes,
+    plan: dict[str, object],
+    attempt_uuid: str,
+    phase: str,
+    error: BaseException,
+) -> None:
+    operator = plan.get("operator")
+    if type(operator) is not dict or type(operator.get("sha256")) is not str:
+        raise ValueError("validated artificial plan lost its operator source pin")
+    try:
+        message = str(error)
+    except BaseException:
+        message = "<exception message unavailable>"
+    record: dict[str, object] = {
+        "schema": "issue810_artificial_h_operator_failure_v1",
+        "scope": "ARTIFICIAL_COMPARISON_ONLY",
+        "attempt_uuid": attempt_uuid,
+        "input_plan_sha256": hashlib.sha256(plan_raw).hexdigest(),
+        "operator_sha256": operator["sha256"],
+        "phase": phase,
+        "failure": {
+            "type": _bounded_diagnostic_text(type(error).__name__, maximum_bytes=128),
+            "message": _bounded_diagnostic_text(
+                message, maximum_bytes=_MAX_FAILURE_MESSAGE_BYTES
+            ),
+            "traceback": _diagnostic_traceback(error),
+        },
+        "outer_attempt_authenticated": False,
+        "full_b4_authorized": False,
+        "research_authorized": False,
+    }
+    raw = _canonical(record)
+    if not raw or len(raw) > _MAX_FAILURE_BYTES:
+        raise ValueError("artificial operator failure diagnostic exceeds its bound")
+    _write_json(output_root / "operator-failure.json", record)
 
 
 def _protocol(spec: dict[str, Any], dataset: Any) -> dict[str, object]:
@@ -1089,39 +1157,73 @@ def main(argv: list[str] | None = None) -> int:
     output_root, runtime_pin, attempt_uuid = _assert_plan(
         plan, plan_raw=plan_raw, operator_path=operator_path, plan_path=plan_path
     )
-    child = plan["child_source"]
-    operator = plan["operator"]
-    spec_value = plan["component_spec"]
-    assert type(child) is dict and type(operator) is dict and type(spec_value) is dict
-    spec = cast(dict[str, Any], spec_value)
-    source_root = Path(str(child["root"])).resolve()
-    observer_root = Path(str(operator["path"])).resolve().parents[1]
-    _load_h_modules(source_root, observer_root)
     output_root.mkdir(parents=True, exist_ok=False)
-    runtime_report = _runtime_report(
-        plan=plan,
-        plan_raw=plan_raw,
-        runtime_pin=runtime_pin,
-        attempt_uuid=attempt_uuid,
-    )
-    _write_json(output_root / "operator-runtime.json", runtime_report)
-    dataset = _build_dataset(spec)
-    stream = _build_stream(dataset, spec)
-    from trade_rl.strategies.forecasts.simple_stream_io import (
-        publish_simple_return_stream_artifact,
-    )
+    phase = "operator_setup"
+    try:
+        child = plan["child_source"]
+        operator = plan["operator"]
+        spec_value = plan["component_spec"]
+        assert (
+            type(child) is dict and type(operator) is dict and type(spec_value) is dict
+        )
+        spec = cast(dict[str, Any], spec_value)
+        source_root = Path(str(child["root"])).resolve()
+        observer_root = Path(str(operator["path"])).resolve().parents[1]
+        _load_h_modules(source_root, observer_root)
 
-    forecast_path = output_root / "forecasts" / "simple-return-stream.json"
-    forecast_path.parent.mkdir(exist_ok=False)
-    forecast = publish_simple_return_stream_artifact(forecast_path, stream)
-    result = _run_pair(output_root, spec, dataset, stream, forecast)
-    result["forecast_stream"] = {
-        "path": forecast_path.relative_to(output_root).as_posix(),
-        "sha256": forecast.digest,
-        "dataset_id": forecast.dataset_id,
-    }
-    _write_json(output_root / "component-result.json", result)
-    _write_manifest(output_root)
+        phase = "runtime_report"
+        runtime_report = _runtime_report(
+            plan=plan,
+            plan_raw=plan_raw,
+            runtime_pin=runtime_pin,
+            attempt_uuid=attempt_uuid,
+        )
+        _write_json(output_root / "operator-runtime.json", runtime_report)
+
+        phase = "build_dataset"
+        dataset = _build_dataset(spec)
+        phase = "build_forecast"
+        stream = _build_stream(dataset, spec)
+        from trade_rl.strategies.forecasts.simple_stream_io import (
+            publish_simple_return_stream_artifact,
+        )
+
+        forecast_path = output_root / "forecasts" / "simple-return-stream.json"
+        forecast_path.parent.mkdir(exist_ok=False)
+        phase = "publish_forecast"
+        forecast = publish_simple_return_stream_artifact(forecast_path, stream)
+
+        phase = "run_pair"
+        result = _run_pair(output_root, spec, dataset, stream, forecast)
+        result["forecast_stream"] = {
+            "path": forecast_path.relative_to(output_root).as_posix(),
+            "sha256": forecast.digest,
+            "dataset_id": forecast.dataset_id,
+        }
+        phase = "write_component_result"
+        _write_json(output_root / "component-result.json", result)
+        phase = "write_output_manifest"
+        _write_manifest(output_root)
+    except BaseException as error:
+        for success_marker in ("component-result.json", "output-manifest.json"):
+            try:
+                (output_root / success_marker).unlink(missing_ok=True)
+            except BaseException:
+                # A cleanup failure must not replace the original operator error.
+                pass
+        try:
+            _write_failure_diagnostic(
+                output_root=output_root,
+                plan_raw=plan_raw,
+                plan=plan,
+                attempt_uuid=attempt_uuid,
+                phase=phase,
+                error=error,
+            )
+        except BaseException:
+            # The primary operator failure remains authoritative if journaling fails.
+            pass
+        raise
     return 0
 
 

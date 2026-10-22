@@ -2240,6 +2240,16 @@ fit or calibration is claimed. It accepts only the fixed
 `ARTIFICIAL_COMPARISON_ONLY` recipe and runs under the pinned H source, virtual
 environment, working directory, and import root; it imports no Q comparator or
 native market CLI. Its bounded synthetic receipts and runtime manifest do not authenticate its producer or grant native-attempt, Full-B4, research, or live authority.
+After plan validation and exclusive creation of the fresh output root, an
+operator exception may leave an exclusive, bounded `operator-failure.json`
+diagnostic bound to the attempt, exact plan bytes, and operator source pin. It
+records the failure phase and bounded exception details with authority flags
+false, then re-raises the original exception; failure to write the diagnostic
+does not replace that error. Failure cleanup removes partial
+`component-result.json` and `output-manifest.json` success markers. Invalid
+plans create no output root, and successful runs keep the existing five-file
+manifest roster without a failure journal. This diagnostic is not a receipt
+and grants no additional authority.
 
 `artificial_spec.py` validates the exact typed synthetic recipe before any
 derived values are built. `artificial_component.py` independently reconstructs

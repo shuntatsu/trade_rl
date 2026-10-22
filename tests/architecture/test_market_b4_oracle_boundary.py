@@ -212,6 +212,10 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
     assert "`tools/market_b4_artificial_component_operator.py`" in boundaries
     assert "ARTIFICIAL_COMPARISON_ONLY" in boundaries
     assert "do not authenticate its producer" in boundaries
+    assert "`operator-failure.json`" in boundaries
+    assert "re-raises the original exception" in boundaries
+    assert "Failure cleanup removes partial" in boundaries
+    assert "existing five-file" in boundaries
 
 
 def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> None:

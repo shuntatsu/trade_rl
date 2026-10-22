@@ -386,7 +386,7 @@ def _order_mapping(
 def _account_state(
     account: OwnedAccountComponents,
     terminal_memo: _TerminalOrderMappingMemo | None = None,
-) -> tuple[dict[str, Any], dict[str, Any], tuple[float, float]]:
+) -> tuple[dict[str, Any], tuple[float, float], bytes]:
     if (
         not isinstance(account.account_id, str)
         or not account.account_id.strip()
@@ -527,18 +527,19 @@ def _account_state(
         "active_orders": active,
         "terminal_orders": terminal,
     }
+    state_bytes = canonical_json_bytes(state_payload)
     context_fields = {
         "account_id": account.account_id,
         "symbol": account.symbols[symbol_index],
         "decision_time": account.decision_time,
-        "state_digest": _digest(state_payload),
+        "state_digest": sha256(state_bytes).hexdigest(),
         "current_weight": weights[symbol_index],
         "quantity": exact_text[symbol_index],
         "cash": normalized_book["cash"],
         "equity": equity,
         "pending_remaining": str(pending),
     }
-    return state_payload, context_fields, weights
+    return context_fields, weights, state_bytes
 
 
 def _build_actor_identity_core(
@@ -560,7 +561,9 @@ def _build_actor_identity_core(
     caller-owned assertions; this function reproduces the payload and hash
     contract but does not validate their source or calculation.
     """
-    state_payload, context, current_weights = _account_state(account, terminal_memo)
+    context, current_weights, context_state_bytes = _account_state(
+        account, terminal_memo
+    )
     inputs = _closed_mapping(allocation_inputs, INPUT_FIELDS, "allocation inputs")
     alloc = _closed_mapping(allocator, ALLOCATOR_FIELDS, "allocator")
     decisions = _closed_mapping(decision_fields, DECISION_FIELDS, "decision")
@@ -688,7 +691,7 @@ def _build_actor_identity_core(
     )
     output = object.__new__(ActorIdentity)
     for name, value in {
-        "context_state_bytes": canonical_json_bytes(state_payload),
+        "context_state_bytes": context_state_bytes,
         "context_state_digest": context["state_digest"],
         "context_bytes": canonical_json_bytes(context_fields),
         "proposal_bytes": canonical_json_bytes(proposal_payload),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, fields, replace
+from hashlib import sha256
 
 import numpy as np
 import pytest
@@ -571,6 +572,62 @@ def test_mapping_insertion_order_normalizes_and_equal_signed_zero_is_actor_hold(
     )
     assert held.current_weights == (0.0, -0.0)
     assert held.target_identity is None
+
+
+def test_actor_identity_reuses_canonical_account_state_encoding(monkeypatch):
+    account = _account()
+    original_encoder = decision_identity.canonical_json_bytes
+    context_state_encodings: list[bytes] = []
+
+    def count_context_state_encodings(value):
+        encoded = original_encoder(value)
+        if (
+            isinstance(value, dict)
+            and value.get("schema") == "independent_allocation_context_v1"
+        ):
+            context_state_encodings.append(encoded)
+        return encoded
+
+    monkeypatch.setattr(
+        decision_identity, "canonical_json_bytes", count_context_state_encodings
+    )
+    built = _build(account)
+
+    assert len(context_state_encodings) == 1
+    assert built.context_state_bytes == context_state_encodings[0]
+    assert built.context_state_bytes == original_encoder(
+        json.loads(built.context_state_bytes)
+    )
+    # Pinned from the public builder before the one-encoding change.
+    assert sha256(built.context_state_bytes).hexdigest() == (
+        "81d1e989bfe0ea310e4a384f53cd16e9d225b4a0e6008e157edaad50174736fb"
+    )
+    assert built.context_state_digest == sha256(built.context_state_bytes).hexdigest()
+    assert tuple(asdict(built)) == (
+        "context_state_bytes",
+        "context_state_digest",
+        "context_bytes",
+        "proposal_bytes",
+        "proposal_digest",
+        "decision_bytes",
+        "decision_digest",
+        "action_bytes",
+        "action_digest",
+        "actor_decision_identity",
+        "target_identity",
+        "current_weights",
+    )
+
+    changed_book = dict(account.book)
+    changed_book["returns_history"] = [*account.book["returns_history"], 0.02]
+    changed = _build(replace(account, book=changed_book))
+    assert len(context_state_encodings) == 2
+    assert changed.context_state_bytes == context_state_encodings[1]
+    assert (
+        changed.context_state_digest == sha256(changed.context_state_bytes).hexdigest()
+    )
+    assert changed.context_state_bytes != built.context_state_bytes
+    assert changed.context_state_digest != built.context_state_digest
 
 
 def test_canonical_order_normalization_signed_zero_and_mutation_are_explicit():

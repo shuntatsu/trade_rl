@@ -2240,9 +2240,19 @@ alpha, horizon, declared feature roster, and symbols. It also checks the
 receipt's plan, clock, initial-capital, horizon, runtime, cost, and risk
 declarations against the frozen binding. The strict event pass is still parsed
 comparison evidence, not source/receipt/attempt authentication, intent
-admission, accounting, or a ledger. Even with source, Dataset and protocol
-readback pins, the result does not authenticate an outer attempt or authorize
-Full B4. The module remains internal and outside production imports.
+admission, accounting, or a ledger. For a native (non-comparison-only) arm, the
+consumer also maintains an internal `ReferenceAccount` ledger across actor and
+reserve rows. After each row's receipt identity, event effects, orders and book
+have matched the Q-owned advance, the ledger independently derives MARKET price,
+capacity, fill costs, and carry from the pinned raw Dataset and frozen policy,
+then compares its account projection with the Q snapshot. Its starting state
+comes from the bound initial capital and Dataset marks; Q-projected costs and
+H-reported account values are not ledger inputs. The existing Q replay remains
+responsible for margin, admission, risk and terminal behavior; the reference
+rejects unsupported settlement, split, cash-interest and terminated-account
+rows. Comparison-only fixtures do not instantiate the ledger. This check still
+does not authenticate an outer attempt or authorize Full B4. The ledger remains
+internal and outside production imports.
 
 `outer_witness.py` provides immutable pins and bounded canonical readback for
 root-owned start/finish records. It does not create or observe processes, and

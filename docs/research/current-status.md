@@ -3806,6 +3806,13 @@ root-consumed pair is complete. No root-consumed pinned-H 6,599-step pair, nativ
 claimed. The current worktree remains development code; these interfaces do not
 promote it to Full-B4 authority.
 
+The native-arm consumer now also runs an independent `ReferenceAccount` ledger
+after each matched Q row, deriving price, fill cost and carry from the pinned
+Dataset and policy while preserving one account across actor and reserve phases.
+Synthetic tests cover row-level agreement and actor-to-reserve continuity. This
+source change has not been exercised on a fresh authenticated H/Q attempt and
+does not change the incomplete-pair status above.
+
 The typed artificial recipe now fixes a no-fit projection with intercept -0.02
 and a coefficient derived from the stored float32 feature range, producing
 predeclared baseline and pulse returns of -0.02 and +0.02. Its training rows are

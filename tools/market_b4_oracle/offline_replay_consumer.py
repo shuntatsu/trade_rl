@@ -40,6 +40,9 @@ from tools.market_b4_oracle.outer_witness import (
 )
 from tools.market_b4_oracle.output_index import NativeOutputIndex
 from tools.market_b4_oracle.receipt_stream import ReceiptScan
+from tools.market_b4_oracle.reference_ledger import (
+    _NativeReferenceLedger,
+)
 from tools.market_replay_oracle import (
     DatasetContentPin,
     DeclaredProtocolPair,
@@ -1417,6 +1420,15 @@ def _consume_indexed_market_arm(
         binding=binding,
         reserve_plan_digest=reserve_plan_digest,
     )
+    reference_ledger = (
+        None
+        if binding.comparison_only
+        else _NativeReferenceLedger(
+            content=content,
+            policy=policy,
+            binding=binding,
+        )
+    )
     configurations = protocol.get("configurations")
     configuration_rows = (
         [
@@ -1511,6 +1523,12 @@ def _consume_indexed_market_arm(
             processing_index=processing,
             interval_return=execution.get("interval_net_return"),
         )
+        if reference_ledger is not None:
+            reference_ledger.apply_advance(
+                advance=advance,
+                observed_fills=observed_fills,
+                observed_account=replay.account_snapshot,
+            )
     actor_scan = actor_reader.proof
     metadata = actor_reader.metadata
     if (
@@ -1556,6 +1574,12 @@ def _consume_indexed_market_arm(
             processing_index=processing,
             interval_return=execution.get("interval_net_return"),
         )
+        if reference_ledger is not None:
+            reference_ledger.apply_advance(
+                advance=advance,
+                observed_fills=observed_fills,
+                observed_account=replay.account_snapshot,
+            )
     reserve_scan = reserve_reader.proof
     if reserve_reader.metadata != metadata:
         raise ValueError("receipt metadata changed between actor and reserve scans")
@@ -1567,6 +1591,8 @@ def _consume_indexed_market_arm(
     ):
         raise ValueError("reserve receipt rows differ from bound window")
 
+    if reference_ledger is not None:
+        reference_ledger.assert_complete()
     completion = replay.completion()
     if (
         completion["status"] != "comparison_window_consumed"

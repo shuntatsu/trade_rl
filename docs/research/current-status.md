@@ -3788,7 +3788,7 @@ and account calculations unchanged. This is the selected H source pin for a
 fresh artificial-only software verification; it does not replace the original
 `8bc2fd0c` reference for the frozen native 48-arm path or authenticate prior
 receipts. No root-consumed Q comparison of the H-generated receipts is complete.
-No pinned-H 6,599-step pair, native 48-arm, repository-wide final gate,
+No root-consumed pinned-H 6,599-step pair, native 48-arm, repository-wide final gate,
 economic, unused-period or live evidence is claimed. The current worktree remains
 development code; these interfaces do not promote it to Full-B4 authority.
 

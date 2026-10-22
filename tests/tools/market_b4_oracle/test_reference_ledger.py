@@ -820,32 +820,98 @@ def test_native_consumer_applies_reference_after_strict_events_and_q_row(
 
 
 @pytest.mark.parametrize(
-    ("diagnostic_field", "diagnostic_value", "capacity_fixture"),
+    ("event_schema", "diagnostic_field", "diagnostic_value", "capacity_fixture"),
     [
-        pytest.param(None, None, "baseline", id="source-derived-positive-fill"),
-        pytest.param("filled_notional", 1.0, "baseline", id="alter-filled-notional"),
-        pytest.param("capacity_before", 1.0, "baseline", id="alter-capacity-before"),
-        pytest.param("capacity_after", 1.0, "baseline", id="alter-capacity-after"),
         pytest.param(
-            "participation_rate", 0.9, "baseline", id="alter-participation-rate"
+            "order_event_v2",
+            None,
+            None,
+            "baseline",
+            id="source-derived-positive-v2-fill",
         ),
         pytest.param(
+            "order_event_v2",
+            "filled_notional",
+            1.0,
+            "baseline",
+            id="alter-v2-filled-notional",
+        ),
+        pytest.param(
+            "order_event_v2",
+            "capacity_before",
+            1.0,
+            "baseline",
+            id="alter-v2-capacity-before",
+        ),
+        pytest.param(
+            "order_event_v2",
+            "capacity_after",
+            1.0,
+            "baseline",
+            id="alter-v2-capacity-after",
+        ),
+        pytest.param(
+            "order_event_v2",
+            "participation_rate",
+            0.9,
+            "baseline",
+            id="alter-v2-participation-rate",
+        ),
+        pytest.param(
+            "order_event_v2",
             "participation_rate",
             0.04,
             "baseline",
-            id="alter-participation-rate-under-policy-limit",
+            id="alter-v2-participation-rate-under-policy-limit",
         ),
         pytest.param(
+            "order_event_v2",
             None,
             None,
             "distinct-prior-volume-and-lower-row-limit",
-            id="source-derived-prior-volume-and-row-limit",
+            id="source-derived-v2-prior-volume-and-row-limit",
+        ),
+        pytest.param(
+            "order_event_v1",
+            None,
+            None,
+            "baseline",
+            id="source-derived-positive-v1-fill",
+        ),
+        pytest.param(
+            "order_event_v1",
+            "filled_notional",
+            1.0,
+            "baseline",
+            id="alter-v1-filled-notional",
+        ),
+        pytest.param(
+            "order_event_v1",
+            "capacity_before",
+            1.0,
+            "baseline",
+            id="alter-v1-capacity-before",
+        ),
+        pytest.param(
+            "order_event_v1",
+            "capacity_after",
+            1.0,
+            "baseline",
+            id="alter-v1-capacity-after",
+        ),
+        pytest.param(
+            "order_event_v1",
+            "participation_rate",
+            0.04,
+            "baseline",
+            id="alter-v1-participation-rate-under-policy-limit",
         ),
     ],
 )
-def test_native_consumer_checks_positive_v2_fill_diagnostics(
+def test_native_consumer_checks_native_positive_fill_diagnostics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    event_schema: str,
     diagnostic_field: str | None,
     diagnostic_value: float | None,
     capacity_fixture: str,
@@ -876,6 +942,29 @@ def test_native_consumer_checks_positive_v2_fill_diagnostics(
     )
     assert binding.comparison_only is False
     assert binding.native_role == "nonrl"
+    if event_schema == "order_event_v1":
+        # Keep the native source binding coherent with v1's admitted zero-lot
+        # path at both submission and processing rows.
+        arrays = {
+            name: np.array(values, copy=True)
+            for name, values in exact_fill.content.arrays.items()
+        }
+        arrays["lot_size"].fill(0.0)
+        for values in arrays.values():
+            values.setflags(write=False)
+        zero_lot_content = VerifiedDatasetContent(
+            exact_fill.content.dataset_id,
+            MappingProxyType(arrays),
+            exact_fill.content.dataset,
+        )
+        exact_fill = replace(exact_fill, content=zero_lot_content)
+        pair = binding.protocol_pair
+        assert pair is not None
+        monkeypatch.setattr(
+            module,
+            "_readback_static_inputs",
+            lambda **_kwargs: (pair, exact_fill, zero_lot_content),
+        )
     content = _complete_native_content(exact_fill, binding)
     if capacity_fixture == "distinct-prior-volume-and-lower-row-limit":
         decision_index = binding.window.actor_start
@@ -987,7 +1076,11 @@ def test_native_consumer_checks_positive_v2_fill_diagnostics(
         max(float(arrays["lot_size"][processing_index, slot]), policy.lot_size_floor)
         * policy.lot_size_factor
     )
-    expected_lot_count = expected_quantity / Fraction(str(effective_lot))
+    expected_lot_count = (
+        expected_quantity / Fraction(str(effective_lot))
+        if effective_lot > 0.0
+        else None
+    )
     expected_notional = (
         Decimal(expected_quantity.numerator)
         / Decimal(expected_quantity.denominator)
@@ -1012,7 +1105,10 @@ def test_native_consumer_checks_positive_v2_fill_diagnostics(
         expected_participation_denominator = 60
     assert facts.execution_price == Decimal("100.0")
     assert expected_quantity == 1000
-    assert effective_lot == 0.125 and expected_lot_count == 8000
+    if event_schema == "order_event_v1":
+        assert effective_lot == 0.0 and expected_lot_count is None
+    else:
+        assert effective_lot == 0.125 and expected_lot_count == 8000
     assert expected_notional == Decimal("100000.000")
     assert policy.order_latency_bars == 0
     with localcontext() as decimal_context:
@@ -1070,6 +1166,41 @@ def test_native_consumer_checks_positive_v2_fill_diagnostics(
     )
     assert capacity_before == 150_000.0
     filled_notional = float(expected_notional)
+    fill_event: dict[str, object] = {
+        "schema_version": event_schema,
+        "sequence": 1,
+        "order_id": order_id,
+        "replaced_order_id": None,
+        "dataset_id": content.dataset_id,
+        "execution_policy_digest": policy.execution_policy_digest,
+        "symbol_index": slot,
+        "event_type": "filled",
+        "processing_index": processing_index,
+        "timestamp_ns": processing_time_ns,
+        "previous_status": "eligible",
+        "new_status": "filled",
+        "requested_quantity": requested_quantity,
+        "remaining_quantity": 0.0,
+        "filled_quantity": requested_quantity,
+        "execution_price": float(facts.execution_price),
+        "filled_notional": filled_notional,
+        "capacity_before": capacity_before,
+        "capacity_after": capacity_before - filled_notional,
+        "participation_rate": float(participation),
+        "trigger_segment": None,
+        "available_volume_fraction": 1.0,
+        "reason": None,
+        "path_mode": "conservative",
+        "path_points": [],
+    }
+    if event_schema == "order_event_v2":
+        assert expected_lot_count is not None
+        fill_event.update(
+            filled_lot_count=int(expected_lot_count), lot_size=effective_lot
+        )
+    else:
+        assert event_schema == "order_event_v1"
+        assert expected_lot_count is None and effective_lot == 0.0
     native_events: list[dict[str, object]] = [
         {
             "schema_version": "order_event_v1",
@@ -1098,35 +1229,7 @@ def test_native_consumer_checks_positive_v2_fill_diagnostics(
             "path_mode": "conservative",
             "path_points": [],
         },
-        {
-            "schema_version": "order_event_v2",
-            "sequence": 1,
-            "order_id": order_id,
-            "replaced_order_id": None,
-            "dataset_id": content.dataset_id,
-            "execution_policy_digest": policy.execution_policy_digest,
-            "symbol_index": slot,
-            "event_type": "filled",
-            "processing_index": processing_index,
-            "timestamp_ns": processing_time_ns,
-            "previous_status": "eligible",
-            "new_status": "filled",
-            "requested_quantity": requested_quantity,
-            "remaining_quantity": 0.0,
-            "filled_quantity": requested_quantity,
-            "execution_price": float(facts.execution_price),
-            "filled_notional": filled_notional,
-            "capacity_before": capacity_before,
-            "capacity_after": capacity_before - filled_notional,
-            "participation_rate": float(participation),
-            "trigger_segment": None,
-            "available_volume_fraction": 1.0,
-            "reason": None,
-            "path_mode": "conservative",
-            "path_points": [],
-            "filled_lot_count": int(expected_lot_count),
-            "lot_size": effective_lot,
-        },
+        fill_event,
     ]
     if diagnostic_field is not None:
         assert diagnostic_field in native_events[1]
@@ -1205,8 +1308,10 @@ def test_native_consumer_checks_positive_v2_fill_diagnostics(
                 static_inputs=pins,
             )
     else:
+        schema_label = event_schema.removeprefix("order_event_")
         with pytest.raises(
-            ValueError, match="native v2 .* differs from the owned replay"
+            ValueError,
+            match=rf"native {schema_label} .* differs from the owned replay",
         ):
             module.consume_indexed_market_arm(
                 output_index=output_index,

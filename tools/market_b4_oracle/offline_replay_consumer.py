@@ -955,7 +955,7 @@ def _compare_event_effects(
         )
 
 
-def _compare_native_v2_fill_diagnostics(
+def _compare_native_fill_diagnostics(
     events: tuple[dict[str, object], ...],
     replay: FrozenMarketReplay,
     advance: object,
@@ -967,8 +967,7 @@ def _compare_native_v2_fill_diagnostics(
     fill_events = tuple(
         event
         for event in events
-        if event.get("schema_version") == "order_event_v2"
-        and event.get("event_type") in {"filled", "partial_fill"}
+        if event.get("event_type") in {"filled", "partial_fill"}
     )
     if not fill_events:
         return
@@ -977,7 +976,12 @@ def _compare_native_v2_fill_diagnostics(
         or len(advance.owned_fills) != 1
         or type(advance.owned_fills[0]) is not OwnedFill
     ):
-        raise ValueError("native v2 fill diagnostics require one owned active order")
+        raise ValueError("native fill diagnostics require one owned active order")
+
+    schema_version = fill_events[0].get("schema_version")
+    if schema_version not in {"order_event_v1", "order_event_v2"}:
+        raise ValueError("native fill diagnostics require a supported event schema")
+    schema_label = cast(str, schema_version).removeprefix("order_event_")
 
     selected = replay.selected_symbol_index
     volume_units = replay.content.dataset.get("volume_units")
@@ -986,13 +990,13 @@ def _compare_native_v2_fill_diagnostics(
         or len(volume_units) != 2
         or volume_units[selected] != "quote_notional"
     ):
-        raise ValueError("native v2 fill diagnostics require quote-notional capacity")
+        raise ValueError("native fill diagnostics require quote-notional capacity")
 
     arrays = replay.content.arrays
     fill = advance.owned_fills[0]
     processing = fill.processing_index
     if processing != advance.processing_index or processing <= 0:
-        raise ValueError("native v2 fill diagnostics require the owned processing row")
+        raise ValueError("native fill diagnostics require the owned processing row")
     # The frozen native profile consumes prior-bar quote volume and fixes the
     # capacity pool from the minimum of policy and processing-row participation.
     prior_volume = float(arrays["volume"][processing - 1, selected])
@@ -1002,13 +1006,25 @@ def _compare_native_v2_fill_diagnostics(
     )
     event = fill_events[0]
     capacity_after = max(0.0, initial_capacity - fill.filled_notional)
-    _same_float(event.get("filled_notional"), fill.filled_notional, "v2 fill notional")
-    _same_float(event.get("capacity_before"), initial_capacity, "v2 capacity before")
-    _same_float(event.get("capacity_after"), capacity_after, "v2 capacity after")
+    _same_float(
+        event.get("filled_notional"),
+        fill.filled_notional,
+        f"{schema_label} fill notional",
+    )
+    _same_float(
+        event.get("capacity_before"),
+        initial_capacity,
+        f"{schema_label} capacity before",
+    )
+    _same_float(
+        event.get("capacity_after"),
+        capacity_after,
+        f"{schema_label} capacity after",
+    )
     _same_float(
         event.get("participation_rate"),
         fill.participation_rate,
-        "v2 participation rate",
+        f"{schema_label} participation rate",
     )
 
 
@@ -1579,7 +1595,7 @@ def _consume_indexed_market_arm(
         _compare_actor_identity(native, advance)
         _compare_event_effects(events, observed_fills, replay, advance)
         if not binding.comparison_only:
-            _compare_native_v2_fill_diagnostics(events, replay, advance)
+            _compare_native_fill_diagnostics(events, replay, advance)
         _compare_orders(native, replay, advance, prior_terminal)
         execution = cast(dict[str, object], native["execution"])
         _compare_book(
@@ -1630,7 +1646,7 @@ def _consume_indexed_market_arm(
             reserve_fill_processing_indices.append(processing)
         _compare_event_effects(events, observed_fills, replay, advance)
         if not binding.comparison_only:
-            _compare_native_v2_fill_diagnostics(events, replay, advance)
+            _compare_native_fill_diagnostics(events, replay, advance)
         if advance.actor_identity is not None:
             raise ValueError("reserve submissions differ from owned reserve identity")
         _compare_orders(native, replay, advance, prior_terminal)

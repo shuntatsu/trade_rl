@@ -2250,14 +2250,16 @@ declarations against the frozen binding. The strict event pass is still parsed
 comparison evidence, not source/receipt/attempt authentication, intent
 admission, accounting, or a ledger. For a native (non-comparison-only) arm, the
 consumer also maintains an internal `ReferenceAccount` ledger across actor and
-reserve rows. Before ledger application, native `order_event_v2` fill diagnostics
-are checked against the owned fill and the bound raw Dataset/policy. The current
-single-active-order profile requires quote-notional volume and prior-bar capacity:
+reserve rows. Before ledger application, native `order_event_v1` and
+`order_event_v2` fill diagnostics are checked against the owned fill and the
+bound raw Dataset/policy. The current single-active-order profile requires
+quote-notional volume and prior-bar capacity:
 `filled_notional` and `participation_rate` match the owned fill; `capacity_before`
 uses prior-row quote volume times the smaller policy/processing-row participation
 limit; `capacity_after` uses the producer's subtraction and zero clamp. Other
-volume units and multiple active orders fail closed; comparison-only arms and
-v1 events retain their existing behavior. After each row's receipt identity,
+volume units and multiple active orders fail closed; comparison-only arms keep
+their existing behavior, and v1/v2 event schemas and public projections are
+unchanged. After each row's receipt identity,
 event effects, orders and book have matched the Q-owned advance, the ledger
 independently derives MARKET price, capacity, fill costs, and carry from the
 pinned raw Dataset and frozen policy, then compares its account projection with

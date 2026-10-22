@@ -33,6 +33,7 @@ PROFILE_SOURCE_HASHES: dict[str, frozenset[str]] = {
         {
             "cb1c2f9e71a8ee556ffb9058f8564109cb7699e102a729b5a73afaa80c2c3a79",
             "07a01341e51d2ac54aa0ea316d59fd6ed58046309b40f73db51390503abe741d",
+            "13ccc2feaaffa6225c9a8a1eda6902e130a77cfec5ef0f87383bdd0352ddecf4",
         }
     ),
     "trade_rl/artifacts/hashing.py": frozenset(
@@ -149,6 +150,10 @@ def test_validates_clean_pinned_source_tree_and_returns_raw_and_git_pins(
     assert verified["head_sha"] == pin.head_sha
     assert verified["snapshot_sha256"] == pin.snapshot_sha256
     assert verified["scope"] == "STATIC_SOURCE_BYTES_NOT_RUNTIME_ATTESTATION"
+    assert (
+        verified["profile_source_sha256"]["trade_rl/simulation/orders/model.py"]
+        == "13ccc2feaaffa6225c9a8a1eda6902e130a77cfec5ef0f87383bdd0352ddecf4"
+    )
     returned = verified["files"]
     expected = _snapshot_rows(root)
     assert [
@@ -223,7 +228,7 @@ def test_rejects_oversized_tracked_source_blob(tmp_path: Path) -> None:
         verify_native_source(root, _pin(root))
 
 
-def test_rejects_a_third_model_source_fingerprint(tmp_path: Path) -> None:
+def test_rejects_an_unreviewed_model_source_fingerprint(tmp_path: Path) -> None:
     root = _make_fixture(tmp_path)
     relative = "trade_rl/simulation/orders/model.py"
     path = root / relative

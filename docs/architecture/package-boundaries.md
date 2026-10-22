@@ -2069,7 +2069,11 @@ identity primitives `ARRAY_FIELDS`, `canonical`, and `content_id` for internal
 comparison tools that must rebuild a pinned Dataset identity without importing
 the implementation submodule directly.
 The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
-manifest, supported static profile fingerprints, and verified Dataset pins. It binds
+manifest, supported static profile fingerprints, and verified Dataset pins. The exact
+`model.py` profile allowlist binds reviewed blobs for the unchanged
+`execution_policy_digest` AST; it does not assert broader order, event, archive or replay
+behavior is equivalent. The full source snapshot continues to bind every tracked source
+file. The loader binds
 the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
 reserve intervals and checks complete effective policy dictionaries alongside separate
 canonical digests. The added facade does not expose a production API or change financial

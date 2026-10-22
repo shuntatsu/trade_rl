@@ -24,9 +24,9 @@ MAX_TOTAL_SOURCE_BYTES = 16 * 1024 * 1024
 MAX_WALK_ENTRIES = 100_000
 
 # These fingerprints bind the static policy derivation used by the supported
-# profile. model.py has two reviewed source variants with an identical
-# execution_policy_digest AST; the broader order/event/replay behavior is not
-# thereby asserted equivalent.
+# profile. model.py has a bounded set of reviewed source variants with the same
+# execution_policy_digest AST; broader order/event/replay behavior is not thereby
+# asserted equivalent.
 SUPPORTED_PROFILE_SOURCES: dict[str, frozenset[str]] = {
     "tools/tier_d_nonrl/tier_d_protocol.py": frozenset(
         {"9d679316cc4ffe614bdd8237271610c3168915f4b66993a16010b2fa812c6641"}
@@ -47,6 +47,7 @@ SUPPORTED_PROFILE_SOURCES: dict[str, frozenset[str]] = {
         {
             "cb1c2f9e71a8ee556ffb9058f8564109cb7699e102a729b5a73afaa80c2c3a79",
             "07a01341e51d2ac54aa0ea316d59fd6ed58046309b40f73db51390503abe741d",
+            "13ccc2feaaffa6225c9a8a1eda6902e130a77cfec5ef0f87383bdd0352ddecf4",
         }
     ),
     "trade_rl/artifacts/hashing.py": frozenset(

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sys
 from dataclasses import asdict, fields, replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,12 +18,15 @@ from trade_rl.evaluation.rl_allocation.transition_facts import _pending
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderDomainError,
+    OrderEvent,
     OrderIntent,
+    OrderStatus,
     OrderType,
     PendingOrder,
     TerminalOrderArchive,
     TimeInForce,
 )
+from trade_rl.simulation.stateful.execution import StatefulExecutionResult
 
 
 def _make_intent(
@@ -54,15 +60,300 @@ def _make_terminal_order(
     submit_index: int | None = None,
     last_processed_index: int | None = None,
     trigger_index: int | None = None,
+    quantity: float = 1.0,
 ) -> PendingOrder:
     sub = index if submit_index is None else submit_index
-    intent = _make_intent(submit_index=sub, eligible_index=sub + 1)
+    intent = _make_intent(submit_index=sub, eligible_index=sub + 1, quantity=quantity)
     p = PendingOrder.from_intent(intent)
     p = p.mark_eligible(processing_index=sub + 1)
     if trigger_index is not None:
         p = p.mark_triggered(processing_index=trigger_index)
     proc = sub + 1 if last_processed_index is None else last_processed_index
     return p.cancel(processing_index=proc, reason="test_done")
+
+
+def _terminal_event(order: PendingOrder, sequence: int) -> OrderEvent:
+    return OrderEvent(
+        schema_version="order_event_v1",
+        sequence=sequence,
+        order_id=order.order_id,
+        replaced_order_id=None,
+        dataset_id=order.intent.dataset_id,
+        execution_policy_digest=order.intent.execution_policy_digest,
+        symbol_index=order.intent.symbol_index,
+        event_type="cancelled",
+        processing_index=order.last_processed_index or 0,
+        timestamp_ns=sequence,
+        previous_status=OrderStatus.ELIGIBLE,
+        new_status=OrderStatus.CANCELLED,
+        requested_quantity=order.intent.requested_quantity,
+        remaining_quantity=order.remaining_quantity,
+        filled_quantity=order.cumulative_filled_quantity,
+        execution_price=None,
+        filled_notional=0.0,
+        capacity_before=0.0,
+        capacity_after=0.0,
+        participation_rate=0.0,
+        trigger_segment=None,
+        available_volume_fraction=1.0,
+        reason=order.terminal_reason,
+        path_mode="conservative",
+        path_points=(),
+    )
+
+
+def _captured_execution_result() -> StatefulExecutionResult:
+    from tests.evaluation.test_allocation_transition_trace import literal_args
+    from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+
+    env = AllocationTradingEnv(**literal_args())
+    env.reset()
+    captured = []
+    env._transition_recorder = SimpleNamespace(
+        freeze_execution=lambda result: captured.append(result.execution) or b""
+    )
+    env.step(3)
+    assert len(captured) == 1
+    result = captured[0]
+    assert isinstance(result, StatefulExecutionResult)
+    return result
+
+
+def _facts_execution(
+    archive: TerminalOrderArchive, events: tuple[OrderEvent, ...]
+) -> StatefulExecutionResult:
+    base = _captured_execution_result()
+    return replace(
+        base,
+        order_book=OrderBookState(active_orders=(), terminal_orders=archive),
+        order_events=tuple(events),
+    )
+
+
+def _legacy_terminal_order_reasons(
+    execution: StatefulExecutionResult,
+) -> list[dict[str, str]]:
+    terminal_ids = {
+        event.order_id for event in execution.order_events if event.new_status.terminal
+    }
+    return [
+        {"order_id": order.order_id, "reason": order.terminal_reason}
+        for order in execution.order_book.terminal_orders
+        if order.order_id in terminal_ids
+    ]
+
+
+def _assert_native_facts_match_legacy(execution: StatefulExecutionResult) -> None:
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        native_allocation_execution_facts,
+    )
+
+    observed = native_allocation_execution_facts(execution)
+    patcher = pytest.MonkeyPatch()
+    try:
+        patcher.setattr(
+            TerminalOrderArchive,
+            "_select_terminal_orders",
+            lambda _archive, _order_ids: None,
+        )
+        expected = native_allocation_execution_facts(execution)
+    finally:
+        patcher.undo()
+    assert canonical_json_bytes(observed) == canonical_json_bytes(expected)
+
+
+@pytest.mark.parametrize(
+    "selected_indexes",
+    [(), (2,), (0, 2), (0, 1, 2, 3), (None,), (2, 0, 2)],
+)
+def test_native_execution_facts_terminal_reasons_match_legacy_archive_order(
+    selected_indexes: tuple[int | None, ...],
+) -> None:
+    reasons = ("first", "二番目", "third", "fourth")
+    orders = tuple(
+        replace(
+            _make_terminal_order(index, quantity=(index + 1) / 4),
+            terminal_reason=reasons[index],
+        )
+        for index in range(len(reasons))
+    )
+    archive = TerminalOrderArchive(orders)
+    events: list[OrderEvent] = []
+    for sequence, index in enumerate(selected_indexes):
+        order_index = 0 if index is None else index
+        event = _terminal_event(orders[order_index], sequence)
+        if index is None:
+            event = replace(event, order_id="f" * 64)
+        events.append(event)
+    execution = _facts_execution(archive, tuple(events))
+
+    _assert_native_facts_match_legacy(execution)
+
+
+def test_native_execution_facts_branching_and_detached_order_views_match_legacy():
+    root_orders = tuple(
+        replace(_make_terminal_order(i, quantity=i + 1), terminal_reason=f"root-{i}")
+        for i in range(2)
+    )
+    root = TerminalOrderArchive(root_orders)
+    branch_a = root.append(
+        replace(_make_terminal_order(2, quantity=3), terminal_reason="branch-a")
+    )
+    branch_b = root.append(
+        replace(_make_terminal_order(3, quantity=4), terminal_reason="branch-b")
+    )
+
+    # Mutating caller-owned and public views must not alter the archived projection.
+    object.__setattr__(root_orders[0], "terminal_reason", "caller-change")
+    exposed = branch_a[1]
+    object.__setattr__(exposed, "terminal_reason", "view-change")
+    selected = (branch_a, branch_b)
+    for archive in selected:
+        execution = _facts_execution(
+            archive,
+            tuple(_terminal_event(order, i) for i, order in enumerate(archive)),
+        )
+        _assert_native_facts_match_legacy(execution)
+
+
+def test_native_execution_facts_reconstructs_only_selected_terminal_orders():
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        native_allocation_execution_facts,
+    )
+
+    orders = tuple(_make_terminal_order(i) for i in range(12))
+    archive = TerminalOrderArchive(orders)
+    execution = _facts_execution(
+        archive, (_terminal_event(orders[2], 0), _terminal_event(orders[9], 1))
+    )
+    decoder_code = PendingOrder.from_mapping.__func__.__code__
+    calls = 0
+    prior_profile = sys.getprofile()
+
+    def count_decoder_calls(frame, event, arg):
+        nonlocal calls
+        if event == "call" and frame.f_code is decoder_code:
+            calls += 1
+        if prior_profile is not None:
+            prior_profile(frame, event, arg)
+
+    sys.setprofile(count_decoder_calls)
+    try:
+        native_allocation_execution_facts(execution)
+    finally:
+        sys.setprofile(prior_profile)
+
+    assert calls == 2
+
+
+def test_native_execution_facts_falls_back_when_pending_decoder_is_patched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        native_allocation_execution_facts,
+    )
+
+    orders = tuple(_make_terminal_order(i) for i in range(6))
+    archive = TerminalOrderArchive(orders)
+    execution = _facts_execution(
+        archive, (_terminal_event(orders[1], 0), _terminal_event(orders[4], 1))
+    )
+    expected = native_allocation_execution_facts(execution)
+    original_decoder = PendingOrder.from_mapping.__func__
+    decoder_calls = 0
+
+    def wrapped_decoder(cls, value):
+        nonlocal decoder_calls
+        decoder_calls += 1
+        return original_decoder(cls, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(PendingOrder, "from_mapping", classmethod(wrapped_decoder))
+        observed = native_allocation_execution_facts(execution)
+
+    assert canonical_json_bytes(observed) == canonical_json_bytes(expected)
+    assert decoder_calls == len(orders)
+
+
+def test_native_execution_facts_falls_back_for_archive_subclass_and_patched_iterator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        native_allocation_execution_facts,
+    )
+
+    orders = tuple(
+        replace(_make_terminal_order(i), terminal_reason=f"reason-{i}")
+        for i in range(3)
+    )
+
+    class ReverseArchive(TerminalOrderArchive):
+        def __iter__(self):
+            yield from reversed(tuple(super().__iter__()))
+
+    subclass_archive = ReverseArchive(orders)
+    subclass_execution = _facts_execution(
+        subclass_archive,
+        tuple(_terminal_event(order, i) for i, order in enumerate(orders)),
+    )
+    subclass_facts = native_allocation_execution_facts(subclass_execution)
+    assert subclass_facts["terminal_order_reasons"] == _legacy_terminal_order_reasons(
+        subclass_execution
+    )
+    assert [row["order_id"] for row in subclass_facts["terminal_order_reasons"]] == [
+        order.order_id for order in reversed(orders)
+    ]
+
+    archive = TerminalOrderArchive(orders)
+    execution = _facts_execution(
+        archive, tuple(_terminal_event(order, i) for i, order in enumerate(orders))
+    )
+    original_iter = TerminalOrderArchive.__iter__
+
+    def reverse_native_iterator(self):
+        yield from reversed(tuple(original_iter(self)))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(TerminalOrderArchive, "__iter__", reverse_native_iterator)
+        facts = native_allocation_execution_facts(execution)
+        assert facts["terminal_order_reasons"] == _legacy_terminal_order_reasons(
+            execution
+        )
+
+
+@pytest.mark.parametrize("replacement_kind", ["valid", "malformed"])
+def test_native_execution_facts_falls_back_after_late_ancestor_byte_mutation(
+    replacement_kind: str,
+) -> None:
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        native_allocation_execution_facts,
+    )
+
+    first = replace(_make_terminal_order(0), terminal_reason="ancestor")
+    second = replace(_make_terminal_order(1), terminal_reason="descendant")
+    ancestor = TerminalOrderArchive((first,))
+    archive = ancestor.append(second)
+    execution = _facts_execution(
+        archive, (_terminal_event(first, 0), _terminal_event(second, 1))
+    )
+    node = ancestor._tail
+    assert node is not None
+    if replacement_kind == "valid":
+        payload = json.loads(node._order_bytes)
+        payload["terminal_reason"] = "mutated-valid-bytes"
+        replacement_bytes = canonical_json_bytes(payload)
+    else:
+        replacement_bytes = b"{"
+    object.__setattr__(node, "_order_bytes", replacement_bytes)
+
+    if replacement_bytes == b"{":
+        with pytest.raises(json.JSONDecodeError) as expected:
+            _legacy_terminal_order_reasons(execution)
+        with pytest.raises(type(expected.value)) as actual:
+            native_allocation_execution_facts(execution)
+        assert str(actual.value) == str(expected.value)
+    else:
+        _assert_native_facts_match_legacy(execution)
 
 
 def test_terminal_order_archive_metadata_and_asdict_parity() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import fields, is_dataclass, replace
 from enum import Enum
@@ -25,6 +25,7 @@ from trade_rl.simulation.orders.model import (
     OrderStatus,
     OrderType,
     PendingOrder,
+    TerminalOrderArchive,
     _quantity_tolerance,
 )
 from trade_rl.simulation.quantities import exact_quantity, parse_quantity
@@ -40,6 +41,9 @@ from trade_rl.strategies.allocation_action import (
 )
 from trade_rl.strategies.rl.allocation_fee_stress import retained_debt_economics_digest
 from trade_rl.strategies.rl.allocation_preprocessing import _native_json
+
+_ARCHIVE_SELECT_TERMINAL_ORDERS = TerminalOrderArchive._select_terminal_orders
+_ARCHIVE_SELECT_TERMINAL_ORDERS_CODE = _ARCHIVE_SELECT_TERMINAL_ORDERS.__code__
 
 
 def _json(value: Any) -> Any:
@@ -94,6 +98,20 @@ def native_allocation_execution_facts(
     terminal_ids = {
         event.order_id for event in execution.order_events if event.new_status.terminal
     }
+    terminal_orders = execution.order_book.terminal_orders
+    selected_terminal_orders: Iterable[PendingOrder] | None = None
+    if (
+        type(terminal_orders) is TerminalOrderArchive
+        and TerminalOrderArchive._select_terminal_orders
+        is _ARCHIVE_SELECT_TERMINAL_ORDERS
+        and TerminalOrderArchive._select_terminal_orders.__code__
+        is _ARCHIVE_SELECT_TERMINAL_ORDERS_CODE
+    ):
+        selected_terminal_orders = terminal_orders._select_terminal_orders(terminal_ids)
+    if selected_terminal_orders is None:
+        selected_terminal_orders = (
+            order for order in terminal_orders if order.order_id in terminal_ids
+        )
     return {
         "book": account["book"],
         "execution": {
@@ -104,9 +122,8 @@ def native_allocation_execution_facts(
         "order_events": [e.canonical_payload() for e in execution.order_events],
         "active_orders": account["active_orders"],
         "terminal_order_reasons": [
-            {"order_id": o.order_id, "reason": o.terminal_reason}
-            for o in execution.order_book.terminal_orders
-            if o.order_id in terminal_ids
+            {"order_id": order.order_id, "reason": order.terminal_reason}
+            for order in selected_terminal_orders
         ],
     }
 

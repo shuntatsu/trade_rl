@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Sequence, Set
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from typing import Mapping, overload
@@ -716,6 +716,9 @@ class _TerminalOrderNode:
     # Only immutable bytes belong to a published history node.  Neither the
     # caller's PendingOrder nor a mutable asdict() mapping is retained.
     _order_bytes: bytes
+    _reason_order_id: str
+    _terminal_reason: str
+    _reason_projection_sha256: bytes
     previous: _TerminalOrderNode | None
     length: int
     max_submit_index: int
@@ -763,6 +766,9 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         # mapping exactly once per added terminal, before sealing its bytes.
         validated = PendingOrder.from_mapping(asdict(order))
         order_bytes = canonical_json_bytes(asdict(validated))
+        terminal_reason = validated.terminal_reason
+        if terminal_reason is None:  # validated terminal orders always have a reason
+            raise OrderDomainError("terminal order is missing its validated reason")
         submit_index = validated.intent.submit_index
         previous_max = -1 if previous is None else previous.max_submit_index
         if submit_index > previous_max:
@@ -792,6 +798,11 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         )
         return _TerminalOrderNode(
             _order_bytes=order_bytes,
+            _reason_order_id=validated.order_id,
+            _terminal_reason=terminal_reason,
+            _reason_projection_sha256=_terminal_reason_projection_sha256(
+                order_bytes, validated.order_id, terminal_reason
+            ),
             previous=previous,
             length=1 if previous is None else previous.length + 1,
             max_submit_index=max_submit_index,
@@ -859,6 +870,53 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
             node = node.previous
         yield from reversed(reverse)
 
+    def _select_terminal_orders(
+        self, order_ids: Set[str]
+    ) -> tuple[PendingOrder, ...] | None:
+        """Select an ordered subset when sealed projection metadata is intact.
+
+        ``None`` asks the caller to use ordinary archive iteration. The scan is
+        O(n) in retained bytes; it avoids rebuilding unrelated PendingOrders.
+        """
+        if not _terminal_reason_selection_bindings_unchanged(self):
+            return None
+
+        selected_nodes: list[_TerminalOrderNode] = []
+        for node in self._ordered_nodes():
+            if (
+                type(node) is not _TerminalOrderNode
+                or type(node._order_bytes) is not bytes
+                or type(node._reason_order_id) is not str
+                or type(node._terminal_reason) is not str
+                or not node._terminal_reason
+                or type(node._reason_projection_sha256) is not bytes
+                or len(node._reason_projection_sha256) != 32
+            ):
+                return None
+            try:
+                projection_digest = _terminal_reason_projection_sha256(
+                    node._order_bytes,
+                    node._reason_order_id,
+                    node._terminal_reason,
+                )
+            except UnicodeError:
+                return None
+            if projection_digest != node._reason_projection_sha256:
+                return None
+            if node._reason_order_id in order_ids:
+                selected_nodes.append(node)
+
+        selected_orders: list[PendingOrder] = []
+        for node in selected_nodes:
+            order = node.order
+            if (
+                order.order_id != node._reason_order_id
+                or order.terminal_reason != node._terminal_reason
+            ):
+                return None
+            selected_orders.append(order)
+        return tuple(selected_orders)
+
     def __iter__(self) -> Iterator[PendingOrder]:
         for node in self._ordered_nodes():
             yield node.order
@@ -893,6 +951,64 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
 
     def __repr__(self) -> str:
         return f"TerminalOrderArchive({tuple(self)!r})"
+
+
+def _terminal_reason_projection_sha256(
+    order_bytes: bytes, order_id: str, reason: str
+) -> bytes:
+    digest = hashlib.sha256()
+    digest.update(b"terminal_order_reason_projection_v1\0")
+    for value in (order_bytes, order_id.encode("utf-8"), reason.encode("utf-8")):
+        digest.update(len(value).to_bytes(8, "big"))
+        digest.update(value)
+    return digest.digest()
+
+
+_ARCHIVE_ITER = TerminalOrderArchive.__iter__
+_ARCHIVE_ITER_CODE = _ARCHIVE_ITER.__code__
+_ARCHIVE_ORDERED_NODES = TerminalOrderArchive._ordered_nodes
+_ARCHIVE_ORDERED_NODES_CODE = _ARCHIVE_ORDERED_NODES.__code__
+_TERMINAL_NODE_ORDER = getattr(_TerminalOrderNode, "order")
+_TERMINAL_NODE_ORDER_GETTER = getattr(_TERMINAL_NODE_ORDER, "fget", None)
+_TERMINAL_NODE_ORDER_CODE = getattr(_TERMINAL_NODE_ORDER_GETTER, "__code__", None)
+_PENDING_FROM_MAPPING_DESCRIPTOR = PendingOrder.__dict__["from_mapping"]
+_PENDING_FROM_MAPPING = getattr(PendingOrder.from_mapping, "__func__", None)
+_PENDING_FROM_MAPPING_CODE = getattr(_PENDING_FROM_MAPPING, "__code__", None)
+_ARCHIVE_JSON_LOADS = json.loads
+_ARCHIVE_JSON_LOADS_CODE = _ARCHIVE_JSON_LOADS.__code__
+_ARCHIVE_SHA256 = hashlib.sha256
+_TERMINAL_REASON_PROJECTION = _terminal_reason_projection_sha256
+_TERMINAL_REASON_PROJECTION_CODE = _TERMINAL_REASON_PROJECTION.__code__
+
+
+def _terminal_reason_selection_bindings_unchanged(
+    archive: TerminalOrderArchive,
+) -> bool:
+    return (
+        type(archive) is TerminalOrderArchive
+        and TerminalOrderArchive.__iter__ is _ARCHIVE_ITER
+        and TerminalOrderArchive.__iter__.__code__ is _ARCHIVE_ITER_CODE
+        and TerminalOrderArchive._ordered_nodes is _ARCHIVE_ORDERED_NODES
+        and TerminalOrderArchive._ordered_nodes.__code__ is _ARCHIVE_ORDERED_NODES_CODE
+        and getattr(_TerminalOrderNode, "order") is _TERMINAL_NODE_ORDER
+        and getattr(_TERMINAL_NODE_ORDER, "fget", None) is _TERMINAL_NODE_ORDER_GETTER
+        and getattr(_TERMINAL_NODE_ORDER_GETTER, "__code__", None)
+        is _TERMINAL_NODE_ORDER_CODE
+        and PendingOrder.__dict__.get("from_mapping")
+        is _PENDING_FROM_MAPPING_DESCRIPTOR
+        and getattr(PendingOrder.from_mapping, "__func__", None)
+        is _PENDING_FROM_MAPPING
+        and getattr(
+            getattr(PendingOrder.from_mapping, "__func__", None), "__code__", None
+        )
+        is _PENDING_FROM_MAPPING_CODE
+        and json.loads is _ARCHIVE_JSON_LOADS
+        and json.loads.__code__ is _ARCHIVE_JSON_LOADS_CODE
+        and hashlib.sha256 is _ARCHIVE_SHA256
+        and _terminal_reason_projection_sha256 is _TERMINAL_REASON_PROJECTION
+        and _terminal_reason_projection_sha256.__code__
+        is _TERMINAL_REASON_PROJECTION_CODE
+    )
 
 
 @dataclass(frozen=True, slots=True)

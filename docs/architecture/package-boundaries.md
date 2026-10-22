@@ -979,6 +979,16 @@ the *new* order still costs work. A complete context digest still visits every
 retained terminal byte: O(n) per read, potentially O(T²) over T advancing
 steps. This is not a claim of end-to-end linear replay time.
 
+`transition_facts.py` may request terminal reasons for only the order IDs
+observed in an execution's terminal events. That subset selection is owned by
+`TerminalOrderArchive`: it scans sealed nodes in chronological order, checks
+each node's reason projection against its canonical order bytes, and
+materializes only selected orders. A changed projection/order byte or
+unsupported archive/decoder binding falls back to the public iterator, which
+retains the original validation and error behavior. This still scans all
+retained bytes and is O(n) per read; only reconstruction of unrelated
+`PendingOrder` objects is avoided.
+
 `OrderEvent` and its closed mapping reader/canonical payload also belong to
 `simulation/orders/model.py`. The stateful runtime consumes that lower-level
 event type; the order model does not depend on stateful runtime or evaluation.

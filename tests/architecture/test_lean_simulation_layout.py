@@ -193,3 +193,38 @@ def test_order_event_codec_is_owned_below_stateful_runtime() -> None:
             "trade_rl.evaluation",
         )
     )
+
+
+def test_terminal_reason_subset_readback_is_owned_by_the_archive() -> None:
+    model_path = SIMULATION / "orders" / "model.py"
+    facts_path = (
+        ROOT / "trade_rl" / "evaluation" / "rl_allocation" / "transition_facts.py"
+    )
+    model_tree = ast.parse(model_path.read_text(encoding="utf-8"))
+    facts_tree = ast.parse(facts_path.read_text(encoding="utf-8"))
+
+    archive = next(
+        node
+        for node in model_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "TerminalOrderArchive"
+    )
+    archive_methods = {
+        node.name
+        for node in archive.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "_select_terminal_orders" in archive_methods
+
+    facts_calls_archive_selector = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_select_terminal_orders"
+        for node in ast.walk(facts_tree)
+    )
+    assert facts_calls_archive_selector
+
+    model_imports = _imported_modules(model_path)
+    assert not any(
+        module == "trade_rl.evaluation" or module.startswith("trade_rl.evaluation.")
+        for module in model_imports
+    )

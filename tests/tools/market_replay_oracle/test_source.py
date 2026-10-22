@@ -34,6 +34,7 @@ PROFILE_SOURCE_HASHES: dict[str, frozenset[str]] = {
             "cb1c2f9e71a8ee556ffb9058f8564109cb7699e102a729b5a73afaa80c2c3a79",
             "07a01341e51d2ac54aa0ea316d59fd6ed58046309b40f73db51390503abe741d",
             "13ccc2feaaffa6225c9a8a1eda6902e130a77cfec5ef0f87383bdd0352ddecf4",
+            "7031ddb5de0e0a33495bd97c0c91fb54d86a3ba49706dbe45544f7eea20d841b",
         }
     ),
     "trade_rl/artifacts/hashing.py": frozenset(
@@ -152,7 +153,7 @@ def test_validates_clean_pinned_source_tree_and_returns_raw_and_git_pins(
     assert verified["scope"] == "STATIC_SOURCE_BYTES_NOT_RUNTIME_ATTESTATION"
     assert (
         verified["profile_source_sha256"]["trade_rl/simulation/orders/model.py"]
-        == "13ccc2feaaffa6225c9a8a1eda6902e130a77cfec5ef0f87383bdd0352ddecf4"
+        == "7031ddb5de0e0a33495bd97c0c91fb54d86a3ba49706dbe45544f7eea20d841b"
     )
     returned = verified["files"]
     expected = _snapshot_rows(root)

@@ -3766,31 +3766,38 @@ unchanged public H Dataset and market execution APIs. The plan pins the complete
 deterministic input, forecast, cost, risk and execution recipe; the operator
 reports the Dataset identity derived by H's builder. Its outputs remain artificial
 and do not impersonate a frozen H/v3-H/v4 attempt or confer authentication. The
-artificial H child in output bundle `b058e58211ef4ddb8ebc2719bec6a850` used H
-source `8bc2fd0c` and Q source `b93c161f`. It exited 0 with its owned process
-tree empty. The root-validated 601-byte manifest
-(`6183b597363fa414f890288c76f01120efed5a211ead6d11898accae99d2129b`) pins five
-output files, including both role receipts. The root-aware consumer rejected the
-attempt before replay because root authority omitted Q's shared protocol binding
-digest and Dataset ID. Local source commit
-`2b228612` now binds those values from Q-built
-inputs in the typed plan, but no fresh root-witnessed run has verified the fix.
-The original output, witness and receipts remain bound to their original pins
-and are not rebound.
+preserved output bundle `b058e58211ef4ddb8ebc2719bec6a850` used H source
+`8bc2fd0c` and Q source `b93c161f`. Its H child exited 0 with the owned process
+tree empty, and the root-validated 601-byte manifest pins both role receipts.
+That root-aware consumer rejected the attempt before replay because the typed
+root authority omitted Q's shared protocol-binding digest and Dataset ID. Local
+source commit `2b228612` binds both from Q-owned inputs; the old output and
+witness remain bound to their original pins. The `8bc2fd0c` source remains the
+frozen native 48-arm reference, but its v1 event lacks the signed lot count and
+effective lot size required for positive-lot v2 fills.
 
-An unrooted diagnostic against those preserved receipts stopped at the first
-positive-lot fill: the old `8bc2fd0c` event writer emitted v1 without the accepted
-signed lot count and effective lot size, while the Q validator requires v2 for
-positive-lot fills. Source commit `d361b6e3`,
-already in the current source ancestry, adds that versioned fill evidence while
-retaining v1 for legacy and non-fill events. It leaves Dataset, forecast, cost
-and account calculations unchanged. This is the selected H source pin for a
-fresh artificial-only software verification; it does not replace the original
-`8bc2fd0c` reference for the frozen native 48-arm path or authenticate prior
-receipts. No root-consumed Q comparison of the H-generated receipts is complete.
-No root-consumed pinned-H 6,599-step pair, native 48-arm, repository-wide final gate,
-economic, unused-period or live evidence is claimed. The current worktree remains
-development code; these interfaces do not promote it to Full-B4 authority.
+The separate artificial-only H source `d361b6e3` adds that versioned fill
+evidence while retaining v1 for legacy and non-fill events. It leaves Dataset,
+forecast, cost and account calculations unchanged, and does not replace the
+frozen native 48-arm source. A later H `d361b6e3` / Q `8cb81d` attempt exercised
+the typed root authority and reached the first NONRL active-order comparison,
+which failed because Q compared `asdict()` output containing `reduce_only: false`
+against H's canonical intent payload, which omits that false field. The Q
+consumer now compares the native intent shape with the owned intent's canonical
+payload. Regressions retain strict key/value checks for true `reduce_only` and
+mutated identity fields.
+
+After that fix, the public unrooted NONRL consumer call returned against the
+preserved, manifest-pinned receipt and fixed Q spec. Its normal-return contract
+implies all 6,527 actor and 72 reserve rows passed, but the external diagnostic
+exited 1 afterward when its summary formatter requested a nonexistent
+`research_authorized` field. No comparison result was serialized or exported, so
+the row count is contract-backed inference only. This unrooted single-role check
+does not authenticate the old root attempt; CASH has not been re-consumed and no
+root-consumed pair is complete. No root-consumed pinned-H 6,599-step pair, native
+48-arm, repository-wide final gate, economic, unused-period or live evidence is
+claimed. The current worktree remains development code; these interfaces do not
+promote it to Full-B4 authority.
 
 The typed artificial recipe now fixes a no-fit projection with intercept -0.02
 and a coefficient derived from the stored float32 feature range, producing

@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 import zlib
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal, cast
@@ -791,7 +791,7 @@ def _compare_orders(
     for order_id, order in owned_active.items():
         actual = observed_active[order_id]
         intent = actual.get("intent")
-        if type(intent) is not dict or intent != asdict(order.intent):
+        if type(intent) is not dict or intent != order.intent.canonical_payload():
             raise ValueError("native active order intent differs from owned state")
         if (
             actual.get("status") != order.status

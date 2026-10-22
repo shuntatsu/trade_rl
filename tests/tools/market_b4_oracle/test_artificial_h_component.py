@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -1350,3 +1351,126 @@ def test_synthetic_recipe_has_tick_valid_bars_and_terminal_boundary() -> None:
     assert execution["row_9503_used"] is False
     assert spec["pulse_indices"][-1] == execution["actor_stop_exclusive"] - 1
     assert 6527 + 72 == 6599
+
+
+def _first_artificial_active_order() -> tuple[Any, Any, Any, set[str]]:
+    import tools.market_b4_oracle.artificial_component as artificial
+    from tools.market_b4_oracle.frozen_forecast_index import FrozenForecastIndex
+    from tools.market_b4_oracle.frozen_market_replay import FrozenMarketReplay
+
+    inputs = artificial.build_artificial_component_inputs(_component_spec())
+    binding, policy = artificial.artificial_component_binding(inputs, "NONRL")
+    forecast_bytes = inputs.forecast_payload_canonical
+    forecast = FrozenForecastIndex(
+        forecast_bytes,
+        pinned_bytes=len(forecast_bytes),
+        pinned_sha256=hashlib.sha256(forecast_bytes).hexdigest(),
+    )
+    replay = FrozenMarketReplay(
+        content=inputs.content,
+        policy=policy,
+        binding=binding,
+        reserve_plan_digest="a" * 64,
+    )
+    advance = None
+    prior_terminal_ids: set[str] = set()
+    while not replay._active:
+        prior_terminal_ids = set(replay._terminal)
+        advance = replay.advance(forecast_index=forecast, role="NONRL")
+    assert advance is not None
+    assert advance.decision_index == 2905
+    return replay, advance, next(iter(replay._active.values())), prior_terminal_ids
+
+
+def _native_active_order(order: Any, intent: dict[str, object]) -> dict[str, object]:
+    from tools.market_b4_oracle.expected_intent import project_quantity
+
+    return {
+        "intent": intent,
+        "status": order.status,
+        "trigger_index": None,
+        "last_processed_index": order.last_processed_index,
+        "terminal_reason": order.terminal_reason,
+        "evidence_version": order.evidence_version,
+        "exact_cumulative_filled_quantity": str(order.exact_filled_quantity),
+        "remaining_quantity": order.remaining_quantity,
+        "cumulative_filled_quantity": project_quantity(order.exact_filled_quantity),
+        "cumulative_filled_notional": order.cumulative_filled_notional,
+    }
+
+
+def test_order_comparison_accepts_native_intent_with_default_reduce_only_omitted() -> (
+    None
+):
+    from dataclasses import asdict
+
+    import tools.market_b4_oracle.offline_replay_consumer as consumer
+
+    replay, advance, order, prior_terminal_ids = _first_artificial_active_order()
+    native_intent = asdict(order.intent)
+    assert native_intent.pop("reduce_only") is False
+
+    consumer._compare_orders(
+        {
+            "active_orders": [_native_active_order(order, native_intent)],
+            "terminal_order_reasons": [
+                {"order_id": order_id, "reason": terminal.terminal_reason}
+                for order_id, terminal in replay._terminal.items()
+                if order_id not in prior_terminal_ids
+            ],
+        },
+        replay,
+        advance,
+        prior_terminal_ids,
+    )
+
+
+def test_order_comparison_retains_true_reduce_only_and_rejects_intent_mutations() -> (
+    None
+):
+    from dataclasses import replace as dataclass_replace
+
+    import tools.market_b4_oracle.offline_replay_consumer as consumer
+    from tools.market_b4_oracle.expected_intent import ExpectedIntent
+
+    replay, advance, order, _ = _first_artificial_active_order()
+    original = order.intent
+    intent = ExpectedIntent.create(
+        dataset_id=original.dataset_id,
+        target_identity=original.target_identity,
+        execution_policy_digest=original.execution_policy_digest,
+        symbol_index=original.symbol_index,
+        requested_quantity=original.requested_quantity,
+        order_type=original.order_type,
+        time_in_force=original.time_in_force,
+        limit_price=original.limit_price,
+        stop_price=original.stop_price,
+        submit_index=original.submit_index,
+        eligible_index=original.eligible_index,
+        expiry_index=original.expiry_index,
+        submission_reference_price=original.submission_reference_price,
+        decision_equity=original.decision_equity,
+        replaced_order_id=original.replaced_order_id,
+        reduce_only=True,
+    )
+    true_order = dataclass_replace(order, intent=intent)
+    true_replay = SimpleNamespace(
+        _active={intent.order_id: true_order},
+        _terminal={},
+    )
+    native_intent = intent.canonical_payload()
+    assert native_intent["reduce_only"] is True
+    native_order = _native_active_order(true_order, native_intent)
+    native = {"active_orders": [native_order], "terminal_order_reasons": []}
+
+    consumer._compare_orders(native, true_replay, advance, set())
+
+    wrong_reduce_only = json.loads(json.dumps(native))
+    wrong_reduce_only["active_orders"][0]["intent"]["reduce_only"] = False
+    with pytest.raises(ValueError, match="native active order intent"):
+        consumer._compare_orders(wrong_reduce_only, true_replay, advance, set())
+
+    changed_identity = json.loads(json.dumps(native))
+    changed_identity["active_orders"][0]["intent"]["target_identity"] = "0" * 64
+    with pytest.raises(ValueError, match="native active order intent"):
+        consumer._compare_orders(changed_identity, true_replay, advance, set())

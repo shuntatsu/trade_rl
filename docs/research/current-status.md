@@ -3817,3 +3817,30 @@ test only. No fresh root-consumed artificial pair, frozen native 48-arm,
 independent full-B4 accounting, economic or unused-period evaluation, or live
 evidence is established. These interfaces do not grant research or G0-G4
 authority, change financial assumptions, or establish profitability.
+
+A fresh root-observed artificial attempt `9a078291` used Q source `6fe0d629`
+with the separate artificial-only H source `d361b6e3`. The H child exceeded the
+existing 3,600-second child timeout; the recorded witness interval was about
+3,603 seconds. Cleanup completed with the owned process tree empty and no cleanup
+errors. A NONRL receipt path was present, but there was no CASH receipt, finish
+witness, pair result or Q consumption, so this attempt did not complete a
+root-consumed pair. No retry was started, and the older failed artifacts remain
+bound to their original source pins. The attempt's authority flags remained
+false.
+
+The artificial operator now has an opt-in progress JSONL sidecar for future
+diagnostic attempts. The default omits its optional plan path and launch flag;
+the observer source identity continues to pin the actual Q revision. When
+enabled, the parent binds an absent safe path under its `output/verify` root to
+the typed plan, child plan, arguments and root input authority. The child alone
+creates the sidecar exclusively, after plan/CLI validation and before Dataset
+construction or replay. It records only role, phase, start index and processing
+index at each role/phase start, at a bounded stride and at the phase endpoint,
+with hard record and byte caps. Failure to create the sidecar exclusively fails
+the invocation before Dataset construction or replay. After creation,
+serialization or write errors disable logging without escaping the callback or
+replacing a primary execution error. The H account/order/history/RNG guards stay
+active, and their per-advance cost remains even when writes are throttled.
+Progress is not a result or authority signal. This diagnostic does not change
+the financial recipe, event protocol, H source pin, or child timeout; no
+successful pair or economic result is claimed.

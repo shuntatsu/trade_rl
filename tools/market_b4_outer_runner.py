@@ -250,6 +250,7 @@ class ArtificialHComponentPlan:
     attempt_uuid: str
     argv: tuple[str, ...]
     input_authority_canonical: bytes
+    progress_jsonl_path: Path | None = None
     scope: Literal["ARTIFICIAL_H_COMPONENT_PLAN_ONLY"] = (
         "ARTIFICIAL_H_COMPONENT_PLAN_ONLY"
     )
@@ -291,8 +292,24 @@ class ArtificialHComponentPlan:
         document = _parse_canonical_object(self.input_plan_canonical)
         authority = _parse_canonical_object(self.input_authority_canonical)
         authority_dataset = authority.get("dataset")
+        expected_document_fields = {
+            "schema",
+            "scope",
+            "attempt_uuid",
+            "child_source",
+            "runtime_pin",
+            "operator",
+            "component_spec",
+            "component_spec_sha256",
+            "output_root",
+            "outer_attempt_authenticated",
+            "full_b4_authorized",
+        }
+        if self.progress_jsonl_path is not None:
+            expected_document_fields.update({"progress_jsonl_path", "witness_root"})
         if (
             not _is_artificial_h_component_spec(spec)
+            or set(document) != expected_document_fields
             or document.get("schema") != _ARTIFICIAL_H_PLAN_SCHEMA
             or document.get("scope") != "ARTIFICIAL_H_COMPONENT_ONLY"
             or document.get("component_spec") != spec
@@ -310,11 +327,32 @@ class ArtificialHComponentPlan:
             or authority.get("attempt_uuid") != self.attempt_uuid
             or authority.get("outer_attempt_authenticated") is not False
             or authority.get("full_b4_authorized") is not False
+            or authority.get("witness_root") != str(self.witness_root)
+            or (
+                self.progress_jsonl_path is not None
+                and (
+                    not self.progress_jsonl_path.is_absolute()
+                    or ".." in self.progress_jsonl_path.parts
+                    or document.get("progress_jsonl_path")
+                    != str(self.progress_jsonl_path)
+                    or document.get("witness_root") != str(self.witness_root)
+                    or authority.get("progress_jsonl_path")
+                    != str(self.progress_jsonl_path)
+                )
+            )
+            or (
+                self.progress_jsonl_path is None
+                and (
+                    "progress_jsonl_path" in document
+                    or "progress_jsonl_path" in authority
+                )
+            )
             or self.argv
             != _artificial_h_component_argv(
                 child_python=self.child_python,
                 operator_path=self.operator_path,
                 input_plan_path=self.input_plan_path,
+                progress_jsonl_path=self.progress_jsonl_path,
             )
         ):
             raise ValueError(
@@ -358,14 +396,16 @@ def _is_artificial_h_component_spec(value: object) -> bool:
 
 
 def _artificial_h_component_argv(
-    *, child_python: Path, operator_path: Path, input_plan_path: Path
+    *,
+    child_python: Path,
+    operator_path: Path,
+    input_plan_path: Path,
+    progress_jsonl_path: Path | None = None,
 ) -> tuple[str, ...]:
-    if any(
-        not isinstance(path, Path) or not path.is_absolute()
-        for path in (child_python, operator_path, input_plan_path)
-    ):
+    paths = (child_python, operator_path, input_plan_path)
+    if any(not isinstance(path, Path) or not path.is_absolute() for path in paths):
         raise ValueError("artificial H component paths must be absolute")
-    return (
+    argv = (
         str(child_python),
         "-I",
         "-B",
@@ -373,6 +413,14 @@ def _artificial_h_component_argv(
         "--plan",
         str(input_plan_path),
     )
+    if progress_jsonl_path is None:
+        return argv
+    if (
+        not isinstance(progress_jsonl_path, Path)
+        or not progress_jsonl_path.is_absolute()
+    ):
+        raise ValueError("artificial H progress journal path must be absolute")
+    return (*argv, "--progress-jsonl", str(progress_jsonl_path))
 
 
 def _frozen_h_public_argv(
@@ -787,8 +835,10 @@ def _artificial_h_plan_document(
     operator_sha256: str,
     output_root: Path,
     attempt_uuid: str,
+    witness_root: Path,
+    progress_jsonl_path: Path | None,
 ) -> dict[str, object]:
-    return {
+    document: dict[str, object] = {
         "schema": _ARTIFICIAL_H_PLAN_SCHEMA,
         "scope": "ARTIFICIAL_H_COMPONENT_ONLY",
         "attempt_uuid": attempt_uuid,
@@ -805,6 +855,10 @@ def _artificial_h_plan_document(
         "outer_attempt_authenticated": False,
         "full_b4_authorized": False,
     }
+    if progress_jsonl_path is not None:
+        document["progress_jsonl_path"] = str(progress_jsonl_path)
+        document["witness_root"] = str(witness_root)
+    return document
 
 
 def _artificial_h_plan_authority(
@@ -827,8 +881,9 @@ def _artificial_h_plan_authority(
     attempt_uuid: str,
     argv: tuple[str, ...],
     environment_policy: dict[str, object],
+    progress_jsonl_path: Path | None,
 ) -> dict[str, object]:
-    return {
+    authority: dict[str, object] = {
         "scope": "ARTIFICIAL_H_COMPONENT_ONLY",
         "observer_source": {
             "root": str(observer_repository),
@@ -859,6 +914,9 @@ def _artificial_h_plan_authority(
         "outer_attempt_authenticated": False,
         "full_b4_authorized": False,
     }
+    if progress_jsonl_path is not None:
+        authority["progress_jsonl_path"] = str(progress_jsonl_path)
+    return authority
 
 
 def build_artificial_h_component_plan(
@@ -871,6 +929,7 @@ def build_artificial_h_component_plan(
     input_plan_path: Path,
     output_root: Path,
     witness_root: Path,
+    progress_jsonl_path: Path | None = None,
 ) -> ArtificialHComponentPlan:
     """Build an offline typed plan for the fixed artificial H component path."""
     if not _is_artificial_h_component_spec(component_spec):
@@ -935,6 +994,15 @@ def build_artificial_h_component_plan(
         or output_root.is_relative_to(input_plan_path)
     ):
         raise ValueError("artificial H input plan must be separate from child output")
+    if progress_jsonl_path is not None:
+        progress_jsonl_path = _validate_artificial_progress_path(
+            progress_jsonl_path,
+            observer_repository=observer_repository,
+            input_plan_path=input_plan_path,
+            output_root=output_root,
+            witness_root=witness_root,
+            require_absent=True,
+        )
     observer_identity = implementation_source_identity(observer_repository)
     observer_head, observer_clean, observer_status_sha256 = _git_readback(
         observer_repository
@@ -967,6 +1035,7 @@ def build_artificial_h_component_plan(
         child_python=child_python,
         operator_path=operator_path,
         input_plan_path=input_plan_path,
+        progress_jsonl_path=progress_jsonl_path,
     )
     input_document = _artificial_h_plan_document(
         component_spec=component_spec,
@@ -978,6 +1047,8 @@ def build_artificial_h_component_plan(
         operator_sha256=operator_sha256,
         output_root=output_root,
         attempt_uuid=attempt_uuid,
+        witness_root=witness_root,
+        progress_jsonl_path=progress_jsonl_path,
     )
     input_plan_canonical = _canonical(input_document)
     environment_policy = _artificial_h_environment_policy(
@@ -1002,6 +1073,7 @@ def build_artificial_h_component_plan(
         attempt_uuid=attempt_uuid,
         argv=argv,
         environment_policy=environment_policy,
+        progress_jsonl_path=progress_jsonl_path,
     )
     return ArtificialHComponentPlan(
         observer_repository=observer_repository,
@@ -1022,6 +1094,7 @@ def build_artificial_h_component_plan(
         attempt_uuid=attempt_uuid,
         argv=argv,
         input_authority_canonical=_canonical(input_authority),
+        progress_jsonl_path=progress_jsonl_path,
         _plan_token=_ARTIFICIAL_H_PLAN_TOKEN,
     )
 
@@ -1044,6 +1117,17 @@ def _assert_artificial_h_plan_current(
     plan: ArtificialHComponentPlan, *, input_plan_written: bool = False
 ) -> None:
     authority = _artificial_h_plan_authority_payload(plan)
+    if plan.progress_jsonl_path is not None:
+        progress_path = _validate_artificial_progress_path(
+            plan.progress_jsonl_path,
+            observer_repository=plan.observer_repository,
+            input_plan_path=plan.input_plan_path,
+            output_root=plan.output_root,
+            witness_root=plan.witness_root,
+            require_absent=not input_plan_written,
+        )
+        if progress_path != plan.progress_jsonl_path:
+            raise ValueError("artificial progress journal path changed")
     observer = authority.get("observer_source")
     if type(observer) is not dict:
         raise ValueError("artificial H plan lacks its observer source binding")
@@ -1453,6 +1537,70 @@ def _safe_target(path: Path, *, must_exist: bool) -> Path:
             raise ValueError("outer attempt path component is not a directory")
         if final_component and not must_exist:
             raise FileExistsError("outer attempt paths are fresh and never overwritten")
+    return target
+
+
+def _safe_fresh_file_target(path: Path) -> Path:
+    if not isinstance(path, Path) or not path.is_absolute() or ".." in path.parts:
+        raise ValueError("artificial progress path must be absolute and non-aliased")
+    target = path.absolute()
+    if not target.name:
+        raise ValueError("artificial progress path must name a file")
+    _safe_target(target.parent, must_exist=True)
+    try:
+        target.lstat()
+    except FileNotFoundError:
+        return target
+    raise FileExistsError("artificial progress paths are fresh and never overwritten")
+
+
+def _validate_artificial_progress_path(
+    path: Path,
+    *,
+    observer_repository: Path,
+    input_plan_path: Path,
+    output_root: Path,
+    witness_root: Path,
+    require_absent: bool,
+) -> Path:
+    verify_root = _safe_target(
+        observer_repository / "output" / "verify", must_exist=True
+    )
+    if not isinstance(path, Path) or not path.is_absolute() or ".." in path.parts:
+        raise ValueError("artificial progress path must be absolute and non-aliased")
+    target = path.absolute()
+    if (
+        not isinstance(target, Path)
+        or not target.is_absolute()
+        or ".." in target.parts
+        or target.parent != verify_root
+        or target.suffix != ".jsonl"
+    ):
+        raise ValueError(
+            "artificial progress journal must be a JSONL sibling under verify"
+        )
+    _safe_target(target.parent, must_exist=True)
+    if any(
+        target == protected
+        or target.is_relative_to(protected)
+        or protected.is_relative_to(target)
+        for protected in (input_plan_path, output_root, witness_root)
+    ):
+        raise ValueError(
+            "artificial progress journal must be disjoint from plan and artifacts"
+        )
+    if require_absent:
+        return _safe_fresh_file_target(target)
+    try:
+        info = target.lstat()
+    except FileNotFoundError:
+        return target
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or getattr(info, "st_nlink", 1) != 1
+        or getattr(info, "st_file_attributes", 0) & 0x400
+    ):
+        raise ValueError("artificial progress journal is not a regular unaliased file")
     return target
 
 

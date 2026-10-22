@@ -2251,6 +2251,28 @@ plans create no output root, and successful runs keep the existing five-file
 manifest roster without a failure journal. This diagnostic is not a receipt
 and grants no additional authority.
 
+The outer typed plan also has an opt-in `progress_jsonl_path` for this artificial
+operator only. With the default `None`, the optional path is omitted from the
+serialized plan and launch arguments; the observer source pin still reflects the
+actual Q revision. When enabled, the parent accepts only an absent, safe,
+disjoint path under its `output/verify` root and binds that exact path through
+the typed plan, child plan, launch arguments and root input authority. After
+validating the plan and CLI, the child is the sole creator and opens the fresh
+sidecar exclusively before Dataset construction or replay. The sidecar remains
+outside the authoritative H output and witness rosters.
+
+Progress lines are emitted at each role/phase start, at a bounded stride and at
+the phase endpoint, with hard record and byte caps. Each contains only role,
+phase, start index and processing index. They are provisional diagnostics: they
+do not report result completion or alter authority flags. Failure to create the
+sidecar exclusively fails the invocation before Dataset construction or replay.
+After creation, serialization or write errors disable further progress writes
+without escaping the callback or replacing a primary execution error. The
+existing H account, order, history and RNG guards remain active; the observer
+callback still incurs their per-advance cost even when line writes are
+throttled. This option does not change the fixed recipe, event protocol, H source
+pin or child timeout.
+
 `artificial_spec.py` validates the exact typed synthetic recipe before any
 derived values are built. `artificial_component.py` independently reconstructs
 the raw arrays, Dataset identity and canonical forecast bytes from that recipe,

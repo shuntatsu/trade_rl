@@ -15,6 +15,7 @@ import math
 import os
 import stat
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -46,6 +47,10 @@ _MAX_OUTPUT_FILE_BYTES = 2 * 1024**3
 _MAX_FAILURE_BYTES = 16 * 1024
 _MAX_FAILURE_MESSAGE_BYTES = 2048
 _MAX_FAILURE_TRACEBACK_FRAMES = 24
+_MAX_PROGRESS_RECORDS = 128
+_MAX_PROGRESS_BYTES = 32 * 1024
+_ACTOR_PROGRESS_STRIDE = 128
+_RESERVE_PROGRESS_STRIDE = 16
 
 
 def _canonical(value: object) -> bytes:
@@ -185,10 +190,204 @@ def _assert_output_root(plan: dict[str, object], observer_root: Path) -> Path:
     return output
 
 
+def _assert_progress_path(
+    path: Path,
+    *,
+    observer_root: Path,
+    plan_path: Path,
+    output_root: Path,
+    witness_root: Path,
+    require_absent: bool,
+) -> Path:
+    verify_root = observer_root / "output" / "verify"
+    if (
+        not path.is_absolute()
+        or ".." in path.parts
+        or path.parent != verify_root
+        or path.suffix != ".jsonl"
+    ):
+        raise ValueError(
+            "component progress journal must be a JSONL sibling under verify"
+        )
+    parent = path.parent
+    while True:
+        info = parent.lstat()
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or getattr(info, "st_file_attributes", 0) & 0x400
+        ):
+            raise ValueError("component progress ancestor is not a plain directory")
+        if parent == Path(parent.anchor):
+            break
+        parent = parent.parent
+    if any(
+        path == protected
+        or path.is_relative_to(protected)
+        or protected.is_relative_to(path)
+        for protected in (plan_path, output_root, witness_root)
+    ):
+        raise ValueError(
+            "component progress journal overlaps a plan or authoritative artifact"
+        )
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return path
+    if require_absent:
+        raise FileExistsError("component progress journal path already exists")
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or getattr(info, "st_nlink", 1) != 1
+        or getattr(info, "st_file_attributes", 0) & 0x400
+    ):
+        raise ValueError("component progress journal is not a regular unaliased file")
+    return path
+
+
+class _ProgressJournal:
+    """Bounded best-effort progress records, never an output or authority file."""
+
+    def __init__(self, path: Path, descriptor: int) -> None:
+        self._path = path
+        self._descriptor: int | None = descriptor
+        self._disabled = False
+        self._record_count = 0
+        self._written_bytes = 0
+        self._seen: dict[tuple[str, str], int] = {}
+
+    @classmethod
+    def create(
+        cls,
+        path: Path,
+        *,
+        observer_root: Path,
+        plan_path: Path,
+        output_root: Path,
+        witness_root: Path,
+    ) -> _ProgressJournal:
+        path = _assert_progress_path(
+            path,
+            observer_root=observer_root,
+            plan_path=plan_path,
+            output_root=output_root,
+            witness_root=witness_root,
+            require_absent=True,
+        )
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags, 0o600)
+        try:
+            opened = os.fstat(descriptor)
+            current = path.lstat()
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or getattr(opened, "st_nlink", 1) != 1
+                or getattr(opened, "st_file_attributes", 0) & 0x400
+                or opened.st_size != 0
+                or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+                or not stat.S_ISREG(current.st_mode)
+                or getattr(current, "st_nlink", 1) != 1
+                or getattr(current, "st_file_attributes", 0) & 0x400
+                or current.st_size != 0
+            ):
+                raise ValueError(
+                    "component progress journal was replaced during exclusive creation"
+                )
+        except BaseException:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise
+        return cls(path, descriptor)
+
+    def observer_for(self, role: str) -> Callable[[str, int, int], None]:
+        if role not in {"nonrl", "cash"}:
+            raise ValueError("component progress role is outside the fixed pair")
+
+        def observe(phase: str, start_index: int, processing_index: int) -> None:
+            if self._disabled or self._descriptor is None:
+                return
+            if (
+                type(phase) is not str
+                or type(start_index) is not int
+                or type(processing_index) is not int
+                or phase not in {"actor", "reserve"}
+                or processing_index != start_index + 1
+            ):
+                self._disable()
+                return
+            if phase == "actor":
+                stride = _ACTOR_PROGRESS_STRIDE
+                final_processing_index = _ACTOR_STOP
+            else:
+                stride = _RESERVE_PROGRESS_STRIDE
+                final_processing_index = _RESERVE_STOP
+
+            key = (role, phase)
+            count = self._seen.get(key, 0) + 1
+            self._seen[key] = count
+            if (
+                count != 1
+                and count % stride != 0
+                and processing_index != final_processing_index
+            ):
+                return
+            record = {
+                "role": role,
+                "phase": phase,
+                "start_index": start_index,
+                "processing_index": processing_index,
+            }
+            try:
+                raw = _canonical(record) + b"\n"
+                if (
+                    self._record_count >= _MAX_PROGRESS_RECORDS
+                    or self._written_bytes + len(raw) > _MAX_PROGRESS_BYTES
+                ):
+                    self._disable()
+                    return
+                view = memoryview(raw)
+                while view:
+                    written = os.write(self._descriptor, view)
+                    if written <= 0:
+                        raise OSError("component progress write made no progress")
+                    view = view[written:]
+                self._record_count += 1
+                self._written_bytes += len(raw)
+            except Exception:
+                self._disable()
+
+        return observe
+
+    def _disable(self) -> None:
+        self._disabled = True
+        self.close()
+
+    def close(self) -> None:
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is not None:
+            try:
+                os.fsync(descriptor)
+            except Exception:
+                pass
+            try:
+                os.close(descriptor)
+            except Exception:
+                pass
+
+
 def _assert_plan(
-    plan: dict[str, object], *, plan_raw: bytes, operator_path: Path, plan_path: Path
-) -> tuple[Path, dict[str, object], str]:
-    if set(plan) != {
+    plan: dict[str, object],
+    *,
+    plan_raw: bytes,
+    operator_path: Path,
+    plan_path: Path,
+    progress_jsonl_argument: Path | None,
+) -> tuple[Path, dict[str, object], str, Path | None]:
+    base_fields = {
         "schema",
         "scope",
         "attempt_uuid",
@@ -200,7 +399,28 @@ def _assert_plan(
         "output_root",
         "outer_attempt_authenticated",
         "full_b4_authorized",
-    }:
+    }
+    progress_fields = base_fields | {"progress_jsonl_path", "witness_root"}
+    witness_path: Path | None = None
+    if set(plan) == base_fields:
+        progress_path = None
+        if progress_jsonl_argument is not None:
+            raise ValueError("component CLI progress path is not present in the plan")
+    elif set(plan) == progress_fields:
+        progress_value = plan.get("progress_jsonl_path")
+        witness_value = plan.get("witness_root")
+        if type(progress_value) is not str or type(witness_value) is not str:
+            raise ValueError("component plan progress binding is malformed")
+        progress_path = Path(progress_value)
+        witness_path = Path(witness_value)
+        if (
+            not witness_path.is_absolute()
+            or ".." in witness_path.parts
+            or progress_jsonl_argument is None
+            or str(progress_jsonl_argument) != progress_value
+        ):
+            raise ValueError("component CLI progress path differs from the plan")
+    else:
         raise ValueError("component input plan has an unexpected field roster")
     child = plan.get("child_source")
     runtime_pin = plan.get("runtime_pin")
@@ -239,7 +459,30 @@ def _assert_plan(
     assert type(observer) is dict
     observer_root = Path(str(observer["path"])).parents[1]
     output_root = _assert_output_root(plan, observer_root)
-    return output_root, runtime_pin, str(plan["attempt_uuid"])
+    if progress_path is not None:
+        if witness_path is None:
+            raise ValueError("component plan progress witness root is missing")
+        witness_root = _assert_output_root(
+            {"output_root": str(witness_path)}, observer_root
+        )
+        if (
+            witness_root == output_root
+            or witness_root.is_relative_to(output_root)
+            or output_root.is_relative_to(witness_root)
+            or plan_path == witness_root
+            or plan_path.is_relative_to(witness_root)
+            or witness_root.is_relative_to(plan_path)
+        ):
+            raise ValueError("component witness root overlaps plan or output")
+        progress_path = _assert_progress_path(
+            progress_path,
+            observer_root=observer_root,
+            plan_path=plan_path,
+            output_root=output_root,
+            witness_root=witness_root,
+            require_absent=True,
+        )
+    return output_root, runtime_pin, str(plan["attempt_uuid"]), progress_path
 
 
 def _is_fixed_spec(spec: dict[str, object]) -> bool:
@@ -966,6 +1209,8 @@ def _run_pair(
     dataset: Any,
     stream: Any,
     artifact: Any,
+    *,
+    progress_journal: _ProgressJournal | None = None,
 ) -> dict[str, object]:
     from tools.tier_d_nonrl.tier_d_native import carrier, declare_pair, execution_folds
     from tools.tier_d_nonrl.tier_d_records import save_gzip
@@ -1032,7 +1277,15 @@ def _run_pair(
             scenario=str(spec["scenario"]),
             role=role,
         )
-        native = run_terminal_allocation_execution(folds, environment, plan)
+        if progress_journal is None:
+            native = run_terminal_allocation_execution(folds, environment, plan)
+        else:
+            native = run_terminal_allocation_execution(
+                folds,
+                environment,
+                plan,
+                on_advance=progress_journal.observer_for(role),
+            )
         payload = native.payload
         receipt_path = output_root / "receipts" / f"{role}.json.gz"
         receipt_path.parent.mkdir(exist_ok=True)
@@ -1155,15 +1408,21 @@ def _load_h_modules(source_root: Path, observer_root: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--plan", required=True)
+    parser.add_argument("--progress-jsonl", type=Path)
     arguments = parser.parse_args(argv)
     plan_path = Path(arguments.plan)
     plan_raw, plan = _read_plan(plan_path)
     operator_path = Path(__file__).resolve()
-    output_root, runtime_pin, attempt_uuid = _assert_plan(
-        plan, plan_raw=plan_raw, operator_path=operator_path, plan_path=plan_path
+    output_root, runtime_pin, attempt_uuid, progress_path = _assert_plan(
+        plan,
+        plan_raw=plan_raw,
+        operator_path=operator_path,
+        plan_path=plan_path,
+        progress_jsonl_argument=arguments.progress_jsonl,
     )
     output_root.mkdir(parents=True, exist_ok=False)
     phase = "operator_setup"
+    progress_journal: _ProgressJournal | None = None
     try:
         child = plan["child_source"]
         operator = plan["operator"]
@@ -1174,6 +1433,15 @@ def main(argv: list[str] | None = None) -> int:
         spec = cast(dict[str, Any], spec_value)
         source_root = Path(str(child["root"])).resolve()
         observer_root = Path(str(operator["path"])).resolve().parents[1]
+        if progress_path is not None:
+            assert type(operator) is dict
+            progress_journal = _ProgressJournal.create(
+                progress_path,
+                observer_root=observer_root,
+                plan_path=plan_path,
+                output_root=output_root,
+                witness_root=Path(str(plan["witness_root"])),
+            )
         _load_h_modules(source_root, observer_root)
 
         phase = "runtime_report"
@@ -1199,7 +1467,17 @@ def main(argv: list[str] | None = None) -> int:
         forecast = publish_simple_return_stream_artifact(forecast_path, stream)
 
         phase = "run_pair"
-        result = _run_pair(output_root, spec, dataset, stream, forecast)
+        if progress_journal is None:
+            result = _run_pair(output_root, spec, dataset, stream, forecast)
+        else:
+            result = _run_pair(
+                output_root,
+                spec,
+                dataset,
+                stream,
+                forecast,
+                progress_journal=progress_journal,
+            )
         result["forecast_stream"] = {
             "path": forecast_path.relative_to(output_root).as_posix(),
             "sha256": forecast.digest,
@@ -1229,6 +1507,9 @@ def main(argv: list[str] | None = None) -> int:
             # The primary operator failure remains authoritative if journaling fails.
             pass
         raise
+    finally:
+        if progress_journal is not None:
+            progress_journal.close()
     return 0
 
 

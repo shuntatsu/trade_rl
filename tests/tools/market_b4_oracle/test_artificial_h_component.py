@@ -417,7 +417,12 @@ def test_coherently_rehashed_artificial_forecast_fails_before_receipt_scan(
         )
 
 
-def _artificial_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _artificial_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    progress_jsonl: bool = False,
+):
     import tools.market_b4_outer_runner as outer
     from tools.market_replay_oracle.source import NativeSourcePin
 
@@ -454,6 +459,9 @@ def _artificial_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         outer, "capture_frozen_h_runtime_pin", lambda _: frozen.runtime_pin
     )
 
+    plan_kwargs: dict[str, Any] = {}
+    if progress_jsonl:
+        plan_kwargs["progress_jsonl_path"] = verify / "component-progress.jsonl"
     return outer.build_artificial_h_component_plan(
         observer_repository=observer,
         child_source_root=frozen.child_source_root,
@@ -463,7 +471,146 @@ def _artificial_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         input_plan_path=plan_path,
         output_root=output_root,
         witness_root=witness_root,
+        **plan_kwargs,
     )
+
+
+def test_artificial_h_progress_journal_is_optional_and_pinned_in_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    plan = _artificial_plan(tmp_path / "enabled", monkeypatch, progress_jsonl=True)
+    progress_path = plan.output_root.parent / "component-progress.jsonl"
+    document = json.loads(plan.input_plan_canonical)
+    authority = plan.input_authority
+    assert plan.progress_jsonl_path == progress_path
+    assert not progress_path.exists()
+    assert document["progress_jsonl_path"] == str(progress_path)
+    assert document["witness_root"] == str(plan.witness_root)
+    assert authority["progress_jsonl_path"] == str(progress_path)
+    assert "--progress-jsonl" in plan.argv
+    progress_position = plan.argv.index("--progress-jsonl")
+    assert plan.argv[progress_position + 1] == str(progress_path)
+    assert plan.scope == "ARTIFICIAL_H_COMPONENT_PLAN_ONLY"
+    assert plan.outer_attempt_authenticated is False
+    assert plan.full_b4_authorized is False
+
+    default_plan = _artificial_plan(tmp_path / "default", monkeypatch)
+    assert default_plan.progress_jsonl_path is None
+    assert "progress_jsonl_path" not in json.loads(default_plan.input_plan_canonical)
+    assert "--progress-jsonl" not in default_plan.argv
+
+
+def test_artificial_h_progress_path_rejects_authoritative_or_existing_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    plan = _artificial_plan(tmp_path, monkeypatch)
+    verify_root = plan.output_root.parent
+    existing = verify_root / "already-owned.jsonl"
+    existing.write_bytes(b"retain")
+    cases = (
+        plan.output_root / "progress.jsonl",
+        plan.witness_root / "progress.jsonl",
+        tmp_path / "outside-verify.jsonl",
+        existing,
+    )
+    for progress_path in cases:
+        with pytest.raises((ValueError, FileExistsError), match="progress|diagnostic"):
+            outer.build_artificial_h_component_plan(
+                observer_repository=plan.observer_repository,
+                child_source_root=plan.child_source_root,
+                source_pin=plan.child_source_pin,
+                runtime_pin=plan.runtime_pin,
+                component_spec=plan.component_spec,
+                input_plan_path=plan.input_plan_path,
+                output_root=plan.output_root,
+                witness_root=plan.witness_root,
+                progress_jsonl_path=progress_path,
+            )
+    assert existing.read_bytes() == b"retain"
+    assert not plan.output_root.exists()
+    assert not plan.witness_root.exists()
+
+
+def test_artificial_h_progress_path_requires_absolute_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    plan = _artificial_plan(tmp_path, monkeypatch)
+    monkeypatch.chdir(plan.output_root.parent)
+
+    with pytest.raises(ValueError, match="absolute|progress"):
+        outer.build_artificial_h_component_plan(
+            observer_repository=plan.observer_repository,
+            child_source_root=plan.child_source_root,
+            source_pin=plan.child_source_pin,
+            runtime_pin=plan.runtime_pin,
+            component_spec=plan.component_spec,
+            input_plan_path=plan.input_plan_path,
+            output_root=plan.output_root,
+            witness_root=plan.witness_root,
+            progress_jsonl_path=Path("relative-progress.jsonl"),
+        )
+
+
+def test_artificial_h_progress_path_rejects_original_parent_components(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    plan = _artificial_plan(tmp_path, monkeypatch)
+    verify_root = plan.output_root.parent
+    aliased_path = verify_root / ".." / "verify" / "parent-progress.jsonl"
+
+    with pytest.raises(ValueError, match="absolute|progress|non-aliased"):
+        outer.build_artificial_h_component_plan(
+            observer_repository=plan.observer_repository,
+            child_source_root=plan.child_source_root,
+            source_pin=plan.child_source_pin,
+            runtime_pin=plan.runtime_pin,
+            component_spec=plan.component_spec,
+            input_plan_path=plan.input_plan_path,
+            output_root=plan.output_root,
+            witness_root=plan.witness_root,
+            progress_jsonl_path=aliased_path,
+        )
+
+
+def test_component_progress_rejects_reparse_ancestor_added_after_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    import tools.market_b4_artificial_component_operator as operator
+
+    plan = _artificial_plan(tmp_path, monkeypatch, progress_jsonl=True)
+    assert plan.progress_jsonl_path is not None
+    linked_ancestor = plan.progress_jsonl_path.parent.parent
+    original_lstat = Path.lstat
+
+    def lstat_with_reparse(path: Path):
+        info = original_lstat(path)
+        if path == linked_ancestor:
+            return SimpleNamespace(
+                st_mode=info.st_mode,
+                st_file_attributes=0x400,
+                st_nlink=info.st_nlink,
+            )
+        return info
+
+    monkeypatch.setattr(Path, "lstat", lstat_with_reparse)
+    with pytest.raises(ValueError, match="reparse|plain directory|ancestor"):
+        operator._assert_progress_path(
+            plan.progress_jsonl_path,
+            observer_root=plan.observer_repository,
+            plan_path=plan.input_plan_path,
+            output_root=plan.output_root,
+            witness_root=plan.witness_root,
+            require_absent=True,
+        )
 
 
 def test_artificial_root_authority_binds_q_protocol_and_dataset(
@@ -602,11 +749,16 @@ def test_artificial_root_authority_binds_q_protocol_and_dataset(
         validate(wrong_dataset, "wrong-dataset-id")
 
 
-def _prepare_operator_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _prepare_operator_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    progress_jsonl: bool = False,
+):
     import tools.market_b4_artificial_component_operator as operator
     from trade_rl.strategies.forecasts import simple_stream_io
 
-    plan = _artificial_plan(tmp_path, monkeypatch)
+    plan = _artificial_plan(tmp_path, monkeypatch, progress_jsonl=progress_jsonl)
     plan.input_plan_path.write_bytes(plan.input_plan_canonical)
     monkeypatch.setattr(operator, "__file__", str(plan.operator_path))
     monkeypatch.setattr(operator.Path, "cwd", lambda: plan.child_source_root)
@@ -712,6 +864,39 @@ def test_operator_main_does_not_write_to_an_unvalidated_output_root(
     assert not plan.output_root.exists()
 
 
+def test_operator_main_rejects_progress_cli_or_existing_path_before_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
+    assert plan.progress_jsonl_path is not None
+    wrong_path = plan.progress_jsonl_path.with_name("other-progress.jsonl")
+    with pytest.raises(ValueError, match="progress"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(wrong_path),
+            ]
+        )
+    assert not plan.output_root.exists()
+    assert not wrong_path.exists()
+
+    retained = b"existing diagnostic target"
+    plan.progress_jsonl_path.write_bytes(retained)
+    with pytest.raises(FileExistsError, match="progress"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(plan.progress_jsonl_path),
+            ]
+        )
+    assert plan.progress_jsonl_path.read_bytes() == retained
+    assert not plan.output_root.exists()
+
+
 @pytest.mark.parametrize("diagnostic_conflict", ["already_exists", "write_error"])
 def test_operator_main_preserves_original_failure_if_diagnostic_cannot_be_written(
     tmp_path: Path,
@@ -750,12 +935,26 @@ def test_operator_main_preserves_original_failure_if_diagnostic_cannot_be_writte
         assert not failure_path.exists()
 
 
+@pytest.mark.parametrize("progress_enabled", [False, True])
 def test_operator_main_success_keeps_the_existing_five_file_roster(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    progress_enabled: bool,
 ) -> None:
-    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    operator, plan = _prepare_operator_main(
+        tmp_path, monkeypatch, progress_jsonl=progress_enabled
+    )
 
-    def complete_pair(output_root: Path, *_args: object) -> dict[str, object]:
+    def complete_pair(
+        output_root: Path,
+        *_args: object,
+        progress_journal: Any = None,
+    ) -> dict[str, object]:
+        if progress_journal is not None:
+            for role in ("nonrl", "cash"):
+                observe = progress_journal.observer_for(role)
+                observe("actor", 2903, 2904)
+                observe("reserve", 9430, 9431)
         receipt_root = output_root / "receipts"
         receipt_root.mkdir()
         (receipt_root / "nonrl.json.gz").write_bytes(b"nonrl receipt")
@@ -764,7 +963,11 @@ def test_operator_main_success_keeps_the_existing_five_file_roster(
 
     monkeypatch.setattr(operator, "_run_pair", complete_pair)
 
-    assert operator.main(["--plan", str(plan.input_plan_path)]) == 0
+    argv = ["--plan", str(plan.input_plan_path)]
+    if progress_enabled:
+        assert plan.progress_jsonl_path is not None
+        argv.extend(["--progress-jsonl", str(plan.progress_jsonl_path)])
+    assert operator.main(argv) == 0
     manifest = json.loads((plan.output_root / "output-manifest.json").read_bytes())
     assert set(manifest) == {
         "component-result.json",
@@ -774,6 +977,111 @@ def test_operator_main_success_keeps_the_existing_five_file_roster(
         "receipts/nonrl.json.gz",
     }
     assert not (plan.output_root / "operator-failure.json").exists()
+    if progress_enabled:
+        assert plan.progress_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in plan.progress_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        assert [(record["role"], record["phase"]) for record in records] == [
+            ("nonrl", "actor"),
+            ("nonrl", "reserve"),
+            ("cash", "actor"),
+            ("cash", "reserve"),
+        ]
+        assert all(
+            set(record) == {"role", "phase", "start_index", "processing_index"}
+            for record in records
+        )
+        assert not plan.progress_jsonl_path.is_relative_to(plan.output_root)
+
+
+def test_progress_journal_is_passive_and_disables_after_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_artificial_component_operator as operator
+    from tests.evaluation.test_allocation_terminal_execution import (
+        capability as terminal_capability,
+    )
+    from tests.evaluation.test_allocation_terminal_execution import (
+        carrier,
+        plans,
+    )
+
+    verify_root = tmp_path / "output" / "verify"
+    verify_root.mkdir(parents=True)
+    plan_path = verify_root / "input-plan.json"
+    output_root = verify_root / "attempt"
+    witness_root = verify_root / "witness"
+    api = terminal_capability()
+
+    def execute(observer=None) -> bytes:
+        folds, environment = carrier(kind="cash")
+        plan = plans(api, environment, folds, kind="cash", stop=9)
+        if observer is None:
+            result = api.run_terminal_allocation_execution(folds, environment, plan)
+        else:
+            result = api.run_terminal_allocation_execution(
+                folds, environment, plan, on_advance=observer
+            )
+        return _canonical(result.payload)
+
+    baseline = execute()
+    path = verify_root / "progress.jsonl"
+    journal = operator._ProgressJournal.create(
+        path,
+        observer_root=tmp_path,
+        plan_path=plan_path,
+        output_root=output_root,
+        witness_root=witness_root,
+    )
+    try:
+        instrumented = execute(journal.observer_for("cash"))
+    finally:
+        journal.close()
+    assert instrumented == baseline
+    records = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert {record["phase"] for record in records} == {"actor", "reserve"}
+    assert all(
+        set(record) == {"role", "phase", "start_index", "processing_index"}
+        and record["role"] == "cash"
+        and type(record["start_index"]) is int
+        and record["processing_index"] == record["start_index"] + 1
+        for record in records
+    )
+
+    failing_path = verify_root / "write-failure.jsonl"
+    failing_journal = operator._ProgressJournal.create(
+        failing_path,
+        observer_root=tmp_path,
+        plan_path=plan_path,
+        output_root=output_root,
+        witness_root=witness_root,
+    )
+    assert failing_journal._descriptor is not None
+    failed_descriptor = failing_journal._descriptor
+    original_write = operator.os.write
+    attempted_writes = 0
+
+    def fail_progress_write(descriptor: int, data: Any) -> int:
+        nonlocal attempted_writes
+        if descriptor == failed_descriptor:
+            attempted_writes += 1
+            raise OSError("diagnostic storage unavailable")
+        return original_write(descriptor, data)
+
+    monkeypatch.setattr(operator.os, "write", fail_progress_write)
+    try:
+        after_write_failure = execute(failing_journal.observer_for("cash"))
+    finally:
+        failing_journal.close()
+    assert after_write_failure == baseline
+    assert attempted_writes == 1
+    assert failing_path.read_bytes() == b""
 
 
 def test_operator_main_removes_success_markers_if_manifest_write_fails(

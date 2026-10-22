@@ -996,14 +996,19 @@ def _run_pair(
             "synthetic account or terminal recipe differs from the fixed scope"
         )
     provenance = build_candidate_run_provenance()
+    selected_symbol = str(spec["symbol"])
+    selected_symbol_index = dataset.symbols.index(selected_symbol)
+    selected_estimates = tuple(
+        row for row in estimates if row.symbol == selected_symbol
+    )
     # These declarations only create native plan identities for the two
     # artificial arms. They carry no review or research authority.
     pair = declare_pair(
         prepared,
-        estimates,
+        selected_estimates,
         protocol,
         horizon=int(forecast["horizon_hours"]),
-        symbol_index=dataset.symbols.index(str(spec["symbol"])),
+        symbol_index=selected_symbol_index,
         account=f"{spec['configuration_id']}_{spec['symbol']}",
         scenario=str(spec["scenario"]),
         configuration=str(spec["configuration_id"]),
@@ -1019,10 +1024,10 @@ def _run_pair(
     for role, plan in zip(roles, pair.controls.plans, strict=True):
         environment = carrier(
             prepared,
-            tuple(row for row in estimates if row.symbol == str(spec["symbol"])),
+            selected_estimates,
             protocol,
             horizon=int(forecast["horizon_hours"]),
-            symbol_index=dataset.symbols.index(str(spec["symbol"])),
+            symbol_index=selected_symbol_index,
             account=f"{spec['configuration_id']}_{spec['symbol']}",
             scenario=str(spec["scenario"]),
             role=role,

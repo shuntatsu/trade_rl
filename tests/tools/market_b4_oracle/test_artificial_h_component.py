@@ -1055,7 +1055,7 @@ def test_operator_requires_late_actor_fill_and_first_reserve_flatten_fill() -> N
         operator._assert_reserve_boundary_fills([9430], [], actor_stop_exclusive=9430)
 
 
-def test_operator_reads_actor_fill_index_from_pinned_h_native_execution(
+def test_operator_reads_actor_fills_and_filters_cost_rows_by_symbol(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     import tools.market_b4_artificial_component_operator as operator
@@ -1070,7 +1070,20 @@ def test_operator_reads_actor_fill_index_from_pinned_h_native_execution(
     dataset = SimpleNamespace(
         symbols=("BTCUSDT", "ETHUSDT"), dataset_id="synthetic-test-dataset"
     )
-    estimates = [SimpleNamespace(symbol="BTCUSDT")]
+    estimates = tuple(
+        SimpleNamespace(
+            symbol=symbol,
+            decision_time=decision_index,
+            fee_rate=0.0005 if symbol == "BTCUSDT" else 0.001,
+        )
+        for symbol in dataset.symbols
+        for decision_index in range(2903, 9430)
+    )
+    expected_selected_estimates = tuple(
+        row for row in estimates if row.symbol == "BTCUSDT"
+    )
+    declared_estimate_args: list[tuple[object, ...]] = []
+    role_estimate_args: list[tuple[object, ...]] = []
     actor_fill_indices = {2906, 5090, 7298, 9430}
 
     def receipt_for(plan: object) -> SimpleNamespace:
@@ -1116,9 +1129,28 @@ def test_operator_reads_actor_fill_index_from_pinned_h_native_execution(
         "_build_prepared",
         lambda *_args: (object(), estimates, {}),
     )
-    monkeypatch.setattr(native_api, "declare_pair", lambda *_args, **_kwargs: pair)
+
+    def capture_declare_pair(
+        _prepared: object,
+        passed_estimates: tuple[object, ...],
+        *_args: object,
+        **_kwargs: object,
+    ) -> object:
+        declared_estimate_args.append(passed_estimates)
+        return pair
+
+    def capture_carrier(
+        _prepared: object,
+        passed_estimates: tuple[object, ...],
+        *_args: object,
+        **_kwargs: object,
+    ) -> object:
+        role_estimate_args.append(passed_estimates)
+        return object()
+
+    monkeypatch.setattr(native_api, "declare_pair", capture_declare_pair)
     monkeypatch.setattr(native_api, "execution_folds", lambda *_args: ())
-    monkeypatch.setattr(native_api, "carrier", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(native_api, "carrier", capture_carrier)
     monkeypatch.setattr(records_api, "save_gzip", lambda *_args: None)
     monkeypatch.setattr(
         terminal_api,
@@ -1131,6 +1163,16 @@ def test_operator_reads_actor_fill_index_from_pinned_h_native_execution(
 
     roles = result["roles"]
     assert type(roles) is dict
+    assert len(declared_estimate_args) == 1
+    selected_estimates = declared_estimate_args[0]
+    assert len(selected_estimates) == 9430 - 2903
+    assert selected_estimates == expected_selected_estimates
+    assert all(row.symbol == "BTCUSDT" for row in selected_estimates)
+    assert tuple(row.decision_time for row in selected_estimates) == tuple(
+        range(2903, 9430)
+    )
+    assert len(role_estimate_args) == 2
+    assert all(passed is selected_estimates for passed in role_estimate_args)
     nonrl = roles["nonrl"]
     assert type(nonrl) is dict
     assert nonrl["actor_fill_processing_indices"] == [2906, 5090, 7298, 9430]

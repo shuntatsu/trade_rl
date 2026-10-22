@@ -193,10 +193,15 @@ def test_b631_exact_fill_loader_keeps_profile_out_of_binding_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from dataclasses import fields
+    from pathlib import PurePosixPath
 
     from tests.tools.market_replay_oracle.test_exact_fill_binding import _binding
     from tests.tools.market_replay_oracle.test_protocol_v4 import _document
-    from tools.market_replay_oracle import DatasetContentPin, NativeSourcePin
+    from tools.market_replay_oracle import (
+        DatasetContentPin,
+        NativeSourcePin,
+        exact_fill_binding,
+    )
     from tools.market_replay_oracle.exact_fill_binding import (
         ExactFillAttemptBinding,
         load_pinned_exact_fill_attempt,
@@ -241,6 +246,37 @@ def test_b631_exact_fill_loader_keeps_profile_out_of_binding_payload(
         "tools.market_replay_oracle.exact_fill_binding._dataset_still_pinned",
         lambda *_args: None,
     )
+
+    posix_dataset_root = PurePosixPath(dataset["root"])
+    assert str(posix_dataset_root) == dataset["root"]
+    assert not posix_dataset_root.is_absolute()
+    with monkeypatch.context() as posix_paths:
+        posix_paths.setattr(exact_fill_binding, "Path", PurePosixPath)
+        with pytest.raises(ValueError, match="caller Dataset root/pins differ"):
+            load_pinned_exact_fill_attempt(
+                protocol_path,
+                protocol_pin,
+                tmp_path,
+                source_pin,
+                Path(dataset["root"]),
+                dataset_pin,
+                source_profile=B631_SOURCE_PROFILE,
+            )
+    assert source_reads == []
+
+    class DeclaredAbsolutePath:
+        """Adapt the frozen Windows Dataset root; Dataset I/O is stubbed below."""
+
+        def __init__(self, value: str | Path) -> None:
+            self.value = str(value)
+
+        def is_absolute(self) -> bool:
+            return True
+
+        def __str__(self) -> str:
+            return self.value
+
+    monkeypatch.setattr(exact_fill_binding, "Path", DeclaredAbsolutePath)
 
     binding = load_pinned_exact_fill_attempt(
         protocol_path,

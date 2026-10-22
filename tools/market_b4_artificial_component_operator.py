@@ -203,6 +203,7 @@ def _assert_progress_path(
     if (
         not path.is_absolute()
         or ".." in path.parts
+        or ":" in path.name
         or path.parent != verify_root
         or path.suffix != ".jsonl"
     ):

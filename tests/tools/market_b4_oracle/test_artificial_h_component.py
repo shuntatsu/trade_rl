@@ -514,6 +514,7 @@ def test_artificial_h_progress_path_rejects_authoritative_or_existing_targets(
         plan.output_root / "progress.jsonl",
         plan.witness_root / "progress.jsonl",
         tmp_path / "outside-verify.jsonl",
+        plan.input_plan_path.with_name(f"{plan.input_plan_path.name}:progress.jsonl"),
         existing,
     )
     for progress_path in cases:
@@ -577,6 +578,68 @@ def test_artificial_h_progress_path_rejects_original_parent_components(
             witness_root=plan.witness_root,
             progress_jsonl_path=aliased_path,
         )
+
+
+def test_component_progress_journal_rejects_ads_alias_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_artificial_component_operator as operator
+
+    _, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    ads_path = plan.input_plan_path.with_name(
+        f"{plan.input_plan_path.name}:progress.jsonl"
+    )
+    opened: list[Path] = []
+
+    def forbid_open(path: Path, *_args: object, **_kwargs: object) -> int:
+        opened.append(Path(path))
+        raise AssertionError("ADS-like progress paths must be rejected before open")
+
+    monkeypatch.setattr(operator.os, "open", forbid_open)
+    with pytest.raises(ValueError, match="progress"):
+        operator._ProgressJournal.create(
+            ads_path,
+            observer_root=plan.observer_repository,
+            plan_path=plan.input_plan_path,
+            output_root=plan.output_root,
+            witness_root=plan.witness_root,
+        )
+
+    assert opened == []
+    assert plan.input_plan_path.read_bytes() == plan.input_plan_canonical
+    assert not ads_path.exists()
+
+
+def test_operator_main_rejects_ads_progress_before_output_or_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
+    ads_path = plan.input_plan_path.with_name(
+        f"{plan.input_plan_path.name}:progress.jsonl"
+    )
+    document = json.loads(plan.input_plan_canonical)
+    document["progress_jsonl_path"] = str(ads_path)
+    plan.input_plan_path.write_bytes(_canonical(document))
+    opened: list[Path] = []
+
+    def forbid_open(path: Path, *_args: object, **_kwargs: object) -> int:
+        opened.append(Path(path))
+        raise AssertionError("ADS-like progress paths must be rejected before open")
+
+    monkeypatch.setattr(operator.os, "open", forbid_open)
+    with pytest.raises(ValueError, match="progress"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(ads_path),
+            ]
+        )
+
+    assert opened == []
+    assert not plan.output_root.exists()
+    assert plan.input_plan_path.read_bytes() == _canonical(document)
 
 
 def test_component_progress_rejects_reparse_ancestor_added_after_plan(

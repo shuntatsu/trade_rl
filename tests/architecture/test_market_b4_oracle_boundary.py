@@ -218,6 +218,8 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
     assert "existing five-file" in boundaries
     assert "Q's shared pair" in boundaries
     assert "Dataset before consuming either role receipt" in boundaries
+    assert "Windows alternate data streams" in boundaries
+    assert "before checking target absence or opening the sidecar" in boundaries
 
 
 def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> None:

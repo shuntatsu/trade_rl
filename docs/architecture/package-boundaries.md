@@ -2256,8 +2256,10 @@ operator only. With the default `None`, the optional path is omitted from the
 serialized plan and launch arguments; the observer source pin still reflects the
 actual Q revision. When enabled, the parent accepts only an absent, safe,
 disjoint path under its `output/verify` root and binds that exact path through
-the typed plan, child plan, launch arguments and root input authority. After
-validating the plan and CLI, the child is the sole creator and opens the fresh
+the typed plan, child plan, launch arguments and root input authority. Both
+parent and child reject colon-bearing leaf names (Windows alternate data streams)
+before checking target absence or opening the sidecar. After validating
+the plan and CLI, the child is the sole creator and opens the fresh
 sidecar exclusively before Dataset construction or replay. The sidecar remains
 outside the authoritative H output and witness rosters.
 

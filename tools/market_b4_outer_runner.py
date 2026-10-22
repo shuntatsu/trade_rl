@@ -1566,7 +1566,12 @@ def _validate_artificial_progress_path(
     verify_root = _safe_target(
         observer_repository / "output" / "verify", must_exist=True
     )
-    if not isinstance(path, Path) or not path.is_absolute() or ".." in path.parts:
+    if (
+        not isinstance(path, Path)
+        or not path.is_absolute()
+        or ".." in path.parts
+        or ":" in path.name
+    ):
         raise ValueError("artificial progress path must be absolute and non-aliased")
     target = path.absolute()
     if (

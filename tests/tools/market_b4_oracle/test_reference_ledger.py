@@ -819,8 +819,36 @@ def test_native_consumer_applies_reference_after_strict_events_and_q_row(
     )
 
 
-def test_native_consumer_applies_reference_to_positive_v2_fill_row(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("diagnostic_field", "diagnostic_value", "capacity_fixture"),
+    [
+        pytest.param(None, None, "baseline", id="source-derived-positive-fill"),
+        pytest.param("filled_notional", 1.0, "baseline", id="alter-filled-notional"),
+        pytest.param("capacity_before", 1.0, "baseline", id="alter-capacity-before"),
+        pytest.param("capacity_after", 1.0, "baseline", id="alter-capacity-after"),
+        pytest.param(
+            "participation_rate", 0.9, "baseline", id="alter-participation-rate"
+        ),
+        pytest.param(
+            "participation_rate",
+            0.04,
+            "baseline",
+            id="alter-participation-rate-under-policy-limit",
+        ),
+        pytest.param(
+            None,
+            None,
+            "distinct-prior-volume-and-lower-row-limit",
+            id="source-derived-prior-volume-and-row-limit",
+        ),
+    ],
+)
+def test_native_consumer_checks_positive_v2_fill_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostic_field: str | None,
+    diagnostic_value: float | None,
+    capacity_fixture: str,
 ) -> None:
     """Run a synthetic strict event prepass; stop before Q replays the tail.
 
@@ -849,6 +877,23 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
     assert binding.comparison_only is False
     assert binding.native_role == "nonrl"
     content = _complete_native_content(exact_fill, binding)
+    if capacity_fixture == "distinct-prior-volume-and-lower-row-limit":
+        decision_index = binding.window.actor_start
+        processing_index = decision_index + 1
+        selected = binding.selected_symbol_index
+        arrays = {
+            name: np.array(values, copy=True) for name, values in content.arrays.items()
+        }
+        arrays["volume"][decision_index, selected] = 6_000_000.0
+        arrays["volume"][processing_index, selected] = 4_000_000.0
+        arrays["max_participation_rate"][processing_index, selected] = 0.025
+        for values in arrays.values():
+            values.setflags(write=False)
+        content = VerifiedDatasetContent(
+            content.dataset_id, MappingProxyType(arrays), content.dataset
+        )
+    else:
+        assert capacity_fixture == "baseline"
     pair = binding.protocol_pair
     assert pair is not None
     monkeypatch.setattr(
@@ -950,7 +995,21 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
         * contract_multiplier
     )
     assert content.dataset["volume_units"][slot] == "quote_notional"
-    assert facts.market_notional == Decimal("3000000.0")
+    if capacity_fixture == "baseline":
+        assert facts.market_notional == Decimal("3000000.0")
+        assert arrays["volume"][processing_index, slot] == 3_000_000.0
+        assert arrays["volume"][decision_index, slot] == 3_000_000.0
+        assert arrays["max_participation_rate"][processing_index, slot] == 0.05
+        assert policy.max_participation_rate == 0.05
+        expected_participation_denominator = 30
+    else:
+        assert capacity_fixture == "distinct-prior-volume-and-lower-row-limit"
+        assert arrays["volume"][decision_index, slot] == 6_000_000.0
+        assert arrays["volume"][processing_index, slot] == 4_000_000.0
+        assert arrays["max_participation_rate"][processing_index, slot] == 0.025
+        assert policy.max_participation_rate == 0.05
+        assert facts.market_notional == Decimal("6000000.0")
+        expected_participation_denominator = 60
     assert facts.execution_price == Decimal("100.0")
     assert expected_quantity == 1000
     assert effective_lot == 0.125 and expected_lot_count == 8000
@@ -958,8 +1017,11 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
     assert policy.order_latency_bars == 0
     with localcontext() as decimal_context:
         decimal_context.prec = 50
+        expected_participation = Decimal(1) / Decimal(
+            expected_participation_denominator
+        )
         participation = expected_notional / facts.market_notional
-        assert participation == Decimal(1) / Decimal(30)
+        assert participation == expected_participation
         assert participation <= Decimal(str(policy.max_participation_rate))
         row_fee = Decimal(str(arrays["fee_rate"][processing_index, slot]))
         row_taker_fee = Decimal(str(arrays["taker_fee_rate"][processing_index, slot]))
@@ -979,9 +1041,14 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
         expected_drawdown = (initial_capital - expected_wealth) / initial_capital
     assert row_fee == Decimal("0.0005")
     assert row_spread == Decimal("0.0002")
-    assert expected_cost == Decimal(
-        "71.825741858350553711523232609336007113175815649993"
-    )
+    if capacity_fixture == "baseline":
+        assert expected_cost == Decimal(
+            "71.825741858350553711523232609336007113175815649993"
+        )
+    else:
+        assert expected_cost == Decimal(
+            "71.290994448735805628393088466594133203610973901764"
+        )
 
     # Assert the positive-row precondition and fixed raw-fact oracle before the
     # consumer sees this row. The event diagnostics are derived from those same
@@ -997,7 +1064,11 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
     decision_time_ns = int(arrays["timestamps"][decision_index].astype(np.int64))
     processing_time_ns = int(arrays["timestamps"][processing_index].astype(np.int64))
     requested_quantity = float(expected_quantity)
-    capacity_before = float(facts.market_notional)
+    capacity_before = float(facts.market_notional) * min(
+        policy.max_participation_rate,
+        float(arrays["max_participation_rate"][processing_index, slot]),
+    )
+    assert capacity_before == 150_000.0
     filled_notional = float(expected_notional)
     native_events: list[dict[str, object]] = [
         {
@@ -1057,6 +1128,10 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
             "lot_size": effective_lot,
         },
     ]
+    if diagnostic_field is not None:
+        assert diagnostic_field in native_events[1]
+        assert diagnostic_value is not None
+        native_events[1][diagnostic_field] = diagnostic_value
     first_row = _native_actor_row(
         expected_advance,
         replay,
@@ -1116,18 +1191,37 @@ def test_native_consumer_applies_reference_to_positive_v2_fill_row(
         module, "_NativeReferenceLedger", StopOnFirstPositiveReferenceLedger
     )
 
-    with pytest.raises(StopAfterPositiveReferenceRow):
-        module.consume_indexed_market_arm(
-            output_index=output_index,
-            receipt_name="receipts/arm.json.gz",
-            forecast_name="forecasts/arm.json",
-            content=content,
-            policy=policy,
-            binding=binding,
-            role="NONRL",
-            reserve_plan_digest="5" * 64,
-            static_inputs=pins,
-        )
+    if diagnostic_field is None:
+        with pytest.raises(StopAfterPositiveReferenceRow):
+            module.consume_indexed_market_arm(
+                output_index=output_index,
+                receipt_name="receipts/arm.json.gz",
+                forecast_name="forecasts/arm.json",
+                content=content,
+                policy=policy,
+                binding=binding,
+                role="NONRL",
+                reserve_plan_digest="5" * 64,
+                static_inputs=pins,
+            )
+    else:
+        with pytest.raises(
+            ValueError, match="native v2 .* differs from the owned replay"
+        ):
+            module.consume_indexed_market_arm(
+                output_index=output_index,
+                receipt_name="receipts/arm.json.gz",
+                forecast_name="forecasts/arm.json",
+                content=content,
+                policy=policy,
+                binding=binding,
+                role="NONRL",
+                reserve_plan_digest="5" * 64,
+                static_inputs=pins,
+            )
+        assert phase_order == ["strict-v4-event-chain"]
+        assert not completed_ledger
+        return
 
     assert phase_order == [
         "strict-v4-event-chain",

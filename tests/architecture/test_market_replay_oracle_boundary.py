@@ -100,6 +100,9 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "walk_bound_event_rows",
         "DeclaredProtocolPair",
         "load_declared_protocol_pair",
+        "ProtocolSourceProfileId",
+        "DEFAULT_PROTOCOL_SOURCE_PROFILE",
+        "B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE",
         "ARRAY_FIELDS",
         "canonical",
         "content_id",
@@ -143,3 +146,67 @@ def test_native_static_readback_composes_pair_and_v4_readers_through_facade() ->
     } <= facade_names
     assert "load_pinned_attempt" not in facade_names
     assert not private_imports
+
+
+def test_closed_source_profile_is_threaded_only_through_native_static_readback() -> (
+    None
+):
+    facade = ROOT / OWNER.replace(".", "/") / "__init__.py"
+    facade_tree = ast.parse(facade.read_text(encoding="utf-8"))
+    exports: list[str] | None = None
+    for node in facade_tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            exports = ast.literal_eval(node.value)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+        ):
+            exports = ast.literal_eval(node.value)
+    assert exports is not None
+    assert {
+        "ProtocolSourceProfileId",
+        "DEFAULT_PROTOCOL_SOURCE_PROFILE",
+        "B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE",
+    } <= set(exports)
+    assert not {
+        "ProtocolSourceProfile",
+        "resolve_protocol_source_profile",
+        "protocol_source_profile_for_head",
+    }.intersection(exports)
+
+    consumer = ROOT / "tools/market_b4_oracle/offline_replay_consumer.py"
+    tree = ast.parse(consumer.read_text(encoding="utf-8"))
+    readback = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_readback_static_inputs"
+    )
+    loader_calls = {
+        "load_declared_protocol_pair": 0,
+        "load_pinned_exact_fill_attempt": 0,
+    }
+    for node in ast.walk(readback):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id not in loader_calls:
+            continue
+        profile_keywords = [
+            keyword for keyword in node.keywords if keyword.arg == "source_profile"
+        ]
+        assert len(profile_keywords) == 1
+        assert ast.dump(profile_keywords[0].value) == ast.dump(
+            ast.Attribute(
+                value=ast.Name(id="pins", ctx=ast.Load()),
+                attr="source_profile",
+                ctx=ast.Load(),
+            )
+        )
+        loader_calls[node.func.id] += 1
+    assert loader_calls == {
+        "load_declared_protocol_pair": 2,
+        "load_pinned_exact_fill_attempt": 1,
+    }

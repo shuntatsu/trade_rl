@@ -149,9 +149,9 @@ def test_static_readback_uses_paired_v4_binding_for_native_v3_arm(
     actual_exact_fill_loader = exact_fill_binding.load_pinned_exact_fill_attempt
     observed: list[tuple[object, ...]] = []
 
-    def exact_fill_readback(*args: Any) -> Any:
+    def exact_fill_readback(*args: Any, **kwargs: Any) -> Any:
         observed.append(args)
-        return actual_exact_fill_loader(*args)
+        return actual_exact_fill_loader(*args, **kwargs)
 
     monkeypatch.setattr(
         consumer,
@@ -190,12 +190,12 @@ def test_static_readback_uses_paired_v4_binding_for_native_v3_arm(
     real_pair_loader = consumer.load_declared_protocol_pair
     pair_checks = 0
 
-    def change_native_pin_on_final_check(*args: Any) -> Any:
+    def change_native_pin_on_final_check(*args: Any, **kwargs: Any) -> Any:
         nonlocal pair_checks
         pair_checks += 1
         if pair_checks == 2:
             pins.protocol_v3_path.write_bytes(pins.protocol_v3_path.read_bytes() + b" ")
-        return real_pair_loader(*args)
+        return real_pair_loader(*args, **kwargs)
 
     monkeypatch.setattr(
         consumer, "load_declared_protocol_pair", change_native_pin_on_final_check

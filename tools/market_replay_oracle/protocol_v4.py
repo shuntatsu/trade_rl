@@ -19,11 +19,17 @@ from tools.market_replay_oracle.protocol import (
     _utc_second,
     _verified_clock,
 )
-
-_SOURCE_HEAD = "d361b6e3c3cdc83a8f5f05da9f82e1f72b66e3e5"
-_CANONICAL_PROTOCOL_SHA256 = (
-    "59558244c17890ce8c4017cf3f0ffc144c133f781e9daec6367eb2afce7dea2a"
+from tools.market_replay_oracle.protocol_source_profiles import (
+    DEFAULT_PROTOCOL_SOURCE_PROFILE,
+    ProtocolSourceProfileId,
+    resolve_protocol_source_profile,
 )
+
+_DEFAULT_SOURCE_PROFILE = resolve_protocol_source_profile(
+    DEFAULT_PROTOCOL_SOURCE_PROFILE
+)
+_SOURCE_HEAD = _DEFAULT_SOURCE_PROFILE.source_head
+_CANONICAL_PROTOCOL_SHA256 = _DEFAULT_SOURCE_PROFILE.comparison_v4_canonical_sha256
 _EXACT_FILL_EVIDENCE = {
     "positive_effective_lot": "order_event_v2_signed_integer_count_and_step",
     "zero_effective_lot": "order_event_v1_exact_reported_float",
@@ -32,7 +38,12 @@ _EXACT_FILL_EVIDENCE = {
 }
 
 
-def _validate_contract_v4(value: object) -> dict[str, Any]:
+def _validate_contract_v4(
+    value: object,
+    *,
+    source_profile: ProtocolSourceProfileId = DEFAULT_PROTOCOL_SOURCE_PROFILE,
+) -> dict[str, Any]:
+    profile = resolve_protocol_source_profile(source_profile)
     if type(value) is not dict or set(value) != _TOP_LEVEL_KEYS | {
         "exact_fill_evidence"
     }:
@@ -40,22 +51,28 @@ def _validate_contract_v4(value: object) -> dict[str, Any]:
     if (
         value.get("schema") != "issue810_tier_d_nonrl48_result_blind_v4"
         or value.get("scope") != "CONSUMED_2025_DEVELOPMENT_NONRL48_ONLY"
-        or value.get("source_head") != _SOURCE_HEAD
+        or value.get("source_head") != profile.source_head
     ):
         raise ValueError("unsupported v4 schema, scope or frozen source head")
     try:
         digest = hashlib.sha256(canonical(value)).hexdigest()
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError("protocol v4 is not a canonical JSON object") from error
-    if digest != _CANONICAL_PROTOCOL_SHA256:
+    if digest != profile.comparison_v4_canonical_sha256:
         raise ValueError(
             "protocol differs from the frozen v4 financial and arm contract"
         )
     return value
 
 
-def load_protocol_v4(path: Path, pin: ProtocolPin) -> dict[str, Any]:
+def load_protocol_v4(
+    path: Path,
+    pin: ProtocolPin,
+    *,
+    source_profile: ProtocolSourceProfileId = DEFAULT_PROTOCOL_SOURCE_PROFILE,
+) -> dict[str, Any]:
     """Read a separately pinned, bounded v4 document; never reinterpret v3."""
+    profile = resolve_protocol_source_profile(source_profile)
     if not isinstance(path, Path) or not isinstance(pin, ProtocolPin):
         raise ValueError("a protocol Path and ProtocolPin are required")
     absolute_path = _regular_protocol_file(path)
@@ -74,17 +91,23 @@ def load_protocol_v4(path: Path, pin: ProtocolPin) -> dict[str, Any]:
         raise ValueError("protocol raw byte count mismatch")
     if hashlib.sha256(raw).hexdigest() != pin.sha256:
         raise ValueError("protocol raw SHA-256 mismatch")
-    document = _validate_contract_v4(json_object(raw))
-    if pin.source_head != _SOURCE_HEAD or document["source_head"] != pin.source_head:
+    document = _validate_contract_v4(json_object(raw), source_profile=source_profile)
+    if (
+        pin.source_head != profile.source_head
+        or document["source_head"] != pin.source_head
+    ):
         raise ValueError("protocol source head pin mismatch")
     return document
 
 
 def bind_schedule_v4(
-    protocol: dict[str, Any], content: VerifiedDatasetContent
+    protocol: dict[str, Any],
+    content: VerifiedDatasetContent,
+    *,
+    source_profile: ProtocolSourceProfileId = DEFAULT_PROTOCOL_SOURCE_PROFILE,
 ) -> dict[str, Any]:
     """Expand v4 directly, preserving the fixed financial schedule and arm order."""
-    document = _validate_contract_v4(protocol)
+    document = _validate_contract_v4(protocol, source_profile=source_profile)
     # This helper validates only content identity/scalars/UTC grid; it does not
     # assert a G schema or source. Calling v3 bind_schedule would reject v4.
     timestamps = _verified_clock(document, content)

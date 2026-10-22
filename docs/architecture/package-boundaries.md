@@ -2153,12 +2153,20 @@ B4.
 
 `protocol_pair.py` separately compares H's native v3 declaration with the H-bound
 v4 comparison declaration. It imports neither the native runner nor production
-code, and it leaves both existing protocol loaders unchanged. Its public frozen
-result keeps independent `ProtocolPin` objects and immutable canonical bytes.
-It reads only two bounded protocol files, rejects same-file aliases and observed
-raw-byte changes, and grants only `STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope.
-Outer attempt freshness, runtime consumer binding, receipt authentication and
-financial replay remain separate responsibilities.
+code. The v4, pair and exact-fill static readers accept a closed source-profile
+selector: omission retains the existing `d361b6e3` pair, while the `b6318664`
+candidate must be selected explicitly with its public profile ID. The facade
+exports only the ID type and the two supported IDs; the immutable profile table
+and resolver remain internal. Each entry pins exact source HEAD and canonical
+v3/v4 declaration digests; unknown, mixed and altered declarations reject. The
+legacy v3 `load_protocol` and `load_pinned_attempt` remain frozen to `8bc2fd0c`,
+and the exact-fill binding payload does not serialize the selector. The public
+frozen pair result keeps independent `ProtocolPin` objects and immutable
+canonical bytes. It reads only two bounded protocol files, rejects same-file
+aliases and observed raw-byte changes, and grants only
+`STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope. Outer attempt freshness, runtime
+consumer binding, receipt authentication and financial replay remain separate
+responsibilities.
 
 The native B4 consumer composes this pair reader with
 `load_pinned_exact_fill_attempt` on the paired v4 path. That loader rechecks the

@@ -676,7 +676,7 @@ class FrozenMarketBinding:
         else:
             if type(self.protocol_pair) is not DeclaredProtocolPair:
                 raise ValueError("native binding requires a validated protocol pair")
-            self.protocol_pair.__post_init__()
+            self.protocol_pair.validate()
             if (
                 self.protocol_canonical != self.protocol_pair.native_canonical
                 or document.get("schema") != "issue810_tier_d_nonrl48_result_blind_v3"
@@ -804,7 +804,7 @@ class FrozenMarketBinding:
         """Select exactly one account/configuration/scenario/role roster row."""
         if type(protocol_pair) is not DeclaredProtocolPair:
             raise ValueError("requires the exact declared protocol-pair type")
-        protocol_pair.__post_init__()
+        protocol_pair.validate()
         if type(content) is not VerifiedDatasetContent:
             raise ValueError("arm selection requires caller-verified Dataset content")
         document = _json_object(protocol_pair.native_canonical)

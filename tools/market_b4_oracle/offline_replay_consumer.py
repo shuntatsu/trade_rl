@@ -44,6 +44,7 @@ from tools.market_b4_oracle.reference_ledger import (
     _NativeReferenceLedger,
 )
 from tools.market_replay_oracle import (
+    DEFAULT_PROTOCOL_SOURCE_PROFILE,
     DatasetContentPin,
     DeclaredProtocolPair,
     EventBatchPin,
@@ -51,6 +52,7 @@ from tools.market_replay_oracle import (
     NativeSourcePin,
     OrderEventContext,
     ProtocolPin,
+    ProtocolSourceProfileId,
     VerifiedDatasetContent,
     load_declared_protocol_pair,
     load_pinned_exact_fill_attempt,
@@ -75,6 +77,7 @@ class StaticInputReadback:
     source_pin: NativeSourcePin
     dataset_root: Path
     dataset_pin: DatasetContentPin
+    source_profile: ProtocolSourceProfileId = DEFAULT_PROTOCOL_SOURCE_PROFILE
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +192,7 @@ def _readback_static_inputs(
         pins.protocol_v3_pin,
         pins.protocol_v4_path,
         pins.protocol_v4_pin,
+        source_profile=pins.source_profile,
     )
     if (
         binding.protocol_pair != pair
@@ -202,6 +206,7 @@ def _readback_static_inputs(
         pins.source_pin,
         pins.dataset_root,
         pins.dataset_pin,
+        source_profile=pins.source_profile,
     )
     loaded = load_pinned_v4(pins.dataset_root, pins.dataset_pin)
     if not _same_content(content, loaded) or frozen.payload()["clock"] != {
@@ -231,6 +236,7 @@ def _readback_static_inputs(
             pins.protocol_v3_pin,
             pins.protocol_v4_path,
             pins.protocol_v4_pin,
+            source_profile=pins.source_profile,
         )
         != pair
     ):
@@ -346,7 +352,7 @@ def derive_frozen_native_market_roster(
     """Derive the frozen 48-arm H/v3 roster from its validated declaration."""
     if type(protocol_pair) is not DeclaredProtocolPair:
         raise ValueError("native matrix requires the exact declared H/v3 and H/v4 pair")
-    protocol_pair.__post_init__()
+    protocol_pair.validate()
     if type(content) is not VerifiedDatasetContent:
         raise ValueError("native matrix requires caller-pinned Dataset content")
     protocol = _json_object_bytes(protocol_pair.native_canonical, "native protocol")

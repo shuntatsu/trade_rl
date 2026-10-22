@@ -27,6 +27,11 @@ from tools.market_replay_oracle.protocol_pair import (
     DeclaredProtocolPair,
     load_declared_protocol_pair,
 )
+from tools.market_replay_oracle.protocol_source_profiles import (
+    B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE,
+    DEFAULT_PROTOCOL_SOURCE_PROFILE,
+    ProtocolSourceProfileId,
+)
 from tools.market_replay_oracle.source import NativeSourcePin
 
 __all__ = [
@@ -48,6 +53,9 @@ __all__ = [
     "walk_bound_event_rows",
     "DeclaredProtocolPair",
     "load_declared_protocol_pair",
+    "ProtocolSourceProfileId",
+    "DEFAULT_PROTOCOL_SOURCE_PROFILE",
+    "B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE",
     "ARRAY_FIELDS",
     "canonical",
     "content_id",

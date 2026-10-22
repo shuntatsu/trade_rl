@@ -125,6 +125,18 @@ def test_composition_imports_are_limited_to_stdlibrary_numpy_and_public_facades(
                 )
             assert not module.startswith("trade_rl"), (path.relative_to(ROOT), module)
 
+    consumer = ROOT / "tools/market_b4_oracle/offline_replay_consumer.py"
+    facade_imports = {
+        name
+        for module, imported_names in _resolved_imports(consumer)
+        if module == "tools.market_replay_oracle"
+        for name in imported_names
+    }
+    assert {
+        "ProtocolSourceProfileId",
+        "DEFAULT_PROTOCOL_SOURCE_PROFILE",
+    } <= facade_imports
+
 
 def test_replay_identity_primitives_are_exported_by_the_public_facade() -> None:
     exports = _public_exports("tools/market_replay_oracle")

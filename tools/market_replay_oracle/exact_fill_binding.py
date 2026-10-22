@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -22,9 +22,13 @@ from tools.market_replay_oracle.events import OrderEventContext
 from tools.market_replay_oracle.identity import canonical
 from tools.market_replay_oracle.profiles import effective_profile
 from tools.market_replay_oracle.protocol import ProtocolPin
+from tools.market_replay_oracle.protocol_source_profiles import (
+    DEFAULT_PROTOCOL_SOURCE_PROFILE,
+    ProtocolSourceProfileId,
+    resolve_protocol_source_profile,
+)
 from tools.market_replay_oracle.protocol_v4 import (
     _EXACT_FILL_EVIDENCE,
-    _SOURCE_HEAD,
     bind_schedule_v4,
     load_protocol_v4,
 )
@@ -35,17 +39,25 @@ from tools.market_replay_oracle.source import NativeSourcePin, verify_native_sou
 class ExactFillAttemptBinding(FrozenAttemptBinding):
     """Immutable expected event facts; no runtime, receipt or financial admission."""
 
+    source_profile: InitVar[ProtocolSourceProfileId] = field(
+        default=DEFAULT_PROTOCOL_SOURCE_PROFILE, kw_only=True
+    )
     _event_arms: Mapping[tuple[str, str, str], tuple[int, str]] = field(
         init=False, repr=False, compare=False
     )
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, source_profile: ProtocolSourceProfileId) -> None:
         FrozenAttemptBinding.__post_init__(self)
         payload = self.payload()
+        try:
+            profile = resolve_protocol_source_profile(source_profile)
+            source_head = payload["protocol"]["source_head"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("unsupported exact-fill source profile") from error
         if (
             payload.get("schema") != "independent_exact_fill_attempt_binding_v1"
             or payload.get("scope") != "STATIC_INPUT_COMPARISON_ONLY"
-            or payload["protocol"]["source_head"] != _SOURCE_HEAD
+            or source_head != profile.source_head
             or payload["dataset"]["dataset_id"] != self.content.dataset_id
             or payload["exact_fill_evidence"] != _EXACT_FILL_EVIDENCE
         ):
@@ -133,9 +145,14 @@ def load_pinned_exact_fill_attempt(
     native_source_pin: NativeSourcePin,
     dataset_root: Path,
     dataset_pin: DatasetContentPin,
+    *,
+    source_profile: ProtocolSourceProfileId = DEFAULT_PROTOCOL_SOURCE_PROFILE,
 ) -> ExactFillAttemptBinding:
     """Bind the separate H/v4 static contract; never start or relabel an attempt."""
-    protocol = load_protocol_v4(protocol_path, protocol_pin)
+    profile = resolve_protocol_source_profile(source_profile)
+    protocol = load_protocol_v4(
+        protocol_path, protocol_pin, source_profile=profile.profile_id
+    )
     if protocol_pin.source_head != native_source_pin.head_sha:
         raise ValueError("protocol and native source HEAD pins differ")
     dataset_root = Path(dataset_root)
@@ -153,7 +170,7 @@ def load_pinned_exact_fill_attempt(
         raise ValueError("caller Dataset root/pins differ from the pinned protocol")
     source_before = verify_native_source(native_source_root, native_source_pin)
     content = load_pinned_v4(dataset_root, dataset_pin)
-    schedule = bind_schedule_v4(protocol, content)
+    schedule = bind_schedule_v4(protocol, content, source_profile=profile.profile_id)
     start, stop = protocol["actor"]["start"], protocol["actor"]["stop"]
     profiles = {
         scenario: effective_profile(scenario, stop - start, protocol["policy"]["risk"])
@@ -185,8 +202,13 @@ def load_pinned_exact_fill_attempt(
         "profiles": profiles,
     }
     _dataset_still_pinned(dataset_root, dataset_pin)
-    if load_protocol_v4(protocol_path, protocol_pin) != protocol:
+    if (
+        load_protocol_v4(protocol_path, protocol_pin, source_profile=profile.profile_id)
+        != protocol
+    ):
         raise ValueError("pinned protocol changed during static binding")
     if verify_native_source(native_source_root, native_source_pin) != source_before:
         raise ValueError("native source changed during static binding")
-    return ExactFillAttemptBinding(canonical(payload), content)
+    return ExactFillAttemptBinding(
+        canonical(payload), content, source_profile=profile.profile_id
+    )

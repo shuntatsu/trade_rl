@@ -3794,6 +3794,14 @@ consumer now compares the native intent shape with the owned intent's canonical
 payload. Regressions retain strict key/value checks for true `reduce_only` and
 mutated identity fields.
 
+The paired static protocol readers now also have an explicit closed candidate
+profile for H source `b6318664`, derived from its metadata-only protocol
+declaration. The existing default remains the `d361b6e3` pair, and the legacy
+v3 reader remains frozen to `8bc2fd0c`; no source pin or prior artifact was
+rebound. This adds declaration/readback software support only. It is not a fresh
+H attempt, a completed root-consumed pair, Full-B4 acceptance, or native-48
+evidence.
+
 After that fix, the public unrooted NONRL consumer call returned against the
 preserved, manifest-pinned receipt and fixed Q spec. Its normal-return contract
 implies all 6,527 actor and 72 reserve rows passed, but the external diagnostic

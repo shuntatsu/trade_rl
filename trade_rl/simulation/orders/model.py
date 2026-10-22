@@ -976,6 +976,34 @@ _PENDING_FROM_MAPPING = getattr(PendingOrder.from_mapping, "__func__", None)
 _PENDING_FROM_MAPPING_CODE = getattr(_PENDING_FROM_MAPPING, "__code__", None)
 _ARCHIVE_JSON_LOADS = json.loads
 _ARCHIVE_JSON_LOADS_CODE = _ARCHIVE_JSON_LOADS.__code__
+_ARCHIVE_JSON_DEFAULT_DECODER = getattr(json, "_default_decoder", None)
+
+
+def _json_callable_binding(
+    value: object,
+) -> tuple[object | None, object | None, object | None]:
+    function = getattr(value, "__func__", value)
+    return (
+        getattr(value, "__self__", None),
+        function,
+        getattr(function, "__code__", None),
+    )
+
+
+def _json_callable_binding_unchanged(
+    value: object, expected: tuple[object | None, object | None, object | None]
+) -> bool:
+    current = _json_callable_binding(value)
+    return all(actual is original for actual, original in zip(current, expected))
+
+
+_ARCHIVE_JSON_DECODE_BINDING = _json_callable_binding(
+    getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "decode", None)
+)
+_ARCHIVE_JSON_RAW_DECODE_BINDING = _json_callable_binding(
+    getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "raw_decode", None)
+)
+_ARCHIVE_JSON_SCAN_ONCE = getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "scan_once", None)
 _ARCHIVE_SHA256 = hashlib.sha256
 _TERMINAL_REASON_PROJECTION = _terminal_reason_projection_sha256
 _TERMINAL_REASON_PROJECTION_CODE = _TERMINAL_REASON_PROJECTION.__code__
@@ -1004,6 +1032,17 @@ def _terminal_reason_selection_bindings_unchanged(
         is _PENDING_FROM_MAPPING_CODE
         and json.loads is _ARCHIVE_JSON_LOADS
         and json.loads.__code__ is _ARCHIVE_JSON_LOADS_CODE
+        and getattr(json, "_default_decoder", None) is _ARCHIVE_JSON_DEFAULT_DECODER
+        and _json_callable_binding_unchanged(
+            getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "decode", None),
+            _ARCHIVE_JSON_DECODE_BINDING,
+        )
+        and _json_callable_binding_unchanged(
+            getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "raw_decode", None),
+            _ARCHIVE_JSON_RAW_DECODE_BINDING,
+        )
+        and getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "scan_once", None)
+        is _ARCHIVE_JSON_SCAN_ONCE
         and hashlib.sha256 is _ARCHIVE_SHA256
         and _terminal_reason_projection_sha256 is _TERMINAL_REASON_PROJECTION
         and _terminal_reason_projection_sha256.__code__

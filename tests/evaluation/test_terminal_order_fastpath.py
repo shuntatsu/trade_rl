@@ -275,6 +275,100 @@ def test_native_execution_facts_falls_back_when_pending_decoder_is_patched(
     assert decoder_calls == len(orders)
 
 
+@pytest.mark.parametrize(
+    "decoder_binding",
+    (
+        "default_decoder",
+        "instance_decode",
+        "class_decode",
+        "class_raw_decode",
+        "scan_once",
+    ),
+)
+def test_native_execution_facts_falls_back_when_json_decoder_binding_changes(
+    monkeypatch: pytest.MonkeyPatch, decoder_binding: str
+) -> None:
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        native_allocation_execution_facts,
+    )
+    from trade_rl.simulation.orders.model import (
+        _terminal_reason_selection_bindings_unchanged,
+    )
+
+    orders = tuple(_make_terminal_order(i) for i in range(6))
+    archive = TerminalOrderArchive(orders)
+    selected_indexes = (1, 4)
+    execution = _facts_execution(
+        archive,
+        tuple(
+            _terminal_event(orders[index], sequence)
+            for sequence, index in enumerate(selected_indexes)
+        ),
+    )
+    selected_order_ids = {orders[index].order_id for index in selected_indexes}
+    original_loads = json.loads
+    original_loads_code = json.loads.__code__
+    default_decoder = json._default_decoder
+    assert _terminal_reason_selection_bindings_unchanged(archive)
+
+    def reject_unselected_order(value):
+        intent = value.get("intent") if isinstance(value, dict) else None
+        order_id = intent.get("order_id") if isinstance(intent, dict) else None
+        if order_id is not None and order_id not in selected_order_ids:
+            raise ValueError("patched JSON decoder rejected an unselected order")
+        return value
+
+    with monkeypatch.context() as patch:
+        if decoder_binding == "default_decoder":
+            original_decode = default_decoder.decode
+            replacement = SimpleNamespace(
+                decode=lambda source: reject_unselected_order(original_decode(source))
+            )
+            patch.setattr(json, "_default_decoder", replacement)
+        elif decoder_binding == "instance_decode":
+            original_decode = default_decoder.decode
+            patch.setitem(
+                default_decoder.__dict__,
+                "decode",
+                lambda source: reject_unselected_order(original_decode(source)),
+            )
+        elif decoder_binding == "class_decode":
+            original_decode = json.JSONDecoder.decode
+
+            def patched_decode(self, source, *args, **kwargs):
+                value = original_decode(self, source, *args, **kwargs)
+                return reject_unselected_order(value)
+
+            patch.setattr(json.JSONDecoder, "decode", patched_decode)
+        elif decoder_binding == "class_raw_decode":
+            original_raw_decode = json.JSONDecoder.raw_decode
+
+            def patched_raw_decode(self, source, *args, **kwargs):
+                value, end = original_raw_decode(self, source, *args, **kwargs)
+                return reject_unselected_order(value), end
+
+            patch.setattr(json.JSONDecoder, "raw_decode", patched_raw_decode)
+        else:
+            original_scan_once = default_decoder.scan_once
+
+            def patched_scan_once(source, index):
+                value, end = original_scan_once(source, index)
+                return reject_unselected_order(value), end
+
+            patch.setitem(default_decoder.__dict__, "scan_once", patched_scan_once)
+
+        assert json.loads is original_loads
+        assert json.loads.__code__ is original_loads_code
+        with pytest.raises(ValueError) as expected:
+            _legacy_terminal_order_reasons(execution)
+        with pytest.raises(type(expected.value)) as observed:
+            native_allocation_execution_facts(execution)
+        assert not _terminal_reason_selection_bindings_unchanged(archive)
+
+    assert str(observed.value) == str(expected.value)
+    assert _terminal_reason_selection_bindings_unchanged(archive)
+
+
 def test_native_execution_facts_falls_back_for_archive_subclass_and_patched_iterator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -2259,9 +2259,13 @@ For this artificial schema only, the Q binding separately pins BTC as the fit
 source and BTC/ETH as prediction symbols; the generic v3 `fit_symbols` binding is
 unchanged. The pair wrapper requires exact output roster and root-process
 bindings, then checks the output forecast against Q's canonical fixed-recipe
-bytes before any receipt scan. It sends both arms through the owned replay and
-uses child summary/runtime fields only as crosschecks. All authority flags remain
-false. The Q-only replay and H-shaped receipt regression are software evidence
+bytes before any receipt scan. The typed root plan also binds Q's shared pair
+protocol digest and synthetic Dataset ID before launch; both role bindings must
+share that protocol digest, and the root-aware consumer rechecks the digest and
+Dataset before consuming either role receipt. These fields bind the pair at the
+root boundary and do not change the H child plan. It sends both arms through the
+owned replay and uses child summary/runtime fields only as crosschecks. All
+authority flags remain false. The Q-only replay and H-shaped receipt regression are software evidence
 only. Until a pinned-H operator run produces receipts that the root-side consumer
 independently matches, this path establishes no matched H pair or native evidence.
 

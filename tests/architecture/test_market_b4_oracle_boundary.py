@@ -216,6 +216,8 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
     assert "re-raises the original exception" in boundaries
     assert "Failure cleanup removes partial" in boundaries
     assert "existing five-file" in boundaries
+    assert "Q's shared pair" in boundaries
+    assert "Dataset before consuming either role receipt" in boundaries
 
 
 def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> None:

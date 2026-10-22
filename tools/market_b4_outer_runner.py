@@ -290,6 +290,7 @@ class ArtificialHComponentPlan:
         spec = _parse_canonical_object(self.component_spec_canonical)
         document = _parse_canonical_object(self.input_plan_canonical)
         authority = _parse_canonical_object(self.input_authority_canonical)
+        authority_dataset = authority.get("dataset")
         if (
             not _is_artificial_h_component_spec(spec)
             or document.get("schema") != _ARTIFICIAL_H_PLAN_SCHEMA
@@ -302,6 +303,10 @@ class ArtificialHComponentPlan:
             or document.get("full_b4_authorized") is not False
             or authority.get("scope") != "ARTIFICIAL_H_COMPONENT_ONLY"
             or authority.get("component_spec_sha256") != self.component_spec_sha256
+            or not _valid_sha256(authority.get("binding_digest"))
+            or type(authority_dataset) is not dict
+            or set(authority_dataset) != {"dataset_id"}
+            or not _valid_sha256(authority_dataset.get("dataset_id"))
             or authority.get("attempt_uuid") != self.attempt_uuid
             or authority.get("outer_attempt_authenticated") is not False
             or authority.get("full_b4_authorized") is not False
@@ -813,6 +818,8 @@ def _artificial_h_plan_authority(
     operator_path: Path,
     operator_sha256: str,
     component_spec_sha256: str,
+    binding_digest: str,
+    dataset_id: str,
     input_plan_path: Path,
     input_plan_sha256: str,
     output_root: Path,
@@ -837,6 +844,8 @@ def _artificial_h_plan_authority(
         "runtime_pin": runtime_pin.authority_payload(),
         "operator": {"path": str(operator_path), "sha256": operator_sha256},
         "component_spec_sha256": component_spec_sha256,
+        "binding_digest": binding_digest,
+        "dataset": {"dataset_id": dataset_id},
         "input_plan": {
             "path": str(input_plan_path),
             "sha256": input_plan_sha256,
@@ -939,6 +948,20 @@ def build_artificial_h_component_plan(
 
     component_spec_canonical = _canonical(component_spec)
     component_spec_sha256 = hashlib.sha256(component_spec_canonical).hexdigest()
+    from tools.market_b4_oracle.artificial_component import (
+        artificial_component_binding,
+        build_artificial_component_inputs,
+    )
+
+    q_inputs = build_artificial_component_inputs(component_spec)
+    if q_inputs.spec_sha256 != component_spec_sha256:
+        raise ValueError("Q artificial input identity differs from the fixed plan")
+    nonrl_binding, _ = artificial_component_binding(q_inputs, "NONRL")
+    cash_binding, _ = artificial_component_binding(q_inputs, "CASH")
+    if nonrl_binding.protocol_canonical != cash_binding.protocol_canonical:
+        raise ValueError("artificial pair roles do not share one protocol binding")
+    binding_digest = hashlib.sha256(nonrl_binding.protocol_canonical).hexdigest()
+    dataset_id = q_inputs.content.dataset_id
     attempt_uuid = uuid4().hex
     argv = _artificial_h_component_argv(
         child_python=child_python,
@@ -970,6 +993,8 @@ def build_artificial_h_component_plan(
         operator_path=operator_path,
         operator_sha256=operator_sha256,
         component_spec_sha256=component_spec_sha256,
+        binding_digest=binding_digest,
+        dataset_id=dataset_id,
         input_plan_path=input_plan_path,
         input_plan_sha256=hashlib.sha256(input_plan_canonical).hexdigest(),
         output_root=output_root,

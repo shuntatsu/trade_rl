@@ -465,6 +465,142 @@ def _artificial_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
 
 
+def test_artificial_root_authority_binds_q_protocol_and_dataset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_oracle.artificial_component as artificial
+    import tools.market_b4_oracle.offline_replay_consumer as consumer
+    import tools.market_b4_outer_runner as outer
+    from tools.market_b4_oracle.outer_witness import (
+        WitnessFilePin,
+        _make_root_observed_attempt,
+    )
+    from tools.market_b4_oracle.output_index import (
+        ArtifactPin,
+        load_pinned_output_index,
+    )
+
+    plan = _artificial_plan(tmp_path, monkeypatch)
+    inputs = artificial.build_artificial_component_inputs(plan.component_spec)
+    nonrl_binding, _ = artificial.artificial_component_binding(inputs, "NONRL")
+    cash_binding, _ = artificial.artificial_component_binding(inputs, "CASH")
+    assert nonrl_binding.protocol_canonical == cash_binding.protocol_canonical
+    expected_binding_digest = hashlib.sha256(
+        nonrl_binding.protocol_canonical
+    ).hexdigest()
+
+    current_runtime = {"packages": {"numpy": "1.26.4", "trade-rl": "0.3.0"}}
+    monkeypatch.setattr(
+        consumer,
+        "implementation_source_identity",
+        lambda: {"closure_sha256": "c" * 64, "runtime": current_runtime},
+    )
+
+    def validate(authority: dict[str, object], case: str) -> None:
+        output_root = tmp_path / case / "output"
+        output_root.mkdir(parents=True)
+        payload = b"{}"
+        (output_root / "placeholder.json").write_bytes(payload)
+        manifest = _canonical(
+            {
+                "placeholder.json": {
+                    "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            }
+        )
+        (output_root / "output-manifest.json").write_bytes(manifest)
+        manifest_pin = ArtifactPin(len(manifest), hashlib.sha256(manifest).hexdigest())
+        output_index = load_pinned_output_index(output_root, manifest_pin)
+
+        source = {
+            "closure_sha256": "c" * 64,
+            "runtime": current_runtime,
+            "repository_head": "d" * 40,
+            "working_tree_clean": True,
+            "git_status_sha256": "e" * 64,
+        }
+        argv = ["python", "-m", "synthetic-artificial-component"]
+        attempt_uuid = hashlib.sha256(case.encode("utf-8")).hexdigest()[:32]
+        start = {
+            "schema": "issue810_root_owned_attempt_start_v1",
+            "attempt_uuid": attempt_uuid,
+            "clock": {"wall_utc_ns": 10, "monotonic_ns": 20},
+            "argv": argv,
+            "output_root": str(output_root.resolve()),
+            "implementation_source": source,
+            "input_authority": authority,
+        }
+        finish = {
+            "schema": "issue810_root_owned_attempt_finish_v1",
+            "attempt_uuid": attempt_uuid,
+            "clock": {"wall_utc_ns": 11, "monotonic_ns": 21},
+            "argv_sha256": hashlib.sha256(_canonical(argv)).hexdigest(),
+            "output_root": str(output_root.resolve()),
+            "implementation_source": source,
+            "child": {
+                "pid": 101,
+                "birth_ticks": 102,
+                "exit_code": 0,
+                "owned_tree_empty": True,
+                "observed_process_identities": [[101, 102]],
+            },
+            "output_manifest": {
+                "bytes": manifest_pin.bytes,
+                "sha256": manifest_pin.sha256,
+            },
+        }
+        witness_root = tmp_path / case / "witness"
+        witness_root.mkdir()
+        start_path = witness_root / "start.json"
+        finish_path = witness_root / "finish.json"
+        start_bytes = _canonical(start)
+        finish_bytes = _canonical(finish)
+        start_path.write_bytes(start_bytes)
+        finish_path.write_bytes(finish_bytes)
+        root_witness = _make_root_observed_attempt(
+            start_path,
+            finish_path,
+            repository_head="d" * 40,
+            implementation_source_sha256="c" * 64,
+        )
+        consumer._validate_root_observed_attempt(
+            output_index=output_index,
+            content=inputs.content,
+            binding=nonrl_binding,
+            artificial_inputs=inputs,
+            static_inputs=None,
+            root_witness=root_witness,
+            expected_start_pin=WitnessFilePin(
+                len(start_bytes), hashlib.sha256(start_bytes).hexdigest()
+            ),
+            expected_finish_pin=WitnessFilePin(
+                len(finish_bytes), hashlib.sha256(finish_bytes).hexdigest()
+            ),
+        )
+
+    authority = outer._artificial_h_plan_authority_payload(plan)
+    validate(authority, "valid-authority")
+    assert authority["binding_digest"] == expected_binding_digest
+    assert authority["dataset"] == {"dataset_id": inputs.content.dataset_id}
+
+    missing_fields = dict(authority)
+    missing_fields.pop("binding_digest")
+    missing_fields.pop("dataset")
+    with pytest.raises(ValueError, match="root-observed binding or Dataset differs"):
+        validate(missing_fields, "missing-authority-fields")
+
+    wrong_binding = dict(authority)
+    wrong_binding["binding_digest"] = "0" * 64
+    with pytest.raises(ValueError, match="root-observed binding or Dataset differs"):
+        validate(wrong_binding, "wrong-binding-digest")
+
+    wrong_dataset = dict(authority)
+    wrong_dataset["dataset"] = {"dataset_id": "0" * 64}
+    with pytest.raises(ValueError, match="root-observed binding or Dataset differs"):
+        validate(wrong_dataset, "wrong-dataset-id")
+
+
 def _prepare_operator_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import tools.market_b4_artificial_component_operator as operator
     from trade_rl.strategies.forecasts import simple_stream_io

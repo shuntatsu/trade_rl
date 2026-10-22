@@ -139,6 +139,7 @@ def test_native_static_readback_composes_pair_and_v4_readers_through_facade() ->
     assert {
         "load_declared_protocol_pair",
         "load_pinned_exact_fill_attempt",
+        "walk_bound_event_rows",
     } <= facade_names
     assert "load_pinned_attempt" not in facade_names
     assert not private_imports

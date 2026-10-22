@@ -539,3 +539,318 @@ def test_indexed_row_consumer_compares_full_window_and_rejects_missing_actor_row
             ),
             **kwargs,
         )
+
+
+def _indexed_original_native_receipt(
+    tmp_path: Path, receipt: dict[str, object], name: str
+):
+    from tools.market_b4_oracle.output_index import (
+        ArtifactPin,
+        load_pinned_output_index,
+    )
+
+    raw = gzip.compress(
+        json.dumps(
+            receipt, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8"),
+        mtime=0,
+    )
+    root = tmp_path / name
+    path = root / "receipts/arm.json.gz"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(raw)
+    manifest = json.dumps(
+        {
+            "receipts/arm.json.gz": {
+                "bytes": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+            }
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    (root / "output-manifest.json").write_bytes(manifest)
+    return load_pinned_output_index(
+        root, ArtifactPin(len(manifest), hashlib.sha256(manifest).hexdigest())
+    )
+
+
+def _native_event_consumer_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from tests.tools.market_replay_oracle.test_exact_fill_binding import (
+        _binding as _exact_fill_binding,
+    )
+    from tests.tools.market_replay_oracle.test_protocol_pair import _load_pair
+    from tools.market_b4_oracle import offline_replay_consumer as consumer
+    from tools.market_b4_oracle.frozen_market_replay import (
+        FrozenMarketBinding,
+        FrozenMarketPolicy,
+    )
+    from tools.market_replay_oracle.profiles import effective_profile
+
+    pair, *_ = _load_pair(tmp_path)
+    exact_fill = _exact_fill_binding()
+    content = exact_fill.content
+    protocol = json.loads(pair.native_canonical)
+    risk = protocol["policy"]["risk"]
+    binding = FrozenMarketBinding.from_declared_protocol_pair(
+        protocol_pair=pair,
+        content=content,
+        configuration_id="H24_RIDGE_A1",
+        scenario="BASEL0",
+        native_role="nonrl",
+        selected_symbol_index=0,
+    )
+    policy = FrozenMarketPolicy.from_effective_profile(
+        dataset_id=content.dataset_id,
+        profile=effective_profile("BASEL0", 6527, risk),
+        risk=risk,
+    )
+    pins = consumer.StaticInputReadback(
+        protocol_v3_path=tmp_path / "native-h-v3.json",
+        protocol_v3_pin=pair.native_pin,
+        protocol_v4_path=tmp_path / "comparison-h-v4.json",
+        protocol_v4_pin=pair.comparison_pin,
+        source_root=tmp_path,
+        source_pin=consumer.NativeSourcePin(pair.native_pin.source_head, "2" * 64),
+        dataset_root=Path("C:/synthetic-pinned-dataset"),
+        dataset_pin=consumer.DatasetContentPin(
+            content.dataset_id,
+            "3" * 64,
+            "4" * 64,
+            7453,
+            5864784,
+        ),
+    )
+    monkeypatch.setattr(
+        consumer,
+        "_readback_static_inputs",
+        lambda **_kwargs: (pair, exact_fill, content),
+    )
+    return consumer, exact_fill, binding, policy, pins
+
+
+def test_native_event_precondition_uses_full_original_pinned_receipt_before_forecast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.tools.market_replay_oracle.test_event_chain import (
+        ARM,
+        _actor_row,
+        _actor_stream,
+        _for_context,
+        _reserve_stream,
+    )
+    from tests.tools.market_replay_oracle.test_events import _legacy
+
+    consumer, exact_fill, binding, policy, pins = _native_event_consumer_fixture(
+        tmp_path, monkeypatch
+    )
+    account, scenario, role = ARM
+    rows = list(_actor_stream(exact_fill))
+    rejection = _for_context(
+        _legacy(
+            fill=True,
+        ),
+        exact_fill.event_context(account, scenario, role, 1),
+    )
+    rows[0] = _actor_row(exact_fill, 1, events=[rejection])
+    receipt = {
+        "native_receipt": {"rows": rows},
+        "closing_rows": list(_reserve_stream(exact_fill)),
+    }
+    index = _indexed_original_native_receipt(tmp_path, receipt, "native-v1-fill")
+
+    event_validation_calls: list[object] = []
+    with monkeypatch.context() as context:
+        context.setattr(
+            consumer,
+            "_validate_native_event_rows",
+            lambda **_kwargs: event_validation_calls.append(None),
+            raising=False,
+        )
+        with pytest.raises(
+            ValueError, match="root-observed start and finish pins are required"
+        ):
+            consumer.consume_root_observed_market_arm(
+                output_index=index,
+                receipt_name="receipts/arm.json.gz",
+                forecast_name="forecasts/arm.json",
+                content=exact_fill.content,
+                policy=policy,
+                binding=binding,
+                role="NONRL",
+                reserve_plan_digest="5" * 64,
+                static_inputs=pins,
+                root_witness=None,
+                expected_start_pin=None,
+                expected_finish_pin=None,
+            )
+    assert event_validation_calls == []
+
+    # The missing forecast is intentional: v4 validation must reject the
+    # original receipt before forecast or Q replay is reached.
+    with pytest.raises(ValueError, match="positive lot fill requires v2 witness"):
+        consumer.consume_indexed_market_arm(
+            output_index=index,
+            receipt_name="receipts/arm.json.gz",
+            forecast_name="forecasts/arm.json",
+            content=exact_fill.content,
+            policy=policy,
+            binding=binding,
+            role="NONRL",
+            reserve_plan_digest="5" * 64,
+            static_inputs=pins,
+        )
+
+
+@pytest.mark.parametrize(
+    ("receipt_variant", "expected_error"),
+    [
+        ("complete", "artifact absent from pinned output index"),
+        ("valid_v2_fill", "artifact absent from pinned output index"),
+        ("wrong_v2_step", "event lot differs from expected effective lot"),
+        ("wrong_clock", "event processing_index differs from context"),
+        ("wrong_context", "event dataset_id differs from context"),
+        ("rejected", "native event receipt contains rejected native facts"),
+        ("missing_tail", "missing native facts are only valid at an actor tail"),
+        (
+            "short_reserve",
+            "native receipt lacks a complete, nonrejected strict-v4 event chain",
+        ),
+    ],
+)
+def test_native_event_precondition_requires_complete_nonrejected_original_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    receipt_variant: str,
+    expected_error: str,
+) -> None:
+    from tests.tools.market_replay_oracle.test_event_chain import (
+        ARM,
+        _actor_row,
+        _actor_stream,
+        _for_context,
+        _reserve_stream,
+    )
+
+    consumer, exact_fill, binding, policy, pins = _native_event_consumer_fixture(
+        tmp_path, monkeypatch
+    )
+    rows = list(_actor_stream(exact_fill))
+    reserve_rows = list(_reserve_stream(exact_fill))
+    if receipt_variant == "short_reserve":
+        reserve_rows = reserve_rows[:-1]
+    if receipt_variant in {"complete", "valid_v2_fill"}:
+        from tests.tools.market_replay_oracle.test_events import _event, _legacy
+
+        if receipt_variant == "complete":
+            event = _legacy(
+                fill=False,
+                event_type="rejected",
+                new_status="rejected",
+                reason="risk_control",
+            )
+        else:
+            event = _event(
+                filled_lot_count=1,
+                lot_size=0.125,
+                remaining_quantity=0.875,
+                filled_quantity=0.125,
+                filled_notional=12.5,
+                capacity_after=87.5,
+                participation_rate=0.125,
+            )
+        rows[0] = _actor_row(
+            exact_fill,
+            1,
+            events=[
+                _for_context(
+                    event,
+                    exact_fill.event_context(*ARM, 1),
+                )
+            ],
+        )
+    elif receipt_variant in {"wrong_v2_step", "wrong_clock", "wrong_context"}:
+        from tests.tools.market_replay_oracle.test_events import _event
+
+        event = _for_context(
+            _event(
+                filled_lot_count=1,
+                lot_size=0.125,
+                remaining_quantity=0.875,
+                filled_quantity=0.125,
+                filled_notional=12.5,
+                capacity_after=87.5,
+                participation_rate=0.125,
+            ),
+            exact_fill.event_context(*ARM, 1),
+        )
+        if receipt_variant == "wrong_v2_step":
+            event["lot_size"] = 0.25
+        elif receipt_variant == "wrong_clock":
+            event["processing_index"] = 2905
+        else:
+            event["dataset_id"] = "f" * 64
+        rows[0] = _actor_row(exact_fill, 1, events=[event])
+    elif receipt_variant == "rejected":
+        rows[0] = _actor_row(
+            exact_fill,
+            1,
+            rejected={"error_type": "ValueError", "message": "native rejection"},
+        )
+    elif receipt_variant == "missing_tail":
+        rows[-1] = _actor_row(exact_fill, len(rows), events=None)
+        rows[-1]["native"] = None
+    index = _indexed_original_native_receipt(
+        tmp_path,
+        {"native_receipt": {"rows": rows}, "closing_rows": reserve_rows},
+        f"native-{receipt_variant}",
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        consumer.consume_indexed_market_arm(
+            output_index=index,
+            receipt_name="receipts/arm.json.gz",
+            forecast_name="forecasts/arm.json",
+            content=exact_fill.content,
+            policy=policy,
+            binding=binding,
+            role="NONRL",
+            reserve_plan_digest="5" * 64,
+            static_inputs=pins,
+        )
+
+
+def test_native_event_precondition_rejects_replaced_indexed_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.tools.market_replay_oracle.test_event_chain import (
+        _actor_stream,
+        _reserve_stream,
+    )
+
+    consumer, exact_fill, binding, policy, pins = _native_event_consumer_fixture(
+        tmp_path, monkeypatch
+    )
+    index = _indexed_original_native_receipt(
+        tmp_path,
+        {
+            "native_receipt": {"rows": list(_actor_stream(exact_fill))},
+            "closing_rows": list(_reserve_stream(exact_fill)),
+        },
+        "native-replaced-receipt",
+    )
+    receipt_path = index.path("receipts/arm.json.gz")
+    receipt_path.write_bytes(receipt_path.read_bytes() + b" ")
+
+    with pytest.raises(ValueError, match="output file roster or identity changed"):
+        consumer.consume_indexed_market_arm(
+            output_index=index,
+            receipt_name="receipts/arm.json.gz",
+            forecast_name="forecasts/arm.json",
+            content=exact_fill.content,
+            policy=policy,
+            binding=binding,
+            role="NONRL",
+            reserve_plan_digest="5" * 64,
+            static_inputs=pins,
+        )

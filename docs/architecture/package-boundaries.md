@@ -2215,22 +2215,34 @@ lineage.
 
 `offline_replay_consumer.py` composes the output index, H/v3 actor and reserve
 streaming scans, the public order-event parser, and the owned raw-row driver.
-It must exhaust both scans before it returns a comparison-complete record,
-compare every selected row and final flat/no-active state, and recheck the
-forecast and original output tree afterward. Its event parser receives a
+For a native arm, after paired H/v3-H/v4/source/Dataset readback it performs a
+separate bounded pass over both original manifest-pinned receipt sections with
+`walk_bound_event_rows` before forecast or Q replay. That pass uses only the
+separately bound v4 event context and checks original row clocks and symbol
+metadata as well as nested event arrays. It requires the full 6,527 actor and
+72 reserve batches, no missing actor tail, and no actor native-validation
+failure or invalid reserve clock. An ordinary order event with status
+`rejected` is still parsed as an event and is not counted as a rejected native
+row. H/v3 protocols and receipt rows are not relabeled as v4; the walker reads
+the original rows through the manifest-pinned output index. This pass does not
+independently authenticate the native source snapshot or outer attempt. The
+later Q replay performs its own bounded receipt scan and continues comparing
+every selected row and final flat/no-active state. The parser also receives a
 canonical projection of event objects already parsed from a receipt; that
 projection pin is derived data, while the original gzip and output-manifest
-pins remain the upper-level evidence. H/v3 rows are not relabeled as V4 or
-passed to the V4 exact-fill walker. For every actor row it rebuilds the native
-baseline, context, decision, action, and selected identity digests from the
-receipt projection and compares them with the independently advanced owned
-identity. Before consuming rows, it binds every parsed forecast vintage to the
-selected configuration's alpha, horizon, declared feature roster, and symbols.
-It also checks the receipt's plan, clock, initial-capital, horizon, runtime,
-cost, and risk declarations against the frozen binding. Even with source,
-Dataset and protocol readback pins, the result does not authenticate an outer
-attempt or authorize Full B4. The module remains internal and outside
-production imports.
+pins remain the upper-level evidence.
+
+For every actor row the Q driver rebuilds the native baseline, context,
+decision, action, and selected identity digests from the receipt projection and
+compares them with the independently advanced owned identity. Before consuming
+rows, it binds every parsed forecast vintage to the selected configuration's
+alpha, horizon, declared feature roster, and symbols. It also checks the
+receipt's plan, clock, initial-capital, horizon, runtime, cost, and risk
+declarations against the frozen binding. The strict event pass is still parsed
+comparison evidence, not source/receipt/attempt authentication, intent
+admission, accounting, or a ledger. Even with source, Dataset and protocol
+readback pins, the result does not authenticate an outer attempt or authorize
+Full B4. The module remains internal and outside production imports.
 
 `outer_witness.py` provides immutable pins and bounded canonical readback for
 root-owned start/finish records. It does not create or observe processes, and

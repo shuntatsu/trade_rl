@@ -44,7 +44,7 @@ from tools.market_replay_oracle import (
     DatasetContentPin,
     DeclaredProtocolPair,
     EventBatchPin,
-    FrozenAttemptBinding,
+    ExactFillAttemptBinding,
     NativeSourcePin,
     OrderEventContext,
     ProtocolPin,
@@ -53,6 +53,7 @@ from tools.market_replay_oracle import (
     load_pinned_exact_fill_attempt,
     load_pinned_v4,
     read_pinned_order_events,
+    walk_bound_event_rows,
 )
 
 _MAX_FORECAST_BYTES = 64 * 1024**2
@@ -177,7 +178,7 @@ def _readback_static_inputs(
     binding: FrozenMarketBinding,
     content: VerifiedDatasetContent,
     policy: FrozenMarketPolicy,
-) -> tuple[DeclaredProtocolPair, FrozenAttemptBinding, VerifiedDatasetContent]:
+) -> tuple[DeclaredProtocolPair, ExactFillAttemptBinding, VerifiedDatasetContent]:
     if type(pins) is not StaticInputReadback or binding.comparison_only:
         raise ValueError("native exact readback requires a native arm and static pins")
     pair = load_declared_protocol_pair(
@@ -232,6 +233,58 @@ def _readback_static_inputs(
     ):
         raise ValueError("declared protocol pair changed during static input readback")
     return pair, frozen, loaded
+
+
+def _validate_native_event_rows(
+    *,
+    output_index: NativeOutputIndex,
+    receipt_name: str,
+    binding: FrozenMarketBinding,
+    exact_fill_binding: ExactFillAttemptBinding,
+) -> None:
+    """Require a full strict-v4 chain over the original indexed receipt rows."""
+    if (
+        binding.comparison_only
+        or type(exact_fill_binding) is not ExactFillAttemptBinding
+    ):
+        raise ValueError("native event readback requires its exact paired v4 binding")
+    actor_reader = output_index.receipt_rows(receipt_name, phase="actor")
+    reserve_reader = output_index.receipt_rows(receipt_name, phase="reserve")
+    coverage = walk_bound_event_rows(
+        exact_fill_binding,
+        account=binding.account_id,
+        scenario=binding.scenario,
+        role=binding.native_role,
+        actor_rows=actor_reader,
+        closing_rows=reserve_reader,
+    )
+    actor_scan, reserve_scan = actor_reader.proof, reserve_reader.proof
+    expected_actor_rows = binding.window.actor_advances
+    expected_reserve_rows = binding.window.reserve_advances
+    if coverage.rejected_native_rows != 0:
+        raise ValueError("native event receipt contains rejected native facts")
+    if (
+        coverage.binding_digest != exact_fill_binding.digest
+        or coverage.account != binding.account_id
+        or coverage.scenario != binding.scenario
+        or coverage.role != binding.native_role
+        or coverage.expected_actor_rows != expected_actor_rows
+        or coverage.expected_reserve_rows != expected_reserve_rows
+        or coverage.observed_actor_rows != expected_actor_rows
+        or coverage.observed_reserve_rows != expected_reserve_rows
+        or not coverage.all_expected_batches_present
+        or coverage.tail_native_missing
+        or actor_scan.selected_rows != expected_actor_rows
+        or actor_scan.actor_rows != expected_actor_rows
+        or actor_scan.reserve_rows != expected_reserve_rows
+        or reserve_scan.selected_rows != expected_reserve_rows
+        or reserve_scan.actor_rows != expected_actor_rows
+        or reserve_scan.reserve_rows != expected_reserve_rows
+        or actor_scan.compressed_sha256 != reserve_scan.compressed_sha256
+    ):
+        raise ValueError(
+            "native receipt lacks a complete, nonrejected strict-v4 event chain"
+        )
 
 
 def _json_pairs_no_duplicates(
@@ -1248,6 +1301,7 @@ def _consume_indexed_market_arm(
     reserve_plan_digest: str,
     artificial_inputs: object | None = None,
     static_inputs: StaticInputReadback | None = None,
+    native_event_binding: ExactFillAttemptBinding | None = None,
     expected_runtime_environment_sha256: str | None = None,
     whole_index_recheck: bool,
     static_input_recheck: bool,
@@ -1306,7 +1360,12 @@ def _consume_indexed_market_arm(
         raise ValueError("Q artificial inputs cannot bind a different protocol")
 
     static_before: (
-        tuple[DeclaredProtocolPair, FrozenAttemptBinding, VerifiedDatasetContent] | None
+        tuple[
+            DeclaredProtocolPair,
+            ExactFillAttemptBinding,
+            VerifiedDatasetContent,
+        ]
+        | None
     ) = None
     if static_inputs is not None and static_input_recheck:
         static_before = _readback_static_inputs(
@@ -1314,6 +1373,24 @@ def _consume_indexed_market_arm(
         )
     if whole_index_recheck:
         output_index.recheck()
+    if not binding.comparison_only:
+        if static_before is not None:
+            if (
+                native_event_binding is not None
+                and native_event_binding.digest != static_before[1].digest
+            ):
+                raise ValueError("native event binding differs from static readback")
+            native_event_binding = static_before[1]
+        if type(native_event_binding) is not ExactFillAttemptBinding:
+            raise ValueError("native arm requires the paired exact-fill event binding")
+        _validate_native_event_rows(
+            output_index=output_index,
+            receipt_name=receipt_name,
+            binding=binding,
+            exact_fill_binding=native_event_binding,
+        )
+    elif native_event_binding is not None:
+        raise ValueError("comparison-only arms cannot carry native event bindings")
     if protocol.get("schema") == "issue810_artificial_h_component_q_binding_v1":
         expected_artificial_forecast_sha256 = verify_artificial_component_forecast(
             output_index=output_index,
@@ -1676,6 +1753,7 @@ def consume_indexed_market_matrix(
             role=arm.role,
             reserve_plan_digest=digest,
             static_inputs=static_inputs,
+            native_event_binding=static_before[1],
             expected_runtime_environment_sha256=expected_runtime_environment_sha256,
             whole_index_recheck=False,
             static_input_recheck=False,

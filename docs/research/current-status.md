@@ -3658,14 +3658,21 @@ one-bar clocks and parses batches. Empty arrays count as present; absent, null a
 non-array batches reject. Invalid native clocks remain rejected coverage, not
 accepted evidence.
 
-Manufactured row, verifier and architecture cases exercise this software boundary.
-Independent review and full-gate evidence are bound to each PR's exact source revision;
-no market runtime results are asserted. Input is parsed row
-dictionaries, not original bytes or an authenticated receipt. Prefix/presence counts
-do not establish a completed attempt. Outer-tree/attempt verification,
-intent/admission, independent accounting and terminal settlement remain necessary
-for full B4. G v3 and financial assumptions are unchanged; no formal G0-G2, R3,
-profit, unused-period or live authority follows.
+The native selected-arm consumer now obtains the paired exact v4 binding during
+static H/v3-H/v4/source/Dataset readback, then runs the walker over both original
+manifest-pinned receipt sections before forecast or Q replay. It checks original
+row clocks and symbol metadata alongside nested event arrays. It requires all
+6,527 actor and 72 reserve batches, no missing actor tail, and no native-fact
+validation failures or invalid reserve clocks; ordinary witnessed order
+rejections remain events, not native-row failures. The later Q replay performs
+its own receipt pass and retains its existing row, order, risk, book, and terminal
+comparisons. Synthetic indexed-receipt tests exercise this wiring and failure
+ordering; no fresh H/runtime result is asserted. The event pass reads rows
+through the manifest-pinned output index but does not independently authenticate
+the native source snapshot or outer attempt. It remains comparison evidence, not
+intent admission, independent accounting, or terminal-ledger authority. Those
+requirements remain necessary for full B4. G v3 and financial assumptions are
+unchanged; no formal G0-G2, R3, profit, unused-period or live authority follows.
 
 ## Issue #810: distinct native/comparison declaration pair candidate
 

@@ -2157,6 +2157,16 @@ raw-byte changes, and grants only `STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope.
 Outer attempt freshness, runtime consumer binding, receipt authentication and
 financial replay remain separate responsibilities.
 
+The native B4 consumer composes this pair reader with
+`load_pinned_exact_fill_attempt` on the paired v4 path. That loader rechecks the
+v4 declaration while validating its exact source and Dataset pins; the consumer
+then rechecks the v3/v4 pair after its arm and policy readback. Native arm,
+receipt-row and event comparisons continue to use the v3-derived
+`FrozenMarketBinding`. The legacy `load_pinned_attempt` stays v3-only and is not
+used to read a d361 v3/v4 pair; it remains frozen to the 8bc native-v3 source.
+This composition grants static input readback only: it does not relabel either
+protocol or authenticate an outer attempt.
+
 ## Bounded original-receipt reader boundary
 
 `tools.market_b4_oracle` owns a structural streaming reader for caller-pinned

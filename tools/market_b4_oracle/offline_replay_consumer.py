@@ -50,7 +50,7 @@ from tools.market_replay_oracle import (
     ProtocolPin,
     VerifiedDatasetContent,
     load_declared_protocol_pair,
-    load_pinned_attempt,
+    load_pinned_exact_fill_attempt,
     load_pinned_v4,
     read_pinned_order_events,
 )
@@ -191,9 +191,9 @@ def _readback_static_inputs(
         or pair.native_pin.source_head != pins.source_pin.head_sha
     ):
         raise ValueError("declared protocol/source pins differ from the selected arm")
-    frozen = load_pinned_attempt(
-        pins.protocol_v3_path,
-        pins.protocol_v3_pin,
+    frozen = load_pinned_exact_fill_attempt(
+        pins.protocol_v4_path,
+        pins.protocol_v4_pin,
         pins.source_root,
         pins.source_pin,
         pins.dataset_root,
@@ -221,6 +221,16 @@ def _readback_static_inputs(
     )
     if rebound != binding or expected_policy != policy:
         raise ValueError("reloaded native arm or execution policy differs from replay")
+    if (
+        load_declared_protocol_pair(
+            pins.protocol_v3_path,
+            pins.protocol_v3_pin,
+            pins.protocol_v4_path,
+            pins.protocol_v4_pin,
+        )
+        != pair
+    ):
+        raise ValueError("declared protocol pair changed during static input readback")
     return pair, frozen, loaded
 
 

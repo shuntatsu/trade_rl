@@ -122,3 +122,23 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
 
     assert exports == expected
     assert len(imported_names.intersection(expected)) == len(expected)
+
+
+def test_native_static_readback_composes_pair_and_v4_readers_through_facade() -> None:
+    consumer = ROOT / "tools/market_b4_oracle/offline_replay_consumer.py"
+    tree = ast.parse(consumer.read_text(encoding="utf-8"))
+    facade_names: set[str] = set()
+    private_imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0:
+            if node.module == OWNER:
+                facade_names.update(alias.name for alias in node.names)
+            elif node.module and node.module.startswith(OWNER + "."):
+                private_imports.add(node.module)
+
+    assert {
+        "load_declared_protocol_pair",
+        "load_pinned_exact_fill_attempt",
+    } <= facade_names
+    assert "load_pinned_attempt" not in facade_names
+    assert not private_imports

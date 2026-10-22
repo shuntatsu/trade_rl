@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 import pytest
@@ -63,6 +64,150 @@ def test_frozen_native_roster_is_derived_as_exact_48_without_row_replay(
     assert {arm.binding.window.reserve_advances for arm in roster} == {72}
     assert {arm.binding.window.terminal_stop for arm in roster} == {9502}
     assert all(arm.binding.comparison_only is False for arm in roster)
+
+
+def test_static_readback_uses_paired_v4_binding_for_native_v3_arm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route a synthetic pair through the strict binding, stubbing external IO."""
+    from tests.tools.market_replay_oracle.test_exact_fill_binding import _binding
+    from tests.tools.market_replay_oracle.test_protocol_pair import _load_pair
+    from tools.market_b4_oracle import offline_replay_consumer as consumer
+    from tools.market_b4_oracle.frozen_market_replay import (
+        FrozenMarketBinding,
+        FrozenMarketPolicy,
+    )
+    from tools.market_replay_oracle import (
+        DatasetContentPin,
+        ExactFillAttemptBinding,
+        NativeSourcePin,
+    )
+    from tools.market_replay_oracle.profiles import effective_profile
+
+    pair, _, _, v3_pin, v4_pin = _load_pair(tmp_path)
+    v4_document = json.loads(pair.comparison_canonical)
+    content = _binding().content
+    native_document = json.loads(pair.native_canonical)
+    risk = native_document["policy"]["risk"]
+    binding = FrozenMarketBinding.from_declared_protocol_pair(
+        protocol_pair=pair,
+        content=content,
+        configuration_id="H24_RIDGE_A1",
+        scenario="BASEL0",
+        native_role="nonrl",
+        selected_symbol_index=0,
+    )
+    policy = FrozenMarketPolicy.from_effective_profile(
+        dataset_id=content.dataset_id,
+        profile=effective_profile("BASEL0", binding.window.actor_advances, risk),
+        risk=risk,
+    )
+    dataset = v4_document["dataset"]
+    pins = consumer.StaticInputReadback(
+        protocol_v3_path=tmp_path / "native-h-v3.json",
+        protocol_v3_pin=v3_pin,
+        protocol_v4_path=tmp_path / "comparison-h-v4.json",
+        protocol_v4_pin=v4_pin,
+        source_root=tmp_path,
+        source_pin=NativeSourcePin(pair.native_pin.source_head, "2" * 64),
+        dataset_root=Path(dataset["root"]),
+        dataset_pin=DatasetContentPin(
+            dataset["dataset_id"],
+            dataset["input_sha256"]["manifest.json"],
+            dataset["input_sha256"]["arrays.npz"],
+            7453,
+            5864784,
+        ),
+    )
+    from tools.market_replay_oracle import exact_fill_binding
+
+    class DeclaredAbsolutePath:
+        """Adapt the frozen Windows path's absolute check for this unit fixture."""
+
+        def __init__(self, value: str | Path) -> None:
+            self.value = str(value)
+
+        def is_absolute(self) -> bool:
+            return True
+
+        def __str__(self) -> str:
+            return self.value
+
+    monkeypatch.setattr(
+        exact_fill_binding,
+        "verify_native_source",
+        lambda _root, pin: {
+            "head_sha": pin.head_sha,
+            "snapshot_sha256": pin.snapshot_sha256,
+        },
+    )
+    monkeypatch.setattr(exact_fill_binding, "load_pinned_v4", lambda *_args: content)
+    monkeypatch.setattr(
+        exact_fill_binding, "_dataset_still_pinned", lambda *_args: None
+    )
+    monkeypatch.setattr(exact_fill_binding, "Path", DeclaredAbsolutePath)
+    actual_exact_fill_loader = exact_fill_binding.load_pinned_exact_fill_attempt
+    observed: list[tuple[object, ...]] = []
+
+    def exact_fill_readback(*args: Any) -> Any:
+        observed.append(args)
+        return actual_exact_fill_loader(*args)
+
+    monkeypatch.setattr(
+        consumer,
+        "load_pinned_exact_fill_attempt",
+        exact_fill_readback,
+        raising=False,
+    )
+    monkeypatch.setattr(consumer, "load_pinned_v4", lambda *_args: content)
+
+    readback = consumer._readback_static_inputs(
+        pins=pins,
+        binding=binding,
+        content=content,
+        policy=policy,
+    )
+
+    assert readback[0] == pair
+    assert isinstance(readback[1], ExactFillAttemptBinding)
+    assert readback[1].payload()["clock"] == {
+        "actor_start": 2903,
+        "actor_stop": 9430,
+        "settlement_stop": 9502,
+    }
+    assert readback[2] is content
+    assert observed == [
+        (
+            pins.protocol_v4_path,
+            pins.protocol_v4_pin,
+            pins.source_root,
+            pins.source_pin,
+            pins.dataset_root,
+            pins.dataset_pin,
+        )
+    ]
+
+    real_pair_loader = consumer.load_declared_protocol_pair
+    pair_checks = 0
+
+    def change_native_pin_on_final_check(*args: Any) -> Any:
+        nonlocal pair_checks
+        pair_checks += 1
+        if pair_checks == 2:
+            pins.protocol_v3_path.write_bytes(pins.protocol_v3_path.read_bytes() + b" ")
+        return real_pair_loader(*args)
+
+    monkeypatch.setattr(
+        consumer, "load_declared_protocol_pair", change_native_pin_on_final_check
+    )
+    with pytest.raises(ValueError, match="native protocol raw byte count mismatch"):
+        consumer._readback_static_inputs(
+            pins=pins,
+            binding=binding,
+            content=content,
+            policy=policy,
+        )
+    assert pair_checks == 2
 
 
 def test_native_matrix_consumer_requires_full_static_input_pins(

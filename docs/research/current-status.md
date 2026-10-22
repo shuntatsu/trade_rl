@@ -3747,12 +3747,11 @@ rechecks. `build_frozen_h_launch_plan` creates a typed offline plan binding the
 frozen source, Dataset, review bytes, cwd, executable, exact argv and fresh separate
 roots. The separate `run_and_consume_frozen_h_market_matrix` entry connects that
 plan to the root-owned process witness and shared 48-arm consumer. The default CLI
-remains offline-plan-only. An artificial join-unit test stubs both the typed-run
-result and matrix comparison; it checks the success control flow and keeps all
-authorization flags false, but does not spawn a process or execute the consumer.
-The separate low-level artificial witness tests do not cover the typed H helper's
-successful child lifecycle. The consumer has not read a native output tree, and no
-native H process has been started or root-witnessed.
+remains offline-plan-only. An artificial join-unit test still stubs the typed-run
+result and matrix comparison; it remains unit-level control-flow evidence. A
+separate artificial H component attempt has launched the operator and root process
+witness, but did not complete a root-consumed pair. The native 48-arm matrix remains
+unstarted.
 
 Before a native 48-arm run, one matched artificial NONRL/CASH component-loop pair
 must each complete 6,527 actor plus 72 reserve advances, with nonzero actor
@@ -3767,12 +3766,31 @@ unchanged public H Dataset and market execution APIs. The plan pins the complete
 deterministic input, forecast, cost, risk and execution recipe; the operator
 reports the Dataset identity derived by H's builder. Its outputs remain artificial
 and do not impersonate a frozen H/v3-H/v4 attempt or confer authentication. The
-pinned-H operator has not been launched, and no pinned-H-generated pair has run;
-the existing 32+8 comparisons and bounded 640-step profile do not meet this
-prerequisite. No pinned-H 6,599-step pair, native 48-arm, repository-wide
-final-gate, economic, unused-period or live evidence is claimed. The current
-worktree remains development code; these interfaces do not promote it to Full-B4
-authority.
+artificial H child in output bundle `b058e58211ef4ddb8ebc2719bec6a850` used H
+source `8bc2fd0c` and Q source `b93c161f`. It exited 0 with its owned process
+tree empty. The root-validated 601-byte manifest
+(`6183b597363fa414f890288c76f01120efed5a211ead6d11898accae99d2129b`) pins five
+output files, including both role receipts. The root-aware consumer rejected the
+attempt before replay because root authority omitted Q's shared protocol binding
+digest and Dataset ID. Local source commit
+`2b228612` now binds those values from Q-built
+inputs in the typed plan, but no fresh root-witnessed run has verified the fix.
+The original output, witness and receipts remain bound to their original pins
+and are not rebound.
+
+An unrooted diagnostic against those preserved receipts stopped at the first
+positive-lot fill: the old `8bc2fd0c` event writer emitted v1 without the accepted
+signed lot count and effective lot size, while the Q validator requires v2 for
+positive-lot fills. Source commit `d361b6e3`,
+already in the current source ancestry, adds that versioned fill evidence while
+retaining v1 for legacy and non-fill events. It leaves Dataset, forecast, cost
+and account calculations unchanged. This is the selected H source pin for a
+fresh artificial-only software verification; it does not replace the original
+`8bc2fd0c` reference for the frozen native 48-arm path or authenticate prior
+receipts. No root-consumed Q comparison of the H-generated receipts is complete.
+No pinned-H 6,599-step pair, native 48-arm, repository-wide final gate,
+economic, unused-period or live evidence is claimed. The current worktree remains
+development code; these interfaces do not promote it to Full-B4 authority.
 
 The typed artificial recipe now fixes a no-fit projection with intercept -0.02
 and a coefficient derived from the stored float32 feature range, producing
@@ -3781,12 +3799,14 @@ trace provenance only, not fitted Ridge evidence. The Q adapter independently
 reconstructs Dataset identity and the complete canonical forecast stream; the
 pair consumer checks those exact forecast bytes before scanning either receipt.
 A bounded Q-only after-cost oracle covers the three vintage baselines and pulses
-plus the final actor decision against the pinned cost recipe. The Q-only synthetic
-software replay then consumed all 6,599 actor and reserve advances per role
-(6,527 actor plus 72 reserve; 13,198 advances total) for NONRL and CASH. It
-checked required NONRL actor fill indices 2906, 5090, 7298 and 9430, the reserve
-close at 9431, no CASH fills, and terminal flat/no-active-order closure. A
-separate regression with fabricated H-shaped receipt rows checks actor index
-extraction only; it did not launch the pinned-H operator or call H execution
-APIs. The actual pinned-H pair, native 48-arm, economic evaluation,
-unused-period evaluation and live evidence remain unrun.
+plus the final actor decision against the pinned cost recipe. The standalone
+Q-only synthetic software replay consumed all 6,599 actor and reserve advances
+per role (6,527 actor plus 72 reserve; 13,198 advances total) for NONRL and CASH.
+It checked required NONRL actor fill indices 2906, 5090, 7298 and 9430, the
+reserve close at 9431, no CASH fills, and terminal flat/no-active-order closure.
+That Q-only result is separate from the uncompleted H-rooted comparison above.
+The fabricated H-shaped receipt regression remains an actor-index extraction
+test only. No fresh root-consumed artificial pair, frozen native 48-arm,
+independent full-B4 accounting, economic or unused-period evaluation, or live
+evidence is established. These interfaces do not grant research or G0-G4
+authority, change financial assumptions, or establish profitability.

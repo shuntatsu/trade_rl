@@ -55,8 +55,8 @@ class PaperEngine:
             config[name] = timestamp(config[name])
         self._account = PaperAccount(PaperSettings(**config))
         self._tip = expected_protocol_sha256
-        self._records: dict[str, dict[str, Any]] = {}
-        for record in self.journal.events():
+        self._known_events: dict[str, tuple[int, str]] = {}
+        for record in self.journal.iter_events():
             event = record["event"]
             payload = event["payload"]
             if set(payload) != {"request", "result"}:
@@ -64,7 +64,7 @@ class PaperEngine:
             outcome = self._apply(self._account, event["kind"], payload["request"])
             if canonical_json_bytes(outcome) != canonical_json_bytes(payload["result"]):
                 raise ValueError("paper replay result differs from committed result")
-            self._records[event["key"]] = record
+            self._known_events[event["key"]] = (event["sequence"], record["sha256"])
             self._tip = record["sha256"]
 
     def _path(self, reference: dict[str, Any]) -> Path:
@@ -128,8 +128,12 @@ class PaperEngine:
 
     def _append(self, key: str, kind: str, request: dict[str, Any]) -> dict[str, Any]:
         request = json.loads(canonical_json_bytes(request))
-        previous = self._records.get(key)
-        if previous is not None:
+        known = self._known_events.get(key)
+        if known is not None:
+            sequence, expected_sha256 = known
+            previous = self.journal._record_at(
+                sequence, expected_key=key, expected_sha256=expected_sha256
+            )
             event = previous["event"]
             if event["kind"] != kind or canonical_json_bytes(
                 event["payload"]["request"]
@@ -144,11 +148,13 @@ class PaperEngine:
             key, kind, dict(request=request, result=outcome), expected_parent=self._tip
         )
         self._account, self._tip = proposed, record["sha256"]
-        self._records[key] = record
+        self._known_events[key] = (record["event"]["sequence"], record["sha256"])
         return copy.deepcopy(record)
 
     def status(self) -> dict[str, Any]:
-        return dict(**self._account.status(), tip=self._tip, events=len(self._records))
+        return dict(
+            **self._account.status(), tip=self._tip, events=len(self._known_events)
+        )
 
     def unsettled_funding(self) -> list[dict[str, str]]:
         return self._account.unsettled_funding()

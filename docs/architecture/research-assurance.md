@@ -116,6 +116,45 @@ example-based unit testだけで重要なmechanismを保証済みとしない。
   establish complete risk or liquidation conformance, full source-to-ledger
   conformance, formal G2 approval, real-feed behavior, or economic performance.
 
+### Synthetic software diagnostic: conditional PPO under delayed gains and fees
+
+- **Statement:** A literal fixed-action ledger must charge the entry fee before
+  the delayed gain, charge the exit fee once, leave a flat control untouched,
+  and lose both fees on a fee-only round trip. A separate opt-in policy
+  diagnostic may record whether one frozen PPO fit chooses the conditional
+  action on a renamed and column-swapped synthetic holdout.
+- **Scope:** `python -m tools.ppo_conditional_diagnostic prepare <new-dir>`
+  writes the fixed protocol and pre-fit ledger without fitting. `run <dir>`
+  performs one fit with 8,192 transitions, seed 83, two interleaved symbol
+  environments, and 512 rollout steps per environment. The fixture has 64
+  hourly rows, a constant feature that labels A/B from row zero, an eight-row
+  one-percent rise for A beginning at training row 8 and heldout row 12, and a
+  0.5% fee on each side. Other dataset cost overlays are zero; one-bar order
+  latency and the existing risk defaults remain explicit. The protocol records
+  the PPO gamma, GAE, and network defaults without changing them. Every price
+  row must be available no later than its own timestamp. The source binding
+  covers all tracked `trade_rl/**/*.py` files, `pyproject.toml`, `uv.lock`, and
+  the diagnostic's own bytes; runtime and source identity are rechecked before
+  fitting, after fitting, and after heldout evaluation.
+- **Oracle:** `run_prefit_oracle()` compares LONG, FLAT, and fee-only actions
+  against literal cash, fee, fill-count, and log-return calculations, then
+  checks terminal flatness and empty active orders. The heldout clauses use the
+  same fitted policy through the public v3 observation and environment APIs.
+  Each output directory is single-use: existing output is not overwritten,
+  `attempt-start.json` precedes the only fit call, and a failed attempt cannot
+  be retried in that directory. A completed run with failed behavior clauses
+  is recorded as `status=completed`, `diagnostic_verdict=fail`, and exits with
+  code 3; a completed pass exits 0, execution failure exits 1, and preflight
+  validation failure exits 2. CI uses fake policies to test these software
+  contracts and does not require stochastic learning to pass.
+- **Known limitations:** Every protocol, result, and failure record reports
+  `p3_status=NOT_ATTEMPTED`. Even a diagnostic pass only demonstrates this
+  synthetic conditional-action behavior. It is not real-market evidence,
+  profitability evidence, a shared-cash result, a G0-G4 or P3 completion, a
+  hard CI learnability gate, or authorization for production or live use. The
+  one-shot recipe does not authorize retrying with another seed or tuning after
+  observing its verdict.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 Quantity-preserving hold has two independent G2 counterexamples. With a constant

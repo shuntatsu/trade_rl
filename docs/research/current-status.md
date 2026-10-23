@@ -151,6 +151,12 @@ available on their Dataset row; it does not recover delayed feature histories.
 Log-return forecasts and the current cost proxy do not establish expected simple
 return or an optimal shared-cash allocator.
 
+An opt-in supplied-forecast diagnostic now compares the same mature paired
+simple-return records with a fixed zero-return reference, including pooled and
+symbol/vintage/horizon MAE, RMSE and paired error skill. This measures forecast
+errors against that reference only; it does not authenticate fitting, establish
+calibration or alpha, or add economic evidence.
+
 The non-RL portfolio allocator, downstream RL packet observation, common
 DecisionContext, continuous-account walk-forward recipe, complete source/runtime
 bundle and economic diagnostics remain separate unfinished work. G0/G1 for an

@@ -603,6 +603,83 @@ def test_source_packet_accepts_unicode_and_unreserved_device_prefixes(
     assert _safe_path(path.encode("utf-8")) == path
 
 
+@pytest.mark.parametrize(
+    "path",
+    (
+        b".git/config",
+        b"nested/.Git/config",
+        b"git~1/config",
+        b"nested/GIT~1/config",
+    ),
+)
+def test_source_packet_rejects_git_metadata_paths_in_raw_git_tree(
+    tmp_path: Path, path: bytes
+) -> None:
+    repository = tmp_path / "repo"
+    base, _ = _repository(repository)
+    base_entries = _git(repository, "ls-tree", "-rz", "--full-tree", base, text=False)
+    assert isinstance(base_entries, bytes)
+    blob = str(_git(repository, "rev-parse", f"{base}:tracked.txt"))
+    parts = path.decode("ascii").split("/")
+    subtree = _git(
+        repository,
+        "mktree",
+        "-z",
+        text=False,
+        input_bytes=f"100644 blob {blob}\t{parts[-1]}\0".encode("ascii"),
+    )
+    assert isinstance(subtree, bytes)
+    for part in reversed(parts[1:-1]):
+        subtree = _git(
+            repository,
+            "mktree",
+            "-z",
+            text=False,
+            input_bytes=f"040000 tree {subtree.decode('ascii').strip()}\t{part}\0".encode(
+                "ascii"
+            ),
+        )
+        assert isinstance(subtree, bytes)
+    raw_entry = f"040000 tree {subtree.decode('ascii').strip()}\t{parts[0]}\0".encode(
+        "ascii"
+    )
+    tree_bytes = _git(
+        repository,
+        "mktree",
+        "-z",
+        text=False,
+        input_bytes=base_entries + raw_entry,
+    )
+    assert isinstance(tree_bytes, bytes)
+    tree = tree_bytes.decode("ascii").strip()
+    head = str(
+        _git(repository, "commit-tree", tree, "-p", base, "-m", "Git metadata path")
+    )
+    output = tmp_path / "packet"
+
+    result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(output),
+    )
+
+    assert result.returncode != 0
+    assert "unsafe changed Git path" in result.stderr
+    assert result.stdout == ""
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "path", (".github/config", "git/config", "gitconfig/config", "GIT~10/config")
+)
+def test_source_packet_accepts_nonmetadata_git_path_lookalikes(path: str) -> None:
+    assert _safe_path(path.encode("ascii")) == path
+
+
 def test_source_packet_rejects_reserved_device_name_in_raw_git_tree(
     tmp_path: Path,
 ) -> None:

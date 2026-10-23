@@ -44,6 +44,7 @@ _NAME_STATUS_FLAGS = (
     "--ignore-submodules=none",
     "-z",
 )
+_GIT_METADATA_COMPONENTS = frozenset({".git", "git~1"})
 _WINDOWS_RESERVED = frozenset(
     {
         "CON",
@@ -282,6 +283,7 @@ def _safe_path(raw: bytes) -> str:
         or path.startswith("/")
         or "\\" in path
         or any(part in {"", ".", ".."} for part in parts)
+        or any(part.casefold() in _GIT_METADATA_COMPONENTS for part in parts)
         or any(ord(char) < 32 or ord(char) == 127 for char in path)
         or any(char in '<>:"|?*' for char in path)
         or any(part.endswith((".", " ")) for part in parts)

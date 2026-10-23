@@ -37,6 +37,28 @@ def test_windows_process_ownership_integration_is_a_ci_gate():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text("utf-8")
     assert "name: Windows process ownership tests" in workflow
     assert "if: matrix.os == 'windows-latest'" in workflow
+    preflight_name = "name: Preflight Windows CIM readiness"
+    ownership_name = "name: Windows process ownership tests"
+    assert preflight_name in workflow
+    preflight_start = workflow.index(preflight_name)
+    ownership_start = workflow.index(ownership_name)
+    assert preflight_start < ownership_start
+    preflight_step = workflow[preflight_start:ownership_start]
+    assert "if: matrix.os == 'windows-latest'" in preflight_step
+    assert (
+        "uv run --no-sync python -m tools.windows_process_ci_readiness"
+        in preflight_step
+    )
+    tooling_type_routes = [
+        line for line in workflow.splitlines() if "uv run mypy tools/agent_repo" in line
+    ]
+    assert len(tooling_type_routes) == 2
+    assert all(
+        "tools/windows_process_ci_readiness.py" in line for line in tooling_type_routes
+    )
+    boundaries = (ROOT / "docs/architecture/package-boundaries.md").read_text("utf-8")
+    assert "child-free CIM readiness preflight" in boundaries
+    assert "retries only the first timeout once" in boundaries
     for selector in (
         "test_actual_windows_redirector_memory_and_owned_leaf_termination",
         "test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated",

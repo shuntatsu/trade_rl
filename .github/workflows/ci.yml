@@ -54,7 +54,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/windows_process_ci_readiness.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py tools/tier_d_nonrl tools/tier_d_scaling tools/market_account_oracle tools/market_replay_oracle tools/market_b4_oracle tools/market_b4_outer_runner.py tools/market_b4_artificial_component_operator.py
@@ -127,7 +127,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/windows_process_ci_readiness.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py tools/tier_d_nonrl tools/tier_d_scaling tools/market_account_oracle tools/market_replay_oracle tools/market_b4_oracle tools/market_b4_outer_runner.py tools/market_b4_artificial_component_operator.py
@@ -232,6 +232,10 @@ jobs:
 
       - name: Artifact publication tests
         run: uv run --no-sync python -m pytest -q tests/artifacts tests/data/test_market_artifact.py
+
+      - name: Preflight Windows CIM readiness
+        if: matrix.os == 'windows-latest'
+        run: uv run --no-sync python -m tools.windows_process_ci_readiness
 
       - name: Windows process ownership tests
         if: matrix.os == 'windows-latest'

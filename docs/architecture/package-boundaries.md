@@ -2319,6 +2319,10 @@ owned root. The 10-tick comparison allowance covers the snapshot's microsecond
 precision, while the recorded birth ticks remain the observed CIM value.
 Windows CI runs focused native process ownership tests for that handle binding,
 descendant cleanup, and the root-observed timeout path.
+The Windows-only job first runs a child-free CIM readiness preflight. It discards
+the snapshot and retries only the first timeout once; other failures and a second
+timeout stop the job before ownership tests start. In-test provider failures
+remain covered by the unchanged fail-closed supervisor tests.
 The observer pins its
 `tools/tier_d_nonrl/tier_d_process_tree.py` dependency and refuses process creation
 on platforms without the frozen Windows process-tree observer. Its current child

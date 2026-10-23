@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -619,7 +620,27 @@ def test_operator_main_rejects_ads_progress_before_output_or_open(
     )
     document = json.loads(plan.input_plan_canonical)
     document["progress_jsonl_path"] = str(ads_path)
-    plan.input_plan_path.write_bytes(_canonical(document))
+    raw_plan = _canonical(document)
+    plan.input_plan_path.write_bytes(raw_plan)
+
+    import tools.market_b4_outer_runner as outer
+
+    start = outer._artificial_h_start_record(plan)
+    authority = start["input_authority"]
+    assert isinstance(authority, dict)
+    input_plan = authority["input_plan"]
+    assert isinstance(input_plan, dict)
+    input_plan["sha256"] = hashlib.sha256(raw_plan).hexdigest()
+    authority["progress_jsonl_path"] = str(ads_path)
+    authority_argv = authority["argv"]
+    start_argv = start["argv"]
+    assert isinstance(authority_argv, list)
+    assert isinstance(start_argv, list)
+    authority_argv[-1] = str(ads_path)
+    start_argv[-1] = str(ads_path)
+    plan.witness_root.mkdir()
+    (plan.witness_root / "start.json").write_bytes(_canonical(start))
+
     opened: list[Path] = []
 
     def forbid_open(path: Path, *_args: object, **_kwargs: object) -> int:
@@ -951,8 +972,14 @@ def test_operator_main_rejects_output_root_with_parent_components_before_write(
 def test_operator_main_rejects_progress_cli_or_existing_path_before_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import tools.market_b4_outer_runner as outer
+
     operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
     assert plan.progress_jsonl_path is not None
+    plan.witness_root.mkdir()
+    (plan.witness_root / "start.json").write_bytes(
+        _canonical(outer._artificial_h_start_record(plan))
+    )
     wrong_path = plan.progress_jsonl_path.with_name("other-progress.jsonl")
     with pytest.raises(ValueError, match="progress"):
         operator.main(
@@ -978,7 +1005,154 @@ def test_operator_main_rejects_progress_cli_or_existing_path_before_output(
             ]
         )
     assert plan.progress_jsonl_path.read_bytes() == retained
+
+
+@pytest.mark.parametrize("binding", ["attempt", "plan_hash", "witness_path"])
+def test_operator_main_rejects_mismatched_parent_start_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    binding: str,
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
+    assert plan.progress_jsonl_path is not None
+    plan.witness_root.mkdir()
+    start = outer._artificial_h_start_record(plan)
+    authority = start["input_authority"]
+    assert isinstance(authority, dict)
+    if binding == "attempt":
+        start["attempt_uuid"] = "0" * 32
+    elif binding == "plan_hash":
+        input_plan = authority["input_plan"]
+        assert isinstance(input_plan, dict)
+        input_plan["sha256"] = "0" * 64
+    else:
+        authority["witness_root"] = str(plan.output_root)
+    raw_start = _canonical(start)
+    start_path = plan.witness_root / "start.json"
+    start_path.write_bytes(raw_start)
+
+    with pytest.raises(ValueError, match="parent start witness"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(plan.progress_jsonl_path),
+            ]
+        )
+
+    assert start_path.read_bytes() == raw_start
     assert not plan.output_root.exists()
+    assert not plan.progress_jsonl_path.exists()
+
+
+def test_operator_main_rejects_aliased_parent_start_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
+    assert plan.progress_jsonl_path is not None
+    plan.witness_root.mkdir()
+    start_path = plan.witness_root / "start.json"
+    start_path.write_bytes(_canonical(outer._artificial_h_start_record(plan)))
+    alias_path = tmp_path / "start-alias.json"
+    try:
+        os.link(start_path, alias_path)
+    except OSError as error:
+        pytest.skip(f"hard-linked test files are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="parent start witness"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(plan.progress_jsonl_path),
+            ]
+        )
+
+    assert start_path.read_bytes() == alias_path.read_bytes()
+    assert not plan.output_root.exists()
+    assert not plan.progress_jsonl_path.exists()
+
+
+def test_operator_main_rejects_parent_witness_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
+    assert plan.progress_jsonl_path is not None
+    target = tmp_path / "witness-target"
+    target.mkdir()
+    start_path = target / "start.json"
+    start_path.write_bytes(_canonical(outer._artificial_h_start_record(plan)))
+    try:
+        os.symlink(target, plan.witness_root, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"directory symlinks are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="parent witness root"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(plan.progress_jsonl_path),
+            ]
+        )
+
+    assert start_path.is_file()
+    assert not plan.output_root.exists()
+    assert not plan.progress_jsonl_path.exists()
+    assert not plan.output_root.exists()
+
+
+def test_operator_main_rejects_overlapping_parent_witness_and_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.market_b4_outer_runner as outer
+
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
+    assert plan.progress_jsonl_path is not None
+    witness_root = plan.output_root.parent / "shared-root"
+    output_root = witness_root / "component-output"
+    witness_root.mkdir()
+
+    document = json.loads(plan.input_plan_canonical)
+    document["witness_root"] = str(witness_root)
+    document["output_root"] = str(output_root)
+    raw_plan = _canonical(document)
+    plan.input_plan_path.write_bytes(raw_plan)
+
+    start = outer._artificial_h_start_record(plan)
+    start["output_root"] = str(output_root)
+    authority = start["input_authority"]
+    assert isinstance(authority, dict)
+    authority["output_root"] = str(output_root)
+    authority["witness_root"] = str(witness_root)
+    input_plan = authority["input_plan"]
+    assert isinstance(input_plan, dict)
+    input_plan["sha256"] = hashlib.sha256(raw_plan).hexdigest()
+    start_raw = _canonical(start)
+    (witness_root / "start.json").write_bytes(start_raw)
+
+    with pytest.raises(ValueError, match="component witness root overlaps"):
+        operator.main(
+            [
+                "--plan",
+                str(plan.input_plan_path),
+                "--progress-jsonl",
+                str(plan.progress_jsonl_path),
+            ]
+        )
+
+    assert (witness_root / "start.json").read_bytes() == start_raw
+    assert not output_root.exists()
+    assert not plan.progress_jsonl_path.exists()
 
 
 @pytest.mark.parametrize("diagnostic_conflict", ["already_exists", "write_error"])
@@ -1028,6 +1202,16 @@ def test_operator_main_success_keeps_the_existing_five_file_roster(
     operator, plan = _prepare_operator_main(
         tmp_path, monkeypatch, progress_jsonl=progress_enabled
     )
+    parent_start_bytes: bytes | None = None
+    if progress_enabled:
+        import tools.market_b4_outer_runner as outer
+
+        # Match the real launch order: the parent owns and writes the start
+        # witness before it starts the child operator.
+        plan.witness_root.mkdir()
+        parent_start = outer._artificial_h_start_record(plan)
+        parent_start_bytes = _canonical(parent_start)
+        (plan.witness_root / "start.json").write_bytes(parent_start_bytes)
 
     def complete_pair(
         output_root: Path,
@@ -1062,6 +1246,8 @@ def test_operator_main_success_keeps_the_existing_five_file_roster(
     }
     assert not (plan.output_root / "operator-failure.json").exists()
     if progress_enabled:
+        assert parent_start_bytes is not None
+        assert (plan.witness_root / "start.json").read_bytes() == parent_start_bytes
         assert plan.progress_jsonl_path is not None
         records = [
             json.loads(line)

@@ -203,6 +203,157 @@ def _assert_output_root(plan: dict[str, object], observer_root: Path) -> Path:
     return output
 
 
+def _assert_existing_witness_root(witness_root: Path, observer_root: Path) -> Path:
+    verify_root = observer_root / "output" / "verify"
+    if (
+        not witness_root.is_absolute()
+        or ".." in witness_root.parts
+        or witness_root == verify_root
+        or not witness_root.is_relative_to(verify_root)
+    ):
+        raise ValueError("component parent witness root must be under verify")
+    try:
+        resolved_verify_root = verify_root.resolve(strict=True)
+        resolved_witness_root = witness_root.resolve(strict=True)
+        if (
+            resolved_witness_root == resolved_verify_root
+            or not resolved_witness_root.is_relative_to(resolved_verify_root)
+        ):
+            raise ValueError("component parent witness root must be under verify")
+        current = witness_root
+        while True:
+            info = current.lstat()
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400
+            ):
+                raise ValueError(
+                    "component parent witness root is not a plain directory"
+                )
+            if current == observer_root:
+                break
+            parent = current.parent
+            if parent == current:
+                raise ValueError("component parent witness root is not confined")
+            current = parent
+    except (OSError, RuntimeError) as error:
+        raise ValueError(
+            "component parent witness root is not a plain directory"
+        ) from error
+    return witness_root
+
+
+def _read_parent_start(path: Path) -> dict[str, object]:
+    try:
+        before = path.lstat()
+    except OSError as error:
+        raise ValueError("component parent start witness is unavailable") from error
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or getattr(before, "st_nlink", 1) != 1
+        or getattr(before, "st_file_attributes", 0) & 0x400
+        or not 0 < before.st_size <= _MAX_PLAN_BYTES
+    ):
+        raise ValueError("component parent start witness is not a bounded plain file")
+    try:
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (opened.st_dev, opened.st_ino, opened.st_size) != (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+            ):
+                raise ValueError("component parent start witness changed while opening")
+            raw = stream.read(_MAX_PLAN_BYTES + 1)
+            after = os.fstat(stream.fileno())
+        final = path.lstat()
+    except OSError as error:
+        raise ValueError("component parent start witness could not be read") from error
+
+    def stamp(info: os.stat_result) -> tuple[int, int, int, int]:
+        return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+
+    if (
+        len(raw) != before.st_size
+        or len(raw) > _MAX_PLAN_BYTES
+        or stamp(after) != stamp(opened)
+        or stamp(final) != stamp(before)
+        or not stat.S_ISREG(final.st_mode)
+        or getattr(final, "st_nlink", 1) != 1
+        or getattr(final, "st_file_attributes", 0) & 0x400
+    ):
+        raise ValueError("component parent start witness changed while reading")
+    try:
+        value = json.loads(raw, object_pairs_hook=_pairs, parse_constant=_constant)
+    except (UnicodeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError("component parent start witness is malformed") from error
+    if type(value) is not dict or _canonical(value) != raw:
+        raise ValueError("component parent start witness must be canonical JSON")
+    return value
+
+
+def _assert_parent_start_binding(
+    start: dict[str, object],
+    plan: dict[str, object],
+    *,
+    plan_raw: bytes,
+    operator_path: Path,
+    plan_path: Path,
+    output_root: Path,
+    witness_root: Path,
+    progress_path: Path,
+) -> None:
+    authority = start.get("input_authority")
+    if type(authority) is not dict:
+        raise ValueError("component parent start witness has no plan binding")
+    input_plan = authority.get("input_plan")
+    if type(input_plan) is not dict:
+        raise ValueError("component parent start witness has no plan binding")
+    expected_argv = [
+        str(Path(sys.executable).resolve()),
+        "-I",
+        "-B",
+        str(operator_path),
+        "--plan",
+        str(plan_path),
+        "--progress-jsonl",
+        str(progress_path),
+    ]
+    attempt_uuid = plan.get("attempt_uuid")
+    operator = plan.get("operator")
+    child_source = plan.get("child_source")
+    runtime_pin = plan.get("runtime_pin")
+    environment_policy = authority.get("environment_policy")
+    expected_input_plan = {
+        "path": str(plan_path),
+        "sha256": hashlib.sha256(plan_raw).hexdigest(),
+    }
+    if (
+        start.get("schema") != "issue810_root_owned_attempt_start_v1"
+        or start.get("attempt_uuid") != attempt_uuid
+        or start.get("argv") != expected_argv
+        or start.get("cwd") != str(Path.cwd().resolve())
+        or start.get("output_root") != str(output_root)
+        or authority.get("scope") != "ARTIFICIAL_H_COMPONENT_ONLY"
+        or authority.get("attempt_uuid") != attempt_uuid
+        or authority.get("argv") != expected_argv
+        or authority.get("cwd") != str(Path.cwd().resolve())
+        or authority.get("output_root") != str(output_root)
+        or authority.get("witness_root") != str(witness_root)
+        or authority.get("progress_jsonl_path") != str(progress_path)
+        or input_plan != expected_input_plan
+        or authority.get("child_source") != child_source
+        or authority.get("runtime_pin") != runtime_pin
+        or authority.get("operator") != operator
+        or authority.get("component_spec_sha256") != plan.get("component_spec_sha256")
+        or authority.get("outer_attempt_authenticated") is not False
+        or authority.get("full_b4_authorized") is not False
+        or type(environment_policy) is not dict
+        or start.get("child_environment_policy") != environment_policy
+    ):
+        raise ValueError("component parent start witness differs from the input plan")
+
+
 def _assert_progress_path(
     path: Path,
     *,
@@ -476,8 +627,17 @@ def _assert_plan(
     if progress_path is not None:
         if witness_path is None:
             raise ValueError("component plan progress witness root is missing")
-        witness_root = _assert_output_root(
-            {"output_root": str(witness_path)}, observer_root
+        witness_root = _assert_existing_witness_root(witness_path, observer_root)
+        start = _read_parent_start(witness_root / "start.json")
+        _assert_parent_start_binding(
+            start,
+            plan,
+            plan_raw=plan_raw,
+            operator_path=operator_path,
+            plan_path=plan_path,
+            output_root=output_root,
+            witness_root=witness_root,
+            progress_path=progress_path,
         )
         if (
             witness_root == output_root

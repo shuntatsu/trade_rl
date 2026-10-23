@@ -84,8 +84,6 @@ _VERSIONED_RUN_CONFIG_FIELDS = {
         "evaluation": frozenset({"pretrade_risk_config"}),
         "strategy": frozenset(
             {
-                "final_portfolio_value",
-                "fill_count",
                 "final_quantities",
                 "active_order_remainders",
                 "terminal_order_reasons",

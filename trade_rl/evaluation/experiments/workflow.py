@@ -63,6 +63,7 @@ from trade_rl.evaluation.experiments.errors import (
 )
 from trade_rl.evaluation.experiments.evidence import (
     EvidenceSet,
+    _config_identity_matches,
     execute_evidence_set,
     load_evidence_set,
 )
@@ -156,7 +157,9 @@ def _build_evidence_node(
         research_context_digest=research_context_digest,
     )
     loaded = load_evidence_set(staging / "evidence", expected_plan=plan)
-    if _semantic_payload_without_seed(loaded.semantic_config) != expected_semantic:
+    if not _config_identity_matches(
+        _semantic_payload_without_seed(loaded.semantic_config), expected_semantic
+    ):
         raise ArtifactIntegrityError(
             "generated EvidenceSet does not match frozen resolved configuration"
         )

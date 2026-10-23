@@ -48,6 +48,7 @@ from trade_rl.evaluation.experiments.errors import (
 from trade_rl.evaluation.experiments.evidence import (
     EvidenceSet,
     LoadedEvidenceSet,
+    _config_identity_matches,
     load_evidence_set,
 )
 from trade_rl.evaluation.experiments.protocols import (
@@ -202,9 +203,10 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             Path("baseline"),
             plan=plan,
         )
-        if _semantic_payload_without_seed(
-            baseline.semantic_config
-        ) != _semantic_without_seed(plan.baseline_config):
+        if not _config_identity_matches(
+            _semantic_payload_without_seed(baseline.semantic_config),
+            _semantic_without_seed(plan.baseline_config),
+        ):
             raise ArtifactIntegrityError(
                 "baseline EvidenceSet does not match frozen Study baseline config"
             )
@@ -280,9 +282,10 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 base / "candidate",
                 plan=plan,
             )
-            if _semantic_payload_without_seed(
-                candidate.semantic_config
-            ) != _semantic_without_seed(definition.candidate_config):
+            if not _config_identity_matches(
+                _semantic_payload_without_seed(candidate.semantic_config),
+                _semantic_without_seed(definition.candidate_config),
+            ):
                 raise ArtifactIntegrityError(
                     "candidate EvidenceSet differs from ExperimentDefinition"
                 )

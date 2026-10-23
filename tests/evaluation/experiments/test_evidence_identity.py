@@ -55,6 +55,46 @@ def _published_evidence(
     return store, plan, result
 
 
+def _created_study(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path]:
+    from trade_rl.evaluation.experiments import (
+        ControlledFactor,
+        create_study,
+    )
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    dataset = _dataset()
+    dataset_root = tmp_path / "dataset"
+    publish_market_dataset_artifact(dataset_root, dataset)
+    monkeypatch.setattr(evidence_module, "execute_candidate_run", _fake_execute())
+    root = tmp_path / "study"
+    create_study(
+        root,
+        dataset_root=dataset_root,
+        research_question="Does one preregistered factor improve development evidence?",
+        baseline_config=_config(),
+        ppo_seeds=(2, 5),
+        allowed_factors=(ControlledFactor.PPO_TRAINING_BUDGET,),
+        max_experiments=1,
+        n_bootstrap=16,
+        bootstrap_seed=3,
+    )
+    return root, dataset_root
+
+
+def _published_study_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path]:
+    from trade_rl.evaluation.experiments import run_baseline
+
+    root, dataset_root = _created_study(tmp_path, monkeypatch)
+    run_baseline(root, dataset_root=dataset_root)
+    return root, dataset_root
+
+
 def _rebind_evidence_manifest(
     evidence_root: Path,
     *,
@@ -85,6 +125,43 @@ def _rebind_evidence_manifest(
         json.dumps(manifest, sort_keys=True, separators=(",", ":")),
         encoding="utf-8",
     )
+
+
+def _rebind_evidence_signal_index_as_bool(
+    evidence_root: Path,
+    *,
+    analysis_path: Path | None = None,
+) -> None:
+    manifest_path = evidence_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    semantic_config = dict(manifest["semantic_config"])
+    semantic_config["signal_index"] = False
+    for seed in manifest["ppo_seeds"]:
+        summary_path = evidence_root / "runs" / f"seed-{seed}" / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["candidate_config"]["signal_index"] = False
+        summary_path.write_text(
+            json.dumps(summary, sort_keys=True, indent=2),
+            encoding="utf-8",
+        )
+    _rebind_evidence_manifest(evidence_root, semantic_config=semantic_config)
+
+    if analysis_path is not None:
+        from trade_rl.evaluation.experiments.codec import _analysis_binding
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        previous_binding = json.loads(analysis_path.read_text(encoding="utf-8"))
+        analysis_path.write_text(
+            json.dumps(
+                _analysis_binding(
+                    evidence_fingerprint=manifest["fingerprint"],
+                    analysis=previous_binding["analysis"],
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
 
 
 def _legacy_semantic_config(
@@ -148,8 +225,6 @@ def _downgrade_summary_to_version(summary: dict[str, object], version: int) -> N
             assert isinstance(strategy, dict)
             if version < 5:
                 for field in (
-                    "final_portfolio_value",
-                    "fill_count",
                     "final_quantities",
                     "active_order_remainders",
                     "terminal_order_reasons",
@@ -327,6 +402,13 @@ def test_evidence_loader_preserves_legacy_run_schema_bindings(
         run.summary["schema_version"] == f"lean_candidate_result_v{version}"
         for run in loaded.runs.values()
     )
+    if version <= 3:
+        assert all(
+            "final_portfolio_value" in strategy and "fill_count" in strategy
+            for run in loaded.runs.values()
+            for symbol in run.summary["by_symbol"]
+            for strategy in symbol["strategies"]
+        )
 
 
 @pytest.mark.parametrize(
@@ -444,3 +526,74 @@ def test_evidence_loader_binds_each_run_dataset_to_study_plan(
 
     with pytest.raises(ArtifactIntegrityError, match="dataset identity"):
         load_evidence_set(evidence_root, expected_plan=plan)
+
+
+def test_study_inspection_rejects_type_alias_in_rebound_baseline_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import inspect_study
+
+    root, _ = _published_study_baseline(tmp_path, monkeypatch)
+    evidence_root = root / "baseline" / "evidence"
+    _rebind_evidence_signal_index_as_bool(
+        evidence_root,
+        analysis_path=root / "baseline" / "analysis.json",
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="baseline EvidenceSet"):
+        inspect_study(root)
+
+
+def test_study_inspection_rejects_type_alias_in_rebound_candidate_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import (
+        ControlledFactor,
+        define_experiment,
+        inspect_study,
+        run_experiment,
+    )
+
+    root, dataset_root = _published_study_baseline(tmp_path, monkeypatch)
+    snapshot = inspect_study(root)
+    assert snapshot.baseline is not None
+    define_experiment(
+        root,
+        dataset_root=dataset_root,
+        hypothesis="Change only the declared PPO training budget.",
+        factor=ControlledFactor.PPO_TRAINING_BUDGET,
+        candidate_config=replace(_config(), ppo_total_timesteps=64),
+        baseline_evidence_digest=snapshot.baseline.fingerprint,
+    )
+    run_experiment(root, 1, dataset_root=dataset_root)
+
+    evidence_root = root / "experiments" / "0001" / "candidate" / "evidence"
+    _rebind_evidence_signal_index_as_bool(
+        evidence_root,
+        analysis_path=root / "experiments" / "0001" / "candidate" / "analysis.json",
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="ExperimentDefinition"):
+        inspect_study(root)
+
+
+def test_evidence_builder_rejects_type_alias_against_frozen_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import run_baseline
+    from trade_rl.evaluation.experiments import workflow as workflow_module
+
+    root, dataset_root = _created_study(tmp_path, monkeypatch)
+    original_execute = workflow_module.execute_evidence_set
+
+    def publish_type_alias(*args, **kwargs):
+        original_execute(*args, **kwargs)
+        evidence_root = kwargs["store"].root / kwargs["target"]
+        _rebind_evidence_signal_index_as_bool(evidence_root)
+
+    monkeypatch.setattr(workflow_module, "execute_evidence_set", publish_type_alias)
+    with pytest.raises(ArtifactIntegrityError, match="generated EvidenceSet"):
+        run_baseline(root, dataset_root=dataset_root)

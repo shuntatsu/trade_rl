@@ -80,7 +80,10 @@ def test_synthetic_reference_ledger_tracks_actor_and_reserve_accounting() -> Non
     assert phases == {"actor", "reserve"}
     assert fill_count > 0
     assert replay.current_index == replay.window.terminal_stop
-    ledger.assert_complete()
+    coverage = ledger.assert_complete()
+    assert coverage.actor_rows == replay.window.actor_advances
+    assert coverage.reserve_rows == replay.window.reserve_advances
+    assert coverage.fill_count == fill_count
     assert (
         ledger.account.snapshot().exact_quantities
         == replay.account_snapshot.exact_quantities
@@ -1347,3 +1350,175 @@ def test_native_consumer_checks_native_positive_fill_diagnostics(
     assert_observed_account(
         reference_snapshot, _observed_account(replay.account_snapshot)
     )
+
+
+def test_artificial_reference_account_diagnostic_requires_exact_inputs() -> None:
+    consume_diagnostic = getattr(
+        consumer, "consume_artificial_reference_account_diagnostic", None
+    )
+    assert callable(consume_diagnostic)
+    with pytest.raises(ValueError, match="exact artificial component inputs"):
+        consume_diagnostic(
+            output_index=object(),
+            inputs=object(),
+            role="NONRL",
+            reserve_plan_digest="a" * 64,
+        )
+
+
+def _content_with_raw_account_override(
+    content: VerifiedDatasetContent,
+    *,
+    array_name: str,
+    row: int,
+    value: float,
+    symbol: int | None = None,
+) -> VerifiedDatasetContent:
+    arrays = {
+        name: np.array(array, copy=True) for name, array in content.arrays.items()
+    }
+    if symbol is None:
+        arrays[array_name][row] = value
+    else:
+        arrays[array_name][row, symbol] = value
+    for array in arrays.values():
+        array.setflags(write=False)
+    return VerifiedDatasetContent(
+        content.dataset_id,
+        MappingProxyType(arrays),
+        content.dataset,
+    )
+
+
+@pytest.mark.parametrize(
+    ("array_name", "value", "symbol", "message"),
+    [
+        ("split_factor", 1.5, 0, "does not model split transitions"),
+        ("cash_rate", 0.01, None, "requires zero raw cash interest"),
+    ],
+)
+def test_reference_account_fails_closed_on_unsupported_raw_transitions(
+    array_name: str,
+    value: float,
+    symbol: int | None,
+    message: str,
+) -> None:
+    replay = _runner(0)
+    advance = replay.advance(
+        forecast_index=_forecast_index(through=64),
+        role="NONRL",
+    )
+    changed_content = _content_with_raw_account_override(
+        replay.content,
+        array_name=array_name,
+        row=advance.processing_index,
+        value=value,
+        symbol=symbol,
+    )
+    ledger = consumer._NativeReferenceLedger(
+        content=changed_content,
+        policy=replay.policy,
+        binding=replay.binding,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        ledger.apply_advance(
+            advance=advance,
+            observed_fills=tuple(
+                fill.observed_projection() for fill in advance.owned_fills
+            ),
+            observed_account=replay.account_snapshot,
+        )
+
+
+def test_reference_account_fails_closed_on_negative_raw_fee() -> None:
+    replay = _runner(0)
+    forecast = _forecast_index(through=64)
+    observed_rows: list[tuple[ReplayAdvance, AccountSnapshot]] = []
+    for _ in range(replay.window.terminal_stop - replay.current_index):
+        advance = replay.advance(forecast_index=forecast, role="NONRL")
+        observed_rows.append((advance, replay.account_snapshot))
+        if advance.owned_fills:
+            break
+    fill_row = next(
+        (advance for advance, _ in observed_rows if advance.owned_fills), None
+    )
+    assert fill_row is not None
+    changed_content = _content_with_raw_account_override(
+        replay.content,
+        array_name="fee_rate",
+        row=fill_row.processing_index,
+        value=-0.001,
+        symbol=replay.binding.selected_symbol_index,
+    )
+    ledger = consumer._NativeReferenceLedger(
+        content=changed_content,
+        policy=replay.policy,
+        binding=replay.binding,
+    )
+
+    for advance, observed_account in observed_rows:
+        if advance.processing_index == fill_row.processing_index:
+            with pytest.raises(ValueError, match="must be non-negative"):
+                ledger.apply_advance(
+                    advance=advance,
+                    observed_fills=tuple(
+                        fill.observed_projection() for fill in advance.owned_fills
+                    ),
+                    observed_account=observed_account,
+                )
+            break
+        ledger.apply_advance(
+            advance=advance,
+            observed_fills=tuple(
+                fill.observed_projection() for fill in advance.owned_fills
+            ),
+            observed_account=observed_account,
+        )
+    else:
+        raise AssertionError("synthetic fixture produced no fill row")
+
+
+def test_artificial_reference_adapter_requires_fixed_recipe_and_output_roster(
+    tmp_path: Path,
+) -> None:
+    from tests.tools.market_b4_oracle.test_artificial_h_component import (
+        _component_spec,
+    )
+    from tools.market_b4_oracle.artificial_component import (
+        build_artificial_component_inputs,
+    )
+
+    inputs = build_artificial_component_inputs(_component_spec())
+    output_index = _indexed_native_output(
+        tmp_path,
+        {"native_receipt": {"rows": []}, "closing_rows": []},
+        inputs.forecast_payload_canonical,
+    )
+    with pytest.raises(ValueError, match="H output roster differs"):
+        consumer.consume_artificial_reference_account_diagnostic(
+            output_index=output_index,
+            inputs=inputs,
+            role="NONRL",
+            reserve_plan_digest="a" * 64,
+        )
+
+    altered_document = inputs.protocol_document
+    altered_document["unexpected_profile_field"] = True
+    altered_inputs = replace(
+        inputs,
+        protocol_document_canonical=json.dumps(
+            altered_document,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8"),
+    )
+    with pytest.raises(ValueError, match="fixed comparison profile"):
+        consumer.consume_artificial_reference_account_diagnostic(
+            output_index=output_index,
+            inputs=altered_inputs,
+            role="NONRL",
+            reserve_plan_digest="a" * 64,
+        )

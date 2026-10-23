@@ -3817,9 +3817,15 @@ promote it to Full-B4 authority.
 The native-arm consumer now also runs an independent `ReferenceAccount` ledger
 after each matched Q row, deriving price, fill cost and carry from the pinned
 Dataset and policy while preserving one account across actor and reserve phases.
-Synthetic tests cover row-level agreement and actor-to-reserve continuity. This
-source change has not been exercised on a fresh authenticated H/Q attempt and
-does not change the incomplete-pair status above.
+Synthetic tests cover row-level agreement and actor-to-reserve continuity. A
+separate adapter opts into this same row loop for only the fixed Q artificial
+profile after the selected receipt and forecast are pinned and both receipt
+scans reach EOF. Its versioned result carries row/fill counts and output pins;
+all outer-attempt, root-observation, Full-B4, research, economic and live fields
+are false. Synthetic 32+8 integration verifies the opt-in path and unchanged
+default comparison result; a complete 6,599-row H output has not been consumed
+through this diagnostic. This source change does not change the incomplete-pair
+status above.
 
 The typed artificial recipe now fixes a no-fit projection with intercept -0.02
 and a coefficient derived from the stored float32 feature range, producing

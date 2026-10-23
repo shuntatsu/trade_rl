@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, cast
 
 from tools.market_account_oracle import (
@@ -34,6 +35,15 @@ from tools.market_replay_oracle import VerifiedDatasetContent
 _FILL_TOLERANCE = 1e-12
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceLedgerCoverage:
+    """Counts proven only after complete reference-ledger row coverage."""
+
+    actor_rows: int
+    reserve_rows: int
+    fill_count: int
+
+
 class _NativeReferenceLedger:
     """Recompute account arithmetic from pinned raw rows and native fills.
 
@@ -51,6 +61,7 @@ class _NativeReferenceLedger:
         "next_decision_index",
         "actor_rows",
         "reserve_rows",
+        "fill_count",
     )
 
     def __init__(
@@ -95,6 +106,7 @@ class _NativeReferenceLedger:
         self.next_decision_index = binding.window.actor_start
         self.actor_rows = 0
         self.reserve_rows = 0
+        self.fill_count = 0
         if selected not in (0, 1):
             raise ValueError("native reference symbol is outside the two-slot account")
 
@@ -337,8 +349,9 @@ class _NativeReferenceLedger:
             self.actor_rows += 1
         else:
             self.reserve_rows += 1
+        self.fill_count += len(observed_fills)
 
-    def assert_complete(self) -> None:
+    def assert_complete(self) -> ReferenceLedgerCoverage:
         if (
             self.next_decision_index != self.binding.window.terminal_stop
             or self.actor_rows != self.binding.window.actor_advances
@@ -347,3 +360,8 @@ class _NativeReferenceLedger:
             raise ValueError("independent reference ledger lacks complete row coverage")
         if any(self.account.quantities):
             raise ValueError("independent reference ledger did not finish flat")
+        return ReferenceLedgerCoverage(
+            actor_rows=self.actor_rows,
+            reserve_rows=self.reserve_rows,
+            fill_count=self.fill_count,
+        )

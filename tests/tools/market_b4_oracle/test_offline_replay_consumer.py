@@ -253,6 +253,7 @@ def test_indexed_row_consumer_compares_full_window_and_rejects_missing_actor_row
     tmp_path, role: str
 ) -> None:
     from tools.market_b4_oracle.offline_replay_consumer import (
+        _consume_indexed_market_arm,
         _metadata_arm,
         consume_indexed_market_arm,
     )
@@ -329,6 +330,31 @@ def test_indexed_row_consumer_compares_full_window_and_rejects_missing_actor_row
     assert not complete.outer_attempt_authenticated
     assert not complete.full_b4_authorized
 
+    diagnostic_pass = _consume_indexed_market_arm(
+        output_index=indexed_output(native, "indexed-reference-diagnostic"),
+        **kwargs,
+        whole_index_recheck=True,
+        static_input_recheck=True,
+        reference_account_diagnostic=True,
+    )
+    assert diagnostic_pass.comparison == complete
+    coverage = diagnostic_pass.reference_account_coverage
+    assert coverage is not None
+    assert (coverage.actor_rows, coverage.reserve_rows) == (32, 8)
+    if role == "nonrl":
+        assert coverage.fill_count >= len(complete.actor_fill_processing_indices)
+        assert coverage.fill_count > 0
+    else:
+        assert coverage.fill_count == 0
+    with pytest.raises(ValueError, match="opt-in must be an exact bool"):
+        _consume_indexed_market_arm(
+            output_index=indexed_output(native, "indexed-reference-diagnostic-bool"),
+            **kwargs,
+            whole_index_recheck=True,
+            static_input_recheck=True,
+            reference_account_diagnostic=1,
+        )
+
     from tools.market_b4_oracle.offline_replay_consumer import (
         consume_root_observed_market_arm,
     )
@@ -348,6 +374,16 @@ def test_indexed_row_consumer_compares_full_window_and_rejects_missing_actor_row
     with pytest.raises(ValueError, match="actor receipt rows differ from bound window"):
         consume_indexed_market_arm(
             output_index=indexed_output(missing_actor, "indexed-missing-row"), **kwargs
+        )
+    with pytest.raises(ValueError, match="actor receipt rows differ from bound window"):
+        _consume_indexed_market_arm(
+            output_index=indexed_output(
+                missing_actor, "indexed-reference-diagnostic-missing-row"
+            ),
+            **kwargs,
+            whole_index_recheck=True,
+            static_input_recheck=True,
+            reference_account_diagnostic=True,
         )
 
     changed_identity = json.loads(json.dumps(native))
@@ -438,6 +474,18 @@ def test_indexed_row_consumer_compares_full_window_and_rejects_missing_actor_row
                     changed_fill_event, "indexed-mutated-fill-event"
                 ),
                 **kwargs,
+            )
+        with pytest.raises(
+            ValueError, match="observed fill batch differs|native fill events differ"
+        ):
+            _consume_indexed_market_arm(
+                output_index=indexed_output(
+                    changed_fill_event, "indexed-reference-diagnostic-mutated-fill"
+                ),
+                **kwargs,
+                whole_index_recheck=True,
+                static_input_recheck=True,
+                reference_account_diagnostic=True,
             )
 
     changed_terminal_cash = json.loads(json.dumps(native))

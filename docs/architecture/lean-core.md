@@ -2261,9 +2261,13 @@ against the frozen binding. Before row consumption, each parsed forecast
 vintage is checked against the selected configuration's alpha, horizon,
 features, and prediction-symbol roster. The consumer does not treat H/v3 rows
 as V4 exact-fill events. Its bounded output-index reads enforce a per-file byte
-ceiling across path changes. The result explicitly carries no outer-attempt
-authentication or Full-B4 authorization; source/runtime witness integration
-and the frozen 48-cell financial replay remain incomplete.
+ceiling across path changes. The default result explicitly carries no
+outer-attempt authentication or Full-B4 authorization; source/runtime witness
+integration and the frozen 48-cell financial replay remain incomplete. A
+separate fixed-artificial diagnostic may explicitly run the existing
+`ReferenceAccount` ledger after the same complete row scan. It returns only a
+versioned arithmetic comparison with row/fill counts and pinned output hashes;
+outer/root, Full-B4, research, economic and live authority remain false.
 
 The internal `binary64_account.py` is a scalar binary64 compatibility view alongside the independent Fraction/Decimal reference account. It starts only from caller-owned opening cash, exact quantities, marks and multipliers, then consumes explicit account events; it is never seeded from native BookState or receipt financial fields. Its explicit cross-margin event reproduces maintenance, collateral haircut, deficit reset and termination flattening under floor-zero or retained-debt valuation. Isolated margin and split transitions are unsupported and unknown events fail closed. It does not authenticate inputs, coordinate lifecycle or order admission, or complete full B4; the existing full-run, G0/G2 and economic-evidence gaps remain.
 

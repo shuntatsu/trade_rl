@@ -10,11 +10,10 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
 
-def market(*, future_multiplier: float = 1.0) -> MarketDataset:
-    n_bars = 12
+def market(*, future_multiplier: float = 1.0, n_bars: int = 12) -> MarketDataset:
     phase = np.arange(n_bars, dtype=np.float64)
     close = (100.0 * np.exp(0.01 * phase)).reshape(-1, 1)
-    close[8:, 0] *= future_multiplier
+    close[min(8, n_bars) :, 0] *= future_multiplier
     features = np.stack((phase, phase**2), axis=-1).reshape(n_bars, 1, 2)
     return MarketDataset(
         dataset_id="6" * 64,
@@ -99,6 +98,31 @@ def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     assert baseline.labels.flags.writeable is False
     assert baseline.label_end_times.flags.writeable is False
     assert baseline.sample_weights.flags.writeable is False
+
+
+def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff() -> (
+    None
+):
+    dataset = market(n_bars=80)
+    cutoff = dataset.timestamps[74]
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0,),
+        fit_cutoff=cutoff,
+        horizon_hours=72,
+    )
+
+    np.testing.assert_array_equal(training.features[:, 0], np.asarray([0.0, 1.0]))
+    np.testing.assert_array_equal(
+        training.label_end_times,
+        dataset.timestamps[[72, 73]],
+    )
+    assert np.all(training.label_end_times < cutoff)
+    np.testing.assert_allclose(
+        training.labels,
+        np.log(dataset.close[[72, 73], 0] / dataset.close[[0, 1], 0]),
+    )
 
 
 @pytest.mark.parametrize(

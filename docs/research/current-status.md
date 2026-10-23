@@ -1007,6 +1007,8 @@ Aggregate P&Lだけで成功を判定せず、各symbolの結果とraw interval 
 | `constant_long` | control | 常時LONG |
 | `constant_short` | control | 常時SHORT |
 
+Run Coreのper-run configは`supervised_forecast_horizon_hours`を正の整数で受け取り、既定24時間の値をRidge / LightGBM両fitとresult identityへbindする。候補名も`ridge24` / `lightgbm24`のように時間数を示す。これは実装capabilityであり、現行canonical Studyの比較rosterは引き続き24時間固定である。Study作成とExperiment定義は24時間以外をDataset resolutionやcandidate fittingの前に拒否する。新しいcontrolled factorや24時間対72時間Studyの事前登録・比較権限は含まれず、将来の比較には共通anchor、label maturity、対象scopeとdecision ruleを結果を見る前に固定する必要がある。PPO・execution・risk設定および研究結果の状態は変えない。
+
 初回比較へTransformer、SAC、TD3、TQC、複数horizon ensemble、大規模hyperparameter gridを追加しない。
 
 判断原則:

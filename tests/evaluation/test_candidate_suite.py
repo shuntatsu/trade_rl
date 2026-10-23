@@ -43,8 +43,10 @@ def market(*, bar_hours: int = 1, n_bars: int = 60) -> MarketDataset:
     )
 
 
+@pytest.mark.parametrize("horizon_hours", (24, 72))
 def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch,
+    horizon_hours: int,
 ) -> None:
     calls: dict[str, object] = {"ridge": 0, "lightgbm": 0, "ppo": 0}
 
@@ -125,7 +127,18 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         ppo_minimum_hold_bars=168,
         ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
         ppo_settle_terminal_position=True,
+        supervised_forecast_horizon_hours=horizon_hours,
     )
+    if horizon_hours == 24:
+        for invalid_horizon in (True, 0, -1, 24.0, float("nan")):
+            with pytest.raises(
+                ValueError,
+                match="supervised_forecast_horizon_hours.*positive integer",
+            ):
+                replace(
+                    config,
+                    supervised_forecast_horizon_hours=invalid_horizon,
+                )
     risk = PreTradeRisk(
         PreTradeRiskConfig(
             max_gross=0.5,
@@ -176,6 +189,8 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ppo_dataset"] is dataset
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ridge_kwargs"]["horizon_hours"] == horizon_hours
+    assert calls["lightgbm_kwargs"]["horizon_hours"] == horizon_hours
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["stop_index"] == 53
     assert calls["ppo_kwargs"]["training_layout"] == "interleaved"
@@ -191,7 +206,13 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ppo_wrapper_kwargs"]["minimum_hold_bars"] == 168
     assert calls["ppo_wrapper_kwargs"]["training_minimum_hold_suppressed_count"] == 6
     assert calls["comparison_dataset"] is dataset
-    assert calls["names"] == StudyPlan.STRATEGY_NAMES
+    expected_names = tuple(
+        f"{name.removesuffix('24')}{horizon_hours}"
+        if name in {"ridge24", "lightgbm24"}
+        else name
+        for name in StudyPlan.STRATEGY_NAMES
+    )
+    assert calls["names"] == expected_names
     for first, second in calls["fresh_instances"].values():
         assert first is not second
     assert calls["kwargs"] == {

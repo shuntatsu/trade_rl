@@ -303,11 +303,11 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
-- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。
-- `config.py`: Run JSONの単一parse/resolution authority。
+- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24）を両fitへ渡し、strategy名にも同じ時間数を使う。PPO・risk・execution設定はこの値に依存しない。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証してdataset-resolved specへbindする。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
-- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v7`へ追加portolio return seriesとsettlement / ledger evidenceをbindし、loaderがreturn / maximum drawdownをraw seriesから再計算する。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。新規Runは正のforecast horizonを`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`（shared-cash）へbindする。v9はv7の追加portfolio return seriesとsettlement / ledger evidenceを維持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。旧result schemasは不変のまま読み込む。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
 `trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。

@@ -86,6 +86,13 @@ def _v5_payload() -> dict[str, object]:
     return payload
 
 
+def _v6_payload(*, horizon_hours: int = 24) -> dict[str, object]:
+    payload = _v5_payload()
+    payload["schema_version"] = "resolved_run_config_v6"
+    payload["supervised_forecast_horizon_hours"] = horizon_hours
+    return payload
+
+
 def _study_plan(baseline_config) -> StudyPlan:
     return StudyPlan(
         research_question="Does the frozen M2 baseline generalize?",
@@ -266,6 +273,38 @@ def test_resolved_run_v5_binds_explicit_pretrade_risk() -> None:
     assert (
         resolved.digest != _resolved_from_payload(changed_risk, field="changed").digest
     )
+
+
+def test_resolved_run_v6_binds_supervised_forecast_horizon_and_keeps_v5_immutable() -> (
+    None
+):
+    legacy_payload = _v5_payload()
+    payload = _v6_payload(horizon_hours=72)
+
+    legacy = _resolved_from_payload(legacy_payload, field="legacy")
+    resolved = _resolved_from_payload(payload, field="current")
+    candidate = _candidate_config_from_resolved(resolved)
+    changed_horizon = _v6_payload(horizon_hours=24)
+
+    assert legacy.to_payload() == legacy_payload
+    assert "supervised_forecast_horizon_hours" not in legacy.to_payload()
+    assert resolved.to_payload() == payload
+    assert candidate.supervised_forecast_horizon_hours == 72
+    assert (
+        resolved.digest
+        != _resolved_from_payload(changed_horizon, field="changed").digest
+    )
+
+
+@pytest.mark.parametrize("horizon_hours", (True, 0, -1, 24.0, float("nan")))
+def test_resolved_run_v6_rejects_invalid_supervised_forecast_horizon(
+    horizon_hours: object,
+) -> None:
+    payload = _v6_payload()
+    payload["supervised_forecast_horizon_hours"] = horizon_hours
+
+    with pytest.raises(ArtifactIntegrityError):
+        _resolved_from_payload(payload, field="current")
 
 
 def test_resolved_run_v5_age_aware_contract_requires_risk_and_terminal_close() -> None:

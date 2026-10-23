@@ -126,6 +126,16 @@ explicit risk config is shared by PPO training and every strategy replay. A
 drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
 or terminal move cannot exceed 20% realized drawdown.
 
+Run Core also binds a strict positive-integer
+`supervised_forecast_horizon_hours` (default 24) for both Ridge and LightGBM.
+The shared training-set builder uses that exact elapsed-hour endpoint and only
+admits labels that mature strictly before `fit_cutoff`; fitted strategy names
+include the horizon. `resolved_run_config_v6` and candidate result schemas v8
+(per-symbol) / v9 (shared-cash) persist the selected value. This is a per-run
+capability: canonical Studies remain fixed to 24 hours and reject another value
+before Dataset resolution or candidate fitting. It adds no controlled factor,
+paired-comparison authorization, PPO behavior change, or economic claim.
+
 `run_shared_cash_replay` is a separate multi-symbol evaluation boundary. Each
 symbol has one fresh strategy instance, all instances observe the same pre-trade
 portfolio snapshot, and their complete target vector passes through the shared

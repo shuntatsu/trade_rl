@@ -72,6 +72,7 @@ class CandidateRunConfig:
         "ppo_observation_schema",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
+        "supervised_forecast_horizon_hours",
     )
 
     signal_name: str
@@ -94,6 +95,7 @@ class CandidateRunConfig:
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    supervised_forecast_horizon_hours: int = 24
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -187,6 +189,14 @@ class CandidateRunConfig:
         ):
             raise ValueError(
                 "pretrade_risk_config must be a PreTradeRiskConfig or null"
+            )
+        if (
+            isinstance(self.supervised_forecast_horizon_hours, bool)
+            or not isinstance(self.supervised_forecast_horizon_hours, int)
+            or self.supervised_forecast_horizon_hours <= 0
+        ):
+            raise ValueError(
+                "supervised_forecast_horizon_hours must be a positive integer"
             )
         if self.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
             if not self.ppo_settle_terminal_position:
@@ -374,6 +384,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     settle_terminal_position = raw.get("ppo_settle_terminal_position", False)
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("ppo_settle_terminal_position must be boolean")
+    supervised_forecast_horizon_hours = raw.get("supervised_forecast_horizon_hours", 24)
     risk_payload = raw.get("pretrade_risk_config")
     risk_config: PreTradeRiskConfig | None = None
     if risk_payload is not None:
@@ -442,6 +453,9 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         ppo_observation_schema=observation_schema,
         ppo_settle_terminal_position=settle_terminal_position,
         pretrade_risk_config=risk_config,
+        supervised_forecast_horizon_hours=(
+            supervised_forecast_horizon_hours  # type: ignore[arg-type]
+        ),
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
     )
@@ -535,6 +549,7 @@ def resolve_candidate_run_spec(
         ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
         ppo_observation_schema=config.ppo_observation_schema,
         ppo_settle_terminal_position=config.ppo_settle_terminal_position,
+        supervised_forecast_horizon_hours=(config.supervised_forecast_horizon_hours),
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

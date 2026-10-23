@@ -179,6 +179,7 @@ def _legacy_semantic_config(
         "ppo_minimum_hold_bars": 4,
         "ppo_settle_terminal_position": 4,
         "pretrade_risk_config": 5,
+        "supervised_forecast_horizon_hours": 6,
     }
     for field, introduced_version in introduced_versions.items():
         if version < introduced_version:
@@ -203,6 +204,7 @@ def _downgrade_summary_to_version(summary: dict[str, object], version: int) -> N
         "ppo_settle_terminal_position": 4,
         "ppo_training_minimum_hold_suppressed_count": 4,
         "pretrade_risk_config": 5,
+        "supervised_forecast_horizon_hours": 8,
     }
     for field, introduced_version in candidate_fields.items():
         if version < introduced_version:

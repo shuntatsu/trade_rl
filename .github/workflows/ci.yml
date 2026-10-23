@@ -242,6 +242,7 @@ jobs:
           tests/tools/tier_d_nonrl/test_parallel_supervision.py::test_actual_supervisor_samples_and_reaps_real_pool_workers
           tests/tools/tier_d_nonrl/test_progress_supervision.py::test_actual_stalled_journal_stops_owned_child_and_retains_verified_prefix
           tests/tools/market_b4_oracle/test_outer_witness.py::test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure
+          tests/tools/tier_d_nonrl/test_stopped_supervision.py
 
   ppo-runtime:
     name: PPO Runtime${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}

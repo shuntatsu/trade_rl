@@ -117,11 +117,17 @@ def _install_fake_owned_supervisor(
     class FakeTree:
         @classmethod
         def from_popen(cls, launched_process):
-            return cls(launched_process.pid)
+            assert launched_process is process
+            return cls(
+                launched_process.pid,
+                expected_root_identity=(root_usage.identity if tree_identity else None),
+            )
 
-        def __init__(self, pid):
+        def __init__(self, pid, *, expected_root_identity):
             assert pid == process.pid
-            self.root_identity = root_usage.identity if tree_identity else None
+            self.root_pid = pid
+            self.expected_root_identity = expected_root_identity
+            self.root_identity = expected_root_identity
             self.owned = (
                 {root_usage.identity: 0, child_usage.identity: 1}
                 if tree_identity
@@ -203,6 +209,8 @@ def test_supervised_run_reconciles_after_verified_owned_tree_stop(
     ]
     assert publish_calls == [{"owned_tree_stopped": True}]
     assert cleanup_calls == [(process, trees[0])]
+    assert trees[0].root_pid == process.pid
+    assert trees[0].expected_root_identity == (process.pid, 100)
     assert trees[0].stopped and process.reaped and process.wait_calls == [30]
 
     nonrl_relative = "receipts/ARTIFICIAL_H72_A10_A_BASEL2_nonrl.json.gz"
@@ -227,12 +235,14 @@ def test_supervised_run_skips_reconciliation_without_verified_tree_stop(
     fixture_source, _ = stopped_attempt_fixture
     fixture_before = _snapshot(fixture_source)
     root = tmp_path / f"supervised-unverified-{stop_proof}"
-    supervisor, records, _, _, _, cleanup_calls = _install_fake_owned_supervisor(
-        monkeypatch,
-        root=root,
-        fixture_source=fixture_source,
-        tree_identity=stop_proof != "missing_root_identity",
-        cleanup_failure=stop_proof == "cleanup_failure",
+    supervisor, records, _, process, trees, cleanup_calls = (
+        _install_fake_owned_supervisor(
+            monkeypatch,
+            root=root,
+            fixture_source=fixture_source,
+            tree_identity=stop_proof != "missing_root_identity",
+            cleanup_failure=stop_proof == "cleanup_failure",
+        )
     )
     publish_calls = []
 
@@ -257,6 +267,11 @@ def test_supervised_run_skips_reconciliation_without_verified_tree_stop(
     ]
     assert publish_calls == []
     assert len(cleanup_calls) == 1
+    assert trees[0].root_pid == process.pid
+    expected_identity = (
+        None if stop_proof == "missing_root_identity" else (process.pid, 100)
+    )
+    assert trees[0].expected_root_identity == expected_identity
     assert (
         root / "attempt/receipts/ARTIFICIAL_H72_A10_A_BASEL2_nonrl.json.gz"
     ).read_bytes() == fixture_before[

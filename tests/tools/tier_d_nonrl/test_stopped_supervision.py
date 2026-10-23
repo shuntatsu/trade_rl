@@ -115,6 +115,10 @@ def _install_fake_owned_supervisor(
     trees = []
 
     class FakeTree:
+        @classmethod
+        def from_popen(cls, launched_process):
+            return cls(launched_process.pid)
+
         def __init__(self, pid):
             assert pid == process.pid
             self.root_identity = root_usage.identity if tree_identity else None

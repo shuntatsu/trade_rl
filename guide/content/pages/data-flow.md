@@ -42,7 +42,7 @@ source URL、SHA-256、size、取引所metadata等を保存し、再取得時に
 feature_available_time <= decision_time
 ```
 
-加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelもfit boundaryの内側で完結させます。
+加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。
 

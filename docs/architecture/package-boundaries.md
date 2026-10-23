@@ -2173,14 +2173,18 @@ B4.
 
 ## Declared protocol pair boundary
 
-`protocol_pair.py` separately compares H's native v3 declaration with the H-bound
-v4 comparison declaration. It imports neither the native runner nor production
-code. The v4, pair and exact-fill static readers accept a closed source-profile
-selector: omission retains the existing `d361b6e3` pair, while the `b6318664`
-candidate must be selected explicitly with its public profile ID. The facade
-exports only the ID type and the two supported IDs; the immutable profile table
-and resolver remain internal. Each entry pins exact source HEAD and canonical
-v3/v4 declaration digests; unknown, mixed and altered declarations reject. The
+`protocol_pair.py` separately compares H's public native v3 declaration with a
+Q-owned v4 comparison declaration. It imports neither the native runner nor
+production code. H does not emit a v4 execution declaration: the prospective
+v4 metadata is derived from the exact H v3 declaration using the closed v4 schema
+and `exact_fill_evidence` contract. The v4, pair and exact-fill static readers
+accept a closed source-profile selector: omission retains the existing
+`d361b6e3` pair, while `b6318664` and `fa36f7d5` must be selected explicitly by
+their public profile IDs. The facade exports only the ID type and supported IDs;
+the immutable profile table and resolver remain internal. Each entry pins exact
+source HEAD and canonical v3/v4 declaration digests; unknown, mixed and altered
+declarations reject. The fa36 entry records metadata only and does not establish
+execution, economic, research or Tier-D authorization. The
 legacy v3 `load_protocol` and `load_pinned_attempt` remain frozen to `8bc2fd0c`,
 and the exact-fill binding payload does not serialize the selector. The public
 frozen pair result keeps independent `ProtocolPin` objects and immutable

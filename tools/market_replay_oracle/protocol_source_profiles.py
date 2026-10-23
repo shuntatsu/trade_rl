@@ -8,12 +8,14 @@ from typing import Literal
 ProtocolSourceProfileId = Literal[
     "d361-native-v3-v4",
     "b631-native-candidate-v3-v4",
+    "fa36-native-v3-v4",
 ]
 
 DEFAULT_PROTOCOL_SOURCE_PROFILE: ProtocolSourceProfileId = "d361-native-v3-v4"
 B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE: ProtocolSourceProfileId = (
     "b631-native-candidate-v3-v4"
 )
+FA36_NATIVE_PROTOCOL_SOURCE_PROFILE: ProtocolSourceProfileId = "fa36-native-v3-v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +47,16 @@ _PROTOCOL_SOURCE_PROFILES = (
         ),
         comparison_v4_canonical_sha256=(
             "e85aea4f1792a9a10d366c289b3f76ecaac2d548d210cdd30a449fb0d6c69852"
+        ),
+    ),
+    ProtocolSourceProfile(
+        profile_id=FA36_NATIVE_PROTOCOL_SOURCE_PROFILE,
+        source_head="fa36f7d5c2fcf4e7401d62ca19f6ec3df114fa00",
+        native_v3_canonical_sha256=(
+            "36570820c67c44b2f825a136e860b55b3ffb7a8e4ac8b9e114b7d47e6ee4d174"
+        ),
+        comparison_v4_canonical_sha256=(
+            "3823a80c617acd185ae3c8ea9b2d835df4688eb4de3c48e0a027697e3c94fce4"
         ),
     ),
 )

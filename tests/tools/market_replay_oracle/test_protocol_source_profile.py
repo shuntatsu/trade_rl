@@ -20,28 +20,37 @@ from tools.market_replay_oracle.protocol import ProtocolPin
 
 B631_SOURCE_HEAD = "b6318664c24da5a486baf0179d7a52fadaaa502d"
 B631_SOURCE_PROFILE = B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE
+FA36_SOURCE_HEAD = "fa36f7d5c2fcf4e7401d62ca19f6ec3df114fa00"
+FA36_PROFILE = "fa36-native-v3-v4"
+FA36_NATIVE_SHA256 = "36570820c67c44b2f825a136e860b55b3ffb7a8e4ac8b9e114b7d47e6ee4d174"
+FA36_COMPARISON_SHA256 = (
+    "3823a80c617acd185ae3c8ea9b2d835df4688eb4de3c48e0a027697e3c94fce4"
+)
 
 
 def _candidate_pair_files(
     root: Path,
+    *,
+    source_head: str = B631_SOURCE_HEAD,
+    name: str = "b631",
 ) -> tuple[Path, ProtocolPin, Path, ProtocolPin, dict[str, Any], dict[str, Any]]:
     native = copy.deepcopy(_native_v3_document())
-    native["source_head"] = B631_SOURCE_HEAD
+    native["source_head"] = source_head
     comparison = copy.deepcopy(_comparison_v4_document())
-    comparison["source_head"] = B631_SOURCE_HEAD
+    comparison["source_head"] = source_head
     native_raw = _wire(native)
     comparison_raw = _wire(comparison)
-    native_path = root / "native-b631-v3.json"
-    comparison_path = root / "comparison-b631-v4.json"
+    native_path = root / f"native-{name}-v3.json"
+    comparison_path = root / f"comparison-{name}-v4.json"
     native_path.write_bytes(native_raw)
     comparison_path.write_bytes(comparison_raw)
     native_pin = ProtocolPin(
-        hashlib.sha256(native_raw).hexdigest(), len(native_raw), B631_SOURCE_HEAD
+        hashlib.sha256(native_raw).hexdigest(), len(native_raw), source_head
     )
     comparison_pin = ProtocolPin(
         hashlib.sha256(comparison_raw).hexdigest(),
         len(comparison_raw),
-        B631_SOURCE_HEAD,
+        source_head,
     )
     return (
         native_path,
@@ -138,6 +147,153 @@ def _canonical(value: object) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def test_fa36_native_pair_matches_fresh_declarations_and_requires_opt_in(
+    tmp_path: Path,
+) -> None:
+    from tools.market_replay_oracle import (
+        DEFAULT_PROTOCOL_SOURCE_PROFILE,
+        FA36_NATIVE_PROTOCOL_SOURCE_PROFILE,
+    )
+    from tools.market_replay_oracle.protocol_pair import load_declared_protocol_pair
+    from tools.market_replay_oracle.protocol_source_profiles import (
+        resolve_protocol_source_profile,
+    )
+
+    assert FA36_NATIVE_PROTOCOL_SOURCE_PROFILE == FA36_PROFILE
+    profile = resolve_protocol_source_profile(FA36_NATIVE_PROTOCOL_SOURCE_PROFILE)
+    assert DEFAULT_PROTOCOL_SOURCE_PROFILE == "d361-native-v3-v4"
+    assert profile.profile_id == FA36_PROFILE
+    assert profile.source_head == FA36_SOURCE_HEAD
+    assert profile.native_v3_canonical_sha256 == FA36_NATIVE_SHA256
+    assert profile.comparison_v4_canonical_sha256 == FA36_COMPARISON_SHA256
+
+    native_path, native_pin, comparison_path, comparison_pin, native, comparison = (
+        _candidate_pair_files(
+            tmp_path,
+            source_head=FA36_SOURCE_HEAD,
+            name="fa36",
+        )
+    )
+    assert hashlib.sha256(_canonical(native)).hexdigest() == FA36_NATIVE_SHA256
+    assert hashlib.sha256(_canonical(comparison)).hexdigest() == FA36_COMPARISON_SHA256
+
+    with pytest.raises(ValueError):
+        load_declared_protocol_pair(
+            native_path, native_pin, comparison_path, comparison_pin
+        )
+
+    pair = load_declared_protocol_pair(
+        native_path,
+        native_pin,
+        comparison_path,
+        comparison_pin,
+        source_profile=FA36_PROFILE,
+    )
+    assert pair.native_pin == native_pin
+    assert pair.comparison_pin == comparison_pin
+    assert pair.native_pin.source_head == FA36_SOURCE_HEAD
+    assert pair.comparison_pin.source_head == FA36_SOURCE_HEAD
+    assert pair.native_canonical == _canonical(native)
+    assert pair.comparison_canonical == _canonical(comparison)
+
+
+@pytest.mark.parametrize("mutated_leg", ["native", "comparison"])
+def test_fa36_profile_rejects_mixed_and_rehashed_declaration_mutations(
+    tmp_path: Path,
+    mutated_leg: str,
+) -> None:
+    from tools.market_replay_oracle.protocol_pair import load_declared_protocol_pair
+
+    native_path, native_pin, comparison_path, comparison_pin, native, comparison = (
+        _candidate_pair_files(
+            tmp_path,
+            source_head=FA36_SOURCE_HEAD,
+            name="fa36",
+        )
+    )
+    mixed_comparison_pin = ProtocolPin(
+        comparison_pin.sha256,
+        comparison_pin.raw_bytes,
+        B631_SOURCE_HEAD,
+    )
+    with pytest.raises(ValueError):
+        load_declared_protocol_pair(
+            native_path,
+            native_pin,
+            comparison_path,
+            mixed_comparison_pin,
+            source_profile=FA36_PROFILE,
+        )
+
+    if mutated_leg == "native":
+        native["capital"]["per_account"] = 99999.0
+        raw = _wire(native)
+        native_path.write_bytes(raw)
+        native_pin = ProtocolPin(
+            hashlib.sha256(raw).hexdigest(), len(raw), FA36_SOURCE_HEAD
+        )
+    else:
+        comparison["economics"]["dataset_fee"] = 0.0004
+        raw = _wire(comparison)
+        comparison_path.write_bytes(raw)
+        comparison_pin = ProtocolPin(
+            hashlib.sha256(raw).hexdigest(), len(raw), FA36_SOURCE_HEAD
+        )
+
+    with pytest.raises(ValueError, match="frozen|contract|differs"):
+        load_declared_protocol_pair(
+            native_path,
+            native_pin,
+            comparison_path,
+            comparison_pin,
+            source_profile=FA36_PROFILE,
+        )
+
+
+def test_fa36_profile_rejects_unknown_source_head_and_profile_id(
+    tmp_path: Path,
+) -> None:
+    from tools.market_replay_oracle.protocol_pair import load_declared_protocol_pair
+
+    native_path, native_pin, comparison_path, comparison_pin, native, comparison = (
+        _candidate_pair_files(
+            tmp_path,
+            source_head=FA36_SOURCE_HEAD,
+            name="fa36",
+        )
+    )
+    with pytest.raises(ValueError, match="unsupported.*profile"):
+        load_declared_protocol_pair(
+            native_path,
+            native_pin,
+            comparison_path,
+            comparison_pin,
+            source_profile="fa36-unreviewed-v3-v4",
+        )
+
+    unknown_head = "f" * 40
+    native["source_head"] = unknown_head
+    comparison["source_head"] = unknown_head
+    native_raw = _wire(native)
+    comparison_raw = _wire(comparison)
+    native_path.write_bytes(native_raw)
+    comparison_path.write_bytes(comparison_raw)
+    with pytest.raises(ValueError):
+        load_declared_protocol_pair(
+            native_path,
+            ProtocolPin(
+                hashlib.sha256(native_raw).hexdigest(), len(native_raw), unknown_head
+            ),
+            comparison_path,
+            ProtocolPin(
+                hashlib.sha256(comparison_raw).hexdigest(),
+                len(comparison_raw),
+                unknown_head,
+            ),
+            source_profile=FA36_PROFILE,
+        )
 
 
 def test_b631_pair_rejects_unknown_mixed_and_mutated_profiles(

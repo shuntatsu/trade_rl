@@ -54,6 +54,7 @@ uv run python -m tools.agent_repo impact trade_rl/evaluation/runs/config.py
 uv run python -m tools.agent_repo diff --base main
 uv run python -m tools.agent_repo verify --base main
 uv run python -m tools.agent_repo eval-list
+uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HEAD_COMMIT_SHA --output C:/temp/source-packet
 ```
 
 - `preflight`: local branch/HEAD/base/worktree/Active docs/workflow rosterを表示する。
@@ -62,6 +63,7 @@ uv run python -m tools.agent_repo eval-list
 - `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
 - `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
 - `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task promptとgeneric rubricを表示・Evaluator入力から採点する。task-specificなEvaluator answer keyはchecked-in corpusへ保存しない。
+- `source-packet`: full commit SHAで固定した二つのGit snapshotからsource transport packetを作る。outputはrepository外の未使用directoryに限り、生成物をcommitしない。
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
 

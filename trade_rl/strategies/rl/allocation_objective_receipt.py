@@ -18,7 +18,10 @@ def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
 def _finite(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be finite")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result
@@ -60,11 +63,24 @@ def validate_allocation_objective(
     capital = _mapping(
         values["capital"], {"mode", "currency", "initial_equities"}, "capital"
     )
-    if capital != {
-        "mode": "independent_symbol",
-        "currency": profile["currency"],
-        "initial_equities": [profile["initial_capital"]],
-    }:
+    initial_equities = capital["initial_equities"]
+    if (
+        capital["mode"] != "independent_symbol"
+        or capital["currency"] != profile["currency"]
+        or not isinstance(initial_equities, list)
+        or len(initial_equities) != 1
+    ):
+        raise ValueError("objective capital differs from the inference recipe")
+    try:
+        initial_equity = _finite(initial_equities[0], "capital.initial_equities[0]")
+        recipe_initial_capital = _finite(
+            profile["initial_capital"], "runtime_profile.initial_capital"
+        )
+    except ValueError as error:
+        raise ValueError(
+            "objective capital differs from the inference recipe"
+        ) from error
+    if initial_equity != recipe_initial_capital:
         raise ValueError("objective capital differs from the inference recipe")
     if values["deployment_recipe_digest"] != recipe_digest or any(
         values[key] != profile[key] for key in ("economics_digest", "risk_digest")

@@ -357,7 +357,8 @@ def test_bundle_pins_policy_before_loader_and_is_write_once(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize(
-    "mutation", ["schema", "layout", "budget", "clock", "recipe", "extra", "spaces"]
+    "mutation",
+    ["schema", "layout", "budget", "clock", "recipe", "extra", "spaces", "capital"],
 )
 def test_rehashed_invalid_contract_is_rejected_before_loading(
     tmp_path, monkeypatch, mutation
@@ -386,7 +387,10 @@ def test_rehashed_invalid_contract_is_rejected_before_loading(
     if mutation == "spaces":
         raw["recipe"]["feature_names"].append("other")
         raw["training"]["source"]["feature_names"].append("other")
-    if mutation in ("layout", "spaces"):
+    if mutation == "capital":
+        raw["recipe"]["runtime_profile"]["initial_capital"] = 1.0
+        raw["training"]["objective"]["capital"]["initial_equities"] = [True]
+    if mutation in ("layout", "spaces", "capital"):
         raw["recipe_digest"] = content_digest(raw["recipe"])
         raw["training"]["objective"]["deployment_recipe_digest"] = raw["recipe_digest"]
     (root / "manifest.json").write_bytes(canonical_json_bytes(raw))
@@ -411,6 +415,31 @@ def test_boolean_ppo_gamma_is_not_numeric_one():
     raw["training"]["ppo"]["gamma"] = True
     with pytest.raises(ValueError, match="gamma"):
         capability("model").AllocationPPOPolicy(Policy(), raw)
+
+
+def test_boolean_objective_capital_cannot_alias_float_initial_capital():
+    raw = manifest()
+    raw["recipe"]["runtime_profile"]["initial_capital"] = 1.0
+    raw["recipe_digest"] = content_digest(raw["recipe"])
+    objective = raw["training"]["objective"]
+    objective["deployment_recipe_digest"] = raw["recipe_digest"]
+    objective["capital"]["initial_equities"] = [True]
+
+    with pytest.raises(ValueError, match="objective capital"):
+        capability("manifest").validate_allocation_manifest(raw)
+    with pytest.raises(ValueError, match="objective capital"):
+        capability("model").AllocationPPOPolicy(Policy(), raw)
+
+    objective["capital"]["initial_equities"] = [1]
+    assert capability("manifest").validate_allocation_manifest(raw)
+    capability("model").AllocationPPOPolicy(Policy(), raw)
+
+
+def test_objective_overflow_is_rejected_as_a_malformed_manifest():
+    raw = manifest()
+    raw["training"]["objective"]["maximum_drawdown"] = 10**400
+    with pytest.raises(ValueError, match="maximum_drawdown.*finite"):
+        capability("manifest").validate_allocation_manifest(raw)
 
 
 def test_raw_observation_space_cannot_be_replaced_by_clipped_box():

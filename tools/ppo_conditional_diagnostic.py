@@ -40,7 +40,10 @@ from trade_rl.strategies.rl.ppo import (
     expected_ppo_realized_timesteps,
     fit_ppo_strategy,
 )
-from trade_rl.strategies.rl.ppo_artifact import save_ppo_inference_bundle
+from trade_rl.strategies.rl.ppo_artifact import (
+    load_ppo_inference_bundle,
+    save_ppo_inference_bundle,
+)
 
 PROTOCOL_SCHEMA = "ppo_conditional_diagnostic_protocol_v1"
 PREFIT_SCHEMA = "ppo_conditional_diagnostic_prefit_v1"
@@ -808,6 +811,84 @@ def _verified_policy_bundle(
     }
 
 
+def _final_verified_file_bytes(
+    path: Path,
+    *,
+    expected_sha256: object,
+    expected_size_bytes: object,
+    field: str,
+) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"final diagnostic artifact is unavailable: {field}")
+    raw = path.read_bytes()
+    if (
+        not isinstance(expected_sha256, str)
+        or hashlib.sha256(raw).hexdigest() != expected_sha256
+        or isinstance(expected_size_bytes, bool)
+        or not isinstance(expected_size_bytes, int)
+        or len(raw) != expected_size_bytes
+    ):
+        raise ValueError(f"final diagnostic artifact differs from readback: {field}")
+    return raw
+
+
+def _final_verified_json(
+    path: Path,
+    *,
+    metadata: dict[str, object],
+    field: str,
+) -> dict[str, Any]:
+    raw = _final_verified_file_bytes(
+        path,
+        expected_sha256=metadata.get("sha256"),
+        expected_size_bytes=metadata.get("size_bytes"),
+        field=field,
+    )
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError(f"final diagnostic JSON is invalid: {field}") from None
+    if (
+        not isinstance(value, dict)
+        or canonical_json_bytes(value) != raw
+        or content_digest(value) != metadata.get("digest")
+    ):
+        raise ValueError(f"final diagnostic JSON differs from readback: {field}")
+    return value
+
+
+def _final_verified_policy_bundle(
+    root: Path,
+    *,
+    metadata: dict[str, object],
+) -> None:
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("final PPO inference bundle is unavailable")
+    members = {path.name for path in root.iterdir()}
+    if members != {"manifest.json", "policy.zip"}:
+        raise ValueError("final PPO inference bundle file closure differs")
+    manifest = _final_verified_json(
+        root / "manifest.json",
+        metadata={
+            "digest": metadata.get("manifest_digest"),
+            "sha256": metadata.get("manifest_sha256"),
+            "size_bytes": metadata.get("manifest_size_bytes"),
+        },
+        field="inference-bundle/manifest.json",
+    )
+    policy_bytes = _final_verified_file_bytes(
+        root / "policy.zip",
+        expected_sha256=metadata.get("policy_sha256"),
+        expected_size_bytes=metadata.get("policy_size_bytes"),
+        field="inference-bundle/policy.zip",
+    )
+    if (
+        manifest.get("schema") != metadata.get("schema")
+        or manifest.get("policy_sha256") != hashlib.sha256(policy_bytes).hexdigest()
+    ):
+        raise ValueError("final PPO inference bundle differs from readback")
+
+
 def _write_verified_json_artifact(
     path: Path,
     payload: dict[str, Any],
@@ -1170,18 +1251,41 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
         execution_phase = "policy_bundle"
         active_artifact = "inference_bundle"
         artifact_statuses[active_artifact] = "writing"
+        feed_feature_names = tuple(training_dataset.feature_names)
         bundle_digest = save_ppo_inference_bundle(
             inference_bundle_path,
             strategy,
-            feature_names=tuple(
-                training_dataset.feature_names[index]
-                for index in strategy.feature_indices
-            ),
+            feature_names=feed_feature_names,
         )
         policy_bundle = _verified_policy_bundle(
             inference_bundle_path,
             expected_digest=bundle_digest,
         )
+        artifact_statuses[active_artifact] = "verified"
+        active_artifact = None
+
+        execution_phase = "policy_reload"
+        active_artifact = "inference_bundle"
+        artifact_statuses[active_artifact] = "verifying"
+        loaded_strategy = load_ppo_inference_bundle(
+            inference_bundle_path,
+            expected_digest=bundle_digest,
+            feature_names=feed_feature_names,
+        )
+        if (
+            tuple(loaded_strategy.feature_indices) != tuple(strategy.feature_indices)
+            or tuple(loaded_strategy.feature_names or ())
+            != tuple(strategy.feature_names or ())
+            or loaded_strategy.observation_schema != strategy.observation_schema
+            or loaded_strategy.minimum_hold_bars != strategy.minimum_hold_bars
+        ):
+            raise ValueError("reloaded PPO strategy differs from the fitted contract")
+        loaded_policy = getattr(loaded_strategy, "policy", None)
+        if loaded_policy is None or not callable(
+            getattr(loaded_policy, "predict", None)
+        ):
+            raise TypeError("reloaded PPO strategy does not expose its policy")
+        policy = cast(_PredictPolicy, loaded_policy)
         artifact_statuses[active_artifact] = "verified"
         active_artifact = None
 
@@ -1272,6 +1376,33 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
             "started_at": attempt_started_at,
             "completed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         }
+        execution_phase = "final_artifact_closure"
+        active_artifact = "inference_bundle"
+        artifact_statuses[active_artifact] = "verifying"
+        _final_verified_policy_bundle(
+            inference_bundle_path,
+            metadata=policy_bundle,
+        )
+        artifact_statuses[active_artifact] = "verified"
+
+        active_artifact = "heldout_trace"
+        artifact_statuses[active_artifact] = "verifying"
+        _final_verified_json(
+            heldout_trace_path,
+            metadata=trace_metadata,
+            field="heldout-trace.json",
+        )
+        artifact_statuses[active_artifact] = "verified"
+
+        active_artifact = "evidence_manifest"
+        artifact_statuses[active_artifact] = "verifying"
+        _final_verified_json(
+            evidence_manifest_path,
+            metadata=evidence_manifest_metadata,
+            field="evidence-manifest.json",
+        )
+        artifact_statuses[active_artifact] = "verified"
+
         execution_phase = "result"
         active_artifact = "result"
         artifact_statuses[active_artifact] = "writing"

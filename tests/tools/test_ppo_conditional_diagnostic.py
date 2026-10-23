@@ -12,6 +12,7 @@ import pytest
 
 import trade_rl
 from tools import ppo_conditional_diagnostic as diagnostic
+from trade_rl.strategies.rl.ppo_artifact import load_ppo_inference_bundle
 
 TEST_RUNTIME = {
     "gymnasium": "test",
@@ -85,6 +86,41 @@ def _read_canonical(path: Path) -> dict[str, Any]:
 
 def _install_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(diagnostic, "_runtime_versions", lambda: TEST_RUNTIME.copy())
+    save_bundle = diagnostic.save_ppo_inference_bundle
+    saved_strategies: dict[str, tuple[Path, tuple[str, ...], object]] = {}
+
+    def save_for_test(
+        root: Path,
+        strategy: Any,
+        *,
+        feature_names: tuple[str, ...],
+    ) -> str:
+        digest = save_bundle(root, strategy, feature_names=feature_names)
+        saved_strategies[digest] = (root, feature_names, strategy)
+        return digest
+
+    def load_for_test(
+        root: Path,
+        *,
+        expected_digest: str,
+        feature_names: tuple[str, ...],
+    ) -> SimpleNamespace:
+        saved_root, saved_names, strategy = saved_strategies[expected_digest]
+        assert root == saved_root
+        assert feature_names == saved_names
+        return SimpleNamespace(
+            policy=strategy.policy,
+            feature_indices=tuple(strategy.feature_indices),
+            feature_names=tuple(strategy.feature_names),
+            feature_normalizer=strategy.feature_normalizer,
+            observation_schema=strategy.observation_schema,
+            minimum_hold_bars=strategy.minimum_hold_bars,
+        )
+
+    monkeypatch.setattr(diagnostic, "save_ppo_inference_bundle", save_for_test)
+    monkeypatch.setattr(
+        diagnostic, "load_ppo_inference_bundle", load_for_test, raising=False
+    )
 
 
 def test_fixture_is_fixed_causal_label_with_swapped_renamed_heldout() -> None:
@@ -428,6 +464,215 @@ def test_run_uses_one_frozen_fit_and_public_v3_observation_for_heldout(
     with pytest.raises(FileExistsError):
         diagnostic.run_diagnostic(output)
     assert len(fit_calls) == 1
+
+
+def test_heldout_uses_policy_reloaded_from_digest_pinned_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fitted_policy = FeaturePolicy()
+    loaded_policy = FeaturePolicy()
+    load_calls: list[tuple[Path, str, tuple[str, ...]]] = []
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        del args, kwargs
+        return _fitted_strategy(fitted_policy)
+
+    def fake_load(
+        root: Path,
+        *,
+        expected_digest: str,
+        feature_names: tuple[str, ...],
+    ) -> SimpleNamespace:
+        load_calls.append((root, expected_digest, feature_names))
+        return _fitted_strategy(loaded_policy)
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(
+        diagnostic, "load_ppo_inference_bundle", fake_load, raising=False
+    )
+    result = diagnostic.run_diagnostic(output)
+
+    assert result["status"] == "completed"
+    assert result["fit_call_count"] == 1
+    assert len(load_calls) == 1
+    loaded_root, loaded_digest, loaded_features = load_calls[0]
+    assert loaded_root == output / "inference-bundle"
+    assert loaded_digest == result["policy_bundle_manifest_digest"]
+    assert loaded_features == diagnostic.build_fixture_dataset().feature_names
+    assert not fitted_policy.observations
+    assert loaded_policy.observations
+
+
+def test_corrupt_bundle_fails_reload_before_heldout_without_refitting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fit_calls = 0
+    heldout_calls = 0
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal fit_calls
+        del args, kwargs
+        fit_calls += 1
+        return _fitted_strategy(FeaturePolicy())
+
+    def corrupt_then_load(
+        root: Path,
+        *,
+        expected_digest: str,
+        feature_names: tuple[str, ...],
+    ) -> Any:
+        policy_path = root / "policy.zip"
+        policy_path.write_bytes(policy_path.read_bytes() + b"tampered")
+        return load_ppo_inference_bundle(
+            root,
+            expected_digest=expected_digest,
+            feature_names=feature_names,
+        )
+
+    def count_heldout(policy: Any, dataset: Any) -> Any:
+        nonlocal heldout_calls
+        heldout_calls += 1
+        return diagnostic._heldout_clauses(policy, dataset)
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(diagnostic, "load_ppo_inference_bundle", corrupt_then_load)
+    monkeypatch.setattr(diagnostic, "_heldout_clauses", count_heldout)
+    result = diagnostic.run_diagnostic(output)
+
+    failure = _read_canonical(output / "failure.json")
+    policy_bytes = (output / "inference-bundle" / "policy.zip").read_bytes()
+    assert fit_calls == 1
+    assert heldout_calls == 0
+    assert result["status"] == "execution_failed"
+    assert failure["execution_phase"] == "policy_reload"
+    assert failure["fit_call_count"] == 1
+    assert failure["artifact_statuses"]["inference_bundle"] == "failed"
+    assert failure["artifact_files"]["inference-bundle/policy.zip"] == {
+        "status": "present",
+        "sha256": hashlib.sha256(policy_bytes).hexdigest(),
+        "size_bytes": len(policy_bytes),
+    }
+    assert not (output / "result.json").exists()
+    with pytest.raises(FileExistsError):
+        diagnostic.run_diagnostic(output)
+    assert fit_calls == 1
+
+
+def test_reloaded_policy_schema_must_match_fitted_contract_before_heldout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fit_calls = 0
+    heldout_calls = 0
+    wrong_schema_strategy = _fitted_strategy(FeaturePolicy())
+    wrong_schema_strategy.observation_schema = "ppo_observation_v2"
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal fit_calls
+        del args, kwargs
+        fit_calls += 1
+        return _fitted_strategy(FeaturePolicy())
+
+    def wrong_schema_load(
+        root: Path,
+        *,
+        expected_digest: str,
+        feature_names: tuple[str, ...],
+    ) -> SimpleNamespace:
+        del root, expected_digest, feature_names
+        return wrong_schema_strategy
+
+    def count_heldout(policy: Any, dataset: Any) -> Any:
+        nonlocal heldout_calls
+        heldout_calls += 1
+        return diagnostic._heldout_clauses(policy, dataset)
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(diagnostic, "load_ppo_inference_bundle", wrong_schema_load)
+    monkeypatch.setattr(diagnostic, "_heldout_clauses", count_heldout)
+    result = diagnostic.run_diagnostic(output)
+
+    failure = _read_canonical(output / "failure.json")
+    assert fit_calls == 1
+    assert heldout_calls == 0
+    assert result["status"] == "execution_failed"
+    assert failure["execution_phase"] == "policy_reload"
+    assert failure["fit_call_count"] == 1
+    assert failure["artifact_statuses"]["inference_bundle"] == "failed"
+    assert not (output / "result.json").exists()
+    with pytest.raises(FileExistsError):
+        diagnostic.run_diagnostic(output)
+    assert fit_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "status_key"),
+    [
+        ("inference-bundle/manifest.json", "inference_bundle"),
+        ("inference-bundle/policy.zip", "inference_bundle"),
+        ("heldout-trace.json", "heldout_trace"),
+        ("evidence-manifest.json", "evidence_manifest"),
+    ],
+)
+def test_final_artifact_closure_rejects_mutation_after_readback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative_path: str,
+    status_key: str,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fit_calls = 0
+    write_verified = diagnostic._write_verified_json_artifact
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal fit_calls
+        del args, kwargs
+        fit_calls += 1
+        return _fitted_strategy(FeaturePolicy())
+
+    def write_then_mutate(path: Path, payload: dict[str, Any]) -> dict[str, object]:
+        metadata = write_verified(path, payload)
+        if path.name == "evidence-manifest.json":
+            artifact_path = output.joinpath(*relative_path.split("/"))
+            with artifact_path.open("ab") as stream:
+                stream.write(b"tampered")
+        return metadata
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(diagnostic, "_write_verified_json_artifact", write_then_mutate)
+    result = diagnostic.run_diagnostic(output)
+
+    assert result["status"] == "execution_failed"
+    failure = _read_canonical(output / "failure.json")
+    artifact_path = output.joinpath(*relative_path.split("/"))
+    artifact_bytes = artifact_path.read_bytes()
+    assert fit_calls == 1
+    assert failure["execution_phase"] == "final_artifact_closure"
+    assert failure["fit_call_count"] == 1
+    assert failure["artifact_statuses"][status_key] == "failed"
+    assert failure["artifact_files"][relative_path] == {
+        "status": "present",
+        "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+        "size_bytes": len(artifact_bytes),
+    }
+    assert not (output / "result.json").exists()
+    assert not (output / "result.pending.json").exists()
+    with pytest.raises(FileExistsError):
+        diagnostic.run_diagnostic(output)
+    assert fit_calls == 1
 
 
 def test_learned_policy_failures_are_all_recorded_without_retraining(

@@ -155,7 +155,7 @@ def _build_evidence_node(
         config=config,
         research_context_digest=research_context_digest,
     )
-    loaded = load_evidence_set(staging / "evidence")
+    loaded = load_evidence_set(staging / "evidence", expected_plan=plan)
     if _semantic_payload_without_seed(loaded.semantic_config) != expected_semantic:
         raise ArtifactIntegrityError(
             "generated EvidenceSet does not match frozen resolved configuration"

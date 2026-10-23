@@ -112,7 +112,7 @@ historical `resolved_run_config_v1` / Study artifactはread/inspection互換の�
 
 Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。
 
-EvidenceSet内で変えてよいのは `ppo_seed` だけである。EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。
+EvidenceSet内で変えてよいのは `ppo_seed` だけである。EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。Load・Study reconstructionは各Run artifactのpersisted candidate/evaluation fieldsからresolved configを再構成し、EvidenceSet semantic configと照合する。Studyの各Runは `StudyPlan` のdataset ID、artifact schema、artifact digestにも一致しなければならない。Run schemaが古く実際のfieldを保持しない場合、そのfieldをmanifestから補完せず、検証可能なschema範囲だけで照合する。
 
 Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そのうちPPO seedを変えてもraw returnsが完全一致しなければならないrosterは `StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES` をsource contractの正本とする。現行契約では `ppo` だけがPPO seed依存を許される。rosterをarchitecture docs側で別途列挙・管理しない。
 

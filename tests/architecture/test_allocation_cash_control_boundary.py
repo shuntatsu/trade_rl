@@ -41,15 +41,30 @@ def test_global_cash_boundary_accepts_only_native_folds_and_one_environment():
     run = functions["run_global_allocation_cash_control"]
     assert [a.arg for a in run.args.args] == ["folds", "env"]
     assert not run.args.defaults and run.args.vararg is None and run.args.kwarg is None
-    assert [a.arg for a in run.args.kwonlyargs] == ["collector"]
-    assert (
-        ast.unparse(run.args.kwonlyargs[0].annotation)
-        == "GlobalAllocationExecutionCollector | None"
+    assert [a.arg for a in run.args.kwonlyargs] == [
+        "collector",
+        "_stream_digest_memo",
+    ]
+    assert [ast.unparse(arg.annotation) for arg in run.args.kwonlyargs] == [
+        "GlobalAllocationExecutionCollector | None",
+        "SimpleStreamDigestMemo | None",
+    ]
+    assert len(run.args.kw_defaults) == 2
+    assert all(
+        isinstance(default, ast.Constant) and default.value is None
+        for default in run.args.kw_defaults
     )
+    carrier_calls = [
+        n
+        for n in ast.walk(run)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "_carriers"
+    ]
+    assert len(carrier_calls) == 1
+    carrier_forwarding = {k.arg: k.value for k in carrier_calls[0].keywords}
     assert (
-        len(run.args.kw_defaults) == 1
-        and isinstance(run.args.kw_defaults[0], ast.Constant)
-        and run.args.kw_defaults[0].value is None
+        ast.unparse(carrier_forwarding["_stream_digest_memo"]) == "_stream_digest_memo"
     )
     native_calls = [
         n

@@ -6,6 +6,8 @@ Active prospective carry work: [design](specs/funding-carry-paper.md) and
 Active directional exit work: [design](specs/reduce-only-exits.md) and
 [plan](plans/reduce-only-exits.md).
 
+Active Issue #810 profitability program: [long-term parallel implementation plan](plans/issue810-profitability-program.md); current evidence is recorded in [research status](research/current-status.md).
+
 ## 結論
 
 この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。

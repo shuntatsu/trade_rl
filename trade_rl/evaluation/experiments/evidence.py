@@ -36,6 +36,65 @@ from trade_rl.evaluation.runs import (
 )
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
+_RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA = {
+    "lean_candidate_result_v1": "resolved_run_config_v1",
+    "lean_candidate_result_v2": "resolved_run_config_v2",
+    "lean_candidate_result_v3": "resolved_run_config_v3",
+    "lean_candidate_result_v4": "resolved_run_config_v4",
+    "lean_candidate_result_v5": "resolved_run_config_v5",
+    "lean_candidate_result_v6": "resolved_run_config_v5",
+    "lean_candidate_result_v7": "resolved_run_config_v5",
+}
+_RUN_RESULT_SCHEMA_VERSION = {
+    "lean_candidate_result_v1": 1,
+    "lean_candidate_result_v2": 2,
+    "lean_candidate_result_v3": 3,
+    "lean_candidate_result_v4": 4,
+    "lean_candidate_result_v5": 5,
+    "lean_candidate_result_v6": 6,
+    "lean_candidate_result_v7": 7,
+}
+_VERSIONED_RUN_CONFIG_FIELDS = {
+    2: {"summary": frozenset({"ppo_observation"})},
+    3: {
+        "candidate_config": frozenset(
+            {
+                "ppo_training_layout",
+                "ppo_rollout_steps_per_env",
+                "ppo_training_timesteps",
+            }
+        )
+    },
+    4: {
+        "candidate_config": frozenset(
+            {
+                "ppo_minimum_hold_bars",
+                "ppo_observation_schema",
+                "ppo_settle_terminal_position",
+                "ppo_training_minimum_hold_suppressed_count",
+            }
+        ),
+        "evaluation": frozenset({"ppo_settle_terminal_position"}),
+        "strategy_diagnostics": frozenset(
+            {"minimum_hold_suppressed_count", "minimum_hold_unlocked_count"}
+        ),
+    },
+    5: {
+        "candidate_config": frozenset({"pretrade_risk_config"}),
+        "evaluation": frozenset({"pretrade_risk_config"}),
+        "strategy": frozenset(
+            {
+                "final_quantities",
+                "active_order_remainders",
+                "terminal_order_reasons",
+                "terminal_settlement_complete",
+                "minimum_hold_audit",
+            }
+        ),
+    },
+    6: {"evaluation": frozenset({"expected_periods"})},
+    7: {"summary": frozenset({"shared_cash_ppo"})},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +307,196 @@ def _run_summary_seed(run: LoadedCandidateRun) -> int:
     return seed
 
 
+def _reject_fields_newer_than_result_schema(
+    summary: Mapping[str, object],
+    *,
+    result_schema: str,
+) -> None:
+    version = _RUN_RESULT_SCHEMA_VERSION[result_schema]
+    mappings: dict[str, list[Mapping[str, object]]] = {"summary": [summary]}
+    for location in ("candidate_config", "evaluation"):
+        value = summary.get(location)
+        if isinstance(value, Mapping):
+            mappings[location] = [value]
+    by_symbol = summary.get("by_symbol")
+    if isinstance(by_symbol, Sequence) and not isinstance(
+        by_symbol, (str, bytes, bytearray)
+    ):
+        for symbol in by_symbol:
+            if not isinstance(symbol, Mapping):
+                continue
+            strategies = symbol.get("strategies")
+            if not isinstance(strategies, Sequence) or isinstance(
+                strategies, (str, bytes, bytearray)
+            ):
+                continue
+            for strategy in strategies:
+                if not isinstance(strategy, Mapping):
+                    continue
+                mappings.setdefault("strategy", []).append(strategy)
+                diagnostics = strategy.get("diagnostics")
+                if isinstance(diagnostics, Mapping):
+                    mappings.setdefault("strategy_diagnostics", []).append(diagnostics)
+
+    for introduced_version, groups in _VERSIONED_RUN_CONFIG_FIELDS.items():
+        if version >= introduced_version:
+            continue
+        for location, fields in groups.items():
+            if any(
+                fields.intersection(container)
+                for container in mappings.get(location, ())
+            ):
+                raise ArtifactIntegrityError(
+                    "EvidenceSet Run fields exceed the declared result schema"
+                )
+
+
+def _config_identity_matches(
+    actual: Mapping[str, object],
+    expected: Mapping[str, object],
+) -> bool:
+    try:
+        return canonical_json_bytes(actual) == canonical_json_bytes(expected)
+    except (TypeError, ValueError) as error:
+        raise ArtifactIntegrityError(
+            "EvidenceSet config identity is not canonical JSON"
+        ) from error
+
+
+def _run_semantic_config(run: LoadedCandidateRun) -> dict[str, object]:
+    """Project the persisted Run configuration into the Study config schema."""
+
+    summary = run.summary
+    candidate_config = summary.get("candidate_config")
+    evaluation = summary.get("evaluation")
+    if not isinstance(candidate_config, Mapping) or not isinstance(evaluation, Mapping):
+        raise ArtifactIntegrityError("EvidenceSet Run config is malformed")
+    result_schema = summary.get("schema_version")
+    config_schema = _RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA.get(cast(str, result_schema))
+    if config_schema is None:
+        raise ArtifactIntegrityError("EvidenceSet Run config schema is unsupported")
+    _reject_fields_newer_than_result_schema(
+        summary,
+        result_schema=cast(str, result_schema),
+    )
+
+    resolved: dict[str, object] = {"schema_version": config_schema}
+    candidate_fields = (
+        "signal_name",
+        "signal_index",
+        "feature_names",
+        "feature_indices",
+        "fit_symbol_names",
+        "fit_symbol_indices",
+        "fit_cutoff",
+        "rule_entry_threshold",
+        "rule_exit_threshold",
+        "forecast_entry_threshold",
+        "forecast_exit_threshold",
+        "ppo_total_timesteps",
+    )
+    for name in candidate_fields:
+        if name not in candidate_config:
+            raise ArtifactIntegrityError(f"EvidenceSet Run config is missing {name}")
+        value = candidate_config[name]
+        resolved[name] = list(value) if isinstance(value, (list, tuple)) else value
+
+    evaluation_fields = {
+        "evaluation_start": "start",
+        "evaluation_stop_exclusive": "stop_exclusive",
+        "gross_budget": "gross_budget",
+        "initial_capital": "initial_capital",
+        "execution_overlay": "execution_overlay",
+    }
+    for name, source_name in evaluation_fields.items():
+        if source_name not in evaluation:
+            raise ArtifactIntegrityError(
+                f"EvidenceSet Run evaluation config is missing {source_name}"
+            )
+        resolved[name] = evaluation[source_name]
+
+    if config_schema != "resolved_run_config_v1":
+        observation = summary.get("ppo_observation")
+        if not isinstance(observation, Mapping):
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run observation config is malformed"
+            )
+        for name, source_name in (
+            ("ppo_observation_schema", "schema_version"),
+            ("ppo_global_feature_names", "global_feature_names"),
+        ):
+            if source_name not in observation:
+                raise ArtifactIntegrityError(
+                    f"EvidenceSet Run observation config is missing {source_name}"
+                )
+            value = observation[source_name]
+            resolved[name] = list(value) if isinstance(value, (list, tuple)) else value
+
+    if config_schema in {
+        "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+    }:
+        for name in ("ppo_training_layout", "ppo_rollout_steps_per_env"):
+            if name not in candidate_config:
+                raise ArtifactIntegrityError(
+                    f"EvidenceSet Run config is missing {name}"
+                )
+            resolved[name] = candidate_config[name]
+
+    if config_schema in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+    }:
+        for name in ("ppo_minimum_hold_bars", "ppo_settle_terminal_position"):
+            if name not in candidate_config:
+                raise ArtifactIntegrityError(
+                    f"EvidenceSet Run config is missing {name}"
+                )
+            resolved[name] = candidate_config[name]
+
+    if config_schema == "resolved_run_config_v5":
+        if "pretrade_risk_config" not in candidate_config:
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run config is missing pretrade_risk_config"
+            )
+        resolved["pretrade_risk_config"] = candidate_config["pretrade_risk_config"]
+    return resolved
+
+
+def _run_dataset_identity(run: LoadedCandidateRun) -> tuple[str, str, str]:
+    dataset_id = run.summary.get("dataset_id")
+    dataset_artifact = run.summary.get("dataset_artifact")
+    if not isinstance(dataset_id, str) or not isinstance(dataset_artifact, Mapping):
+        raise ArtifactIntegrityError("EvidenceSet Run dataset identity is malformed")
+    schema = dataset_artifact.get("schema_version")
+    digest = dataset_artifact.get("artifact_digest")
+    if not isinstance(schema, str) or not isinstance(digest, str):
+        raise ArtifactIntegrityError("EvidenceSet Run dataset identity is malformed")
+    return dataset_id, schema, digest
+
+
+def _verify_run_binding(
+    run: LoadedCandidateRun,
+    *,
+    semantic_config: Mapping[str, object],
+    expected_plan: StudyPlan | None = None,
+) -> tuple[str, str, str]:
+    if not _config_identity_matches(
+        _run_semantic_config(run),
+        semantic_config,
+    ):
+        raise ArtifactIntegrityError("EvidenceSet Run resolved config mismatch")
+    dataset_identity = _run_dataset_identity(run)
+    if expected_plan is not None and dataset_identity != (
+        expected_plan.dataset_id,
+        expected_plan.dataset_artifact_schema,
+        expected_plan.dataset_artifact_digest,
+    ):
+        raise ArtifactIntegrityError("EvidenceSet Run dataset identity mismatch")
+    return dataset_identity
+
+
 def _verify_seed_invariance(
     runs: Mapping[int, LoadedCandidateRun],
     *,
@@ -316,7 +565,9 @@ def execute_evidence_set(
             if normalized_contract is None:
                 normalized_contract = resolved
                 seedless_contract = _without_seed(resolved)
-            elif _without_seed(resolved) != seedless_contract:
+            elif seedless_contract is None or not _config_identity_matches(
+                _without_seed(resolved), seedless_contract
+            ):
                 raise ArtifactIntegrityError(
                     "EvidenceSet resolved config changed beyond ppo_seed"
                 )
@@ -351,6 +602,19 @@ def execute_evidence_set(
             run_root = staging / "runs" / f"seed-{seed}"
             publish_candidate_run(run_root, result, after)
             loaded = load_candidate_run_artifact(run_root)
+            if not _config_identity_matches(
+                _run_semantic_config(loaded),
+                _without_seed(resolved),
+            ):
+                raise ArtifactIntegrityError("EvidenceSet Run resolved config mismatch")
+            if _run_dataset_identity(loaded) != (
+                plan.dataset_id,
+                plan.dataset_artifact_schema,
+                plan.dataset_artifact_digest,
+            ):
+                raise ArtifactIntegrityError(
+                    "EvidenceSet Run dataset identity mismatch"
+                )
             identity = inspect_candidate_run_artifact(run_root)
             loaded_runs[seed] = loaded
             run_digests.append((seed, identity.artifact_digest))
@@ -463,7 +727,11 @@ def _parse_evidence(
     return evidence, cast(dict[str, object], semantic_config)
 
 
-def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
+def load_evidence_set(
+    root: str | Path,
+    *,
+    expected_plan: StudyPlan | None = None,
+) -> LoadedEvidenceSet:
     """Load and re-verify one complete Study-owned EvidenceSet."""
 
     evidence_root = Path(root)
@@ -487,6 +755,7 @@ def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
 
     expected_digests = dict(evidence.run_digests)
     runs: dict[int, LoadedCandidateRun] = {}
+    dataset_identity: tuple[str, str, str] | None = None
     for seed in evidence.ppo_seeds:
         run_root = runs_root / f"seed-{seed}"
         try:
@@ -503,6 +772,15 @@ def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
             raise ArtifactIntegrityError("EvidenceSet Run research context mismatch")
         if _run_summary_seed(loaded) != seed:
             raise ArtifactIntegrityError("EvidenceSet Run seed mismatch")
+        current_dataset_identity = _verify_run_binding(
+            loaded,
+            semantic_config=semantic_config,
+            expected_plan=expected_plan,
+        )
+        if dataset_identity is None:
+            dataset_identity = current_dataset_identity
+        elif current_dataset_identity != dataset_identity:
+            raise ArtifactIntegrityError("EvidenceSet Run dataset identity mismatch")
         runs[seed] = loaded
 
     _verify_seed_invariance(

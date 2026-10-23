@@ -12,6 +12,28 @@ from trade_rl.artifacts.hashing import content_digest
 _TOLERANCE = 1e-12
 
 
+def _projected_variance(weights: np.ndarray, covariance: np.ndarray) -> float:
+    with np.errstate(over="ignore", invalid="ignore"):
+        variance = float(weights @ covariance @ weights)
+        cancellation_scale = float(
+            np.sum(
+                np.abs(weights[:, None] * covariance * weights[None, :]),
+                dtype=np.float64,
+            )
+        )
+    if not math.isfinite(variance) or not math.isfinite(cancellation_scale):
+        raise ValueError("covariance projection must be finite")
+
+    # The quadratic form uses two floating-point dot products. Bound only
+    # cancellation-sized negatives using the sum of its actual term magnitudes.
+    roundoff_bound = (
+        8.0 * np.finfo(np.float64).eps * covariance.size * cancellation_scale
+    )
+    if variance < -roundoff_bound:
+        raise ValueError("covariance implies negative portfolio variance")
+    return max(variance, 0.0)
+
+
 @dataclass(frozen=True, slots=True)
 class PortfolioRiskConfig:
     max_abs_weight: float | None = None
@@ -145,7 +167,7 @@ class PortfolioRiskModel:
                 or not np.isfinite(matrix).all()
             ):
                 raise ValueError("covariance must be a finite square matrix")
-            variance = max(float(weights @ matrix @ weights), 0.0)
+            variance = _projected_variance(weights, matrix)
             volatility = math.sqrt(variance)
             weights = self._scale_to_limit(
                 weights,
@@ -154,7 +176,7 @@ class PortfolioRiskModel:
                 "volatility_target",
                 reasons,
             )
-            volatility = math.sqrt(max(float(weights @ matrix @ weights), 0.0))
+            volatility = math.sqrt(_projected_variance(weights, matrix))
         elif self.config.volatility_target is not None:
             raise ValueError("volatility_target requires covariance")
 

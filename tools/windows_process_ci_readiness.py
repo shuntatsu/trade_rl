@@ -24,6 +24,11 @@ Log = Callable[[str], None]
 _RETRY_DELAY_SECONDS = 1.0
 
 
+def _is_windows_runtime() -> bool:
+    """Report the runtime platform without making static platform branches."""
+    return sys.platform == "win32"
+
+
 def ensure_windows_cim_ready(
     *,
     snapshot: Snapshot = windows_process_snapshot,
@@ -52,7 +57,7 @@ def ensure_windows_cim_ready(
 
 
 def main() -> None:
-    if sys.platform != "win32":
+    if not _is_windows_runtime():
         raise SystemExit("Windows CIM readiness preflight requires Windows.")
     ensure_windows_cim_ready()
 

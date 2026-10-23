@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 _WINDOWS_CREATE_NO_WINDOW: int = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_WINDOWS_TO_DOTNET_TICKS: int = 504_911_232_000_000_000
+_CIM_CREATION_TOLERANCE_TICKS: int = 10
 
 
 @dataclass(frozen=True)
@@ -64,14 +67,81 @@ def windows_process_snapshot() -> tuple[ProcessUsage, ...]:
     return tuple(ProcessUsage(**row) for row in rows)
 
 
+def _process_identity_from_popen(
+    process: subprocess.Popen[Any],
+) -> tuple[int, int]:
+    """Read the launched process birth time from Popen's retained Windows handle."""
+    if os.name != "nt":
+        raise OSError("launched-process identity is available only on Windows")
+    pid = process.pid
+    handle = getattr(process, "_handle", None)
+    if type(pid) is not int or pid <= 0 or not isinstance(handle, int):
+        raise ValueError("Popen did not retain a valid process handle and PID")
+
+    import ctypes
+    from ctypes import wintypes
+
+    class _FileTime(ctypes.Structure):
+        _fields_ = [
+            ("low", wintypes.DWORD),
+            ("high", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_process_times = kernel32.GetProcessTimes
+    get_process_times.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(_FileTime),
+        ctypes.POINTER(_FileTime),
+        ctypes.POINTER(_FileTime),
+        ctypes.POINTER(_FileTime),
+    )
+    get_process_times.restype = wintypes.BOOL
+    creation, exit_time, kernel_time, user_time = (_FileTime() for _ in range(4))
+    if not get_process_times(
+        wintypes.HANDLE(handle),
+        ctypes.byref(creation),
+        ctypes.byref(exit_time),
+        ctypes.byref(kernel_time),
+        ctypes.byref(user_time),
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    filetime_ticks = (creation.high << 32) | creation.low
+    return pid, filetime_ticks + _WINDOWS_TO_DOTNET_TICKS
+
+
 @dataclass
 class ProcessTree:
     root_pid: int
-    provider: Callable[[], tuple[ProcessUsage, ...]] = windows_process_snapshot
+    provider: Callable[[], tuple[ProcessUsage, ...]] = field(
+        default_factory=lambda: windows_process_snapshot
+    )
+    expected_root_identity: tuple[int, int] | None = None
+    root_identity_error: str | None = None
     root_identity: tuple[int, int] | None = None
     owned: dict[tuple[int, int], int] = field(default_factory=dict)
     rss_only: dict[tuple[int, int], int] = field(default_factory=dict)
     last_sample: ProcessTreeSample | None = None
+
+    @classmethod
+    def from_popen(
+        cls,
+        process: subprocess.Popen[Any],
+        *,
+        provider: Callable[[], tuple[ProcessUsage, ...]] | None = None,
+    ) -> ProcessTree:
+        """Bind observation to the launched process, never to a PID alone."""
+        tree = cls(process.pid)
+        if provider is not None:
+            tree.provider = provider
+        try:
+            tree.expected_root_identity = _process_identity_from_popen(process)
+        except Exception as error:
+            # Keep the observer usable for RSS diagnostics, but without an
+            # identity from the launch handle it cannot own or complete a tree.
+            tree.expected_root_identity = None
+            tree.root_identity_error = f"{type(error).__name__}: {str(error)[:200]}"
+        return tree
 
     def observe(self, snapshot: tuple[ProcessUsage, ...]) -> ProcessTreeSample:
         if len(snapshot) > 4096 or len({row.pid for row in snapshot}) != len(snapshot):
@@ -79,8 +149,30 @@ class ProcessTree:
         rows = {row.pid: row for row in snapshot}
         root = rows.get(self.root_pid)
         if self.root_identity is None and root is not None:
-            self.root_identity = root.identity
-            self.owned[root.identity] = 0
+            expected_root = self.expected_root_identity
+            if expected_root is None:
+                self.root_identity_error = self.root_identity_error or (
+                    "launched process birth identity is unavailable"
+                )
+            elif expected_root[0] != root.pid or (
+                abs(expected_root[1] - root.creation_ticks)
+                > _CIM_CREATION_TOLERANCE_TICKS
+            ):
+                self.root_identity_error = (
+                    "snapshot root birth time did not match the launched process handle"
+                )
+            else:
+                # The Popen handle supplies the exact FILETIME. CIM exposes
+                # microsecond ticks, so retain its observed identity only after
+                # the existing 10-tick precision check against that handle.
+                self.root_identity = root.identity
+                self.root_identity_error = None
+                self.owned[root.identity] = 0
+            if self.root_identity is None:
+                # A visible PID candidate still contributes to the RSS budget,
+                # but a missing or mismatched launch identity gives it no kill
+                # authority.
+                self.rss_only.setdefault(root.identity, 0)
         selected_owned = {
             row.pid: (row, self.owned[row.identity])
             for row in snapshot

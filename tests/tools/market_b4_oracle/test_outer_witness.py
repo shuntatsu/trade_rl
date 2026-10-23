@@ -614,14 +614,27 @@ def test_observer_construction_failure_reaps_root_without_claiming_empty_tree(
 
 
 @pytest.mark.parametrize(
-    ("live_child_visible", "expected_error", "expected_tree_empty"),
     (
-        pytest.param(True, "ambiguous", False, id="live-child-is-ambiguous"),
+        "live_child_visible",
+        "reused_root_visible",
+        "expected_error",
+        "expected_tree_empty",
+    ),
+    (
+        pytest.param(True, False, "ambiguous", False, id="live-child-is-ambiguous"),
         pytest.param(
+            False,
             False,
             "root observer did not capture",
             None,
             id="empty-snapshot-does-not-prove-root-identity",
+        ),
+        pytest.param(
+            False,
+            True,
+            "ambiguous",
+            False,
+            id="reused-root-and-surviving-child-are-never-complete",
         ),
     ),
 )
@@ -629,12 +642,18 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     live_child_visible: bool,
+    reused_root_visible: bool,
     expected_error: str,
     expected_tree_empty: bool | None,
 ) -> None:
     import sys
 
-    from tools.market_b4_outer_runner import _run_root_observed_attempt
+    import tools.tier_d_nonrl.tier_d_process_tree as process_tree_module
+    from tools.market_b4_oracle.output_index import ArtifactPin
+    from tools.market_b4_outer_runner import (
+        _new_process_tree,
+        _run_root_observed_attempt,
+    )
     from tools.tier_d_nonrl.tier_d_process_tree import ProcessTree, ProcessUsage
 
     monkeypatch.setattr(
@@ -644,6 +663,9 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
     root_pid = 12345
     live_child = ProcessUsage(
         pid=23456, parent_pid=root_pid, creation_ticks=100, rss_bytes=4096
+    )
+    replacement_root = ProcessUsage(
+        pid=root_pid, parent_pid=1, creation_ticks=200, rss_bytes=4
     )
 
     class FinishedRoot:
@@ -661,8 +683,30 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
             return self.returncode
 
     process = FinishedRoot()
-    snapshot = (live_child,) if live_child_visible else ()
-    tree = ProcessTree(root_pid, provider=lambda: snapshot)
+    if reused_root_visible:
+        snapshots = iter(((replacement_root, live_child), (live_child,)))
+        snapshot = (live_child,)
+    else:
+        snapshot = (live_child,) if live_child_visible else ()
+        snapshots = iter((snapshot,))
+
+    monkeypatch.setattr(
+        process_tree_module,
+        "_process_identity_from_popen",
+        lambda launched: (launched.pid, 99),
+    )
+    monkeypatch.setattr(
+        process_tree_module,
+        "windows_process_snapshot",
+        lambda: next(snapshots, snapshot),
+    )
+    created_trees = []
+
+    def capture_tree(launched):
+        tree = _new_process_tree(launched)
+        created_trees.append(tree)
+        return tree
+
     repository = tmp_path / "repository"
     repository.mkdir()
     witness_root = tmp_path / "witness"
@@ -683,12 +727,18 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
         lambda _: ("b" * 40, False, "c" * 64),
     )
     monkeypatch.setattr(
+        "tools.market_b4_outer_runner.capture_output_manifest_pin",
+        lambda _: ArtifactPin(1, "d" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.load_pinned_output_index",
+        lambda *args: object(),
+    )
+    monkeypatch.setattr(
         "tools.market_b4_outer_runner.subprocess.Popen",
         lambda *args, **kwargs: process,
     )
-    monkeypatch.setattr(
-        "tools.market_b4_outer_runner._new_process_tree", lambda _pid: tree
-    )
+    monkeypatch.setattr("tools.market_b4_outer_runner._new_process_tree", capture_tree)
     monkeypatch.setattr(
         "tools.tier_d_nonrl.tier_d_process_tree.subprocess.run",
         lambda *args, **kwargs: pytest.fail(
@@ -706,17 +756,23 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
             timeout_seconds=1.0,
         )
 
+    tree = created_trees[0]
+    assert isinstance(tree, ProcessTree)
+    assert tree.expected_root_identity == (root_pid, 99)
     assert tree.root_identity is None
     assert tree.owned == {}
     assert tree.last_sample is not None
     assert tree.last_sample.owned_members == ()
-    assert tree.last_sample.ambiguous_members == snapshot
+    expected_ambiguous = (
+        (live_child,) if live_child_visible or reused_root_visible else ()
+    )
+    assert tree.last_sample.ambiguous_members == expected_ambiguous
     assert not (witness_root / "finish.json").exists()
     failure = json.loads((witness_root / "failure.json").read_text(encoding="utf-8"))
     assert failure["child"]["owned_tree_empty"] is expected_tree_empty
     assert failure["cleanup"]["status"] == "CLEANUP_INCOMPLETE"
     assert failure["cleanup"]["owned_tree_empty"] is expected_tree_empty
-    if live_child_visible:
+    if live_child_visible or reused_root_visible:
         assert any("ambiguous" in error for error in failure["cleanup"]["errors"])
     else:
         assert any(
@@ -886,8 +942,8 @@ def test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure(
         spawned["process"] = process
         return process
 
-    def tracked_tree(pid: int) -> ProcessTree:
-        tree = real_new_tree(pid)
+    def tracked_tree(process: subprocess.Popen[bytes]) -> ProcessTree:
+        tree = real_new_tree(process)
         owned["tree"] = tree
         return tree
 

@@ -60,6 +60,8 @@ fit cutoffとは別に、single-symbol/shared-cash replayとPPO環境は、次�
 
 MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、publish後に再読込してcontent identityを検証します。
 
+annualization clockの`periods_per_year`はpositive integerで固定し、boolean・fractional・non-finiteな値はDataset境界で拒否します。
+
 同じpublication先が既に存在する場合は、静かに上書きせずfail closedにします。
 
 ## 6. 候補strategyは同じDatasetを見る

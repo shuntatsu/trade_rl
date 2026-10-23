@@ -58,7 +58,7 @@
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
       "kind": "class",
-      "source_sha256": "6a285d0fb88be35bd0a20cd4f1172481e26297225eafeb9fe749b6c5cfadbbe6",
+      "source_sha256": "2f06d80682cbedce3bd09d30762989d50aa72525bf03eb6cc7428ace2a35a743",
       "label_ja": "市場データの共通契約",
       "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持します。",
       "variables": [],

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from numbers import Integral
 
 import numpy as np
 
@@ -140,8 +141,14 @@ class MarketDataset:
             self.global_feature_names,
             field="global_feature_names",
         )
-        if self.periods_per_year <= 0:
-            raise ValueError("periods_per_year must be positive")
+        periods_per_year: object = self.periods_per_year
+        if (
+            isinstance(periods_per_year, bool)
+            or not isinstance(periods_per_year, Integral)
+            or periods_per_year <= 0
+        ):
+            raise ValueError("periods_per_year must be a positive integer")
+        object.__setattr__(self, "periods_per_year", int(periods_per_year))
         try:
             calendar_kind = MarketCalendarKind(self.calendar_kind)
         except ValueError as error:

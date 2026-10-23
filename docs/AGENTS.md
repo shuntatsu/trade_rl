@@ -118,11 +118,13 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
 
 1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **外部監査の実行**: 独立したAI（Gemini 3.8 Flash等）または外部レビュアーがPR exact HEADの差分・契約整合性をresult-blindで監査する。
+2. **独立監査の実行**: 実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerが、PR exact HEADの差分・契約整合性をresult-blindで監査する。fresh sessionや別GitHub accountだけではmodel independenceを確立しない。
 3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
 4. **承認とマージ・クローズ (APPROVED)**:
    - 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
+
+Generic gateは `architecture/research-assurance.md` の `independent_model_review_v1` receiptを必須とする。authenticated GitHub review APIのactorとexact `commit_id`へbindされた同一accountの`COMMENTED`を、`APPROVED`と同じreceipt条件で受理する。receiptのmodel/task IDsは実harness構成と実review outputから取得し、publisherがattestする。CIは構造・digest・HEAD・宣言identityを検証するが、providerの実model weightsを暗号学的に証明しない。これはsoftware-only統合確認であり、G0-G3のsource-bound oracle、G4 economic execution、sealed PPO、unused/final、liveの個別authorizationを代替しない。4h PPO smokeの専用review/trigger契約は別に維持する。
 
 ## 更新matrix
 
@@ -165,7 +167,7 @@ PRに独立レビューゲート（CI check: `Generic Independent Research Revie
 - private old pathを残すだけのcompatibility shimは、明示的public contractの証拠がない限り作らない。
 - 変更前にTest Oracleとfailure modeを決める。
 - 研究・経済mechanismを変更する場合は、経済結果を確認する前に `architecture/research-assurance.md` のG0-G2、falsifier、semantic invariant、Known limitationsを定義する。P&Lやwinner判定でG0-G2の不備を救済しない。
-- **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと別のfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
+- **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと異なるconfiguredモデルのfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
 - refactor/bugfixはTDDでREDを観測してからproductionを変える。
 - Greenにするためにassertionを弱めたり、skipや古いforwarderを残したりしない。
 - 移動だけのrefactorでは、可能ならAST/serialization/public facade等の独立oracleでsemantic driftを反証する。

@@ -204,7 +204,11 @@ class StatefulOrderTransitionProcessor:
                 maximum_quantity=None if rule is None else rule.maximum_quantity,
                 market_only=rule is not None,
                 reference_prices=context.open_prices,
-                actual_position=remaining_positions[symbol],
+                actual_position=(
+                    remaining_positions[symbol]
+                    if processing_open_over_cap
+                    else actual_positions[symbol]
+                ),
                 allow_over_cap_reduce_only=processing_open_over_cap,
             )
             if not decision.accepted:
@@ -252,7 +256,10 @@ class StatefulOrderTransitionProcessor:
             is_closing = projected_position * admitted < 0.0 and abs(admitted) <= abs(
                 projected_position
             )
-            if order.intent.reduce_only:
+            # Reserve inventory only for recovery orders admitted while the
+            # processing-open book is already over cap. Under-cap passes keep
+            # their existing priority projection and fill-time expiry behavior.
+            if processing_open_over_cap and order.intent.reduce_only:
                 remaining = remaining_positions[symbol]
                 if context.lot_size[symbol] == 0.0 and admitted == -project_quantity(
                     remaining
@@ -264,7 +271,8 @@ class StatefulOrderTransitionProcessor:
                     remaining_positions[symbol] = (
                         remaining + decision.admitted_exact_quantity
                     )
-            if not is_closing:
+            # A pending recovery close cannot release headroom before it fills.
+            if not processing_open_over_cap or not is_closing:
                 projected_book.apply_admitted_order(
                     symbol_index=symbol,
                     quantity=admitted,

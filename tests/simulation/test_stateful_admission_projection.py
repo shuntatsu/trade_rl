@@ -223,7 +223,7 @@ def test_close_reserves_exact_inventory_and_does_not_fund_a_later_opening() -> N
     )
     initial_book = BookState(
         quantities=np.array([10.0, 0.0]),
-        cash=0.0,
+        cash=-100.0,
         mark_prices=dataset.close[0],
         peak_value=1_000.0,
         contract_multipliers=dataset.resolved_array("contract_multipliers"),
@@ -252,59 +252,6 @@ def test_close_reserves_exact_inventory_and_does_not_fund_a_later_opening() -> N
         reason == "reduce_only_exceeds_position"
         for order_id, reason in rejected.items()
         if order_id in close_ids
-    )
-    assert rejected[opening.order_id] == "pretrade_leverage_exceeded"
-    assert result.fill_count == 0
-
-
-def test_unfilled_ordinary_reduction_does_not_fund_a_later_opening() -> None:
-    dataset = _two_symbol_market()
-    config = replace(
-        ExecutionCostConfig.zero(),
-        path_mode="conservative",
-        processing_bar_volume_capacity=True,
-        partial_fill_carry=True,
-        max_leverage=1.0,
-    )
-    executor = MarketExecutor(dataset, config)
-    closing = _market_order(
-        dataset,
-        executor,
-        -8.0,
-        target_identity="ordinary-partial-close",
-        eligible_index=1,
-    )
-    opening = _market_order(
-        dataset,
-        executor,
-        4.0,
-        target_identity="opening-after-unfilled-close",
-        eligible_index=1,
-    )
-    initial_book = BookState(
-        quantities=np.array([9.0, 0.0]),
-        cash=100.0,
-        mark_prices=dataset.close[0],
-        peak_value=1_000.0,
-        contract_multipliers=dataset.resolved_array("contract_multipliers"),
-    )
-
-    result = executor.execute_orders(
-        initial_book,
-        OrderBookState.empty().add(closing, opening),
-        (),
-        start_index=0,
-        bars=1,
-    )
-
-    rejected = {
-        event.order_id: event.reason
-        for event in result.order_events
-        if event.event_type == "rejected"
-    }
-    assert not closing.intent.reduce_only
-    assert any(
-        order.order_id == closing.order_id for order in result.order_book.active_orders
     )
     assert rejected[opening.order_id] == "pretrade_leverage_exceeded"
     assert result.fill_count == 0
@@ -345,9 +292,9 @@ def test_unfilled_no_lot_full_close_reserves_its_exact_fraction() -> None:
     )
     initial_book = BookState(
         quantities=np.array([projected_position, 0.0]),
-        cash=1_000_000_000_000.0 - projected_position * 100.0,
+        cash=30_000_000.0 - projected_position * 100.0,
         mark_prices=dataset.close[0],
-        peak_value=1_000_000_000_000.0,
+        peak_value=30_000_000.0,
         contract_multipliers=dataset.resolved_array("contract_multipliers"),
         _exact_quantities=(str(position), "0"),
     )

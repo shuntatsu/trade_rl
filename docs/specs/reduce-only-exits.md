@@ -191,13 +191,15 @@ are frozen separately from the preserved diagnostic.
 ## Stage C: fresh economic evidence
 
 The shared-cash replay and directional arm evaluator accept an optional verified
-market-order profile and pass it to the common executor. Omission retains existing
-result schema and behavior. Explicit profile results use a distinct schema and
-record the actual execution-policy identity, complete profile payload/digest and
-exact terminal quantities. In this new schema, terminal flatness requires every
-exact quantity to be zero; the legacy float tolerance is not changed retroactively.
-This closes the gap between a profile artifact and the actual evaluated execution
-path. No reward, strategy, training model or hard-risk rule changes in this adapter.
+market-order profile and pass it to the common executor. Omission retains the
+`directional_arm_v1` result schema and default execution policy. Explicit-profile
+results use a distinct schema and record the actual execution-policy identity,
+complete profile payload/digest and exact terminal quantities. Current terminal
+flatness requires every account exact quantity to be zero in both result schemas.
+Previously saved results are not rewritten, so their recorded terminal fields
+continue to describe their original evaluation. This closes the gap between a
+profile artifact and the actual evaluated execution path. No reward, strategy,
+training model or hard-risk rule changes in this adapter.
 
 Freeze the source, runtime, data, full candidate/control roster and saved model
 hashes or fitting budgets before replay. Keep both years, full clock, costs,

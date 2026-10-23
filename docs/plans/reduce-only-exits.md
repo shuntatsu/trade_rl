@@ -16,8 +16,9 @@ Status: Active
   full repository CI and normal integration for Stage A.
 - [x] Implement and independently review the evidence-bound Stage B profile,
   retained MARKET quantity rules, per-order exception and activation behavior.
-- [ ] Connect the optional profile to shared-cash directional evaluation with
-  explicit result identity and exact terminal-flat evidence; verify and integrate.
+- [ ] Reverify the integrated optional-profile result identity and exact
+  terminal-flat gate for both result schemas on a current-main PR head, with
+  independent review and all required CI checks passing.
 - [ ] Freeze and complete a fresh development comparison with independent
   ledger reconciliation and all declared qualification/stress gates.
 

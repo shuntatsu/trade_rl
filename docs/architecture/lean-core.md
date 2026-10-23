@@ -352,9 +352,11 @@ exchange-filter emulator or a strategy qualification.
 Shared-cash directional evaluation accepts this optional profile through the
 common replay/executor path. Explicit-profile results use
 `directional_market_profile_arm_v1`, bind the evaluated policy/profile identity,
-and retain exact terminal quantities. Their flatness gate requires exact zeros;
-the omitted-profile `directional_arm_v1` result and historical float tolerance
-remain unchanged. Strategy factories, costs, hard risk and training are not
+and retain exact terminal quantities. Every current arm result, including the
+omitted-profile `directional_arm_v1` schema, requires exact zeros from the
+account's exact quantities for terminal flatness. Previously saved results are
+not rewritten; their recorded terminal fields continue to describe their
+original evaluation. Strategy factories, costs, hard risk and training are not
 altered by passing a profile.
 
 Stateful execution rechecks exact inventory immediately before each closing fill:

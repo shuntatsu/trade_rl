@@ -14,6 +14,8 @@
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
 | artifacts / research evidence | runや研究判断を再現可能な証拠として固定 | strategy runtime |
 
+データセット・モデル・評価結果は共通の公開処理で完成済みの内容を一括保存します。競合相手の保存先は空でも置き換えず、失敗時は各保存処理が自分の準備用フォルダだけを片付けます。
+
 ## Dependency direction
 
 ```text
@@ -34,6 +36,10 @@ artifacts / evidence
 
 この矢印は説明上の責務・データの方向です。見た目の近さや配列順から存在しない依存を追加しません。
 
+市場データの識別は数値配列だけでなく、銘柄、特徴量名、出来高の単位や時間の意味もdata層で照合します。同じ数値でも意味を変更した場合は、新しいデータIDが必要です。
+
+保存するデータと約定処理が参照する銘柄の有効状態も、data層で一致を確認します。片側だけが変わった状態は、データの識別や検証へ渡しません。
+
 ## 主要な実装入口
 
 | 日本語での役割 | 実identifier |
@@ -42,6 +48,8 @@ artifacts / evidence
 | 単銘柄戦略の共通interface | `trade_rl.strategies.interface.SingleSymbolStrategy` |
 | hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk` |
 | 約定・会計の所有者 | `trade_rl.simulation.execution.MarketExecutor` |
+| 共通口座を使う配分PPO候補 | `trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv` |
+| 配分候補の観測を符号化 | `trade_rl.strategies.rl.allocation_policy.encode_allocation_observation` |
 | 単銘柄の共通評価リプレイ | `trade_rl.evaluation.replay.run_single_symbol_replay` |
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
@@ -56,6 +64,10 @@ artifacts / evidence
 PPO環境と各replayは、分割後の数量単位に希望数量を換算します。目標を注文数量へ変換するsimulationの処理はBookStateのマーク価格を使い、注文の参照価格・limit・stopは取引価格を使います。評価と注文の価格基準を分けても、約定・会計の所有者は共通のMarketExecutorです。
 
 保有数量がまだない口座は、同じsimulationの処理が現在の市場マーク価格を解決してからエントリー数量を求めます。初期価格を省略したBookStateも、この経路で処理できます。
+
+経済的な終了時に負の純資産を保持するか、従来どおり0へ丸めるかもsimulationの所有範囲です。負債保持モードは共通の口座台帳と約定ポリシーIDに含め、strategyやevaluationへ別の損益計算を作りません。
+
+複数銘柄の承認済み約定数量をまとめて反映する場合も、正確な残高と一回の会計イベントはBookStateが所有します。executorは容量・発注単位を検証した数量を渡し、表示用の小数値から残高を作り直しません。
 
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 

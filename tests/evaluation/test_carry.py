@@ -96,12 +96,15 @@ def test_intrabar_margin_breach_cannot_be_rescued_by_later_funding() -> None:
     high[7, 1] = 500
     funding = original.funding_rate.copy()
     funding[7, 1] = 9.0
+    funding_price_rate = original.resolved_array("funding_price_rate").copy()
+    funding_price_rate[7, 1] = funding[7, 1] * original.mark_price[7, 1]
     stressed = replace(
         original,
         dataset_id="0" * 64,
         identity_payload_json=None,
         high=high,
         funding_rate=funding,
+        funding_price_rate=funding_price_rate,
     ).with_content_identity()
     result = carry.replay_carry(
         stressed, start_index=5, stop_index=9, initial_capital=4000
@@ -183,8 +186,14 @@ def test_canonical_termination_is_invalid_and_does_not_claim_real_flattening() -
     original = dataset()
     funding = original.funding_rate.copy()
     funding[7, 1] = -10
+    funding_price_rate = original.resolved_array("funding_price_rate").copy()
+    funding_price_rate[7, 1] = funding[7, 1] * original.mark_price[7, 1]
     bankrupt = replace(
-        original, dataset_id="0" * 64, identity_payload_json=None, funding_rate=funding
+        original,
+        dataset_id="0" * 64,
+        identity_payload_json=None,
+        funding_rate=funding,
+        funding_price_rate=funding_price_rate,
     ).with_content_identity()
     result = carry.replay_carry(
         bankrupt, start_index=5, stop_index=9, initial_capital=4000
@@ -203,6 +212,7 @@ def test_open_margin_breach_before_terminal_exit_cannot_be_hidden_by_flattening(
     funding[7, 1] = 0.02
     prices = original.close.copy()
     prices[8:] = 300
+    funding_price_rate = funding * prices
     gap = replace(
         original,
         dataset_id="0" * 64,
@@ -214,6 +224,7 @@ def test_open_margin_breach_before_terminal_exit_cannot_be_hidden_by_flattening(
         mark_price=prices,
         volume=original.volume * 10,
         funding_rate=funding,
+        funding_price_rate=funding_price_rate,
     ).with_content_identity()
     result = carry.replay_carry(gap, start_index=5, stop_index=8, initial_capital=4000)
     assert result["total_return"] > 0

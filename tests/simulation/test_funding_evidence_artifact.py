@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 import trade_rl.simulation.diagnostics.funding as funding_evidence
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 
 _DATASET_ID = "a" * 64
@@ -58,7 +59,7 @@ def test_funding_evidence_artifact_round_trips_canonically() -> None:
     assert loaded.digest == artifact.digest
     assert loaded.boundary_count == 2
     assert loaded.to_mapping()["schema_version"] == (
-        "execution_funding_boundary_artifact_v1"
+        "execution_funding_boundary_artifact_v2"
     )
 
 
@@ -73,6 +74,30 @@ def test_empty_funding_evidence_is_explicit_and_identity_bound() -> None:
     assert artifact.boundary_count == 0
     assert artifact.to_mapping()["boundaries"] == ()
     assert len(artifact.digest) == 64
+
+
+def test_legacy_funding_evidence_v1_round_trips_without_rewriting_bytes() -> None:
+    artifact = funding_evidence.build_funding_evidence_artifact(
+        dataset_id=_DATASET_ID,
+        execution_policy_digest=_EXECUTION_POLICY_DIGEST,
+        symbol_count=1,
+        boundaries=(_boundary(),),
+    )
+    legacy_mapping = artifact.to_mapping()
+    legacy_mapping["schema_version"] = "execution_funding_boundary_artifact_v1"
+    legacy_boundaries = []
+    for boundary in legacy_mapping["boundaries"]:
+        legacy_boundary = dict(boundary)
+        legacy_boundary.pop("funding_price_rates")
+        legacy_boundaries.append(legacy_boundary)
+    legacy_mapping["boundaries"] = legacy_boundaries
+    raw = canonical_json_bytes(legacy_mapping) + b"\n"
+
+    loaded = funding_evidence.load_funding_evidence_artifact_bytes(raw)
+
+    assert loaded.raw_bytes == raw
+    assert loaded.schema_version == "execution_funding_boundary_artifact_v1"
+    assert loaded.boundaries[0].funding_price_rates == pytest.approx((0.12,))
 
 
 def test_funding_evidence_artifact_digest_changes_with_economics() -> None:
@@ -118,6 +143,7 @@ def test_funding_evidence_artifact_rejects_symbol_vector_mismatch() -> None:
         mark_prices=(120.0, 50.0),
         contract_multipliers=(1.0, 1.0),
         funding_rates=(0.001, 0.0),
+        funding_price_rates=(0.12, 0.0),
     )
 
     with pytest.raises(ValueError, match="symbol_count"):

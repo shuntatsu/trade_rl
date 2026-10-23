@@ -22,6 +22,7 @@ from trade_rl.evaluation.runs.config import CandidateRunConfig
 from trade_rl.integrations.binance import (
     BinanceExchangeInfoSnapshot,
     BinanceMarket,
+    BinancePublicTransport,
     BinanceTransportError,
     BinanceTransportMode,
     binance_interval_milliseconds,
@@ -79,12 +80,18 @@ def _month_start_ms(url: str) -> int:
     )
 
 
-def _payload_for_url(url: str) -> bytes:
+def _payload_for_url(url: str, *, include_funding_mark: bool = True) -> bytes:
     start_ms = _month_start_ms(url)
     if "fundingRate" in url:
+        header = (
+            "calc_time,last_funding_rate,markPrice"
+            if include_funding_mark
+            else ("calc_time,last_funding_rate")
+        )
+        mark = ",95.0" if include_funding_mark else ""
         return _zip_csv(
             "funding.csv",
-            f"calc_time,last_funding_rate\n{start_ms + 8 * 60 * 60 * 1000},0.0001\n",
+            f"{header}\n{start_ms + 8 * 60 * 60 * 1000},0.0001{mark}\n",
         )
     interval_match = re.search(r"/(15m|30m|1h|2h|4h|6h|8h|12h|1d)/", url)
     assert interval_match is not None, url
@@ -129,8 +136,9 @@ def _snapshot() -> BinanceExchangeInfoSnapshot:
 
 
 class _FakeLiveTransport:
-    def __init__(self, cache_root: Path) -> None:
+    def __init__(self, cache_root: Path, *, include_funding_mark: bool = True) -> None:
         self.cache_root = cache_root
+        self.include_funding_mark = include_funding_mark
         self.snapshot_calls = 0
         self.download_calls: list[str] = []
 
@@ -145,9 +153,31 @@ class _FakeLiveTransport:
         self.snapshot_calls += 1
         return _snapshot()
 
+    def load_funding_events(
+        self,
+        *,
+        market: BinanceMarket | str,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        mode: BinanceTransportMode | str = BinanceTransportMode.VISION,
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        assert BinanceMarket(market) is BinanceMarket.USDS_M
+        assert BinanceTransportMode(mode) is BinanceTransportMode.VISION
+        reader = BinancePublicTransport(cache_root=self.cache_root, allow_network=False)
+        events, source = reader._load_vision_funding_range(
+            market=BinanceMarket(market),
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+        return [(timestamp, rate, 95.0) for timestamp, rate, _mark in events], (
+            f"{source}+rest-marks"
+        )
+
     def _request_bytes(self, url: str) -> bytes:
         self.download_calls.append(url)
-        payload = _payload_for_url(url)
+        payload = _payload_for_url(url, include_funding_mark=self.include_funding_mark)
         path = vision_cache_path(self.cache_root, url)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
@@ -177,6 +207,29 @@ def _freeze(tmp_path: Path):
     live = _FakeLiveTransport(root / "vision-cache")
     frozen = _freeze_binance_source(_config(), root, live_transport=live)
     return root, live, frozen
+
+
+def test_frozen_funding_marks_remain_available_without_network(
+    tmp_path: Path,
+) -> None:
+    config = _config()
+    root = tmp_path / "source"
+    live = _FakeLiveTransport(root / "vision-cache", include_funding_mark=False)
+    frozen = _freeze_binance_source(config, root, live_transport=live)
+    start_ms = int(config.data_start.timestamp() * 1_000)
+    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
+
+    events, source = frozen.composite_transport.load_funding_events(
+        market=config.market,
+        symbol="BTCUSDT",
+        start_ms=start_ms,
+        end_ms=end_ms,
+        mode=BinanceTransportMode.VISION,
+    )
+
+    assert events
+    assert all(mark > 0.0 for _timestamp, _rate, mark in events)
+    assert source == "frozen:funding-events"
 
 
 def test_freeze_binds_exact_plan_raw_roster_and_metadata(tmp_path: Path) -> None:
@@ -240,13 +293,25 @@ def test_frozen_composite_is_network_cut_and_cache_miss_fails_closed(
         end_ms=end_ms,
         mode="vision",
     )
+    funding_events, funding_events_source = (
+        frozen.composite_transport.load_funding_events(
+            market="usds-m",
+            symbol="BTCUSDT",
+            start_ms=start_ms,
+            end_ms=end_ms,
+            mode="vision",
+        )
+    )
     metadata, metadata_source = frozen.composite_transport.load_exchange_information(
         market="usds-m"
     )
     assert rows
     assert funding
+    assert funding_events
+    assert funding_events[0][2] == pytest.approx(95.0)
     assert kline_source == "vision"
-    assert funding_source == "vision"
+    assert funding_source == "frozen:funding-events"
+    assert funding_events_source == "frozen:funding-events"
     assert metadata_source == "frozen:exchange-info"
     assert metadata["symbols"][0]["symbol"] == "BTCUSDT"
 

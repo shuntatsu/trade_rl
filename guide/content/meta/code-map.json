@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "47e009ad41ca72b0cdd9d2f9972e7f4dcbac1145a0b40a8b25213e456c24d805"
+      "sha256": "7487959d1fa02e07f338c53d762715f65d418ce3bd2a65562ccb112504ec3a55"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -58,7 +58,7 @@
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
       "kind": "class",
-      "source_sha256": "bcfbc29376dd47e7fd6a24254824f24a0c7dfcf74dbf072dc55dc91006e8dc59",
+      "source_sha256": "21e82198967ca72e1bd4414f778c3940e4416b2053764a24aeed3e85e9187121",
       "label_ja": "市場データの共通契約",
       "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持します。",
       "variables": [],
@@ -94,7 +94,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "57d6654a033a6e07af3d1ceb4f998487c943fb9de6b141a2636b0a07d71c9ce6",
+      "source_sha256": "f2b82a00bb83f9aa0a70408881fb8fcedd2f5164606270f703a9b95d5b46a5e4",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],

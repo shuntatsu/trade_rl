@@ -17,18 +17,20 @@ def test_atomic_directory_publish_retries_transient_windows_lock(
     (staging / "receipt.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
 
-    original_rename = type(staging).rename
+    original_rename = atomic_write._rename_directory_noreplace
     attempts = 0
     delays: list[float] = []
 
-    def rename_with_transient_lock(source: Path, destination: str | Path) -> Path:
+    def rename_with_transient_lock(source: Path, destination: Path) -> None:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
             raise PermissionError("temporary Windows directory lock")
-        return original_rename(source, destination)
+        original_rename(source, destination)
 
-    monkeypatch.setattr(type(staging), "rename", rename_with_transient_lock)
+    monkeypatch.setattr(
+        atomic_write, "_rename_directory_noreplace", rename_with_transient_lock
+    )
     monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
 
     result = atomic_write.atomic_rename_directory(staging, target)
@@ -51,13 +53,15 @@ def test_atomic_directory_publish_does_not_retry_when_target_appears(
 
     attempts = 0
 
-    def publish_competing_target(source: Path, destination: str | Path) -> Path:
+    def publish_competing_target(source: Path, destination: Path) -> None:
         nonlocal attempts
         attempts += 1
         Path(destination).mkdir()
         raise PermissionError("temporary Windows directory lock")
 
-    monkeypatch.setattr(type(staging), "rename", publish_competing_target)
+    monkeypatch.setattr(
+        atomic_write, "_rename_directory_noreplace", publish_competing_target
+    )
 
     with pytest.raises(PermissionError, match="temporary Windows"):
         atomic_write.atomic_rename_directory(staging, target)
@@ -79,12 +83,12 @@ def test_atomic_directory_publish_bounds_windows_lock_retries(
     attempts = 0
     delays: list[float] = []
 
-    def always_denied(source: Path, destination: str | Path) -> Path:
+    def always_denied(source: Path, destination: Path) -> None:
         nonlocal attempts
         attempts += 1
         raise PermissionError("persistent Windows directory lock")
 
-    monkeypatch.setattr(type(staging), "rename", always_denied)
+    monkeypatch.setattr(atomic_write, "_rename_directory_noreplace", always_denied)
     monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
 
     with pytest.raises(PermissionError, match="persistent Windows"):
@@ -107,12 +111,12 @@ def test_atomic_directory_publish_does_not_retry_non_windows_permission_errors(
 
     attempts = 0
 
-    def denied_rename(source: Path, destination: str | Path) -> Path:
+    def denied_rename(source: Path, destination: Path) -> None:
         nonlocal attempts
         attempts += 1
         raise PermissionError("permanent permission error")
 
-    monkeypatch.setattr(type(staging), "rename", denied_rename)
+    monkeypatch.setattr(atomic_write, "_rename_directory_noreplace", denied_rename)
 
     with pytest.raises(PermissionError, match="permanent permission"):
         atomic_write.atomic_rename_directory(staging, target)

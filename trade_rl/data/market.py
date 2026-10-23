@@ -116,6 +116,8 @@ class MarketDataset:
     feature_config_digest: str = _ZERO_DIGEST
     normalization_digest: str = _ZERO_DIGEST
     identity_payload_json: str | None = None
+    # Per-contract funding mark notional rate, summed across events in each bar.
+    funding_price_rate: np.ndarray | None = None
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
     _nominal_bar_hours: float = field(init=False, repr=False)
@@ -467,6 +469,17 @@ class MarketDataset:
             if self.index_price is not None
             else close
         )
+        funding_price_rate = (
+            funding * mark_price
+            if self.funding_price_rate is None
+            else _optional_array(
+                self.funding_price_rate,
+                shape=price_shape,
+                dtype=np.dtype(np.float64),
+                default=0.0,
+                field_name="funding_price_rate",
+            )
+        )
         dividend = _optional_array(
             self.dividend,
             shape=price_shape,
@@ -553,6 +566,8 @@ class MarketDataset:
             raise ValueError("max_participation_rate must be within (0, 1]")
         if any(np.any(price <= 0.0) for price in (mark_price, index_price)):
             raise ValueError("mark_price and index_price must be strictly positive")
+        if not np.isfinite(funding_price_rate).all():
+            raise ValueError("funding_price_rate must be finite")
         if not np.isfinite(dividend).all():
             raise ValueError("dividend must be finite")
         if not np.isfinite(split_factor).all() or np.any(split_factor <= 0.0):
@@ -609,6 +624,11 @@ class MarketDataset:
         object.__setattr__(self, "close", close)
         object.__setattr__(self, "volume", volume)
         object.__setattr__(self, "funding_rate", funding)
+        object.__setattr__(
+            self,
+            "funding_price_rate",
+            _readonly_array(funding_price_rate, dtype=np.dtype(np.float64)),
+        )
         object.__setattr__(self, "funding_event_count", funding_event_count)
         object.__setattr__(self, "tradable", tradable)
         object.__setattr__(self, "feature_available", feature_available)
@@ -668,6 +688,21 @@ class MarketDataset:
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
             canonical_payload_json = canonical_identity_json(payload)
+            stored_contract = payload.get("dataset_contract")
+            if not isinstance(stored_contract, dict) or canonical_identity_json(
+                stored_contract
+            ) != canonical_identity_json(self.identity_contract_payload()):
+                raise ValueError(
+                    "dataset_id does not match the current dataset contract"
+                )
+            if (
+                payload.get("schema") == "market_dataset_identity_v6"
+                and self.funding_price_rate is not None
+                and not np.array_equal(funding_price_rate, funding * mark_price)
+            ):
+                raise ValueError(
+                    "legacy dataset identity cannot bind changed funding economics"
+                )
             resolved_id = compute_market_dataset_id(payload, self.identity_arrays())
             if resolved_id != self.dataset_id:
                 raise ValueError(
@@ -679,15 +714,27 @@ class MarketDataset:
     def recomputed_dataset_id(self) -> str:
         if self.identity_payload_json is None:
             raise ValueError("dataset has no canonical identity payload")
+        payload = parse_identity_json(self.identity_payload_json)
+        payload["dataset_contract"] = self.identity_contract_payload()
         return compute_market_dataset_id(
-            parse_identity_json(self.identity_payload_json),
+            payload,
             self.identity_arrays(),
         )
 
     @property
     def identity_verified(self) -> bool:
+        if self.identity_payload_json is None:
+            return False
+        try:
+            self._validated_activity_array()
+        except ValueError:
+            return False
+        payload = parse_identity_json(self.identity_payload_json)
+        stored_contract = payload.get("dataset_contract")
         return (
-            self.identity_payload_json is not None
+            isinstance(stored_contract, dict)
+            and canonical_identity_json(stored_contract)
+            == canonical_identity_json(self.identity_contract_payload())
             and self.recomputed_dataset_id() == self.dataset_id
         )
 
@@ -704,7 +751,31 @@ class MarketDataset:
             "volume_units": tuple(value.value for value in self.volume_units),
         }
 
+    def _validated_activity_array(self) -> np.ndarray:
+        asset_active, symbol_active = self.asset_active, self.symbol_active
+        message = "dataset activity aliases must be matching boolean arrays"
+        if not isinstance(asset_active, np.ndarray) or not isinstance(
+            symbol_active, np.ndarray
+        ):
+            raise ValueError(message)
+        shape = (self.n_bars, self.n_symbols)
+        if (
+            type(asset_active) is not np.ndarray
+            or type(symbol_active) is not np.ndarray
+            or asset_active.dtype != np.dtype(np.bool_)
+            or symbol_active.dtype != np.dtype(np.bool_)
+            or asset_active.shape != shape
+            or symbol_active.shape != shape
+        ):
+            raise ValueError(message)
+        if asset_active is not symbol_active and not np.array_equal(
+            asset_active, symbol_active
+        ):
+            raise ValueError(message)
+        return asset_active
+
     def identity_arrays(self) -> dict[str, np.ndarray]:
+        activity = self._validated_activity_array()
         return {
             "timestamps": self.timestamps,
             "available_at": self.resolved_array("available_at"),
@@ -728,9 +799,10 @@ class MarketDataset:
             "close": self.close,
             "volume": self.volume,
             "funding_rate": self.funding_rate,
+            "funding_price_rate": self.resolved_array("funding_price_rate"),
             "funding_event_count": self.resolved_array("funding_event_count"),
             "tradable": self.tradable,
-            "symbol_active": self.resolved_array("symbol_active"),
+            "symbol_active": activity,
             "fee_rate": self.resolved_array("fee_rate"),
             "maker_fee_rate": self.resolved_array("maker_fee_rate"),
             "taker_fee_rate": self.resolved_array("taker_fee_rate"),
@@ -758,7 +830,7 @@ class MarketDataset:
         provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         payload = dict(provenance or {})
-        payload["schema"] = "market_dataset_identity_v6"
+        payload["schema"] = "market_dataset_identity_v7"
         payload["dataset_contract"] = self.identity_contract_payload()
         dataset_id = compute_market_dataset_id(payload, self.identity_arrays())
         return replace(

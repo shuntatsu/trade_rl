@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Sequence
+from fractions import Fraction
+from typing import Literal, Sequence
 
 import numpy as np
 
@@ -20,6 +21,11 @@ from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
 )
+from trade_rl.simulation.liquidity import (
+    LiquidityPriority,
+    LiquidityRequest,
+    allocate_symbol_capacity,
+)
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -27,7 +33,11 @@ from trade_rl.simulation.orders.model import (
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
 )
-from trade_rl.simulation.quantities import exact_quantity
+from trade_rl.simulation.quantities import (
+    accepted_fill_quantity,
+    exact_quantity,
+    project_quantity,
+)
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionObservation,
     StatefulExecutionResult,
@@ -331,9 +341,11 @@ class MarketExecutor:
         market_order_profile: MarketOrderProfile | None = None,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
+        insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        self.insolvency_valuation = insolvency_valuation
         if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
             raise ValueError(
                 "isolated margin requires a per-symbol collateral ledger; "
@@ -351,6 +363,7 @@ class MarketExecutor:
                 ExecutionRuleStress,
                 MarketOrderProfile | None,
                 tuple[str, ...],
+                str,
             ]
             | None
         ) = None
@@ -378,6 +391,16 @@ class MarketExecutor:
         self._rng = np.random.default_rng(self.cost.random_seed)
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
+
+    @property
+    def insolvency_valuation(self) -> Literal["floor_zero", "retain_debt"]:
+        return self._insolvency_valuation
+
+    @insolvency_valuation.setter
+    def insolvency_valuation(self, value: Literal["floor_zero", "retain_debt"]) -> None:
+        if not isinstance(value, str) or value not in ("floor_zero", "retain_debt"):
+            raise ValueError("insolvency_valuation must be floor_zero or retain_debt")
+        self._insolvency_valuation = value
 
     def _base_rule_array(
         self,
@@ -649,7 +672,9 @@ class MarketExecutor:
         return result
 
     def _flatten_after_termination(self, book: BookState, prices: np.ndarray) -> None:
-        value = max(book.portfolio_value, 0.0)
+        value = book.portfolio_value
+        if self.insolvency_valuation == "floor_zero":
+            value = max(value, 0.0)
         book.quantities = np.zeros_like(book.quantities)
         book.mark_prices = prices.copy()
         book.cash = value
@@ -800,12 +825,17 @@ class MarketExecutor:
             self.dataset.resolved_array("sell_allowed")[market_index],
         )
         trade_mask = trade_mask & direction_allowed
-        _, _, minimum_notional = self._effective_rule_array_views(index=market_index)
+        _, lot_size, minimum_notional = self._effective_rule_array_views(
+            index=market_index
+        )
+        reported_requested_notional = requested_notional_vector
         requested_notional_vector = np.where(
             np.abs(requested_notional_vector) >= minimum_notional,
             requested_notional_vector,
             0.0,
         )
+        if not force_market:
+            reported_requested_notional = requested_notional_vector
         capacity_notional = self.dataset.market_notional(
             market_index,
             price_vector,
@@ -817,24 +847,78 @@ class MarketExecutor:
         )
         capacity = participation_limit * capacity_notional
         capacity = np.where(trade_mask, capacity, 0.0)
-        filled_notional_vector = np.sign(requested_notional_vector) * np.minimum(
-            np.abs(requested_notional_vector),
-            capacity,
-        )
-        filled_delta = self.dataset.notional_to_quantity(
-            market_index,
-            filled_notional_vector,
-            price_vector,
-        )
-        next_quantities = self._round_quantities(
-            book.quantities + filled_delta,
-            index=market_index,
-        )
-        filled_notional_vector = self.dataset.quantity_notional(
-            market_index,
-            next_quantities - book.quantities,
-            price_vector,
-        )
+        exact_deltas = [Fraction(0) for _ in range(self.dataset.n_symbols)]
+        next_quantities = book.quantities
+        if force_market:
+            multipliers = self.dataset.resolved_array("contract_multipliers")
+            for symbol, position in enumerate(book.exact_quantities):
+                remaining = float(requested_delta[symbol])
+                if (
+                    not trade_mask[symbol]
+                    or abs(remaining) <= _TOLERANCE
+                    or requested_notional_vector[symbol] == 0.0
+                ):
+                    continue
+                allocations, _ = allocate_symbol_capacity(
+                    (
+                        LiquidityRequest(
+                            order_id=self.dataset.dataset_id,
+                            remaining_quantity=remaining,
+                            execution_price=float(price_vector[symbol]),
+                            available_volume_fraction=1.0,
+                            priority=LiquidityPriority.MARKET,
+                            eligible_index=market_index,
+                            reduce_only=bool(desired[symbol] == 0.0 and position != 0),
+                        ),
+                    ),
+                    processing_volume=float(capacity_volume_vector[symbol]),
+                    processing_market_notional=float(capacity_notional[symbol]),
+                    price=float(price_vector[symbol]),
+                    contract_multiplier=float(multipliers[symbol]),
+                    participation_limit=float(participation_limit[symbol]),
+                    lot_size=float(lot_size[symbol]),
+                    minimum_notional=float(minimum_notional[symbol]),
+                    initial_position=position,
+                )
+                allocation = allocations[0]
+                if allocation.filled_quantity == 0.0:
+                    continue
+                accepted = accepted_fill_quantity(
+                    allocation.filled_quantity,
+                    lot_size=allocation.lot_size,
+                    lot_count=allocation.filled_lot_count,
+                )
+                if (
+                    allocation.filled_lot_count is None
+                    and desired[symbol] == 0.0
+                    and allocation.filled_quantity == -project_quantity(position)
+                ):
+                    accepted = -position
+                exact_deltas[symbol] = accepted
+            filled_notional_vector = self.dataset.quantity_notional(
+                market_index,
+                np.array([project_quantity(delta) for delta in exact_deltas]),
+                price_vector,
+            )
+        else:
+            filled_notional_vector = np.sign(requested_notional_vector) * np.minimum(
+                np.abs(requested_notional_vector),
+                capacity,
+            )
+            filled_delta = self.dataset.notional_to_quantity(
+                market_index,
+                filled_notional_vector,
+                price_vector,
+            )
+            next_quantities = self._round_quantities(
+                book.quantities + filled_delta,
+                index=market_index,
+            )
+            filled_notional_vector = self.dataset.quantity_notional(
+                market_index,
+                next_quantities - book.quantities,
+                price_vector,
+            )
 
         positive_capacity = capacity_notional > 0.0
         participation = np.zeros_like(capacity_notional)
@@ -844,11 +928,12 @@ class MarketExecutor:
         )
         impact = self.cost.impact_rate * np.sqrt(participation)
         slippage = self._slippage_rates(len(price_vector))
-        spread_multiplier = 0.5 if self.cost.order_type == "limit" else 1.0
+        maker = self.cost.order_type == "limit" and not force_market
+        spread_multiplier = 0.5 if maker else 1.0
         venue_fee = (
             self.cost.maker_fee_rate
             + self.dataset.resolved_array("maker_fee_rate")[market_index]
-            if self.cost.order_type == "limit"
+            if maker
             else self.cost.taker_fee_rate
             + self.dataset.resolved_array("taker_fee_rate")[market_index]
         )
@@ -872,21 +957,29 @@ class MarketExecutor:
         fills_before = book.fill_count
         events_before = book.rebalance_events
         filled_notional = float(np.abs(filled_notional_vector).sum())
-        book.execute(
-            fill_prices=price_vector,
-            target_quantities=next_quantities,
-            cost_amount=cost_amount,
-            turnover=filled_notional / turnover_denominator,
-        )
+        if force_market:
+            book.execute_quantity_deltas(
+                fill_prices=price_vector,
+                quantity_deltas=tuple(exact_deltas),
+                cost_amount=cost_amount,
+                turnover=filled_notional / turnover_denominator,
+            )
+        else:
+            book.execute(
+                fill_prices=price_vector,
+                target_quantities=next_quantities,
+                cost_amount=cost_amount,
+                turnover=filled_notional / turnover_denominator,
+            )
         self._update_margin(book)
         return _FillResult(
-            requested_notional=float(np.abs(requested_notional_vector).sum()),
+            requested_notional=float(np.abs(reported_requested_notional).sum()),
             filled_notional=filled_notional,
             cost_amount=cost_amount,
             fill_count=book.fill_count - fills_before,
             rebalance_events=book.rebalance_events - events_before,
             max_participation=float(np.max(participation, initial=0.0)),
-            requested_notional_by_symbol=np.abs(requested_notional_vector),
+            requested_notional_by_symbol=np.abs(reported_requested_notional),
             filled_notional_by_symbol=np.abs(filled_notional_vector),
             participation_by_symbol=participation,
             cost_by_symbol=cost_vector,
@@ -922,11 +1015,10 @@ class MarketExecutor:
         index: int,
         year_fraction: float | None = None,
     ) -> tuple[float, float]:
-        funding_notional = self.dataset.quantity_notional(index, book.quantities)
         funding_amount = -float(
             np.dot(
-                funding_notional,
-                self.dataset.funding_rate[index]
+                book.quantities * self.dataset.resolved_array("contract_multipliers"),
+                self.dataset.resolved_array("funding_price_rate")[index]
                 * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
             )
         )
@@ -954,6 +1046,7 @@ class MarketExecutor:
             self.rule_stress,
             self.market_order_profile,
             trigger_fraction_snapshot,
+            self.insolvency_valuation,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -964,6 +1057,7 @@ class MarketExecutor:
             and previous_inputs[1] is self.rule_stress
             and previous_inputs[2] is self.market_order_profile
             and previous_inputs[3] == trigger_fraction_snapshot
+            and previous_inputs[4] == self.insolvency_valuation
         ):
             return cached_digest
 
@@ -986,6 +1080,15 @@ class MarketExecutor:
             )
         else:
             digest = self.cost.execution_policy_digest
+
+        if self.insolvency_valuation == "retain_debt":
+            digest = content_digest(
+                {
+                    "schema_version": "insolvency_execution_policy_v1",
+                    "base_policy_digest": digest,
+                    "insolvency_valuation": self.insolvency_valuation,
+                }
+            )
 
         self._execution_policy_digest_cache_inputs = cache_inputs
         self._execution_policy_digest_cache = digest
@@ -1128,7 +1231,9 @@ class MarketExecutor:
         )
         requested_turnover = fill.requested_notional / starting_value
         filled_turnover = fill.filled_notional / starting_value
-        if filled_turnover + _TOLERANCE >= requested_turnover:
+        if not result_book.insolvent and all(
+            quantity == 0 for quantity in result_book.exact_quantities
+        ):
             result_book.termination_reason = EconomicTerminationReason.LIQUIDATION
         return ExecutionResult(
             book=result_book,

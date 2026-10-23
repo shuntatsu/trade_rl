@@ -27,7 +27,8 @@ def _dataset() -> MarketDataset:
         low=close - 1.0,
         close=close,
         volume=np.full((n_bars, 1), 10_000.0),
-        funding_rate=np.zeros((n_bars, 1)),
+        funding_rate=np.full((n_bars, 1), 0.001),
+        funding_price_rate=np.full((n_bars, 1), 0.075),
         tradable=np.ones((n_bars, 1), dtype=np.bool_),
         feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
         feature_names=("momentum",),
@@ -49,6 +50,10 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
 
     assert manifest_path == tmp_path / "manifest.json"
     assert restored.dataset_id == original.dataset_id
+    assert restored.funding_price_rate[0, 0] == pytest.approx(0.075)
+    assert restored.funding_price_rate[0, 0] != pytest.approx(
+        restored.funding_rate[0, 0] * restored.resolved_array("mark_price")[0, 0]
+    )
     assert restored.symbols == original.symbols
     assert restored.feature_names == original.feature_names
     assert restored.global_feature_names == original.global_feature_names
@@ -62,6 +67,7 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
         "close",
         "volume",
         "funding_rate",
+        "funding_price_rate",
         "tradable",
         "feature_available",
         "fee_rate",

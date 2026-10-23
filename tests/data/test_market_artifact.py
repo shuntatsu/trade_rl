@@ -91,6 +91,49 @@ def test_atomic_publish_rejects_existing_destination_without_changes(
     assert tuple(root.iterdir()) == (sentinel,)
 
 
+def test_atomic_publish_preserves_target_created_after_precheck(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.data.artifacts import publication as artifact_module
+
+    root = tmp_path / "artifact"
+    dataset = _dataset()
+    original_write_arrays = artifact_module._write_arrays
+    staged_files = None
+    competitor_identity: tuple[int, int] | None = None
+
+    def write_arrays_then_create_competitor(path: Path, actual_dataset):
+        nonlocal competitor_identity, staged_files
+        files = original_write_arrays(path, actual_dataset)
+        assert isinstance(files, artifact_module.DatasetArtifactFiles)
+        assert files.manifest_path.is_file()
+        assert files.arrays_path.is_file()
+
+        root.mkdir()
+        stat = root.stat()
+        competitor_identity = (stat.st_dev, stat.st_ino)
+        staged_files = files
+        return files
+
+    monkeypatch.setattr(
+        artifact_module, "_write_arrays", write_arrays_then_create_competitor
+    )
+
+    try:
+        with pytest.raises(FileExistsError):
+            publish_market_dataset_artifact(root, dataset)
+    finally:
+        assert staged_files is not None
+        assert competitor_identity is not None
+        stat = root.stat()
+        assert (stat.st_dev, stat.st_ino) == competitor_identity
+        assert root.is_dir()
+        assert not tuple(root.iterdir())
+        assert set(tmp_path.iterdir()) == {root}
+        assert not tuple(tmp_path.glob(".artifact.staging-*"))
+
+
 def test_failed_staging_is_removed_without_publishing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

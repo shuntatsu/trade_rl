@@ -7,12 +7,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.evaluation.test_shared_cash_replay import _market
+from tests.evaluation.test_shared_cash_replay import _market as _unverified_market
 from trade_rl.data.artifacts.publication import (
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
 from trade_rl.data.features.signature import with_path_signatures
+
+
+def _market(*args, **kwargs):
+    """The algebra tests use independently authenticated synthetic parents."""
+    return _unverified_market(*args, **kwargs).with_content_identity(
+        {"fixture": "path_signature_math"}
+    )
 
 
 def test_same_endpoints_opposite_paths_have_opposite_signed_area() -> None:
@@ -77,7 +84,12 @@ def test_future_modifications_do_not_change_prefix_features() -> None:
     )
     changed = source.close.copy()
     changed[5:] *= 3.0
-    future = replace(source, close=changed, high=np.maximum(source.high, changed))
+    future = replace(
+        source,
+        identity_payload_json=None,
+        close=changed,
+        high=np.maximum(source.high, changed),
+    ).with_content_identity({"fixture": "future_variation"})
     first = with_path_signatures(source, window_bars=3, depth=3)
     second = with_path_signatures(future, window_bars=3, depth=3)
     np.testing.assert_array_equal(first.features[:5], second.features[:5])
@@ -93,7 +105,12 @@ def test_unavailable_and_late_rows_invalidate_full_window_without_backfill() -> 
     information[5, 0] = False
     late = source.resolved_array("available_at").copy()
     late[5, 0] = source.timestamps[6]
-    modified = replace(source, information_available=information, available_at=late)
+    modified = replace(
+        source,
+        identity_payload_json=None,
+        information_available=information,
+        available_at=late,
+    ).with_content_identity({"fixture": "missing_variation"})
     result = with_path_signatures(modified, window_bars=3)
     assert result.feature_available[2, 0, -6:].all()
     assert not result.feature_available[3:8, 0, -6:].any()
@@ -125,14 +142,22 @@ def test_scale_invariance_and_no_ohlc_intrabar_order_lookups() -> None:
     source = _market(np.array([[100.0], [105.0], [99.0], [110.0], [107.0]]))
     scaled_close = source.close * 10.0
     scaled = replace(
-        source, close=scaled_close, high=np.maximum(source.high, scaled_close)
-    )
+        source,
+        identity_payload_json=None,
+        close=scaled_close,
+        high=np.maximum(source.high, scaled_close),
+    ).with_content_identity({"fixture": "scaled"})
     one = with_path_signatures(source, window_bars=3)
     two = with_path_signatures(scaled, window_bars=3)
     np.testing.assert_allclose(
         one.features[:, :, -6:], two.features[:, :, -6:], atol=1e-6
     )
-    ohlc = replace(source, high=source.high * 1.5, low=source.low * 0.5)
+    ohlc = replace(
+        source,
+        identity_payload_json=None,
+        high=source.high * 1.5,
+        low=source.low * 0.5,
+    ).with_content_identity({"fixture": "other_ohlc"})
     with_different_ohlc = with_path_signatures(ohlc, window_bars=3)
     np.testing.assert_array_equal(one.features, with_different_ohlc.features)
 
@@ -174,6 +199,13 @@ def test_opt_in_signature_round_trips_through_dataset_artifact(
     )
     np.testing.assert_array_equal(restored.fee_rate, source.fee_rate)
     np.testing.assert_array_equal(restored.funding_rate, source.funding_rate)
+
+
+def test_path_signature_rejects_unverified_base() -> None:
+    source = _unverified_market(np.full((6, 1), 100.0))
+    assert not source.identity_verified
+    with pytest.raises(ValueError, match="identity-verified base Dataset"):
+        with_path_signatures(source, window_bars=3)
 
 
 @pytest.mark.parametrize(

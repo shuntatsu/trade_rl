@@ -1,0 +1,1107 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from tools.market_b4_oracle.outer_witness import (
+    RootObservedAttempt,
+    WitnessFilePin,
+    _make_root_observed_attempt,
+    implementation_source_identity,
+)
+
+
+def _canonical(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _pin(path: Path, value: dict[str, object]) -> WitnessFilePin:
+    raw = _canonical(value)
+    path.write_bytes(raw)
+    return WitnessFilePin(len(raw), hashlib.sha256(raw).hexdigest())
+
+
+def test_windows_path_witness_pair_reads_back_with_external_pins(
+    tmp_path: Path,
+) -> None:
+    output_root = (tmp_path / "attempt").absolute()
+    output_root.mkdir()
+    witness_root = (tmp_path / "witness").absolute()
+    witness_root.mkdir()
+    start_path, finish_path = witness_root / "start.json", witness_root / "finish.json"
+    attempt_uuid = "a" * 32
+    argv = ["python", "-m", "tools.tier_d_nonrl", "--mode", "synthetic"]
+    source = {
+        "closure_sha256": "b" * 64,
+        "repository_head": "c" * 40,
+        "working_tree_clean": False,
+    }
+    start = {
+        "schema": "issue810_root_owned_attempt_start_v1",
+        "attempt_uuid": attempt_uuid,
+        "clock": {"wall_utc_ns": 10, "monotonic_ns": 20},
+        "argv": argv,
+        "output_root": str(output_root),
+        "implementation_source": source,
+    }
+    finish = {
+        "schema": "issue810_root_owned_attempt_finish_v1",
+        "attempt_uuid": attempt_uuid,
+        "clock": {"wall_utc_ns": 11, "monotonic_ns": 21},
+        "argv_sha256": hashlib.sha256(_canonical(argv)).hexdigest(),
+        "output_root": str(output_root),
+        "implementation_source": source,
+        "child": {
+            "pid": 101,
+            "birth_ticks": 102,
+            "exit_code": 0,
+            "owned_tree_empty": True,
+            "observed_process_identities": [[101, 102]],
+        },
+        "output_manifest": {"bytes": 1, "sha256": "d" * 64},
+    }
+    start_pin = _pin(start_path, start)
+    finish_pin = _pin(finish_path, finish)
+
+    observed = _make_root_observed_attempt(
+        start_path,
+        finish_path,
+        repository_head="c" * 40,
+        implementation_source_sha256="b" * 64,
+    )
+
+    assert observed.readback(
+        expected_start_pin=start_pin,
+        expected_finish_pin=finish_pin,
+    ) == (start, finish)
+
+
+def test_source_identity_uses_bounded_descriptor_reads_not_path_read_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repo"
+    source_paths = (
+        repository / "tools" / "market_b4_oracle" / "oracle.py",
+        repository / "tools" / "market_replay_oracle" / "reader.py",
+        repository / "trade_rl" / "artifacts" / "identity.py",
+        repository / "tools" / "market_b4_outer_runner.py",
+        repository / "tools" / "tier_d_nonrl" / "tier_d_process_tree.py",
+    )
+    for path in source_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# pinned synthetic source\n", encoding="utf-8")
+
+    def forbidden_read_bytes(_: Path) -> bytes:
+        raise AssertionError("source identity used an unbounded read_bytes call")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden_read_bytes)
+    identity = implementation_source_identity(repository)
+
+    assert identity["files"]
+    assert len(identity["closure_sha256"]) == 64
+
+
+def _synthetic_source_tree(repository: Path) -> tuple[Path, ...]:
+    source_paths = (
+        repository / "tools" / "market_b4_oracle" / "oracle.py",
+        repository / "tools" / "market_replay_oracle" / "reader.py",
+        repository / "trade_rl" / "artifacts" / "identity.py",
+        repository / "tools" / "market_b4_outer_runner.py",
+        repository / "tools" / "tier_d_nonrl" / "tier_d_process_tree.py",
+    )
+    for path in source_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# pinned synthetic source\n", encoding="utf-8")
+    return source_paths
+
+
+def test_source_identity_rejects_file_growth_between_stat_and_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.market_b4_oracle import outer_witness
+
+    repository = tmp_path / "repo"
+    target = _synthetic_source_tree(repository)[0]
+    original_open = outer_witness.os.open
+    grew = False
+
+    def grow_before_open(
+        path: object, flags: int, *args: object, **kwargs: object
+    ) -> int:
+        nonlocal grew
+        if Path(path) == target and not grew:
+            grew = True
+            with target.open("ab") as stream:
+                stream.write(b"changed after stat")
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(outer_witness.os, "open", grow_before_open)
+
+    with pytest.raises(ValueError, match="comparison source changed while opening"):
+        implementation_source_identity(repository)
+
+
+def test_source_identity_rejects_repository_parent_reparse_point(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    _synthetic_source_tree(repository)
+    alias = tmp_path / "repo-junction"
+    try:
+        alias.symlink_to(repository, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink creation is unavailable: {error}")
+
+    with pytest.raises(ValueError, match="link or reparse point"):
+        implementation_source_identity(alias)
+
+
+def test_existing_target_rejects_reparse_ancestor(tmp_path: Path) -> None:
+    from tools.market_b4_outer_runner import _safe_target
+
+    real_parent = tmp_path / "real-parent"
+    target = real_parent / "attempt"
+    target.mkdir(parents=True)
+    alias = tmp_path / "parent-alias"
+    try:
+        alias.symlink_to(real_parent, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink creation is unavailable: {error}")
+
+    with pytest.raises(ValueError, match="reparse point"):
+        _safe_target(alias / "attempt", must_exist=True)
+
+
+def test_fresh_target_rejects_missing_ancestor(tmp_path: Path) -> None:
+    from tools.market_b4_outer_runner import _safe_target
+
+    missing_parent = tmp_path / "missing-parent"
+
+    with pytest.raises(ValueError, match="parent directory does not exist"):
+        _safe_target(missing_parent / "attempt", must_exist=False)
+
+
+def test_frozen_h_witness_root_stays_in_fresh_ignored_verification_scope(
+    tmp_path: Path,
+) -> None:
+    from tools.market_b4_outer_runner import _fresh_h_witness_root
+
+    repository = tmp_path / "observer"
+    verify = repository / "output" / "verify"
+    verify.mkdir(parents=True)
+    candidate = verify / "attempt-1"
+
+    assert _fresh_h_witness_root(repository, candidate) == candidate
+    with pytest.raises(ValueError, match="ignored verification scope"):
+        _fresh_h_witness_root(repository, tmp_path / "outside-witness")
+
+    candidate.mkdir()
+    with pytest.raises(FileExistsError, match="never overwritten"):
+        _fresh_h_witness_root(repository, candidate)
+
+
+def test_native_launch_rejects_arbitrary_python_before_process_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from tools.market_b4_outer_runner import run_and_consume_market_arm
+
+    def forbidden_spawn(*args: object, **kwargs: object) -> None:
+        raise AssertionError("native command reached process creation")
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess.Popen", forbidden_spawn
+    )
+    with pytest.raises(ValueError, match="exact native CLI binding"):
+        run_and_consume_market_arm(
+            argv=[str(Path(__import__("sys").executable).absolute()), "-c", "pass"],
+            repository=Path.cwd(),
+            output_root=Path.cwd() / "native-output",
+            witness_root=Path.cwd() / "native-witness",
+            content=object(),
+            policy=object(),
+            binding=SimpleNamespace(comparison_only=False),
+            role="NONRL",
+            reserve_plan_digest="a" * 64,
+            static_inputs=object(),
+        )
+
+
+def test_frozen_h_plan_emits_only_the_exact_public_market_cli(tmp_path: Path) -> None:
+    from tools.market_b4_outer_runner import _frozen_h_public_argv
+
+    python = tmp_path / "h" / ".venv" / "Scripts" / "python.exe"
+    attempt = tmp_path / "h" / "output" / "tier-d-nonrl" / "fresh-attempt"
+    protocol = tmp_path / "protocol-v3.json"
+    review = tmp_path / "review.json"
+
+    argv = _frozen_h_public_argv(
+        child_python=python,
+        attempt_root=attempt,
+        protocol_path=protocol,
+        review_path=review,
+        max_workers=4,
+    )
+
+    assert argv == (
+        str(python),
+        "-B",
+        "-m",
+        "tools.tier_d_nonrl",
+        "--mode",
+        "market",
+        "--attempt-root",
+        str(attempt),
+        "--protocol",
+        str(protocol),
+        "--review-record",
+        str(review),
+        "--max-workers",
+        "4",
+    )
+    assert "--worker" not in argv
+    assert "--resume-from" not in argv
+
+
+def test_frozen_h_runtime_pin_uses_exact_locked_interpreter_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    from tools.market_b4_outer_runner import capture_frozen_h_runtime_pin
+
+    source_root = tmp_path / "frozen-h"
+    (source_root / ".venv" / "Scripts").mkdir(parents=True)
+    python = source_root / ".venv" / "Scripts" / "python.exe"
+    python.write_bytes(b"bounded synthetic interpreter pin")
+    (source_root / "pyproject.toml").write_text(
+        """[project]
+requires-python = ">=3.12,<3.13"
+dependencies = ["numpy>=1.26.0,<2.0.0", "gymnasium==0.29.1"]
+[project.optional-dependencies]
+forecast-gbm = ["lightgbm[scikit-learn]==4.7.0"]
+""",
+        encoding="utf-8",
+    )
+    (source_root / "uv.lock").write_text(
+        """[[package]]
+name = "numpy"
+version = "1.26.4"
+[[package]]
+name = "gymnasium"
+version = "0.29.1"
+[[package]]
+name = "lightgbm"
+version = "4.7.0"
+[[package]]
+name = "scikit-learn"
+version = "1.9.0"
+[[package]]
+name = "scipy"
+version = "1.17.1"
+""",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema_version": "candidate_run_runtime_v1",
+        "python": {
+            "implementation": "CPython",
+            "version": "3.12.0 synthetic test runtime",
+        },
+        "os": {"family": "Windows", "release": "11"},
+        "machine": "AMD64",
+        "packages": {
+            "trade-rl": "0.3.0",
+            "numpy": "1.26.4",
+            "gymnasium": "0.29.1",
+            "lightgbm": "4.7.0",
+            "stable-baselines3": None,
+            "torch": None,
+        },
+    }
+    probe = {
+        "schema": "issue810_frozen_h_runtime_probe_v1",
+        "source_root": str(source_root),
+        "python_executable": str(python),
+        "module_root": str(source_root),
+        "module_resolution": {
+            "working_directory": str(source_root),
+            "sys_path0": str(source_root),
+            "trade_rl_origin": str(source_root / "trade_rl" / "__init__.py"),
+            "tier_d_nonrl_main": str(
+                source_root / "tools" / "tier_d_nonrl" / "__main__.py"
+            ),
+        },
+        "runtime_environment": manifest,
+        "support_packages": {"scikit-learn": "1.9.0", "scipy": "1.17.1"},
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(probe, sort_keys=True, separators=(",", ":")).encode(),
+            stderr=b"",
+        )
+
+    monkeypatch.setattr("tools.market_b4_outer_runner.subprocess.run", fake_run)
+    pin = capture_frozen_h_runtime_pin(source_root)
+
+    assert pin.source_root == source_root
+    assert pin.python_executable == python
+    assert (
+        pin.python_executable_sha256 == hashlib.sha256(python.read_bytes()).hexdigest()
+    )
+    assert pin.authority_payload()["runtime_environment"] == manifest
+    assert pin.authority_payload()["probe_facts"]["module_root"] == str(source_root)
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command[:3] == [str(python), "-B", "-c"]
+    assert "-I" not in command
+    assert kwargs["cwd"] == source_root
+    assert kwargs["timeout"] == 30
+    assert set(kwargs["env"]) <= {
+        "PATH",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONUTF8",
+    }
+    assert kwargs["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert kwargs["env"]["PYTHONUTF8"] == "1"
+    assert not {
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    } & set(kwargs["env"])
+
+
+def test_frozen_h_plan_cannot_be_built_from_artificial_binding(
+    tmp_path: Path,
+) -> None:
+    from types import SimpleNamespace
+
+    from tools.market_b4_outer_runner import build_frozen_h_launch_plan
+
+    with pytest.raises(ValueError, match="artificial inputs"):
+        build_frozen_h_launch_plan(
+            observer_repository=tmp_path,
+            supervisor_attempt_root=tmp_path / "attempt",
+            witness_root=tmp_path / "witness",
+            content=object(),
+            policy=object(),
+            binding=SimpleNamespace(comparison_only=True),
+            runtime_pin=object(),
+            static_inputs=None,
+            review_record_path=tmp_path / "review.json",
+            review_record_pin=WitnessFilePin(1, "a" * 64),
+        )
+
+
+def test_timeout_after_popen_reaps_process_and_records_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.market_b4_outer_runner import _run_root_observed_attempt
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._root_owned_process_tree_supported",
+        lambda: True,
+    )
+
+    class FakeProcess:
+        pid = 12345
+        returncode: int | None = None
+        terminated = False
+        cleanup_started = False
+
+        def poll(self) -> int | None:
+            if self.cleanup_started:
+                raise OSError("synthetic exit poll failure")
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.terminated = True
+            self.cleanup_started = True
+            self.returncode = -15
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None or timeout > 0
+            if self.returncode is None:
+                self.returncode = -15
+            return self.returncode
+
+    class FakeSample:
+        def __init__(self, members: tuple[object, ...]) -> None:
+            self.members = members
+            self.ambiguous_members: tuple[object, ...] = ()
+
+    class FakeTree:
+        def __init__(self) -> None:
+            self.root_identity = (process.pid, 99)
+            self.owned = {self.root_identity: 0}
+            self.last_sample = FakeSample((object(),))
+
+        def sample(self) -> FakeSample:
+            self.last_sample = FakeSample(
+                () if process.returncode is not None else (object(),)
+            )
+            return self.last_sample
+
+    process = FakeProcess()
+    tree = FakeTree()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output_root = tmp_path / "output"
+    witness_root = tmp_path / "witness"
+    source = {
+        "closure_sha256": "a" * 64,
+        "files": [],
+        "runtime": {"packages": {"numpy": "2", "trade-rl": "2"}},
+        "repository_head": "b" * 40,
+        "working_tree_clean": False,
+        "git_status_sha256": "c" * 64,
+    }
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.implementation_source_identity",
+        lambda _: source,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._git_readback",
+        lambda _: ("b" * 40, False, "c" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess.Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._new_process_tree", lambda _: tree
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._stop_owned_tree",
+        lambda target, _: target.terminate(),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._observe_owned_tree",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            TimeoutError("synthetic observer timeout")
+        ),
+    )
+
+    with pytest.raises(TimeoutError, match="synthetic observer timeout"):
+        _run_root_observed_attempt(
+            argv=[str(Path(__import__("sys").executable).absolute()), "-c", "pass"],
+            repository=repository,
+            output_root=output_root,
+            witness_root=witness_root,
+            input_authority={"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+            timeout_seconds=0.01,
+        )
+
+    assert process.terminated
+    assert process.returncode == -15
+    assert not (witness_root / "finish.json").exists()
+    failure = json.loads((witness_root / "failure.json").read_text(encoding="utf-8"))
+    assert failure["child"]["exit_code"] == -15
+    assert failure["child"]["owned_tree_empty"] is True
+    assert failure["cleanup"]["status"] == "CLEANUP_INCOMPLETE"
+    assert any(
+        "synthetic exit poll failure" in row for row in failure["cleanup"]["errors"]
+    )
+
+
+def test_observer_construction_failure_reaps_root_without_claiming_empty_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    from tools.market_b4_outer_runner import _run_root_observed_attempt
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._root_owned_process_tree_supported",
+        lambda: True,
+    )
+
+    class RunningProcess:
+        pid = 12345
+        returncode: int | None = None
+        terminated = False
+        reaped = False
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None or timeout > 0
+            self.reaped = True
+            if self.returncode is None:
+                self.returncode = -15
+            return self.returncode
+
+    process = RunningProcess()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    witness_root = tmp_path / "witness"
+    source = {
+        "closure_sha256": "a" * 64,
+        "files": [],
+        "runtime": {"packages": {"numpy": "2", "trade-rl": "2"}},
+        "repository_head": "b" * 40,
+        "working_tree_clean": False,
+        "git_status_sha256": "c" * 64,
+    }
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.implementation_source_identity",
+        lambda _: source,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._git_readback",
+        lambda _: ("b" * 40, False, "c" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess.Popen",
+        lambda *args, **kwargs: process,
+    )
+
+    def fail_to_construct_observer(_pid: int) -> object:
+        raise OSError("synthetic process snapshot initialization failure")
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._new_process_tree",
+        fail_to_construct_observer,
+    )
+
+    with pytest.raises(OSError, match="snapshot initialization failure"):
+        _run_root_observed_attempt(
+            argv=[str(Path(sys.executable).absolute()), "-c", "pass"],
+            repository=repository,
+            output_root=tmp_path / "output",
+            witness_root=witness_root,
+            input_authority={"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+            timeout_seconds=1.0,
+        )
+
+    assert process.terminated and process.reaped
+    assert not (witness_root / "finish.json").exists()
+    failure = json.loads((witness_root / "failure.json").read_text(encoding="utf-8"))
+    assert failure["failure"]["type"] == "OSError"
+    assert failure["cleanup"]["status"] == "CLEANUP_INCOMPLETE"
+    assert failure["cleanup"]["root_exit_observed"] is True
+    assert failure["cleanup"]["owned_tree_empty"] is None
+    assert failure["child"]["owned_tree_empty"] is None
+
+
+@pytest.mark.parametrize(
+    (
+        "live_child_visible",
+        "reused_root_visible",
+        "expected_error",
+        "expected_tree_empty",
+    ),
+    (
+        pytest.param(True, False, "ambiguous", False, id="live-child-is-ambiguous"),
+        pytest.param(
+            False,
+            False,
+            "root observer did not capture",
+            None,
+            id="empty-snapshot-does-not-prove-root-identity",
+        ),
+        pytest.param(
+            False,
+            True,
+            "ambiguous",
+            False,
+            id="reused-root-and-surviving-child-are-never-complete",
+        ),
+    ),
+)
+def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    live_child_visible: bool,
+    reused_root_visible: bool,
+    expected_error: str,
+    expected_tree_empty: bool | None,
+) -> None:
+    import sys
+
+    import tools.tier_d_nonrl.tier_d_process_tree as process_tree_module
+    from tools.market_b4_oracle.output_index import ArtifactPin
+    from tools.market_b4_outer_runner import _run_root_observed_attempt
+    from tools.tier_d_nonrl.tier_d_process_tree import ProcessTree, ProcessUsage
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._root_owned_process_tree_supported",
+        lambda: True,
+    )
+    root_pid = 12345
+    live_child = ProcessUsage(
+        pid=23456, parent_pid=root_pid, creation_ticks=100, rss_bytes=4096
+    )
+    replacement_root = ProcessUsage(
+        pid=root_pid, parent_pid=1, creation_ticks=200, rss_bytes=4
+    )
+
+    class FinishedRoot:
+        pid = root_pid
+        returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def terminate(self) -> None:
+            pytest.fail("an already-exited root should not be terminated")
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None or timeout > 0
+            return self.returncode
+
+    process = FinishedRoot()
+    if reused_root_visible:
+        snapshots = iter(((replacement_root, live_child), (live_child,)))
+        snapshot = (live_child,)
+    else:
+        snapshot = (live_child,) if live_child_visible else ()
+        snapshots = iter((snapshot,))
+
+    monkeypatch.setattr(
+        process_tree_module,
+        "_process_identity_from_popen",
+        lambda launched: (launched.pid, 99),
+    )
+    monkeypatch.setattr(
+        process_tree_module,
+        "windows_process_snapshot",
+        lambda: next(snapshots, snapshot),
+    )
+    created_trees = []
+
+    def capture_tree(launched):
+        tree = ProcessTree.from_popen(launched)
+        created_trees.append(tree)
+        return tree
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    witness_root = tmp_path / "witness"
+    source = {
+        "closure_sha256": "a" * 64,
+        "files": [],
+        "runtime": {"packages": {"numpy": "2", "trade-rl": "2"}},
+        "repository_head": "b" * 40,
+        "working_tree_clean": False,
+        "git_status_sha256": "c" * 64,
+    }
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.implementation_source_identity",
+        lambda _: source,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._git_readback",
+        lambda _: ("b" * 40, False, "c" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.capture_output_manifest_pin",
+        lambda _: ArtifactPin(1, "d" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.load_pinned_output_index",
+        lambda *args: object(),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess.Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr("tools.market_b4_outer_runner._new_process_tree", capture_tree)
+    monkeypatch.setattr(
+        "tools.tier_d_nonrl.tier_d_process_tree.subprocess.run",
+        lambda *args, **kwargs: pytest.fail(
+            "an unproven child identity was sent to the process-kill helper"
+        ),
+    )
+
+    with pytest.raises((RuntimeError, ValueError), match=expected_error):
+        _run_root_observed_attempt(
+            argv=[str(Path(sys.executable).absolute()), "-c", "pass"],
+            repository=repository,
+            output_root=tmp_path / "output",
+            witness_root=witness_root,
+            input_authority={"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+            timeout_seconds=1.0,
+        )
+
+    tree = created_trees[0]
+    assert isinstance(tree, ProcessTree)
+    assert tree.expected_root_identity == (root_pid, 99)
+    assert tree.root_identity is None
+    assert tree.owned == {}
+    assert tree.last_sample is not None
+    assert tree.last_sample.owned_members == ()
+    expected_ambiguous = (
+        (live_child,) if live_child_visible or reused_root_visible else ()
+    )
+    assert tree.last_sample.ambiguous_members == expected_ambiguous
+    assert not (witness_root / "finish.json").exists()
+    failure = json.loads((witness_root / "failure.json").read_text(encoding="utf-8"))
+    assert failure["child"]["owned_tree_empty"] is expected_tree_empty
+    assert failure["cleanup"]["status"] == "CLEANUP_INCOMPLETE"
+    assert failure["cleanup"]["owned_tree_empty"] is expected_tree_empty
+    if live_child_visible or reused_root_visible:
+        assert any("ambiguous" in error for error in failure["cleanup"]["errors"])
+    else:
+        assert any(
+            "root process identity was never observed" in error
+            for error in failure["cleanup"]["errors"]
+        )
+
+
+def test_root_attempt_rejects_ambiguous_only_snapshot_without_empty_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.market_b4_oracle.output_index import ArtifactPin
+    from tools.market_b4_outer_runner import _run_root_observed_attempt
+    from tools.tier_d_nonrl.tier_d_process_tree import (
+        ProcessTreeSample,
+        ProcessUsage,
+    )
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._root_owned_process_tree_supported",
+        lambda: True,
+    )
+
+    root = ProcessUsage(pid=12345, parent_pid=1, creation_ticks=99, rss_bytes=0)
+    ambiguous_child = ProcessUsage(
+        pid=23456, parent_pid=root.pid, creation_ticks=100, rss_bytes=4096
+    )
+    sample = ProcessTreeSample(
+        members=(),
+        root_pid=root.pid,
+        owned_members=(),
+        ambiguous_members=(ambiguous_child,),
+    )
+
+    class FinishedProcess:
+        pid = root.pid
+        returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def terminate(self) -> None:
+            pytest.fail("an already-finished root should not be terminated")
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None or timeout > 0
+            return self.returncode
+
+    class SnapshotTree:
+        def __init__(self) -> None:
+            self.root_identity = root.identity
+            self.owned = {root.identity: 0}
+            self.last_sample = sample
+
+        def sample(self) -> ProcessTreeSample:
+            self.last_sample = sample
+            return sample
+
+    process = FinishedProcess()
+    tree = SnapshotTree()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output_root = tmp_path / "output"
+    witness_root = tmp_path / "witness"
+    source = {
+        "closure_sha256": "a" * 64,
+        "files": [],
+        "runtime": {"packages": {"numpy": "2", "trade-rl": "2"}},
+        "repository_head": "b" * 40,
+        "working_tree_clean": False,
+        "git_status_sha256": "c" * 64,
+    }
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.implementation_source_identity",
+        lambda _: source,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._git_readback",
+        lambda _: ("b" * 40, False, "c" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess.Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._new_process_tree", lambda _: tree
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._stop_owned_tree", lambda *_: None
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.capture_output_manifest_pin",
+        lambda _: ArtifactPin(1, "d" * 64),
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.load_pinned_output_index",
+        lambda *args: object(),
+    )
+
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        _run_root_observed_attempt(
+            argv=[str(Path(__import__("sys").executable).absolute()), "-c", "pass"],
+            repository=repository,
+            output_root=output_root,
+            witness_root=witness_root,
+            input_authority={"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+            timeout_seconds=1.0,
+        )
+
+    assert not (witness_root / "finish.json").exists()
+    failure = json.loads((witness_root / "failure.json").read_text(encoding="utf-8"))
+    assert failure["child"]["owned_tree_empty"] is False
+    assert failure["cleanup"]["status"] == "CLEANUP_INCOMPLETE"
+    assert failure["cleanup"]["owned_tree_empty"] is False
+    assert any("ambiguous" in row for row in failure["cleanup"]["errors"])
+
+
+@pytest.mark.skipif(
+    __import__("os").name != "nt",
+    reason="frozen root-owned process-tree observer is Windows-only",
+)
+def test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+    import sys
+    import time
+    from types import SimpleNamespace
+
+    from tools.market_b4_outer_runner import _run_root_observed_attempt
+    from tools.tier_d_nonrl.tier_d_process_tree import (
+        ProcessTree,
+        terminate_owned_tree,
+        windows_process_snapshot,
+    )
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output_root = tmp_path / "output"
+    witness_root = tmp_path / "witness"
+    pid_file = tmp_path / "descendant.pid"
+    source = {
+        "closure_sha256": "a" * 64,
+        "files": [],
+        "runtime": {"packages": {"numpy": "2", "trade-rl": "2"}},
+        "repository_head": "b" * 40,
+        "working_tree_clean": False,
+        "git_status_sha256": "c" * 64,
+    }
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.implementation_source_identity",
+        lambda _: source,
+    )
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner._git_readback",
+        lambda _: ("b" * 40, False, "c" * 64),
+    )
+    spawned: dict[str, object] = {}
+    owned: dict[str, ProcessTree] = {}
+    real_popen = subprocess.Popen
+    real_new_tree = __import__(
+        "tools.market_b4_outer_runner", fromlist=["_new_process_tree"]
+    )._new_process_tree
+
+    def tracked_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        process = real_popen(*args, **kwargs)
+        spawned["process"] = process
+        return process
+
+    def tracked_tree(process: subprocess.Popen[bytes]) -> ProcessTree:
+        tree = real_new_tree(process)
+        owned["tree"] = tree
+        return tree
+
+    monkeypatch.setattr(
+        "tools.market_b4_outer_runner.subprocess",
+        SimpleNamespace(
+            Popen=tracked_popen,
+            DEVNULL=subprocess.DEVNULL,
+            CREATE_NO_WINDOW=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ),
+    )
+    monkeypatch.setattr("tools.market_b4_outer_runner._new_process_tree", tracked_tree)
+    child_code = (
+        "import subprocess,sys,time; "
+        "desc=subprocess.Popen([sys.executable,'-B','-c',"
+        "'import time; time.sleep(30)']); "
+        "open(sys.argv[1],'w',encoding='ascii').write(str(desc.pid)); "
+        "time.sleep(30)"
+    )
+    command = [sys.executable, "-B", "-c", child_code, str(pid_file)]
+    try:
+        with pytest.raises(TimeoutError, match="bounded runtime"):
+            _run_root_observed_attempt(
+                argv=command,
+                repository=repository,
+                output_root=output_root,
+                witness_root=witness_root,
+                input_authority={"scope": "ARTIFICIAL_COMPARISON_ONLY"},
+                timeout_seconds=4.0,
+            )
+        deadline = time.monotonic() + 2.0
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert pid_file.is_file()
+        descendant_pid = int(pid_file.read_text(encoding="ascii"))
+        process = spawned["process"]
+        tree = owned["tree"]
+        assert isinstance(process, subprocess.Popen)
+        assert isinstance(tree, ProcessTree)
+        failure = json.loads(
+            (witness_root / "failure.json").read_text(encoding="utf-8")
+        )
+        observed = failure["child"]
+        assert observed["pid"] == process.pid
+        assert type(observed["birth_ticks"]) is int
+        assert observed["exit_observed"] is True
+        assert observed["exit_code"] != 0
+        assert observed["owned_tree_empty"] is True
+        assert any(
+            row[0] == descendant_pid for row in observed["observed_process_identities"]
+        )
+        assert "output_manifest" not in failure
+        assert (witness_root / "start.json").is_file()
+        assert not (witness_root / "finish.json").exists()
+        assert process.wait(timeout=1) != 0
+        identities = set(tree.owned)
+        current_identities = {item.identity for item in windows_process_snapshot()}
+        assert identities.isdisjoint(current_identities)
+        assert not tree.sample().members
+    finally:
+        process = spawned.get("process")
+        tree = owned.get("tree")
+        if isinstance(process, subprocess.Popen):
+            try:
+                if isinstance(tree, ProcessTree):
+                    terminate_owned_tree(process, tree)
+                elif process.poll() is None:
+                    process.terminate()
+                process.wait(timeout=30)
+            except Exception:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=30)
+            if isinstance(tree, ProcessTree):
+                assert not tree.sample().members
+
+
+def _externally_pinned_witness_pair(
+    tmp_path: Path,
+) -> tuple[
+    RootObservedAttempt,
+    WitnessFilePin,
+    WitnessFilePin,
+    dict[str, object],
+    dict[str, object],
+]:
+    attempt_uuid = "a" * 32
+    repository_head = "b" * 40
+    source = {
+        "closure_sha256": "c" * 64,
+        "repository_head": repository_head,
+        "working_tree_clean": True,
+        "git_status_sha256": "d" * 64,
+    }
+    argv = ["python", "-m", "tools.market_b4_oracle.offline_replay_consumer"]
+    output_root = str((tmp_path / "output").absolute())
+    start = {
+        "schema": "issue810_root_owned_attempt_start_v1",
+        "attempt_uuid": attempt_uuid,
+        "clock": {"wall_utc_ns": 10, "monotonic_ns": 20},
+        "argv": argv,
+        "output_root": output_root,
+        "implementation_source": source,
+    }
+    finish = {
+        "schema": "issue810_root_owned_attempt_finish_v1",
+        "attempt_uuid": attempt_uuid,
+        "clock": {"wall_utc_ns": 11, "monotonic_ns": 21},
+        "argv_sha256": hashlib.sha256(_canonical(argv)).hexdigest(),
+        "output_root": output_root,
+        "implementation_source": source,
+        "child": {
+            "pid": 123,
+            "birth_ticks": 456,
+            "exit_code": 0,
+            "owned_tree_empty": True,
+            "observed_process_identities": [[123, 456]],
+        },
+        "output_manifest": {"bytes": 1, "sha256": "e" * 64},
+    }
+    start_path = tmp_path / "attempt-start.json"
+    finish_path = tmp_path / "attempt-finish.json"
+    start_pin = _pin(start_path, start)
+    finish_pin = _pin(finish_path, finish)
+    attempt = _make_root_observed_attempt(
+        start_path,
+        finish_path,
+        repository_head=repository_head,
+        implementation_source_sha256="f" * 64,
+    )
+    return attempt, start_pin, finish_pin, start, finish
+
+
+def test_root_observed_attempt_reads_exact_pinned_canonical_pair(
+    tmp_path: Path,
+) -> None:
+    attempt, start_pin, finish_pin, expected_start, expected_finish = (
+        _externally_pinned_witness_pair(tmp_path)
+    )
+
+    start, finish = attempt.readback(
+        expected_start_pin=start_pin,
+        expected_finish_pin=finish_pin,
+    )
+
+    assert start == expected_start
+    assert finish == expected_finish
+
+
+def test_root_observed_attempt_rejects_pinned_finish_record_tampering(
+    tmp_path: Path,
+) -> None:
+    attempt, start_pin, finish_pin, _, _ = _externally_pinned_witness_pair(tmp_path)
+    finish_path = attempt.finish_path
+    original = finish_path.read_bytes()
+    tampered = original.replace(b'"exit_code":0', b'"exit_code":1')
+    assert len(tampered) == len(original) and tampered != original
+    finish_path.write_bytes(tampered)
+
+    with pytest.raises(ValueError, match="differs from its external pin"):
+        attempt.readback(
+            expected_start_pin=start_pin,
+            expected_finish_pin=finish_pin,
+        )

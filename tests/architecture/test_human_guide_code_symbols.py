@@ -169,3 +169,116 @@ def test_index_rejects_non_commit_revision(tmp_path) -> None:
         assert "40-character hexadecimal" in str(exc)
     else:
         raise AssertionError("expected GuideCodeSymbolError for non-commit revision")
+
+
+@pytest.mark.parametrize("accessors", ["setter", "deleter", "both"])
+def test_property_accessors_share_one_complete_symbol(tmp_path, accessors) -> None:
+    code_symbols = _code_symbols()
+    package = tmp_path / "trade_rl"
+    package.mkdir()
+    source = (
+        "class Account:\n"
+        "    @property\n"
+        "    def value(self) -> int:\n"
+        "        return self._value\n"
+    )
+    if accessors in ("setter", "both"):
+        source += (
+            "\n"
+            "    @value.setter\n"
+            "    def value(self, amount: int) -> None:\n"
+            "        normalized = abs(amount)\n"
+            "        self._value = normalized\n"
+        )
+    if accessors in ("deleter", "both"):
+        source += (
+            "\n"
+            "    @value.deleter\n"
+            "    def value(self) -> None:\n"
+            "        previous = self._value\n"
+            "        self._value = previous - previous\n"
+        )
+    (package / "account.py").write_text(source, encoding="utf-8")
+
+    index = code_symbols.build_symbol_index(package, revision="a" * 40)
+    symbols = _symbols(index)
+    symbol = symbols["trade_rl.account.Account.value"]
+
+    assert len(symbols) == 2
+    assert symbol["kind"] == "method"
+    assert symbol["start_line"] == 2
+    assert symbol["end_line"] == len(source.splitlines())
+    expected_source = "".join(source.splitlines(keepends=True)[1:])
+    assert (
+        symbol["source_sha256"]
+        == __import__("hashlib").sha256(expected_source.encode("utf-8")).hexdigest()
+    )
+    expected_locals = {"self"}
+    if accessors in ("setter", "both"):
+        expected_locals.update(("amount", "normalized"))
+    if accessors in ("deleter", "both"):
+        expected_locals.add("previous")
+    assert symbol["local_names"] == sorted(expected_locals)
+
+
+def test_setter_only_change_updates_complete_property_fingerprint(tmp_path) -> None:
+    code_symbols = _code_symbols()
+    package = tmp_path / "trade_rl"
+    package.mkdir()
+    source = package / "account.py"
+    body = (
+        "class Account:\n"
+        "    @property\n"
+        "    def value(self) -> int:\n"
+        "        return self._value\n"
+        "    @value.setter\n"
+        "    def value(self, amount: int) -> None:\n"
+        "        self._value = abs(amount)\n"
+    )
+    source.write_text(body, encoding="utf-8")
+    first = _symbols(code_symbols.build_symbol_index(package, revision="b" * 40))[
+        "trade_rl.account.Account.value"
+    ]
+    source.write_text(body.replace("abs(amount)", "max(amount, 0)"), encoding="utf-8")
+    second = _symbols(code_symbols.build_symbol_index(package, revision="b" * 40))[
+        "trade_rl.account.Account.value"
+    ]
+
+    assert first["source_sha256"] != second["source_sha256"]
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    [
+        "    def value(self):\n        pass\n" * 2,
+        "    @property\n    def value(self):\n        pass\n" * 2,
+        "    @property\n    def value(self):\n        pass\n"
+        + "    @value.setter\n    def value(self, amount):\n        pass\n" * 2,
+        "    @property\n    def value(self):\n        pass\n"
+        "    @other.setter\n    def value(self, amount):\n        pass\n",
+        "    def value(self):\n        pass\n"
+        "    @value.setter\n    def value(self, amount):\n        pass\n",
+        "    @property\n    def value(self):\n        pass\n"
+        "    @wrap\n    @value.setter\n    def value(self, amount):\n        pass\n",
+        "    @property\n    def value(self):\n        pass\n"
+        "    @value.setter()\n    def value(self, amount):\n        pass\n",
+        "    @property\n    def value(self):\n        pass\n"
+        "    def intervening(self):\n        pass\n"
+        "    @value.setter\n    def value(self, amount):\n        pass\n",
+    ],
+)
+def test_property_support_preserves_ambiguous_duplicate_rejection(
+    tmp_path, declarations
+) -> None:
+    code_symbols = _code_symbols()
+    package = tmp_path / "trade_rl"
+    package.mkdir()
+    (package / "account.py").write_text(
+        "class Account:\n" + declarations, encoding="utf-8"
+    )
+
+    with pytest.raises(
+        code_symbols.GuideCodeSymbolError,
+        match=r"duplicate code symbol: trade_rl\.account\.Account\.value",
+    ):
+        code_symbols.build_symbol_index(package, revision="c" * 40)

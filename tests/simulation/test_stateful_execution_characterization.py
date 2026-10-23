@@ -194,6 +194,11 @@ def _result_payload(result: Any) -> dict[str, Any]:
 def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     result = _baseline_result()
     normalized = _normalize(_result_payload(result))
+    # The opt-in clock adds metadata to the dataclass, not to the legacy
+    # account's economic path. Assert its default before projecting only those
+    # additions out; retain both original hashes for every pre-existing field.
+    assert normalized["book"].pop("as_of_index") is None
+    assert normalized["book"].pop("as_of_dataset_id") is None
     corrected_gross_return = normalized["interval_gross_return"]
     corrected_fill_ratio = normalized["fill_ratio"]
     corrected_unfilled_turnover = normalized["unfilled_turnover"]
@@ -211,6 +216,19 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     assert [event.participation_rate for event in fill_events] == pytest.approx(
         [1.0, 0.5, 0.5]
     )
+    assert [event.filled_lot_count for event in fill_events] == [2, -1, 1]
+    assert all(event.lot_size == 1.0 for event in fill_events)
+    # Only the quantized fills gain versioned evidence. Project those additions
+    # out before the original hashes, preserving every earlier economic field.
+    for event in normalized["order_events"]:
+        if event["event_type"] in {"filled", "partial_fill"}:
+            assert event["schema_version"] == "order_event_v2"
+            assert event.pop("lot_size") == 1.0
+            assert event.pop("filled_lot_count") == int(event["filled_quantity"])
+            event["schema_version"] = "order_event_v1"
+        else:
+            assert event["schema_version"] == "order_event_v1"
+            assert "lot_size" not in event and "filled_lot_count" not in event
     expected_cost = (
         200.0 * (0.0005 + 0.0003 + 0.001 + 0.0002 * math.sqrt(1.0))
         + 100.0 * (0.0005 + 0.0003 + 0.001 + 0.0002 * math.sqrt(0.5))

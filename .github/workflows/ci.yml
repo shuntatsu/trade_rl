@@ -5,8 +5,10 @@ on:
     branches-ignore:
       - provenance/branch-retention
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
+      - 'codex/**'
   pull_request_review:
     types: [submitted, edited, dismissed]
 
@@ -17,7 +19,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -55,7 +57,7 @@ jobs:
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py
 
       - name: Research transport types
-        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
+        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py tools/tier_d_nonrl tools/tier_d_scaling tools/market_account_oracle tools/market_replay_oracle tools/market_b4_oracle tools/market_b4_outer_runner.py tools/market_b4_artificial_component_operator.py
 
       - name: Install gated 4h smoke PPO runtime
         if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
@@ -93,8 +95,11 @@ jobs:
           fi
 
   core:
-    name: Lean Core
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    name: Lean Core${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -125,7 +130,7 @@ jobs:
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py
 
       - name: Research transport types
-        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
+        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py tools/tier_d_nonrl tools/tier_d_scaling tools/market_account_oracle tools/market_replay_oracle tools/market_b4_oracle tools/market_b4_outer_runner.py tools/market_b4_artificial_component_operator.py
 
       - name: Core tests
         run: uv run pytest -q tests
@@ -198,10 +203,52 @@ jobs:
           module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
           test "$module" = "$expected"
 
+  artifact-publication:
+    name: Artifact Publication (${{ matrix.os }})
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Artifact publication tests
+        run: uv run --no-sync python -m pytest -q tests/artifacts tests/data/test_market_artifact.py
+
+      - name: Windows process ownership tests
+        if: matrix.os == 'windows-latest'
+        run: >-
+          uv run --no-sync python -m pytest -q
+          tests/tools/tier_d_nonrl/test_supervisor.py::test_actual_windows_redirector_memory_and_owned_leaf_termination
+          tests/tools/tier_d_nonrl/test_supervisor.py::test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated
+          tests/tools/tier_d_nonrl/test_parallel_supervision.py::test_actual_supervisor_samples_and_reaps_real_pool_workers
+          tests/tools/tier_d_nonrl/test_progress_supervision.py::test_actual_stalled_journal_stops_owned_child_and_retains_verified_prefix
+          tests/tools/market_b4_oracle/test_outer_witness.py::test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure
 
   ppo-runtime:
-    name: PPO Runtime
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    name: PPO Runtime${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -220,11 +267,48 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Real SB3 PPO integration
-        run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py
+        run: uv run pytest -q --basetemp="${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}" tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/integrations/test_allocation_ppo_runtime.py tests/integrations/test_allocation_schedule_ppo_runtime.py tests/integrations/test_allocation_policy_admission_runtime.py tests/integrations/test_allocation_sealed_policy_runtime.py tests/integrations/test_allocation_scheduled_transition_runtime.py tests/integrations/test_allocation_scheduled_delayed_credit_runtime.py tests/integrations/test_allocation_fee_stress_runtime.py tests/evaluation/test_allocation_settled_training.py tests/evaluation/test_allocation_settled_transition_trace.py tests/integrations/test_allocation_settled_learnability.py
+
+      - name: Preserve fixed delayed actor evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fixed-delayed-actor-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/fixed-delayed-actor/**
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: false
+
+      - name: Preserve configured-fee software artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: configured-fee-software-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/software-evidence.json
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/genuine-original/**
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/constant-0/**
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/constant-3/**
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: false
+
+      - name: Preserve settled learnability evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: settled-learnability-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/fixed-settled-learnability/**
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: false
 
   guide:
-    name: Human Guide
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    name: Human Guide${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
     runs-on: ubuntu-latest
     env:
       GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -286,11 +370,12 @@ jobs:
           retention-days: 14
 
   independent-review:
-    name: Generic Independent Research Review
-    needs: [core, ppo-runtime, guide]
+    name: Generic Independent Research Review${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    needs: [core, ppo-runtime, guide, artifact-publication]
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
       github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'
     runs-on: ubuntu-latest
     permissions:
@@ -301,15 +386,13 @@ jobs:
           CORE_RESULT: ${{ needs.core.result }}
           PPO_RESULT: ${{ needs.ppo-runtime.result }}
           GUIDE_RESULT: ${{ needs.guide.result }}
+          ARTIFACT_PUBLICATION_RESULT: ${{ needs.artifact-publication.result }}
         run: |
           set -euo pipefail
           test "$CORE_RESULT" = "success"
-          if [ -n "$PPO_RESULT" ] && [ "$PPO_RESULT" != "skipped" ]; then
-            test "$PPO_RESULT" = "success"
-          fi
-          if [ -n "$GUIDE_RESULT" ] && [ "$GUIDE_RESULT" != "skipped" ]; then
-            test "$GUIDE_RESULT" = "success"
-          fi
+          test "$PPO_RESULT" = "success"
+          test "$GUIDE_RESULT" = "success"
+          test "$ARTIFACT_PUBLICATION_RESULT" = "success"
 
       - name: Checkout exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -352,7 +435,9 @@ jobs:
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**READY / APPROVED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
-            echo "Independent research review audit passed."
+            echo "Different-model receipt verified for software-only review." >> "$GITHUB_STEP_SUMMARY"
+            echo "Economic execution authorization remains separate." >> "$GITHUB_STEP_SUMMARY"
+            echo "Independent model source review audit passed."
             exit 0
           elif [ "$OUTCOME" = "BLOCKED" ]; then
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
@@ -372,11 +457,12 @@ jobs:
           fi
 
   ppo-4h-independent-review:
-    name: Independent Research Review
+    name: Independent Research Review${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
     needs: [core, ppo-runtime, guide]
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
       github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'
     runs-on: ubuntu-latest
     steps:

@@ -7,7 +7,7 @@ import json
 import math
 import sqlite3
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -79,6 +79,81 @@ def screen_reasons(measured: Measurements) -> list[str]:
     return [name for name, failed in checks.items() if failed]
 
 
+class _ObservationAccumulator:
+    def __init__(self, *, start_at: datetime, close_at: datetime) -> None:
+        self.start_at = start_at
+        self.close_at = close_at
+        self.points: list[tuple[datetime, float]] = []
+        self.counts = [0, 0, 0]
+        self.filled: set[int] = set()
+        self.post_close_funding = False
+
+    def add(self, record: dict[str, Any]) -> None:
+        event = record["event"]
+        if event["kind"] == "gap":
+            return
+        payload = event["payload"]
+        result = payload["result"]
+        at = timestamp(payload["request"]["at"])
+        self.points.append((at, result["account"]["equity"]))
+        self.filled.update(
+            row["symbol_index"] for row in result["fills"] if row["filled_lots"]
+        )
+        for payment in result["funding"]:
+            settled = timestamp(payment["funding_at"])
+            if not payment["amount"]:
+                continue
+            if settled >= self.close_at:
+                self.post_close_funding = True
+            if self.start_at <= settled < self.close_at:
+                index = int((settled - self.start_at).total_seconds() // (30 * 86400))
+                self.counts[index] += 1
+
+    def finish(
+        self, status: dict[str, Any], unpaid_funding: list[dict[str, str]]
+    ) -> Measurements:
+        account = status["account"]
+        equities = [10000.0]
+        for days in (30, 60):
+            boundary = self.start_at + timedelta(days=days)
+            eligible = [(at, equity) for at, equity in self.points if at <= boundary]
+            if eligible and (boundary - eligible[-1][0]).total_seconds() <= 180:
+                equities.append(eligible[-1][1])
+            else:
+                equities.append(0.0)
+        equities.append(account["equity"])
+        returns = tuple(
+            right / left - 1 if left > 0 else -1.0
+            for left, right in zip(equities, equities[1:])
+        )
+        times = [at for at, _ in self.points]
+        gaps = [
+            (right - left).total_seconds()
+            for left, right in zip([self.start_at, *times], times)
+        ]
+        return Measurements(
+            net_profit=account["equity"] - 10000,
+            recorded_fees=account["total_cost"],
+            block_returns=returns,
+            block_funding_counts=tuple(self.counts),
+            maximum_drawdown=account["maximum_drawdown"],
+            first_delay_seconds=(times[0] - self.start_at).total_seconds()
+            if times
+            else -1,
+            final_grace_seconds=(times[-1] - self.close_at).total_seconds()
+            if times
+            else -1,
+            maximum_gap_seconds=max(gaps, default=-1),
+            terminal_flat=status["terminal_flat"],
+            pending=status["pending"],
+            stop_reason=status["stop_reason"],
+            quality_failures=tuple(status["quality_failures"]),
+            unpaid_funding=tuple(unpaid_funding),
+            filled_symbols=tuple(sorted(self.filled)),
+            post_close_funding=self.post_close_funding,
+        )
+
+
 def measure_observations(
     records: list[dict[str, Any]],
     status: dict[str, Any],
@@ -87,76 +162,19 @@ def measure_observations(
     close_at: datetime,
     unpaid_funding: list[dict[str, str]],
 ) -> Measurements:
-    points: list[tuple[datetime, float]] = []
-    counts = [0, 0, 0]
-    filled: set[int] = set()
-    post_close_funding = False
+    accumulator = _ObservationAccumulator(start_at=start_at, close_at=close_at)
     for record in records:
-        event = record["event"]
-        if event["kind"] == "gap":
-            continue
-        payload = event["payload"]
-        result = payload["result"]
-        at = timestamp(payload["request"]["at"])
-        points.append((at, result["account"]["equity"]))
-        filled.update(
-            row["symbol_index"] for row in result["fills"] if row["filled_lots"]
-        )
-        for payment in result["funding"]:
-            settled = timestamp(payment["funding_at"])
-            if not payment["amount"]:
-                continue
-            if settled >= close_at:
-                post_close_funding = True
-            if start_at <= settled < close_at:
-                index = int((settled - start_at).total_seconds() // (30 * 86400))
-                counts[index] += 1
-    account = status["account"]
-    equities = [10000.0]
-    for days in (30, 60):
-        boundary = start_at + timedelta(days=days)
-        eligible = [(at, equity) for at, equity in points if at <= boundary]
-        if eligible and (boundary - eligible[-1][0]).total_seconds() <= 180:
-            equities.append(eligible[-1][1])
-        else:
-            equities.append(0.0)
-    equities.append(account["equity"])
-    returns = tuple(
-        right / left - 1 if left > 0 else -1.0
-        for left, right in zip(equities, equities[1:])
-    )
-    times = [at for at, _ in points]
-    gaps = [
-        (right - left).total_seconds() for left, right in zip([start_at, *times], times)
-    ]
-    return Measurements(
-        net_profit=account["equity"] - 10000,
-        recorded_fees=account["total_cost"],
-        block_returns=returns,
-        block_funding_counts=tuple(counts),
-        maximum_drawdown=account["maximum_drawdown"],
-        first_delay_seconds=(times[0] - start_at).total_seconds() if times else -1,
-        final_grace_seconds=(times[-1] - close_at).total_seconds() if times else -1,
-        maximum_gap_seconds=max(gaps, default=-1),
-        terminal_flat=status["terminal_flat"],
-        pending=status["pending"],
-        stop_reason=status["stop_reason"],
-        quality_failures=tuple(status["quality_failures"]),
-        unpaid_funding=tuple(unpaid_funding),
-        filled_symbols=tuple(sorted(filled)),
-        post_close_funding=post_close_funding,
-    )
+        accumulator.add(record)
+    return accumulator.finish(status, unpaid_funding)
 
 
-def collection_evidence_reasons(
-    root: Path,
-    digest: str,
-    records: list[dict[str, Any]],
-    *,
-    start: datetime,
-    end: datetime,
-) -> list[str]:
-    """Audit control acknowledgements and all source directories, including unused ones."""
+def _collection_context(
+    root: Path, digest: str, *, start: datetime, end: datetime
+) -> tuple[
+    list[str],
+    list[tuple[int, str, int]] | None,
+    list[datetime] | None,
+]:
     reasons = []
     if (root / "collection-failure.json").exists() or (
         root / "collection-failure.json"
@@ -164,7 +182,7 @@ def collection_evidence_reasons(
         reasons.append("collection_failure")
     path = root / "collection-control.sqlite"
     if not path.is_file() or path.is_symlink():
-        return [*reasons, "missing_collection_control"]
+        return [*reasons, "missing_collection_control"], None, None
     with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as connection:
         if connection.execute("SELECT digest FROM identity").fetchall() != [(digest,)]:
             raise ValueError("collection control protocol mismatch")
@@ -180,20 +198,15 @@ def collection_evidence_reasons(
         left >= right for left, right in zip(starts, starts[1:])
     ):
         reasons.append("invalid_cycle_times")
-    grouped: list[list[str]] = [[] for _ in cycles]
-    references: set[str] = set()
-    for record in records:
-        event = record["event"]
-        request = event["payload"]["request"]
-        at = timestamp(request["at"])
-        index = bisect_right(starts, at) - 1
-        if index < 0 or not start < at < end:
-            reasons.append("untracked_account_command")
-        else:
-            grouped[index].append(event["kind"])
-        references.update(
-            request[key]["path"] for key in ("market", "rules") if key in request
-        )
+    return reasons, cycles, starts
+
+
+def _finish_collection_evidence(
+    root: Path,
+    reasons: list[str],
+    grouped: list[list[str]],
+    references: set[str],
+) -> list[str]:
     if any(kinds not in (["decision"], ["decision", "execution"]) for kinds in grouped):
         reasons.append("cycle_command_mismatch")
     source_root = root / "sources"
@@ -214,6 +227,58 @@ def collection_evidence_reasons(
     if sources != references:
         reasons.append("unconsumed_or_missing_sources")
     return list(dict.fromkeys(reasons))
+
+
+def collection_evidence_reasons(
+    root: Path,
+    digest: str,
+    records: list[dict[str, Any]],
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[str]:
+    """Audit control acknowledgements and all source directories, including unused ones."""
+    return _collection_evidence_reasons_from_compact_events(
+        root,
+        digest,
+        _iter_compact_audit_events(records),
+        start=start,
+        end=end,
+    )
+
+
+def _iter_compact_audit_events(
+    records: Iterable[dict[str, Any]],
+) -> Iterable[tuple[str, dict[str, Any]]]:
+    for record in records:
+        event = record["event"]
+        yield event["kind"], event["payload"]["request"]
+
+
+def _collection_evidence_reasons_from_compact_events(
+    root: Path,
+    digest: str,
+    events: Iterable[tuple[str, dict[str, Any]]],
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[str]:
+    reasons, cycles, starts = _collection_context(root, digest, start=start, end=end)
+    if cycles is None or starts is None:
+        return reasons
+    grouped: list[list[str]] = [[] for _ in cycles]
+    references: set[str] = set()
+    for kind, request in events:
+        at = timestamp(request["at"])
+        index = bisect_right(starts, at) - 1
+        if index < 0 or not start < at < end:
+            reasons.append("untracked_account_command")
+        else:
+            grouped[index].append(kind)
+        references.update(
+            request[key]["path"] for key in ("market", "rules") if key in request
+        )
+    return _finish_collection_evidence(root, reasons, grouped, references)
 
 
 def evaluate_paper_study(
@@ -280,16 +345,19 @@ def evaluate_paper_study(
         state = engine.status()
         if state["tip"] != expected_tip:
             raise ValueError("paper final event tip differs from external anchor")
-        records = engine.journal.events()
-        measured = measure_observations(
-            records,
-            state,
-            start_at=start,
-            close_at=close,
-            unpaid_funding=engine.unsettled_funding(),
-        )
-        reasons = collection_evidence_reasons(
-            destination, expected_protocol_sha256, records, start=start, end=end
+        observations = _ObservationAccumulator(start_at=start, close_at=close)
+        audit_events: list[tuple[str, dict[str, Any]]] = []
+        for record in engine.journal.iter_events():
+            observations.add(record)
+            event = record["event"]
+            audit_events.append((event["kind"], event["payload"]["request"]))
+        measured = observations.finish(state, engine.unsettled_funding())
+        reasons = _collection_evidence_reasons_from_compact_events(
+            destination,
+            expected_protocol_sha256,
+            audit_events,
+            start=start,
+            end=end,
         )
         reasons.extend(screen_reasons(measured))
         if (

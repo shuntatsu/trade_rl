@@ -93,6 +93,7 @@ def _process_identity_from_popen(
             ctypes.POINTER(_FileTime),
             ctypes.POINTER(_FileTime),
             ctypes.POINTER(_FileTime),
+            ctypes.POINTER(_FileTime),
         )
         get_process_times.restype = wintypes.BOOL
         creation, exit_time, kernel_time, user_time = (_FileTime() for _ in range(4))

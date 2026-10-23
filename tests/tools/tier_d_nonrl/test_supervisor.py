@@ -79,7 +79,8 @@ def test_first_snapshot_pid_reuse_never_owns_replacement_or_its_orphan():
     assert tree.root_identity is None
     assert tree.owned == {}
     assert first.owned_members == second.owned_members == ()
-    assert first.ambiguous_members == second.ambiguous_members == (surviving_child,)
+    assert first.ambiguous_members == (replacement, surviving_child)
+    assert second.ambiguous_members == (surviving_child,)
 
 
 def test_process_tree_uses_only_handle_identity_and_bounds_cim_precision(monkeypatch):
@@ -126,6 +127,27 @@ def test_process_tree_rejects_birth_time_outside_cim_precision_tolerance():
     assert tree.root_identity is None
     assert tree.owned == {}
     assert sample.owned_members == ()
+
+
+@pytest.mark.parametrize(
+    "expected_root_identity",
+    (None, (10, 100)),
+    ids=("handle-identity-unavailable", "snapshot-is-a-reused-pid"),
+)
+def test_unverified_visible_root_counts_as_rss_but_not_kill_owned(
+    expected_root_identity,
+):
+    root = node(10, 1, 200, 800_000_000)
+    tree = api().ProcessTree(10, expected_root_identity=expected_root_identity)
+
+    sample = tree.observe((root,))
+
+    assert sample.members == (root,)
+    assert sample.rss_bytes == 800_000_000
+    assert sample.root_rss_bytes == 800_000_000
+    assert sample.owned_members == ()
+    assert sample.ambiguous_members == (root,)
+    assert tree.owned == {}
 
 
 @pytest.mark.parametrize(

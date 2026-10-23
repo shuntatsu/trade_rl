@@ -168,6 +168,11 @@ class ProcessTree:
                 self.root_identity = root.identity
                 self.root_identity_error = None
                 self.owned[root.identity] = 0
+            if self.root_identity is None:
+                # A visible PID candidate still contributes to the RSS budget,
+                # but a missing or mismatched launch identity gives it no kill
+                # authority.
+                self.rss_only.setdefault(root.identity, 0)
         selected_owned = {
             row.pid: (row, self.owned[row.identity])
             for row in snapshot

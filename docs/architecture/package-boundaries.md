@@ -1952,7 +1952,9 @@ the observed CIM row identity after that PID-and-time comparison, not a claim
 that CIM supplied an exact 100-nanosecond timestamp. If the handle query is
 unavailable or the row does not match, the root remains unverified; a PID-only
 `ProcessTree` cannot infer root ownership, and its descendants remain ambiguous
-RSS evidence rather than kill targets.
+RSS evidence rather than kill targets. A visible root row with that missing or
+mismatched launch identity also contributes RSS as ambiguous evidence, but is
+never kill-owned.
 
 On Linux, explicit synthetic-mode supervision samples only the worker root
 process through `/proc/<pid>/status`; descendant RSS is not included. This

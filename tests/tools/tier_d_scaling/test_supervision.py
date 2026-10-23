@@ -29,6 +29,8 @@ def install(
     rss_excess=False,
     late_orphan=False,
     unobserved_root=False,
+    reused_root=False,
+    root_rss_excess=False,
     provider_failure=False,
     cleanup_failure=False,
 ):
@@ -71,7 +73,12 @@ def install(
             raise OSError("manufactured persistent CIM failure")
         rows = [ProcessUsage(99, 1, 99, 999_000_000)]
         if process.returncode is None and not unobserved_root:
-            rows.append(ProcessUsage(10, 1, 100, 4_000_000))
+            root_rss = (
+                module.LIMITS["rss_bytes"] + 1
+                if root_rss_excess and state.samples == 1
+                else 4_000_000
+            )
+            rows.append(ProcessUsage(10, 1, 200 if reused_root else 100, root_rss))
         if (
             state.leaf_alive
             and not unobserved_root
@@ -194,6 +201,26 @@ def test_supervisor_fails_when_empty_samples_never_observe_worker_root(
     assert value["owned_members_remaining"] == 0
     assert value["ambiguous_rss_members_remaining"] == 0
     assert kills == []
+
+
+def test_reused_root_rss_still_trips_the_supervisor_budget(tmp_path, monkeypatch):
+    module, root = api(), tmp_path / "reused-root-rss"
+    _, state, kills, _ = install(
+        module,
+        monkeypatch,
+        root,
+        reused_root=True,
+        root_rss_excess=True,
+    )
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 1
+
+    value = report(root)
+    assert value["status"] == "FAILED"
+    assert "rss_bytes" in value["failure"]
+    assert value["peak_rss_bytes"] > module.LIMITS["rss_bytes"]
+    assert kills == []
+    assert state.reaped and value["worker_reaped"]
 
 
 def test_sampled_aggregate_rss_kills_owned_leaf_and_never_unrelated_process(

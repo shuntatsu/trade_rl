@@ -325,3 +325,7 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
         "not a claim that CIM supplied an exact 100-nanosecond timestamp"
         in normalized_architecture
     )
+    assert (
+        "A visible root row with that missing or mismatched launch identity also contributes RSS as ambiguous evidence, but is never kill-owned."
+        in normalized_architecture
+    )

@@ -633,15 +633,20 @@ log records retain their meanings.
 `evaluation/rl_allocation/_simple_stream_digest.py`,
 `evaluation/rl_allocation/_source_envelope_digest.py`, and
 `evaluation/rl_allocation/_declared_source_digest.py` are private value-guarded
-memos used only by the native global execution collector. They read native
-forecast/cost records, declared source arrays, and current array pins/bytes
-after the existing non-cost envelope inputs, with single-pass canonical fallback
-for unsupported mappings, subclasses or changed serializer contracts. None of
-them owns a public facade, persisted identity, payload cache, fitting,
-execution, Dataset loading or research authorization. The existing
-source-envelope/runtime helpers retain their canonical public path; the
-collector's private path changes only repeated stream, source-envelope, and
-declared-source digest computation.
+memos used by the native global execution collector and the internal terminal
+execution path. A top-level terminal run creates a fresh simple-stream memo and
+threads it through its declarations, carrier checks, collector, and result
+construction; every use still calls the memo's live value and implementation
+guards. Standalone public declaration/runtime helpers retain their direct
+canonical path by default, and the private plumbing does not expose a
+caller-managed cross-run cache contract. The memos read native forecast/cost
+records, declared source arrays, and current array pins/bytes after the existing
+non-cost envelope inputs, with single-pass canonical fallback for unsupported
+mappings, subclasses or changed serializer contracts. None of them owns a
+public facade, persisted identity, payload cache, fitting, execution, Dataset
+loading or research authorization. The private path changes only repeated
+simple-stream digest computation and leaves source-envelope and declared-source
+memo ownership with the collector.
 
 Same-source regression tests compare full canonical plans and native receipts
 through complete terminal closing. The reference leg replaces only the private

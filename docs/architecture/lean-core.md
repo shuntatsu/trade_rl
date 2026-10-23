@@ -810,7 +810,10 @@ their virtual digest-property behavior. This is serialization work reduction,
 not a change to forecast units, clocks, model values or economic accounting.
 
 The native global execution collector may retain private run-local simple
-stream, source-envelope, and declared-source digest memos. Each original
+stream, source-envelope, and declared-source digest memos. One top-level native
+terminal execution may pass its own simple-stream memo through terminal-plan
+revalidation, nested global declaration, carrier checks, collector checks, and
+result construction. Each original
 consistency boundary still evaluates non-cost source/array inputs in their
 canonical order and compares current packet values, cost-estimate records,
 declared global source arrays, and all nested native fields and array contents
@@ -819,8 +822,11 @@ remain observable. None of the memos retains mutable payloads or refreshes the
 frozen plan or its initial authority after a mismatch. Unknown carriers,
 subclasses, unsupported mappings or changed serializer contracts use the
 current public digest calculation without re-executing earlier callbacks.
-Public declaration/runtime helpers continue to calculate canonical identities
-directly; cost, source, clock and policy checks keep their existing timing.
+Standalone public declaration/runtime helpers continue to calculate canonical
+identities directly by default; the terminal runner creates a fresh memo for
+each invocation and retains it only for that invocation. The private plumbing
+does not define a caller-managed cross-run cache contract. Cost, source, clock
+and policy checks keep their existing timing.
 This is a single-process optimization, not protection against arbitrary
 hostile Python code or concurrent unsynchronized mutation.
 

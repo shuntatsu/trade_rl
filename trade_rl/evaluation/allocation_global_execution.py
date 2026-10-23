@@ -46,6 +46,9 @@ from trade_rl.evaluation.rl_allocation._native_progress import (
     AllocationAdvanceObserver,
     validate_advance_observer,
 )
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
 )
@@ -57,6 +60,7 @@ from trade_rl.evaluation.rl_allocation.fee_stress_admission import (
 )
 from trade_rl.evaluation.rl_allocation.global_execution_context import (
     GlobalAllocationExecutionCollector,
+    _execution_runtime,
     allocation_array_pin,
     allocation_execution_runtime,
     global_declared_source_digest,
@@ -619,7 +623,13 @@ def declare_global_allocation_execution(
     base_env: AllocationTradingEnv | None = None,
     contract: AllocationComparisonContract | None = None,
     fee_factor: float | None = None,
+    _stream_digest_memo: SimpleStreamDigestMemo | None = None,
 ) -> GlobalAllocationExecutionPlan:
+    if (
+        _stream_digest_memo is not None
+        and type(_stream_digest_memo) is not SimpleStreamDigestMemo
+    ):
+        raise ValueError("global declaration requires the native stream digest memo")
     if type(kind) is not str or kind not in _KINDS:
         raise ValueError("global execution kind is not declared")
     control = kind in {"nonrl", "cash"}
@@ -647,10 +657,21 @@ def declare_global_allocation_execution(
             "global reset seed requires a native non-negative integer or None"
         )
     mode = "residual" if kind in {"nonrl", "residual_ppo"} else "direct"
-    _carriers((env,), required_action_mode=mode)
-    runtime = allocation_execution_runtime(env)
+    _carriers(
+        (env,),
+        required_action_mode=mode,
+        _stream_digest_memo=_stream_digest_memo,
+    )
+    runtime = (
+        allocation_execution_runtime(env)
+        if _stream_digest_memo is None
+        else _execution_runtime(env, _stream_digest_memo)
+    )
     original = env if base_env is None else base_env
-    allocation_execution_runtime(original)
+    if _stream_digest_memo is None:
+        allocation_execution_runtime(original)
+    else:
+        _execution_runtime(original, _stream_digest_memo)
     candidate = allocation_candidate_recipe_digest(original.recipe)
     control_digest = (
         (
@@ -708,7 +729,11 @@ def declare_global_allocation_execution(
         "fold_plan": _fold_payload(folds),
         "objective_digest": allocation_business_objective_digest(env.bound.objective),
         "clock_digest": allocation_economic_clock_digest(env.bound.clock),
-        "forecast_context_digest": env.stream.digest,
+        "forecast_context_digest": (
+            env.stream.digest
+            if _stream_digest_memo is None
+            else _stream_digest_memo.get(env.stream)
+        ),
         "cost_beliefs_digest": content_digest(
             [env._estimates[k].payload() for k in sorted(env._estimates)]
         ),
@@ -1563,6 +1588,7 @@ def run_declared_global_allocation_execution(
     contract: AllocationComparisonContract | None = None,
     forecast_controls: GlobalAllocationForecastControls | None = None,
     on_advance: AllocationAdvanceObserver | None = None,
+    _stream_digest_memo: SimpleStreamDigestMemo | None = None,
 ) -> ObservedGlobalAllocationExecution:
     """Run the frozen actor plan, optionally observing validated native advances.
 
@@ -1572,6 +1598,11 @@ def run_declared_global_allocation_execution(
     authoritative. Omitting the observer preserves the ordinary execution path.
     """
     validate_advance_observer(on_advance)
+    if (
+        _stream_digest_memo is not None
+        and type(_stream_digest_memo) is not SimpleStreamDigestMemo
+    ):
+        raise ValueError("global run requires the native stream digest memo")
     if type(plan) is not GlobalAllocationExecutionPlan:
         raise ValueError("global execution requires its exact closed plan")
     plan.__post_init__()
@@ -1596,7 +1627,11 @@ def run_declared_global_allocation_execution(
     cell, common = plan.payload["cell"], plan.payload["common"]
     provenance_before = _provenance(common)
     collector = GlobalAllocationExecutionCollector(
-        env, common, cell, on_advance=on_advance
+        env,
+        common,
+        cell,
+        on_advance=on_advance,
+        _stream_digest_memo=_stream_digest_memo,
     )
     validate_global_collector(env, collector)
     declared = declare_global_allocation_execution(
@@ -1612,6 +1647,7 @@ def run_declared_global_allocation_execution(
         base_env=base_env,
         contract=contract,
         fee_factor=None if cell["fee"] is None else cell["fee"]["factor"],
+        _stream_digest_memo=_stream_digest_memo,
     )
     if declared.payload != plan.payload:
         raise ValueError("global current declaration differs from frozen plan")
@@ -1623,9 +1659,19 @@ def run_declared_global_allocation_execution(
     ) | None = None
     try:
         if cell["kind"] == "nonrl":
-            result = run_global_nonrl_allocation(folds, env, collector=collector)
+            result = run_global_nonrl_allocation(
+                folds,
+                env,
+                collector=collector,
+                _stream_digest_memo=_stream_digest_memo,
+            )
         elif cell["kind"] == "cash":
-            result = run_global_allocation_cash_control(folds, env, collector=collector)
+            result = run_global_allocation_cash_control(
+                folds,
+                env,
+                collector=collector,
+                _stream_digest_memo=_stream_digest_memo,
+            )
         elif cell["fee"] is not None:
             if base_env is None or contract is None:
                 raise ValueError("global fee execution requires original base/contract")

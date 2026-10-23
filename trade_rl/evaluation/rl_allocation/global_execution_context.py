@@ -226,8 +226,14 @@ class GlobalAllocationExecutionCollector:
         cell: dict[str, Any],
         *,
         on_advance: AllocationAdvanceObserver | None = None,
+        _stream_digest_memo: SimpleStreamDigestMemo | None = None,
     ):
         validate_advance_observer(on_advance)
+        if (
+            _stream_digest_memo is not None
+            and type(_stream_digest_memo) is not SimpleStreamDigestMemo
+        ):
+            raise ValueError("global collector requires the native stream digest memo")
         self._on_advance = on_advance
         self.env, self.dataset = env, env.dataset
         self.common, self.cell = json.loads(canonical_json_bytes([common, cell]))
@@ -243,7 +249,11 @@ class GlobalAllocationExecutionCollector:
         self.segments: list[dict[str, Any]] = []
         self.error: Exception | None = None
         self.economic_stop_consistent = False
-        self._stream_digest = SimpleStreamDigestMemo()
+        self._stream_digest = (
+            SimpleStreamDigestMemo()
+            if _stream_digest_memo is None
+            else _stream_digest_memo
+        )
         self._source_envelope_digest = SourceEnvelopeDigestMemo()
         self._declared_source_digest = DeclaredSourceDigestMemo()
 

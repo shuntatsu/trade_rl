@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+import pytest
+
 from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
@@ -26,3 +29,31 @@ def test_elapsed_years_controls_annualization_for_session_returns() -> None:
         abs_tol=1e-12,
     )
     assert metrics.periods_per_year == 365
+
+
+@pytest.mark.parametrize(
+    "periods_per_year",
+    [True, 252.0, 1.5, math.nan, math.inf],
+)
+def test_return_series_requires_integer_annualization_clock(
+    periods_per_year: object,
+) -> None:
+    with pytest.raises(ValueError, match="periods_per_year must be a positive integer"):
+        ReturnSeries(
+            values=(0.01, -0.01),
+            kind=ReturnKind.BASE_BAR,
+            periods_per_year=periods_per_year,
+        )
+
+
+def test_numpy_integer_periods_preserve_default_annualization() -> None:
+    series = ReturnSeries(
+        values=(0.01, -0.01, 0.02, -0.005),
+        kind=ReturnKind.BASE_BAR,
+        periods_per_year=np.int64(252),
+    )
+
+    metrics = evaluate_performance(series)
+
+    assert series.annualization_periods_per_year == 252.0
+    assert metrics.periods_per_year == 252

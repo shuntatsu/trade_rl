@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -23,16 +24,34 @@ TEST_RUNTIME = {
 
 class FeaturePolicy:
     num_timesteps = 8192
+    observation_space = SimpleNamespace(shape=(6,))
+    action_space = SimpleNamespace(n=3, start=0)
+
+    def __init__(self, call_order: list[str] | None = None) -> None:
+        self.save_calls = 0
+        self.call_order = call_order
+        self.observations: list[np.ndarray] = []
 
     def predict(
         self, observation: np.ndarray, *, deterministic: bool = True
     ) -> tuple[object, object]:
         assert deterministic is True
+        self.observations.append(observation.copy())
+        if self.call_order is not None:
+            self.call_order.append("predict")
         return np.asarray(2 if observation[0] > 0.5 else 1), None
+
+    def save(self, path: str) -> None:
+        self.save_calls += 1
+        if self.call_order is not None:
+            self.call_order.append("save")
+        Path(path).write_bytes(b"synthetic-fitted-policy")
 
 
 class FlatPolicy:
     num_timesteps = 8192
+    observation_space = SimpleNamespace(shape=(6,))
+    action_space = SimpleNamespace(n=3, start=0)
 
     def predict(
         self, observation: np.ndarray, *, deterministic: bool = True
@@ -40,6 +59,20 @@ class FlatPolicy:
         del observation
         assert deterministic is True
         return np.asarray(1), None
+
+    def save(self, path: str) -> None:
+        Path(path).write_bytes(b"synthetic-flat-policy")
+
+
+def _fitted_strategy(policy: object) -> SimpleNamespace:
+    return SimpleNamespace(
+        policy=policy,
+        feature_indices=(0,),
+        feature_names=("synthetic_regime_label",),
+        feature_normalizer=None,
+        observation_schema=diagnostic.PPO_OBSERVATION_SCHEMA_V3,
+        minimum_hold_bars=0,
+    )
 
 
 def _read_canonical(path: Path) -> dict[str, Any]:
@@ -137,6 +170,37 @@ def test_prefit_oracle_rejects_price_rows_not_available_at_row_time() -> None:
     assert not diagnostic._fixture_inputs_are_valid(delayed)
 
 
+def test_evidence_snapshots_detach_mutable_sources_and_reject_unknown_values() -> None:
+    dataset = diagnostic.build_fixture_dataset(heldout=True)
+    env = diagnostic._make_environment(
+        dataset,
+        symbol_index=1,
+        execution_observations=[],
+    )
+    env.reset(seed=diagnostic.FIXED_SEED)
+    book_snapshot = diagnostic._book_state_snapshot(env.book, index=env.index)
+    book_bytes = diagnostic.canonical_json_bytes(book_snapshot)
+    env.book.quantities[1] = 0.25
+    env.book.returns_history.append(0.01)
+    assert diagnostic.canonical_json_bytes(book_snapshot) == book_bytes
+
+    source_event = {"events": [{"quantity": 1.0}]}
+    event_snapshot = diagnostic._canonical_object_snapshot(
+        source_event,
+        field="execution",
+    )
+    event_bytes = diagnostic.canonical_json_bytes(event_snapshot)
+    source_event["events"][0]["quantity"] = 2.0
+    assert diagnostic.canonical_json_bytes(event_snapshot) == event_bytes
+    assert event_snapshot["events"][0]["quantity"] == 1.0
+
+    with pytest.raises(TypeError, match="unsupported canonical JSON value"):
+        diagnostic._canonical_object_snapshot(
+            {"unsupported": object()},
+            field="execution",
+        )
+
+
 def test_source_manifest_covers_tracked_execution_and_risk_python_sources() -> None:
     manifest = diagnostic._source_manifest()
 
@@ -232,14 +296,19 @@ def test_run_uses_one_frozen_fit_and_public_v3_observation_for_heldout(
     output = tmp_path / "conditional-diagnostic"
     diagnostic.prepare(output)
     fit_calls: list[tuple[object, dict[str, object]]] = []
+    fitted_policies: list[FeaturePolicy] = []
+    call_order: list[str] = []
 
     def fake_fit(dataset: object, **kwargs: object) -> SimpleNamespace:
         assert (output / "attempt-start.json").is_file()
         assert not (output / "result.json").exists()
         assert not (output / "failure.json").exists()
         assert _read_canonical(output / "attempt-start.json")["fit_call_budget"] == 1
+        call_order.append("fit")
         fit_calls.append((dataset, kwargs))
-        return SimpleNamespace(policy=FeaturePolicy())
+        policy = FeaturePolicy(call_order)
+        fitted_policies.append(policy)
+        return _fitted_strategy(policy)
 
     monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
     result = diagnostic.run_diagnostic(output)
@@ -270,13 +339,91 @@ def test_run_uses_one_frozen_fit_and_public_v3_observation_for_heldout(
     assert result["source_identity_checks"] == {
         "before_fit": True,
         "after_fit": True,
+        "after_bundle": True,
         "after_heldout": True,
     }
     assert result["failed_clauses"] == []
     assert result["scope"] == "synthetic_software_diagnostic_only"
+    assert result["schema"] == "ppo_conditional_diagnostic_result_v2"
+    assert result["evidence_contract_version"] == 2
     assert result["heldout_metrics"]["feature_one_first_intent"] == "LONG"
     assert result["heldout_metrics"]["feature_zero_first_intent"] == "FLAT"
     assert _read_canonical(output / "result.json")["failed_clauses"] == []
+    evidence_manifest = _read_canonical(output / "evidence-manifest.json")
+    trace = _read_canonical(output / "heldout-trace.json")
+    bundle_manifest = _read_canonical(output / "inference-bundle" / "manifest.json")
+    result_readback = _read_canonical(output / "result.json")
+    assert result_readback["evidence_manifest_digest"] == diagnostic.content_digest(
+        evidence_manifest
+    )
+    assert (
+        result_readback["evidence_manifest_sha256"]
+        == hashlib.sha256((output / "evidence-manifest.json").read_bytes()).hexdigest()
+    )
+    assert evidence_manifest["policy_bundle"]["manifest_digest"] == (
+        diagnostic.content_digest(bundle_manifest)
+    )
+    policy_bytes = (output / "inference-bundle" / "policy.zip").read_bytes()
+    assert (
+        evidence_manifest["policy_bundle"]["policy_sha256"]
+        == hashlib.sha256(policy_bytes).hexdigest()
+    )
+    assert evidence_manifest["policy_bundle"]["policy_size_bytes"] == len(policy_bytes)
+    assert evidence_manifest["trace"]["digest"] == diagnostic.content_digest(trace)
+    trace_bytes = (output / "heldout-trace.json").read_bytes()
+    assert (
+        evidence_manifest["trace"]["sha256"] == hashlib.sha256(trace_bytes).hexdigest()
+    )
+    assert evidence_manifest["trace"]["size_bytes"] == len(trace_bytes)
+    assert result_readback["heldout_trace_digest"] == diagnostic.content_digest(trace)
+    assert fitted_policies[0].save_calls == 1
+    assert call_order[0:2] == ["fit", "save"]
+    assert call_order.index("save") < call_order.index("predict")
+    assert len(trace["episodes"]) == 2
+    assert {episode["role"] for episode in trace["episodes"]} == {
+        "feature_one",
+        "feature_zero",
+    }
+    observation_offset = 0
+    for episode in trace["episodes"]:
+        steps = episode["steps"]
+        assert steps
+        assert [step["decision_index"] for step in steps] == sorted(
+            step["decision_index"] for step in steps
+        )
+        assert steps[0]["pre_action_observation"]["dtype"] == np.dtype(np.float32).str
+        assert steps[0]["pre_action_observation"]["shape"] == [6]
+        for step in steps:
+            saved_observation = step["pre_action_observation"]
+            reconstructed = np.asarray(
+                saved_observation["values"],
+                dtype=np.dtype(saved_observation["dtype"]),
+            ).reshape(saved_observation["shape"])
+            np.testing.assert_array_equal(
+                reconstructed,
+                fitted_policies[0].observations[observation_offset],
+            )
+            observation_offset += 1
+        earlier_state = steps[0]["post_step_book"]
+        final_state = steps[-1]["post_step_book"]
+        assert earlier_state["index"] == steps[0]["resulting_index"]
+        assert final_state["index"] == steps[-1]["resulting_index"]
+        assert earlier_state["index"] < final_state["index"]
+        for step in steps:
+            terminal_intervals = int(
+                step["step_info"].get("terminal_settlement_intervals", 0)
+            )
+            calls = step["execution_calls"]
+            assert len(calls) == 1 + terminal_intervals
+            assert calls[0]["phase"] == "policy_step_execution"
+            assert all(call["phase"] == "terminal_settlement" for call in calls[1:])
+    assert any(
+        call["phase"] == "terminal_settlement"
+        for episode in trace["episodes"]
+        for step in episode["steps"]
+        for call in step["execution_calls"]
+    )
+    assert observation_offset == len(fitted_policies[0].observations)
 
     with pytest.raises(FileExistsError):
         diagnostic.run_diagnostic(output)
@@ -296,7 +443,7 @@ def test_learned_policy_failures_are_all_recorded_without_retraining(
         nonlocal fit_calls
         del args, kwargs
         fit_calls += 1
-        return SimpleNamespace(policy=FlatPolicy())
+        return _fitted_strategy(FlatPolicy())
 
     monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
     result = diagnostic.run_diagnostic(output)
@@ -440,7 +587,7 @@ def test_post_fit_source_drift_is_failure_not_a_completed_result(
         del args, kwargs
         fit_calls += 1
         fit_finished = True
-        return SimpleNamespace(policy=FeaturePolicy())
+        return _fitted_strategy(FeaturePolicy())
 
     monkeypatch.setattr(diagnostic, "_source_manifest", drifting_manifest)
     monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
@@ -453,6 +600,7 @@ def test_post_fit_source_drift_is_failure_not_a_completed_result(
     assert failure["source_identity_checks"] == {
         "before_fit": True,
         "after_fit": False,
+        "after_bundle": False,
         "after_heldout": False,
     }
     assert not (output / "result.json").exists()
@@ -476,16 +624,20 @@ def test_heldout_source_drift_is_failure_not_a_completed_result(
 
     def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
         del args, kwargs
-        return SimpleNamespace(policy=FeaturePolicy())
+        return _fitted_strategy(FeaturePolicy())
 
     def fake_heldout(
         policy: object,
         dataset: object,
-    ) -> tuple[dict[str, bool], dict[str, Any]]:
+    ) -> tuple[dict[str, bool], dict[str, Any], dict[str, Any]]:
         nonlocal evaluation_finished
         del policy, dataset
         evaluation_finished = True
-        return {"synthetic_clause": True}, {"synthetic_metric": 1.0}
+        return (
+            {"synthetic_clause": True},
+            {"synthetic_metric": 1.0},
+            {"episodes": []},
+        )
 
     monkeypatch.setattr(diagnostic, "_source_manifest", drifting_manifest)
     monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
@@ -498,8 +650,117 @@ def test_heldout_source_drift_is_failure_not_a_completed_result(
     assert failure["source_identity_checks"] == {
         "before_fit": True,
         "after_fit": True,
+        "after_bundle": True,
         "after_heldout": False,
     }
+    assert not (output / "result.json").exists()
+
+
+def test_bundle_save_failure_preserves_one_fit_failure_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fit_calls = 0
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal fit_calls
+        del args, kwargs
+        fit_calls += 1
+        return _fitted_strategy(FeaturePolicy())
+
+    def fail_save(*args: object, **kwargs: object) -> str:
+        del args, kwargs
+        raise OSError("injected bundle save failure")
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(diagnostic, "save_ppo_inference_bundle", fail_save)
+    result = diagnostic.run_diagnostic(output)
+
+    failure = _read_canonical(output / "failure.json")
+    assert fit_calls == 1
+    assert result["status"] == "execution_failed"
+    assert failure["execution_phase"] == "policy_bundle"
+    assert failure["fit_call_count"] == 1
+    assert failure["artifact_statuses"]["inference_bundle"] == "failed"
+    assert not (output / "result.json").exists()
+
+
+def test_trace_write_failure_keeps_verified_bundle_and_trace_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fit_calls = 0
+    original_write = diagnostic._write_exclusive_json
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal fit_calls
+        del args, kwargs
+        fit_calls += 1
+        return _fitted_strategy(FeaturePolicy())
+
+    def write_then_fail(path: Path, value: object) -> None:
+        original_write(path, value)
+        if path.name == "heldout-trace.json":
+            raise OSError("injected post-write trace failure")
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(diagnostic, "_write_exclusive_json", write_then_fail)
+    result = diagnostic.run_diagnostic(output)
+
+    failure = _read_canonical(output / "failure.json")
+    trace_bytes = (output / "heldout-trace.json").read_bytes()
+    assert fit_calls == 1
+    assert result["status"] == "execution_failed"
+    assert failure["execution_phase"] == "heldout_trace"
+    assert failure["fit_call_count"] == 1
+    assert failure["artifact_statuses"]["inference_bundle"] == "verified"
+    assert failure["artifact_statuses"]["heldout_trace"] == "failed"
+    assert failure["artifact_files"]["heldout-trace.json"]["sha256"] == (
+        hashlib.sha256(trace_bytes).hexdigest()
+    )
+    assert not (output / "result.json").exists()
+
+
+def test_late_source_drift_keeps_evidence_but_never_publishes_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_runtime(monkeypatch)
+    output = tmp_path / "conditional-diagnostic"
+    diagnostic.prepare(output)
+    fit_calls = 0
+    original_assert_source = diagnostic._assert_source_identity
+
+    def fake_fit(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal fit_calls
+        del args, kwargs
+        fit_calls += 1
+        return _fitted_strategy(FeaturePolicy())
+
+    def drift_after_heldout(protocol: dict[str, Any], *, stage: str) -> None:
+        if stage == "after_heldout":
+            raise RuntimeError("injected late source drift")
+        original_assert_source(protocol, stage=stage)
+
+    monkeypatch.setattr(diagnostic, "fit_ppo_strategy", fake_fit)
+    monkeypatch.setattr(diagnostic, "_assert_source_identity", drift_after_heldout)
+    result = diagnostic.run_diagnostic(output)
+
+    failure = _read_canonical(output / "failure.json")
+    assert fit_calls == 1
+    assert result["status"] == "execution_failed"
+    assert failure["execution_phase"] == "after_heldout"
+    assert failure["fit_call_count"] == 1
+    assert failure["artifact_statuses"]["inference_bundle"] == "verified"
+    assert failure["artifact_statuses"]["heldout_trace"] == "verified"
+    assert failure["artifact_statuses"]["evidence_manifest"] == "not_started"
+    assert "evidence-manifest.json" not in failure["artifact_files"]
     assert not (output / "result.json").exists()
 
 

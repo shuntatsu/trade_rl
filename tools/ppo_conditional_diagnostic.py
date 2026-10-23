@@ -17,6 +17,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
+from enum import Enum
 from numbers import Integral
 from pathlib import Path
 from typing import Any, Protocol, TypedDict, cast
@@ -30,6 +31,7 @@ from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import (
     PPO_OBSERVATION_SCHEMA_V3,
@@ -38,12 +40,16 @@ from trade_rl.strategies.rl.ppo import (
     expected_ppo_realized_timesteps,
     fit_ppo_strategy,
 )
+from trade_rl.strategies.rl.ppo_artifact import save_ppo_inference_bundle
 
 PROTOCOL_SCHEMA = "ppo_conditional_diagnostic_protocol_v1"
 PREFIT_SCHEMA = "ppo_conditional_diagnostic_prefit_v1"
 ATTEMPT_SCHEMA = "ppo_conditional_diagnostic_attempt_start_v1"
-RESULT_SCHEMA = "ppo_conditional_diagnostic_result_v1"
-FAILURE_SCHEMA = "ppo_conditional_diagnostic_failure_v1"
+RESULT_SCHEMA = "ppo_conditional_diagnostic_result_v2"
+FAILURE_SCHEMA = "ppo_conditional_diagnostic_failure_v2"
+HELDOUT_TRACE_SCHEMA = "ppo_conditional_diagnostic_heldout_trace_v1"
+EVIDENCE_MANIFEST_SCHEMA = "ppo_conditional_diagnostic_evidence_manifest_v1"
+EVIDENCE_CONTRACT_VERSION = 2
 
 INITIAL_CAPITAL = 1_000.0
 GROSS_BUDGET = 0.5
@@ -88,6 +94,8 @@ class _Episode(TypedDict):
     reward_sum: float
     total_cost: float
     trace: list[_TraceEntry]
+    evidence_trace: list[dict[str, Any]]
+    final_book_state: dict[str, Any]
 
 
 def fixed_execution_cost() -> ExecutionCostConfig:
@@ -111,6 +119,76 @@ def fixed_execution_cost() -> ExecutionCostConfig:
         order_latency_bars=1,
         limit_offset_rate=0.0,
     )
+
+
+def _array_snapshot(value: np.ndarray) -> dict[str, object]:
+    array = np.asarray(value)
+    if array.dtype.kind not in "biuf":
+        raise TypeError("diagnostic evidence arrays must have numeric dtypes")
+    if array.dtype.hasobject:
+        raise TypeError("diagnostic evidence arrays may not contain Python objects")
+    return {
+        "dtype": array.dtype.str,
+        "shape": list(array.shape),
+        "values": array.tolist(),
+    }
+
+
+def _canonical_object_snapshot(value: object, *, field: str) -> dict[str, Any]:
+    raw = canonical_json_bytes(value)
+    decoded = json.loads(raw)
+    if not isinstance(decoded, dict):
+        raise TypeError(f"{field} evidence must serialize as a JSON object")
+    return decoded
+
+
+def _execution_observation_snapshot(
+    observation: StatefulExecutionObservation,
+) -> dict[str, Any]:
+    return _canonical_object_snapshot(asdict(observation), field="execution")
+
+
+def _book_state_snapshot(book: Any, *, index: int) -> dict[str, Any]:
+    reason = book.termination_reason
+    if reason is None:
+        termination_reason: str | None = None
+    elif isinstance(reason, Enum):
+        value = reason.value
+        if not isinstance(value, str):
+            raise TypeError("book termination reason must have a string value")
+        termination_reason = value
+    elif isinstance(reason, str):
+        termination_reason = reason
+    else:
+        raise TypeError("book termination reason is unsupported")
+
+    exact_quantities = book._exact_quantities
+    if exact_quantities is None:
+        raise RuntimeError("book exact quantity snapshot is unavailable")
+    return {
+        "index": index,
+        "cash": float(book.cash),
+        "quantities": _array_snapshot(book.quantities),
+        "exact_quantities": list(exact_quantities),
+        "mark_prices": _array_snapshot(book.mark_prices),
+        "contract_multipliers": _array_snapshot(book.contract_multipliers),
+        "peak_value": float(book.peak_value),
+        "portfolio_value": float(book.portfolio_value),
+        "max_drawdown": float(book.max_drawdown),
+        "turnover_total": float(book.turnover_total),
+        "total_cost": float(book.total_cost),
+        "funding_pnl": float(book.funding_pnl),
+        "fill_count": int(book.fill_count),
+        "rebalance_events": int(book.rebalance_events),
+        "returns_history": [float(value) for value in book.returns_history],
+        "borrow_cost": float(book.borrow_cost),
+        "margin_used": float(book.margin_used),
+        "maintenance_margin": float(book.maintenance_margin),
+        "maintenance_requirement": float(book.maintenance_requirement),
+        "margin_deficit": float(book.margin_deficit),
+        "insolvent": bool(book.insolvent),
+        "termination_reason": termination_reason,
+    }
 
 
 def build_fixture_dataset(*, heldout: bool = False) -> MarketDataset:
@@ -171,7 +249,22 @@ def build_fixture_dataset(*, heldout: bool = False) -> MarketDataset:
     )
 
 
-def _make_environment(dataset: MarketDataset, symbol_index: int) -> PPOTradingEnv:
+def _make_environment(
+    dataset: MarketDataset,
+    symbol_index: int,
+    *,
+    execution_observations: list[dict[str, Any]] | None = None,
+) -> PPOTradingEnv:
+    execution_observer: Callable[[StatefulExecutionObservation], None] | None = None
+    if execution_observations is not None:
+
+        def capture_execution_observation(
+            observation: StatefulExecutionObservation,
+        ) -> None:
+            execution_observations.append(_execution_observation_snapshot(observation))
+
+        execution_observer = capture_execution_observation
+
     return PPOTradingEnv(
         dataset,
         feature_indices=(0,),
@@ -185,6 +278,7 @@ def _make_environment(dataset: MarketDataset, symbol_index: int) -> PPOTradingEn
         settle_terminal_position=True,
         minimum_hold_bars=0,
         observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        execution_observer=execution_observer,
     )
 
 
@@ -204,12 +298,23 @@ def _action_value(action: object) -> int:
 def _run_episode(
     env: PPOTradingEnv,
     action_for_step: Callable[[PPOTradingEnv, np.ndarray], object],
+    *,
+    capture_evidence: bool = False,
+    execution_observations: list[dict[str, Any]] | None = None,
 ) -> _Episode:
+    if capture_evidence and execution_observations is None:
+        raise ValueError("execution observations are required for trace capture")
     observation, _ = env.reset(seed=FIXED_SEED)
     trace: list[_TraceEntry] = []
+    evidence_trace: list[dict[str, Any]] = []
+    execution_observation_cursor = 0
     terminated = False
     while not terminated:
         decision_index = env.index
+        pre_action_observation = (
+            _array_snapshot(observation) if capture_evidence else None
+        )
+        first_execution_observation = execution_observation_cursor
         action = _action_value(action_for_step(env, observation))
         observation, reward, terminated, truncated, info = env.step(action)
         if truncated:
@@ -229,6 +334,56 @@ def _run_episode(
         )
         if len(trace) > N_BARS:
             raise RuntimeError("synthetic episode exceeded its fixed bar budget")
+        if capture_evidence:
+            assert execution_observations is not None
+            step_observations = execution_observations[first_execution_observation:]
+            execution_observation_cursor = len(execution_observations)
+            settlement_intervals = info.get("terminal_settlement_intervals", 0)
+            if (
+                isinstance(settlement_intervals, bool)
+                or not isinstance(settlement_intervals, int)
+                or settlement_intervals < 0
+            ):
+                raise RuntimeError("terminal settlement interval count is invalid")
+            if len(step_observations) != 1 + settlement_intervals:
+                raise RuntimeError(
+                    "execution observer calls do not match the policy step"
+                )
+            settlement_start = len(step_observations) - settlement_intervals
+            execution_calls = [
+                {
+                    "call_index": first_execution_observation + offset,
+                    "phase": (
+                        "terminal_settlement"
+                        if offset >= settlement_start
+                        else "policy_step_execution"
+                    ),
+                    "observation": payload,
+                }
+                for offset, payload in enumerate(step_observations)
+            ]
+            evidence_trace.append(
+                {
+                    "decision_index": decision_index,
+                    "pre_action_observation": pre_action_observation,
+                    "action": action,
+                    "step_info": _canonical_object_snapshot(
+                        info,
+                        field="PPO step info",
+                    ),
+                    "reward": float(reward),
+                    "terminated": bool(terminated),
+                    "truncated": bool(truncated),
+                    "resulting_index": env.index,
+                    "post_step_book": _book_state_snapshot(env.book, index=env.index),
+                    "execution_calls": execution_calls,
+                }
+            )
+
+    if capture_evidence and execution_observation_cursor != len(
+        execution_observations or ()
+    ):
+        raise RuntimeError("execution observer emitted an unassigned call")
 
     return {
         "active_order_count": len(env.executor.compatibility_order_book.active_orders),
@@ -239,6 +394,8 @@ def _run_episode(
         "reward_sum": math.fsum(float(item["reward"]) for item in trace),
         "total_cost": float(env.book.total_cost),
         "trace": trace,
+        "evidence_trace": evidence_trace,
+        "final_book_state": _book_state_snapshot(env.book, index=env.index),
     }
 
 
@@ -615,6 +772,112 @@ def _read_canonical_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _verified_policy_bundle(
+    root: Path,
+    *,
+    expected_digest: str,
+) -> dict[str, object]:
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("published PPO inference bundle is unavailable")
+    members = {path.name for path in root.iterdir()}
+    if members != {"manifest.json", "policy.zip"}:
+        raise ValueError("PPO inference bundle file closure is invalid")
+    manifest_path = root / "manifest.json"
+    policy_path = root / "policy.zip"
+    if manifest_path.is_symlink() or policy_path.is_symlink():
+        raise ValueError("PPO inference bundle contains a symbolic link")
+    manifest = _read_canonical_json(manifest_path)
+    manifest_bytes = manifest_path.read_bytes()
+    policy_bytes = policy_path.read_bytes()
+    manifest_digest = content_digest(manifest)
+    policy_digest = hashlib.sha256(policy_bytes).hexdigest()
+    if manifest_digest != expected_digest:
+        raise ValueError("PPO inference bundle digest differs from the saver result")
+    if manifest.get("policy_sha256") != policy_digest:
+        raise ValueError("PPO policy bytes differ from the inference manifest")
+    return {
+        "directory": "inference-bundle",
+        "schema": manifest.get("schema"),
+        "manifest_digest": manifest_digest,
+        "manifest_file": "inference-bundle/manifest.json",
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "manifest_size_bytes": len(manifest_bytes),
+        "policy_file": "inference-bundle/policy.zip",
+        "policy_sha256": policy_digest,
+        "policy_size_bytes": len(policy_bytes),
+    }
+
+
+def _write_verified_json_artifact(
+    path: Path,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    _write_exclusive_json(path, payload)
+    readback = _read_canonical_json(path)
+    raw = path.read_bytes()
+    if readback != payload or raw != canonical_json_bytes(payload):
+        raise ValueError(f"diagnostic artifact readback differs: {path.name}")
+    return {
+        "file": path.name,
+        "digest": content_digest(readback),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    }
+
+
+def _artifact_file_inventory(output: Path) -> dict[str, dict[str, object]]:
+    relative_paths = (
+        "inference-bundle/manifest.json",
+        "inference-bundle/policy.zip",
+        "heldout-trace.json",
+        "evidence-manifest.json",
+        "result.pending.json",
+        "result.json",
+    )
+    inventory: dict[str, dict[str, object]] = {}
+    bundle_root = output / "inference-bundle"
+    if bundle_root.is_symlink():
+        inventory["inference-bundle"] = {"status": "symbolic_link"}
+        return inventory
+    for relative in relative_paths:
+        path = output.joinpath(*relative.split("/"))
+        try:
+            if path.is_symlink():
+                inventory[relative] = {"status": "symbolic_link"}
+                continue
+            if not path.exists():
+                continue
+            if not path.is_file():
+                inventory[relative] = {"status": "not_file"}
+                continue
+            raw = path.read_bytes()
+        except OSError as error:
+            inventory[relative] = {
+                "status": "unavailable",
+                "error_type": type(error).__name__,
+            }
+            continue
+        inventory[relative] = {
+            "status": "present",
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "size_bytes": len(raw),
+        }
+    return inventory
+
+
+def _publish_completed_result(output: Path, result: dict[str, object]) -> None:
+    pending = output / "result.pending.json"
+    destination = output / "result.json"
+    if any(path.exists() or path.is_symlink() for path in (pending, destination)):
+        raise FileExistsError("diagnostic result destination already exists")
+    _write_exclusive_json(pending, result)
+    readback = _read_canonical_json(pending)
+    raw = pending.read_bytes()
+    if readback != result or raw != canonical_json_bytes(result):
+        raise ValueError("completed diagnostic result failed readback verification")
+    os.rename(pending, destination)
+
+
 def _assert_source_identity(protocol: dict[str, Any], *, stage: str) -> None:
     manifest = _source_manifest()
     runtime_versions = _runtime_versions()
@@ -697,19 +960,29 @@ def _heldout_episode(
     dataset: MarketDataset,
     symbol_index: int,
 ) -> _Episode:
-    env = _make_environment(dataset, symbol_index)
+    execution_observations: list[dict[str, Any]] = []
+    env = _make_environment(
+        dataset,
+        symbol_index,
+        execution_observations=execution_observations,
+    )
 
     def action_for_step(_env: PPOTradingEnv, observation: np.ndarray) -> object:
         action, _ = policy.predict(observation, deterministic=True)
         return action
 
-    return _run_episode(env, action_for_step)
+    return _run_episode(
+        env,
+        action_for_step,
+        capture_evidence=True,
+        execution_observations=execution_observations,
+    )
 
 
 def _heldout_clauses(
     policy: _PredictPolicy,
     dataset: MarketDataset,
-) -> tuple[dict[str, bool], dict[str, Any]]:
+) -> tuple[dict[str, bool], dict[str, Any], dict[str, Any]]:
     feature_one = int(np.flatnonzero(dataset.features[0, :, 0] == 1.0)[0])
     feature_zero = int(np.flatnonzero(dataset.features[0, :, 0] == 0.0)[0])
     episode_one = _heldout_episode(policy, dataset, feature_one)
@@ -758,7 +1031,7 @@ def _heldout_clauses(
             and int(episode_zero["active_order_count"]) == 0
         ),
     }
-    return clauses, {
+    metrics = {
         "feature_one_symbol_index": feature_one,
         "feature_zero_symbol_index": feature_zero,
         "feature_one_first_action": first_one_action,
@@ -773,6 +1046,25 @@ def _heldout_clauses(
         "feature_zero_total_cost": float(episode_zero["total_cost"]),
         "feature_zero_fill_count": int(episode_zero["fill_count"]),
     }
+    episodes = {
+        "episodes": [
+            {
+                "role": "feature_one",
+                "symbol_index": feature_one,
+                "symbol": dataset.symbols[feature_one],
+                "final_book_state": episode_one["final_book_state"],
+                "steps": episode_one["evidence_trace"],
+            },
+            {
+                "role": "feature_zero",
+                "symbol_index": feature_zero,
+                "symbol": dataset.symbols[feature_zero],
+                "final_book_state": episode_zero["final_book_state"],
+                "steps": episode_zero["evidence_trace"],
+            },
+        ]
+    }
+    return clauses, metrics, episodes
 
 
 def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
@@ -784,9 +1076,21 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
     start_path = output / "attempt-start.json"
     result_path = output / "result.json"
     failure_path = output / "failure.json"
+    pending_result_path = output / "result.pending.json"
+    inference_bundle_path = output / "inference-bundle"
+    heldout_trace_path = output / "heldout-trace.json"
+    evidence_manifest_path = output / "evidence-manifest.json"
     if any(
         path.exists() or path.is_symlink()
-        for path in (start_path, result_path, failure_path)
+        for path in (
+            start_path,
+            result_path,
+            failure_path,
+            pending_result_path,
+            inference_bundle_path,
+            heldout_trace_path,
+            evidence_manifest_path,
+        )
     ):
         raise FileExistsError("diagnostic directory already contains an attempt")
     protocol, prefit = _validated_protocol(output)
@@ -806,12 +1110,22 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
     source_identity_checks = {
         "before_fit": False,
         "after_fit": False,
+        "after_bundle": False,
         "after_heldout": False,
     }
+    artifact_statuses = {
+        "inference_bundle": "not_started",
+        "heldout_trace": "not_started",
+        "evidence_manifest": "not_started",
+        "result": "not_started",
+    }
+    active_artifact: str | None = None
     execution_phase = "before_fit"
     try:
         training_dataset = build_fixture_dataset()
         execution_cost = fixed_execution_cost()
+        if training_dataset.dataset_id != protocol["dataset_identity"]["training"]:
+            raise RuntimeError("synthetic training dataset identity changed")
         _assert_source_identity(protocol, stage="before_fit")
         source_identity_checks["before_fit"] = True
         execution_phase = "fit"
@@ -852,16 +1166,90 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
                 "fitted PPO realized an unexpected global transition count"
             )
         actual_timesteps = int(actual_timesteps)
+
+        execution_phase = "policy_bundle"
+        active_artifact = "inference_bundle"
+        artifact_statuses[active_artifact] = "writing"
+        bundle_digest = save_ppo_inference_bundle(
+            inference_bundle_path,
+            strategy,
+            feature_names=tuple(
+                training_dataset.feature_names[index]
+                for index in strategy.feature_indices
+            ),
+        )
+        policy_bundle = _verified_policy_bundle(
+            inference_bundle_path,
+            expected_digest=bundle_digest,
+        )
+        artifact_statuses[active_artifact] = "verified"
+        active_artifact = None
+
+        execution_phase = "after_bundle"
+        _assert_source_identity(protocol, stage="after_bundle")
+        source_identity_checks["after_bundle"] = True
+
         heldout_dataset = build_fixture_dataset(heldout=True)
+        if heldout_dataset.dataset_id != protocol["dataset_identity"]["heldout"]:
+            raise RuntimeError("synthetic heldout dataset identity changed")
         execution_phase = "heldout"
-        clauses, metrics = _heldout_clauses(policy, heldout_dataset)
+        clauses, metrics, episodes = _heldout_clauses(policy, heldout_dataset)
+
+        heldout_trace_payload: dict[str, Any] = {
+            "schema": HELDOUT_TRACE_SCHEMA,
+            "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
+            "protocol_digest": protocol["protocol_digest"],
+            "source_digest": protocol["source_digest"],
+            "recipe_digest": protocol["recipe_digest"],
+            "runtime_versions": protocol["runtime_versions"],
+            "heldout_dataset_id": heldout_dataset.dataset_id,
+            "inference_mode": "deterministic",
+            "episodes": episodes["episodes"],
+        }
+        execution_phase = "heldout_trace"
+        active_artifact = "heldout_trace"
+        artifact_statuses[active_artifact] = "writing"
+        trace_metadata = _write_verified_json_artifact(
+            heldout_trace_path,
+            heldout_trace_payload,
+        )
+        artifact_statuses[active_artifact] = "verified"
+        active_artifact = None
+
         execution_phase = "after_heldout"
         _assert_source_identity(protocol, stage="after_heldout")
         source_identity_checks["after_heldout"] = True
 
+        evidence_manifest_payload: dict[str, Any] = {
+            "schema": EVIDENCE_MANIFEST_SCHEMA,
+            "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
+            "protocol_digest": protocol["protocol_digest"],
+            "source_digest": protocol["source_digest"],
+            "recipe_digest": protocol["recipe_digest"],
+            "runtime_versions": protocol["runtime_versions"],
+            "dataset_identity": protocol["dataset_identity"],
+            "policy_bundle": policy_bundle,
+            "trace": {
+                "file": trace_metadata["file"],
+                "digest": trace_metadata["digest"],
+                "sha256": trace_metadata["sha256"],
+                "size_bytes": trace_metadata["size_bytes"],
+            },
+        }
+        execution_phase = "evidence_manifest"
+        active_artifact = "evidence_manifest"
+        artifact_statuses[active_artifact] = "writing"
+        evidence_manifest_metadata = _write_verified_json_artifact(
+            evidence_manifest_path,
+            evidence_manifest_payload,
+        )
+        artifact_statuses[active_artifact] = "verified"
+        active_artifact = None
+
         failed = [name for name, passed in clauses.items() if not passed]
         result: dict[str, object] = {
             "schema": RESULT_SCHEMA,
+            "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
             "status": "completed",
             "diagnostic_verdict": "pass" if not failed else "fail",
             "scope": "synthetic_software_diagnostic_only",
@@ -873,17 +1261,31 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
             "actual_fit_timesteps": actual_timesteps,
             "clauses": clauses,
             "failed_clauses": failed,
+            "policy_bundle_manifest_digest": policy_bundle["manifest_digest"],
+            "heldout_trace_digest": trace_metadata["digest"],
+            "heldout_trace_sha256": trace_metadata["sha256"],
+            "evidence_manifest_digest": evidence_manifest_metadata["digest"],
+            "evidence_manifest_sha256": evidence_manifest_metadata["sha256"],
+            "evidence_manifest_size_bytes": evidence_manifest_metadata["size_bytes"],
             "prefit_metrics": prefit["metrics"],
             "heldout_metrics": metrics,
             "started_at": attempt_started_at,
             "completed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         }
-        _write_exclusive_json(result_path, result)
+        execution_phase = "result"
+        active_artifact = "result"
+        artifact_statuses[active_artifact] = "writing"
+        _publish_completed_result(output, result)
+        artifact_statuses[active_artifact] = "published"
+        active_artifact = None
         return result
     except Exception as error:
+        if active_artifact is not None:
+            artifact_statuses[active_artifact] = "failed"
         message = " ".join(str(error).split())[:400]
         failure: dict[str, object] = {
             "schema": FAILURE_SCHEMA,
+            "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
             "status": "execution_failed",
             "scope": "synthetic_software_diagnostic_only",
             "p3_status": P3_STATUS,
@@ -894,6 +1296,8 @@ def run_diagnostic(output_dir: str | Path) -> dict[str, Any]:
             ),
             "source_identity_checks": source_identity_checks,
             "fit_call_count": fit_call_count,
+            "artifact_statuses": artifact_statuses,
+            "artifact_files": _artifact_file_inventory(output),
             "exception_type": type(error).__name__,
             "message": message,
             "started_at": attempt_started_at,

@@ -104,6 +104,16 @@ def test_candidate_run_config_rejects_nonpositive_or_noninteger_forecast_horizon
         parse_candidate_run_config(raw)
 
 
+def test_candidate_run_config_rejects_unrepresentable_forecast_horizon() -> None:
+    raw = raw_config()
+    raw["supervised_forecast_horizon_hours"] = 2_562_048
+
+    with pytest.raises(
+        ValueError, match="supervised_forecast_horizon_hours.*representable"
+    ):
+        parse_candidate_run_config(raw)
+
+
 def test_candidate_run_config_binds_horizon_observation_and_terminal_semantics() -> (
     None
 ):

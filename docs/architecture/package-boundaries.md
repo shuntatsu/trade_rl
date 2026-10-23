@@ -303,7 +303,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
-- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24）を両fitへ渡し、strategy名にも同じ時間数を使う。PPO・risk・execution設定はこの値に依存しない。
+- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。PPO・risk・execution設定はこの値に依存しない。
 - `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証してdataset-resolved specへbindする。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。

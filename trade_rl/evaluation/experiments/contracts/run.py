@@ -15,6 +15,9 @@ from trade_rl.evaluation.experiments.contracts._common import (
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
+)
 from trade_rl.strategies.rl.intent import (
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA_V3,
@@ -167,10 +170,15 @@ class ResolvedRunConfig:
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
         if schema_version == _RESOLVED_RUN_CONFIG_V6:
-            supervised_forecast_horizon_hours = contract_positive_int(
-                self.supervised_forecast_horizon_hours,
-                field="supervised_forecast_horizon_hours",
-            )
+            try:
+                supervised_forecast_horizon_hours = (
+                    validate_supervised_forecast_horizon_hours(
+                        self.supervised_forecast_horizon_hours,
+                        field="supervised_forecast_horizon_hours",
+                    )
+                )
+            except ValueError as error:
+                raise ContractViolationError(str(error)) from error
         elif self.supervised_forecast_horizon_hours != 24:
             raise ContractViolationError(
                 "legacy resolved-run config requires the 24-hour "

@@ -125,6 +125,53 @@ def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff(
     )
 
 
+def test_training_builder_rejects_horizon_that_wraps_to_one_hour() -> None:
+    with pytest.raises(ValueError, match="representable.*nanosecond"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T05:00:00", "ns"),
+            horizon_hours=2**51 + 1,
+        )
+
+
+def test_training_builder_rejects_horizon_just_over_int64_nanosecond_limit() -> None:
+    max_safe_hours = ((2**63) - 1) // 3_600_000_000_000
+
+    with pytest.raises(ValueError, match="representable.*nanosecond"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T05:00:00", "ns"),
+            horizon_hours=max_safe_hours + 1,
+        )
+
+
+def test_training_builder_accepts_exact_maximum_horizon_without_fitting_rows() -> None:
+    max_safe_hours = ((2**63) - 1) // 3_600_000_000_000
+
+    with pytest.raises(ValueError, match="at least two eligible training rows"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T05:00:00", "ns"),
+            horizon_hours=max_safe_hours,
+        )
+
+
+def test_training_set_rejects_unrepresentable_horizon_metadata() -> None:
+    max_safe_hours = ((2**63) - 1) // 3_600_000_000_000
+    training = build_causal_forecast_training_set(
+        market(),
+        feature_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    with pytest.raises(ValueError, match="representable.*nanosecond"):
+        replace(training, horizon_hours=max_safe_hours + 1)
+
+
 @pytest.mark.parametrize(
     ("available_hour", "expected_included"),
     ((9, False), (8, True), (7, True)),

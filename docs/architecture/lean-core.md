@@ -127,7 +127,8 @@ drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price ga
 or terminal move cannot exceed 20% realized drawdown.
 
 Run Core also binds a strict positive-integer
-`supervised_forecast_horizon_hours` (default 24) for both Ridge and LightGBM.
+`supervised_forecast_horizon_hours` (default 24, at most 2,562,047 hours so the
+exact duration fits signed `datetime64[ns]`) for both Ridge and LightGBM.
 The shared training-set builder uses that exact elapsed-hour endpoint and only
 admits labels that mature strictly before `fit_cutoff`; fitted strategy names
 include the horizon. `resolved_run_config_v6` and candidate result schemas v8

@@ -296,7 +296,7 @@ def test_resolved_run_v6_binds_supervised_forecast_horizon_and_keeps_v5_immutabl
     )
 
 
-@pytest.mark.parametrize("horizon_hours", (True, 0, -1, 24.0, float("nan")))
+@pytest.mark.parametrize("horizon_hours", (True, 0, -1, 24.0, float("nan"), 2_562_048))
 def test_resolved_run_v6_rejects_invalid_supervised_forecast_horizon(
     horizon_hours: object,
 ) -> None:

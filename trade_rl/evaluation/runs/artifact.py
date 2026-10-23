@@ -28,6 +28,9 @@ from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.forecasts.supervised import (
+    MAX_SUPERVISED_FORECAST_HORIZON_HOURS,
+)
 from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMA_V3,
     ppo_observation_contract_payload,
@@ -655,6 +658,7 @@ def _validate_ppo_training_evidence(
                 isinstance(horizon, bool)
                 or not isinstance(horizon, int)
                 or horizon <= 0
+                or horizon > MAX_SUPERVISED_FORECAST_HORIZON_HOURS
             ):
                 raise ValueError("candidate supervised forecast horizon is malformed")
         evaluation = summary.get("evaluation")

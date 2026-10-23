@@ -28,6 +28,9 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
+)
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import (
@@ -153,17 +156,18 @@ class LeanCandidateConfig:
             raise ValueError("PPO minimum hold requires the age-aware observation")
         if not isinstance(self.ppo_settle_terminal_position, bool):
             raise ValueError("ppo_settle_terminal_position must be boolean")
-        if (
-            isinstance(self.supervised_forecast_horizon_hours, bool)
-            or not isinstance(self.supervised_forecast_horizon_hours, int)
-            or self.supervised_forecast_horizon_hours <= 0
-        ):
-            raise ValueError(
-                "supervised_forecast_horizon_hours must be a positive integer"
-            )
+        supervised_forecast_horizon_hours = validate_supervised_forecast_horizon_hours(
+            self.supervised_forecast_horizon_hours,
+            field="supervised_forecast_horizon_hours",
+        )
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(
+            self,
+            "supervised_forecast_horizon_hours",
+            supervised_forecast_horizon_hours,
+        )
 
 
 def _ppo_training_stop_index(

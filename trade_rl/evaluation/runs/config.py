@@ -18,6 +18,9 @@ from trade_rl.evaluation.runs.candidate_suite import (
     require_age_aware_hourly_clock,
 )
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
+)
 from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMA,
     PPO_OBSERVATION_SCHEMA_V3,
@@ -190,14 +193,10 @@ class CandidateRunConfig:
             raise ValueError(
                 "pretrade_risk_config must be a PreTradeRiskConfig or null"
             )
-        if (
-            isinstance(self.supervised_forecast_horizon_hours, bool)
-            or not isinstance(self.supervised_forecast_horizon_hours, int)
-            or self.supervised_forecast_horizon_hours <= 0
-        ):
-            raise ValueError(
-                "supervised_forecast_horizon_hours must be a positive integer"
-            )
+        supervised_forecast_horizon_hours = validate_supervised_forecast_horizon_hours(
+            self.supervised_forecast_horizon_hours,
+            field="supervised_forecast_horizon_hours",
+        )
         if self.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
             if not self.ppo_settle_terminal_position:
                 raise ValueError(
@@ -223,6 +222,11 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(
+            self,
+            "supervised_forecast_horizon_hours",
+            supervised_forecast_horizon_hours,
+        )
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""

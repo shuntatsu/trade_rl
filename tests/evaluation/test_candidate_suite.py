@@ -139,6 +139,10 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
                     config,
                     supervised_forecast_horizon_hours=invalid_horizon,
                 )
+        with pytest.raises(
+            ValueError, match="supervised_forecast_horizon_hours.*representable"
+        ):
+            replace(config, supervised_forecast_horizon_hours=2_562_048)
     risk = PreTradeRisk(
         PreTradeRiskConfig(
             max_gross=0.5,

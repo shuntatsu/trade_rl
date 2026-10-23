@@ -187,7 +187,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "supervised_forecast_horizon_hours": 24,
     }
 
-    for invalid_horizon in (None, True, 0, -1, 24.0, float("nan")):
+    for invalid_horizon in (None, True, 0, -1, 24.0, float("nan"), 2_562_048):
         malformed = dict(summary)
         malformed["candidate_config"] = {
             **summary["candidate_config"],

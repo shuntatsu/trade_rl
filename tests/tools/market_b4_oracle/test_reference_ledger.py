@@ -1490,6 +1490,8 @@ def test_artificial_reference_adapter_requires_fixed_recipe_and_output_roster(
     )
 
     inputs = build_artificial_component_inputs(_component_spec())
+    assert inputs.spec_sha256 == consumer._ARTIFICIAL_COMPONENT_SPEC_SHA256
+    assert inputs.source_protocol_sha256 == consumer._ARTIFICIAL_SOURCE_PROTOCOL_SHA256
     output_index = _indexed_native_output(
         tmp_path,
         {"native_receipt": {"rows": []}, "closing_rows": []},
@@ -1519,6 +1521,31 @@ def test_artificial_reference_adapter_requires_fixed_recipe_and_output_roster(
         consumer.consume_artificial_reference_account_diagnostic(
             output_index=output_index,
             inputs=altered_inputs,
+            role="NONRL",
+            reserve_plan_digest="a" * 64,
+        )
+
+    forged_spec_sha256 = "b" * 64
+    forged_source_protocol_sha256 = "c" * 64
+    forged_document = inputs.protocol_document
+    forged_document["component_spec_sha256"] = forged_spec_sha256
+    forged_document["source_protocol_sha256"] = forged_source_protocol_sha256
+    forged_inputs = replace(
+        inputs,
+        spec_sha256=forged_spec_sha256,
+        source_protocol_sha256=forged_source_protocol_sha256,
+        protocol_document_canonical=json.dumps(
+            forged_document,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8"),
+    )
+    with pytest.raises(ValueError, match="fixed spec or source protocol pins"):
+        consumer.consume_artificial_reference_account_diagnostic(
+            output_index=output_index,
+            inputs=forged_inputs,
             role="NONRL",
             reserve_plan_digest="a" * 64,
         )

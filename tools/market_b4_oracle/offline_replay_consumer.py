@@ -74,6 +74,14 @@ _ARTIFICIAL_COMPONENT_OUTPUT_FILES = (
     "receipts/cash.json.gz",
     "receipts/nonrl.json.gz",
 )
+# Fixed digests are independently pinned; the regression test checks them against
+# the Q builder for the exact artificial recipe, never against caller-owned fields.
+_ARTIFICIAL_COMPONENT_SPEC_SHA256 = (
+    "b4c637d3c664e6e3ccb6d00107edcc84c6b787991126171971809b258ff0d55e"
+)
+_ARTIFICIAL_SOURCE_PROTOCOL_SHA256 = (
+    "0cdce978bb00a9b7169f56577e37ba9e2f215b08cd5f16417aff92dc95896673"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +226,13 @@ def _validate_fixed_artificial_component_inputs(
         raise ValueError("artificial inputs require exact verified Dataset content")
     if type(inputs.content.dataset_id) is not str:
         raise ValueError("artificial Dataset identity must be a string")
+    if (
+        inputs.spec_sha256 != _ARTIFICIAL_COMPONENT_SPEC_SHA256
+        or inputs.source_protocol_sha256 != _ARTIFICIAL_SOURCE_PROTOCOL_SHA256
+    ):
+        raise ValueError(
+            "artificial inputs differ from fixed spec or source protocol pins"
+        )
     spec_sha256 = _sha(inputs.spec_sha256, "artificial component spec digest")
     source_sha256 = _sha(
         inputs.source_protocol_sha256, "artificial source protocol digest"

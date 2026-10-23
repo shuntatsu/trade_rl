@@ -630,6 +630,68 @@ def test_get_from_env_warm_skips_array_pins_and_matches_canonical(env):
     assert payload_calls == 0
 
 
+@pytest.mark.parametrize("key_layout", ["reordered", "sparse_negative"])
+def test_get_from_env_rechecks_live_costs_after_cost_key_layout_changes(
+    env, key_layout
+):
+    memo = api()()
+    first = memo.get_from_env(env, None)
+    keys = sorted(env._estimates)
+    values = [env._estimates[key] for key in keys]
+
+    if key_layout == "reordered":
+        changed = [replace(value) for value in reversed(values)]
+        env._estimates = dict(reversed(list(zip(keys, changed, strict=True))))
+    else:
+        sparse_negative_keys = tuple(-1000 + 17 * index for index in range(len(keys)))
+        changed = [replace(value) for value in values]
+        env._estimates = dict(zip(sparse_negative_keys, changed, strict=True))
+
+    last_key = sorted(env._estimates)[-1]
+    target = env._estimates[last_key]
+    env._estimates[last_key] = replace(target, buy_cost=target.buy_cost + 0.01)
+
+    expected = context.allocation_source_envelope_digest(env)
+    actual, digest_calls, payload_calls = measured_calls(
+        lambda: memo.get_from_env(env, None)
+    )
+    assert expected != first
+    assert actual == expected
+    assert digest_calls > 0
+    assert payload_calls == len(env._estimates)
+
+
+@pytest.mark.parametrize("key_kind", ["bool", "int_subclass"])
+def test_get_from_env_cost_key_type_aliases_fall_back_to_public_digest(env, key_kind):
+    original = list(env._estimates.values())
+    env._estimates = {index: value for index, value in enumerate(original[:2])}
+    memo = api()()
+    first = memo.get_from_env(env, None)
+
+    if key_kind == "bool":
+        env._estimates = {
+            False: replace(original[0]),
+            True: replace(original[1], buy_cost=original[1].buy_cost + 0.01),
+        }
+    else:
+
+        class CostKey(int):
+            pass
+
+        env._estimates = {
+            CostKey(index): replace(value, buy_cost=value.buy_cost + 0.01)
+            for index, value in enumerate(original[:2])
+        }
+
+    expected = context.allocation_source_envelope_digest(env)
+    actual, digest_calls, payload_calls = measured_calls(
+        lambda: memo.get_from_env(env, None)
+    )
+    assert actual == expected != first
+    assert digest_calls > 0
+    assert payload_calls == len(env._estimates)
+
+
 def test_get_from_env_inplace_array_mutation_refuses_stale_cache(env):
     memo = api()()
     first = memo.get_from_env(env, None)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -57,6 +59,51 @@ def test_session_calendar_accepts_gaps_and_uses_wall_clock_helpers() -> None:
     assert market.elapsed_hours(3, 4) == pytest.approx(17.0)
     assert market.lookback_index(4, 8.0) == 3
     assert market.forward_index(3, 8.0) == 4
+
+
+@pytest.mark.parametrize(
+    "periods_per_year",
+    [True, 252.0, 1.5, math.nan, math.inf],
+)
+def test_session_calendar_requires_integer_annualization_clock(
+    periods_per_year: object,
+) -> None:
+    values = kwargs()
+    values.update(
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=periods_per_year,
+    )
+
+    with pytest.raises(ValueError, match="periods_per_year must be a positive integer"):
+        MarketDataset(**values)
+
+
+def test_market_dataset_accepts_numpy_integer_annualization_clock() -> None:
+    values = kwargs()
+    values["periods_per_year"] = np.int64(8_760)
+
+    market = MarketDataset(**values)
+
+    assert market.periods_per_year == 8_760
+    assert type(market.periods_per_year) is int
+
+
+def test_numpy_integer_clock_has_same_canonical_dataset_identity() -> None:
+    numpy_values = kwargs()
+    numpy_values["periods_per_year"] = np.int64(8_760)
+    numpy_market = MarketDataset(**numpy_values)
+    native_market = MarketDataset(**kwargs())
+
+    numpy_identified = numpy_market.with_content_identity()
+    native_identified = native_market.with_content_identity()
+
+    assert numpy_identified.periods_per_year == 8_760
+    assert (
+        numpy_identified.identity_payload_json
+        == native_identified.identity_payload_json
+    )
+    assert numpy_identified.dataset_id == native_identified.dataset_id
 
 
 def test_session_calendar_rejects_nat_timestamp_with_valid_availability() -> None:

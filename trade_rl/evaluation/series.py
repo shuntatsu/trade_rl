@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from numbers import Integral
 
 
 class ReturnKind(StrEnum):
@@ -27,8 +28,14 @@ class ReturnSeries:
         normalized = tuple(float(value) for value in self.values)
         if not normalized:
             raise ValueError("return series must not be empty")
-        if self.periods_per_year <= 0:
-            raise ValueError("periods_per_year must be positive")
+        periods_per_year: object = self.periods_per_year
+        if (
+            isinstance(periods_per_year, bool)
+            or not isinstance(periods_per_year, Integral)
+            or periods_per_year <= 0
+        ):
+            raise ValueError("periods_per_year must be a positive integer")
+        object.__setattr__(self, "periods_per_year", int(periods_per_year))
         if self.elapsed_years is not None and (
             not math.isfinite(self.elapsed_years) or self.elapsed_years <= 0.0
         ):

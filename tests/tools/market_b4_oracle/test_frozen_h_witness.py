@@ -256,6 +256,154 @@ def test_frozen_h_environment_policy_excludes_import_and_thread_overrides(
     assert policy["absent_numerical_threads"]
 
 
+def test_frozen_h_matrix_accepts_builder_dataset_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from typing import cast
+
+    import tools.market_b4_oracle.offline_replay_consumer as consumer
+    import tools.market_b4_oracle.outer_witness as witness
+    import tools.market_b4_outer_runner as outer
+
+    seed_plan, _ = _frozen_h_plan(tmp_path)
+    child = seed_plan.child_source_root
+    observer = seed_plan.observer_repository
+    content = SimpleNamespace(dataset_id="synthetic-dataset")
+    policy = object()
+    binding = SimpleNamespace(
+        comparison_only=False,
+        protocol_canonical=b"synthetic-protocol",
+        protocol_document={"concurrency": {"max_workers": 4}},
+    )
+    static_inputs = object.__new__(consumer.StaticInputReadback)
+    dataset_pin = SimpleNamespace(
+        dataset_id="synthetic-dataset",
+        manifest_bytes=5,
+        manifest_sha256="1" * 64,
+        arrays_bytes=6,
+        arrays_sha256="2" * 64,
+    )
+    object.__setattr__(static_inputs, "protocol_v3_path", child / "protocol-v3.json")
+    object.__setattr__(
+        static_inputs, "protocol_v3_pin", SimpleNamespace(raw_bytes=2, sha256="b" * 64)
+    )
+    object.__setattr__(static_inputs, "protocol_v4_path", child / "protocol-v4.json")
+    object.__setattr__(
+        static_inputs, "protocol_v4_pin", SimpleNamespace(raw_bytes=3, sha256="c" * 64)
+    )
+    object.__setattr__(static_inputs, "source_root", child)
+    object.__setattr__(
+        static_inputs,
+        "source_pin",
+        SimpleNamespace(head_sha="e" * 40, snapshot_sha256="f" * 64),
+    )
+    object.__setattr__(static_inputs, "dataset_root", child / "dataset")
+    object.__setattr__(static_inputs, "dataset_pin", dataset_pin)
+    protocol_pair = SimpleNamespace(
+        native_pin=SimpleNamespace(raw_bytes=2, sha256="b" * 64, source_head="4" * 40),
+        comparison_pin=SimpleNamespace(
+            raw_bytes=3, sha256="c" * 64, source_head="4" * 40
+        ),
+    )
+    review_bytes = b"review"
+    review_pin = outer.WitnessFilePin(
+        len(review_bytes), hashlib.sha256(review_bytes).hexdigest()
+    )
+    monkeypatch.setattr(
+        consumer, "_readback_static_inputs", lambda **_: (protocol_pair, None, None)
+    )
+    monkeypatch.setattr(outer, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        outer, "_safe_target", lambda path, *, must_exist: Path(path).absolute()
+    )
+    monkeypatch.setattr(
+        outer,
+        "_fresh_h_witness_root",
+        lambda _observer, path: Path(path).absolute(),
+    )
+    monkeypatch.setattr(outer, "_assert_frozen_h_runtime_pin_current", lambda *_: None)
+    monkeypatch.setattr(witness, "_source_components", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(
+        witness, "_read_source_file", lambda _path: (None, review_bytes)
+    )
+    monkeypatch.setattr(
+        outer, "implementation_source_identity", lambda *_: {"closure_sha256": "0" * 64}
+    )
+    monkeypatch.setattr(outer, "_git_readback", lambda *_: ("1" * 40, False, "2" * 64))
+    runtime_pin = seed_plan.runtime_pin
+    plan = outer.build_frozen_h_launch_plan(
+        observer_repository=observer,
+        supervisor_attempt_root=child / "output" / "tier-d-nonrl" / "matrix-attempt",
+        witness_root=observer / "output" / "verify" / "matrix-witness",
+        content=content,
+        policy=policy,
+        binding=binding,
+        runtime_pin=runtime_pin,
+        static_inputs=static_inputs,
+        review_record_path=child / "review.json",
+        review_record_pin=review_pin,
+    )
+    arms = tuple(
+        SimpleNamespace(
+            binding=binding,
+            role="NONRL" if index % 2 == 0 else "CASH",
+            account_id=f"account-{index // 6}",
+            policy=policy,
+        )
+        for index in range(48)
+    )
+    monkeypatch.setattr(
+        consumer, "derive_frozen_native_market_roster", lambda **_: arms
+    )
+    monkeypatch.setattr(outer, "capture_frozen_h_runtime_pin", lambda *_: runtime_pin)
+    monkeypatch.setattr(
+        outer, "_assert_frozen_h_plan_observer_current", lambda *_: None
+    )
+    monkeypatch.setattr(
+        outer,
+        "_run_frozen_h_attempt",
+        lambda *_args, **_kwargs: pytest.fail(
+            "static plan validation must not launch H"
+        ),
+    )
+
+    roster = outer._assert_frozen_h_matrix_plan(
+        plan,
+        protocol_pair=protocol_pair,
+        content=content,
+        static_inputs=static_inputs,
+    )
+
+    authority = outer._frozen_h_plan_authority(plan)
+    assert authority["child_binding"]["dataset"] == authority["dataset"]
+    assert len(roster) == 48
+    assert plan.process_started is False
+    assert plan.full_b4_authorized is False
+
+    for mutation in ("missing", "tampered"):
+        invalid_authority = outer._frozen_h_plan_authority(plan)
+        child_binding = cast(dict[str, object], invalid_authority["child_binding"])
+        if mutation == "missing":
+            child_binding.pop("dataset")
+        else:
+            dataset = cast(dict[str, object], child_binding["dataset"])
+            dataset["arrays_sha256"] = "9" * 64
+        invalid_plan = replace(
+            plan, input_authority_canonical=outer._canonical(invalid_authority)
+        )
+        with pytest.raises(
+            ValueError, match="frozen H matrix static pins differ from its launch plan"
+        ):
+            outer._assert_frozen_h_matrix_plan(
+                invalid_plan,
+                protocol_pair=protocol_pair,
+                content=content,
+                static_inputs=static_inputs,
+            )
+
+
 def test_frozen_h_matrix_entry_rejects_incomplete_roster_before_spawn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

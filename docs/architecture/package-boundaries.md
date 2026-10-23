@@ -1936,6 +1936,11 @@ measurement but are never added to the kill list. Cleanup rechecks process
 creation time and terminates only verified owned identities. Any ambiguous row
 still present at final verification leaves the attempt failed/partial and
 blocks stopped-receipt reconciliation; it is not killed or called owned.
+Process counts cannot certify an empty tree unless a snapshot captured the
+worker root's PID and birth identity. In Windows tree-supervised modes, a
+successful child exit with only empty, ambiguity-free samples and no observed
+root remains incomplete in both Tier-D supervisors; the market supervisor also
+skips stopped-receipt reconciliation.
 
 On Linux, explicit synthetic-mode supervision samples only the worker root
 process through `/proc/<pid>/status`; descendant RSS is not included. This
@@ -2269,6 +2274,12 @@ empty owned process tree only when the sample has no ambiguous identities;
 ambiguous or unclassified samples fail closed. Post-launch failures preserve a
 separate failure record and never publish a comparison success. Cleanup leaves
 ambiguous identities untouched and cannot attest an empty tree while they remain.
+If the process-tree observer cannot be constructed after launch, cleanup reaps
+the child through its process handle on a best-effort basis but leaves the tree
+unknown and cleanup incomplete. A live row naming a root PID that has never been
+observed remains ambiguous until a verified root identity is available; it is
+never a kill candidate. An empty snapshot without a captured root birth identity
+also remains unknown and cannot certify the owned tree empty.
 The observer pins its
 `tools/tier_d_nonrl/tier_d_process_tree.py` dependency and refuses process creation
 on platforms without the frozen Windows process-tree observer. Its current child
@@ -2289,6 +2300,11 @@ fit or calibration is claimed. It accepts only the fixed
 `ARTIFICIAL_COMPARISON_ONLY` recipe and runs under the pinned H source, virtual
 environment, working directory, and import root; it imports no Q comparator or
 native market CLI. Its bounded synthetic receipts and runtime manifest do not authenticate its producer or grant native-attempt, Full-B4, research, or live authority.
+The operator rejects an output-root path containing a `..` component and
+requires its normalized resolved path to be a strict descendant of the resolved
+`output/verify` root. Before the first output-root `mkdir`, every existing
+ancestor from the candidate's parent through the observer root must be a plain
+directory.
 After plan validation and exclusive creation of the fresh output root, an
 operator exception may leave an exclusive, bounded `operator-failure.json`
 diagnostic bound to the attempt, exact plan bytes, and operator source pin. It

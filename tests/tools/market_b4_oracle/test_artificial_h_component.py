@@ -927,6 +927,27 @@ def test_operator_main_does_not_write_to_an_unvalidated_output_root(
     assert not plan.output_root.exists()
 
 
+def test_operator_main_rejects_output_root_with_parent_components_before_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, plan = _prepare_operator_main(tmp_path, monkeypatch)
+    document = json.loads(plan.input_plan_canonical)
+    verify_root = plan.output_root.parent
+    attacker_path = verify_root / ".." / ".." / "escaped-output"
+    document["output_root"] = str(attacker_path)
+    plan.input_plan_path.write_bytes(_canonical(document))
+    monkeypatch.setattr(operator, "_run_pair", lambda *_args: {})
+    monkeypatch.setattr(operator, "_write_manifest", lambda *_args: None)
+
+    with pytest.raises(
+        ValueError, match="component output root must be fresh under verify"
+    ):
+        operator.main(["--plan", str(plan.input_plan_path)])
+
+    assert not attacker_path.exists()
+    assert not plan.output_root.exists()
+
+
 def test_operator_main_rejects_progress_cli_or_existing_path_before_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

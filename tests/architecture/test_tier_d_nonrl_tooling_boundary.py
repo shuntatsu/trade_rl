@@ -271,6 +271,7 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
         "ambiguous RSS-attributed processes remained after worker exit"
         in supervisor_source
     )
+    assert "worker root process birth identity was never observed" in supervisor_source
 
     scaling_source = (ROOT / "tools/tier_d_scaling/supervision.py").read_text("utf-8")
     assert '"owned_process_count": len(observed.owned_members)' in scaling_source
@@ -280,9 +281,15 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
         in scaling_source
     )
     assert '"ambiguous_rss_members_remaining": ambiguous_remaining' in scaling_source
+    assert "worker root process birth identity was never observed" in scaling_source
 
     architecture = (ROOT / "docs/architecture/package-boundaries.md").read_text("utf-8")
     assert (
         "Historical-only rows and their descendants contribute to the" in architecture
     )
     assert "blocks stopped-receipt reconciliation" in architecture
+    normalized_architecture = " ".join(architecture.split())
+    assert (
+        "unless a snapshot captured the worker root's PID and birth identity"
+        in normalized_architecture
+    )

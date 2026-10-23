@@ -345,6 +345,69 @@ def test_supervisor_does_not_reconcile_while_ambiguous_rss_rows_remain(
     assert all(row["state"] == "UNATTEMPTED" for row in attempt["arms"])
 
 
+@pytest.mark.parametrize(
+    ("root_observed", "expected_status"),
+    (
+        pytest.param(True, "COMPLETED", id="verified-root"),
+        pytest.param(False, "FAILED", id="root-identity-never-observed"),
+    ),
+)
+def test_supervisor_requires_observed_root_before_successful_completion(
+    tmp_path, monkeypatch, root_observed, expected_status
+):
+    module = api()
+    monkeypatch.setattr(module, "os", SimpleNamespace(name="nt", environ=os.environ))
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "root-identity"
+    protocol = market_protocol()
+    monkeypatch.setattr(module, "market_protocol", lambda **kwargs: protocol)
+    root_row = node(10, 1, 100, 4096)
+    samples = iter(((root_row,), ()) if root_observed else ((), ()))
+
+    class FinishedProcess:
+        pid = 10
+        returncode = 0
+
+        def __enter__(self):
+            initialize_attempt(root / "attempt", protocol)
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            pytest.fail("the completed worker is already reaped")
+
+        def wait(self, timeout):
+            return self.returncode
+
+    process = FinishedProcess()
+
+    class ObservedTree(ProcessTree):
+        def __init__(self, pid):
+            assert pid == process.pid
+            super().__init__(pid, provider=lambda: next(samples, ()))
+
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(module, "ProcessTree", ObservedTree)
+
+    result = module.supervised_run("synthetic", root, None)
+
+    report = json.loads((root / "supervisor.json").read_text())
+    assert report["status"] == expected_status
+    assert result == (0 if root_observed else 1)
+    if root_observed:
+        assert report["failure"] is None
+    else:
+        assert "root process birth identity was never observed" in report["failure"]
+        assert report["receipt_reconciliation"]["state"] == (
+            "SKIPPED_NO_VERIFIED_OWNED_TREE_STOP"
+        )
+
+
 def test_nonzero_child_exit_finalizes_failed_without_invented_arm_receipts(tmp_path):
     tmp_path = tmp_path / "attempt"
     state = initialize_attempt(tmp_path, market_protocol())

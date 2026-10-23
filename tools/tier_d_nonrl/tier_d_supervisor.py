@@ -339,6 +339,15 @@ def supervised_run(
                     ):
                         failure = "verified owned descendants remained after worker exit; retain partial attempt"
                     if (
+                        tree is not None
+                        and tree.root_identity is None
+                        and failure is None
+                    ):
+                        failure = (
+                            "worker root process birth identity was never observed; "
+                            "retain partial attempt"
+                        )
+                    if (
                         failure is not None
                         or process.returncode not in (None, 0)
                         or owned_survivors

@@ -119,6 +119,13 @@ class ProcessTree:
                 if row.pid in selected_ambiguous:
                     continue
 
+                # If the root has never appeared in a snapshot, a live row
+                # naming its PID as parent may be a surviving child. Attribute
+                # it only ambiguously until a verified root identity is seen.
+                if self.root_identity is None and row.parent_pid == self.root_pid:
+                    ambiguous_additions.append((row, 1))
+                    continue
+
                 ambiguous_parent = selected_ambiguous.get(row.parent_pid)
                 if ambiguous_parent is not None:
                     if row.creation_ticks >= ambiguous_parent[0].creation_ticks:

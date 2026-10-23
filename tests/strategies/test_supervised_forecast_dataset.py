@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -97,6 +99,67 @@ def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     assert baseline.labels.flags.writeable is False
     assert baseline.label_end_times.flags.writeable is False
     assert baseline.sample_weights.flags.writeable is False
+
+
+@pytest.mark.parametrize(
+    ("available_hour", "expected_included"),
+    ((9, False), (8, True), (7, True)),
+)
+def test_training_label_endpoint_price_must_be_available_by_fit_cutoff(
+    available_hour: int,
+    expected_included: bool,
+) -> None:
+    dataset = market()
+    timestamps = dataset.timestamps.astype("datetime64[ns]")
+    available_at = dataset.resolved_array("available_at").copy()
+    information_available = dataset.resolved_array("information_available").copy()
+    available_at[4, 0] = timestamps[available_hour]
+    information_available[4, 0] = False
+    dataset = replace(
+        dataset,
+        available_at=available_at,
+        information_available=information_available,
+    )
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0, 1),
+        fit_cutoff=timestamps[8],
+        horizon_hours=2,
+    )
+
+    endpoint_row_present = bool(np.any(training.features[:, 0] == 2.0))
+    assert endpoint_row_present is expected_included
+    if expected_included:
+        expected_return = np.log(dataset.close[4, 0] / dataset.close[2, 0])
+        endpoint_position = int(np.flatnonzero(training.features[:, 0] == 2.0)[0])
+        assert training.labels[endpoint_position] == pytest.approx(expected_return)
+
+
+def test_training_label_start_price_must_be_available_by_fit_cutoff() -> None:
+    dataset = market()
+    timestamps = dataset.timestamps.astype("datetime64[ns]")
+    available_at = dataset.resolved_array("available_at").copy()
+    information_available = dataset.resolved_array("information_available").copy()
+    available_at[3, 0] = timestamps[9]
+    information_available[3, 0] = False
+    dataset = replace(
+        dataset,
+        available_at=available_at,
+        information_available=information_available,
+    )
+    assert dataset.feature_available[3, 0].all()
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0, 1),
+        fit_cutoff=timestamps[8],
+        horizon_hours=2,
+    )
+
+    # The synthetic feature mask remains available, so this checks the separate
+    # source-price availability contract for the label's start endpoint.
+    assert not np.any(training.features[:, 0] == 3.0)
 
 
 def test_multi_symbol_rows_use_no_symbol_feature_and_equal_symbol_weight() -> None:

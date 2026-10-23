@@ -623,6 +623,8 @@ def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
             return cls(process.pid)
 
         def __init__(self, pid):
+            self.root_identity = (pid, 100)
+            self.owned = {(pid, 100): 0, (20, 101): 1}
             self.last_sample = ProcessTreeSample(
                 (node(10, 1, 100, 4), node(20, 10, 101, 30)),
                 10,
@@ -640,6 +642,8 @@ def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
 
     def cleanup(process, tree):
         owned_cleanup_calls.append(True)
+        assert tree.root_identity == (10, 100)
+        assert tree.owned == {(10, 100): 0, (20, 101): 1}
         assert len(tree.last_sample.members) == 2
         process.leaf_alive = False
         process.terminate()

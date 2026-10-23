@@ -620,7 +620,27 @@ def test_operator_main_rejects_ads_progress_before_output_or_open(
     )
     document = json.loads(plan.input_plan_canonical)
     document["progress_jsonl_path"] = str(ads_path)
-    plan.input_plan_path.write_bytes(_canonical(document))
+    raw_plan = _canonical(document)
+    plan.input_plan_path.write_bytes(raw_plan)
+
+    import tools.market_b4_outer_runner as outer
+
+    start = outer._artificial_h_start_record(plan)
+    authority = start["input_authority"]
+    assert isinstance(authority, dict)
+    input_plan = authority["input_plan"]
+    assert isinstance(input_plan, dict)
+    input_plan["sha256"] = hashlib.sha256(raw_plan).hexdigest()
+    authority["progress_jsonl_path"] = str(ads_path)
+    authority_argv = authority["argv"]
+    start_argv = start["argv"]
+    assert isinstance(authority_argv, list)
+    assert isinstance(start_argv, list)
+    authority_argv[-1] = str(ads_path)
+    start_argv[-1] = str(ads_path)
+    plan.witness_root.mkdir()
+    (plan.witness_root / "start.json").write_bytes(_canonical(start))
+
     opened: list[Path] = []
 
     def forbid_open(path: Path, *_args: object, **_kwargs: object) -> int:
@@ -952,8 +972,14 @@ def test_operator_main_rejects_output_root_with_parent_components_before_write(
 def test_operator_main_rejects_progress_cli_or_existing_path_before_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import tools.market_b4_outer_runner as outer
+
     operator, plan = _prepare_operator_main(tmp_path, monkeypatch, progress_jsonl=True)
     assert plan.progress_jsonl_path is not None
+    plan.witness_root.mkdir()
+    (plan.witness_root / "start.json").write_bytes(
+        _canonical(outer._artificial_h_start_record(plan))
+    )
     wrong_path = plan.progress_jsonl_path.with_name("other-progress.jsonl")
     with pytest.raises(ValueError, match="progress"):
         operator.main(

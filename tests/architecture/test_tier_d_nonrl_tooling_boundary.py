@@ -45,6 +45,7 @@ def test_windows_process_ownership_integration_is_a_ci_gate():
         "test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure",
     ):
         assert selector in workflow
+    assert "tests/tools/tier_d_nonrl/test_stopped_supervision.py" in workflow
 
 
 def test_tier_d_tooling_does_not_implement_a_ledger_or_import_live_final_or_ppo():

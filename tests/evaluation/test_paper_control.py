@@ -46,12 +46,19 @@ def test_legacy_completed_history_uses_incomplete_only_index_and_reopens(tmp_pat
             )
         )
         assert "cycles_incomplete_idx" in plan
-        assert control.connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
-            ("cycles_incomplete_idx",),
-        ).fetchone() == (
-            "CREATE INDEX cycles_incomplete_idx ON cycles(id) WHERE complete=0",
-        )
+        indexes = {
+            row[1]: row
+            for row in control.connection.execute("PRAGMA index_list(cycles)")
+        }
+        index = indexes.get("cycles_incomplete_idx")
+        assert index is not None
+        assert index[4] == 1
+        assert [
+            row[2]
+            for row in control.connection.execute(
+                "PRAGMA index_info(cycles_incomplete_idx)"
+            )
+        ] == ["id"]
         assert control.connection.execute(
             "SELECT COUNT(*) FROM cycles WHERE complete=0"
         ).fetchone() == (0,)

@@ -480,7 +480,7 @@ star importはliteral `__all__`、または明示的なpublic import re-export�
 - `trade_rl/**` から `tools/agent_repo` への依存は禁止する。
 - `tools/agent_repo` はproduction wheelへ入れない。`setuptools.packages.find.include = ["trade_rl*"]` を維持する。
 - source-derived index/reportはmemory/stdoutだけに保持し、generated catalog/reportをcurrent treeへcommitしない。
-- `source-packet` はfull commit SHAのGit objectだけを入力とし、changed HEAD fileは`git cat-file blob`のraw bytesから deterministic TARへ格納する。manifestはtree/ordered parents/path status/blob OID/size/SHA-256と、`--full-index --binary` diffを記録する。symlink・gitlink・unsafe path、mutable ref、既存output、repository内outputは拒否する。生成packetはsource transport onlyであり、review・test・economic evidenceのauthorityを持たない。
+- `source-packet` はfull commit SHAのGit objectだけを入力とし、changed HEAD fileは`git cat-file blob`のraw bytesから deterministic TARへ格納する。manifestはtree/ordered parents/path status/blob OID/size/SHA-256と、`--full-index --binary` diffを記録し、両diff queryで`--ignore-submodules=none`を明示してGit configによるgitlink変更の隠蔽を防ぐ。symlink・gitlink・unsafe path、mutable ref、既存output、registered worktree内outputは拒否する。生成packetはsource transport onlyであり、review・test・economic evidenceのauthorityを持たない。
 - toolingのstatic analysisはruntime reachabilityの完全証明ではなく、source reviewとfinal full CIを置き換えない。
 - local `verify` は開発中の検査選択を支援するが、完了判定ではpermanent CIのfull gateへ収束する。
 

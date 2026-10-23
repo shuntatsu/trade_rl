@@ -19,6 +19,7 @@ _DIFF_FLAGS = (
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
+    "--ignore-submodules=none",
     "--src-prefix=a/",
     "--dst-prefix=b/",
 )
@@ -27,6 +28,7 @@ _NAME_STATUS_FLAGS = (
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
+    "--ignore-submodules=none",
     "-z",
 )
 _WINDOWS_RESERVED = frozenset(
@@ -247,9 +249,41 @@ def _new_output_directory(repository: Path, output: Path) -> Path:
     target = resolved_parent / candidate.name
     if target.is_relative_to(repository) or target == repository:
         raise ValueError("source packet output must be outside the repository")
+    if any(
+        target == worktree or target.is_relative_to(worktree)
+        for worktree in _registered_worktree_roots(repository)
+    ):
+        raise ValueError(
+            "source packet output must be outside every registered worktree"
+        )
     if target.exists() or target.is_symlink():
         raise ValueError("source packet output directory already exists")
     return target
+
+
+def _registered_worktree_roots(repository: Path) -> tuple[Path, ...]:
+    raw = _git(repository, "worktree", "list", "--porcelain", "-z")
+    roots: set[Path] = set()
+    for record in raw.split(b"\0\0"):
+        if not record:
+            continue
+        fields = record.rstrip(b"\0").split(b"\0")
+        worktree_field = fields[0]
+        prefix = b"worktree "
+        if not worktree_field.startswith(prefix) or len(worktree_field) == len(prefix):
+            raise ValueError("Git returned an invalid registered worktree inventory")
+        root = Path(os.fsdecode(worktree_field[len(prefix) :]))
+        if not root.is_absolute():
+            raise ValueError("Git returned a non-absolute registered worktree path")
+        try:
+            roots.add(root.resolve(strict=False))
+        except (OSError, RuntimeError) as error:
+            raise ValueError(
+                "registered worktree path could not be resolved"
+            ) from error
+    if not roots:
+        raise ValueError("Git returned no registered worktree roots")
+    return tuple(sorted(roots, key=os.fspath))
 
 
 def create_source_packet(

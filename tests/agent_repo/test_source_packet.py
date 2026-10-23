@@ -128,6 +128,7 @@ def test_source_packet_binds_raw_git_bytes_and_exact_diff_metadata(
 
     assert manifest["base"]["commit"] == base
     assert manifest["head"]["commit"] == head
+    assert "--ignore-submodules=none" in manifest["diff"]["flags"]
     assert (
         manifest["head"]["parents"]
         == str(_git(repository, "rev-list", "--parents", "-n", "1", head)).split()[1:]
@@ -318,6 +319,7 @@ def test_source_packet_rejects_changed_gitlink_mode(tmp_path: Path) -> None:
     )
     _git(repository, "commit", "-m", "gitlink mode")
     head = str(_git(repository, "rev-parse", "HEAD"))
+    _git(repository, "config", "diff.ignoreSubmodules", "all")
     output = tmp_path / "packet"
 
     result = _run(
@@ -331,8 +333,36 @@ def test_source_packet_rejects_changed_gitlink_mode(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
+    assert "changed symlink and gitlink entries are unsupported" in result.stderr
     assert result.stdout == ""
     assert not output.exists()
+
+
+def test_source_packet_rejects_output_inside_registered_sibling_worktree(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    base, head = _repository(repository)
+    sibling = tmp_path / "sibling worktree"
+    _git(repository, "worktree", "add", "--detach", str(sibling), head)
+    output = sibling / "packet"
+
+    result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(output),
+    )
+
+    assert result.returncode != 0
+    assert "outside every registered worktree" in result.stderr
+    assert result.stdout == ""
+    assert not output.exists()
+    assert str(_git(repository, "status", "--porcelain=v1")) == ""
+    assert str(_git(sibling, "status", "--porcelain=v1")) == ""
 
 
 @pytest.mark.parametrize(

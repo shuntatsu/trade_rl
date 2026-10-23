@@ -30,6 +30,18 @@ and [USD-M market data](https://developers.binance.com/en/docs/catalog/core-trad
 The change follows a rejected software partial-fill probe, before formal future
 positions; it leaves participation, execution costs and risk stops fixed.
 
+Fresh snapshot capture limits each of its ten JSON response bodies to 64 KiB;
+the two current exchange-info response bodies are limited to 32 MiB each. These
+are prospective capture resource budgets, not endpoint size guarantees. The
+transport checks the declared length when available and otherwise reads at most
+one byte beyond the configured limit in bounded chunks. An oversized response
+fails the whole capture without publishing a truncated raw member; completed
+response evidence and the failure manifest remain intact. These limits bound
+response-body bytes, not peak process memory, disk use or total capture runtime;
+conversion to the returned `bytes` value has a finite additional allocation.
+The per-call limits do not change historical REST, Vision archive or cache
+reads, and they do not establish ninetieth-day storage feasibility.
+
 Use source-time freshness checks for venue clocks, futures depth and mark quotes;
 spot REST depth has no exchange timestamp, so disclose receipt-time-only evidence.
 Reject crossed/nonpositive/unsorted books, invalid sizes, future/stale source

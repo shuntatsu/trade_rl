@@ -28,6 +28,7 @@ _ROSTER = [
     ("perpetual_rules", f"{_FUTURES}/exchangeInfo"),
 ]
 _SCHEMA = "binance_forward_rules_v1"
+_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 
 def _rule_number(value: object, *, positive: bool = False) -> float:
@@ -210,7 +211,7 @@ def capture_forward_rules(
         anchor = monotonic()
         for label, url in _ROSTER:
             requested, before = _aware_utc(clock(), field="rule request"), monotonic()
-            raw = client._request_bytes(url)
+            raw = client._request_bytes(url, max_response_bytes=_MAX_RESPONSE_BYTES)
             after, received = monotonic(), _aware_utc(clock(), field="rule receipt")
             with (destination / f"{label}.raw").open("xb") as stream:
                 stream.write(raw)

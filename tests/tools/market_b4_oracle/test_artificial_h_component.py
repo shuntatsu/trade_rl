@@ -1239,6 +1239,41 @@ def test_artificial_h_plan_start_record_must_match_exact_plan(
         outer._assert_artificial_h_start_matches_plan(plan, start)
 
 
+@pytest.mark.parametrize(
+    ("field", "changed_value"),
+    [
+        ("dataset", {"dataset_id": "0" * 64}),
+        ("binding_digest", "0" * 64),
+    ],
+)
+def test_artificial_h_preflight_rejects_q_input_authority_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    changed_value: object,
+) -> None:
+    from dataclasses import replace
+
+    import tools.market_b4_outer_runner as outer
+
+    plan = _artificial_plan(tmp_path, monkeypatch)
+    outer._assert_artificial_h_plan_current(plan)
+
+    authority = outer._artificial_h_plan_authority_payload(plan)
+    authority[field] = changed_value
+    tampered_plan = replace(
+        plan,
+        input_authority_canonical=_canonical(authority),
+    )
+
+    def fail_if_spawned(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("Q authority mismatch must fail before child creation")
+
+    monkeypatch.setattr(outer.subprocess, "Popen", fail_if_spawned)
+    with pytest.raises(ValueError, match="Q input authority differs"):
+        outer.run_artificial_h_component_attempt(plan=tampered_plan)
+
+
 def test_artificial_operator_runtime_report_must_match_same_process_pins(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

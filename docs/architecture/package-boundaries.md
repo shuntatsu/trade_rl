@@ -2366,9 +2366,14 @@ disjoint path under its `output/verify` root and binds that exact path through
 the typed plan, child plan, launch arguments and root input authority. Both
 parent and child reject colon-bearing leaf names (Windows alternate data streams)
 before checking target absence or opening the sidecar. After validating
-the plan and CLI, the child is the sole creator and opens the fresh
-sidecar exclusively before Dataset construction or replay. The sidecar remains
-outside the authoritative H output and witness rosters.
+the plan and CLI, the child checks the already-created parent witness directory
+and reads its bounded canonical `start.json` without modifying it. It checks the
+start record's attempt, source/runtime/operator, input-plan hash, paths and
+launch arguments against the child plan. This is a read-only binding check, not
+authentication of the parent or an additional authority grant. The child still
+requires its own output root to be fresh and exclusively creates and opens the
+sidecar before Dataset construction or replay. The sidecar remains outside the
+authoritative H output and witness rosters.
 
 Progress lines are emitted at each role/phase start, at a bounded stride and at
 the phase endpoint, with hard record and byte caps. Each contains only role,

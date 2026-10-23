@@ -252,6 +252,12 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
         in normalized_boundaries
     )
     assert "Before the first output-root `mkdir`" in normalized_boundaries
+    assert "already-created parent witness directory" in normalized_boundaries
+    assert (
+        "bounded canonical `start.json` without modifying it" in normalized_boundaries
+    )
+    assert "not authentication of the parent" in normalized_boundaries
+    assert "requires its own output root to be fresh" in normalized_boundaries
     assert "Q's shared pair" in boundaries
     assert "Dataset before consuming either role receipt" in boundaries
     assert "Windows alternate data streams" in boundaries

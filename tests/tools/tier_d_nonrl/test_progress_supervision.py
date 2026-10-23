@@ -148,7 +148,7 @@ with ProgressJournal(root,specs[0]) as journal:
     unrelated = original_popen(
         [sys.executable, "-B", "-c", "import time;time.sleep(30)"]
     )
-    unrelated_tree = ProcessTree(unrelated.pid)
+    unrelated_tree = ProcessTree.from_popen(unrelated)
     unrelated_tree.sample()
     observed = {}
 
@@ -207,7 +207,7 @@ with ProgressJournal(root,specs[0]) as journal:
     finally:
         worker = observed.get("worker")
         if worker is not None and worker.poll() is None:
-            tree = ProcessTree(worker.pid)
+            tree = ProcessTree.from_popen(worker)
             tree.sample()
             module.terminate_owned_tree(worker, tree)
         module.terminate_owned_tree(unrelated, unrelated_tree)

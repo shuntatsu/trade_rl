@@ -21,11 +21,30 @@ def test_tier_d_source_has_a_maintained_cli_and_normal_verification_routing():
     assert (owner / "__main__.py").is_file()
     assert (ROOT / "tests/tools/tier_d_nonrl/test_runner.py").is_file()
     workflow = (ROOT / ".github/workflows/ci.yml").read_text("utf-8")
-    assert workflow.count("tools/tier_d_nonrl") == 2
+    research_type_routes = [
+        line
+        for line in workflow.splitlines()
+        if "uv run mypy" in line and "tools/tier_d_nonrl" in line
+    ]
+    assert len(research_type_routes) == 2
     assert not any(
         (ROOT / "output/issue810-tier-d-nonrl-preparation" / name).exists()
         for name in ("tier_d_runner.py", "tier_d_supervisor.py", "test_runner.py")
     )
+
+
+def test_windows_process_ownership_integration_is_a_ci_gate():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text("utf-8")
+    assert "name: Windows process ownership tests" in workflow
+    assert "if: matrix.os == 'windows-latest'" in workflow
+    for selector in (
+        "test_actual_windows_redirector_memory_and_owned_leaf_termination",
+        "test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated",
+        "test_actual_supervisor_samples_and_reaps_real_pool_workers",
+        "test_actual_stalled_journal_stops_owned_child_and_retains_verified_prefix",
+        "test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure",
+    ):
+        assert selector in workflow
 
 
 def test_tier_d_tooling_does_not_implement_a_ledger_or_import_live_final_or_ppo():
@@ -230,6 +249,9 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
     owner = ROOT / "tools/tier_d_nonrl"
     process_tree_source = (owner / "tier_d_process_tree.py").read_text("utf-8")
     process_tree = ast.parse(process_tree_source)
+    assert "def from_popen(" in process_tree_source
+    assert "_process_identity_from_popen(process)" in process_tree_source
+    assert "_CIM_CREATION_TOLERANCE_TICKS" in process_tree_source
     sample = next(
         node
         for node in process_tree.body
@@ -272,6 +294,7 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
         in supervisor_source
     )
     assert "worker root process birth identity was never observed" in supervisor_source
+    assert "ProcessTree.from_popen(process)" in supervisor_source
 
     scaling_source = (ROOT / "tools/tier_d_scaling/supervision.py").read_text("utf-8")
     assert '"owned_process_count": len(observed.owned_members)' in scaling_source
@@ -282,6 +305,7 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
     )
     assert '"ambiguous_rss_members_remaining": ambiguous_remaining' in scaling_source
     assert "worker root process birth identity was never observed" in scaling_source
+    assert "ProcessTree.from_popen(process)" in scaling_source
 
     architecture = (ROOT / "docs/architecture/package-boundaries.md").read_text("utf-8")
     assert (
@@ -291,5 +315,17 @@ def test_sampled_rss_attribution_is_separate_from_kill_and_reconciliation_author
     normalized_architecture = " ".join(architecture.split())
     assert (
         "unless a snapshot captured the worker root's PID and birth identity"
+        in normalized_architecture
+    )
+    assert (
+        "reads its creation FILETIME through the process handle"
+        in normalized_architecture
+    )
+    assert (
+        "not a claim that CIM supplied an exact 100-nanosecond timestamp"
+        in normalized_architecture
+    )
+    assert (
+        "A visible root row with that missing or mismatched launch identity also contributes RSS as ambiguous evidence, but is never kill-owned."
         in normalized_architecture
     )

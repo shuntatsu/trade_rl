@@ -34,6 +34,7 @@ from trade_rl.evaluation.runs import (
     publish_candidate_run,
     resolve_candidate_run_spec,
 )
+from trade_rl.evaluation.runs.artifact import _SHARED_CASH_RESULT_SCHEMAS
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
 _RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA = {
@@ -97,7 +98,6 @@ _VERSIONED_RUN_CONFIG_FIELDS = {
         ),
     },
     6: {"evaluation": frozenset({"expected_periods"})},
-    7: {"summary": frozenset({"shared_cash_ppo"})},
     8: {"candidate_config": frozenset({"supervised_forecast_horizon_hours"})},
 }
 
@@ -317,6 +317,13 @@ def _reject_fields_newer_than_result_schema(
     *,
     result_schema: str,
 ) -> None:
+    if (
+        "shared_cash_ppo" in summary
+        and result_schema not in _SHARED_CASH_RESULT_SCHEMAS
+    ):
+        raise ArtifactIntegrityError(
+            "EvidenceSet shared-cash fields exceed the declared result schema"
+        )
     version = _RUN_RESULT_SCHEMA_VERSION[result_schema]
     mappings: dict[str, list[Mapping[str, object]]] = {"summary": [summary]}
     for location in ("candidate_config", "evaluation"):

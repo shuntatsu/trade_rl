@@ -5,6 +5,7 @@ import shutil
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tests.evaluation.experiments.test_evidence import (
@@ -28,6 +29,63 @@ from trade_rl.evaluation.runs import (
     publish_candidate_run,
     resolve_candidate_run_spec,
 )
+
+
+@pytest.mark.parametrize(
+    ("result_schema", "reject_shared_cash"),
+    (
+        ("lean_candidate_result_v7", False),
+        ("lean_candidate_result_v8", True),
+        ("lean_candidate_result_v9", False),
+    ),
+)
+def test_evidence_set_run_schema_enforces_shared_cash_capability(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    result_schema: str,
+    reject_shared_cash: bool,
+) -> None:
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    store, plan, _ = _published_evidence(tmp_path, monkeypatch)
+    run_root = (
+        store.root / "evidence" / "baseline" / "runs" / f"seed-{plan.ppo_seeds[0]}"
+    )
+    run = load_candidate_run_artifact(run_root)
+    summary = dict(run.summary)
+    summary["schema_version"] = result_schema
+    summary["shared_cash_ppo"] = {
+        "return_key": "shared_cash_ppo",
+        "metrics": {"total_return": 999.0},
+    }
+    candidate_config = dict(summary["candidate_config"])
+    if result_schema == "lean_candidate_result_v7":
+        candidate_config.pop("supervised_forecast_horizon_hours")
+    summary["candidate_config"] = candidate_config
+    run = replace(run, summary=summary)
+
+    if reject_shared_cash:
+        with pytest.raises(
+            ArtifactIntegrityError, match="shared-cash.*schema|schema.*shared-cash"
+        ):
+            evidence_module._run_semantic_config(run)
+        summary_path = run_root / "summary.json"
+        persisted_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        persisted_summary["shared_cash_ppo"] = summary["shared_cash_ppo"]
+        summary_path.write_text(
+            json.dumps(persisted_summary, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        returns_path = run_root / "returns.npz"
+        with np.load(returns_path, allow_pickle=False) as archive:
+            returns = {key: archive[key].copy() for key in archive.files}
+        returns["shared_cash_ppo"] = np.zeros(3, dtype=np.float64)
+        with returns_path.open("wb") as stream:
+            np.savez_compressed(stream, **returns)
+        with pytest.raises(ArtifactIntegrityError, match="shared-cash"):
+            load_evidence_set(store.root / "evidence" / "baseline")
+    else:
+        evidence_module._run_semantic_config(run)
 
 
 def _published_evidence(

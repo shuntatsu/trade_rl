@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -272,6 +273,23 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "risk": None,
     }
 
+    summary["shared_cash_ppo"] = {
+        "return_key": "shared_cash_ppo",
+        "metrics": {"total_return": 999.0},
+    }
+    artifact.summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    with np.load(artifact.returns_path, allow_pickle=False) as archive:
+        returns = {key: archive[key].copy() for key in archive.files}
+    returns["shared_cash_ppo"] = np.zeros(3, dtype=np.float64)
+    with artifact.returns_path.open("wb") as stream:
+        np.savez_compressed(stream, **returns)
+
+    with pytest.raises(ValueError, match="shared-cash.*v8|v8.*shared-cash"):
+        candidate_artifact.load_candidate_run_artifact(artifact.root)
+
 
 def test_run_candidate_artifact_rejects_unknown_config_keys(
     tmp_path,
@@ -450,3 +468,17 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     assert portfolio["ledger_evidence"]["interval_count"] == 3
     assert len(portfolio["ledger_evidence"]["digest"]) == 64
     assert np.array_equal(loaded.returns["shared_cash_ppo"], np.zeros(3))
+
+    legacy_root = tmp_path / "legacy-shared-cash-result"
+    shutil.copytree(published.root, legacy_root)
+    legacy_summary_path = legacy_root / "summary.json"
+    legacy_summary = json.loads(legacy_summary_path.read_text(encoding="utf-8"))
+    legacy_summary["schema_version"] = "lean_candidate_result_v7"
+    legacy_summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    legacy_summary_path.write_text(
+        json.dumps(legacy_summary, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    legacy_loaded = candidate_artifact.load_candidate_run_artifact(legacy_root)
+    assert legacy_loaded.summary["schema_version"] == "lean_candidate_result_v7"
+    assert np.array_equal(legacy_loaded.returns["shared_cash_ppo"], np.zeros(3))

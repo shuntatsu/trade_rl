@@ -46,6 +46,7 @@ _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
 _RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
 _RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
+_SHARED_CASH_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9})
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -555,6 +556,11 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
             if not isinstance(key, str) or not key:
                 raise ValueError("candidate summary return_key must be non-empty")
             keys.append(key)
+    if "shared_cash_ppo" in summary:
+        _validate_shared_cash_result_schema(
+            summary,
+            result_schema=summary.get("schema_version"),
+        )
     shared_cash_ppo = summary.get("shared_cash_ppo")
     if shared_cash_ppo is not None:
         if not isinstance(shared_cash_ppo, dict):
@@ -566,6 +572,21 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
     if len(keys) != len(set(keys)):
         raise ValueError("candidate summary return keys must be unique")
     return frozenset(keys)
+
+
+def _validate_shared_cash_result_schema(
+    summary: Mapping[str, object],
+    *,
+    result_schema: object,
+) -> None:
+    if "shared_cash_ppo" in summary and (
+        not isinstance(result_schema, str)
+        or result_schema not in _SHARED_CASH_RESULT_SCHEMAS
+    ):
+        raise ValueError(
+            "candidate shared-cash PPO evidence is unsupported by result schema: "
+            f"{result_schema}"
+        )
 
 
 def _validate_ppo_training_evidence(
@@ -1145,6 +1166,7 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
 
 
 def _validate_v8_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_shared_cash_result_schema(summary, result_schema=_RESULT_SCHEMA_V8)
     _validate_v6_replay_evidence(summary)
 
 

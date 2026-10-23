@@ -375,6 +375,38 @@ def test_completed_receipt_has_four_original_inputs_and_native_events(kind, boun
         assert env.book.fill_count == 0
 
 
+def test_same_head_plan_and_receipt_bytes_match_public_source_digest(monkeypatch):
+    from trade_rl.artifacts import canonical_json_bytes
+    from trade_rl.evaluation.rl_allocation import global_execution_context as context
+
+    api = capability()
+    folds = global_control_folds(7)
+    reference_env, optimized_env = global_control_fixture(), global_control_fixture()
+    reference_plan = declare(api, reference_env, folds)
+    optimized_plan = declare(api, optimized_env, folds)
+    reference_plan_bytes = canonical_json_bytes(reference_plan.payload)
+    optimized_plan_bytes = canonical_json_bytes(optimized_plan.payload)
+
+    public_source_digest = context._source_envelope_digest
+
+    def use_public_source_digest(env, stream_memo, _envelope_memo=None):
+        return public_source_digest(env, stream_memo)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(context, "_source_envelope_digest", use_public_source_digest)
+        reference = api.run_declared_global_allocation_execution(
+            folds, reference_env, reference_plan
+        )
+    optimized = api.run_declared_global_allocation_execution(
+        folds, optimized_env, optimized_plan
+    )
+
+    assert reference_plan_bytes == optimized_plan_bytes
+    assert canonical_json_bytes(reference.receipt.payload) == canonical_json_bytes(
+        optimized.receipt.payload
+    )
+
+
 def test_common_context_is_candidate_independent_and_cell_recipe_is_separate():
     api = capability()
     folds = global_control_folds(7)

@@ -406,6 +406,8 @@ universal frozen model/policy
 
 Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益で別銘柄の損失を隠さず、各symbol × strategyについてreturns、drawdown、turnover、execution cost、funding、borrow、trade/fill/rebalance diagnostics、terminationを保持する。
 
+共通のwalk-forward OOS stitching API (`stitch_oos`) は、明示されたfold `elapsed_years` を合計し、durationがないfoldは `len(values) / periods_per_year` のdefault clockを加える。独立fold間のgapは別に記録し、returnやdurationを補わない。全foldがdefault clockなら stitched `elapsed_years` は未設定のまま保つ。
+
 ### Trading-bot tuning and holdout reporting
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。

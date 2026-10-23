@@ -47,6 +47,16 @@ _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
 _RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
 _RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
 _SHARED_CASH_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9})
+
+
+def supports_shared_cash_result_schema(result_schema: object) -> bool:
+    """Return whether a candidate result schema carries shared-cash evidence."""
+
+    return (
+        isinstance(result_schema, str) and result_schema in _SHARED_CASH_RESULT_SCHEMAS
+    )
+
+
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -579,9 +589,8 @@ def _validate_shared_cash_result_schema(
     *,
     result_schema: object,
 ) -> None:
-    if "shared_cash_ppo" in summary and (
-        not isinstance(result_schema, str)
-        or result_schema not in _SHARED_CASH_RESULT_SCHEMAS
+    if "shared_cash_ppo" in summary and not supports_shared_cash_result_schema(
+        result_schema
     ):
         raise ValueError(
             "candidate shared-cash PPO evidence is unsupported by result schema: "
@@ -1422,4 +1431,5 @@ __all__ = [
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
     "publish_candidate_run",
+    "supports_shared_cash_result_schema",
 ]

@@ -33,8 +33,8 @@ from trade_rl.evaluation.runs import (
     load_candidate_run_artifact,
     publish_candidate_run,
     resolve_candidate_run_spec,
+    supports_shared_cash_result_schema,
 )
-from trade_rl.evaluation.runs.artifact import _SHARED_CASH_RESULT_SCHEMAS
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
 _RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA = {
@@ -317,9 +317,8 @@ def _reject_fields_newer_than_result_schema(
     *,
     result_schema: str,
 ) -> None:
-    if (
-        "shared_cash_ppo" in summary
-        and result_schema not in _SHARED_CASH_RESULT_SCHEMAS
+    if "shared_cash_ppo" in summary and not supports_shared_cash_result_schema(
+        result_schema
     ):
         raise ArtifactIntegrityError(
             "EvidenceSet shared-cash fields exceed the declared result schema"

@@ -40,19 +40,25 @@ from tools.market_b4_oracle.outer_witness import (
 )
 from tools.market_b4_oracle.output_index import NativeOutputIndex
 from tools.market_b4_oracle.receipt_stream import ReceiptScan
+from tools.market_b4_oracle.reference_ledger import (
+    _NativeReferenceLedger,
+)
 from tools.market_replay_oracle import (
+    DEFAULT_PROTOCOL_SOURCE_PROFILE,
     DatasetContentPin,
     DeclaredProtocolPair,
     EventBatchPin,
-    FrozenAttemptBinding,
+    ExactFillAttemptBinding,
     NativeSourcePin,
     OrderEventContext,
     ProtocolPin,
+    ProtocolSourceProfileId,
     VerifiedDatasetContent,
     load_declared_protocol_pair,
     load_pinned_exact_fill_attempt,
     load_pinned_v4,
     read_pinned_order_events,
+    walk_bound_event_rows,
 )
 
 _MAX_FORECAST_BYTES = 64 * 1024**2
@@ -71,6 +77,7 @@ class StaticInputReadback:
     source_pin: NativeSourcePin
     dataset_root: Path
     dataset_pin: DatasetContentPin
+    source_profile: ProtocolSourceProfileId = DEFAULT_PROTOCOL_SOURCE_PROFILE
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +184,7 @@ def _readback_static_inputs(
     binding: FrozenMarketBinding,
     content: VerifiedDatasetContent,
     policy: FrozenMarketPolicy,
-) -> tuple[DeclaredProtocolPair, FrozenAttemptBinding, VerifiedDatasetContent]:
+) -> tuple[DeclaredProtocolPair, ExactFillAttemptBinding, VerifiedDatasetContent]:
     if type(pins) is not StaticInputReadback or binding.comparison_only:
         raise ValueError("native exact readback requires a native arm and static pins")
     pair = load_declared_protocol_pair(
@@ -185,6 +192,7 @@ def _readback_static_inputs(
         pins.protocol_v3_pin,
         pins.protocol_v4_path,
         pins.protocol_v4_pin,
+        source_profile=pins.source_profile,
     )
     if (
         binding.protocol_pair != pair
@@ -198,6 +206,7 @@ def _readback_static_inputs(
         pins.source_pin,
         pins.dataset_root,
         pins.dataset_pin,
+        source_profile=pins.source_profile,
     )
     loaded = load_pinned_v4(pins.dataset_root, pins.dataset_pin)
     if not _same_content(content, loaded) or frozen.payload()["clock"] != {
@@ -227,11 +236,64 @@ def _readback_static_inputs(
             pins.protocol_v3_pin,
             pins.protocol_v4_path,
             pins.protocol_v4_pin,
+            source_profile=pins.source_profile,
         )
         != pair
     ):
         raise ValueError("declared protocol pair changed during static input readback")
     return pair, frozen, loaded
+
+
+def _validate_native_event_rows(
+    *,
+    output_index: NativeOutputIndex,
+    receipt_name: str,
+    binding: FrozenMarketBinding,
+    exact_fill_binding: ExactFillAttemptBinding,
+) -> None:
+    """Require a full strict-v4 chain over the original indexed receipt rows."""
+    if (
+        binding.comparison_only
+        or type(exact_fill_binding) is not ExactFillAttemptBinding
+    ):
+        raise ValueError("native event readback requires its exact paired v4 binding")
+    actor_reader = output_index.receipt_rows(receipt_name, phase="actor")
+    reserve_reader = output_index.receipt_rows(receipt_name, phase="reserve")
+    coverage = walk_bound_event_rows(
+        exact_fill_binding,
+        account=binding.account_id,
+        scenario=binding.scenario,
+        role=binding.native_role,
+        actor_rows=actor_reader,
+        closing_rows=reserve_reader,
+    )
+    actor_scan, reserve_scan = actor_reader.proof, reserve_reader.proof
+    expected_actor_rows = binding.window.actor_advances
+    expected_reserve_rows = binding.window.reserve_advances
+    if coverage.rejected_native_rows != 0:
+        raise ValueError("native event receipt contains rejected native facts")
+    if (
+        coverage.binding_digest != exact_fill_binding.digest
+        or coverage.account != binding.account_id
+        or coverage.scenario != binding.scenario
+        or coverage.role != binding.native_role
+        or coverage.expected_actor_rows != expected_actor_rows
+        or coverage.expected_reserve_rows != expected_reserve_rows
+        or coverage.observed_actor_rows != expected_actor_rows
+        or coverage.observed_reserve_rows != expected_reserve_rows
+        or not coverage.all_expected_batches_present
+        or coverage.tail_native_missing
+        or actor_scan.selected_rows != expected_actor_rows
+        or actor_scan.actor_rows != expected_actor_rows
+        or actor_scan.reserve_rows != expected_reserve_rows
+        or reserve_scan.selected_rows != expected_reserve_rows
+        or reserve_scan.actor_rows != expected_actor_rows
+        or reserve_scan.reserve_rows != expected_reserve_rows
+        or actor_scan.compressed_sha256 != reserve_scan.compressed_sha256
+    ):
+        raise ValueError(
+            "native receipt lacks a complete, nonrejected strict-v4 event chain"
+        )
 
 
 def _json_pairs_no_duplicates(
@@ -290,7 +352,7 @@ def derive_frozen_native_market_roster(
     """Derive the frozen 48-arm H/v3 roster from its validated declaration."""
     if type(protocol_pair) is not DeclaredProtocolPair:
         raise ValueError("native matrix requires the exact declared H/v3 and H/v4 pair")
-    protocol_pair.__post_init__()
+    protocol_pair.validate()
     if type(content) is not VerifiedDatasetContent:
         raise ValueError("native matrix requires caller-pinned Dataset content")
     protocol = _json_object_bytes(protocol_pair.native_canonical, "native protocol")
@@ -893,6 +955,79 @@ def _compare_event_effects(
         )
 
 
+def _compare_native_fill_diagnostics(
+    events: tuple[dict[str, object], ...],
+    replay: FrozenMarketReplay,
+    advance: object,
+) -> None:
+    from tools.market_b4_oracle.frozen_market_replay import OwnedFill, ReplayAdvance
+
+    if type(advance) is not ReplayAdvance:
+        raise ValueError("owned replay did not return its exact row advance")
+    fill_events = tuple(
+        event
+        for event in events
+        if event.get("event_type") in {"filled", "partial_fill"}
+    )
+    if not fill_events:
+        return
+    if (
+        len(fill_events) != 1
+        or len(advance.owned_fills) != 1
+        or type(advance.owned_fills[0]) is not OwnedFill
+    ):
+        raise ValueError("native fill diagnostics require one owned active order")
+
+    schema_version = fill_events[0].get("schema_version")
+    if schema_version not in {"order_event_v1", "order_event_v2"}:
+        raise ValueError("native fill diagnostics require a supported event schema")
+    schema_label = cast(str, schema_version).removeprefix("order_event_")
+
+    selected = replay.selected_symbol_index
+    volume_units = replay.content.dataset.get("volume_units")
+    if (
+        type(volume_units) is not tuple
+        or len(volume_units) != 2
+        or volume_units[selected] != "quote_notional"
+    ):
+        raise ValueError("native fill diagnostics require quote-notional capacity")
+
+    arrays = replay.content.arrays
+    fill = advance.owned_fills[0]
+    processing = fill.processing_index
+    if processing != advance.processing_index or processing <= 0:
+        raise ValueError("native fill diagnostics require the owned processing row")
+    # The frozen native profile consumes prior-bar quote volume and fixes the
+    # capacity pool from the minimum of policy and processing-row participation.
+    prior_volume = float(arrays["volume"][processing - 1, selected])
+    row_limit = float(arrays["max_participation_rate"][processing, selected])
+    initial_capacity = prior_volume * min(
+        replay.policy.max_participation_rate, row_limit
+    )
+    event = fill_events[0]
+    capacity_after = max(0.0, initial_capacity - fill.filled_notional)
+    _same_float(
+        event.get("filled_notional"),
+        fill.filled_notional,
+        f"{schema_label} fill notional",
+    )
+    _same_float(
+        event.get("capacity_before"),
+        initial_capacity,
+        f"{schema_label} capacity before",
+    )
+    _same_float(
+        event.get("capacity_after"),
+        capacity_after,
+        f"{schema_label} capacity after",
+    )
+    _same_float(
+        event.get("participation_rate"),
+        fill.participation_rate,
+        f"{schema_label} participation rate",
+    )
+
+
 def _native_actor_identity_hashes(
     native: dict[str, object],
     *,
@@ -1248,6 +1383,7 @@ def _consume_indexed_market_arm(
     reserve_plan_digest: str,
     artificial_inputs: object | None = None,
     static_inputs: StaticInputReadback | None = None,
+    native_event_binding: ExactFillAttemptBinding | None = None,
     expected_runtime_environment_sha256: str | None = None,
     whole_index_recheck: bool,
     static_input_recheck: bool,
@@ -1306,7 +1442,12 @@ def _consume_indexed_market_arm(
         raise ValueError("Q artificial inputs cannot bind a different protocol")
 
     static_before: (
-        tuple[DeclaredProtocolPair, FrozenAttemptBinding, VerifiedDatasetContent] | None
+        tuple[
+            DeclaredProtocolPair,
+            ExactFillAttemptBinding,
+            VerifiedDatasetContent,
+        ]
+        | None
     ) = None
     if static_inputs is not None and static_input_recheck:
         static_before = _readback_static_inputs(
@@ -1314,6 +1455,24 @@ def _consume_indexed_market_arm(
         )
     if whole_index_recheck:
         output_index.recheck()
+    if not binding.comparison_only:
+        if static_before is not None:
+            if (
+                native_event_binding is not None
+                and native_event_binding.digest != static_before[1].digest
+            ):
+                raise ValueError("native event binding differs from static readback")
+            native_event_binding = static_before[1]
+        if type(native_event_binding) is not ExactFillAttemptBinding:
+            raise ValueError("native arm requires the paired exact-fill event binding")
+        _validate_native_event_rows(
+            output_index=output_index,
+            receipt_name=receipt_name,
+            binding=binding,
+            exact_fill_binding=native_event_binding,
+        )
+    elif native_event_binding is not None:
+        raise ValueError("comparison-only arms cannot carry native event bindings")
     if protocol.get("schema") == "issue810_artificial_h_component_q_binding_v1":
         expected_artificial_forecast_sha256 = verify_artificial_component_forecast(
             output_index=output_index,
@@ -1339,6 +1498,15 @@ def _consume_indexed_market_arm(
         policy=policy,
         binding=binding,
         reserve_plan_digest=reserve_plan_digest,
+    )
+    reference_ledger = (
+        None
+        if binding.comparison_only
+        else _NativeReferenceLedger(
+            content=content,
+            policy=policy,
+            binding=binding,
+        )
     )
     configurations = protocol.get("configurations")
     configuration_rows = (
@@ -1426,6 +1594,8 @@ def _consume_indexed_market_arm(
             actor_fill_processing_indices.append(processing)
         _compare_actor_identity(native, advance)
         _compare_event_effects(events, observed_fills, replay, advance)
+        if not binding.comparison_only:
+            _compare_native_fill_diagnostics(events, replay, advance)
         _compare_orders(native, replay, advance, prior_terminal)
         execution = cast(dict[str, object], native["execution"])
         _compare_book(
@@ -1434,6 +1604,12 @@ def _consume_indexed_market_arm(
             processing_index=processing,
             interval_return=execution.get("interval_net_return"),
         )
+        if reference_ledger is not None:
+            reference_ledger.apply_advance(
+                advance=advance,
+                observed_fills=observed_fills,
+                observed_account=replay.account_snapshot,
+            )
     actor_scan = actor_reader.proof
     metadata = actor_reader.metadata
     if (
@@ -1469,6 +1645,8 @@ def _consume_indexed_market_arm(
         if advance.owned_fills:
             reserve_fill_processing_indices.append(processing)
         _compare_event_effects(events, observed_fills, replay, advance)
+        if not binding.comparison_only:
+            _compare_native_fill_diagnostics(events, replay, advance)
         if advance.actor_identity is not None:
             raise ValueError("reserve submissions differ from owned reserve identity")
         _compare_orders(native, replay, advance, prior_terminal)
@@ -1479,6 +1657,12 @@ def _consume_indexed_market_arm(
             processing_index=processing,
             interval_return=execution.get("interval_net_return"),
         )
+        if reference_ledger is not None:
+            reference_ledger.apply_advance(
+                advance=advance,
+                observed_fills=observed_fills,
+                observed_account=replay.account_snapshot,
+            )
     reserve_scan = reserve_reader.proof
     if reserve_reader.metadata != metadata:
         raise ValueError("receipt metadata changed between actor and reserve scans")
@@ -1490,6 +1674,8 @@ def _consume_indexed_market_arm(
     ):
         raise ValueError("reserve receipt rows differ from bound window")
 
+    if reference_ledger is not None:
+        reference_ledger.assert_complete()
     completion = replay.completion()
     if (
         completion["status"] != "comparison_window_consumed"
@@ -1676,6 +1862,7 @@ def consume_indexed_market_matrix(
             role=arm.role,
             reserve_plan_digest=digest,
             static_inputs=static_inputs,
+            native_event_binding=static_before[1],
             expected_runtime_environment_sha256=expected_runtime_environment_sha256,
             whole_index_recheck=False,
             static_input_recheck=False,

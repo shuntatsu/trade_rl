@@ -357,8 +357,8 @@ def test_pair_rechecks_both_raw_files_after_v4_load(
     changed_path = v3_path if changed_side == "native" else v4_path
     original = protocol_v4.load_protocol_v4
 
-    def load_then_mutate(path: Path, pin: ProtocolPin) -> dict[str, Any]:
-        document = original(path, pin)
+    def load_then_mutate(path: Path, pin: ProtocolPin, **kwargs: Any) -> dict[str, Any]:
+        document = original(path, pin, **kwargs)
         if path == v4_path:
             changed_path.write_bytes(changed_path.read_bytes() + b"\n")
         return document

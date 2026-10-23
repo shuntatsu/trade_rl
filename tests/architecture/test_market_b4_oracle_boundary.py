@@ -21,6 +21,7 @@ INTERNAL_SEMANTIC_COMPONENTS = frozenset(
         "frozen_market_replay.py",
         "offline_replay_consumer.py",
         "outer_witness.py",
+        "reference_ledger.py",
     }
 )
 PUBLIC_FACADES = {
@@ -123,6 +124,18 @@ def test_composition_imports_are_limited_to_stdlibrary_numpy_and_public_facades(
                     imported_names,
                 )
             assert not module.startswith("trade_rl"), (path.relative_to(ROOT), module)
+
+    consumer = ROOT / "tools/market_b4_oracle/offline_replay_consumer.py"
+    facade_imports = {
+        name
+        for module, imported_names in _resolved_imports(consumer)
+        if module == "tools.market_replay_oracle"
+        for name in imported_names
+    }
+    assert {
+        "ProtocolSourceProfileId",
+        "DEFAULT_PROTOCOL_SOURCE_PROFILE",
+    } <= facade_imports
 
 
 def test_replay_identity_primitives_are_exported_by_the_public_facade() -> None:
@@ -310,6 +323,53 @@ def test_frozen_h_plan_and_matrix_consumer_remain_unlaunched_comparison_scope() 
     assert "output_index_rechecks=2" in consumer
     assert "full_b4_authorized: Literal[False] = False" in consumer
     assert "def derive_frozen_native_market_roster(" in consumer
+
+
+def test_native_arm_checks_pinned_v4_event_rows_before_q_replay() -> None:
+    consumer_path = ROOT / "tools/market_b4_oracle/offline_replay_consumer.py"
+    tree = ast.parse(consumer_path.read_text(encoding="utf-8"))
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+
+    def calls(function: ast.FunctionDef) -> list[tuple[str, ast.Call]]:
+        found = []
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            name = (
+                node.func.id
+                if isinstance(node.func, ast.Name)
+                else node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else ""
+            )
+            found.append((name, node))
+        return sorted(found, key=lambda item: item[1].lineno)
+
+    arm = functions["_consume_indexed_market_arm"]
+    arm_calls = calls(arm)
+    validation_line = next(
+        node.lineno for name, node in arm_calls if name == "_validate_native_event_rows"
+    )
+    forecast_line = next(
+        node.lineno for name, node in arm_calls if name == "FrozenForecastIndex"
+    )
+    replay_line = next(node.lineno for name, node in arm_calls if name == "advance")
+    assert validation_line < forecast_line < replay_line
+
+    root_arm_calls = calls(functions["consume_root_observed_market_arm"])
+    gate_line = next(
+        node.lineno
+        for name, node in root_arm_calls
+        if name == "_validate_root_observed_attempt"
+    )
+    consumer_line = next(
+        node.lineno
+        for name, node in root_arm_calls
+        if name == "consume_indexed_market_arm"
+    )
+    assert gate_line < consumer_line
 
 
 def test_identity_composer_stays_internal_and_reuses_expected_intent():

@@ -3658,14 +3658,21 @@ one-bar clocks and parses batches. Empty arrays count as present; absent, null a
 non-array batches reject. Invalid native clocks remain rejected coverage, not
 accepted evidence.
 
-Manufactured row, verifier and architecture cases exercise this software boundary.
-Independent review and full-gate evidence are bound to each PR's exact source revision;
-no market runtime results are asserted. Input is parsed row
-dictionaries, not original bytes or an authenticated receipt. Prefix/presence counts
-do not establish a completed attempt. Outer-tree/attempt verification,
-intent/admission, independent accounting and terminal settlement remain necessary
-for full B4. G v3 and financial assumptions are unchanged; no formal G0-G2, R3,
-profit, unused-period or live authority follows.
+The native selected-arm consumer now obtains the paired exact v4 binding during
+static H/v3-H/v4/source/Dataset readback, then runs the walker over both original
+manifest-pinned receipt sections before forecast or Q replay. It checks original
+row clocks and symbol metadata alongside nested event arrays. It requires all
+6,527 actor and 72 reserve batches, no missing actor tail, and no native-fact
+validation failures or invalid reserve clocks; ordinary witnessed order
+rejections remain events, not native-row failures. The later Q replay performs
+its own receipt pass and retains its existing row, order, risk, book, and terminal
+comparisons. Synthetic indexed-receipt tests exercise this wiring and failure
+ordering; no fresh H/runtime result is asserted. The event pass reads rows
+through the manifest-pinned output index but does not independently authenticate
+the native source snapshot or outer attempt. It remains comparison evidence, not
+intent admission, independent accounting, or terminal-ledger authority. Those
+requirements remain necessary for full B4. G v3 and financial assumptions are
+unchanged; no formal G0-G2, R3, profit, unused-period or live authority follows.
 
 ## Issue #810: distinct native/comparison declaration pair candidate
 
@@ -3787,6 +3794,14 @@ consumer now compares the native intent shape with the owned intent's canonical
 payload. Regressions retain strict key/value checks for true `reduce_only` and
 mutated identity fields.
 
+The paired static protocol readers now also have an explicit closed candidate
+profile for H source `b6318664`, derived from its metadata-only protocol
+declaration. The existing default remains the `d361b6e3` pair, and the legacy
+v3 reader remains frozen to `8bc2fd0c`; no source pin or prior artifact was
+rebound. This adds declaration/readback software support only. It is not a fresh
+H attempt, a completed root-consumed pair, Full-B4 acceptance, or native-48
+evidence.
+
 After that fix, the public unrooted NONRL consumer call returned against the
 preserved, manifest-pinned receipt and fixed Q spec. Its normal-return contract
 implies all 6,527 actor and 72 reserve rows passed, but the external diagnostic
@@ -3798,6 +3813,13 @@ root-consumed pair is complete. No root-consumed pinned-H 6,599-step pair, nativ
 48-arm, repository-wide final gate, economic, unused-period or live evidence is
 claimed. The current worktree remains development code; these interfaces do not
 promote it to Full-B4 authority.
+
+The native-arm consumer now also runs an independent `ReferenceAccount` ledger
+after each matched Q row, deriving price, fill cost and carry from the pinned
+Dataset and policy while preserving one account across actor and reserve phases.
+Synthetic tests cover row-level agreement and actor-to-reserve continuity. This
+source change has not been exercised on a fresh authenticated H/Q attempt and
+does not change the incomplete-pair status above.
 
 The typed artificial recipe now fixes a no-fit projection with intercept -0.02
 and a coefficient derived from the stored float32 feature range, producing

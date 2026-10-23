@@ -2172,12 +2172,20 @@ B4.
 
 `protocol_pair.py` separately compares H's native v3 declaration with the H-bound
 v4 comparison declaration. It imports neither the native runner nor production
-code, and it leaves both existing protocol loaders unchanged. Its public frozen
-result keeps independent `ProtocolPin` objects and immutable canonical bytes.
-It reads only two bounded protocol files, rejects same-file aliases and observed
-raw-byte changes, and grants only `STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope.
-Outer attempt freshness, runtime consumer binding, receipt authentication and
-financial replay remain separate responsibilities.
+code. The v4, pair and exact-fill static readers accept a closed source-profile
+selector: omission retains the existing `d361b6e3` pair, while the `b6318664`
+candidate must be selected explicitly with its public profile ID. The facade
+exports only the ID type and the two supported IDs; the immutable profile table
+and resolver remain internal. Each entry pins exact source HEAD and canonical
+v3/v4 declaration digests; unknown, mixed and altered declarations reject. The
+legacy v3 `load_protocol` and `load_pinned_attempt` remain frozen to `8bc2fd0c`,
+and the exact-fill binding payload does not serialize the selector. The public
+frozen pair result keeps independent `ProtocolPin` objects and immutable
+canonical bytes. It reads only two bounded protocol files, rejects same-file
+aliases and observed raw-byte changes, and grants only
+`STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope. Outer attempt freshness, runtime
+consumer binding, receipt authentication and financial replay remain separate
+responsibilities.
 
 The native B4 consumer composes this pair reader with
 `load_pinned_exact_fill_attempt` on the paired v4 path. That loader rechecks the
@@ -2234,22 +2242,54 @@ lineage.
 
 `offline_replay_consumer.py` composes the output index, H/v3 actor and reserve
 streaming scans, the public order-event parser, and the owned raw-row driver.
-It must exhaust both scans before it returns a comparison-complete record,
-compare every selected row and final flat/no-active state, and recheck the
-forecast and original output tree afterward. Its event parser receives a
+For a native arm, after paired H/v3-H/v4/source/Dataset readback it performs a
+separate bounded pass over both original manifest-pinned receipt sections with
+`walk_bound_event_rows` before forecast or Q replay. That pass uses only the
+separately bound v4 event context and checks original row clocks and symbol
+metadata as well as nested event arrays. It requires the full 6,527 actor and
+72 reserve batches, no missing actor tail, and no actor native-validation
+failure or invalid reserve clock. An ordinary order event with status
+`rejected` is still parsed as an event and is not counted as a rejected native
+row. H/v3 protocols and receipt rows are not relabeled as v4; the walker reads
+the original rows through the manifest-pinned output index. This pass does not
+independently authenticate the native source snapshot or outer attempt. The
+later Q replay performs its own bounded receipt scan and continues comparing
+every selected row and final flat/no-active state. The parser also receives a
 canonical projection of event objects already parsed from a receipt; that
 projection pin is derived data, while the original gzip and output-manifest
-pins remain the upper-level evidence. H/v3 rows are not relabeled as V4 or
-passed to the V4 exact-fill walker. For every actor row it rebuilds the native
-baseline, context, decision, action, and selected identity digests from the
-receipt projection and compares them with the independently advanced owned
-identity. Before consuming rows, it binds every parsed forecast vintage to the
-selected configuration's alpha, horizon, declared feature roster, and symbols.
-It also checks the receipt's plan, clock, initial-capital, horizon, runtime,
-cost, and risk declarations against the frozen binding. Even with source,
-Dataset and protocol readback pins, the result does not authenticate an outer
-attempt or authorize Full B4. The module remains internal and outside
-production imports.
+pins remain the upper-level evidence.
+
+For every actor row the Q driver rebuilds the native baseline, context,
+decision, action, and selected identity digests from the receipt projection and
+compares them with the independently advanced owned identity. Before consuming
+rows, it binds every parsed forecast vintage to the selected configuration's
+alpha, horizon, declared feature roster, and symbols. It also checks the
+receipt's plan, clock, initial-capital, horizon, runtime, cost, and risk
+declarations against the frozen binding. The strict event pass is still parsed
+comparison evidence, not source/receipt/attempt authentication, intent
+admission, accounting, or a ledger. For a native (non-comparison-only) arm, the
+consumer also maintains an internal `ReferenceAccount` ledger across actor and
+reserve rows. Before ledger application, native `order_event_v1` and
+`order_event_v2` fill diagnostics are checked against the owned fill and the
+bound raw Dataset/policy. The current single-active-order profile requires
+quote-notional volume and prior-bar capacity:
+`filled_notional` and `participation_rate` match the owned fill; `capacity_before`
+uses prior-row quote volume times the smaller policy/processing-row participation
+limit; `capacity_after` uses the producer's subtraction and zero clamp. Other
+volume units and multiple active orders fail closed; comparison-only arms keep
+their existing behavior, and v1/v2 event schemas and public projections are
+unchanged. After each row's receipt identity,
+event effects, orders and book have matched the Q-owned advance, the ledger
+independently derives MARKET price, capacity, fill costs, and carry from the
+pinned raw Dataset and frozen policy, then compares its account projection with
+the Q snapshot. Its starting state
+comes from the bound initial capital and Dataset marks; Q-projected costs and
+H-reported account values are not ledger inputs. The existing Q replay remains
+responsible for margin, admission, risk and terminal behavior; the reference
+rejects unsupported settlement, split, cash-interest and terminated-account
+rows. Comparison-only fixtures do not instantiate the ledger. This check still
+does not authenticate an outer attempt or authorize Full B4. The ledger remains
+internal and outside production imports.
 
 `outer_witness.py` provides immutable pins and bounded canonical readback for
 root-owned start/finish records. It does not create or observe processes, and

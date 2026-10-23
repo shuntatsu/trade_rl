@@ -53,10 +53,12 @@ def symbol(venue, name):
 class RuleFeed:
     def __init__(self, mutate=None):
         self.calls = []
+        self.response_limits = []
         self.mutate = mutate
 
-    def _request_bytes(self, url):
+    def _request_bytes(self, url, *, max_response_bytes=None):
         self.calls.append(url)
+        self.response_limits.append(max_response_bytes)
         venue = "perpetual" if "fapi" in url else "spot"
         payload = dict(
             serverTime=1,
@@ -79,7 +81,9 @@ def capture(root, feed=None, **kwargs):
 
 def test_rules_preserve_raw_bytes_flags_and_disabled_market_step(tmp_path):
     root = tmp_path / "rules"
-    result = capture(root)
+    feed = RuleFeed()
+    result = capture(root, feed)
+    assert feed.response_limits == [32 * 1024 * 1024] * 2
     spot = result["rules"]["spot"]["BTCUSDT"]
     perp = result["rules"]["perpetual"]["BTCUSDT"]
     assert spot["lot_size"] == 0.001 and spot["minimum_quantity"] == 0.001
@@ -220,10 +224,10 @@ def test_rule_precision_cannot_silently_loosen_quantity_grid(tmp_path):
 
 def test_unquoted_decimal_token_cannot_bypass_rule_precision_validation(tmp_path):
     class NumericFeed(RuleFeed):
-        def _request_bytes(self, url):
+        def _request_bytes(self, url, *, max_response_bytes=None):
             return (
                 super()
-                ._request_bytes(url)
+                ._request_bytes(url, max_response_bytes=max_response_bytes)
                 .replace(b'"stepSize": "0.001"', b'"stepSize": 0.00100000000000000001')
             )
 
@@ -255,10 +259,10 @@ def test_nonintersecting_quantity_rules_are_ineligible(tmp_path):
 
 def test_network_failure_preserves_received_metadata_without_eligibility(tmp_path):
     class FailingFeed(RuleFeed):
-        def _request_bytes(self, url):
+        def _request_bytes(self, url, *, max_response_bytes=None):
             if "fapi" in url:
                 raise RuntimeError("network unavailable")
-            return super()._request_bytes(url)
+            return super()._request_bytes(url, max_response_bytes=max_response_bytes)
 
     root = tmp_path / "rules"
     with pytest.raises(RuntimeError, match="unavailable"):

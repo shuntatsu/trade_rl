@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -62,6 +63,7 @@ _REST_FUNDING = {
 }
 
 _USER_AGENT = "trade-rl/0.3 public-market-data"
+_BOUNDED_READ_CHUNK_BYTES = 64 * 1024
 
 
 class BinancePublicTransport:
@@ -133,7 +135,22 @@ class BinancePublicTransport:
         binary_temporary.replace(cache_path)
         evidence_temporary.replace(evidence_path)
 
-    def _request_bytes(self, url: str) -> bytes:
+    def _request_bytes(
+        self, url: str, *, max_response_bytes: int | None = None
+    ) -> bytes:
+        """Return raw bytes, optionally bounding a network response body.
+
+        Validated historical Vision cache hits continue through the existing
+        cache reader; the per-call limit applies to HTTP response-body reads.
+        """
+        if max_response_bytes is not None and (
+            isinstance(max_response_bytes, bool)
+            or not isinstance(max_response_bytes, int)
+            or not 0 < max_response_bytes < sys.maxsize
+        ):
+            raise ValueError(
+                "max_response_bytes must be a positive integer smaller than sys.maxsize"
+            )
         cache_path = self._vision_cache_path(url)
         if cache_path is not None and cache_path.is_file():
             return self._validated_cached_vision_payload(url, cache_path)
@@ -149,7 +166,58 @@ class BinancePublicTransport:
                     request,
                     timeout=self.timeout_seconds,
                 ) as response:
-                    payload = response.read()
+                    if max_response_bytes is None:
+                        payload = response.read()
+                    else:
+                        headers = getattr(response, "headers", {})
+                        header_get = getattr(headers, "get", lambda _name: None)
+                        content_length = header_get("Content-Length")
+                        try:
+                            declared_length = (
+                                None if content_length is None else int(content_length)
+                            )
+                        except (TypeError, ValueError):
+                            declared_length = None
+                        if (
+                            declared_length is not None
+                            and declared_length > max_response_bytes
+                        ):
+                            raise BinanceTransportError(
+                                "Binance response exceeds configured maximum of "
+                                f"{max_response_bytes} bytes for {url}"
+                            )
+                        bytes_read = 0
+                        response_buffer = bytearray()
+                        while bytes_read <= max_response_bytes:
+                            read_size = min(
+                                _BOUNDED_READ_CHUNK_BYTES,
+                                max_response_bytes + 1 - bytes_read,
+                            )
+                            chunk = response.read(read_size)
+                            if not chunk:
+                                break
+                            if len(chunk) > read_size:
+                                raise BinanceTransportError(
+                                    "Binance response exceeds configured maximum of "
+                                    f"{max_response_bytes} bytes for {url}"
+                                )
+                            response_buffer.extend(chunk)
+                            bytes_read += len(chunk)
+                        if bytes_read > max_response_bytes:
+                            raise BinanceTransportError(
+                                "Binance response exceeds configured maximum of "
+                                f"{max_response_bytes} bytes for {url}"
+                            )
+                        remaining_response_bytes = getattr(response, "length", None)
+                        if (
+                            type(remaining_response_bytes) is int
+                            and remaining_response_bytes > 0
+                        ):
+                            raise BinanceTransportError(
+                                f"Binance received an incomplete response body for {url}"
+                            )
+                        payload = bytes(response_buffer)
+                        del response_buffer
                     headers = getattr(response, "headers", {})
                     header_get = getattr(headers, "get", lambda _name: None)
                     etag = header_get("ETag")

@@ -12,10 +12,12 @@ MS = int(NOW.timestamp() * 1000)
 class PublicFeed:
     def __init__(self, defect=None):
         self.urls = []
+        self.response_limits = []
         self.defect = defect
 
-    def _request_bytes(self, url):
+    def _request_bytes(self, url, *, max_response_bytes=None):
         self.urls.append(url)
+        self.response_limits.append(max_response_bytes)
         symbol = "ETHUSDT" if "ETHUSDT" in url else "BTCUSDT"
         if url.endswith("/time"):
             payload = {"serverTime": MS}
@@ -85,6 +87,7 @@ def test_capture_keeps_raw_evidence_and_does_not_treat_quoted_funding_as_settled
         snapshot["market"]["BTCUSDT"]["spot_depth_time_basis"] == "local_receipt_only"
     )
     assert len(snapshot["responses"]) == 10
+    assert feed.response_limits == [64 * 1024] * 10
     assert len(list((tmp_path / "capture").glob("*.raw"))) == 10
     assert (tmp_path / "capture/snapshot.json").is_file()
     with pytest.raises(FileExistsError):
@@ -112,8 +115,8 @@ def test_depth_capture_requests_one_hundred_levels_and_labels_the_new_profile(tm
 
 def test_capture_rejects_more_depth_than_the_requested_bound(tmp_path):
     class Oversized(PublicFeed):
-        def _request_bytes(self, url):
-            raw = super()._request_bytes(url)
+        def _request_bytes(self, url, *, max_response_bytes=None):
+            raw = super()._request_bytes(url, max_response_bytes=max_response_bytes)
             if "/depth?" not in url:
                 return raw
             value = json.loads(raw)
@@ -136,8 +139,8 @@ def test_all_one_hundred_levels_survive_capture_and_verified_readback(tmp_path):
     from trade_rl.integrations.binance.forward_evidence import read_forward_snapshot
 
     class FullDepth(PublicFeed):
-        def _request_bytes(self, url):
-            raw = super()._request_bytes(url)
+        def _request_bytes(self, url, *, max_response_bytes=None):
+            raw = super()._request_bytes(url, max_response_bytes=max_response_bytes)
             if "/depth?" not in url:
                 return raw
             value = json.loads(raw)

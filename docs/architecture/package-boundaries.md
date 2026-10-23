@@ -133,6 +133,13 @@ capture. It preserves exact raw response bytes, request/receipt timing and
 hashes, validates clock/depth/settlement schemas and publishes a source-eligible
 snapshot only when all required responses pass. It does not simulate fills or
 own a paper account. The bounded Binance transport remains the HTTP owner.
+Fresh snapshot capture supplies a 64 KiB per-response body limit, while each of
+the two exchange-info responses uses a 32 MiB limit. These operational budgets
+apply only to those prospective network captures; exceeding one fails capture
+without treating a truncated prefix as raw evidence. Transport callers that do
+not supply a limit, including historical REST and Vision/cache reads, retain
+their existing behavior. These body-byte limits are not endpoint size, peak
+memory or total-runtime guarantees.
 `forward_evidence.py` revalidates the immutable response graph and reconstructs
 market summaries from raw bytes; consumption-time freshness is separate from
 offline historical verification. `forward_rules.py` captures current public

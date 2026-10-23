@@ -26,13 +26,13 @@ class FeedTransport:
         self.fail = False
         self.delay = 0
 
-    def _request_bytes(self, url):
+    def _request_bytes(self, url, *, max_response_bytes=None):
         self.urls.append(url)
         self.clock.value += timedelta(seconds=self.delay)
         if self.fail:
             raise RuntimeError("source unavailable")
         feed = RuleFeed() if "exchangeInfo" in url else Feed(self.clock.value)
-        return feed._request_bytes(url)
+        return feed._request_bytes(url, max_response_bytes=max_response_bytes)
 
 
 def setup(tmp_path, monkeypatch, *, close_seconds=60):
@@ -262,12 +262,12 @@ def test_stale_observation_is_recorded_before_rules_refresh(tmp_path, monkeypatc
         pre_capture_status = []
         original_request = feed._request_bytes
 
-        def inspect_before_request(url):
+        def inspect_before_request(url, *, max_response_bytes=None):
             if not pre_capture_status:
                 pre_capture_status.append(
                     PaperEngine(root, expected_protocol_sha256=digest).status()
                 )
-            return original_request(url)
+            return original_request(url, max_response_bytes=max_response_bytes)
 
         feed._request_bytes = inspect_before_request
         clock.value = NOW + timedelta(seconds=3402)
@@ -378,12 +378,12 @@ with supervisor.PaperCollector(sys.argv[1], expected_protocol_sha256=sys.argv[2]
     pre_capture_status = []
     original_request = feed._request_bytes
 
-    def inspect_before_request(url):
+    def inspect_before_request(url, *, max_response_bytes=None):
         if not pre_capture_status:
             pre_capture_status.append(
                 PaperEngine(root, expected_protocol_sha256=digest).status()
             )
-        return original_request(url)
+        return original_request(url, max_response_bytes=max_response_bytes)
 
     feed._request_bytes = inspect_before_request
 

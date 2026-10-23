@@ -48,6 +48,7 @@ from trade_rl.evaluation.experiments.errors import (
 from trade_rl.evaluation.experiments.evidence import (
     EvidenceSet,
     LoadedEvidenceSet,
+    _config_identity_matches,
     load_evidence_set,
 )
 from trade_rl.evaluation.experiments.protocols import (
@@ -113,6 +114,8 @@ class _StudyState:
 def _load_evidence_node(
     store: StudyStore,
     relative: Path,
+    *,
+    plan: StudyPlan,
 ) -> tuple[LoadedEvidenceSet, _AnalysisBinding]:
     root = store.root / relative
     if root.is_symlink() or not root.is_dir():
@@ -126,7 +129,7 @@ def _load_evidence_node(
             f"{relative} must contain exactly evidence/ and analysis.json"
         )
     try:
-        evidence = load_evidence_set(root / "evidence")
+        evidence = load_evidence_set(root / "evidence", expected_plan=plan)
     except (ArtifactIntegrityError, ValueError) as error:
         raise ArtifactIntegrityError(f"{relative} EvidenceSet is invalid") from error
     analysis = _analysis_binding_from_payload(
@@ -195,10 +198,15 @@ def _reconstruct(store: StudyStore) -> _StudyState:
     lineage: list[str] = []
     baseline_root = root / "baseline"
     if baseline_root.exists() or baseline_root.is_symlink():
-        baseline, baseline_analysis = _load_evidence_node(store, Path("baseline"))
-        if _semantic_payload_without_seed(
-            baseline.semantic_config
-        ) != _semantic_without_seed(plan.baseline_config):
+        baseline, baseline_analysis = _load_evidence_node(
+            store,
+            Path("baseline"),
+            plan=plan,
+        )
+        if not _config_identity_matches(
+            _semantic_payload_without_seed(baseline.semantic_config),
+            _semantic_without_seed(plan.baseline_config),
+        ):
             raise ArtifactIntegrityError(
                 "baseline EvidenceSet does not match frozen Study baseline config"
             )
@@ -270,11 +278,14 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         candidate_analysis: _AnalysisBinding | None = None
         if "candidate" in names:
             candidate, candidate_analysis = _load_evidence_node(
-                store, base / "candidate"
+                store,
+                base / "candidate",
+                plan=plan,
             )
-            if _semantic_payload_without_seed(
-                candidate.semantic_config
-            ) != _semantic_without_seed(definition.candidate_config):
+            if not _config_identity_matches(
+                _semantic_payload_without_seed(candidate.semantic_config),
+                _semantic_without_seed(definition.candidate_config),
+            ):
                 raise ArtifactIntegrityError(
                     "candidate EvidenceSet differs from ExperimentDefinition"
                 )

@@ -76,10 +76,16 @@ def _repository(root: Path) -> tuple[str, str]:
     return base, head
 
 
-def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    root: Path,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     current = env.get("PYTHONPATH")
     env["PYTHONPATH"] = str(ROOT) if not current else f"{ROOT}{os.pathsep}{current}"
+    if extra_env is not None:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-m", "tools.agent_repo", "source-packet", *args],
         cwd=root,
@@ -87,6 +93,128 @@ def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+    )
+
+
+def _renderer_repository(root: Path) -> tuple[str, str]:
+    root.mkdir()
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.name", "Test User")
+    _git(root, "config", "user.email", "test@example.com")
+
+    context_lines = [f"line {index:02d}\n" for index in range(40)]
+    inter_hunk_lines = [f"entry {index:02d}\n" for index in range(30)]
+    algorithm_before = ["D", "D", "C", "C", "A", "B", "A", "C", "B", "C", "C", "B"]
+    algorithm_after = ["D", "D", "C", "C", "C", "A", "B", "B", "C", "B", "C", "B"]
+    indent_before = """\
+        nested()
+        return 1
+    def method(self):
+        nested()
+    else:
+        call_c()
+        call_d()
+class C:
+        nested()
+        call_b()
+        nested()
+    else:
+        return 2
+    cleanup()
+        call_b()
+class C:
+        call_b()
+        call_d()
+        call_c()
+        call_c()
+    cleanup()
+        nested()""".splitlines()
+    indent_after = indent_before.copy()
+    indent_after[14:14] = ["    def method(self):"]
+    indent_after[18:18] = ["        call_b()"]
+
+    _write(root, "context.txt", "".join(context_lines).encode())
+    _write(root, "interhunk.txt", "".join(inter_hunk_lines).encode())
+    _write(root, "café.txt", b"before\n")
+    _write(root, "algorithm.txt", ("\n".join(algorithm_before) + "\n").encode())
+    _write(root, "indent.py", ("\n".join(indent_before) + "\n").encode())
+    _write(root, "folder/data.txt", b"before attributes\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+    base = str(_git(root, "rev-parse", "HEAD"))
+
+    context_lines[2] = "changed near start\n"
+    context_lines[35] = "changed near end\n"
+    inter_hunk_lines[3] = "changed hunk one\n"
+    inter_hunk_lines[13] = "changed hunk two\n"
+    _write(root, "context.txt", "".join(context_lines).encode())
+    _write(root, "interhunk.txt", "".join(inter_hunk_lines).encode())
+    _write(root, "café.txt", b"after\n")
+    _write(root, "algorithm.txt", ("\n".join(algorithm_after) + "\n").encode())
+    _write(root, "indent.py", ("\n".join(indent_after) + "\n").encode())
+    _write(root, "folder/data.txt", b"after attributes\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "head")
+    return base, str(_git(root, "rev-parse", "HEAD"))
+
+
+def _renderer_poison(
+    root: Path,
+    tmp_path: Path,
+    poison: str,
+) -> dict[str, str]:
+    if poison == "local color":
+        _git(root, "config", "color.diff", "always")
+    elif poison == "local context":
+        _git(root, "config", "diff.context", "0")
+    elif poison == "local inter-hunk context":
+        _git(root, "config", "diff.interHunkContext", "10")
+    elif poison == "local path quoting":
+        _git(root, "config", "core.quotePath", "false")
+    elif poison == "local algorithm":
+        _git(root, "config", "diff.algorithm", "histogram")
+    elif poison == "local indent heuristic":
+        _git(root, "config", "diff.indentHeuristic", "false")
+    elif poison == "diff options environment":
+        return {"GIT_DIFF_OPTS": "--unified=0"}
+    elif poison == "global config environment":
+        config = tmp_path / "hostile-global.config"
+        config.write_text(
+            "[color]\n diff = always\n[diff]\n context = 0\n", encoding="utf-8"
+        )
+        return {"GIT_CONFIG_GLOBAL": str(config)}
+    elif poison == "global attribute file environment":
+        config_directory = tmp_path / "xdg-config"
+        attributes = config_directory / "git" / "attributes"
+        attributes.parent.mkdir(parents=True)
+        attributes.write_bytes(b"folder/data.txt -diff\n")
+        return {"XDG_CONFIG_HOME": str(config_directory)}
+    elif poison == "system config environment":
+        config = tmp_path / "hostile-system.config"
+        config.write_text("[diff]\n interHunkContext = 10\n", encoding="utf-8")
+        return {"GIT_CONFIG_NOSYSTEM": "0", "GIT_CONFIG_SYSTEM": str(config)}
+    elif poison == "config injection environment":
+        return {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "diff.context",
+            "GIT_CONFIG_VALUE_0": "0",
+        }
+    elif poison == "worktree attributes":
+        _write(root, ".gitattributes", b"folder/data.txt -diff\n")
+    elif poison == "info attributes":
+        attributes = root / ".git" / "info" / "attributes"
+        attributes.parent.mkdir(parents=True, exist_ok=True)
+        attributes.write_bytes(b"folder/data.txt -diff\n")
+    else:
+        raise AssertionError(f"unknown renderer poison: {poison}")
+    return {}
+
+
+def _packet_contents(output: Path) -> tuple[bytes, bytes, bytes]:
+    return (
+        (output / "manifest.json").read_bytes(),
+        (output / "source.patch").read_bytes(),
+        (output / "source.tar").read_bytes(),
     )
 
 
@@ -204,6 +332,83 @@ def test_source_packet_binds_raw_git_bytes_and_exact_diff_metadata(
     for name in ("manifest.json", "source.patch", "source.tar"):
         assert (second_output / name).read_bytes() == (first_output / name).read_bytes()
     assert str(_git(repository, "status", "--porcelain=v1")) == before
+
+
+@pytest.mark.parametrize(
+    "poison",
+    (
+        "local color",
+        "local context",
+        "local inter-hunk context",
+        "local path quoting",
+        "local algorithm",
+        "local indent heuristic",
+        "diff options environment",
+        "global config environment",
+        "global attribute file environment",
+        "system config environment",
+        "config injection environment",
+        "worktree attributes",
+        "info attributes",
+    ),
+)
+def test_source_packet_is_independent_of_git_rendering_environment(
+    tmp_path: Path,
+    poison: str,
+) -> None:
+    repository = tmp_path / "repo"
+    base, head = _renderer_repository(repository)
+    baseline = tmp_path / "baseline"
+    baseline_result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(baseline),
+    )
+    assert baseline_result.returncode == 0, baseline_result.stderr
+    baseline_contents = _packet_contents(baseline)
+
+    extra_env = _renderer_poison(repository, tmp_path, poison)
+    poisoned = tmp_path / "poisoned"
+    poisoned_result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(poisoned),
+        extra_env=extra_env,
+    )
+
+    assert poisoned_result.returncode == 0, poisoned_result.stderr
+    assert _packet_contents(poisoned) == baseline_contents, poison
+    manifest = json.loads((poisoned / "manifest.json").read_bytes())
+    assert manifest["diff"]["renderer"]["git_version"].startswith("git version ")
+    assert manifest["diff"]["renderer"]["attributes"]["source"] == "empty-tree"
+    assert manifest["diff"]["renderer"]["attributes"]["info_attributes"] == "empty"
+    assert manifest["diff"]["renderer"]["attributes"]["global_attributes"] == "empty"
+    assert manifest["diff"]["renderer"]["environment"]["lazy_fetch"] == "disabled"
+    assert "--no-color" in manifest["diff"]["flags"]
+    assert "--no-color" in manifest["diff"]["renderer"]["name_status_flags"]
+
+    if poison == "global config environment":
+        base_worktree = tmp_path / "base-worktree"
+        _git(repository, "worktree", "add", "--detach", str(base_worktree), base)
+        apply_env = dict(os.environ)
+        apply_env.update(extra_env)
+        apply_result = subprocess.run(
+            ["git", "apply", "--check", str(poisoned / "source.patch")],
+            cwd=base_worktree,
+            env=apply_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert apply_result.returncode == 0, apply_result.stderr
 
 
 def test_source_packet_rejects_moving_refs_and_existing_or_in_repo_output(

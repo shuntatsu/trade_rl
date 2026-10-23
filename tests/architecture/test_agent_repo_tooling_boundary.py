@@ -59,5 +59,9 @@ def test_source_packet_contract_is_documented_at_the_repository_boundary() -> No
     assert "source-packet" in tooling
     assert "git cat-file blob" in tooling
     assert "--ignore-submodules=none" in tooling
+    assert "temporary bare repository" in tooling
+    assert "GIT_NO_LAZY_FETCH=1" in tooling
+    assert "empty tree" in tooling
+    assert "異なるGit version間のbyte identityは主張しない" in tooling
     assert "registered worktree内output" in tooling
     assert "source transport only" in tooling

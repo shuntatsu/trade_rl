@@ -63,7 +63,7 @@ uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HE
 - `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
 - `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
 - `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task promptとgeneric rubricを表示・Evaluator入力から採点する。task-specificなEvaluator answer keyはchecked-in corpusへ保存しない。
-- `source-packet`: full commit SHAで固定した二つのGit snapshotからsource transport packetを作る。outputは全てのregistered Git worktree外にある未使用directoryに限り、生成物をcommitしない。
+- `source-packet`: full commit SHAで固定した二つのGit snapshotからsource transport packetを作る。changed fileはGit blobのraw bytes、patch rendererはmanifestでGit versionとempty-tree attribute policyを固定し、lazy fetchは無効にする。patchのcross-version byte identityは主張しない。outputは全てのregistered Git worktree外にある未使用directoryに限り、生成物をcommitしない。
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
 

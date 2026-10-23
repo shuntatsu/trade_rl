@@ -9,8 +9,11 @@ import os
 import re
 import subprocess
 import tarfile
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Iterator
 
 _HEX = re.compile(r"^[0-9a-fA-F]+$")
 _DIFF_FLAGS = (
@@ -19,6 +22,11 @@ _DIFF_FLAGS = (
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
+    "--no-color",
+    "--diff-algorithm=myers",
+    "--no-indent-heuristic",
+    "--unified=3",
+    "--inter-hunk-context=0",
     "--ignore-submodules=none",
     "--src-prefix=a/",
     "--dst-prefix=b/",
@@ -28,6 +36,11 @@ _NAME_STATUS_FLAGS = (
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
+    "--no-color",
+    "--diff-algorithm=myers",
+    "--no-indent-heuristic",
+    "--unified=3",
+    "--inter-hunk-context=0",
     "--ignore-submodules=none",
     "-z",
 )
@@ -50,12 +63,36 @@ class _TreeEntry:
     oid: str
 
 
-def _git(repository: Path, *args: str) -> bytes:
-    environment = os.environ.copy()
-    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+@dataclass(frozen=True, slots=True)
+class _PatchRenderer:
+    repository: Path
+    git_version: str
+    attribute_tree: str
+    global_attributes: Path
+
+
+def _git(
+    repository: Path,
+    *args: str,
+    input_bytes: bytes | None = None,
+) -> bytes:
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        {
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
     result = subprocess.run(
         ["git", *args],
         cwd=repository,
+        input=input_bytes,
         check=False,
         capture_output=True,
         env=environment,
@@ -66,8 +103,97 @@ def _git(repository: Path, *args: str) -> bytes:
     return result.stdout
 
 
-def _git_text(repository: Path, *args: str) -> str:
-    return _git(repository, *args).decode("ascii").rstrip("\r\n")
+def _git_text(
+    repository: Path,
+    *args: str,
+    input_bytes: bytes | None = None,
+) -> str:
+    return (
+        _git(repository, *args, input_bytes=input_bytes).decode("ascii").rstrip("\r\n")
+    )
+
+
+def _outside_repository_and_worktrees(
+    path: Path,
+    repository: Path,
+    worktree_roots: tuple[Path, ...],
+) -> bool:
+    return not (
+        path == repository
+        or path.is_relative_to(repository)
+        or any(
+            path == worktree or path.is_relative_to(worktree)
+            for worktree in worktree_roots
+        )
+    )
+
+
+@contextmanager
+def _canonical_renderer(
+    repository: Path,
+    object_format: str,
+    worktree_roots: tuple[Path, ...],
+) -> Iterator[_PatchRenderer]:
+    temporary_parent = Path(tempfile.gettempdir()).resolve(strict=True)
+    if not _outside_repository_and_worktrees(
+        temporary_parent, repository, worktree_roots
+    ):
+        raise ValueError("temporary renderer parent must be outside every worktree")
+
+    object_directory_value = _git_text(repository, "rev-parse", "--git-path", "objects")
+    object_directory = Path(object_directory_value)
+    if not object_directory.is_absolute():
+        object_directory = repository / object_directory
+    object_directory = object_directory.resolve(strict=True)
+
+    with tempfile.TemporaryDirectory(
+        prefix="agent-repo-source-packet-", dir=temporary_parent
+    ) as temporary_directory:
+        temporary_root = Path(temporary_directory).resolve(strict=True)
+        if not _outside_repository_and_worktrees(
+            temporary_root, repository, worktree_roots
+        ):
+            raise ValueError("temporary renderer must be outside every worktree")
+        renderer_repository = temporary_root / "renderer.git"
+        _git(
+            repository,
+            "init",
+            "--quiet",
+            "--bare",
+            "--template=",
+            f"--object-format={object_format}",
+            os.fspath(renderer_repository),
+        )
+        alternates = renderer_repository / "objects" / "info" / "alternates"
+        (renderer_repository / "info").mkdir(exist_ok=True)
+        alternates.write_bytes(os.fsencode(object_directory) + b"\n")
+        (renderer_repository / "info" / "attributes").write_bytes(b"")
+        global_attributes = temporary_root / "global-attributes"
+        global_attributes.write_bytes(b"")
+        attribute_tree = _git_text(
+            renderer_repository,
+            "hash-object",
+            "-t",
+            "tree",
+            "-w",
+            "--stdin",
+            input_bytes=b"",
+        )
+        yield _PatchRenderer(
+            repository=renderer_repository,
+            git_version=_git_text(repository, "--version"),
+            attribute_tree=attribute_tree,
+            global_attributes=global_attributes,
+        )
+
+
+def _renderer_config(renderer: _PatchRenderer) -> tuple[str, ...]:
+    return (
+        "-c",
+        "core.quotePath=true",
+        "-c",
+        f"core.attributesFile={renderer.global_attributes}",
+    )
 
 
 def _repository_root(repository: Path) -> Path:
@@ -164,9 +290,18 @@ def _safe_path(raw: bytes) -> str:
 
 
 def _changed_paths(
-    repository: Path, base: str, head: str
+    renderer: _PatchRenderer, base: str, head: str
 ) -> tuple[tuple[str, bytes], ...]:
-    raw = _git(repository, "diff", *_NAME_STATUS_FLAGS, base, head, "--")
+    raw = _git(
+        renderer.repository,
+        f"--attr-source={renderer.attribute_tree}",
+        *_renderer_config(renderer),
+        "diff",
+        *_NAME_STATUS_FLAGS,
+        base,
+        head,
+        "--",
+    )
     fields = raw.split(b"\0")
     if fields and not fields[-1]:
         fields.pop()
@@ -233,7 +368,11 @@ def _verify_tar(raw_tar: bytes, expected: dict[str, bytes]) -> None:
         raise ValueError("source TAR could not be reopened") from error
 
 
-def _new_output_directory(repository: Path, output: Path) -> Path:
+def _new_output_directory(
+    repository: Path,
+    output: Path,
+    worktree_roots: tuple[Path, ...],
+) -> Path:
     candidate = Path(
         os.path.abspath(output if output.is_absolute() else Path.cwd() / output)
     )
@@ -249,10 +388,7 @@ def _new_output_directory(repository: Path, output: Path) -> Path:
     target = resolved_parent / candidate.name
     if target.is_relative_to(repository) or target == repository:
         raise ValueError("source packet output must be outside the repository")
-    if any(
-        target == worktree or target.is_relative_to(worktree)
-        for worktree in _registered_worktree_roots(repository)
-    ):
+    if not _outside_repository_and_worktrees(target, repository, worktree_roots):
         raise ValueError(
             "source packet output must be outside every registered worktree"
         )
@@ -296,6 +432,8 @@ def create_source_packet(
     """Write a deterministic packet whose payload bytes come directly from Git."""
 
     root = _repository_root(repository)
+    worktree_roots = _registered_worktree_roots(root)
+    target = _new_output_directory(root, output, worktree_roots)
     object_format = _git_text(root, "rev-parse", "--show-object-format")
     base_oid = _resolve_commit(root, base, object_format)
     head_oid = _resolve_commit(root, head, object_format)
@@ -303,7 +441,20 @@ def create_source_packet(
     head_metadata = _commit_metadata(root, head_oid, object_format)
     base_entries = _tree_entries(root, base_oid)
     head_entries = _tree_entries(root, head_oid)
-    paths = _changed_paths(root, base_oid, head_oid)
+    with _canonical_renderer(root, object_format, worktree_roots) as renderer:
+        paths = _changed_paths(renderer, base_oid, head_oid)
+        patch = _git(
+            renderer.repository,
+            f"--attr-source={renderer.attribute_tree}",
+            *_renderer_config(renderer),
+            "diff",
+            *_DIFF_FLAGS,
+            base_oid,
+            head_oid,
+            "--",
+        )
+        git_version = renderer.git_version
+        attribute_tree = renderer.attribute_tree
 
     inventory: list[dict[str, object]] = []
     members: dict[str, tuple[bytes, int]] = {}
@@ -345,21 +496,47 @@ def create_source_packet(
             }
         )
 
-    patch = _git(root, "diff", *_DIFF_FLAGS, base_oid, head_oid, "--")
+    diff_flags = _DIFF_FLAGS
+    name_status_flags = _NAME_STATUS_FLAGS
     source_tar = _make_tar(members)
     _verify_tar(source_tar, expected_tar)
     manifest = {
-        "schema_version": "agent_repo_source_packet_v1",
+        "schema_version": "agent_repo_source_packet_v2",
         "scope": "source_transport_only",
         "object_format": object_format,
         "base": base_metadata,
         "head": head_metadata,
         "diff": {
             "path": "source.patch",
-            "flags": list(_DIFF_FLAGS),
+            "flags": list(diff_flags),
             "pathspec": "all tracked paths",
             "size": len(patch),
             "sha256": hashlib.sha256(patch).hexdigest(),
+            "renderer": {
+                "implementation": "git diff in an isolated bare repository",
+                "git_version": git_version,
+                "config": {
+                    "core.quotePath": "true",
+                    "core.attributesFile": "empty renderer-owned file",
+                },
+                "attributes": {
+                    "source": "empty-tree",
+                    "tree": attribute_tree,
+                    "info_attributes": "empty",
+                    "global_attributes": "empty",
+                    "system_attributes": "disabled",
+                },
+                "global_options": [f"--attr-source={attribute_tree}"],
+                "environment": {
+                    "global_config": "disabled",
+                    "system_config": "disabled",
+                    "replace_refs": "disabled",
+                    "lazy_fetch": "disabled",
+                },
+                "object_access": "temporary object database with source objects as an alternate",
+                "name_status_flags": list(name_status_flags),
+                "cross_version_byte_identity": "not_claimed",
+            },
         },
         "source_tar": {
             "path": "source.tar",
@@ -374,7 +551,6 @@ def create_source_packet(
         json.dumps(manifest, ensure_ascii=True, sort_keys=True, indent=2) + "\n"
     ).encode("utf-8")
 
-    target = _new_output_directory(root, output)
     target.mkdir(exist_ok=False)
     (target / "source.patch").write_bytes(patch)
     (target / "source.tar").write_bytes(source_tar)

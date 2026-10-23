@@ -577,3 +577,68 @@ def test_source_packet_rejects_output_inside_registered_sibling_worktree(
 def test_source_packet_rejects_nonportable_git_paths(path: bytes) -> None:
     with pytest.raises(ValueError, match="unsafe changed Git path"):
         _safe_path(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        b"COM\xc2\xb9.txt",
+        b"cOnIn$.txt",
+        b"LPT\xc2\xb2",
+        b"CONIN$",
+        b"CONOUT$",
+        b"CON .txt",
+        b"folder/COM\xc2\xb9 .txt",
+    ),
+)
+def test_source_packet_rejects_windows_reserved_device_names(path: bytes) -> None:
+    with pytest.raises(ValueError, match="unsafe changed Git path"):
+        _safe_path(path)
+
+
+@pytest.mark.parametrize("path", ("café.txt", "COM10.txt", "LPT10"))
+def test_source_packet_accepts_unicode_and_unreserved_device_prefixes(
+    path: str,
+) -> None:
+    assert _safe_path(path.encode("utf-8")) == path
+
+
+def test_source_packet_rejects_reserved_device_name_in_raw_git_tree(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    base, _ = _repository(repository)
+    base_entries = _git(repository, "ls-tree", "-rz", "--full-tree", base, text=False)
+    assert isinstance(base_entries, bytes)
+    tracked_blob = str(_git(repository, "rev-parse", f"{base}:tracked.txt"))
+    reserved_entry = (
+        f"100644 blob {tracked_blob}\t".encode("ascii")
+        + "COM¹.txt".encode("utf-8")
+        + b"\0"
+    )
+    tree_bytes = _git(
+        repository,
+        "mktree",
+        "-z",
+        text=False,
+        input_bytes=base_entries + reserved_entry,
+    )
+    assert isinstance(tree_bytes, bytes)
+    tree = tree_bytes.decode("ascii").strip()
+    head = str(_git(repository, "commit-tree", tree, "-p", base, "-m", "reserved path"))
+    output = tmp_path / "packet"
+
+    result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(output),
+    )
+
+    assert result.returncode != 0
+    assert "unsafe changed Git path" in result.stderr
+    assert result.stdout == ""
+    assert not output.exists()

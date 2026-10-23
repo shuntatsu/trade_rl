@@ -50,8 +50,12 @@ _WINDOWS_RESERVED = frozenset(
         "PRN",
         "AUX",
         "NUL",
+        "CONIN$",
+        "CONOUT$",
         *(f"COM{i}" for i in range(1, 10)),
+        *(f"COM{suffix}" for suffix in "¹²³"),
         *(f"LPT{i}" for i in range(1, 10)),
+        *(f"LPT{suffix}" for suffix in "¹²³"),
     }
 )
 
@@ -281,7 +285,10 @@ def _safe_path(raw: bytes) -> str:
         or any(ord(char) < 32 or ord(char) == 127 for char in path)
         or any(char in '<>:"|?*' for char in path)
         or any(part.endswith((".", " ")) for part in parts)
-        or any(part.split(".", 1)[0].upper() in _WINDOWS_RESERVED for part in parts)
+        or any(
+            part.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_RESERVED
+            for part in parts
+        )
         or PurePosixPath(path).is_absolute()
         or PurePosixPath(path).as_posix() != path
     ):

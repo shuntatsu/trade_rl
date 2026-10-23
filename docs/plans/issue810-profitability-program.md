@@ -44,11 +44,11 @@ flowchart LR
     R --> Q[RL registered decision]
     P -->|NO_WINNER or falsified mechanism| S[Stop or one bounded next-factor study]
     Q -->|NO_WINNER| S
-    P --> A[Broader adoption gate]
-    Q --> A
-    H[Separate fixed-rule G4 receipts on matched source, runtime, inputs, capital, window, costs, risk, and account] --> A
-    J[P5 state-preserving chronological update evidence and frozen recipe] --> A
-    A --> T[Separate final authorization and paper/shadow path]
+    P -->|Accepted scoped candidate; adoption considered| G[Broader adoption gate]
+    Q -->|Accepted candidate; adoption considered| G
+    H[Separate fixed-rule G4 receipts on matched source, runtime, inputs, capital, window, costs, risk, and account] --> G
+    J[P5 state-preserving chronological update evidence and frozen recipe] --> G
+    G --> T[Separate final authorization and paper/shadow path]
     T --> U[Live eligibility requires separate human approval]
 ```
 

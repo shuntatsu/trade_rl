@@ -1357,10 +1357,10 @@ def test_artificial_reference_account_diagnostic_requires_exact_inputs() -> None
         consumer, "consume_artificial_reference_account_diagnostic", None
     )
     assert callable(consume_diagnostic)
-    with pytest.raises(ValueError, match="exact artificial component inputs"):
+    with pytest.raises(ValueError, match="exact artificial component spec"):
         consume_diagnostic(
             output_index=object(),
-            inputs=object(),
+            component_spec=object(),
             role="NONRL",
             reserve_plan_digest="a" * 64,
         )
@@ -1479,19 +1479,20 @@ def test_reference_account_fails_closed_on_negative_raw_fee() -> None:
         raise AssertionError("synthetic fixture produced no fill row")
 
 
-def test_artificial_reference_adapter_requires_fixed_recipe_and_output_roster(
+def test_artificial_reference_adapter_derives_fixed_inputs_and_rejects_forged_bundle(
     tmp_path: Path,
 ) -> None:
     from tests.tools.market_b4_oracle.test_artificial_h_component import (
         _component_spec,
     )
     from tools.market_b4_oracle.artificial_component import (
+        _expected_forecast_payload,
         build_artificial_component_inputs,
     )
+    from tools.market_b4_oracle.decision_identity import canonical_json_bytes
 
-    inputs = build_artificial_component_inputs(_component_spec())
-    assert inputs.spec_sha256 == consumer._ARTIFICIAL_COMPONENT_SPEC_SHA256
-    assert inputs.source_protocol_sha256 == consumer._ARTIFICIAL_SOURCE_PROTOCOL_SHA256
+    spec = _component_spec()
+    inputs = build_artificial_component_inputs(spec)
     output_index = _indexed_native_output(
         tmp_path,
         {"native_receipt": {"rows": []}, "closing_rows": []},
@@ -1500,51 +1501,43 @@ def test_artificial_reference_adapter_requires_fixed_recipe_and_output_roster(
     with pytest.raises(ValueError, match="H output roster differs"):
         consumer.consume_artificial_reference_account_diagnostic(
             output_index=output_index,
-            inputs=inputs,
+            component_spec=spec,
             role="NONRL",
             reserve_plan_digest="a" * 64,
         )
 
-    altered_document = inputs.protocol_document
-    altered_document["unexpected_profile_field"] = True
-    altered_inputs = replace(
-        inputs,
-        protocol_document_canonical=json.dumps(
-            altered_document,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8"),
-    )
-    with pytest.raises(ValueError, match="fixed comparison profile"):
+    altered_spec = {**spec, "actor_advances": spec["actor_advances"] - 1}
+    with pytest.raises(ValueError, match="parsed exact spec object"):
         consumer.consume_artificial_reference_account_diagnostic(
             output_index=output_index,
-            inputs=altered_inputs,
+            component_spec=altered_spec,
             role="NONRL",
             reserve_plan_digest="a" * 64,
         )
 
-    forged_spec_sha256 = "b" * 64
-    forged_source_protocol_sha256 = "c" * 64
-    forged_document = inputs.protocol_document
-    forged_document["component_spec_sha256"] = forged_spec_sha256
-    forged_document["source_protocol_sha256"] = forged_source_protocol_sha256
+    tampered_arrays = {
+        name: np.array(array, copy=True)
+        for name, array in inputs.content.arrays.items()
+    }
+    tampered_arrays["close"][4000, 0] *= 1.01
+    forged_content = replace(inputs.content, arrays=MappingProxyType(tampered_arrays))
+    assert forged_content.dataset_id == inputs.content.dataset_id
+    forged_forecast = _expected_forecast_payload(spec, forged_content)
+    assert forged_forecast["dataset_id"] == inputs.content.dataset_id
     forged_inputs = replace(
         inputs,
-        spec_sha256=forged_spec_sha256,
-        source_protocol_sha256=forged_source_protocol_sha256,
-        protocol_document_canonical=json.dumps(
-            forged_document,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8"),
+        content=forged_content,
+        forecast_payload_canonical=canonical_json_bytes(forged_forecast),
     )
-    with pytest.raises(ValueError, match="fixed spec or source protocol pins"):
+    assert forged_inputs.protocol_document["dataset"]["dataset_id"] == (
+        forged_content.dataset_id
+    )
+    assert forged_inputs.forecast_payload["dataset_id"] == forged_content.dataset_id
+
+    with pytest.raises(TypeError, match="inputs"):
         consumer.consume_artificial_reference_account_diagnostic(
-            output_index=output_index,
+            output_index=object(),
+            component_spec=spec,
             inputs=forged_inputs,
             role="NONRL",
             reserve_plan_digest="a" * 64,

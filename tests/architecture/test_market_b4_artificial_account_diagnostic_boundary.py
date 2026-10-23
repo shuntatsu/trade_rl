@@ -18,6 +18,16 @@ def test_artificial_account_diagnostic_stays_internal_and_non_authorizing() -> N
         "reference_account_diagnostic"
         not in signature(offline_replay_consumer.consume_indexed_market_arm).parameters
     )
+    diagnostic_parameters = signature(
+        offline_replay_consumer.consume_artificial_reference_account_diagnostic
+    ).parameters
+    assert "component_spec" in diagnostic_parameters
+    assert "inputs" not in diagnostic_parameters
+    diagnostic_parameters = signature(
+        offline_replay_consumer.consume_artificial_reference_account_diagnostic
+    ).parameters
+    assert "component_spec" in diagnostic_parameters
+    assert "inputs" not in diagnostic_parameters
 
     result_fields = {
         field.name: field

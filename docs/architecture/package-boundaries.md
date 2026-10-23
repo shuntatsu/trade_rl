@@ -2264,7 +2264,11 @@ later Q replay performs its own bounded receipt scan and continues comparing
 every selected row and final flat/no-active state. The parser also receives a
 canonical projection of event objects already parsed from a receipt; that
 projection pin is derived data, while the original gzip and output-manifest
-pins remain the upper-level evidence.
+pins remain the upper-level evidence. The internal fixed-artificial reference-
+account adapter accepts only the exact component spec and rebuilds the canonical
+Dataset, Q binding, and expected forecast before reading H outputs; it does not
+accept caller-constructed input objects. This preserves the comparison-only
+boundary while running the existing ledger over the complete artificial arm.
 
 For every actor row the Q driver rebuilds the native baseline, context,
 decision, action, and selected identity digests from the receipt projection and

@@ -18,10 +18,9 @@ from typing import Literal, cast
 import numpy as np
 
 from tools.market_b4_oracle.artificial_component import (
-    _FEATURE_NAMES,
-    _SYMBOLS,
     ArtificialComponentInputs,
     artificial_component_binding,
+    build_artificial_component_inputs,
     verify_artificial_component_forecast,
 )
 from tools.market_b4_oracle.decision_identity import (
@@ -73,14 +72,6 @@ _ARTIFICIAL_COMPONENT_OUTPUT_FILES = (
     "operator-runtime.json",
     "receipts/cash.json.gz",
     "receipts/nonrl.json.gz",
-)
-# Fixed digests are independently pinned; the regression test checks them against
-# the Q builder for the exact artificial recipe, never against caller-owned fields.
-_ARTIFICIAL_COMPONENT_SPEC_SHA256 = (
-    "b4c637d3c664e6e3ccb6d00107edcc84c6b787991126171971809b258ff0d55e"
-)
-_ARTIFICIAL_SOURCE_PROTOCOL_SHA256 = (
-    "0cdce978bb00a9b7169f56577e37ba9e2f215b08cd5f16417aff92dc95896673"
 )
 
 
@@ -217,82 +208,6 @@ def _sha(value: object, name: str) -> str:
 
 def _read_indexed_bytes(index: NativeOutputIndex, name: str, maximum: int) -> bytes:
     return index.read_pinned_bytes(name, maximum=maximum)
-
-
-def _validate_fixed_artificial_component_inputs(
-    inputs: ArtificialComponentInputs,
-) -> None:
-    if type(inputs.content) is not VerifiedDatasetContent:
-        raise ValueError("artificial inputs require exact verified Dataset content")
-    if type(inputs.content.dataset_id) is not str:
-        raise ValueError("artificial Dataset identity must be a string")
-    if (
-        inputs.spec_sha256 != _ARTIFICIAL_COMPONENT_SPEC_SHA256
-        or inputs.source_protocol_sha256 != _ARTIFICIAL_SOURCE_PROTOCOL_SHA256
-    ):
-        raise ValueError(
-            "artificial inputs differ from fixed spec or source protocol pins"
-        )
-    spec_sha256 = _sha(inputs.spec_sha256, "artificial component spec digest")
-    source_sha256 = _sha(
-        inputs.source_protocol_sha256, "artificial source protocol digest"
-    )
-    expected_protocol: dict[str, object] = {
-        "schema": "issue810_artificial_h_component_q_binding_v1",
-        "scope": "ARTIFICIAL_COMPARISON_ONLY",
-        "dataset": {
-            "dataset_id": inputs.content.dataset_id,
-            "symbols": list(_SYMBOLS),
-            "fit_symbols": [_SYMBOLS[0]],
-            "prediction_symbols": list(_SYMBOLS),
-            "feature_names": list(_FEATURE_NAMES),
-        },
-        "configurations": [
-            {"id": "H24_RIDGE_A1", "horizon_hours": 24, "ridge_alpha": 1.0}
-        ],
-        "accounts": ["H24_RIDGE_A1_BTCUSDT"],
-        "scenarios": ["BASEL0"],
-        "roles": ["nonrl", "cash"],
-        "actor": {
-            "start": 2903,
-            "stop": 9430,
-            "vintage_starts": [2903, 5087, 7295],
-        },
-        "terminal": {"stop_inclusive": 9502},
-        "economics": {"reference_notional": 100000.0},
-        "funding": {
-            "coverage_bounds": {
-                "lookback_hours": 24,
-                "minimum_counted_events": 2,
-                "maximum_counted_close_gap_hours": 9.0,
-                "maximum_counted_close_age_hours": 8.0,
-            }
-        },
-        "capital": {"per_account": 100000.0},
-        "policy": {
-            "risk": {
-                "max_gross": 1.0,
-                "max_abs_weight": 1.0,
-                "max_turnover": None,
-                "drawdown_start": 0.1,
-                "drawdown_stop": 0.2,
-                "emergency_turnover_override": True,
-                "fail_closed_tolerance": 1e-10,
-            }
-        },
-        "component_spec_sha256": spec_sha256,
-        "source_protocol_sha256": source_sha256,
-        "outer_attempt_authenticated": False,
-        "full_b4_authorized": False,
-        "research_authorized": False,
-    }
-    expected_bytes = _canonical(expected_protocol)
-    if (
-        type(inputs.protocol_document_canonical) is not bytes
-        or inputs.protocol_document_canonical != expected_bytes
-        or _canonical(inputs.protocol_document) != expected_bytes
-    ):
-        raise ValueError("artificial inputs differ from the fixed comparison profile")
 
 
 def _same_content(
@@ -1924,7 +1839,7 @@ def consume_indexed_market_arm(
 def consume_artificial_reference_account_diagnostic(
     *,
     output_index: object,
-    inputs: object,
+    component_spec: object,
     role: object,
     reserve_plan_digest: object,
 ) -> ArtificialReferenceAccountDiagnostic:
@@ -1934,8 +1849,9 @@ def consume_artificial_reference_account_diagnostic(
     and Q-owned artificial recipe. It does not authenticate the process that
     produced those files or authorize financial, research, or live use.
     """
-    if type(inputs) is not ArtificialComponentInputs:
-        raise ValueError("requires exact artificial component inputs")
+    if type(component_spec) is not dict:
+        raise ValueError("requires an exact artificial component spec")
+    inputs = build_artificial_component_inputs(cast(dict[str, object], component_spec))
     if type(output_index) is not NativeOutputIndex:
         raise ValueError("requires an exact immutable native output index")
     if type(role) is not str or role not in {"NONRL", "CASH"}:
@@ -1943,8 +1859,6 @@ def consume_artificial_reference_account_diagnostic(
     if type(reserve_plan_digest) is not str:
         raise ValueError("reserve plan digest must be an explicit lowercase hash")
     reserve_plan_digest = _sha(reserve_plan_digest, "reserve_plan_digest")
-
-    _validate_fixed_artificial_component_inputs(cast(ArtificialComponentInputs, inputs))
 
     if output_index.files != _ARTIFICIAL_COMPONENT_OUTPUT_FILES:
         raise ValueError("H output roster differs from the fixed artificial arm")

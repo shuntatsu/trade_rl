@@ -118,6 +118,38 @@ def test_process_tree_uses_only_handle_identity_and_bounds_cim_precision(monkeyp
     assert unbound.owned == {}
 
 
+def test_popen_identity_queries_all_five_win32_process_time_arguments(monkeypatch):
+    import ctypes
+
+    tree_module = importlib.import_module("tools.tier_d_nonrl.tier_d_process_tree")
+    monkeypatch.setattr(tree_module, "sys", SimpleNamespace(platform="win32"))
+
+    class FakeGetProcessTimes:
+        argtypes = ()
+        restype = None
+
+        def __call__(self, *args):
+            # The native API accepts HANDLE plus four FILETIME pointers.
+            assert len(self.argtypes) == len(args) == 5
+            assert all(argtype == self.argtypes[1] for argtype in self.argtypes[1:])
+            args[1]._obj.low = 42
+            args[1]._obj.high = 0
+            return True
+
+    get_process_times = FakeGetProcessTimes()
+    monkeypatch.setattr(
+        ctypes,
+        "WinDLL",
+        lambda name, use_last_error: SimpleNamespace(GetProcessTimes=get_process_times),
+        raising=False,
+    )
+
+    identity = tree_module._process_identity_from_popen(
+        SimpleNamespace(pid=10, _handle=1234)
+    )
+    assert identity == (10, tree_module._WINDOWS_TO_DOTNET_TICKS + 42)
+
+
 def test_popen_identity_lookup_rejects_non_windows_before_windows_api(monkeypatch):
     process_tree_module = importlib.import_module(
         "tools.tier_d_nonrl.tier_d_process_tree"

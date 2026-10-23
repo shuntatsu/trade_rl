@@ -109,6 +109,7 @@ class AdmissionDecision:
     reason: str | None
     admitted_quantity: float
     admitted_notional: float
+    admitted_exact_quantity: Fraction
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +138,7 @@ class OrderAdmissionPolicy:
             reason=reason,
             admitted_quantity=0.0,
             admitted_notional=0.0,
+            admitted_exact_quantity=Fraction(0),
         )
 
     def evaluate(
@@ -327,4 +329,5 @@ class OrderAdmissionPolicy:
             reason=None,
             admitted_quantity=admitted_quantity,
             admitted_notional=admitted_notional,
+            admitted_exact_quantity=admitted_exact,
         )

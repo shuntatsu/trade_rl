@@ -11,7 +11,7 @@ import numpy as np
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.admission import OrderAdmissionPolicy
 from trade_rl.simulation.orders.model import OrderStatus, PendingOrder, TimeInForce
-from trade_rl.simulation.quantities import exact_quantity, project_quantity
+from trade_rl.simulation.quantities import project_quantity
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarContext
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
@@ -261,7 +261,9 @@ class StatefulOrderTransitionProcessor:
                     # capacity-sufficient no-lot request covering this projection.
                     remaining_positions[symbol] = Fraction(0)
                 else:
-                    remaining_positions[symbol] = remaining + exact_quantity(admitted)
+                    remaining_positions[symbol] = (
+                        remaining + decision.admitted_exact_quantity
+                    )
             if not is_closing:
                 projected_book.apply_admitted_order(
                     symbol_index=symbol,

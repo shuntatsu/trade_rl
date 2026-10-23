@@ -374,3 +374,63 @@ def test_unfilled_no_lot_full_close_reserves_its_exact_fraction() -> None:
         if event.order_id == second_close.order_id and event.event_type == "rejected"
     )
     assert rejected.reason == "reduce_only_no_position"
+
+
+def test_lot_quantized_close_reserves_exact_accepted_lots() -> None:
+    dataset = _two_symbol_market()
+    lot_size = 3e-15
+    config = replace(
+        ExecutionCostConfig.zero(),
+        path_mode="conservative",
+        processing_bar_volume_capacity=True,
+        partial_fill_carry=True,
+        lot_size=lot_size,
+        max_leverage=1.0,
+    )
+    executor = MarketExecutor(dataset, config)
+    closing = _market_order(
+        dataset,
+        executor,
+        -100_000.0,
+        target_identity="lot-quantized-near-full-close",
+        eligible_index=0,
+        reduce_only=True,
+    )
+    second_close = _market_order(
+        dataset,
+        executor,
+        -1e-11,
+        target_identity="close-against-reserved-lots",
+        eligible_index=1,
+        reduce_only=True,
+    )
+    initial_book = BookState(
+        quantities=np.array([100_000.0, 0.0]),
+        cash=-1_000_000.0,
+        mark_prices=dataset.close[0],
+        peak_value=9_000_000.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+
+    result = executor.execute_orders(
+        initial_book,
+        OrderBookState.empty().add(closing, second_close),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.fill_count == 0
+    assert any(
+        order.order_id == closing.order_id for order in result.order_book.active_orders
+    )
+    assert not any(
+        order.order_id == second_close.order_id
+        for order in result.order_book.active_orders
+    )
+    rejected = next(
+        event
+        for event in result.order_events
+        if event.order_id == second_close.order_id and event.event_type == "rejected"
+    )
+    assert rejected.reason == "reduce_only_exceeds_position"

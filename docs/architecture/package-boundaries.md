@@ -260,7 +260,7 @@ Windowsは既存destinationを拒否するPython [`os.rename`](https://docs.pyth
 
 ### `risk`
 
-portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのalpha判断やevaluationを所有しない。
+portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。`PortfolioRiskModel` はcovariance投影が有限であることを要求し、実際の二次形式の項の絶対値合計から導いた丸め誤差限界を超える負の分散を拒否する。strategyのalpha判断やevaluationを所有しない。
 
 ### `simulation`
 

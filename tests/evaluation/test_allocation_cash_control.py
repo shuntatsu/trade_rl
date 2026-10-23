@@ -130,6 +130,22 @@ def test_cash_control_executes_actual_cash_interest_without_orders():
     assert sum(result.stitched.returns.values) != 0.0
 
 
+def test_continuous_cash_rejects_residual_carriers_before_any_reset(monkeypatch):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import fixture
+    from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+
+    _Evidence, _policy_digest, _build, run = capability()
+    folds, environments = fixture(mode="residual")
+    monkeypatch.setattr(
+        AllocationTradingEnv,
+        "reset",
+        lambda *args, **kwargs: pytest.fail("native reset happened"),
+    )
+
+    with pytest.raises(ValueError, match="cash control requires direct"):
+        run(folds, environments)
+
+
 def test_cash_control_evidence_keeps_actual_economic_return_and_roundtrips():
     Evidence, policy_digest, build, run = capability()
     first, second, folds = cash_fixture()

@@ -1,6 +1,6 @@
 # Issue #810: long-term profitability program
 
-**Status:** active implementation and evidence plan. This document organizes work; it does not authorize a fit, market replay, sealed or unused-data access, economic acceptance, or live order.
+Status: Active - implementation and evidence plan. This document organizes work; it does not authorize a fit, market replay, sealed or unused-data access, economic acceptance, or live order.
 
 ## Objective and invariants
 

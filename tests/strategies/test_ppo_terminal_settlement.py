@@ -6,7 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.strategies.test_ppo_intent import SequenceStrategy, market
+from tests.strategies.test_ppo_intent import SequenceStrategy, market, pooled_market
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.directional import CloseAtEndStrategy
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
@@ -45,17 +45,71 @@ def _with_late_mark(dataset: MarketDataset, *, row_index: int) -> MarketDataset:
     )
 
 
-def test_ppo_reset_rejects_late_start_mark_before_initial_observation() -> None:
+def _track_mark_price_reads(monkeypatch) -> list[str]:
+    reads: list[str] = []
+    original_resolved_array = MarketDataset.resolved_array
+
+    def track(data: MarketDataset, name: str) -> np.ndarray:
+        if name == "mark_price":
+            reads.append(name)
+        return original_resolved_array(data, name)
+
+    monkeypatch.setattr(MarketDataset, "resolved_array", track)
+    return reads
+
+
+def test_ppo_constructor_does_not_read_unselected_start_marks(monkeypatch) -> None:
+    dataset = _with_late_mark(_flat_cost_market(), row_index=0)
+    raw_start_marks = dataset.resolved_array("mark_price")[0].copy()
+    mark_price_reads = _track_mark_price_reads(monkeypatch)
     env = PPOTradingEnv(
-        _with_late_mark(_flat_cost_market(), row_index=0),
+        dataset,
         feature_indices=(0,),
         start_index=0,
         stop_index=3,
         gross_budget=0.1,
     )
 
+    assert env.active_symbol_index == -1
+    assert env.book.portfolio_value == pytest.approx(env.initial_capital)
+    assert mark_price_reads == []
+    assert np.array_equal(env.book.mark_prices, np.ones_like(raw_start_marks))
+
     with pytest.raises(ValueError, match="decision-time mark unavailable"):
         env.reset(seed=17)
+
+    assert env.active_symbol_index == 0
+    assert mark_price_reads == []
+    assert np.array_equal(env.book.mark_prices, np.ones_like(raw_start_marks))
+
+
+def test_ppo_constructor_keeps_cash_book_until_on_time_round_robin_reset(
+    monkeypatch,
+) -> None:
+    dataset = pooled_market()
+    raw_start_marks = dataset.resolved_array("mark_price")[0].copy()
+    mark_price_reads = _track_mark_price_reads(monkeypatch)
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+    )
+
+    assert env.active_symbol_index == -1
+    assert env.book.portfolio_value == pytest.approx(env.initial_capital)
+    assert mark_price_reads == []
+    assert np.array_equal(env.book.mark_prices, np.ones_like(raw_start_marks))
+
+    _, first_info = env.reset(seed=17)
+    assert first_info["symbol_index"] == 0
+    assert np.array_equal(env.book.mark_prices, raw_start_marks)
+
+    _, second_info = env.reset()
+    assert second_info["symbol_index"] == 1
+    assert mark_price_reads
 
 
 def test_ppo_step_rejects_late_target_before_advancing_or_returning() -> None:

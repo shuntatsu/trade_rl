@@ -313,13 +313,14 @@ class PPOTradingEnv(gym.Env):
         self._terminated = False
 
     def _initial_book(self) -> BookState:
+        initial_prices: np.ndarray | None = None
         if self.active_symbol_index >= 0:
             _require_available_marks_at_row(
                 self.dataset,
                 row_index=self.start_index,
                 selected_symbol_indices=(self.active_symbol_index,),
             )
-        initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
+            initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
         return BookState.zero(
             self.dataset.n_symbols,
             self.initial_capital,

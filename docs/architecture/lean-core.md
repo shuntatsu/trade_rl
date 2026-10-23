@@ -297,10 +297,14 @@ retain their explicit reference-price sizing contract.
 
 Explicit `OrderIntent.reduce_only=True` supports MARKET orders only. Admission
 rejects absent, same-direction or insufficient actual exact inventory, independently
-of hypothetical pending fills in the economic projection. Accepted unfilled
-reductions do not release projected leverage headroom for later opening orders in
-the same admission pass. Allocation then checks the actual priority sequence,
-including ordinary fills, and caps each
+of hypothetical pending fills in the economic projection. When the solvent
+processing-open book is already above the gross leverage cap, an otherwise valid
+MARKET reduce-only close may be admitted only if it lowers gross exposure. Such
+recovery closes reserve their exact accepted inventory during the admission pass
+and do not reduce projected exposure before a fill, so an unfilled recovery close
+cannot authorize a duplicate close or later opening. Under-cap passes keep their
+existing priority projection and fill-time expiry behavior. Allocation then
+checks the actual priority sequence, including ordinary fills, and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional

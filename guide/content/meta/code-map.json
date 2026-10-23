@@ -106,7 +106,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "f80c5240c77670efc29e5f0f74f327408221f2f8993edc1a92016c690bbdcc67",
+      "source_sha256": "8867c2d6f161d2a4e7cb2a03d6c3c0c19aec3f400908bc9c55bc62b7fb88aeea",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],

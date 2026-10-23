@@ -11,7 +11,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from trade_rl.data.market import MarketDataset
+from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
@@ -313,6 +313,12 @@ class PPOTradingEnv(gym.Env):
         self._terminated = False
 
     def _initial_book(self) -> BookState:
+        if self.active_symbol_index >= 0:
+            _require_available_marks_at_row(
+                self.dataset,
+                row_index=self.start_index,
+                selected_symbol_indices=(self.active_symbol_index,),
+            )
         initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
         return BookState.zero(
             self.dataset.n_symbols,
@@ -416,6 +422,12 @@ class PPOTradingEnv(gym.Env):
             return 0.0, {}
 
         symbol_index = self.active_symbol_index
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
+        )
         settlement_start_weight = float(self.book.weights[symbol_index])
         settlement_log_return = 0.0
         settlement_intervals = 0
@@ -431,6 +443,12 @@ class PPOTradingEnv(gym.Env):
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
         while self.index < self.stop_index and self.book.termination_reason is None:
+            _require_available_marks_at_row(
+                self.dataset,
+                row_index=self.index + 1,
+                selected_symbol_indices=(symbol_index,),
+                held_quantities=self.book.quantities,
+            )
             quantity_before = float(self.book.quantities[symbol_index])
             proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
             constrained = self.risk.constrain(
@@ -493,6 +511,18 @@ class PPOTradingEnv(gym.Env):
             raise RuntimeError("PPOTradingEnv must be reset before stepping")
 
         symbol_index = self.active_symbol_index
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
+        )
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index + 1,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
+        )
         requested_intent = _intent_from_action(action)
         was_minimum_hold_locked = self._minimum_hold_locked
         hold_decision = constrain_intent_for_minimum_hold(
@@ -608,6 +638,12 @@ class PPOTradingEnv(gym.Env):
             reward += settlement_log_return
         self._terminated = (
             self.index >= self.stop_index or self.book.termination_reason is not None
+        )
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
         )
         observation = self._encoded_observation()
         info: dict[str, object] = {

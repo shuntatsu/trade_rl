@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_intent import SequenceStrategy, market
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.directional import CloseAtEndStrategy
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.replay import run_single_symbol_replay
@@ -28,6 +29,85 @@ def _flat_cost_market():
         fee_rate=np.full_like(base.close, 0.001),
         spread_rate=np.full_like(base.close, 0.002),
     )
+
+
+def _with_late_mark(dataset: MarketDataset, *, row_index: int) -> MarketDataset:
+    assert dataset.available_at is not None
+    assert dataset.information_available is not None
+    available_at = dataset.available_at.copy()
+    information_available = dataset.information_available.copy()
+    available_at[row_index, 0] = dataset.timestamps[row_index] + np.timedelta64(1, "h")
+    information_available[row_index, 0] = False
+    return replace(
+        dataset,
+        available_at=available_at,
+        information_available=information_available,
+    )
+
+
+def test_ppo_reset_rejects_late_start_mark_before_initial_observation() -> None:
+    env = PPOTradingEnv(
+        _with_late_mark(_flat_cost_market(), row_index=0),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+    )
+
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        env.reset(seed=17)
+
+
+def test_ppo_step_rejects_late_target_before_advancing_or_returning() -> None:
+    env = PPOTradingEnv(
+        _with_late_mark(_flat_cost_market(), row_index=1),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+    )
+    env.reset(seed=19)
+
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        env.step(2)
+
+    assert env.index == 0
+    assert env.book.quantities[0] == pytest.approx(0.0)
+
+
+def test_ppo_terminal_observation_and_settlement_reject_late_endpoint() -> None:
+    delayed_endpoint = _with_late_mark(_flat_cost_market(), row_index=3)
+    env = PPOTradingEnv(
+        delayed_endpoint,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+    )
+    env.reset(seed=23)
+    env.step(2)
+    env.step(2)
+
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        env.step(2)
+
+    assert env.index == 2
+
+    settling_env = PPOTradingEnv(
+        delayed_endpoint,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        settle_terminal_position=True,
+    )
+    settling_env.reset(seed=29)
+    settling_env.step(2)
+
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        settling_env.step(2)
+
+    assert settling_env.index == 2
 
 
 def test_terminal_settlement_matches_directional_close_at_end_economics() -> None:

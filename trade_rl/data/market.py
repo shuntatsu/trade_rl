@@ -171,6 +171,8 @@ class MarketDataset:
             raise ValueError("timestamps must be one-dimensional")
         if not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must use a datetime64 dtype")
+        if np.isnat(timestamps).any():
+            raise ValueError("timestamps must not contain NaT")
         timestamp_ns = _readonly_array(
             timestamps.astype("datetime64[ns]").astype(np.int64),
             dtype=np.dtype(np.int64),

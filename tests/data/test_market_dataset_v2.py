@@ -59,6 +59,28 @@ def test_session_calendar_accepts_gaps_and_uses_wall_clock_helpers() -> None:
     assert market.forward_index(3, 8.0) == 4
 
 
+def test_session_calendar_rejects_nat_before_availability_admission() -> None:
+    values = kwargs()
+    source_timestamps = np.asarray(values["timestamps"])
+    timestamps = source_timestamps.copy()
+    timestamps[-1] = np.datetime64("NaT", "ns")
+    available_at = np.broadcast_to(
+        source_timestamps[:, None],
+        (len(timestamps), 2),
+    ).copy()
+    values.update(
+        timestamps=timestamps,
+        available_at=available_at,
+        information_available=np.ones((len(timestamps), 2), dtype=np.bool_),
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+
+    with pytest.raises(ValueError, match="timestamps must not contain NaT"):
+        MarketDataset(**values)
+
+
 def test_execution_and_missingness_metadata_are_immutable_and_shaped() -> None:
     values = kwargs()
     values["feature_available"] = np.zeros((8, 2, 2), dtype=np.bool_)

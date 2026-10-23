@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import http.client
+import io
 import json
 import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
+from urllib.response import addinfourl
 
 import pytest
 
@@ -47,6 +50,30 @@ class _Response:
         result = self.payload[self.offset : end]
         self.offset = end
         return result
+
+
+class _MemorySocket:
+    def __init__(self, response_bytes: bytes) -> None:
+        self._response = io.BytesIO(response_bytes)
+
+    def makefile(self, mode: str) -> io.BytesIO:
+        assert mode == "rb"
+        return self._response
+
+    def close(self) -> None:
+        self._response.close()
+
+
+def _stdlib_http_response(payload: bytes, declared_length: int):
+    response_bytes = (
+        f"HTTP/1.1 200 OK\r\nContent-Length: {declared_length}\r\n\r\n".encode()
+        + payload
+    )
+    response = http.client.HTTPResponse(_MemorySocket(response_bytes))
+    response.begin()
+    return addinfourl(
+        response, response.headers, "https://example.invalid/", response.status
+    )
 
 
 def _patch_urlopen(
@@ -94,6 +121,43 @@ def test_bounded_transport_streams_large_exact_limit_in_fixed_chunks(
     assert result == payload
     assert response.read_sizes == [64 * 1024, 6 * 1024 + 1, 1]
     assert all(0 < size <= 64 * 1024 for size in response.read_sizes)
+
+
+def test_forward_capture_rejects_stdlib_truncated_declared_body(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    payload = json.dumps({"serverTime": _MS}).encode()
+    url = "https://data-api.binance.vision/api/v3/time"
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _stdlib_http_response(payload, len(payload) + 1),
+    )
+    with pytest.raises(http.client.IncompleteRead):
+        BinancePublicTransport(max_attempts=1)._request_bytes(url)
+
+    responses = 0
+
+    def urlopen(request: urllib.request.Request, *, timeout: float):
+        nonlocal responses
+        responses += 1
+        assert responses == 1, "capture accepted truncated response"
+        assert request.full_url == url
+        assert timeout == 4.0
+        return _stdlib_http_response(payload, len(payload) + 1)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    root = tmp_path / "capture"
+
+    with pytest.raises(BinanceTransportError, match="incomplete response"):
+        forward.capture_forward_snapshot(
+            root, clock=lambda: _NOW, monotonic=lambda: 1.0
+        )
+
+    failure = json.loads((root / "failure.json").read_text(encoding="utf-8"))
+    assert failure["completed_responses"] == []
+    assert not (root / "spot_time.raw").exists()
+    assert responses == 1
 
 
 @pytest.mark.parametrize(

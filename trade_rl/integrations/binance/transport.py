@@ -208,6 +208,14 @@ class BinancePublicTransport:
                                 "Binance response exceeds configured maximum of "
                                 f"{max_response_bytes} bytes for {url}"
                             )
+                        remaining_response_bytes = getattr(response, "length", None)
+                        if (
+                            type(remaining_response_bytes) is int
+                            and remaining_response_bytes > 0
+                        ):
+                            raise BinanceTransportError(
+                                f"Binance received an incomplete response body for {url}"
+                            )
                         payload = bytes(response_buffer)
                         del response_buffer
                     headers = getattr(response, "headers", {})

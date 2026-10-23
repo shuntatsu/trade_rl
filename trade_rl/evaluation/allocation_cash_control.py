@@ -23,9 +23,6 @@ from trade_rl.evaluation.allocation_nonrl_walk_forward import (
     _carriers,
     _validate_global_control_roster,
 )
-from trade_rl.evaluation.allocation_scenario_identity import (
-    allocation_candidate_recipe_digest,
-)
 from trade_rl.evaluation.allocation_selection import AllocationCashReference
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
@@ -268,12 +265,7 @@ def run_continuous_allocation_cash_control(
         or any(type(env) is not AllocationTradingEnv for env in environments)
     ):
         raise ValueError("cash control requires immutable allocation environments")
-    candidate_recipe = allocation_candidate_recipe_digest(environments[0].recipe)
-    if any(
-        allocation_candidate_recipe_digest(env.recipe) != candidate_recipe
-        for env in environments
-    ):
-        raise ValueError("cash control candidate recipe must be identical across folds")
+    candidate_recipe = _carriers(environments, required_action_mode="direct")
     policy_digest = _cash_policy_digest_for_recipe(candidate_recipe)
     policies = tuple(
         AllocationFoldPolicy(

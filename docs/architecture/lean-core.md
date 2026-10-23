@@ -297,15 +297,26 @@ retain their explicit reference-price sizing contract.
 
 Explicit `OrderIntent.reduce_only=True` supports MARKET orders only. Admission
 rejects absent, same-direction or insufficient actual exact inventory, independently
-of hypothetical pending fills in the economic projection. Allocation then
+of hypothetical pending fills in the economic projection. When the solvent
+processing-open book is already above the gross leverage cap, an otherwise valid
+MARKET reduce-only close may be admitted only if it lowers gross exposure. Such
+recovery closes reserve their exact accepted inventory during the admission pass
+and do not reduce projected exposure before a fill, so an unfilled recovery close
+cannot authorize a duplicate close or later opening. Under-cap passes keep their
+existing priority projection and fill-time expiry behavior. Allocation then
 checks the actual priority sequence, including ordinary fills, and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional
 and all existing constraints still apply. A legacy zero-target MARKET request is
 represented internally as a reduce-only exact-inventory close, but this does not
-waive its minimum-notional or other execution constraints; ordinary same-side
-reductions remain ordinary orders without an explicit profile.
+waive its minimum-notional or other execution constraints. Without an explicit
+reduce-only roster, a same-side smaller MARKET target is also represented as
+reduce-only only when actual holdings at decision reference prices exceed
+`maximum_gross`. This inference does not apply to LIMIT/STOP orders or when a
+roster is explicit, including an empty roster. The omitted-roster legacy
+zero-target behavior remains unchanged; an explicit roster controls whether its
+symbols' zero targets are reduce-only.
 
 The optional `MarketOrderProfile` binds verified Dataset identity/full symbol order,
 selected source rules, raw source hash/retrieval, one-way USD-M assumption and the

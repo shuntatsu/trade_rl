@@ -195,6 +195,11 @@ def reconcile_target(
     intents: list[OrderIntent] = []
     residuals = np.zeros_like(desired)
     exact_quantities = book.exact_quantities
+    decision_reference_gross = float(np.sum(np.abs(quantities * prices * multipliers)))
+    decision_reference_over_cap = (
+        math.isfinite(decision_reference_gross)
+        and decision_reference_gross > decision_equity * maximum_gross + _TOLERANCE
+    )
 
     for symbol_index in range(weights.size):
         current = exact_quantities[symbol_index]
@@ -206,6 +211,15 @@ def reconcile_target(
             and current
             and wanted == 0
         )
+        legacy_over_cap_partial_reduction = bool(
+            reduce_only_symbols is None
+            and order_type is OrderType.MARKET
+            and decision_reference_over_cap
+            and current
+            and wanted
+            and current * wanted > 0
+            and abs(wanted) < abs(current)
+        )
         profile_reduce = bool(
             reduce_only_symbols is not None
             and symbol_index in reduce_only_symbols
@@ -215,7 +229,9 @@ def reconcile_target(
                 and abs(wanted) < abs(current)
             )
         )
-        reduce_only = legacy_flatten or profile_reduce
+        reduce_only = (
+            legacy_flatten or legacy_over_cap_partial_reduction or profile_reduce
+        )
         if reduce_only:
             target_delta = project_quantity(wanted - current)
         active = state.active_for_symbol(symbol_index)

@@ -16,8 +16,8 @@ from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
-def market(*, bar_hours: int = 1) -> MarketDataset:
-    n = 60
+def market(*, bar_hours: int = 1, n_bars: int = 60) -> MarketDataset:
+    n = n_bars
     base = np.linspace(100.0, 130.0, n)
     close = np.stack((base, base * 1.5), axis=1)
     signal = np.linspace(-0.2, 0.2, n, dtype=np.float32)
@@ -108,7 +108,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         "compare_strategy_factories_by_symbol",
         fake_compare,
     )
-    dataset = market()
+    dataset = market(n_bars=61)
     config = candidate_suite.LeanCandidateConfig(
         signal_index=0,
         feature_indices=(0,),
@@ -141,7 +141,8 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     ).copy()
     available_at[53, 0] = config.fit_cutoff
     available_at[10, 1] = config.fit_cutoff + np.timedelta64(1, "ns")
-    available_at[55, 0] = dataset.timestamps[55] + np.timedelta64(1, "h")
+    # Row 60 is an unused tail after the replay's terminal endpoint at row 59.
+    available_at[60, 0] = dataset.timestamps[60] + np.timedelta64(1, "h")
     dataset = replace(
         dataset,
         available_at=available_at,

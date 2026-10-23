@@ -7,11 +7,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl._validation import require_unique_non_empty
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
     validated_symbol_indices,
     validated_training_scope,
+)
+from trade_rl.strategies.forecasts.training_trace import (
+    ForecastTrainingTrace,
+    _timestamp,
 )
 
 
@@ -38,6 +44,8 @@ class CausalForecastTrainingSet:
     sample_weights: np.ndarray
     fit_cutoff: np.datetime64
     horizon_hours: int
+    trace: ForecastTrainingTrace | None = None
+    feature_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         indices = tuple(self.feature_indices)
@@ -54,7 +62,7 @@ class CausalForecastTrainingSet:
             np.asarray(self.sample_weights).reshape(-1),
             dtype=np.dtype(np.float64),
         )
-        cutoff = np.datetime64(self.fit_cutoff, "ns")
+        cutoff = _timestamp(self.fit_cutoff, field="fit_cutoff")
         if features.ndim != 2 or features.shape[0] == 0:
             raise ValueError("features must be a non-empty two-dimensional array")
         if features.shape[1] != len(indices):
@@ -77,6 +85,43 @@ class CausalForecastTrainingSet:
             or self.horizon_hours <= 0
         ):
             raise ValueError("horizon_hours must be a positive integer")
+        if self.trace is not None:
+            trace = self.trace
+            if not isinstance(trace, ForecastTrainingTrace):
+                raise ValueError("trace must be a ForecastTrainingTrace")
+            if len(trace.row_symbols) != labels.size or not np.array_equal(
+                trace.end_times, label_end_times
+            ):
+                raise ValueError("trace must describe the actual training rows")
+            horizon_ns = self.horizon_hours * 3_600_000_000_000
+            if any(
+                int(end) - int(start) != horizon_ns
+                for start, end in zip(
+                    trace.start_times.astype(np.int64),
+                    trace.end_times.astype(np.int64),
+                    strict=True,
+                )
+            ):
+                raise ValueError("trace endpoints must match the declared horizon")
+            expected = np.array(
+                [
+                    math.log(end / start)
+                    for start, end in zip(
+                        trace.start_close, trace.end_close, strict=True
+                    )
+                ]
+            )
+            if not np.array_equal(expected, labels):
+                raise ValueError("labels must match the traced endpoint log returns")
+            if np.any(trace.label_available_times >= cutoff):
+                raise ValueError("training sources must be published before fit_cutoff")
+            if len(self.feature_names) != len(indices):
+                raise ValueError("traced training must bind the selected feature names")
+            object.__setattr__(
+                self,
+                "feature_names",
+                require_unique_non_empty(self.feature_names, field="feature_names"),
+            )
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "features", features)
         object.__setattr__(self, "labels", labels)
@@ -87,6 +132,25 @@ class CausalForecastTrainingSet:
     @property
     def n_samples(self) -> int:
         return int(self.labels.size)
+
+    def scope_payload(self) -> dict[str, object]:
+        if self.trace is None:
+            raise ValueError("untraced training cannot claim a causal scope identity")
+        return {
+            "schema": "forecast_training_scope_v1",
+            "feature_indices": list(self.feature_indices),
+            "feature_names": list(self.feature_names),
+            "features": self.features.tolist(),
+            "labels": self.labels.tolist(),
+            "sample_weights": self.sample_weights.tolist(),
+            "horizon_hours": self.horizon_hours,
+            "fit_cutoff": int(self.fit_cutoff.astype(np.int64)),
+            "trace": self.trace.payload(),
+        }
+
+    @property
+    def scope_digest(self) -> str:
+        return content_digest(self.scope_payload())
 
 
 def build_causal_forecast_training_set(
@@ -111,10 +175,18 @@ def build_causal_forecast_training_set(
     ):
         raise ValueError("horizon_hours must be a positive integer")
 
-    cutoff = np.datetime64(fit_cutoff, "ns")
+    cutoff = _timestamp(fit_cutoff, field="fit_cutoff")
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps = dataset.timestamps.astype("datetime64[ns]")
     timestamps_ns = timestamps.astype(np.int64)
+    available_at_ns = np.asarray(
+        dataset.resolved_array("available_at"),
+        dtype="datetime64[ns]",
+    ).astype(np.int64)
+    information_available = np.asarray(
+        dataset.resolved_array("information_available"),
+        dtype=np.bool_,
+    )
     horizon_ns = int(
         np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
     )
@@ -123,6 +195,9 @@ def build_causal_forecast_training_set(
     rows_by_symbol: list[list[np.ndarray]] = [[] for _ in range(dataset.n_symbols)]
     labels_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
     ends_by_symbol: list[list[np.datetime64]] = [[] for _ in range(dataset.n_symbols)]
+    pairs_by_symbol: list[list[tuple[int, int]]] = [
+        [] for _ in range(dataset.n_symbols)
+    ]
     for symbol_index in symbols:
         close = np.asarray(dataset.close[:, symbol_index], dtype=np.float64)
         availability = np.asarray(
@@ -138,6 +213,13 @@ def build_causal_forecast_training_set(
                 continue
             end_index = time_to_index.get(end_ns)
             if end_index is None or end_index <= start_index:
+                continue
+            if (
+                not information_available[start_index, symbol_index]
+                or not information_available[end_index, symbol_index]
+                or int(available_at_ns[start_index, symbol_index]) >= cutoff_ns
+                or int(available_at_ns[end_index, symbol_index]) >= cutoff_ns
+            ):
                 continue
             if not bool(np.all(availability[start_index, list(indices)])):
                 continue
@@ -159,6 +241,7 @@ def build_causal_forecast_training_set(
             symbol_rows.append(selected)
             symbol_labels.append(math.log(end_price / start_price))
             symbol_ends.append(timestamps[end_index])
+            pairs_by_symbol[symbol_index].append((start_index, end_index))
         rows_by_symbol[symbol_index] = symbol_rows
         labels_by_symbol[symbol_index] = symbol_labels
         ends_by_symbol[symbol_index] = symbol_ends
@@ -181,6 +264,7 @@ def build_causal_forecast_training_set(
     labels: list[float] = []
     label_end_times: list[np.datetime64] = []
     sample_weights: list[float] = []
+    source_rows: list[tuple[int, int, int]] = []
     for symbol_index in active_symbols:
         symbol_rows = rows_by_symbol[symbol_index]
         row_weight = per_symbol_weight / len(symbol_rows)
@@ -188,6 +272,9 @@ def build_causal_forecast_training_set(
         labels.extend(labels_by_symbol[symbol_index])
         label_end_times.extend(ends_by_symbol[symbol_index])
         sample_weights.extend([row_weight] * len(symbol_rows))
+        source_rows.extend(
+            (symbol_index, start, end) for start, end in pairs_by_symbol[symbol_index]
+        )
 
     return CausalForecastTrainingSet(
         feature_indices=indices,
@@ -197,6 +284,28 @@ def build_causal_forecast_training_set(
         sample_weights=np.asarray(sample_weights, dtype=np.float64),
         fit_cutoff=cutoff,
         horizon_hours=horizon_hours,
+        feature_names=tuple(dataset.feature_names[index] for index in indices),
+        trace=ForecastTrainingTrace(
+            row_symbols=tuple(dataset.symbols[s] for s, _, _ in source_rows),
+            start_times=np.array([timestamps[start] for _, start, _ in source_rows]),
+            end_times=np.array([timestamps[end] for _, _, end in source_rows]),
+            start_available_at=np.array(
+                [
+                    np.datetime64(int(available_at_ns[start, s]), "ns")
+                    for s, start, _ in source_rows
+                ]
+            ),
+            end_available_at=np.array(
+                [
+                    np.datetime64(int(available_at_ns[end, s]), "ns")
+                    for s, _, end in source_rows
+                ]
+            ),
+            start_close=np.array(
+                [dataset.close[start, s] for s, start, _ in source_rows]
+            ),
+            end_close=np.array([dataset.close[end, s] for s, _, end in source_rows]),
+        ),
     )
 
 

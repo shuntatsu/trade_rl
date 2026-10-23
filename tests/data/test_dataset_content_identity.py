@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
+from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.market import MarketDataset
 
 
@@ -105,3 +107,191 @@ def test_market_dataset_internal_caches_are_deeply_immutable() -> None:
         assert array.flags.writeable is False
         with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
             array.setflags(write=True)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("symbols", ("OTHER",)),
+        ("feature_names", ("other_feature",)),
+        ("global_feature_names", ("other_global",)),
+        ("volume_units", (VolumeUnit.QUOTE_NOTIONAL,)),
+        ("feature_config_digest", "a" * 64),
+        ("normalization_digest", "b" * 64),
+        ("calendar_kind", MarketCalendarKind.CONTINUOUS),
+        ("nominal_bar_hours", 2.0),
+        ("periods_per_year", 252),
+    ],
+)
+def test_content_identity_rejects_changed_scalar_meaning(
+    field_name: str, replacement: object
+) -> None:
+    original = replace(
+        dataset(), calendar_kind=MarketCalendarKind.SESSION
+    ).with_content_identity()
+
+    with pytest.raises(ValueError, match="dataset_id.*contract"):
+        replace(original, **{field_name: replacement})
+
+
+def test_recomputed_identity_detects_live_feature_label_drift() -> None:
+    original = dataset().with_content_identity()
+    object.__setattr__(original, "feature_names", ("other_feature",))
+
+    assert original.recomputed_dataset_id() != original.dataset_id
+    assert original.identity_verified is False
+
+
+def test_explicitly_reidentified_scalar_change_has_a_new_identity() -> None:
+    original = dataset().with_content_identity()
+    successor = replace(
+        original, feature_names=("other_feature",), identity_payload_json=None
+    ).with_content_identity()
+
+    assert successor.dataset_id != original.dataset_id
+    assert successor.identity_verified is True
+
+
+@pytest.mark.parametrize("change", ["missing", "malformed", "changed"])
+def test_stored_descriptor_tampering_is_not_verified(change: str) -> None:
+    original = dataset().with_content_identity()
+    payload = json.loads(original.identity_payload_json)
+    if change == "missing":
+        del payload["dataset_contract"]
+    elif change == "malformed":
+        payload["dataset_contract"] = "invalid"
+    else:
+        payload["dataset_contract"]["feature_names"] = ["other_feature"]
+    object.__setattr__(original, "identity_payload_json", json.dumps(payload))
+
+    assert original.identity_verified is False
+
+
+class _ActivityAliasArray(np.ndarray):
+    pass
+
+
+def _malformed_activity_alias(kind: str, shape: tuple[int, ...]) -> object:
+    if kind == "none":
+        return None
+    if kind == "list":
+        return np.ones(shape, dtype=np.bool_).tolist()
+    if kind == "scalar":
+        return np.bool_(True)
+    if kind == "integer":
+        return np.ones(shape, dtype=np.int8)
+    if kind == "object":
+        return np.ones(shape, dtype=object)
+    if kind == "wrong_shape":
+        return np.ones((shape[0],), dtype=np.bool_)
+    if kind == "subclass":
+        return np.ones(shape, dtype=np.bool_).view(_ActivityAliasArray)
+    raise AssertionError(f"unknown malformed activity alias kind: {kind}")
+
+
+@pytest.mark.parametrize("alias_field", ["asset_active", "symbol_active"])
+def test_activity_alias_content_drift_is_rejected_by_dataset_identity(
+    alias_field: str,
+) -> None:
+    original = dataset().with_content_identity({"source": "activity-alias-test"})
+    original_id = original.dataset_id
+    original_payload = original.identity_payload_json
+    object.__setattr__(
+        original,
+        alias_field,
+        np.zeros_like(original.resolved_array(alias_field)),
+    )
+
+    with pytest.raises(ValueError, match="activity aliases"):
+        original.identity_arrays()
+    assert original.identity_verified is False
+    with pytest.raises(ValueError, match="activity aliases"):
+        original.recomputed_dataset_id()
+    with pytest.raises(ValueError, match="activity aliases"):
+        original.with_content_identity()
+    assert original.dataset_id == original_id
+    assert original.identity_payload_json == original_payload
+
+
+@pytest.mark.parametrize("alias_field", ["asset_active", "symbol_active"])
+def test_activity_alias_equal_byte_replacement_preserves_v7_identity(
+    alias_field: str,
+) -> None:
+    original = dataset().with_content_identity({"source": "activity-alias-test"})
+    original_id = original.dataset_id
+    replacement = original.resolved_array(alias_field).copy()
+    assert replacement.flags.writeable
+    object.__setattr__(original, alias_field, replacement)
+
+    assert original.asset_active is not original.symbol_active
+    assert "symbol_active" in original.identity_arrays()
+    assert "asset_active" not in original.identity_arrays()
+    assert original.identity_verified is True
+    assert original.recomputed_dataset_id() == original_id
+
+
+@pytest.mark.parametrize(
+    ("alias_field", "malformed_kind"),
+    [
+        ("asset_active", "none"),
+        ("symbol_active", "none"),
+        ("asset_active", "list"),
+        ("symbol_active", "list"),
+        ("asset_active", "scalar"),
+        ("symbol_active", "integer"),
+        ("asset_active", "object"),
+        ("symbol_active", "wrong_shape"),
+        ("asset_active", "subclass"),
+    ],
+)
+def test_malformed_activity_alias_is_rejected(
+    alias_field: str, malformed_kind: str
+) -> None:
+    original = dataset().with_content_identity({"source": "activity-alias-test"})
+    original_id = original.dataset_id
+    malformed = _malformed_activity_alias(malformed_kind, original.close.shape)
+    object.__setattr__(original, alias_field, malformed)
+
+    with pytest.raises(ValueError, match="activity aliases"):
+        original.identity_arrays()
+    assert original.identity_verified is False
+    with pytest.raises(ValueError, match="activity aliases"):
+        original.recomputed_dataset_id()
+    with pytest.raises(ValueError, match="activity aliases"):
+        original.with_content_identity()
+    assert original.dataset_id == original_id
+
+
+def test_activity_alias_constructor_normalizes_equal_coercible_arrays() -> None:
+    source = dataset()
+    boolean_active = np.ones(source.close.shape, dtype=np.bool_)
+    integer_active = np.ones(source.close.shape, dtype=np.int8)
+
+    normalized = replace(
+        source,
+        asset_active=boolean_active,
+        symbol_active=integer_active,
+    )
+
+    assert normalized.asset_active is normalized.symbol_active
+    assert normalized.asset_active.dtype == np.dtype(np.bool_)
+    assert normalized.asset_active.flags.writeable is False
+
+
+def test_activity_alias_v6_and_v7_identities_keep_canonical_array_name() -> None:
+    legacy = load_market_dataset_artifact(
+        Path(__file__).parent / "fixtures" / "market_build_v2_artifact"
+    )
+    current = dataset().with_content_identity({"source": "activity-alias-test"})
+
+    for market, schema in (
+        (legacy, "market_dataset_identity_v6"),
+        (current, "market_dataset_identity_v7"),
+    ):
+        assert json.loads(market.identity_payload_json)["schema"] == schema
+        assert market.identity_verified is True
+        assert market.recomputed_dataset_id() == market.dataset_id
+        arrays = market.identity_arrays()
+        assert "symbol_active" in arrays
+        assert "asset_active" not in arrays
+        assert market.asset_active is market.symbol_active

@@ -21,9 +21,76 @@
     "training_layout",
     "sequential",
     "interleaved",
-    "DummyVecEnv"
+    "DummyVecEnv",
+    "配分PPO",
+    "固定初期資本",
+    "残差配分",
+    "AllocationAccountSnapshot",
+    "口座スナップショット",
+    "未約定注文",
+    "snapshot_allocation_account",
+    "AllocationObservationSchema",
+    "allocation_account_observation_v2",
+    "AllocationPPOTrainingProtocol",
+    "明示学習設定",
+    "Adam完了回数",
+    "AllocationFeaturePreprocessing",
+    "因果的な特徴前処理",
+    "配分観測v3",
+    "transition_trace_v1",
+    "実行動と約定",
+    "buffer admission",
+    "非RL固定runner",
+    "scheduled transition trace",
+    "native PPO update",
+    "旧口座と次のreset入力"
   ],
   "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Declared settled allocation learning clock",
+      "sha256": "b4885100b4d81964a7919c283c966d5afa1cadfb40f5f8d0443f25d31ebf33cf"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Settled learning work: clock and shared native reserve",
+      "sha256": "9cecea0ad7fbc7d60d6e4422c1e08307e34f90452d152dc5f39bf5fcfce9c658"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Pure allocation observation v3 frozen-feature projection",
+      "sha256": "8176c22f5936501d8c5e8d5fb04399ec37a8264f59848bd08a345b863a3a29cd"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: pure allocation observation v3 candidate",
+      "sha256": "c254d2f7b03be09dbba72a3c374d73027c3422ffa25d6e7a715bc63a7cd15887"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Causal allocation feature preprocessing prefix",
+      "sha256": "d5fe138682f407d4e2550e74d0faf92bbb0fc1be872fc26176277d1e3f5bc3bd"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: causal allocation preprocessing declaration candidate",
+      "sha256": "e247013b8eff4f2182e3e1bf79b467c88787042c574e4735c9cefb377e1828fd"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Explicit allocation PPO training protocol declaration",
+      "sha256": "2280f4357a821e225072a721076e7dff6f17f09b2d7899d00bf32f98901322f6"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: explicit allocation training protocol declaration candidate",
+      "sha256": "058cae675b49d3c4843a52bf22f210550ba75941082c518500ac7118821ce3a5"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Opt-in allocation PPO account transition",
+      "sha256": "cd950771b3ffd6890b82c920778b38a2f8a6933d3ab270666e00abe088644565"
+    },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "PPO Observation v2",
@@ -33,9 +100,127 @@
       "path": "docs/research/current-status.md",
       "heading": "PPO",
       "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Immutable allocation account snapshot contract",
+      "sha256": "307448f0caf7435c5d2ea6b33786197fdd0b142c35a9850b5da2b732b4162429"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Independent account snapshot observer",
+      "sha256": "90a244527ba88d6f3738272d263564efd4df9532a5fc9e8cae3a49eb9f3548cf"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 pure encoder",
+      "sha256": "13b809b923cdb1f9b40b11429e6ea655d3d6b376db339dace8f0485e42aee714"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: pure allocation observation v2 encoder candidate",
+      "sha256": "7a50166c9cf9a077c1a045e4bbf662386094427270cbe822803a839376ff359b"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 layout declaration",
+      "sha256": "8a5f521133982db0981d9696d196385ae00d08c16551c8731c4414d1ccddeb63"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: allocation observation v2 declaration candidate",
+      "sha256": "0d94893d6aa1add1b0b50404ad9db400737d0a667ad2f077ec36676fafc5b643"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 runtime connection",
+      "sha256": "cbec0f1856fddbb62c1558a7f5c3340156a46d084da2831cde3d0e9d32c7cfa9"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: allocation observation v2 runtime candidate",
+      "sha256": "fab31dce7b35a9e8f91f862c50b0c3c94bbdfb742cdd3ee0419b8800ab75c4f6"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Explicit allocation PPO protocol runtime",
+      "sha256": "b4b4713615ca5d3f5948e92264c9a16acc15f8430fb989077f10b3539fdb3510"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: explicit allocation PPO protocol runtime candidate",
+      "sha256": "de3da471a7dafc1697d7fcae29120c13104f7bfaee28cb062d009d271b00b02a"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Frozen allocation preprocessing runtime and receipts",
+      "sha256": "88b13b1482ab5499d3ea358a1ae6a50d24112f102229fec3f985f68c65c39f21"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: frozen preprocessing runtime candidate",
+      "sha256": "dc0a9780c32511f87fe37a3f36ec861bbbc55ace9d4102fe7f6bf1bc808c7918"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Optional chronological allocation transition trace",
+      "sha256": "c2e80f30bb7fbea263d9e714993db6a7e170534651d382374a4f38538ef7bcde"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: chronological allocation action sidecar candidate",
+      "sha256": "8e0aab3e5f5a19e98eb4779eb11f4f78acc2fc56c16fbd07cc047e472864e031"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Fixed nonRL continuous-account consumer",
+      "sha256": "1ec9d2926f685563a643e4a959c58aee79e99e84ce8cc8d39d3d5eead2ade4b4"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810 P4: actual fixed nonRL consumer",
+      "sha256": "5e3c50f204fb490970a915d15eeabd46b5c0fe0bb9a55b890445b28347964a58"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Scheduled actor and native learner sidecar",
+      "sha256": "150c4bd3e4757561f3d4d2fbe594523ecec4e42f08dc7325c88c2af98cf68a17"
+    },
+    {
+      "path": "docs/architecture/research-assurance.md",
+      "heading": "Scheduled actor trace and finite delayed credit G0-G2",
+      "sha256": "eb2c7cff32c08af06f933393b6a523b672bcab51ceba22c72a849fabf5f9b3a1"
     }
   ],
   "code_references": [
+    {
+      "id": "allocation-training-protocol",
+      "symbol": "trade_rl.strategies.rl.allocation_training_protocol.AllocationPPOTrainingProtocol",
+      "kind": "class",
+      "source_sha256": "4ab0dede1f4eb65c476c137b8cc941f73aed0334b3c87027c152ce951faeade1",
+      "label_ja": "配分PPOの不変な学習設定宣言",
+      "description_ja": "19の学習設定を必須にし、固定したcategorical CPU識別子と全フラグを閉じたpayloadへ保持します。宣言自体はモデルを構築せず、別の明示consumerが学習設定とv3 receiptへ接続します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_training_protocol.py",
+        "tests/architecture/test_allocation_training_protocol_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-environment",
+      "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",
+      "kind": "class",
+      "source_sha256": "cdeeec0855f71d1bc3c1aa18d32efefd4225196747e928225a761ac1a2c892fa",
+      "label_ja": "独立口座の配分PPO環境",
+      "description_ja": "共通のrisk・約定・会計から固定初期資本の純資産増分を報酬にします。既定v1と明示v2を保ち、凍結前処理の明示v3では先頭の特徴だけを変換します。真の終了は変換を迂回した全0通知で、truncationは生成しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_rl_env.py",
+        "tests/evaluation/test_allocation_rl_observation_v2.py",
+        "tests/evaluation/test_allocation_preprocessing_runtime.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
     {
       "id": "encode-observation",
       "symbol": "trade_rl.strategies.rl.intent._encode_observation",
@@ -223,6 +408,385 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "allocation-account-snapshot",
+      "symbol": "trade_rl.strategies.allocation_snapshot.AllocationAccountSnapshot",
+      "kind": "class",
+      "source_sha256": "0694fd0336798c43ec54de29a8f5e9b138aa2c91a1392941f0b26aa6f6af1522",
+      "label_ja": "不変の口座・注文スナップショット",
+      "description_ja": "申告された生存中の独立口座について、選択銘柄の事実と未約定注文を深く不変化します。口座からの読み出しやPPO用数値符号化はこの段階に含みません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py",
+        "tests/architecture/test_allocation_snapshot_contract_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-order-snapshot-shape",
+      "symbol": "trade_rl.strategies.allocation_snapshot._order_shape",
+      "kind": "function",
+      "source_sha256": "6e3bd5819faffcb8525b60e2b2510bcc69c20bca2badb7a54541cb8ac3f482a3",
+      "label_ja": "未約定注文の数量と時刻を検査する",
+      "description_ja": "MARKET注文の申告時刻・処理時刻・状態と正確な約定進捗の整合性を確認します。注文履歴の真正性や経済的な採用資格を判定する機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py"
+      ]
+    },
+    {
+      "id": "allocation-snapshot-observer",
+      "symbol": "trade_rl.evaluation.allocation_snapshot.snapshot_allocation_account",
+      "kind": "function",
+      "source_sha256": "f589a9c169fab007650eb0996887ffc08adc928495d8266294129c7a5367c012",
+      "label_ja": "実口座から現在の状態を読み出す",
+      "description_ja": "生存中の独立口座をコピーして、既知の処理時刻・公開済み選択銘柄・既存注文・更新済みmarginを検査します。元の口座や注文・実行乱数を修復・変更しません。PPO用数値符号化は別段階です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_snapshot.py",
+        "tests/architecture/test_allocation_snapshot_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v2-encoder",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_encoder_v2.encode_allocation_observation_v2",
+      "kind": "function",
+      "source_sha256": "ea5b2707168b8c2f79b25425465b815c7c53af6238346adbbd0ef94793b6fe02",
+      "label_ja": "配分口座・未約定注文を数値化",
+      "description_ja": "一致する口座スナップショットと配分判断を、固定初期資本・期間・特徴量順・注文枠に対応する新しいfloat32配列へ写します。正確な経済値を丸める前に注文を並べます。上位の明示v2環境が同じencoderを使います。",
+      "variables": [
+        {
+          "name": "values",
+          "label_ja": "正確な経済比率",
+          "description_ja": "予測・基準配分と口座状態、注文スロットを宣言の順序で保持し、経済値の絶対値を増やさないfloat32射影へ渡します。"
+        },
+        {
+          "name": "rows",
+          "label_ja": "未約定注文の数値列",
+          "description_ja": "正確な数量・金額比率・相対時刻などで並べます。注文IDは数値に含めず、この並びは実際の約定処理の優先順位を表しません。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_allocation_observation_encoder_v2.py",
+        "tests/architecture/test_allocation_observation_encoder_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v2-schema",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v2.AllocationObservationSchema",
+      "kind": "class",
+      "source_sha256": "55ffa21952bb771f17fea57ec5e63b53c6326f7c6d8c911805a6c71efd517340",
+      "label_ja": "配分口座の数値列を宣言する",
+      "description_ja": "入力特徴順序・注文枠・固定初期資本・episode長を必須にし、列名とencoderの意味を不変のpayloadに固定します。宣言自体は数値配列を生成せず、既存v1 recipeも変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v2.py",
+        "tests/architecture/test_allocation_observation_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-native-capital",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v2._native_capital",
+      "kind": "function",
+      "source_sha256": "4e413559aeee56bbd249849b265902f49a41c4ea770dd174bc8d0150b14dd919",
+      "label_ja": "固定初期資本の表現を揃える",
+      "description_ja": "資本を正の有限なnative floatへ揃え、bool・非数値・overflow・ゼロに潰れる値を拒否します。市場データの正規化や学習用fitを行う機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v2.py"
+      ]
+    },
+    {
+      "id": "allocation-recipe-v2",
+      "symbol": "trade_rl.strategies.rl.allocation_recipe_v2.allocation_recipe_payload_v2",
+      "kind": "function",
+      "source_sha256": "2070189503bbaac18d058d23741ed100fff2a7d11cbd4dea77de50542785f119",
+      "label_ja": "配分観測v2の保存契約",
+      "description_ja": "特徴順・資本・期間をruntimeと一致させ、全列と真の終了・bootstrapの意味を別versionのrecipeへ固定します。既存v1のpayloadを変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_recipe_v2.py"
+      ]
+    },
+    {
+      "id": "allocation-consumed-inputs",
+      "symbol": "trade_rl.evaluation.rl_allocation.input_receipt.AllocationInputRecorder",
+      "kind": "class",
+      "source_sha256": "16c8797f9b211d3403e1b258a76be1b398778edcbdfb124e2a6f42abf7c35364",
+      "label_ja": "実際のactor入力と境界入力を記録する",
+      "description_ja": "actorのobs_tensor、rollout末尾のnew_obsと終了状態、別の終了通知をphaseごとにhashと件数へ写します。凍結前処理では実際の変換後bytesと宣言digestをv3記録へ結びます。真正性やRNG再開の証明ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_recipe_v2.py"
+      ]
+    },
+    {
+      "id": "fit-allocation-ppo",
+      "symbol": "trade_rl.evaluation.rl_allocation.training.fit_allocation_ppo",
+      "kind": "function",
+      "source_sha256": "fd3fd23d0e485af6720606af6002d70e94d06831fd1661d199937fe04932d313",
+      "label_ja": "明示した独立口座だけで配分PPOを学習する",
+      "description_ja": "時価評価で終わるAllocationTradingEnvだけを、resetや学習器importより前に受け付けます。省略・Noneでは既存v1/v2のbudgetとsource記録を維持します。明示設定ではv3 bundle、凍結前処理では実Datasetのprefixを構築前・学習後に照合してv4 bundleへ接続します。市場承認や学習成功の証明ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_preprocessing_runtime.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "allocation-settled-env",
+      "symbol": "trade_rl.evaluation.rl_allocation.settled_env.SettledAllocationTradingEnv",
+      "kind": "class",
+      "source_sha256": "dec97b82831cda6c1976650f1609a81e9258cd732390130845a4df1e71fd58fc",
+      "label_ja": "同じ口座の決済費用まで最後の報酬へ含める",
+      "description_ja": "独立口座でP回の判断とR本の予約決済を分け、同じ共通会計でH=P+Rを処理します。残り期間は全Hを分母にし、最後の報酬に決済費用・carryを含めます。債務・未約定・失敗を保持し、実学習・保存物の適格性は後続検証です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_settled_env.py",
+        "tests/evaluation/test_allocation_settled_source.py",
+        "tests/architecture/test_allocation_settled_learning_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-protocol-constructor",
+      "symbol": "trade_rl.evaluation.rl_allocation.training_protocol.construct_protocol_ppo",
+      "kind": "function",
+      "source_sha256": "dac7ebae9a425a43d478e36f69941980692d8fa17725e710698adf9f3aab5ea3",
+      "label_ja": "明示設定を実PPOへ渡す",
+      "description_ja": "閉じた設定の全PPO・policy・Adam引数を既知の型へ解決し、導入版・CPU float32・実設定を検査します。予約した識別子から任意のclassをimportする機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_protocol_receipt.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-optimizer-updates",
+      "symbol": "trade_rl.evaluation.rl_allocation.training_protocol.AllocationUpdateRecorder",
+      "kind": "class",
+      "source_sha256": "08135c2adf6691424ee6c1e0c1a1b6b5e31093a9cef2fa5688b887bcea47ef86",
+      "label_ja": "Adamが戻った呼び出しを数える",
+      "description_ja": "実optimizerのpost-hookで件数と時刻metadataのhashを残し、最後のnative train後に確定します。例外時もフックを解除し、パラメータ改善や学習成功と呼び出し完了を区別します。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_protocol_receipt.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-protocol-receipt",
+      "symbol": "trade_rl.strategies.rl.allocation_protocol_receipt.validate_allocation_training_v3",
+      "kind": "function",
+      "source_sha256": "30c53642629b0ace556cc4973483867af27701893fde58788445eaeb8d4ce896",
+      "label_ja": "v3の学習記録を読み込み前に検査する",
+      "description_ja": "純粋な設定readerと既存source・時計検査を使い、閉じたv3字段・digest・mechanical件数を確認します。履歴や学習の真正性を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_protocol_receipt.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-feature-preprocessing",
+      "symbol": "trade_rl.strategies.rl.allocation_preprocessing.AllocationFeaturePreprocessing",
+      "kind": "class",
+      "source_sha256": "3bff87177611facd454d44c9d16d9332cad28a9a94629ed259123eaf52ef8bfc",
+      "label_ja": "前処理の係数と適用条件を凍結する",
+      "description_ja": "特徴順・fit範囲・有効行・係数・時刻・生成設定を閉じた宣言に保持し、特徴値だけを変換します。未来のDataset IDを固定せず、元データの真正性やPPO消費を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_preprocessing.py"
+      ]
+    },
+    {
+      "id": "fit-allocation-feature-preprocessing",
+      "symbol": "trade_rl.evaluation.rl_allocation.preprocessing.fit_allocation_feature_preprocessing",
+      "kind": "function",
+      "source_sha256": "a715e7a346e31a74f00815538bca064943b0f2d32e4a16e2cf9cc4ee57fbccdc",
+      "label_ja": "判断時点に公開済みのprefixだけを使う",
+      "description_ja": "選択特徴が共同で有限かつ利用可能で、その行の時刻に公開済みの値だけをfitへ入れ、銘柄を等重みで集計します。上流特徴生成の因果性の証明や市場学習は行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_preprocessing.py",
+        "tests/architecture/test_allocation_preprocessing_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v3",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v3.allocation_observation_payload_v3",
+      "kind": "function",
+      "source_sha256": "b338baa3516e71c821ecf558cabd8612cb098ff5202d84a90e784d711bf9210e",
+      "label_ja": "特徴の変換だけを別版の観測へ束縛する",
+      "description_ja": "固定した特徴順・K/C/Nと凍結係数を組み合わせ、経済列の幅と意味を保つ純粋な宣言です。実Datasetの採用条件と学習・保存物への接続は上位の明示consumerが所有します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v3.py",
+        "tests/architecture/test_allocation_observation_v3_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-encoder-v3",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v3.encode_allocation_observation_v3",
+      "kind": "function",
+      "source_sha256": "944fa3165d9a350f376224c7aa434e747df022e3f7b75b851c0e801b01c7fc89",
+      "label_ja": "先頭の特徴だけを一度変換する",
+      "description_ja": "生存snapshotと生の判断から新しい配列を作り、最初のF列だけを変換します。経済列bytesと元の判断を保ち、終了通知や実Datasetの証明を引き受けません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v3.py"
+      ]
+    },
+    {
+      "id": "allocation-recipe-v3",
+      "symbol": "trade_rl.strategies.rl.allocation_recipe_v3.allocation_recipe_payload_v3",
+      "kind": "function",
+      "source_sha256": "7093ff5ca786efd9f93f26f37a70e3a18d009c0f9b8fe27ddafb2d624c7411dd",
+      "label_ja": "凍結特徴のrecipeを別版にする",
+      "description_ja": "前処理と新しい観測を別版へ宣言し、既存actionと経済条件を保ちます。bundle v4と学習receipt v4だけが、このrecipe v3を受け付けます。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v3.py",
+        "tests/architecture/test_allocation_observation_v3_boundary.py"
+      ]
+    },
+    {
+      "id": "validate-allocation-training-preprocessing",
+      "symbol": "trade_rl.evaluation.rl_allocation.preprocessing.validate_training_preprocessing",
+      "kind": "function",
+      "source_sha256": "a2fcfc97b6d6e3c9964be130a1a3d51bdee0310ed87768bd023f8ca6cb66beab",
+      "label_ja": "学習元のprefixを実Datasetと照合する",
+      "description_ja": "適用条件と別に、fit元・選択列・初回判断と共同利用可能だったprefixから再構成した凍結宣言を確認します。推論Datasetをfit元のIDへ固定する機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_preprocessing_runtime.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "validate-allocation-preprocessing-application",
+      "symbol": "trade_rl.evaluation.rl_allocation.preprocessing.validate_preprocessing_application",
+      "kind": "function",
+      "source_sha256": "862cc2dd54d7cb60392b0da380bdaf4050f72d4e1d059359d2d859fb4d9179fb",
+      "label_ja": "推論時の実特徴と時計を確認する",
+      "description_ja": "実特徴順・生成設定・元の正規化設定とfit完了・宣言した初回判断以降の時刻を確認します。将来のDataset IDやローカル列番号の一致は要求しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_preprocessing_runtime.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "allocation-preprocessing-receipt",
+      "symbol": "trade_rl.strategies.rl.allocation_preprocessing_receipt.validate_allocation_training_v4",
+      "kind": "function",
+      "source_sha256": "bd3cbc4b25b4d62cc7fb47ce5e1aa10b51f89a60cd57798533ddb528868e38d0",
+      "label_ja": "v4の凍結前処理記録を検査する",
+      "description_ja": "recipe v3専用の閉じた学習記録を読み、宣言・fit由来・実入力と既存の明示設定・更新件数を結びます。実Datasetの再fitや履歴の真正性の証明は行いません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_preprocessing_receipt.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "allocation-transition-recorder",
+      "symbol": "trade_rl.evaluation.rl_allocation.transition_trace.AllocationTransitionRecorder",
+      "kind": "class",
+      "source_sha256": "b636b4553513259bf125b4af25e7ba9906c0b52c9d7c9a5b16c351c3164559d6",
+      "label_ja": "実actorと採用済みbufferを結ぶ",
+      "description_ja": "実tensor・action・logpi・valueと上書き前の経済factを凍結し、buffer全体を照合します。終了通知だけで完了にせず、通常の最終学習検証が必要です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_transition_trace.py",
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-transition-validation",
+      "symbol": "trade_rl.evaluation.rl_allocation.transition_validation.validate_transition_events",
+      "kind": "function",
+      "source_sha256": "010e42f5db9f6a515bbf2aff47c209838d0f0777617701bb9ead85647df70ff3",
+      "label_ja": "行の順序・時計・経済関係を検査する",
+      "description_ja": "全体ordinalとnative event sequenceを分け、actual inputreceipt、signed reward、mapper・risk・order関係を検査します。再学習・再約定や履歴の真正性の証明は行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_transition_trace.py",
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-transition-reader",
+      "symbol": "trade_rl.evaluation.rl_allocation.transition_trace_io.read_allocation_transition_trace",
+      "kind": "function",
+      "source_sha256": "dbddb8488cb2b9571cfcda58ffad06d79ec0015df8436f6f90d09cc98044fee9",
+      "label_ja": "別sidecarをPPOの読込なしで検証する",
+      "description_ja": "保存済みbundleと別pinを持つwrite-once記録を照合し、rehashedな関係不整合も拒否します。既存bundle/recipe/receiptは変えず、利益や研究承認も示しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_transition_trace.py",
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "run-continuous-nonrl-allocation",
+      "symbol": "trade_rl.evaluation.allocation_nonrl_walk_forward.run_continuous_nonrl_allocation",
+      "kind": "function",
+      "source_sha256": "ce472fde04a64ddfe291612d03e21ca912cafcb519bf46ee29f0802ff39d844b",
+      "label_ja": "学習しない基準配分を連続実行する",
+      "description_ja": "残差action2だけを使う固定ruleを宣言し、口座・注文の継続と約定は共通runnerへ任せます。直接配分と構造・時計の不一致はreset前に拒否し、任意のpolicyを受け取りません。実特徴・口座との照合は各判断時のnative admissionで行います。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_nonrl_walk_forward.py",
+        "tests/architecture/test_allocation_nonrl_walk_forward_boundary.py"
+      ]
+    },
+    {
+      "id": "build-continuous-nonrl-allocation-evidence",
+      "symbol": "trade_rl.evaluation.allocation_nonrl_walk_forward.build_continuous_nonrl_allocation_evidence",
+      "kind": "function",
+      "source_sha256": "f1ba9d34d401ad95ccf279f6a339a22190c46d9da4d241e96f520c49e2f9bb86",
+      "label_ja": "固定基準の結果を共通比較へ結ぶ",
+      "description_ja": "専用結果のrule・候補・予測・完全なruntimeを照合し、共通NONRL証拠へ渡します。seed/policyはnullで、宣言の真正性や市場利益を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_nonrl_walk_forward.py",
+        "tests/architecture/test_allocation_nonrl_walk_forward_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-scheduled-transition-recorder",
+      "symbol": "trade_rl.evaluation.rl_allocation.scheduled_transition_trace.ScheduledAllocationTransitionRecorder",
+      "kind": "class",
+      "source_sha256": "a55350a75d7f2c3d4d7e70c40d0d6e743983fb94434cc82736dbe0fd405e93e0",
+      "label_ja": "旧口座・次の入力と実PPO更新を記録する",
+      "description_ja": "実actor・bootstrapと採用済みbufferを窓の順序へ結び、任意の実更新診断を閉じたv5の別記録へ渡します。再予測・再約定せず、完了は学習利益の判定とは区別します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_scheduled_transition_trace.py",
+        "tests/integrations/test_allocation_scheduled_transition_runtime.py",
+        "tests/architecture/test_allocation_scheduled_trace_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-scheduled-transition-reader",
+      "symbol": "trade_rl.evaluation.rl_allocation.scheduled_transition_trace_io.read_scheduled_allocation_transition_trace",
+      "kind": "function",
+      "source_sha256": "fe1b7a716d114341b73c1b22f68a47068581598b1e3603838ef4a8e9b125dd66",
+      "label_ja": "保存v5と窓・実更新の別記録を検証する",
+      "description_ja": "モデルを読まず、保存bundleと独立pin、行の順序・特徴の再利用・採用済みbuffer・GAE・更新の関係を検査します。履歴の真正性や市場利益を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_scheduled_transition_io.py",
+        "tests/integrations/test_allocation_scheduled_transition_runtime.py",
+        "tests/architecture/test_allocation_scheduled_trace_boundary.py"
       ]
     }
   ]

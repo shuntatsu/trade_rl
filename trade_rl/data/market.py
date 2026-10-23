@@ -688,6 +688,13 @@ class MarketDataset:
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
             canonical_payload_json = canonical_identity_json(payload)
+            stored_contract = payload.get("dataset_contract")
+            if not isinstance(stored_contract, dict) or canonical_identity_json(
+                stored_contract
+            ) != canonical_identity_json(self.identity_contract_payload()):
+                raise ValueError(
+                    "dataset_id does not match the current dataset contract"
+                )
             if (
                 payload.get("schema") == "market_dataset_identity_v6"
                 and self.funding_price_rate is not None
@@ -707,15 +714,27 @@ class MarketDataset:
     def recomputed_dataset_id(self) -> str:
         if self.identity_payload_json is None:
             raise ValueError("dataset has no canonical identity payload")
+        payload = parse_identity_json(self.identity_payload_json)
+        payload["dataset_contract"] = self.identity_contract_payload()
         return compute_market_dataset_id(
-            parse_identity_json(self.identity_payload_json),
+            payload,
             self.identity_arrays(),
         )
 
     @property
     def identity_verified(self) -> bool:
+        if self.identity_payload_json is None:
+            return False
+        try:
+            self._validated_activity_array()
+        except ValueError:
+            return False
+        payload = parse_identity_json(self.identity_payload_json)
+        stored_contract = payload.get("dataset_contract")
         return (
-            self.identity_payload_json is not None
+            isinstance(stored_contract, dict)
+            and canonical_identity_json(stored_contract)
+            == canonical_identity_json(self.identity_contract_payload())
             and self.recomputed_dataset_id() == self.dataset_id
         )
 
@@ -732,7 +751,31 @@ class MarketDataset:
             "volume_units": tuple(value.value for value in self.volume_units),
         }
 
+    def _validated_activity_array(self) -> np.ndarray:
+        asset_active, symbol_active = self.asset_active, self.symbol_active
+        message = "dataset activity aliases must be matching boolean arrays"
+        if not isinstance(asset_active, np.ndarray) or not isinstance(
+            symbol_active, np.ndarray
+        ):
+            raise ValueError(message)
+        shape = (self.n_bars, self.n_symbols)
+        if (
+            type(asset_active) is not np.ndarray
+            or type(symbol_active) is not np.ndarray
+            or asset_active.dtype != np.dtype(np.bool_)
+            or symbol_active.dtype != np.dtype(np.bool_)
+            or asset_active.shape != shape
+            or symbol_active.shape != shape
+        ):
+            raise ValueError(message)
+        if asset_active is not symbol_active and not np.array_equal(
+            asset_active, symbol_active
+        ):
+            raise ValueError(message)
+        return asset_active
+
     def identity_arrays(self) -> dict[str, np.ndarray]:
+        activity = self._validated_activity_array()
         return {
             "timestamps": self.timestamps,
             "available_at": self.resolved_array("available_at"),
@@ -759,7 +802,7 @@ class MarketDataset:
             "funding_price_rate": self.resolved_array("funding_price_rate"),
             "funding_event_count": self.resolved_array("funding_event_count"),
             "tradable": self.tradable,
-            "symbol_active": self.resolved_array("symbol_active"),
+            "symbol_active": activity,
             "fee_rate": self.resolved_array("fee_rate"),
             "maker_fee_rate": self.resolved_array("maker_fee_rate"),
             "taker_fee_rate": self.resolved_array("taker_fee_rate"),

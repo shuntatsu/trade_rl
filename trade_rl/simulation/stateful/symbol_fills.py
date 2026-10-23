@@ -172,6 +172,11 @@ class StatefulSymbolFillProcessor:
                 orders_by_symbol.setdefault(symbol, []).append(order)
 
         for symbol in sorted(orders_by_symbol):
+            if (
+                executor.insolvency_valuation == "retain_debt"
+                and runtime.book.insolvent
+            ):
+                break
             symbol_orders = tuple(orders_by_symbol[symbol])
             directions = frozenset(
                 1 if order.remaining_quantity > 0.0 else -1 for order in symbol_orders
@@ -297,6 +302,11 @@ class StatefulSymbolFillProcessor:
             )
             remaining_capacity = capacity.initial_capacity_notional
             for allocation in allocations:
+                if (
+                    executor.insolvency_valuation == "retain_debt"
+                    and runtime.book.insolvent
+                ):
+                    break
                 _, trigger, order_path, execution_price = metadata[allocation.order_id]
                 order = runtime.require_active_order(allocation.order_id)
                 allocation = self._recheck_closing_allocation(
@@ -378,6 +388,8 @@ class StatefulSymbolFillProcessor:
                     ),
                     processing_index=processing_index,
                     filled_quantity=allocation.filled_quantity,
+                    filled_lot_count=allocation.filled_lot_count,
+                    lot_size=allocation.lot_size,
                     execution_price=execution_price,
                     filled_notional=allocation.filled_notional,
                     capacity_before=allocation.capacity_before,

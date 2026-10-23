@@ -93,4 +93,54 @@ def execute_target_statefully(
     )
 
 
-__all__ = ["execute_target_statefully"]
+def execute_quantity_hold_statefully(
+    executor: MarketExecutor,
+    book: BookState,
+    order_book: OrderBookState,
+    *,
+    symbol_index: int,
+    start_index: int,
+) -> StatefulExecutionResult:
+    """Cancel every selected-symbol MARKET residual and advance without sizing.
+
+    Includes reduce-only residuals: retaining one is a different action from
+    actual quantity HOLD. The caller must apply hard risk before choosing this
+    path. Canonical corporate actions and carry still run on the next bar.
+    """
+
+    if not 0 <= symbol_index < executor.dataset.n_symbols:
+        raise ValueError("hold symbol is outside the dataset")
+    if not 0 <= start_index < executor.dataset.n_bars - 1:
+        raise ValueError("hold execution interval is outside the dataset")
+    if book.quantities.shape != (executor.dataset.n_symbols,):
+        raise ValueError("book quantities do not match market symbols")
+    if not np.array_equal(
+        np.asarray(book.contract_multipliers),
+        executor.dataset.resolved_array("contract_multipliers"),
+    ):
+        raise ValueError("book contract multipliers do not match market dataset")
+    if not np.isfinite(book.portfolio_value) or book.portfolio_value <= 0.0:
+        raise ValueError("quantity hold requires positive starting equity")
+    selected = order_book.active_for_symbol(symbol_index)
+    if any(order.intent.order_type is not OrderType.MARKET for order in selected):
+        raise ValueError("quantity hold supports only MARKET residuals")
+    transitions = []
+    updated_book = order_book
+    for previous in selected:
+        cancelled = previous.cancel(
+            processing_index=start_index, reason="quantity_hold"
+        )
+        updated_book = updated_book.replace(cancelled)
+        transitions.append((previous, cancelled))
+    return execute_stateful_orders(
+        executor,
+        book,
+        updated_book,
+        (),
+        start_index=start_index,
+        bars=1,
+        reconciliation_cancellations=tuple(transitions),
+    )
+
+
+__all__ = ["execute_target_statefully", "execute_quantity_hold_statefully"]

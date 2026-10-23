@@ -67,9 +67,10 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
+│   ├── allocation.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,training_trace.py,ridge.py,lightgbm.py,stream.py,prequential.py,_ridge_math.py,simple_return.py,simple_stream.py,simple_prequential.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -78,6 +79,9 @@ trade_rl/
     ├── evidence.py
     ├── series.py
     ├── directional.py
+    ├── allocation.py
+    ├── forecast_allocation.py
+    ├── objectives/{__init__.py,contract.py,clock.py,binding.py}
     ├── carry.py
     ├── directional_candidates.py
     ├── directional_selection.py
@@ -186,6 +190,13 @@ bid/ask weighted prices, and preserves unfilled lots. It owns no source capture,
 journal, policy, or independent account. Callers must prohibit snapshot-capacity
 reuse. Optional fill valuation prices in BookState separate cash execution from
 position marks without changing the default historical execution contract.
+BookState also owns signed cash-interest validation and accrual. Its optional
+finite `cash_basis` changes only the interest calculation basis, not the cash
+balance receiving that amount. The stateful bar lifecycle supplies the current
+cash minus already applied gap carry; it neither clones an intermediate book
+for scalar interest arithmetic nor owns a second cash-interest implementation.
+This basis adjustment does not add a drawdown observation or relax book-clone
+validation.
 `ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
 the completed directional baseline. It reuses the same fit and replay owners,
 checks source/runtime isolation, and reports relative loss reduction separately
@@ -235,7 +246,9 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `artifacts`
 
-汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`はstaging directoryの同一filesystem renameを使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。copy fallbackでatomic性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
+汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`は完成済みstaging directoryを同一filesystem内で排他的に公開する。canonical market publisherも、codec/identity検証の後にこのprimitiveを呼ぶ。事前確認は診断用であり、競合時の既存entry拒否はOSのnative操作で保証する。Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryし、helper失敗時はcaller-owned stagingと競合先を保持する。publisher側のcleanupは自分のprivate stagingに限定する。market data、strategy、evaluation等のupper layerを知らない。
+
+Windowsは既存destinationを拒否するPython [`os.rename`](https://docs.python.org/3.12/library/os.html#os.rename)、Linuxは[`renameat2(RENAME_NOREPLACE)`](https://man7.org/linux/man-pages/man2/rename.2.html)、macOSは[`renamex_np(RENAME_EXCL)`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/stdio.h)を使う。POSIXのnative bindingはfilesystem encodingとthread-local errnoを使い、Cへの変換前にNULを拒否する。未対応platform/library symbolは`ENOTSUP`、native操作の`EINVAL`・`ENOSYS`・`EOPNOTSUPP`・`EXDEV`等は元のerrnoを保持して失敗する。filesystemの対応を暗黙に仮定・cacheせず、通常rename・置換・copyへのfallbackを行わない。directory公開はatomic visibilityだけを保証し、crash durabilityやhostile ancestor/source置換への新しい保証は持たない。`atomic_write_bytes`の既存file置換/fsync契約は別に維持する。
 
 ### `data`
 
@@ -250,6 +263,11 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのalpha判断やevaluationを所有しない。
 
 ### `simulation`
+
+`MarketExecutor` owns the opt-in insolvency valuation policy as part of resolved
+execution identity. Both the historical zero floor and signed marked-debt mode
+use the same `BookState` ledger and terminal quantity/margin transition. Strategy
+and evaluation consumers must not implement a second debt or profit ledger.
 
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
@@ -314,6 +332,30 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
 
 Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。`evaluation/final_test` は逆向きのread-only consumerとして `evaluation/experiments` のinspection/contractsだけへ依存し、data/integrations/strategies/replay/runs/robustnessをimportしない。
+
+## Frozen forecast ownership
+
+`strategies.forecasts.supervised` remains the sole supervised-row selector.
+`training_trace` freezes its actual pooled symbol, feature row, label endpoint,
+prices and publication clocks. Ridge fitting consumes that same selected-row
+object through one solver; it does not select rows a second time.
+Trace clock arrays retain per-construction NaT and exact nanosecond round-trip
+validation through array masks. An invalid vector uses the existing scalar
+validator on its first invalid element, preserving failure category and order.
+Normalized arrays still own immutable byte copies; input identity does not
+permit validation reuse. Other forecast owners retain the scalar clock API.
+
+`strategies.forecasts.stream` owns the simulated availability block, Ridge
+vintage, packet and immutable stream JSON contracts. `prequential` fits each
+declared prefix and produces only its following prediction block. It owns no
+intent selection, cash book, execution, portfolio risk or RL environment.
+
+The family facade directly exports `ForecastBlock` and `FrozenForecastStream`
+from `stream`, and `fit_prequential_ridge` from `prequential`. The
+prequential owner generates causal artifacts only and does not own an intent
+adapter. The Tier 1 `strategies` facade is unchanged. The forbidden
+`strategies.rl -> strategies.forecasts` import remains forbidden; downstream
+decision adapters require a separately reviewed ownership contract.
 
 ## Private development study boundary
 
@@ -497,7 +539,9 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 このGit tree内のproseやarchitecture testだけでbranch protectionが有効とは判断しない。ruleset/protectionの設定変更後はGitHub stateをread-backし、required check、PR requirement、force-push/deletion、maintainer/admin bypassを確認する。管理surfaceが利用できない場合は未設定/未検証として扱う。
 
-PRに要求される独立研究レビュー（`Generic Independent Research Review` / `Independent Research Review`）は、PR authorとは異なるGitHub principalによるexact HEADレビューを要求する。承認は正式な `APPROVED` review stateと本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しを満たす場合だけ認める。`### Disposition: BLOCKED` を含む該当レビューが一つでもあれば承認より優先し、保留・曖昧・古いHEADのレビューはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みレビューはIntegratorによるマージ・クローズの対象となる。
+`Generic Independent Research Review` は、実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerによるexact HEADのsoftware-onlyレビューを要求する。authenticated GitHub review APIの `COMMENTED` または `APPROVED` 投稿に、本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しと、model/task IDs・actual report・publisher・HEADをdigestへbindした `independent_model_review_v1` receiptを必須とする。同一GitHub accountでもこの条件を満たせば受理し、別principalであることだけでは独立性を認めない。receiptの正本は [research assurance](research-assurance.md#generic-software-pr-review-receipt) とする。
+
+同じexact HEADのactive submitted marked `### Disposition: BLOCKED` が一つでもあれば承認より優先し、後続の同一actorによる承認でも消去しない。保留・曖昧・dismissed・古いHEAD・不整合なreceiptはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みsoftwareレビューはIntegratorによるマージ・クローズの対象となる。このGeneric receiptは `Independent Research Review` の4h PPO smoke専用review/triggerやG4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。
 
 `tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、(1) targetをdataとして読むpacket生成job、(2) Gemini secretを持たずexact reviewed SHAへ固定command setを実行するCore / PPO Runtime / Human Guide verification jobs、(3) canonical packetだけを受け取るfresh secret-bearing review jobを分離する。review jobはtarget checkoutやtarget-generated executable artifactをauthorityとして受け取らず、trusted runner/workflow identity、request/tag identity、packet digest、trusted verification job identity、Gemini request/response identityをreviewer-run attestationへbindする。Gemini API key/model selectionはworkflow configurationであり、concrete model versionはprovenanceとして記録するがproduction trading/runtime schemaやvalidator allow-listへ固定しない。
 
@@ -533,6 +577,1009 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Optional allocation family ownership
+
+`strategies/allocation.py` is a Tier-2 family entry point for `AllocationInputs`,
+`AllocationContext`, `AllocationProposal` and `AfterCostTargetAllocator`. It
+owns declared horizon/unit contracts and deterministic scalar optimization.
+It imports no forecast/RL family, risk, simulation or evaluation owner; it reads
+no dataset/account and fits no model. Generic artifact hashing may bind its
+immutable input/proposal content.
+
+`evaluation/allocation.py` is a Tier-2 composition entry point for
+`propose_nonrl_target`, `execute_nonrl_proposal` and `NonRLExecutionResult`.
+It builds account provenance from existing BookState/order owners, applies
+canonical risk once and invokes simulation-owned target execution. It must
+not use `execute_interval`'s compatibility cache or own cash/P&L updates.
+Its proposal domain intersects configured allocator bounds with execution
+leverage, static risk caps and the actual executor's shorting permission.
+Shorting disabled sets a nonnegative lower bound before optimization; a
+positive configured minimum stays positive and an empty intersection rejects.
+Current short-disabled global receipts use v3 target-bound verification;
+short-enabled execution retains v2 bytes under its unchanged bounds. Historical
+v1/v2 receipt readers retain their original semantics; current source-bound
+settled validation shares v3 without expanding its bounded native profile.
+`simulation/targets/execution.py` owns the opt-in quantity-HOLD cancellation
+and one-bar execution path, without a dependency on strategy/evaluation.
+
+The existing `trade_rl.strategies` and `trade_rl.evaluation` Tier-1 facades,
+three-intent callers, forecast packet meanings and PPO observation/training
+remain unchanged. `tests/architecture/test_allocation_boundary.py` guards
+ownership, lower-layer direction and absence of a second ledger; mechanism
+oracles live in strategy/evaluation tests. The current-close expected-return
+contract is not supplied by a mean-log forecast packet. Wiring a separately
+versioned expected-simple estimator or an RL consumer requires its own causal,
+clock, economic and assurance verification. The separate direct-simple producer
+and nonRL consumer below provide this bounded software connection; the remaining
+RL and economic research contracts are still required.
+
+## Net-profit declaration ownership
+
+`evaluation/objectives/{contract.py,clock.py,binding.py}` はIssue #810の新規研究向けの事業目的、資本分母、終端純利益算術、regular金融時計と評価期間の一致bindingを所有する。Tier-2 facade `trade_rl.evaluation.objectives` は `CapitalContract`、`ObjectiveContract`、`FinancialClockContract`、`BoundObjectiveClock`、`net_equity_increment` をwrapperなしで公開する。Tier-1 `trade_rl.evaluation` の公開面は拡張しない。
+
+このcapabilityはstandard library、`_validation`、canonical artifact hashingだけへ依存する。strategy、execution、Run/Study lifecycle、外部認証・ネットワークを呼ばず、第二の台帳や研究実行経路を持たない。下位strategyからevaluationへの逆依存を作らない。将来adapterは検証済みの値を下位constructorへ明示的に渡し、現在のPPO training objectiveやhistorical artifactを置換しない。
+
+## Direct-simple producer and consumer ownership
+
+`forecasts/simple_return.py` owns immutable direct labels, the distinct simple
+model and marginal fit variance. `_ridge_math.py` owns only numeric weighted
+Ridge operations shared with `ridge.py`; it owns no units, selection, schema or
+execution. `simple_stream.py` owns separate versioned records/reader;
+`simple_prequential.py` selects and fits each prefix once. The forecast facade
+directly exports the six simple APIs from their owners. Tier-1 exports and old
+log records retain their meanings.
+
+`evaluation/rl_allocation/_simple_stream_digest.py`,
+`evaluation/rl_allocation/_source_envelope_digest.py`, and
+`evaluation/rl_allocation/_declared_source_digest.py` are private value-guarded
+memos used only by the native global execution collector. They read native
+forecast/cost records, declared source arrays, and current array pins/bytes
+after the existing non-cost envelope inputs, with single-pass canonical fallback
+for unsupported mappings, subclasses or changed serializer contracts. None of
+them owns a public facade, persisted identity, payload cache, fitting,
+execution, Dataset loading or research authorization. The existing
+source-envelope/runtime helpers retain their canonical public path; the
+collector's private path changes only repeated stream, source-envelope, and
+declared-source digest computation.
+
+Same-source regression tests compare full canonical plans and native receipts
+through complete terminal closing. The reference leg replaces only the private
+memo getter with the current public stream digest; the optimized leg runs the
+original getter, with a scoped profiler witnessing actual warm reuse. Neither
+leg changes provenance, source files, stream serialization or native guards.
+Historical release gzip pins and public-reader compatibility are separate tests;
+the execution oracle does not require cross-source identity or deterministic
+gzip transport. The repository-driver fixture oracle reuses one frozen artificial
+plan for complete reference/optimized matched arms through the ordinary one-pair
+inline route; it is not a parallel-process oracle. No production mode switch or
+new public capability is added.
+
+`evaluation/forecast_allocation.py` exposes `HorizonCostEstimates`,
+`propose_forecast_target` and `execute_forecast_proposal`. It validates exact
+current snapshot/horizon/valuation, then invokes the existing allocation
+composition. It owns no fit, ledger, risk formula or order transition. Forecast
+owners do not import evaluation, simulation, risk or RL. Architecture tests guard
+these directions and reject fit/accounting in admission; synthetic mechanism
+tests cover direct labels, serialization, causality and canonical cash/quantity.
+
+`simulation/accounting.BookState` owns the optional paired Dataset/index
+processing clock and clone preservation. `simulation/stateful/execution.py`
+checks and advances a declared clock after completed bars. The forecast consumer
+requires a known matching clock without editing it or duplicating accounting.
+Bootstrap values are caller declarations; legacy unmarked accounts and artifact
+schemas retain their meanings. Continuation uses the returned book, order book
+and next index together.
+
+## Allocation PPO ownership
+
+strategies/allocation_action.py owns detached four-action decisions/proposals.
+evaluation/allocation_decision.py composes current forecast admission, selected
+RL-feature availability and the shared final-risk/canonical transition.
+evaluation/rl_allocation owns actual episode binding, the Gym adapter, explicit
+SB3 fitting and sampled-source receipts. It owns no second PnL ledger.
+
+`rl_allocation/binding.py` owns the runtime episode clock scan. Construction
+calls this admission directly; `validate_binding` repeats it on every reset and
+step. Its private array normalization validates current contents on each call,
+without a cache or new public switch. Plain one-dimensional datetime arrays
+with a concrete unit use NaT and exact nanosecond round-trip masks; the first
+invalid element still goes through the shared scalar validator. Generic-unit,
+object and subclass carriers retain scalar behavior. All timestamp validation
+precedes start/stop endpoint checks, followed by unchanged Python-integer gap
+arithmetic. The helper owns no Dataset loading, profile identity or execution.
+Same-HEAD terminal tests compare complete canonical plans, native receipts and
+expected-plan readback for long, short, partial-close and cash-carry cases,
+including all provenance, while witnessing both actual validation routes.
+
+strategies/rl/allocation_policy.py owns pure profile/recipe/observation encoding.
+allocation_model and allocation_artifact own inference and write-once verified
+policy loading; allocation_*_receipt, allocation_receipt_time,
+allocation_recipe_validation and allocation_manifest own strict lower receipt
+domains. Lower strategy owners do not import evaluation, fit or call networks.
+SB3 fitting/loading is lazy; old PPO/A2C facades and Discrete3 remain unchanged.
+
+MarketExecutor alone owns optional insolvency_valuation and its policy digest.
+retain_debt wraps the resolved existing economics identity in a distinct schema;
+the default floor_zero digest stays byte-identical. Source receipts distinguish
+the declared episode envelope from actual action rows/counts and observed policy
+or critic-bootstrap rows. Feature, forecast and cost receipts include bootstrap
+inputs; execution receipts bind actual processing bars, profile-selected capacity
+reference rows and the effective
+calendar/bar duration. Explicit execution fields exclude unused global features.
+
+## Allocation snapshot contract ownership
+
+`strategies/allocation_snapshot.py` はimmutableなaccount/order evidenceのschemaと
+structural clock / exact-quantity validation、canonical bytes / digestだけを所有する。
+evaluation・simulation・risk・trainerへ依存せず、MarketExecutorやBookStateを再実装しない。
+宣言mappingを使う独立テストとarchitecture import contractでこの境界を確認する。
+既存strategy facadeとPPO v1のobservation / artifact契約は変更しない。
+source factsを読むproducerとcomplete contextの検証は下記の上位observer ownerが担当する。
+下位DTOにnumeric encodingやtraining consumerは含まれない。
+
+## Independent account snapshot ownership
+
+`strategies/allocation_snapshot.py` owns the immutable snapshot DTO, its closed
+fact schemas, structural consistency and canonical serialization/digest. It
+imports no evaluation, simulation, risk or learning code and supplies no numeric
+policy encoding. Its source digest is a binding, not independent authenticity.
+
+`evaluation/allocation_snapshot.py` owns source admission and selected-symbol
+projection through the existing allocation context, BookState clock, native
+order reader and observable tradability API. Canonical margin validation uses a
+detached clone; simulation remains the sole ledger/order-transition owner.
+Neither observer changes source account/order state or execution randomness.
+One-slot vectors retain the global symbol index; full native account/history
+identity remains digest-bound. Native completion tolerance stays owned by the
+order module and is reused by the observer, not copied into the lower DTO.
+The observer also reuses the native absolute minimum fill quantity for nonzero
+active progress; it does not substitute the request-scaled completion threshold.
+Existing default allocation/PPO behavior is unchanged.
+
+## Allocation observation v2 declaration ownership
+
+`strategies/rl/allocation_observation_v2.py` owns only the frozen typed schema,
+ordered layout, detached payload and digest. Its public export is
+`AllocationObservationSchema`; no numeric encoder is exported. Its direct
+imports contain no NumPy, account/decision reader, evaluation, simulation, risk
+or optional trainer. The existing `strategies.rl` package initializer retains
+its current imports; this check does not claim transitive runtime independence.
+The declaration introduces no schema dispatch or v1 recipe migration. Its peer
+encoder consumes the same declaration; source admission and PPO integration
+remain above these lower owners.
+
+## Allocation observation v2 encoder ownership
+
+`strategies/rl/allocation_observation_encoder_v2.py` exports only the pure
+`encode_allocation_observation_v2` function. It reuses the schema's field order
+and consumes AllocationAccountSnapshot/AllocationDecision without mutation.
+Its direct imports exclude evaluation, simulation, risk and optional learners.
+Runtime admission stays with the observer; canonical accounting/order rules are
+not reimplemented here. Exact slot sorting is a representation choice, not
+native ID-based execution priority. There is no v1 recipe change or dispatch.
+
+## Allocation observation v2 runtime ownership
+
+evaluation/rl_allocation/env composes native margin initialization, admitted
+snapshot and lower encoder only for explicit v2. Its input_receipt recorder
+observes actual SB3 callback inputs; training owns lazy collector construction.
+strategies/rl/allocation_recipe_v2 and allocation_input_receipt own pure frozen
+recipe reconstruction and receipt consistency. Existing manifest/training/model
+validators dispatch the two supported versions; generic verified-file save/load
+is reused. No lower owner imports runtime or optional learners; no second ledger,
+Run/Study registration, default switch or new preprocessing layer is introduced.
+
+## Allocation PPO training protocol declaration ownership
+
+`strategies/rl/allocation_training_protocol.py` exports only
+`AllocationPPOTrainingProtocol`, its closed payload/reader and content digest.
+Direct dependencies are stdlib and existing stdlib canonical artifact helpers;
+there is no numerical, account, risk, evaluation or optional learner import.
+Existing package initializers are unchanged; transitive independence is not claimed.
+Class identifiers are fixed data, never arbitrary import/constructor requests.
+This pure owner adds no consumer; the separate explicit runtime owner is below.
+
+## Allocation PPO protocol runtime ownership
+
+evaluation/rl_allocation/training_protocol resolves the closed declaration into
+known optional types and observes actual optimizer calls. training composes its
+callback with the existing input recorder only for explicit protocol fits.
+strategies/rl/allocation_protocol_receipt reconstructs strict v3 training data
+and delegates common source/clock validation to existing receipt owners.
+allocation_model reads actual settings/classes/architecture and stdlib installed
+version metadata; it imports neither upper runtime nor optional learners.
+allocation_manifest dispatches v3 only with recipe_v2; verified-file save/load
+and recipe/env/encoder ownership stay unchanged. No new facade, Run/Study,
+learner subclass, ledger, normalization or sampler is introduced.
+
+## Allocation causal preprocessing ownership
+
+`evaluation/rl_allocation/preprocessing.py` owns actual prefix row admission and
+equal-symbol fitting, preserving the selected-feature dependency-scope guard.
+`strategies/rl/allocation_preprocessing.py` owns the frozen closed declaration,
+reader/digest and feature-only transform, composing existing numerical statistics.
+Neither owner imports account/risk processing or optional learners; the lower
+owner does not import the upper fitter. Explicit runtime admission composes them without a new facade,
+online normalization or sampler; existing legacy preprocessing remains unchanged.
+
+## Pure allocation observation v3 ownership
+
+`strategies/rl/allocation_observation_v3.py` owns a detached observation payload
+and feature-prefix encoder, composing existing v2 economics and frozen statistics.
+`strategies/rl/allocation_recipe_v3.py` owns its pure recipe builder; the existing
+recipe validator has an explicit v3 reconstruction lane and native root/tag dispatch.
+Neither lower owner imports environments, fitting, risk/account execution or optional
+learners. Explicit upper consumers compose them without a new public facade,
+online fit or sampler.
+
+## Frozen preprocessing runtime ownership
+
+The existing upper preprocessing owner separates actual training-prefix validation
+from inference application admission. Env owns source application and zero-terminal
+bypass; training owns pre/post prefix envelopes and v4 dispatch. InputRecorder hashes
+actual normalized tensors while TrainingSource retains raw meanings. The lower
+preprocessing receipt owner checks closed source/declaration links and delegates
+shared protocol mechanics, without importing Dataset/evaluation/optional learners.
+Manifest/model extend explicit version/width/post-load guards; verified-file
+save/load signatures and execution/account owners remain unchanged. No sampler or
+Run/Study consumer is introduced.
+
+## Stacked PR verification routing
+
+`.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through
+Lean Core, PPO Runtime, Human Guide and the Linux/Windows/macOS Artifact
+Publication matrix at the PR's exact head SHA. PR opened,
+synchronize and reopened events run these jobs; PR edited runs them only when
+the payload contains `changes.base`. Body/title edits skip the same software
+and review jobs, while submitted/edited/dismissed review events remain eligible.
+Metadata-only PR edits use a separate concurrency group and conditional job-name
+expressions. Executed eligible jobs retain the existing verification names.
+GitHub may display an unevaluated name expression for skipped jobs; such labels
+are distinct from the exact verification names and do not prove verification ran.
+Non-metadata events retain the existing concurrency group and cancellation policy.
+Both generic and 4h review gates require all three software jobs to succeed;
+the generic gate also waits for and requires the native publication matrix.
+Empty, skipped, pending, failed and cancelled results cannot satisfy those
+prerequisites.
+Review events on an unsupported base still run the appropriate review gate,
+which rejects the skipped software jobs instead of reporting a skipped gate.
+The existing head-based choice of review checker remains unchanged. Routing
+does not grant formal approval or relax the integration requirement that the
+tested final head contains current `main`; live exact-head checks are still
+required before merge. Push and one-shot research execution routing is unchanged.
+
+## Allocation transition sidecar ownership
+
+Five upper owners contain optional observation only: transition_facts detaches and
+checks native economics, transition_arrays fixes tensor bytes, transition_trace
+joins actual callback outputs to admitted chronological buffers,
+transition_validation closes row/receipt links, and transition_trace_io publishes
+verified external sidecar files without model deserialization. Env has one optional
+pre-overwrite hook; fit owns attachment, cleanup and successful-final-policy
+completion. Lower recipes/bundle/training/input owners remain unchanged. These
+owners never execute another ledger, sample a policy, call buffer.get or alter RNG.
+
+
+## Allocation chronological training schedule ownership
+
+`strategies/rl/allocation_training_schedule.py` owns the immutable result-blind
+window roster for Issue #810 allocation training. A window binds role
+(`train` / `validation` / `held_out`), whole-Dataset identity as provenance,
+symbol, complete episode indices/clocks and a digest of the actually consumed
+training-source scope. The causal `window_id` excludes whole-Dataset lineage,
+so an unused future suffix cannot rewrite an earlier window identity; the full
+window payload and schedule still retain that lineage. Same-symbol clock
+overlap is rejected even across different Dataset lineages, so relining or
+overlapping crops cannot multiply the declared market interval. The schedule
+fixes one causal training order, `cyclic_declared_order_v1`, and states that a
+reset means a new independent
+account while a PPO rollout boundary continues the current account. It imports
+no evaluation, simulation, risk or optional learner backend and does not call a
+Dataset, account or policy.
+
+`evaluation/rl_allocation/training_schedule.py` is the upper runtime adapter.
+It reconstructs each train-window identity from the existing
+`allocation_training_source()` authority, requires exactly the declared train
+roster, identical policy recipe / financial clock / spaces across children, and
+cycles only after the active canonical `AllocationTradingEnv` reaches true
+termination. Manual mid-episode reset and truncation-as-clean-reset fail closed.
+The child environment remains the sole owner of risk, execution, accounting and
+reward. Runtime usage reports reset and decision counts per declared window and
+does not label symbol count, crop count or reset count as independent market
+experience.
+
+This lower schedule stage does not itself own learning or artifact publication.
+The separate reviewed consumer below now fits PPO through this runtime while
+leaving existing single-episode bundle identities unchanged. Run/Study
+registration and continuous-account walk-forward remain outside both owners.
+
+
+### Scheduled PPO fit consumer
+
+`evaluation/rl_allocation/scheduled_training.py` is the first learner consumer
+of the chronological schedule. It requires the explicit immutable PPO protocol,
+uses the existing schedule Gym wrapper as the single SB3 environment, and leaves
+every child `AllocationTradingEnv` as the owner of risk, execution, accounting
+and reward. It does not construct a second ledger or source model.
+
+The fit revalidates every declared source before and after learning, requires the
+budget to cover every train window and to be an exact rollout multiple, and
+records a detached training-only receipt. The receipt binds the schedule and
+recipe digests, protocol and optimizer-call evidence, per-window true reset and
+decision counts, and exact per-row decision reuse plus policy/critic observation
+indices. A final DummyVecEnv post-terminal reset remains visible even when no
+subsequent actor decision consumes it; reset count is therefore not described as
+an independent-experience count.
+
+Frozen v3 preprocessing is reconstructed once from its declared fit Dataset and
+then checked for valid application at each scheduled child clock. This consumer
+captures a separate v5 inference manifest and exposes an explicit
+`ScheduledAllocationPPOFit.inference_policy()` handoff. Publication remains the
+existing `allocation_artifact.py` write-once owner; this consumer does not write
+bundle bytes, Run/Study artifacts, winner decisions or deployment authorization.
+Existing single-episode bundle schemas and `fit_allocation_ppo` remain unchanged.
+
+`strategies/rl/allocation_schedule_receipt.py` owns the lower closed scheduled
+receipt validator. It has no upper-runtime or optional learner imports. V5
+accepts only existing recipe v2/v3, fixes native JSON before canonicalization,
+and binds the complete train-window sources/objectives, schedule, financial
+clock, explicit protocol, optimizer telemetry, seed, realized budget and cyclic
+usage/row reuse. Sources match their declared full-window digest after removing
+repeat counts; all train windows must have been completely consumed at least
+once. Excluded validation/held-out windows cannot enter the consumption roster.
+Final autoreset is retained in reset counts, including a prepared episode with
+no subsequent actor decision. Frozen preprocessing is linked to its fit Dataset
+and admitted training clocks. These are consistency checks, not authentication
+of the supplied sources or historical fitting.
+
+The existing manifest/model/artifact owners dispatch v5 explicitly, keep actual
+model seed/timesteps/spaces/protocol/optimizer checks and bind `policy.zip` bytes.
+The existing artifact-bound continuous consumer accepts v5 under the same exact
+full-runtime recipe guard. Same-H complete training and a same-H one-fold OOS
+chain are connected; global-H multi-fold inference is not implemented here.
+Two locally bound H2 folds do not become compatible with an H4 policy by adding
+their durations. Cost/risk stress still requires separate explicit admission.
+
+
+
+## Terminal-order archive and canonical evidence boundary
+
+`simulation/orders/model.py` owns the persistent `TerminalOrderArchive` and
+its terminal-order validation. `OrderBookState` normalizes untrusted terminal
+sequences, and new terminal transitions pass through
+`PendingOrder.from_mapping` once before appending. The archive owns immutable,
+canonical per-order JSON bytes in a linked historical prefix, **not** growing
+copies of every previous mapping. `OrderIntent.create` historically hashes
+integer-versus-float JSON representations before normalizing stored financial
+values to floats. Its mapping reader therefore verifies only the finitely
+enumerable exact integer/float aliases of integral financial fields and
+preserves the originally issued order ID; altered quantities and other
+unexplained identities fail closed. Python/NumPy boolean financial inputs
+are rejected before identity generation. Its public order views and `asdict_tuple`
+materialization are detached; callers cannot mutate older order evidence or
+previous snapshots by changing returned dictionaries, dataclasses or the
+objects originally submitted. Ordinary `object.__setattr__` attacks on
+**private** node internals are outside this Python-level guarantee.
+
+`evaluation/allocation.py::_archived_context_digest` consumes the same sealed
+JSON bytes through a streaming SHA-256 only when the public canonical JSON
+serializer and its encoder/conversion helpers are unchanged. The JSON encoder's
+initializer must retain both its function and code identity: a changed constructor
+can alter nested order separators while the empty-history suffix still matches.
+Any unsupported
+codec, altered archive method or nonstandard archive subclass goes
+through the original public `content_digest` and fresh materialized order
+payload; state digest bytes, sorting and numeric semantics remain those
+of the original allocator. `_native_progress.py` retains its incremental
+node-keyed terminal SHA-256, now safe from mutations of exposed order views.
+This is an **O(n) retained-archive** representation with O(1) structural
+append in the number of old orders, but canonical validation/serialization of
+the *new* order still costs work. A complete context digest still visits every
+retained terminal byte: O(n) per read, potentially O(T²) over T advancing
+steps. This is not a claim of end-to-end linear replay time.
+
+`transition_facts.py` may request terminal reasons for only the order IDs
+observed in an execution's terminal events. That subset selection is owned by
+`TerminalOrderArchive`: it scans sealed nodes in chronological order, checks
+each node's reason projection against its canonical order bytes, and
+materializes only selected orders. A changed projection/order byte or
+unsupported archive/decoder binding falls back to the public iterator, which
+retains the original validation and error behavior. The bounded decoder check
+covers the module's default JSON decoder object and its effective
+`decode`/`raw_decode` methods and `scan_once` binding; it is not a general
+detector for arbitrary runtime monkeypatching of every reconstruction helper.
+This still scans all retained bytes and is O(n) per read; only reconstruction
+of unrelated `PendingOrder` objects is avoided.
+
+`OrderEvent` and its closed mapping reader/canonical payload also belong to
+`simulation/orders/model.py`. The stateful runtime consumes that lower-level
+event type; the order model does not depend on stateful runtime or evaluation.
+OrderEvent v2 carries the allocator's accepted signed lot count and effective
+lot size for quantized complete/partial fills, while v1 decoding and canonical
+bytes retain their original field set. Monetary fill calculations remain on
+the existing float path. This event evidence does not by itself provide an
+independent raw-market B4 account ledger.
+
+At an explicit process-worker transport boundary, `TerminalOrderArchive.__reduce__`
+flattens the sealed linked history into one ordered tuple of detached validated
+`PendingOrder` values for pickle, then restores the archive through its
+normal validating constructor. That one-off O(n) transport avoids recursively
+pickling thousands of linked nodes (the 6,599-node case is a separate
+regression); it is not a new persisted research artifact or an authority
+to restart an economically terminated account.
+
+This optimization changes neither execution fill/cost policy nor the
+canonical account ledger, risk guard, ordering clocks or tiered research
+authorization. Order-history readback and signed economic close remain
+separately validated.
+
+## Allocation continuous-account handoff ownership
+
+`evaluation/rl_allocation/continuation.py` owns the first bounded P5 handoff
+capability for contiguous allocation OOS windows. It does not create another
+ledger. A horizon-terminal `AllocationTradingEnv` exports a one-shot runtime
+continuation containing a detached canonical `BookState`, the immutable
+`OrderBookState`, the exact current account-context digest, and the same
+`MarketExecutor` instance. Reusing that executor is intentional: stochastic
+execution RNG, execution-rule caches and the declared execution policy continue
+through the fold boundary instead of silently reseeding.
+
+Resume requires the next window to start at the exact previous processing index,
+use the same in-memory `MarketDataset`, account ID, symbol, initial-capital
+denominator, execution policy and risk profile. The opening account/order digest
+must equal the previous closing digest. Cash, exact quantities, peak equity,
+drawdown, accumulated costs/carry, active GTC residuals, terminal order archive
+and processing clock are therefore handed over without settlement or
+reconstruction. Economic termination cannot be continued, and a continuation is
+one-shot so a single execution RNG stream cannot branch into multiple claimed
+continuations.
+
+This runtime capability is deliberately not a serialized restart artifact and
+does not yet own policy switching, fold construction or walk-forward selection.
+The existing `robustness.walk_forward.stitching` continuous mode remains the
+aggregation authority; actual allocation handoff digests can now satisfy its
+opening/closing state-chain contract.
+
+
+## Continuous allocation walk-forward runner ownership
+
+`evaluation/rl_allocation/continuous_walk_forward.py` is the first bounded
+consumer of the allocation continuation capability. It accepts an explicit
+`WalkForwardFold` tuple, one fresh OOS `AllocationTradingEnv` per declared
+`fold.test` range, and one caller-pinned policy declaration per fold. Preflight
+requires the OOS environment ranges to equal the declared fold test ranges,
+requires those test ranges and runtime windows to be contiguous, and validates
+one account/Dataset/symbol/capital/execution/risk chain before the first reset.
+
+Only the first fold uses the normal reset path. Every later fold resumes the
+previous exact `AllocationAccountContinuation`, so policy switches do not reset
+cash, quantities, orders, drawdown or the execution RNG stream. Each policy is
+given the current observation and runtime recipe digest, and its returned action
+must be one integer in `{0,1,2,3}` before it reaches the canonical allocation
+environment.
+
+The runner records actual canonical `execution.interval_net_return` values as
+`ReturnKind.DECISION_STEP`, per-fold execution-counter deltas, real
+opening/closing account state digests, the declared fold index, and the
+caller-pinned policy digest. The resulting folds are passed to the existing
+`StitchMode.CONTINUOUS_ACCOUNT` authority. Compounding the stitched simple
+returns is required to match the actual continuous account equity path in
+software oracles.
+
+This owner does not train, deserialize or select policies and imports no
+SB3/Torch learner backend. The policy digest is a caller declaration; artifact
+byte verification must happen before this runner is called. `reset_seed` is
+only the first Gym reset seed and does not replace the declared execution RNG or
+a policy seed. Training/selection leakage, artifact admission and economic
+winner selection remain higher-level Study responsibilities.
+
+
+## Allocation continuous policy artifact admission ownership
+
+`evaluation/rl_allocation/policy_admission.py` is the artifact-verification layer
+immediately above the continuous OOS runner. One immutable declaration pins the
+fold index, bundle root, expected canonical manifest digest and expected runtime
+recipe digest. Admission first validates the complete fold/env/artifact roster,
+then calls the existing `load_allocation_policy()` authority for **every** fold
+before the first OOS reset. The loader remains responsible for the exact regular
+bundle directory, canonical manifest bytes, pinned manifest digest, verified
+private policy copy, policy-byte SHA-256 and recipe identity.
+
+After loading, admission rechecks the returned manifest digest and recipe, then
+wraps the real keyword-only `AllocationPPOPolicy.action(...,
+runtime_recipe_digest=...)` call in the lower runner's backend-neutral action
+contract. The lower runner therefore records the same verified manifest digest
+as the fold policy identity; a caller cannot substitute an arbitrary digest at
+this layer. If any later fold bundle is absent, malformed, tampered or bound to
+another recipe, admission fails before any OOS account is initialized.
+
+This layer does not train, select, authorize or rank policies and does not import
+the training consumers. It is not the sealed-test access authority. A later
+Study consumer must still bind each admitted artifact to result-blind selection
+evidence and a one-shot sealed outer-test authorization before economic evidence
+can be claimed.
+
+
+The artifact-admission layer performs the complete continuous-runner preflight
+before opening or deserializing any policy bundle. Fold chronology/ranges,
+Dataset-instance identity, account/symbol/capital chain, execution/risk
+identity, and per-fold recipe compatibility therefore fail closed before
+artifact code is loaded. Bundle verification remains a second gate: all pinned
+manifests/policy bytes must verify before the first OOS reset.
+
+
+## Sealed allocation fold-policy authorization ownership
+
+`evaluation/rl_allocation/sealed_policy_admission.py` binds an existing
+`SealedTestAccessRecord` to one verified allocation policy artifact before a
+continuous outer-OOS run. It does not select a configuration, create access
+authority, train a learner or open final/unused data.
+
+For every fold it reconstructs the canonical sealed-access record and requires
+the registered experiment-plan digest, Dataset identity, fold index, exact
+outer-test range and selected policy digest to match the declared fold,
+allocation runtime and immutable artifact. A `selected_policy_digest=None`
+record is not executable authorization. Access records must be unique.
+
+After authorization validation, the lower artifact-admission owner performs the
+full continuous-chain preflight and verifies/deserializes every pinned policy
+bundle before the first OOS account reset. The admitted policy digests must then
+still equal the sealed selected-policy identities before the continuous runner
+may execute. Selection rules, ledger issuance, Study outcomes and final-test
+authorization remain separate authorities.
+
+
+The sealed allocation consumer also requires ledger membership, not only a
+self-consistent access digest. The supplied canonical `SealedTestAccessRecord`
+must compare equal to one of the immutable records exposed by the caller-supplied
+`SealedTestLedgerProtocol`. This keeps authority content-addressed and permits
+an equivalent reconstructed record after persistence, while a record absent from
+the supplied ledger is rejected. Canonical digest reconstruction remains a
+separate tamper check before that membership check.
+
+
+Ledger membership authenticates the in-process issuer and the ledger also owns
+one-shot runtime consumption. The sealed allocation consumer verifies every
+policy artifact first, then atomically consumes the complete fold-access batch
+immediately before the first OOS reset. Artifact verification failure therefore
+leaves the access batch unspent; once OOS execution is admitted, any later
+runtime failure leaves that batch consumed and a replay fails before artifact
+deserialization. Partial batch consumption is forbidden.
+
+This consumption ledger is still in-memory runtime authority. It is not a
+durable cross-process tombstone, signed final-data permit or repository-global
+execution lock. Persistence/restart semantics and final/unused-data permission
+remain higher-level Study/outer-test responsibilities.
+
+
+## Common allocation comparison evidence ownership
+
+`evaluation/allocation_comparison.py` owns the pure Issue #810 P4 comparison
+contract for the fixed candidate roster `nonrl / residual_ppo / direct_ppo`.
+The contract binds one Dataset, business objective, financial clock, forecast
+context, execution economics, risk profile, fold plan, account mode, capital
+denominator, scenario roster, RL seed roster and maximum-drawdown guardrail.
+It imports no strategy, simulator, learner, Study lifecycle or selection gate.
+
+Evidence is admitted only as a complete matrix. The non-RL candidate has one row
+per scenario; each RL candidate has exactly one row per declared seed/scenario.
+Within a scenario every candidate/seed must refer to the same OOS source and
+opening account state. One RL candidate/seed must retain the same policy digest
+across base and all stress/diagnostic scenarios, preventing stress-specific
+refits or policy substitution.
+
+The pure summary reports median base after-cost terminal profit, incremental
+base profit versus the common non-RL baseline, required-scenario validity,
+required risk/execution status and optional diagnostic failures. It intentionally
+contains no winner or selected-candidate field. Evidence production, economic
+execution, preregistered selection and WINNER/NO_WINNER/INVALID remain separate
+higher-level responsibilities.
+
+
+## Allocation comparison evidence binding ownership
+
+`evaluation/allocation_comparison_evidence.py` is the bounded adapter from an
+already-completed continuous allocation OOS run into the pure P4 comparison
+matrix. It does not rerun execution or construct a second account ledger.
+
+The adapter projects the business objective and economic clock into comparison
+identities that deliberately exclude fold window, scenario economics/risk,
+candidate recipe and PPO-only rollout/GAE settings. The fold plan, scenario
+context and RL fold-policy schedule have separate content-addressed identities.
+Every runtime fold is rechecked against the comparison Dataset, forecast context,
+candidate recipe, business objective, economic clock and declared OOS ranges.
+
+A supplied `ContinuousAllocationWalkForwardResult` is not trusted by shape
+alone. The adapter rebuilds continuous stitching from the fold results and
+requires equality, requires each runtime environment to have completed its fold,
+and recomputes the final canonical account-state digest from the actual
+`BookState`. The stitched interval net returns are geometrically compounded and
+must agree with final canonical equity. Maximum drawdown comes from the final
+canonical `BookState.max_drawdown`, because interval-end returns cannot recover
+intra-step drawdown exactly.
+
+The produced ledger/execution digests are deterministic bindings over the
+continuous runner's state chain, after-cost return series and execution
+diagnostics. They are not an independent accounting/execution oracle. The
+separate `validity_evidence_digest` must identify that higher-assurance
+validation. Winner selection, Study mutation and final-data authorization remain
+outside this adapter.
+
+
+## Allocation cash/no-trade control ownership
+
+`evaluation/allocation_cash_control.py` owns the explicit cash/no-trade reference
+for Issue #810 comparison. It is **not** a fourth candidate family and does not
+participate in candidate ranking. The control runs the same canonical continuous
+allocation account with raw action 0 (`quantity_hold_current_v1`) from an
+initially flat book, so it receives the actual declared cash-interest economics
+instead of assuming zero return.
+
+The control must remain flat for every fold, retain no active orders and produce
+zero trade count, turnover, explicit execution cost, funding and borrow cost.
+Its policy identity is seedless and scenario-result independent. The direct-PPO
+recipe is used only as the runtime carrier needed by the common allocation
+environment; the cash-control policy digest explicitly binds that carrier recipe
+and the HOLD-current semantics.
+
+Cash-control evidence reuses the continuous-comparison context validator and the
+canonical account metrics from the actual runner. Its ledger/execution summary
+digests are evidence bindings, not an independent replay oracle. Candidate
+ranking remains limited to non-RL / residual PPO / direct PPO; a later
+preregistered selection gate may require an eligible candidate to beat this
+cash/no-trade reference before declaring a winner.
+
+
+## Allocation preregistered selection ownership
+
+`evaluation/allocation_selection.py` owns the pure development selection gate
+for the Issue #810 common comparison. It imports the comparison contract only;
+it does not execute candidates, load policies, issue sealed access, mutate a
+Study or authorize unused/final data.
+
+The frozen rule has two explicit non-negative base-scenario thresholds:
+incremental after-cost terminal profit versus the non-RL allocator and versus
+the cash/no-trade reference. Thresholds are strict; values within 1e-12 absolute
+or relative tolerance are treated as equal and therefore do not pass merely
+because of binary floating-point representation. Exact score ties use the fixed
+complexity order `nonrl -> residual_ppo -> direct_ppo`.
+
+All three candidate families must have valid/complete required evidence or the
+decision is `INVALID`. Required cash-reference evidence must likewise be
+valid, complete, unterminated and within the declared drawdown guardrail.
+Required risk/execution failure for a candidate is an economic disqualification,
+not an invalid Study. Optional diagnostic failures are reported but do not by
+themselves remove eligibility.
+
+The non-RL candidate is eligible only if it passes required risk/execution and
+strictly beats cash by the declared margin. Residual/direct PPO must additionally
+strictly beat the non-RL median base profit by the declared margin. Among
+eligible candidates, the highest median base after-cost terminal profit wins.
+If no candidate is eligible the pure outcome is `NO_WINNER`. This decision is
+development evidence only; higher-level Study freeze/final-test authorization
+must bind it separately.
+
+
+## Allocation candidate vs scenario-runtime identity
+
+Issue #810 stress comparison separates candidate structure from scenario runtime.
+`evaluation/allocation_scenario_identity.py` projects an allocation recipe into:
+
+- a candidate-structure digest containing the recipe schema, action mapping,
+  observation/features, allocator, horizon and preprocessing, together with the
+  runtime-invariant digest; and
+- a runtime-invariant digest containing the runtime-profile fields other than
+  economics/risk.
+
+The comparison contract's non-RL / residual-PPO / direct-PPO recipe digests are
+candidate-structure identities, not full `AllocationTradingEnv.recipe_digest`
+values. A declared fee/spread/impact/capacity/risk scenario may therefore change
+the full runtime recipe while retaining the same candidate identity. Capital,
+currency, decision/economic clock, calendar, insolvency valuation and execution
+bar timing remain runtime invariants and cannot drift under a stress label.
+The predeclared candidate pin binds these invariants across all scenarios;
+agreement among folds within one submitted scenario alone is insufficient.
+Schema and runtime digest tags must be native strings, so custom string
+coercion cannot substitute another declared digest for canonical recipe bytes.
+
+Continuous comparison evidence binds the actual full runtime-recipe digest for
+every fold into its execution-summary digest. Thus scenario flexibility does
+not erase the exact environment identity that executed. Cash/no-trade control
+uses the same candidate-structure identity for its seedless policy identity
+while each fold policy remains bound to the actual full runtime recipe required
+by the canonical runner.
+
+Historical exact-recipe policy inference remains unchanged. This identity split
+does not by itself authorize a frozen PPO artifact trained under base economics
+to execute in a stressed runtime; that requires a separately reviewed
+stress-policy admission adapter.
+
+## Fixed nonRL runner ownership
+
+`evaluation/allocation_nonrl_walk_forward.py` owns the fixed residual-action2
+consumer and its result/evidence boundary. It imports the existing continuous
+runner and comparison adapter, with no learner, model loader, selector or Study
+mutation. Candidate projection stays scenario-stable; complete per-fold runtime
+recipes and forecast context remain separate result bindings. Only its typed
+fixed-rule result enters this NONRL adapter; the generic comparison API is unchanged.
+
+## Global allocation episode ownership
+
+`evaluation/rl_allocation/global_walk_forward.py` owns the opt-in single-global-H
+segmented runner, distinct result and artifact entry. It reuses native environment
+transitions, state digests, fold diagnostics and stitching; no alternate account
+ledger, environment reset, normalization or learner is added. Structural/native
+fold and seed checks cover the complete roster before reset.
+`strategies/rl/allocation_artifact.py` owns a pure pinned manifest reader shared
+with its existing loader. An optional native-ns cutoff admits only scheduled v5,
+checking every TRAIN terminal and preprocessing fit endpoints before global start.
+The upper artifact entry reads all metadata first and then invokes the loader
+with the same pins/cutoff. Backend deserialization and actual model checks remain
+lower-loader responsibilities. Default v1-v4 loading and historical local-fold
+admission remain unchanged. The separate pure completed-global evidence consumer
+is defined below; the lower global runner does not construct common evidence.
+
+## Scheduled allocation transition evidence ownership
+
+Three upper owners compose the existing `transition_arrays` and
+`transition_facts`: `scheduled_transition_trace` owns actual scheduled observation
+and optional native learner diagnostics; `scheduled_transition_validation`
+owns closed supplied-fact joins without importing a learner; and
+`scheduled_transition_trace_io` owns separate write-once publication/reading
+without model deserialization. These owners do not sample a policy, call
+`buffer.get()` or execute another ledger. Actual outputs are captured once at
+existing seams and the reader checks their relations.
+
+The small `AllocationExecutionObserver` Protocol keeps the native environment's
+one pre-overwrite slot usable by both old single-source and scheduled observers.
+`scheduled_training` owns freshness, attachment, callback ordering, unconditional
+cleanup and successful final-policy completion. `training_protocol` has an
+optional completed-update observer while retaining its original optimizer-event
+framing and default receipt bytes. Callback import/construction precedes hook
+installation; failures remove only owned hooks/slots and restore the original
+predictor. Ordinary lower recipe/v5 source/schedule/receipt/model owners and
+the saved bundle's two-file layout are unchanged.
+
+The reader binds OLD-window source facts, NEXT live/reset identities, actual
+actor tensor bytes, admitted chronological buffer, mixed-precision GAE and
+bootstrap, native update counters/scalars and parameter-chain pins. Immutable
+raw/transformed feature prefixes stay equal across reused rows, independently
+of account suffix variation. Native update counts must reproduce the existing
+optimizer-event digest. The separate sidecar adds no new model/account/sampler
+facade, Study registration, historical authenticity or execution authority.
+
+The shared `transition_facts` owner checks native order attempt and mutation
+clocks separately. `no_fill` preserves the pending record; a final active order
+must match latest status/remaining and its latest observed state-changing clock.
+A no-fill-only carry requires a prior non-null clock, while submitted-plus-no-fill
+without eligibility rejects. This changes reader consistency, not native order
+execution, account economics or any artifact schema. The scheduled observer and
+ordinary single-source reader both reuse this parent rule. The six-cell actor
+comparison retains failed learning outcomes even when software evidence is VALID.
+
+## Configured-fee policy view ownership
+
+`strategies/rl/allocation_fee_stress.py` owns the closed immutable base/stress
+binding, native cost-payload equality except fee_rate, original tensor digest and
+prediction-only policy view. It has no evaluation/simulation/risk/learner import.
+`allocation_model.py` retains ordinary manifest/full-recipe guard order, with
+the already guarded model/vector/action prediction body factored privately for
+the fee view. Original policy manifests and recipe v1-v5 bytes are unchanged.
+
+`evaluation/rl_allocation/global_execution_context.py` owns the extracted native
+runtime and declared source-envelope guards; compatible fee wrappers preserve
+the original payload/error meanings. `fee_stress_admission.py` owns whole-roster
+pure-reader/load-before-reset admission,
+per-action guards and the separate global execution receipt. It calls the
+existing regular-file digest owner to precheck the complete ZIP roster before
+any optional loader, then preserves ordinary verified-copy/recheck boundaries.
+It reuses native `Dataset.identity_contract_payload()` alongside the array
+envelope rather than declaring a second metadata roster. It calls the
+existing native global runner and imports common contract/identity functions
+only for declared candidate/scenario crosslinks. It does not build historical
+common evidence, select candidates, fit models or mutate research authority.
+The separate global evidence consumer below pins actual source/runtime and uses
+native global NONRL/cash controls. No implicit conversion or historical per-fold
+normalization is allowed.
+
+`tests/integrations/test_allocation_fee_stress_runtime.py` owns the separately
+declared actual-SB3 software controls and finite canonical tmp-path receipts.
+The first uncommitted-source execution passed its three fixed cases: unchanged
+scheduled v2/v3 and a deliberately constant v3 actor, explicitly distinguished
+by `software_kind` with `learned_alpha_established=false`. All preserve
+before/after tensor identity; the fixed native fixture records qty5, fee1/2,
+cash499/498 and first stress equity1048.
+These test artifacts add no production fitting, economic comparison or research
+authority. Exact final-head full CI, integration and formal gates remain open.
+
+## Native global allocation control ownership
+
+`allocation_nonrl_walk_forward` owns `run_global_nonrl_allocation` and its
+distinct `GlobalNonRLAllocationResult`. `allocation_cash_control` owns
+`run_global_allocation_cash_control` and `GlobalAllocationCashControlResult`.
+Both compose the existing native `global_walk_forward` runner; neither loads a
+model, fits, selects a candidate or casts a historical local-fold result into a
+global result. Cash stays outside the candidate winner roster.
+
+The existing private carrier validator admits only a closed residual/direct
+mode, preserving its historical residual default and rejection behavior. Cash
+reuses its complete forecast/cost coverage and native profile checks with direct
+semantics. A shared private structural checker requires the exact native global
+result and immutable native fold/policy-digest rosters. The old public continuous
+functions and classes keep their source bytes and behavior. No lower strategy, artifact, environment or native ledger owner is changed.
+The global runner now forwards only a typed optional observational collector.
+Closed received/native execution receipts and the separate pure common evidence
+adapter are implemented below. Wrappers are consistency declarations,
+not origin or independent research approval.
+
+
+## Global execution receipt ownership
+
+The upper `allocation_global_execution` owner declares immutable canonical plans,
+reads completed/partial software receipts and composes the existing control,
+artifact-global or fee route. It alone checks run provenance before/after against
+expected fingerprints through the existing Tier-2 `trade_rl.evaluation.runs`
+facade, which re-exports the same provenance function. It does not import private
+runs owners directly. The lower `global_execution_context` concrete collector
+observes original public inputs, already-loaded policy states and existing native
+freeze facts; it returns no action or validation waiver and imports no runs/Study.
+The existing `AllocationExecutionObserver` remains the sole observer Protocol.
+Historical continuous entries/result meanings and original fee guard order remain.
+Complete ZIP preflight is opt-in on the ordinary artifact route; None retains its
+original interleaved load/private-bind sequence and errors.
+
+Source/common identity contains the full shared raw Dataset scope and native
+metadata; selected actor columns and frozen preprocessing stay in cell recipe
+identity. No model reload, extra preparation/prediction or historical-result
+conversion is introduced. These owners supply software consistency records only;
+they cannot themselves build common evidence, set validity, select a winner or
+authorize fits. The separate pure evidence owner below consumes completed records.
+
+## Global comparison evidence ownership
+
+`evaluation/allocation_global_comparison_evidence.py` owns one closed immutable
+`GlobalAllocationValidityRecord` and two exact candidate/cash evidence builders.
+It imports the public global execution types and existing comparison, cash,
+scenario identity, return and stitching owners. It does not import an environment,
+learner, optional backend, runs/Study authority or private producer, and invokes
+no execution, predictor, historical continuous builder or selector.
+
+The owner validates the separately declared full plan and explicit expected
+assurance scope, reconstructs full native stitching, and joins every native
+interval and fold counter to cumulative account evidence. It retains existing
+native validation and accounting ownership, uses the registered original
+candidate projection for ordinary and fee runtime identity, and hashes the full
+closed validity content. Record references and digests are consistency content;
+they do not authenticate independent approval or promote bounded G2 into G3.
+
+Its versioned global OOS identity adds shared common context to the unchanged
+legacy projection. It returns existing candidate/cash DTOs without modifying
+their schemas or complete matrix/selection rules. Historical continuous APIs,
+native receipts, policy archives, fee views and producer semantics are unchanged.
+
+The two existing PPO integration modules reuse only the original saved-v3
+policy7/reset17 call and each original fee policy7/reset7 call. Their added
+receipt/validity/comparison JSON is explicitly bounded software evidence and is
+written after all original case assertions; genuine v2/v3 and deliberately
+constant v3 remain distinct. No additional fitting, loading, predicting, replay
+or CI runtime case is introduced. Core native/fake-policy checks and architecture
+contracts belong to the new evidence owner; actual-backend verification requires
+separate frozen-source clearance. None of these paths grants economic authority.
+
+## Forecast diagnostic reader ownership
+
+`evaluation/forecast_diagnostics.py` exports only
+`SimpleReturnForecastDiagnostics` and `evaluate_simple_return_forecasts` from its
+own module. Tier-1 facades remain unchanged. It reads native Dataset and frozen
+simple-stream declarations and canonical content hashes, without importing RL,
+accounting, risk, execution or a forecast fitter. It never reconstructs a stream
+through its prediction-running constructor/reader. One immutable result returns
+detached payload copies with pooled and symbol/vintage/horizon error summaries;
+it is a supplied-source diagnostic, not a model or research authorization owner.
+
+## Scheduled credit diagnostic ownership
+
+`evaluation/rl_allocation/scheduled_credit_diagnostics.py` owns only
+`ScheduledAllocationCreditDiagnostics` and
+`diagnose_scheduled_allocation_credit`, exported from that module alone.
+It reuses `scheduled_transition_validation` as the unchanged complete admission
+authority and `transition_arrays` for recorded float32 bytes. It neither imports
+the learner/environment nor samples, fits, predicts, deserializes models,
+recomputes account execution or publishes a Study. The immutable detached
+report binds full events/bundle/training/schedule/source/protocol and declared
+diagnostics mode. All four native raw actions, true first/later decisions and
+exact POST held sign remain separate. Recorded filled-notional/cost summaries
+and positive-filled-notional transition counts describe supplied facts; these
+groups add no actor-success gate or actual optimizer-minibatch authority.
+
+## Simple-return stream filesystem ownership
+
+`strategies/forecasts/simple_stream_io.py` owns the frozen location/identity
+record `PublishedSimpleReturnStreamArtifact`, exclusive single-file publication
+and externally pinned loading. The forecast family facade exports these three
+APIs directly from that owner; the Tier-1 strategies facade is unchanged.
+It reuses canonical JSON and regular-file foundations, and the existing
+`FrozenSimpleReturnStream` payload/reader. It imports no Dataset builder,
+evaluation, risk, execution, RL or fitter and adds no serializer, alternate
+forecast units, ledger or research runner. The strict reader reconstructs
+already-frozen projections for validation without fitting a new model.
+The existing `simple_stream.py` owner reuses materialized content only within
+one payload access; it introduces no persistent identity cache or new public API.
+Nested outputs remain detached and subclass digest overrides remain observable.
+The owner rejects stationary nonregular inputs with `lstat` before opening,
+then retains the foundation's opened-file validation and one byte snapshot.
+It does not change the shared regular-file helper.
+
+Atomic exclusive hard-link publication is specific to this one-file boundary;
+the replacing atomic writer and Run/latest-pointer store are not substitutes.
+Callers retain both stream digest and Dataset ID outside the file. The new
+boundary neither loads market arrays nor derives expense assumptions, training
+windows, publication clocks or research authorization for its caller.
+
+## Allocation market input composition
+
+`evaluation/allocation_market_inputs.py` owns the opt-in
+`prepare_allocation_market_inputs` composition and frozen in-memory
+`PreparedAllocationMarketInputs`. It loads an already-authorized canonical
+development artifact once (plus one separately pinned parent in paired
+single-clock Signature mode), checks explicit scope and complete costs, invokes
+the existing direct-simple producer once and uses the existing exclusive file
+publisher. It does not copy the Dataset manifest reader, fit per consumer lane
+or introduce a persisted schema. The Tier-1 evaluation facade is unchanged.
+
+Data identity parsing and FeatureSpec decoding remain in their existing owners;
+feature/symbol dependency checks remain in `strategies.dataset_scope`.
+Default preparation admits only the current v7 and legacy v6 constants owned by
+`data.identity`, with the same direct portable build, scope, availability and
+same-close gates. The existing artifact loader owns v3/v4 field rosters and
+identity verification; composition adds no manifest reader or version converter.
+The thin cost decoder admits exact `horizon_cost_estimates_v1` keys, reuses strict
+clock decoding and the existing constructor/payload roundtrip, and adds no rate
+model. Cost groups follow Dataset symbols and chronological decisions, suitable
+for the existing per-symbol independent-account consumers. The owner constructs
+no learner or ledger and executes no account transition, network call,
+credential access or sealed research lifecycle.
+
+`evaluation/allocation_costs.py` owns only frozen in-memory
+`DeclaredAllocationCostRecipe` and the concrete `estimate_declared_horizon_costs`.
+It reuses strict build economics decoding, native `ExecutionCostConfig` policy
+serialization, Dataset quote-turnover/clock semantics and existing
+`HorizonCostEstimates`; it executes no account transition, RNG or learning.
+Tuple trigger fractions are required before matching the config policy digest,
+so ordinary caller-list mutation cannot alter the returned config through an
+alias. The recipe has no persisted schema or Tier-1 facade export.
+
+Only this concrete estimator accepts paired optional
+`declared_execution_economics` / `expected_dataset_id` keywords. It reuses the
+typed immutable `ExecutionEconomicsProfile` and verified Dataset identity,
+checks its seven scalar channels across the whole Dataset and rejects any
+malformed or conflicting existing top-level profile. No Dataset, nested
+lineage, recipe field, default cost digest or financial series is rewritten.
+Explicit cost-source hashes additionally bind the caller-declared simulation
+origin. This opt-in adds no facade, persisted schema, prepare bypass or loader;
+the existing preparation retains its direct-build and Signature admission.
+
+Preparation optionally calls this owner once on the already-admitted Dataset;
+the recipe path is exclusive with explicit rows, and both pass the existing
+strict complete-cost decoder. `PreparedAllocationMarketInputs.cost_recipe` is
+appended with default None for old positional callers. Generated results retain
+the exact recipe/config for shared NONRL, residual and direct consumers. The
+composition still owns no execution defaults, expected-cost ledger, arbitrary
+callback, artifact authority, learner or research gate.
+
+Producer applicability is deliberately narrower than native execution: regular
+continuous clocks, quote volume, MARKET/zero extra latency and previous-bar
+capacity. Funding declarations cover complete (start, stop] intervals, with an
+aligned native-bar lookback and explicit counted-bar-close gap/age proxies;
+aggregation has discarded exact settlement times. Symmetric current-condition
+reference-size execution, past-funding extrapolation and explicit zero cash are
+declared surrogate assumptions rather than calibrated future economics.
+
+Native funding continues to own settlement-weighted cashflow products, while
+the declared producer owns rate projections. Composition preserves a loaded v7
+product channel even when it differs from rate times bar mark. Legacy v6 retains
+the loader's bar-mark fallback and cannot bind changed settlement economics.
 
 ## Opt-in causal rolling Path Signature feature
 
@@ -578,3 +1625,783 @@ for input equality. It has no separate financial schema or accounting owner.
 Local Signature columns and their representation provenance may change; original
 feature prefixes, global information, normalized financial clocks, volume units
 and native financial arrays may not. Rejection occurs before either fit or replay.
+
+## Signature-to-allocation preparation ownership
+
+The existing allocation_market_inputs owner adds only an explicit paired parent
+route. Its private direct-build validator retains FeatureSpec/numerics decoding.
+It reuses data.features.signature.with_path_signatures for complete reconstruction
+and only evaluation.signature_comparison.validate_signature_pair for conservation.
+It never calls that module's diagnostic Ridge/replay comparison. Neither the
+augmenters' identities nor dataset_scope, the cost decoder, allocation or ledger
+owners change. No new facade, persisted schema, wrapper or second fitter is added.
+
+The parent owns declared cost source identity and execution economics; the
+augmented Dataset owns the forecast/stream identity. Both exact pins are checked.
+Preparation retains the same in-memory result and recipe object, with one
+producer invocation and one exclusive publication. Paired mode loads each whole
+authorized artifact once and requires the exact complete Dataset-symbol tuple.
+Multi-timeframe source admission and strict-subset dependency contracts are
+separate; the maintained current native MTF producer remains available elsewhere.
+
+Architecture tests retain no learner/ledger/network/lifecycle operations and
+guard the specific maintained transform/pure-pair imports and private API scope.
+The integrated native history markers remain native_before_base_sync_v1 and
+last_n_eligible_pair_events_v1; the competing reset-on-gap policy is not adopted.
+
+## Native forecast-control declaration ownership
+
+The existing allocation_global_execution owner exports the frozen
+GlobalAllocationForecastControls beside GlobalAllocationExecutionPlan. It binds
+two external forecast pins to complete native NONRL/control, NONRL/treatment and
+direct-cash plans; its payload retains every original plan and computes a distinct
+declaration digest. Equality projections are used only for consistency checks,
+never as replacement plan/common/cell identities. Plan revalidation and member
+admission live in the existing executor before native initialization; the lower
+collector, allocation/ledger, preparation and forecast producers are unchanged.
+
+Only standalone executions can use this optional keyword. PPO artifacts,
+base_env scenario wrappers and AllocationComparisonContract are refused, and no
+new aggregate runner, loader or completed-comparison reader is introduced.
+The one-forecast v1 A/B/C schemas, digest owners and mandatory RL matrix remain
+unchanged. Architecture tests keep this preflight in the existing owner and keep
+learner, network and research-lifecycle dependencies outside it.
+
+## Allocation terminal execution ownership
+
+`evaluation/allocation_terminal_execution.py` owns the evaluation-only frozen
+prefix/closing-window declaration, native runner composition and detached runtime
+observation. It reuses `allocation_global_execution` without changing its marked
+completion or v1 A/B/C schemas, and the existing allocation risk/execution helper
+without a second ledger. `rl_allocation/transition_facts.py` owns the generic
+native returned-fact freezer shared by actor transitions and actor-free closing;
+historical actor trace bytes remain unchanged.
+
+The upper owner may inspect source/runtime provenance but cannot import training,
+Study/final-selection owners or instantiate an account/executor. It never mutates
+Gym index, stop, terminal or book/order fields for closing. Native returned state
+is passed locally across the reserved window. Public observation has no
+from-payload Study/approval reader. Closed software validation and controlled
+forecast reporting have separate pure owners; settled PPO admission and a frozen
+qualified economic protocol remain separate work.
+
+An optional `on_advance` callback belongs to this runtime composition. The
+existing global collector observes validated actor returns, and the reserve
+iterator observes validated actor-free advances, including its final postflight.
+Only phase/start/processing primitives cross the callback boundary. Persistence,
+elapsed-time sampling, process supervision and no-progress rules remain caller
+responsibilities outside these owners. Observer failures use the existing
+partial-observation path; callbacks do not supply execution or replacement state.
+`rl_allocation/_native_progress.py` owns the private synchronous notification
+guard using existing native facts. Enabled callbacks also check retained history,
+terminal orders and RNG; these guards scan growing history/archive state and do
+not establish constant overhead or full-size runtime feasibility. The omitted
+callback path does not perform these extra checks.
+
+`allocation_terminal_evidence` owns externally plan-bound v2 receipt validation.
+It consumes the original global receipt and the generic actor-free returned-fact
+reader in `rl_allocation/transition_facts`; it does not instantiate an executor,
+reset an account, fit, replay or operate a ledger. Two private book/execution
+validation leaves preserve historical actor v1/v2 admission and first-error order.
+The terminal owner joins retained fill-event notionals to execution totals and
+symbol vectors; this added algebra does not change those historical validators.
+Direction/price/notional, latest-event active membership, normal funding-book
+closure and one-bar funding cardinality remain terminal-only links. The shared
+leaf resolves actor economics only at the original event/order comparison,
+preserving direct v1 malformed-input error order and short-circuit behavior.
+The terminal owner also checks no-fill symbol costs, retained capacity algebra,
+known carried-order identities and cash-flow closure for flat no-fill intervals.
+It joins the single capacity pool, sequential fill subtraction, participation and
+actual policy limits; binds surviving intent/status/notional/version progress;
+and verifies fixed multipliers, independent coordinates and live margin algebra.
+An exact-flat no-fill interval has only signed cash interest, with a bounded
+native floating-point rounding allowance for nonzero interest. Original nested
+prefix failure diagnostics remain unchanged. These links are terminal-only;
+historical actor v1/v2 validator contracts are preserved.
+Known remaining quantities and exact-zero FILLED completion reject overfills.
+Cumulative floats use forward native-rounded closure, while integer counters are
+exact; failed prefixes cannot acquire a substituted closing failure frontier.
+It does not infer general position cash flows across unretained splits, delisting
+settlement or termination flattening.
+The generic visible-state projection/freezer belongs to transition_facts. Its
+projection does not replace the legacy allocation state digest.
+
+`allocation_settled_forecast_comparison` owns a separate frozen forecast-factor
+group, explicit complete account/scenario roster and report over validated
+terminal receipts. It performs no execution and has no Study, selection, training
+or final-test authority. Full original plans and external forecast assignments
+remain distinct; consistency projections are never replacement identities.
+Reports retain receipt objects and regenerate summaries from their detached
+bytes. A summary-only JSON import is not provided as evidence admission.
+
+The same owner contains distinct standalone NONRL/CASH control, matrix and
+report types. Both raw observations still enter through
+`TerminalAllocationExecutionReceipt.from_payload` with their own external
+terminal plans. It adds no runner, ledger, forecast learner, source adapter or
+configurable matching projection. Full native common/source/cost/recipe parity
+is stricter than the three-arm forecast-factor comparison; that existing API and
+its distinct forecast assignment remain unchanged. Shared terminal context and
+receipt-row helpers derive identical summaries for both report families.
+
+## Version-bound global transition verification ownership
+
+`rl_allocation/transition_facts.py` retains the strict historical validator and
+adds a separate actual-cost-aware v2 validator plus one complete native cost
+payload reader. It reconstructs the existing native static cap from original
+allocator bounds, actual pinned risk and full actual cost policy, without
+changing optimizer, hard risk or execution ownership. No public waiver or
+original recipe rewrite is introduced.
+
+`global_execution_context` admits those costs in collector construction before
+native reset/backend load, then validates detached facts with v2. The upper
+`allocation_global_execution` producer emits global receipt v2; its reader fixes
+v1/v2 dispatch from immutable schema for both accepted and rejected facts and
+admits complete v2 costs even with no rows. Shared plan v1 admission stays
+unchanged. Actor and scheduled trace owners continue importing the strict v1
+validator, and their capped admission limitation remains explicit. The existing
+comparison and terminal owners consume exact global observations unchanged.
+
+## Settled learning clock declaration ownership
+
+`strategies/rl/allocation_settled_clock.py` owns only the pure frozen
+`SettledAllocationClockContract` and closed `allocation_settled_clock_v1` reader.
+It depends on stdlib and canonical artifact helpers, never evaluation, risk,
+simulation, Gym or an optional learner. It distinguishes actor steps, physical
+reserve, full-horizon observation fractions and variable final reward timing.
+It neither constructs execution nor binds calendar carry, market data, an
+objective, source consumption, a training budget or saved policy.
+
+`evaluation/objectives/clock.py` retains its historical regular clock contract.
+The new declaration is not implicitly accepted by existing marked receipts,
+recipes, environment, continuation or schedules. Explicit v4 recipe dispatch
+uses its distinct closed reconstruction before the unchanged legacy readers;
+bundle v6 alone pairs with recipe v4 through its separate settled receipt.
+A clock declaration alone supplies no execution, fit evidence or inference.
+
+`evaluation/allocation_reserved_closing.py` owns the private native reserve
+iterator and returned step. It depends on canonical allocation execution and
+native account facts, with no environment, global-plan, trainer or Study owner.
+Callers supply frozen digest/binding and diagnostic frontier hooks, never an
+execution implementation. `allocation_terminal_execution.py` retains its
+declaration, provenance and receipt formatting while fully consuming the shared
+iterator; its marked carrier remains unchanged. The distinct settled composition
+environment uses this same iterator and exhausts final postflight validation.
+
+The optional returned-result retention hook is caller-owned. The settled
+environment adopts the actual book/orders/index before returned-stage and fact
+diagnostics; the iterator never owns a Gym account or replacement ledger.
+Omitting the hook preserves the existing NONRL terminal adapter's behavior.
+
+`rl_allocation/settled_binding.py` owns full-H objective/runtime admission;
+`settled_env.py` composes Gym with the canonical actor executor and shared native
+reserve, never the marked environment or terminal evidence carrier. It owns
+actual instance/frontier continuity, signed fixed-C reward and detached native
+diagnostics. It constructs accounts only at admitted reset boundaries.
+`settled_training_source.py` hashes declared actor selections and inclusive
+all-symbol native financial arrays without a learner or legacy environment
+dependency. Its receipt is a pre-fit source declaration, not consumed evidence.
+`strategies/rl/allocation_recipe_v4.py` owns the independent settled recipe with
+observation v2 and full physical clock.
+
+`strategies/rl/allocation_settled_receipt.py` owns the pure closed lower witness
+and admission derivation; it has no evaluation, simulation or learner dependency
+and never calls a marked training reader. `settled_input_receipt.py` frames actual
+model-consumed tensor roles independently of prepared reset observations.
+`settled_transition_trace.py` owns instance-scoped observation leases and retains
+actual native returns before autoreset, append/critic/GAE data and returned update
+parameters. It neither samples nor reexecutes an account. Cleanup preserves the
+original failure and foreign method ownership; unsuccessful records cannot publish.
+`settled_transition_validation.py` validates the source/native/input/buffer joins
+with pure lower reconstruction and source algebra, never an executor or learner.
+Opaque archive/RNG digests and observed stochastic costs remain limited evidence.
+
+`settled_training.py` composes the existing explicit CPU constructor/update hook
+with these distinct owners; it validates the actual final model and only then
+publishes bundle v6. `settled_inference.py` admits a fresh matching P/R/H recipe
+and validates a verified loaded model before reset, then exhausts the same native
+reserve. It reuses the existing write-once artifact implementation. No shared or
+scheduled/global lane, Study, new preprocessing or default dispatch is added;
+marked bundles retain their original meaning.
+
+The bounded synthetic learnability fixture stays in
+`tests/integrations/settled_learnability_fixture.py`. Its literal accounting,
+causality, failure preservation and evidence-tamper oracles belong to
+`tests/evaluation/test_allocation_settled_learnability_oracles.py`; the fixed
+roster/CI-selection contract belongs to
+`tests/architecture/test_allocation_settled_learnability_contract.py`.
+`tests/integrations/test_allocation_settled_learnability.py` owns six actual
+optional-backend fits, native controls, cue counterfactuals, verified reloads and
+the complete evidence registry. The registry reuses the pure capture validator
+and existing artifact reader; it never reruns a learner or account to validate
+a stored trace. These are test owners, not a public market/Study API.
+
+## Native-only settled validation owner
+
+`evaluation/rl_allocation/settled_native_validation.py` owns closed canonical
+capture/context/result interfaces and rederives bounded native admission from
+the source and capture on every request. Supplied report flags cannot authorize
+admission. It reuses already-pure settled fact helpers and normative immutable
+reconciliation/capacity/order algebra; it never imports an environment or
+optional learner, nor invokes account execution. Shared algebra is not the
+independent test oracle.
+
+`settled_training_source.py` accepts a private structural Protocol exposing
+only its existing read-only inputs. The real settled environment and passive
+native context use the same receipt projection; the executable receipt body,
+serialized schema, source selection and error behavior remain unchanged.
+
+`tests/evaluation/test_allocation_settled_native_validation.py` owns the fixed
+nine-case learner-free capture batch and literal/coupled arithmetic oracles.
+One module-scoped batch serves all native and forged-byte tests; pure variants
+reuse captured bytes without account calls. Existing Core full tests discover
+this owner. Architecture checks enforce passive validation and the structural
+source boundary. No new facade, CI selector, comparison runner or Study owner
+is introduced; all prior settled learnability owners remain unchanged.
+
+## Matched native control comparison owners
+
+The scalar allocation owner and its account snapshot observer share narrow
+MARKET integer latency0/2 admission. `allocation_nonrl_walk_forward._carriers`
+also checks the whole actor roster's first eligible physical row and horizon
+before delegating to the existing runner. The native executor, reconciliation,
+reserve and terminal receipt owners are unchanged. Generic RL callers retain
+per-decision scalar checks rather than that whole-roster control guarantee.
+`tests/evaluation/test_allocation_latency_stress.py` uses fixed synthetic sources
+and the existing native owners for wait/retain/cancel/replace/capacity, closed-loop
+holdings and finite partial-close oracles. No latency engine, public facade,
+learner, persisted schema or market runner is added. Declared cost production
+and bounded strong-native capture admission keep their narrower MARKET0 guards.
+
+`evaluation/allocation_settled_native_comparison.py` owns the pure pinned plan,
+ordered CASH/NONRL arm roster and detached comparison report. It reuses the
+unchanged native capture validator and reconstructs matching live sources before
+and after each complete comparison. Nested rehashed plan changes cannot bypass
+that equality check. Report/group/arm key sets are closed; reports are never
+accepted as admission inputs.
+
+`evaluation/rl_allocation/settled_comparison_source.py` owns the explicit complete
+matching projection. It preserves every public source-envelope field except the
+three declared identity fields, every recipe field except action mode and every
+objective field except its own bound recipe digest. Complete Dataset arrays,
+descriptor, stream and cost declarations are additional passive pins. Neither
+owner imports an environment/learner or calls account execution.
+
+`tests/evaluation/test_allocation_settled_native_comparison.py` owns a separate
+three-group/six-account learner-free batch with two actor calls per account and
+the native final reserve. One batch serves literal oracles and forged-byte
+tests. It never invokes the existing nine-case collector or any model solver.
+`tests/architecture/test_allocation_settled_native_comparison_boundary.py` checks
+the passive owners and the sole reset/step call sites. Existing native readers,
+learnability fixtures, CI selectors and public facades remain intact.
+
+## Tier D NONRL repository runner
+
+`tools/tier_d_nonrl/` owns the repository-only result-blind attempt driver and
+process-tree supervisor. It composes the existing forecast, cost, declaration,
+receipt and comparison APIs; it does not add a public trading facade, learner,
+ledger or authorization. Runtime outputs belong in explicit ignored attempt
+directories. Maintained source and tests participate in normal Ruff, tooling
+Mypy and full-test routing; generated review/protocol/report files do not become
+current source or approval.
+
+Attempts have a fresh destination. Reuse, when available, reads an immutable
+prior attempt through externally pinned source/protocol/provenance, frozen plans,
+forecasts, costs and receipts. A missing strict restoration path keeps reuse
+unavailable rather than declaring or fitting replacements. The parent owns state
+and summary publication; workers own disjoint immutable per-arm artifacts and
+return actual outcomes. Neither this owner nor its CI approval grants Tier D
+execution, unused/final access or live routing.
+
+Market supervision requires the Windows owned-process-tree sampler; unsupported
+platforms refuse before protocol or Dataset IO. The declared worker count bounds
+in-flight pairs under the aggregate sampled resource limit. Arm/pair diagnostics
+are supplemented by validated native actor/reserve notifications. Repository-only
+`progress.py` binds a closed per-arm roster and contiguous advance records;
+`progress_io.py` owns exclusive, durable arm journals and bounded incremental
+readback. Workers write disjoint journals. The parent publishes verified records
+to the canonical attempt log, including while parallel futures are unfinished.
+Reused receipts do not open another native journal.
+
+The Windows sampler keeps RSS attribution separate from kill authorization.
+`ProcessTreeSample.members` is the RSS-attributed union;
+`owned_members` contains only process identities reached through a verified
+same-snapshot parent chain (or an unchanged identity verified by an earlier
+snapshot); `ambiguous_members` contains rows attributed only through historical
+PID/time correlation. A parent PID can be reused and its replacement can exit
+between samples, so a later child may appear to match the old parent even when
+it is unrelated. If a reused parent PID is still visible but the replacement
+was created after a historical child, that child is also only an ambiguous RSS
+match. Historical-only rows and their descendants contribute to the RSS
+measurement but are never added to the kill list. Cleanup rechecks process
+creation time and terminates only verified owned identities. Any ambiguous row
+still present at final verification leaves the attempt failed/partial and
+blocks stopped-receipt reconciliation; it is not killed or called owned.
+Process counts cannot certify an empty tree unless a snapshot captured the
+worker root's PID and birth identity. In Windows tree-supervised modes, a
+successful child exit with only empty, ambiguity-free samples and no observed
+root remains incomplete in both Tier-D supervisors; the market supervisor also
+skips stopped-receipt reconciliation.
+
+Before sampling a launched Windows child, each supervisor reads its creation
+FILETIME through the process handle retained by `subprocess.Popen`; it does not
+look up a PID and treat the first matching row as proof. The CIM snapshot's
+`CreationDate` is exposed at microsecond precision, so its tick value is compared
+with the handle's exact 100-nanosecond FILETIME conversion using the existing
+10-tick (one-microsecond) precision allowance. The admitted `root_identity` is
+the observed CIM row identity after that PID-and-time comparison, not a claim
+that CIM supplied an exact 100-nanosecond timestamp. If the handle query is
+unavailable or the row does not match, the root remains unverified; a PID-only
+`ProcessTree` cannot infer root ownership, and its descendants remain ambiguous
+RSS evidence rather than kill targets. A visible root row with that missing or
+mismatched launch identity also contributes RSS as ambiguous evidence, but is
+never kill-owned.
+
+On Linux, explicit synthetic-mode supervision samples only the worker root
+process through `/proc/<pid>/status`; descendant RSS is not included. This
+root-only diagnostic does not satisfy the market resource contract, which
+continues to require Windows aggregate process-tree sampling.
+
+For a stopped current attempt, `resume.reconcile_stopped_receipts` is a
+read-only candidate reader. It reuses the frozen input/plan and strict completed
+receipt validators, including the existing financial receipt reader; it does
+not write or delete artifacts, run forecasts/costs, or execute native work. Only
+the supervisor may publish its returned arm updates, after verifying its owned
+Windows process tree has stopped and rechecking the launch source/driver pins,
+protocol and current runtime/native/review provenance. It first marks the
+current attempt `FAILED` and preserves its failure reason, then reconciles
+eligible complete receipts and writes final manifests. Invalid or partial
+canonical completion receipts, foreign plans, ineligible slots, mutated inputs
+and symlinked artifacts are refused without changing their bytes. Diagnostic
+partial sidecars remain preserved and do not qualify an arm as completed;
+ordinary missing-arm retry semantics remain unchanged. There is no quarantine
+or progress-based qualification. Ordinary public
+resume still uses strict `preflight_resume` against an immutable prior source.
+Linux synthetic root-only supervision cannot satisfy the owned-tree gate and
+skips this reconciliation.
+
+The result-blind v3 protocol fixes the no-progress policy before execution:
+600 seconds per started arm with expected advances remaining, sampled every
+second. This is an initial proposal, not a measured market runtime bound. The
+supervisor uses its own monotonic observation clock; heartbeat, other-arm events,
+queued work and fit/preparation cannot reset an active arm's deadline. Ended
+native calls and arms with every expected advance are outside that deadline;
+resource caps still cover preparation and finalization. Resource sampling retains
+its separate cadence. A stop retains the verified prefix and terminates only the
+owned process tree. Progress records never establish settlement or profitability.
+Only strict native receipt readback qualifies a returned result. A progress
+publication failure retains any already-published qualified receipt, and rejected
+returned native payloads remain partial failure artifacts rather than disappearing.
+
+## Tier D artificial prefix scaling diagnostics
+
+`tools/tier_d_scaling/` is a repository-only artificial profiling package. It
+uses the public `trade_rl.data`, `trade_rl.artifacts`, selected
+`trade_rl.evaluation` and `trade_rl.strategies.forecasts.simple_stream_io` APIs,
+plus existing `tools/tier_d_nonrl` driver APIs and contracts. It is not a
+production dependency: no `trade_rl` runtime module may import it. Its fixed
+Dataset has 9,504 hourly bars, 2 artificial symbols, and 6 features. Each case
+executes one representative NONRL arm: H72 / alpha 10 / first-symbol
+`ARTIFICIAL_A` / `BASEL0`. The frozen full plan retains NONRL and CASH plans, but
+CASH remains `UNATTEMPTED`. The three-vintage metadata and plan remain frozen;
+observation stops at first-vintage actor-only prefixes of 100, 400, and 1,600
+advances for the first symbol. Reserve and vintage-transition advances are
+outside measurement. A fourth case profiles the 1,600-advance prefix. The same
+NONRL plan is measured once per case with a fresh account, under 10,800-second
+wall, 2 GiB process-tree RSS, 4 GiB disk, and 10-second sampling limits.
+
+The v3 wall ceiling is an engineering resource budget, not a measured completion
+bound. A changed fixed budget requires a new protocol and fresh source-bound
+preparation; protocol, cost-assumption and plan identities change. Observations
+from different protocols must not be combined or relabeled. Earlier artifacts
+remain bound to their original source and reader.
+
+Only the profiled case publishes cProfile snapshots after advance 1 and every
+100 advances. Atomic exclusive publication preserves completed diagnostic
+snapshots across a hard stop without disabling the active profiler or changing
+the final whole-call profile. Snapshot IO contributes to profiled elapsed time;
+unfinished enclosing frames may be absent from an intermediate snapshot.
+Snapshots do not qualify a financial receipt or a mechanically complete case.
+
+The package consumes no real input and its profile grants no economic admission.
+It does not execute the full 48-arm comparison, establish full-matrix runtime,
+or claim release byte-equivalence. Its source belongs to normal repository Ruff,
+format, and research-tool Mypy checks; the architecture contract keeps imports
+and path references within the artificial repository-only boundary. Summary
+qualification requires both the owned-process and ambiguous-RSS-process
+remaining counts in `supervision.json` to be exact integer zero; a missing,
+nonzero, or non-integer count keeps the measurement incomplete.
+
+## Independent diagnostic account arithmetic
+
+`tools/market_account_oracle/` is a repository-local, standard-library package
+that imports only its own modules. It has no production `trade_rl` dependency;
+runtime modules must not import it, and its output does not extend a production
+API. `numbers.py` parses primitive values, `costs.py` calculates deterministic
+charges, `account.py` tracks independent account state, and `evidence.py`
+checks exact quantities and closed observed fields. Native `BookState`, interval
+returns and aggregate costs are never its answer.
+
+The caller must bind raw source/protocol identity, effective policies,
+OHLC/tick prices, order intents, accepted events and clock/phase order. This
+package does not authenticate those inputs, implement margin/order admission,
+or validate a complete 6,599-step flat/no-pending replay; it is not a native
+replay adapter.
+
+## Independent MARKET scalar facts boundary
+
+`tools/market_account_oracle/market.py` is a repository-local standard-library
+module that imports only its own helper. Production `trade_rl` must not import
+it, and it adds no public API. The caller supplies current/optional adjacent
+raw rows, volume unit, multiplier, tick and side; no Dataset/protocol read or
+policy/effective-profile authentication occurs.
+
+The result separates current-open price from raw volume reference and reports
+notional/quantity capacity without order participation, risk, admission,
+allocation or fill decisions. Native execution/accounting remain the sole
+ledger; no `trade_rl` public API is added.
+
+## Pinned market artifact content boundary
+
+`tools/market_replay_oracle/` is an offline, comparison-only verifier using Python’s
+standard library, NumPy and its own modules. `artifact.py` checks caller-pinned v4 file
+bytes, bounded stored-NPZ structure and the resolved scalar contract; `identity.py`
+independently recomputes the v7 array identity. The `asset_active` and `symbol_active`
+aliases must agree; read-only array views are created only after all member headers
+pass. It does not import `tools.market_account_oracle` or production `trade_rl`;
+production modules must not import it. Both research-tool Mypy routes include this
+package.
+
+The verifier does not authenticate a protocol, source origin, consumed window or
+effective profile, and does not replay causal features, fills, carry, margin or account
+transitions. Native execution and accounting remain authoritative. It adds no production
+API and is not a complete B4 adapter.
+
+## Frozen attempt binding facade
+
+`tools.market_replay_oracle` remains an offline research-tools package with no production
+`trade_rl` dependency; production modules must not import it. Its closed public facade
+exports exactly `DatasetContentPin`, `VerifiedDatasetContent`, `load_pinned_v4`,
+`ProtocolPin`, `NativeSourcePin`, `FrozenAttemptBinding`, `load_pinned_attempt`,
+`EventBatchPin`, `OrderEventContext`, `OrderEventEvidence`,
+`read_pinned_order_events`, `ExactFillAttemptBinding`,
+`load_pinned_exact_fill_attempt`, `BoundEventAdvance`, `BoundEventRowCoverage`, and
+`walk_bound_event_rows`, plus `DeclaredProtocolPair` and
+`load_declared_protocol_pair`. The same facade exposes the independent Dataset
+identity primitives `ARRAY_FIELDS`, `canonical`, and `content_id` for internal
+comparison tools that must rebuild a pinned Dataset identity without importing
+the implementation submodule directly.
+The attempt loader accepts caller-pinned protocol bytes, source HEAD and raw snapshot
+manifest, supported static profile fingerprints, and verified Dataset pins. The exact
+`model.py` profile allowlist binds reviewed blobs for the unchanged
+`execution_policy_digest` AST; it does not assert broader order, event, archive or replay
+behavior is equivalent. The full source snapshot continues to bind every tracked source
+file. The loader binds
+the frozen 48-arm configuration/symbol/scenario/role roster to UTC actor, vintage and
+reserve intervals and checks complete effective policy dictionaries alongside separate
+canonical digests. The added facade does not expose a production API or change financial
+parameters or the frozen protocol.
+
+This is static input identity and mapping only. Source snapshots do not attest to an
+executing process, provider or external venue, and the package does not execute or import
+native market code. Full intent/fill/margin/carry validation and the complete 6,599-step
+financial replay remain outside the boundary.
+
+The H-bound `exact_fill_binding.py` path is distinct from `load_pinned_attempt` and its
+G-bound v3 protocol. It consumes the exact-source v4 protocol through an independent v4
+validator/schedule path; it does not coerce v4 to v3. `ExactFillAttemptBinding.event_context`
+derives a one-advance `OrderEventContext` from verified processing-row content, including
+the effective lot used to validate v1/v2 event quantities. The v4 protocol keeps the
+frozen financial and schedule fields unchanged. The H-bound path contributes the two
+binding names above; protocol-v4 loading and schedule helpers remain module-local.
+
+This remains static input binding. It does not verify an outer attempt receipt or
+progress stream, collect a complete 6,599-advance event chain, prove intent/admission or
+terminal settlement, or build an independent accounting ledger. Native execution and
+accounting remain authoritative; the H-bound context is not full B4 or research
+authorization.
+
+## Per-advance event reader boundary
+
+`events.py` checks one caller-pinned, bounded JSON array for a single symbol and adjacent
+decision/processing advance. It enforces closed v1/v2 fields, expected dataset, policy
+and symbol, the corresponding timestamp for either index, processing-only fills, and
+sequence numbering from zero within each batch. V2 fill evidence uses a signed integer
+lot count, a positive caller-matched lot step and an exact `Fraction` witness whose
+reported float is conservative; v1 fills require zero effective lot, while v1 non-fills
+must carry no fill.
+
+The result is immutable parsed evidence, not accepted-order or accounting authority.
+The caller must authenticate the outer receipt/attempt and derive effective-lot context;
+intent history, admission, costs and a complete B4 replay remain outside the package.
+
+## Streaming bound event-row coverage
+
+`walk_bound_event_rows` accepts parsed actor/reserve row dictionaries for one arm.
+Direct dictionary validation avoids a duplicate projection schema; its one-pass
+callback lets a later accounting consumer handle advances without retaining all
+batches. It composes with H-bound exact-source v4 contexts and leaves G-bound v3
+unchanged.
+
+The schedule is 6,527 actor advances `[2903, 9430)` plus 72 reserve advances `[9430,
+9502)`. Actor rows bind outer/native decision and processing clocks and symbol;
+reserve rows bind outer start/processing clocks. When native output exists,
+`native.execution.next_index` must match the expected processing index and
+`bars_advanced == 1`. Actor `native_validation_failure` is required as null or an
+error object; reserve `clock_valid` is boolean. False clock rows are retained as
+rejected. `native is None` is allowed only for the final actor when there is no
+reserve and no validation failure.
+
+`order_events: []` is present and valid; missing, null or non-array rejects. Each
+batch uses `read_pinned_order_events`. The callback emits immutable
+`BoundEventAdvance(count, phase, context, events, native_rejected)`, with parsed
+event tuples, including rejected native rows, or `None` for an explicit missing
+actor-native tail; callback errors propagate without
+a summary. `BoundEventRowCoverage` reports the binding digest, arm,
+expected/observed actor/reserve counts, parsed batches, event count, rejected native
+rows and tail-native-missing state. `all_expected_batches_present` is presence only
+and may be true with rejects; prefix coverage never qualifies a completed attempt.
+
+Inputs are parsed dictionaries, not original receipt/source bytes; canonical batch
+bytes are derived in memory. The existing 1 MiB/event-count limits apply per batch,
+not to total process memory. The facade adds only the two immutable coverage types
+and walker. Outer receipt/progress/attempt verification, full chain closure,
+intent/admission, independent accounting and terminal settlement remain required for
+B4.
+
+## Declared protocol pair boundary
+
+`protocol_pair.py` separately compares H's native v3 declaration with the H-bound
+v4 comparison declaration. It imports neither the native runner nor production
+code. The v4, pair and exact-fill static readers accept a closed source-profile
+selector: omission retains the existing `d361b6e3` pair, while the `b6318664`
+candidate must be selected explicitly with its public profile ID. The facade
+exports only the ID type and the two supported IDs; the immutable profile table
+and resolver remain internal. Each entry pins exact source HEAD and canonical
+v3/v4 declaration digests; unknown, mixed and altered declarations reject. The
+legacy v3 `load_protocol` and `load_pinned_attempt` remain frozen to `8bc2fd0c`,
+and the exact-fill binding payload does not serialize the selector. The public
+frozen pair result keeps independent `ProtocolPin` objects and immutable
+canonical bytes. It reads only two bounded protocol files, rejects same-file
+aliases and observed raw-byte changes, and grants only
+`STATIC_DECLARED_PROTOCOL_PAIR_ONLY` scope. Outer attempt freshness, runtime
+consumer binding, receipt authentication and financial replay remain separate
+responsibilities.
+
+The native B4 consumer composes this pair reader with
+`load_pinned_exact_fill_attempt` on the paired v4 path. That loader rechecks the
+v4 declaration while validating its exact source and Dataset pins; the consumer
+then rechecks the v3/v4 pair after its arm and policy readback. Native arm,
+receipt-row and event comparisons continue to use the v3-derived
+`FrozenMarketBinding`. The legacy `load_pinned_attempt` stays v3-only and is not
+used to read a d361 v3/v4 pair; it remains frozen to the 8bc native-v3 source.
+This composition grants static input readback only: it does not relabel either
+protocol or authenticate an outer attempt.
+
+## Bounded original-receipt reader boundary
+
+`tools.market_b4_oracle` owns a structural streaming reader for caller-pinned
+original gzip receipts. The package is outside `trade_rl` production imports;
+its dependency boundary is the standard library, NumPy, its own modules, and
+public replay/account facades. It enforces compressed/decompressed and JSON
+limits while selecting actor or reserve rows. A completed scan proves byte and
+row-structure properties only; selected rows remain provisional until the
+whole stream verifies. It does not close intent, account, order-witness or
+outer-attempt evidence. Manufactured full-count fixtures are parser tests,
+not native executions. Full B4 remains one integrated workstream.
+
+`output_index.py` verifies the native writer's flat, self-excluding
+`output-manifest.json` against a caller-supplied byte pin. It checks the exact
+file roster, bounded reads, file identities and link/alias confinement before
+returning an immutable index. Manifest paths reject normalized and casefold
+aliases, Unicode control characters, Windows device names, links/reparse points,
+and hard-link aliases. An explicit recheck detects observed changes;
+the index does not lock files or attest their producing process. Its read
+budgets do not replace the native execution resource limits. The index exposes a
+bounded single-file reader so a path replacement or growth cannot bypass the
+per-input ceiling. Outer witness authentication and financial validation remain
+open integration work.
+
+`allocation_choice.py` implements only the single-symbol after-cost allocation
+calculation. `frozen_forecast.py`, `frozen_decision.py` and `expected_intent.py`
+provide comparison components over caller-owned parsed forecast, decision-row, cost,
+inventory and pending-order facts. The internal `frozen_market_replay.py` connects
+them into a bounded one-symbol driver for caller-pinned dataset content, forecast
+bytes and frozen protocol bindings. It derives row admissions, MARKET/GTC fills,
+account events and reserve settlement from its owned state and raw rows; the other
+symbol slot must remain flat. Public-native 32-actor/8-reserve artificial comparisons
+cover the exact frozen BASEL0, COST2L0 and BASEL2 profiles, nonrl/cash roles, 24/72
+hour horizons and both symbol slots. This is software evidence only. Caller pins do
+not authenticate producers, runtime consumption or root-owned attempts, and this
+driver does not establish original-run provenance, full frozen 48-cell closure or a
+financial replay. These modules stay internal and are not added to a facade.
+`frozen_forecast_index.py` checks a caller-supplied byte pin and selected
+packet/vintage pair. Its arm-scope check compares each already-indexed vintage's
+alpha, horizon, feature selection, and prediction-symbol roster with the selected
+protocol configuration; it does not authenticate forecast provenance or fit
+lineage.
+
+`offline_replay_consumer.py` composes the output index, H/v3 actor and reserve
+streaming scans, the public order-event parser, and the owned raw-row driver.
+For a native arm, after paired H/v3-H/v4/source/Dataset readback it performs a
+separate bounded pass over both original manifest-pinned receipt sections with
+`walk_bound_event_rows` before forecast or Q replay. That pass uses only the
+separately bound v4 event context and checks original row clocks and symbol
+metadata as well as nested event arrays. It requires the full 6,527 actor and
+72 reserve batches, no missing actor tail, and no actor native-validation
+failure or invalid reserve clock. An ordinary order event with status
+`rejected` is still parsed as an event and is not counted as a rejected native
+row. H/v3 protocols and receipt rows are not relabeled as v4; the walker reads
+the original rows through the manifest-pinned output index. This pass does not
+independently authenticate the native source snapshot or outer attempt. The
+later Q replay performs its own bounded receipt scan and continues comparing
+every selected row and final flat/no-active state. The parser also receives a
+canonical projection of event objects already parsed from a receipt; that
+projection pin is derived data, while the original gzip and output-manifest
+pins remain the upper-level evidence.
+
+For every actor row the Q driver rebuilds the native baseline, context,
+decision, action, and selected identity digests from the receipt projection and
+compares them with the independently advanced owned identity. Before consuming
+rows, it binds every parsed forecast vintage to the selected configuration's
+alpha, horizon, declared feature roster, and symbols. It also checks the
+receipt's plan, clock, initial-capital, horizon, runtime, cost, and risk
+declarations against the frozen binding. The strict event pass is still parsed
+comparison evidence, not source/receipt/attempt authentication, intent
+admission, accounting, or a ledger. For a native (non-comparison-only) arm, the
+consumer also maintains an internal `ReferenceAccount` ledger across actor and
+reserve rows. Before ledger application, native `order_event_v1` and
+`order_event_v2` fill diagnostics are checked against the owned fill and the
+bound raw Dataset/policy. The current single-active-order profile requires
+quote-notional volume and prior-bar capacity:
+`filled_notional` and `participation_rate` match the owned fill; `capacity_before`
+uses prior-row quote volume times the smaller policy/processing-row participation
+limit; `capacity_after` uses the producer's subtraction and zero clamp. Other
+volume units and multiple active orders fail closed; comparison-only arms keep
+their existing behavior, and v1/v2 event schemas and public projections are
+unchanged. After each row's receipt identity,
+event effects, orders and book have matched the Q-owned advance, the ledger
+independently derives MARKET price, capacity, fill costs, and carry from the
+pinned raw Dataset and frozen policy, then compares its account projection with
+the Q snapshot. Its starting state
+comes from the bound initial capital and Dataset marks; Q-projected costs and
+H-reported account values are not ledger inputs. The existing Q replay remains
+responsible for margin, admission, risk and terminal behavior; the reference
+rejects unsupported settlement, split, cash-interest and terminated-account
+rows. Comparison-only fixtures do not instantiate the ledger. This check still
+does not authenticate an outer attempt or authorize Full B4. The ledger remains
+internal and outside production imports.
+
+`outer_witness.py` provides immutable pins and bounded canonical readback for
+root-owned start/finish records. It does not create or observe processes, and
+parsing a record does not grant attempt or research authority; process and OS
+ownership remain with the downstream `tools.market_b4_outer_runner` owner. The
+source-identity roster requires that owner, so end-to-end root authentication
+fails closed until it is present in the composed tree. Direct record parsing
+alone is insufficient.
+
+`tools/market_b4_outer_runner.py` is separate repository tooling around that
+comparison boundary. Its CLI is offline-plan-only. The root process records exact
+start and finish pins, source/runtime identity, child PID/birth identity, and an
+empty owned process tree only when the sample has no ambiguous identities;
+ambiguous or unclassified samples fail closed. Post-launch failures preserve a
+separate failure record and never publish a comparison success. Cleanup leaves
+ambiguous identities untouched and cannot attest an empty tree while they remain.
+If the process-tree observer cannot be constructed after launch, cleanup reaps
+the child through its process handle on a best-effort basis but leaves the tree
+unknown and cleanup incomplete. A live row naming a root PID that has never been
+observed remains ambiguous until a verified root identity is available; it is
+never a kill candidate. An empty snapshot without a captured root birth identity
+also remains unknown and cannot certify the owned tree empty.
+The observer binds the candidate root to the creation time read from the
+launched `Popen` process handle before accepting a same-PID CIM row; PID reuse
+or unavailable handle identity therefore cannot turn a replacement into the
+owned root. The 10-tick comparison allowance covers the snapshot's microsecond
+precision, while the recorded birth ticks remain the observed CIM value.
+Windows CI runs focused native process ownership tests for that handle binding,
+descendant cleanup, and the root-observed timeout path.
+The observer pins its
+`tools/tier_d_nonrl/tier_d_process_tree.py` dependency and refuses process creation
+on platforms without the frozen Windows process-tree observer. Its current child
+entry is artificial-comparison-only; it rejects arbitrary Python commands for a
+native binding until a frozen H source-root, native CLI, working directory, fresh
+attempt root, and output path are bound together. An observed artificial child and
+copied fixture remain comparison evidence only, with Full B4 false. These modules
+do not change the native producer, expose a facade, or grant research or live
+authority.
+
+`tools/market_b4_artificial_component_operator.py` is a separate tracked H-only
+child for one fixed synthetic NONRL/CASH component pair. It builds in-memory bars
+and a fixed no-fit projection, then calls the unchanged public H Dataset and market
+execution APIs. The predeclared model has intercept -0.02 and derives its first
+coefficient from the stored float32 feature range so baseline and pulse packets
+are exactly -0.02 and +0.02. Training rows are trace provenance only; no Ridge
+fit or calibration is claimed. It accepts only the fixed
+`ARTIFICIAL_COMPARISON_ONLY` recipe and runs under the pinned H source, virtual
+environment, working directory, and import root; it imports no Q comparator or
+native market CLI. Its bounded synthetic receipts and runtime manifest do not authenticate its producer or grant native-attempt, Full-B4, research, or live authority.
+The operator rejects an output-root path containing a `..` component and
+requires its normalized resolved path to be a strict descendant of the resolved
+`output/verify` root. Before the first output-root `mkdir`, every existing
+ancestor from the candidate's parent through the observer root must be a plain
+directory.
+After plan validation and exclusive creation of the fresh output root, an
+operator exception may leave an exclusive, bounded `operator-failure.json`
+diagnostic bound to the attempt, exact plan bytes, and operator source pin. It
+records the failure phase and bounded exception details with authority flags
+false, then re-raises the original exception; failure to write the diagnostic
+does not replace that error. Failure cleanup removes partial
+`component-result.json` and `output-manifest.json` success markers. Invalid
+plans create no output root, and successful runs keep the existing five-file
+manifest roster without a failure journal. This diagnostic is not a receipt
+and grants no additional authority.
+
+The outer typed plan also has an opt-in `progress_jsonl_path` for this artificial
+operator only. With the default `None`, the optional path is omitted from the
+serialized plan and launch arguments; the observer source pin still reflects the
+actual Q revision. When enabled, the parent accepts only an absent, safe,
+disjoint path under its `output/verify` root and binds that exact path through
+the typed plan, child plan, launch arguments and root input authority. Both
+parent and child reject colon-bearing leaf names (Windows alternate data streams)
+before checking target absence or opening the sidecar. After validating
+the plan and CLI, the child is the sole creator and opens the fresh
+sidecar exclusively before Dataset construction or replay. The sidecar remains
+outside the authoritative H output and witness rosters.
+
+Progress lines are emitted at each role/phase start, at a bounded stride and at
+the phase endpoint, with hard record and byte caps. Each contains only role,
+phase, start index and processing index. They are provisional diagnostics: they
+do not report result completion or alter authority flags. Failure to create the
+sidecar exclusively fails the invocation before Dataset construction or replay.
+After creation, serialization or write errors disable further progress writes
+without escaping the callback or replacing a primary execution error. The
+existing H account, order, history and RNG guards remain active; the observer
+callback still incurs their per-advance cost even when line writes are
+throttled. This option does not change the fixed recipe, event protocol, H source
+pin or child timeout.
+
+`artificial_spec.py` validates the exact typed synthetic recipe before any
+derived values are built. `artificial_component.py` independently reconstructs
+the raw arrays, Dataset identity and canonical forecast bytes from that recipe,
+using the public replay-identity facade rather than the H builder or operator.
+For this artificial schema only, the Q binding separately pins BTC as the fit
+source and BTC/ETH as prediction symbols; the generic v3 `fit_symbols` binding is
+unchanged. The pair wrapper requires exact output roster and root-process
+bindings, then checks the output forecast against Q's canonical fixed-recipe
+bytes before any receipt scan. The typed root plan also binds Q's shared pair
+protocol digest and synthetic Dataset ID before launch; both role bindings must
+share that protocol digest, and the root-aware consumer rechecks the digest and
+Dataset before consuming either role receipt. These fields bind the pair at the
+root boundary and do not change the H child plan. It sends both arms through the
+owned replay and uses child summary/runtime fields only as crosschecks. All
+authority flags remain false. The Q-only replay and H-shaped receipt regression are software evidence
+only. Until a pinned-H operator run produces receipts that the root-side consumer
+independently matches, this path establishes no matched H pair or native evidence.
+
+`binary64_account.py` adds an internal scalar compatibility projection beside `ReferenceAccount`; it accepts caller-owned opening state and explicit events, and reads no source rows or receipts. The module imports no production package and remains outside the facade. Cross-margin events calculate maintenance and collateral and flatten terminated inventory from owned values; isolated margin and split events remain unsupported. It does not coordinate phases, admission, source authentication or complete B4 accounting. Its synthetic and differential tests are software evidence only.
+
+
+## Internal decision identity comparison
+
+`decision_identity.py` is an internal `tools.market_b4_oracle` component and is not exported through the package facade. It composes caller-supplied context and allocation identity fields, and reuses `expected_intent.ExpectedIntent` for MARKET/GTC order IDs instead of implementing a second order hash schema. It imports no `trade_rl` production code. `frozen_market_replay.py` composes the internal semantic components, and `offline_replay_consumer.py` provides a selected-arm consumer plus a 48-arm roster-derived matrix consumer. The matrix consumer shares only the outer before/after whole-index and static-input checks; it preserves bounded per-file pins and returns comparison-only status. Native execution imports remain confined to tests. These components remain outside production and the package facade. The separate outer observer records a root-owned synthetic process boundary; `build_frozen_h_launch_plan` creates a typed, plan-only binding for H's exact public market CLI, source cwd and fresh roots but does not start native H. Native attempt ownership and Full-B4 authority remain unestablished.
+
+`FrozenMarketReplay` may memoize canonical mappings for its own exact, immutable terminal-order history. The per-replay memo retains each unique terminal order once, validates direct predecessor ownership and the account/dataset/policy/symbol scope before reuse, and is capped at 8,192 order entries and 16 MiB of canonical mapping bytes. Active orders and the public identity builder remain uncached; unknown or mutable projections and capacity overflow use the existing uncached mapper. Cache readback creates a fresh mapping for each identity build, preserving complete history and caller-visible output. This is a bounded computation optimization only and grants no source, attempt, research, or economic authority.

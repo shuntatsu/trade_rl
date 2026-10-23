@@ -101,13 +101,15 @@ def with_multitimeframe_path_signatures(
     depth: int = 2,
     include_volume: bool = False,
 ) -> MarketDataset:
-    """Append per-native-clock Signature features to an immutable base Dataset.
+    """Append per-native-clock Signature features to a verified base Dataset.
 
     Every native window is calculated before as-of alignment to one base
     decision clock. An eligible native event may be delivered late, but never
     before its maximum constituent `available_at`. No native bar is subsampled
     before calculating its Signature.
     """
+    if not dataset.identity_verified:
+        raise ValueError("native Signature requires identity-verified base Dataset")
     if dataset.calendar_kind != MarketCalendarKind.CONTINUOUS:
         raise ValueError("native Signature v1 requires continuous market calendar")
     if not math.isclose(
@@ -146,7 +148,12 @@ def with_multitimeframe_path_signatures(
     all_staleness: list[np.ndarray] = []
     all_names: list[str] = []
     source_digests: list[dict[str, str]] = []
-    active = dataset.resolved_array("symbol_active")
+    active = (
+        dataset.resolved_array("symbol_active")
+        & dataset.resolved_array("information_available")
+        & dataset.tradable
+        & (dataset.resolved_array("available_at") <= dataset.timestamps[:, None])
+    )
     for timeframe, window in windows:
         names = tuple(
             f"mt_path_sig_v1_{timeframe}_w{window}_d{depth}_{''.join(letters)}_{word}"
@@ -175,6 +182,10 @@ def with_multitimeframe_path_signatures(
             else:
                 assert source is not None
                 raw = source.load_timeframe(symbol, timeframe)
+                if raw.timestamps[-1] > dataset.timestamps[-1]:
+                    raise ValueError(
+                        "native Signature source extends beyond Dataset clock"
+                    )
                 _validate_regular_native_series(raw, timeframe)
                 times = raw.timestamps
                 closes = raw.close

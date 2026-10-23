@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Sequence, Set
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from typing import Mapping, overload
@@ -21,6 +22,7 @@ from trade_rl.simulation.quantities import (
 )
 
 ORDER_EVENT_SCHEMA = "order_event_v1"
+ORDER_EVENT_LOT_SCHEMA = "order_event_v2"
 _QUANTITY_TOLERANCE = 1e-12
 _QUANTITY_ULPS = 32
 
@@ -80,7 +82,7 @@ def _quantity_tolerance(*values: float) -> float:
 
 
 def _validate_positive(name: str, value: float) -> None:
-    if not _is_finite(value) or value <= 0.0:
+    if isinstance(value, (bool, np.bool_)) or not _is_finite(value) or value <= 0.0:
         raise OrderDomainError(f"{name} must be finite and positive")
 
 
@@ -162,7 +164,8 @@ class OrderIntent:
         ):
             raise OrderDomainError("symbol_index must be a non-negative integer")
         if (
-            not _is_finite(requested_quantity)
+            isinstance(requested_quantity, (bool, np.bool_))
+            or not _is_finite(requested_quantity)
             or abs(requested_quantity) <= _QUANTITY_TOLERANCE
         ):
             raise OrderDomainError("requested_quantity must be finite and non-zero")
@@ -346,9 +349,39 @@ class OrderIntent:
             replaced_order_id=optional_string("replaced_order_id"),
             reduce_only=reduce_only,
         )
-        if restored.order_id != string("order_id"):
-            raise OrderDomainError("order intent identity digest mismatch")
-        return restored
+        original_id = string("order_id")
+        if restored.order_id == original_id:
+            return restored
+
+        # Historical OrderIntent.create() hashed caller-supplied JSON numeric
+        # types *before* normalizing its stored quantity/prices/equity to
+        # floats. A genuine order created from 1 rather than 1.0 therefore
+        # has another SHA-256 despite identical saved financial values.
+        # Admit only exact, finite integer/float JSON aliases of those fields,
+        # without ever modifying the originally issued order ID.
+        identity = restored.canonical_payload()
+        identity.pop("order_id")
+        identity["schema_version"] = "order_intent_v1"
+        aliases: list[tuple[str, int]] = []
+        for field in (
+            "requested_quantity",
+            "limit_price",
+            "stop_price",
+            "submission_reference_price",
+            "decision_equity",
+        ):
+            numeric = identity.get(field)
+            if isinstance(numeric, float) and numeric.is_integer():
+                aliases.append((field, int(numeric)))
+        for mask in range(1, 1 << len(aliases)):
+            candidate = identity.copy()
+            for index, (field, integer_value) in enumerate(aliases):
+                if mask & (1 << index):
+                    candidate[field] = integer_value
+            candidate_id = hashlib.sha256(canonical_json_bytes(candidate)).hexdigest()
+            if candidate_id == original_id:
+                return replace(restored, order_id=original_id)
+        raise OrderDomainError("order intent identity digest mismatch")
 
 
 @dataclass(frozen=True, slots=True)
@@ -678,13 +711,26 @@ class PendingOrder:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True, eq=False)
 class _TerminalOrderNode:
-    order: PendingOrder
+    # Only immutable bytes belong to a published history node.  Neither the
+    # caller's PendingOrder nor a mutable asdict() mapping is retained.
+    _order_bytes: bytes
+    _reason_order_id: str
+    _terminal_reason: str
+    _reason_projection_sha256: bytes
     previous: _TerminalOrderNode | None
     length: int
     max_submit_index: int
     order_ids_at_max_submit: frozenset[str]
+    max_clock_index: int
+
+    @property
+    def order(self) -> PendingOrder:
+        # Detached validated view: changing an exposed dataclass (even through
+        # object.__setattr__) cannot poison earlier account snapshots or a
+        # previously cached archive-progress digest.
+        return PendingOrder.from_mapping(json.loads(self._order_bytes))
 
 
 class TerminalOrderArchive(Sequence[PendingOrder]):
@@ -709,7 +755,21 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         previous: _TerminalOrderNode | None,
         order: PendingOrder,
     ) -> _TerminalOrderNode:
-        submit_index = order.intent.submit_index
+        if not order.terminal:
+            raise OrderDomainError("terminal archive requires terminal orders")
+        if order.exact_cumulative_filled_quantity is None:
+            raise OrderDomainError(
+                "terminal order exact_cumulative_filled_quantity missing"
+            )
+        # Raw dataclass construction can bypass OrderIntent.create() and keep
+        # a forged order_id despite frozen=True.  Verify the full canonical
+        # mapping exactly once per added terminal, before sealing its bytes.
+        validated = PendingOrder.from_mapping(asdict(order))
+        order_bytes = canonical_json_bytes(asdict(validated))
+        terminal_reason = validated.terminal_reason
+        if terminal_reason is None:  # validated terminal orders always have a reason
+            raise OrderDomainError("terminal order is missing its validated reason")
+        submit_index = validated.intent.submit_index
         previous_max = -1 if previous is None else previous.max_submit_index
         if submit_index > previous_max:
             max_submit_index = submit_index
@@ -723,12 +783,31 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         else:
             max_submit_index = previous_max
             ids = frozenset() if previous is None else previous.order_ids_at_max_submit
+
+        order_clock = max(
+            submit_index,
+            order.last_processed_index
+            if order.last_processed_index is not None
+            else -1,
+            order.trigger_index if order.trigger_index is not None else -1,
+        )
+        max_clock_index = (
+            order_clock
+            if previous is None
+            else max(previous.max_clock_index, order_clock)
+        )
         return _TerminalOrderNode(
-            order=order,
+            _order_bytes=order_bytes,
+            _reason_order_id=validated.order_id,
+            _terminal_reason=terminal_reason,
+            _reason_projection_sha256=_terminal_reason_projection_sha256(
+                order_bytes, validated.order_id, terminal_reason
+            ),
             previous=previous,
             length=1 if previous is None else previous.length + 1,
             max_submit_index=max_submit_index,
             order_ids_at_max_submit=ids,
+            max_clock_index=max_clock_index,
         )
 
     @classmethod
@@ -740,6 +819,15 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     def append(self, order: PendingOrder) -> TerminalOrderArchive:
         return self._from_tail(self._next_node(self._tail, order))
 
+    def __reduce__(
+        self,
+    ) -> tuple[type[TerminalOrderArchive], tuple[tuple[PendingOrder, ...]]]:
+        # Pickle cannot recursively traverse a linked multi-thousand-node
+        # chain on normal Python recursion limits. Flatten only at this
+        # explicit process-transport boundary; the constructor validates and
+        # seals the restored orders in original chronological order.
+        return type(self), (tuple(self),)
+
     def canonical_payload(self) -> tuple[PendingOrder, ...]:
         """Expose the historical tuple shape at serialization boundaries."""
 
@@ -750,19 +838,88 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
         return -1 if self._tail is None else self._tail.max_submit_index
 
     @property
+    def max_clock_index(self) -> int:
+        return -1 if self._tail is None else self._tail.max_clock_index
+
+    @property
+    def asdict_tuple(self) -> tuple[dict[str, object], ...]:
+        # Materialize at the explicit full-history evidence boundary only.
+        # Every mapping is fresh, so a consumer cannot change archived facts.
+        raw = (
+            b"[" + b",".join(node._order_bytes for node in self._ordered_nodes()) + b"]"
+        )
+        return tuple(json.loads(raw))
+
+    def _canonical_order_json_chunks(self) -> Iterator[bytes]:
+        """Yield sealed canonical per-order bytes without materializing mappings."""
+        for node in self._ordered_nodes():
+            yield node._order_bytes
+
+    @property
     def order_ids_at_max_submit(self) -> frozenset[str]:
         return frozenset() if self._tail is None else self._tail.order_ids_at_max_submit
 
     def __len__(self) -> int:
         return 0 if self._tail is None else self._tail.length
 
-    def __iter__(self) -> Iterator[PendingOrder]:
-        reverse: list[PendingOrder] = []
+    def _ordered_nodes(self) -> Iterator[_TerminalOrderNode]:
+        reverse: list[_TerminalOrderNode] = []
         node = self._tail
         while node is not None:
-            reverse.append(node.order)
+            reverse.append(node)
             node = node.previous
         yield from reversed(reverse)
+
+    def _select_terminal_orders(
+        self, order_ids: Set[str]
+    ) -> tuple[PendingOrder, ...] | None:
+        """Select an ordered subset when sealed projection metadata is intact.
+
+        ``None`` asks the caller to use ordinary archive iteration. The scan is
+        O(n) in retained bytes; it avoids rebuilding unrelated PendingOrders.
+        """
+        if not _terminal_reason_selection_bindings_unchanged(self):
+            return None
+
+        selected_nodes: list[_TerminalOrderNode] = []
+        for node in self._ordered_nodes():
+            if (
+                type(node) is not _TerminalOrderNode
+                or type(node._order_bytes) is not bytes
+                or type(node._reason_order_id) is not str
+                or type(node._terminal_reason) is not str
+                or not node._terminal_reason
+                or type(node._reason_projection_sha256) is not bytes
+                or len(node._reason_projection_sha256) != 32
+            ):
+                return None
+            try:
+                projection_digest = _terminal_reason_projection_sha256(
+                    node._order_bytes,
+                    node._reason_order_id,
+                    node._terminal_reason,
+                )
+            except UnicodeError:
+                return None
+            if projection_digest != node._reason_projection_sha256:
+                return None
+            if node._reason_order_id in order_ids:
+                selected_nodes.append(node)
+
+        selected_orders: list[PendingOrder] = []
+        for node in selected_nodes:
+            order = node.order
+            if (
+                order.order_id != node._reason_order_id
+                or order.terminal_reason != node._terminal_reason
+            ):
+                return None
+            selected_orders.append(order)
+        return tuple(selected_orders)
+
+    def __iter__(self) -> Iterator[PendingOrder]:
+        for node in self._ordered_nodes():
+            yield node.order
 
     @overload
     def __getitem__(self, index: int) -> PendingOrder: ...
@@ -794,6 +951,103 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
 
     def __repr__(self) -> str:
         return f"TerminalOrderArchive({tuple(self)!r})"
+
+
+def _terminal_reason_projection_sha256(
+    order_bytes: bytes, order_id: str, reason: str
+) -> bytes:
+    digest = hashlib.sha256()
+    digest.update(b"terminal_order_reason_projection_v1\0")
+    for value in (order_bytes, order_id.encode("utf-8"), reason.encode("utf-8")):
+        digest.update(len(value).to_bytes(8, "big"))
+        digest.update(value)
+    return digest.digest()
+
+
+_ARCHIVE_ITER = TerminalOrderArchive.__iter__
+_ARCHIVE_ITER_CODE = _ARCHIVE_ITER.__code__
+_ARCHIVE_ORDERED_NODES = TerminalOrderArchive._ordered_nodes
+_ARCHIVE_ORDERED_NODES_CODE = _ARCHIVE_ORDERED_NODES.__code__
+_TERMINAL_NODE_ORDER = getattr(_TerminalOrderNode, "order")
+_TERMINAL_NODE_ORDER_GETTER = getattr(_TERMINAL_NODE_ORDER, "fget", None)
+_TERMINAL_NODE_ORDER_CODE = getattr(_TERMINAL_NODE_ORDER_GETTER, "__code__", None)
+_PENDING_FROM_MAPPING_DESCRIPTOR = PendingOrder.__dict__["from_mapping"]
+_PENDING_FROM_MAPPING = getattr(PendingOrder.from_mapping, "__func__", None)
+_PENDING_FROM_MAPPING_CODE = getattr(_PENDING_FROM_MAPPING, "__code__", None)
+_ARCHIVE_JSON_LOADS = json.loads
+_ARCHIVE_JSON_LOADS_CODE = _ARCHIVE_JSON_LOADS.__code__
+_ARCHIVE_JSON_DEFAULT_DECODER = getattr(json, "_default_decoder", None)
+
+
+def _json_callable_binding(
+    value: object,
+) -> tuple[object | None, object | None, object | None]:
+    function = getattr(value, "__func__", value)
+    return (
+        getattr(value, "__self__", None),
+        function,
+        getattr(function, "__code__", None),
+    )
+
+
+def _json_callable_binding_unchanged(
+    value: object, expected: tuple[object | None, object | None, object | None]
+) -> bool:
+    current = _json_callable_binding(value)
+    return all(actual is original for actual, original in zip(current, expected))
+
+
+_ARCHIVE_JSON_DECODE_BINDING = _json_callable_binding(
+    getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "decode", None)
+)
+_ARCHIVE_JSON_RAW_DECODE_BINDING = _json_callable_binding(
+    getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "raw_decode", None)
+)
+_ARCHIVE_JSON_SCAN_ONCE = getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "scan_once", None)
+_ARCHIVE_SHA256 = hashlib.sha256
+_TERMINAL_REASON_PROJECTION = _terminal_reason_projection_sha256
+_TERMINAL_REASON_PROJECTION_CODE = _TERMINAL_REASON_PROJECTION.__code__
+
+
+def _terminal_reason_selection_bindings_unchanged(
+    archive: TerminalOrderArchive,
+) -> bool:
+    return (
+        type(archive) is TerminalOrderArchive
+        and TerminalOrderArchive.__iter__ is _ARCHIVE_ITER
+        and TerminalOrderArchive.__iter__.__code__ is _ARCHIVE_ITER_CODE
+        and TerminalOrderArchive._ordered_nodes is _ARCHIVE_ORDERED_NODES
+        and TerminalOrderArchive._ordered_nodes.__code__ is _ARCHIVE_ORDERED_NODES_CODE
+        and getattr(_TerminalOrderNode, "order") is _TERMINAL_NODE_ORDER
+        and getattr(_TERMINAL_NODE_ORDER, "fget", None) is _TERMINAL_NODE_ORDER_GETTER
+        and getattr(_TERMINAL_NODE_ORDER_GETTER, "__code__", None)
+        is _TERMINAL_NODE_ORDER_CODE
+        and PendingOrder.__dict__.get("from_mapping")
+        is _PENDING_FROM_MAPPING_DESCRIPTOR
+        and getattr(PendingOrder.from_mapping, "__func__", None)
+        is _PENDING_FROM_MAPPING
+        and getattr(
+            getattr(PendingOrder.from_mapping, "__func__", None), "__code__", None
+        )
+        is _PENDING_FROM_MAPPING_CODE
+        and json.loads is _ARCHIVE_JSON_LOADS
+        and json.loads.__code__ is _ARCHIVE_JSON_LOADS_CODE
+        and getattr(json, "_default_decoder", None) is _ARCHIVE_JSON_DEFAULT_DECODER
+        and _json_callable_binding_unchanged(
+            getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "decode", None),
+            _ARCHIVE_JSON_DECODE_BINDING,
+        )
+        and _json_callable_binding_unchanged(
+            getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "raw_decode", None),
+            _ARCHIVE_JSON_RAW_DECODE_BINDING,
+        )
+        and getattr(_ARCHIVE_JSON_DEFAULT_DECODER, "scan_once", None)
+        is _ARCHIVE_JSON_SCAN_ONCE
+        and hashlib.sha256 is _ARCHIVE_SHA256
+        and _terminal_reason_projection_sha256 is _TERMINAL_REASON_PROJECTION
+        and _terminal_reason_projection_sha256.__code__
+        is _TERMINAL_REASON_PROJECTION_CODE
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -946,12 +1200,34 @@ class OrderEvent:
     path_mode: str
     path_points: tuple[float, ...]
     reduce_only: bool = False
+    filled_lot_count: int | None = None
+    lot_size: float = 0.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.reduce_only, bool):
             raise OrderDomainError("reduce_only must be a boolean")
-        if self.schema_version != ORDER_EVENT_SCHEMA:
+        if self.schema_version not in (ORDER_EVENT_SCHEMA, ORDER_EVENT_LOT_SCHEMA):
             raise OrderDomainError("order event schema is unsupported")
+        if self.schema_version == ORDER_EVENT_SCHEMA:
+            if self.filled_lot_count is not None or self.lot_size != 0.0:
+                raise OrderDomainError("legacy order events have no exact lot evidence")
+        else:
+            if (
+                self.event_type not in {"filled", "partial_fill"}
+                or isinstance(self.lot_size, bool)
+                or not _is_finite(self.lot_size)
+                or self.lot_size <= 0.0
+                or self.filled_lot_count is None
+            ):
+                raise OrderDomainError("exact lot evidence requires a quantized fill")
+            try:
+                accepted_fill_quantity(
+                    self.filled_quantity,
+                    lot_size=self.lot_size,
+                    lot_count=self.filled_lot_count,
+                )
+            except ValueError as error:
+                raise OrderDomainError("invalid exact fill lot evidence") from error
         if (
             isinstance(self.sequence, bool)
             or not isinstance(self.sequence, int)
@@ -1055,11 +1331,19 @@ class OrderEvent:
             "timestamp_ns",
             "trigger_segment",
         }
+        schema = value.get("schema_version")
+        if schema == ORDER_EVENT_LOT_SCHEMA:
+            required |= {"filled_lot_count", "lot_size"}
         if set(value) not in (required, required | {"reduce_only"}):
             raise OrderDomainError("order event field closure mismatch")
         reduce_only = value.get("reduce_only", False)
         if not isinstance(reduce_only, bool):
             raise OrderDomainError("reduce_only must be a boolean")
+        lot_count = value.get("filled_lot_count")
+        if lot_count is not None and (
+            isinstance(lot_count, bool) or not isinstance(lot_count, int)
+        ):
+            raise OrderDomainError("filled_lot_count must be an integer or null")
 
         def string(field: str) -> str:
             raw = value[field]
@@ -1133,6 +1417,8 @@ class OrderEvent:
             path_mode=string("path_mode"),
             path_points=tuple(float(item) for item in raw_path_points),
             reduce_only=reduce_only,
+            filled_lot_count=lot_count,
+            lot_size=number("lot_size") if schema == ORDER_EVENT_LOT_SCHEMA else 0.0,
         )
 
     def canonical_payload(self) -> dict[str, object]:
@@ -1140,6 +1426,9 @@ class OrderEvent:
         payload["previous_status"] = self.previous_status.value
         payload["new_status"] = self.new_status.value
         payload["path_points"] = list(self.path_points)
+        if self.schema_version == ORDER_EVENT_SCHEMA:
+            payload.pop("filled_lot_count")
+            payload.pop("lot_size")
         if not self.reduce_only:
             payload.pop("reduce_only")
         return payload

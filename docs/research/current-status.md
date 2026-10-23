@@ -1,6 +1,119 @@
 # Current research status
 
-更新基準: 2026-10-05 (JST)
+更新基準: 2026-10-20 (JST)
+
+## Issue #909: long-only target feasibility candidate
+
+The composed after-cost allocator now intersects its target interval with the
+actual executor's shorting permission before optimization. A negative forecast
+can therefore select cash and close a held long through normal fee-bearing
+execution when shorting is disabled. Previously, the symmetric default interval
+could request a sign-crossing sell that admission rejected as `shorting_disabled`,
+leaving the long untouched. Configured positive minimum weights and explicit
+empty-domain rejection remain in force; short-enabled targets are unchanged.
+Current short-disabled global receipts use v3 to verify this domain; unchanged
+short-enabled execution retains its complete v2 bytes. Historical v1/v2 readers
+preserve their bytes and prior meaning, including a pinned old v2 crossing-sale
+rejection; changing its schema does not qualify it as repaired execution.
+
+Fixed-input tests inspect the actual global NONRL actor before terminal handling,
+using independent quantity/cash/fee arithmetic and a short-enabled control.
+This is a synthetic software repair candidate. Exact-head full gates and
+independent source review remain required. It does not change the frozen
+Issue #888 measurements or establish profitability, R3, unused/final eligibility
+or live readiness.
+
+## Issue #899: exclusive artifact directory publication
+
+Canonical market datasets now use the same native no-replace directory primitive
+as run, study, policy and transition artifacts after real staged codec/identity
+validation. A destination entry created after the precheck, including an empty
+directory, cannot be replaced. Missing native capability and unsupported
+filesystems fail closed; existing Windows lock retries and private-stage cleanup
+remain bounded. Artifact formats, bytes and identities are unchanged.
+
+The regression uses the real canonical codec/loader and actual rename operation:
+both affected paths failed on the pre-fix Linux/Btrfs source, while Windows was
+a passing platform control. Native ABI/error/path tests and a synchronized
+two-contender publication check cover the shared primitive. Linux, Windows and
+macOS runner verification and fresh final-head independent source review remain
+required for integration. The generic review gate waits for the full native
+publication matrix and requires its success alongside Core, PPO and Guide;
+missing, skipped, pending, failed or cancelled results cannot satisfy the gate.
+This changes artifact publication only; it does not
+rerun the frozen Issue #888 measurements or establish market profitability,
+R3 admission, unused/final eligibility or live readiness.
+
+## Issue #903: session cash-interest basis repair
+
+The public stateful executor can now process a held position's processing-bar
+dividend together with closed-session gap interest without cloning a temporary
+book whose NAV exceeds its last observed peak. BookState accrues interest once
+on the explicit signed cash basis; the existing gap/processing split, dividend
+ordering and open/end-bar drawdown observations remain unchanged.
+
+This is a synthetic software regression repair, including independent interest
+arithmetic and a falling-close control against a new intrabar peak. It does not
+rerun or rebind the frozen Issue #888 artificial measurements, establish market
+profitability, or grant R3, unused/final or live eligibility. Final-head full
+software gates and independent source review remain required for integration.
+
+## Issue #901: compatibility close-liquidation repair
+
+The unprofiled `MarketExecutor.liquidate_at_close` shortcut now applies actual
+accepted lot deltas without rounding the remaining whole position into a fill.
+Forced MARKET closes use taker fees/full spread; below-minimum and sub-lot
+inventory remains visible and cannot be reported as a completed liquidation.
+Economic-stop reasons survive a flat result. A single exact batch uses the
+existing BookState accounting owner and preserves its batch counters.
+
+This is a same-index compatibility API repair. Source-profile mode continues
+to reject the shortcut and requires explicit stateful orders. The Issue #888
+artificial measurement remains frozen at its declared source; these changes do
+not alter that run, reopen historical evidence, or establish profitability,
+R3 admission, unused/final eligibility or live readiness. Exact-head independent
+review and the full software gates remain required for integration.
+
+## Issue #810: signed insolvency software candidate
+
+An opt-in canonical execution policy retains negative marked terminal equity
+instead of flooring it at zero. Historical defaults, policy digests and bounded
+interval/log diagnostics remain unchanged. Synthetic short-gap, repeated-margin,
+cache and order-identity tests use an independent cash/liability oracle. This is
+a software prerequisite for a new fixed-capital reward, not market profitability
+or a liquidation-cost calibration. Final-head full CI and formal independent
+research approval remain integration requirements. No economic result, sealed
+rerun, unused-future opening or live-order eligibility is established.
+
+## Issue #810: exact accepted-fill event evidence candidate
+
+OrderEvent v2 records the allocator's accepted signed lot count and effective
+lot size for quantized complete and partial fills, and validates their projected
+quantity against the existing float `filled_quantity`. The strict v1 mapping
+reader and canonical payload retain their previous fields and bytes; monetary
+fill calculations remain unchanged. This is a source-level evidence improvement
+only. It does not close the independent raw-market B4 ledger, establish a market
+result, or authorize frozen-R3 execution, G3/G4, profit claims, or live use.
+Exact-head verification and the applicable architecture/contract checks remain
+integration prerequisites.
+
+## Issue #810: H-bound exact-fill attempt context candidate
+
+A separate v4 protocol path is being added for the H exact-fill event source. It pins an
+exact source revision, retains the frozen v3 financial and 48-arm schedule fields, and
+requires a fresh v4 protocol/attempt identity rather than relabeling a v3 attempt. The
+v4 static binder derives `event_context(account, scenario, role, count)` from pinned
+protocol, source, and verified Dataset content. It binds both adjacent clock rows and
+the effective lot at the processing index. Positive effective lots require the v2 signed
+count/step witness; the v1 reported-float fill is accepted only for a verified zero
+effective lot. Existing monetary calculations remain unchanged.
+
+This context capability is not a complete event-chain collector or independent ledger.
+Outer receipt/progress binding, order-intent/admission evidence, full actor-plus-reserve
+reconciliation, terminal flat/no-pending proof, and the independent raw-market B4 ledger
+remain open. It establishes no G0/G2, frozen-R3 execution authority, G3/G4, profit,
+unused-period, or live eligibility. Exact-head software verification and source review
+remain required.
 
 ## 結論
 
@@ -15,6 +128,709 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Net-profit redesign: prequential forecast capability (2026-10-05)
+
+Issue #810 P2 has a software path from the existing causal row selector and
+Ridge solver to frozen future-block log-return packets. The prequential owner is
+now artifact-only and does not add a second intent-selection path. The selector
+records its actual pooled symbol/price/publication endpoints. Each fit uses only
+strictly matured prefix labels; later blocks can consume newly matured labels but
+cannot rewrite earlier vintages or packets. Stored model/scaler and selected
+prediction inputs survive a digest-checked JSON round trip. Future-only Dataset
+suffix mutation must leave causal identities unchanged, while the whole-Dataset
+lineage ID may change. The #810 trading path uses the separately versioned
+direct-simple forecast stream through the common allocator/risk/execution path.
+
+This is a partial P2 implementation. The default horizon remains 24h. Later
+consumed-development Task18 preparations fitted H24/H72 vintages, but the
+48-arm NONRL/CASH comparison remains incomplete; see the checkpoint below.
+No complete economic comparison or parameter selection is established.
+Forecast completion/latency are declared
+simulation assumptions, not measured receipts. The source only admits inputs
+available on their Dataset row; it does not recover delayed feature histories.
+Log-return forecasts and the current cost proxy do not establish expected simple
+return or an optimal shared-cash allocator.
+
+The non-RL portfolio allocator, downstream RL packet observation, common
+DecisionContext, continuous-account walk-forward recipe, complete source/runtime
+bundle and economic diagnostics remain separate unfinished work. G0/G1 for an
+exact economic Study and G3-G5 are NOT ESTABLISHED. Synthetic timing, algebra,
+tamper and causality tests are software evidence only. The research drawdown
+guardrail remains 20%; there is no new winner, final-data opening or live-order
+authorization. See the result-blind mechanism contract in
+`architecture/research-assurance.md`.
+
+## Simple-return serialization repair (2026-10-15)
+
+The [Issue #810 development checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue810-development-checkpoint-20261015)
+retains the failed R2 attempt: twelve fitted vintages and a frozen 48-arm
+matrix, followed by one interrupted native arm and 47 unattempted arms.
+R2 followed the earlier sampler-failure attempt on 2026-10-14 UTC; the
+2026-10-15 checkpoint date records publication rather than execution.
+No completed native receipt, matched comparison or market result was returned.
+
+An artificial source-only oracle reproduced eight snapshot constructions per
+packet when obtaining a stream payload. The bounded repair reduces that to one
+for concrete packet/stream classes while retaining identical canonical bytes,
+fresh nested payloads, subclass behavior and the per-transition mutation guards.
+There is no persistent cache. This is software evidence; full-matrix throughput
+and profitability are not established by that call-count reduction. No economic
+parameter, fee/funding calibration, Tier U restriction or PPO learnability
+disposition changes. Fresh exact-source review and validation remain necessary
+before another market-data attempt.
+
+An unconditional persistent-digest candidate failed artificial mutation checks:
+a changed future packet retained its old stream digest and passed the collector's
+source check; a subclass scope override also broke digest/payload agreement.
+That candidate is replaced by the canonical public record behavior above and a
+private collector-owned, run-local memo that checks current values at every
+existing boundary. Synthetic golden plan/receipt equality, mutation and fallback
+regressions are required; the optimization does not authorize another market run.
+The earlier throughput extrapolations are not measured full-arm runtime bounds.
+The resumable/parallel driver remains under audit: old failed attempts must remain
+immutable, corrupt receipts must fail closed, and worker outcomes must reconcile
+before a fresh technical retry. The retained R1/R2 status and economic conclusions
+remain unchanged.
+
+## Tier D runner retention repair candidate (2026-10-15)
+
+The resumable/parallel prototype failed three pure JSON/gzip counterexamples:
+in-place reopening changed a retained attempt, receipt publication overwrote old
+bytes, and a corrupt receipt was swallowed before environment construction.
+Maintained runner work moves active source/tests into `tools/tier_d_nonrl` and
+normal test/type-check routing. Fresh destinations and exclusive artifacts are
+required; any reused result must pass strict frozen-plan and input restoration
+without refitting or replacing the old attempt's authority. Earlier R1/R2 files
+and failure dispositions remain unchanged. These are software repair oracles,
+not a new native market run or an approved full-matrix runtime budget. Resume,
+parallel shutdown, final-head gates and fresh independent source review remain
+acceptance requirements before another technical retry.
+
+Issue #888 progress work adds opt-in validated actor/reserve advance notifications
+to `allocation_terminal_execution` and connects them to repository-driver
+per-arm journals. The parent tails these journals while parallel futures run;
+resume readback does not execute or journal reused receipts. The v3 result-blind
+protocol fixes an initial 600-second per-active-arm no-progress threshold with
+one-second polling. Fit/preparation, queued/reused arms, ended native calls and
+finalization after all expected advances are excluded from this deadline; the
+separate hard resource caps remain. This changes protocol and derived plan
+identities and does not make earlier protocol bytes equivalent.
+
+Manufactured orchestration verifies progress publication and failure retention.
+An actual Windows child-process oracle confirms that a stalled journal retains
+its observed prefix, interrupts the owned arm/process tree, leaves unattempted
+arms unattempted, and keeps an unrelated process alive. Neither counts nor a
+normal native return qualify a financial result; strict receipt readback remains
+required. These are software-only observations. Step 4 acceptance and R3 still
+require final-head software gates, independent exact-source review and the
+full-size artificial scaling/profile. The proposed deadlines/resource limits are
+not measured full-matrix runtime bounds. No new market costs, fits, replay,
+unused-data access or live routing is authorized by this progress work.
+
+## Issue #907: stopped-attempt receipt reconciliation candidate (2026-10-16)
+
+[Issue #907](https://github.com/shuntatsu/trade_rl/issues/907) tracks a candidate
+software repair for complete receipts left unindexed when their worker stops.
+Prior-source diagnostic evidence remains in the immutable
+[807 diagnostics release](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-diagnostics-8070bfb96-20261016).
+A read-only stopped-receipt reader reuses the existing frozen
+input, plan, and strict terminal-receipt validators. The Windows supervisor can
+publish only its validated updates after its owned process tree is verified
+stopped and the launch HEAD/driver, protocol, current runtime/native provenance
+and market review are rechecked. It first marks the current attempt `FAILED`,
+preserves that failure reason, and writes final manifests after reconciliation.
+The path does not alter public strict resume, retained R1/R2/807 sources, or
+qualification rules. Invalid or partial canonical completion receipts, foreign
+plans, ineligible slots, mutated inputs and symlinked artifacts remain preserved
+and refused. Diagnostic partial sidecars cannot qualify an arm as completed;
+ordinary missing-arm retry semantics remain unchanged. There is no quarantine
+or progress-based qualification. Linux synthetic root-only supervision cannot
+satisfy the owned-tree gate.
+
+The repair remains a **DRAFT candidate**, not an accepted system change. Acceptance
+requires a committed-head Windows stop/recovery probe, full CI on that exact head,
+and a fresh exact-source review. Retained evidence must remain untouched.
+No full 48-arm run, R3 admission, profit
+claim, unused/final evaluation, or live routing follows from this repair.
+
+## Issue #888 artificial scaling prefix profile
+
+The repository-only `tools/tier_d_scaling/` harness builds a fixed artificial
+Dataset of 9,504 hourly bars × 2 artificial symbols × 6 features. Each case
+executes one representative NONRL arm: `H72`, `alpha 10`, `ARTIFICIAL_A`,
+`BASEL0`. The declared full plan retains both NONRL and CASH plans, but CASH is
+`UNATTEMPTED` in every case. The three-vintage metadata and full plan remain
+frozen, while the measured prefix uses only first-vintage actor advances for the
+first symbol; reserve and vintage-transition advances are outside the
+measurement. Four one-repetition cases run the same NONRL plan at 100, 400, and
+1,600 advances, plus a separately profiled 1,600-advance case, each with a fresh
+account. The current v3 wall, process-tree RSS, disk, and sampling limits are
+10,800 seconds,
+2 GiB, 4 GiB, and 10 seconds respectively.
+
+Profile-only checkpoints are published after advance 1 and every 100 advances,
+without disabling the active profiler. Their IO overhead is included only in
+the separate profiled case; unfinished enclosing frames can be absent from a
+checkpoint. A checkpoint is diagnostic evidence, never a qualified receipt.
+The final profile still covers the whole returned native call. The v2 execution
+order starts with the profiled case, then runs the unprofiled 100/400/1,600 cases.
+
+The v2 run at measurement source `11ca5d979e5a` is closed. The 100- and
+400-advance artificial prefixes qualified as software observations with strict
+partial-receipt readback; both 1,600-advance cases exceeded the 1,200-second wall
+cap and produced no final receipt. Evidence is retained in the
+[v2 artificial checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-artificial-scaling-v2-20261016).
+The checkpoint source and measurement source have identical admitted runtime and
+harness code; package/CI verification is not a new measurement. These are single
+first-vintage actor observations; CASH remains `UNATTEMPTED`. No real input is
+used and no economic admission follows. Full-arm/48-arm runtime, variance,
+asymptotic-scaling claims, release byte-equivalence, and Step 0 acceptance remain
+unestablished. For v2, the same-source/same-plan profiled versus unprofiled 1,600-advance
+receipt comparison remains incomplete. The separate v3 result follows.
+
+The separate v3 wave kept its predeclared 10,800-second wall ceiling and all
+RSS/disk/sampling/worker/repetition limits fixed. It changed no native runtime
+implementation or economic setting. Fresh preparation froze its own protocol,
+cost-assumption and plan identities; v2 inputs and observations were not reused.
+
+At frozen measurement source `face9b295bb61`, all four artificial prefixes
+qualified, with strict expected-plan readback, 10 prepared inputs and 24 source
+pins verified. The normal four-root summary is `MEASUREMENTS_COMPLETE`.
+
+| V3 case | Actor advances | Native seconds | Parent seconds | Peak RSS bytes |
+| --- | ---: | ---: | ---: | ---: |
+| n1600-profile | 1,600 | 8,572.9078481 | 8,628.734 | 330,137,600 |
+| n100 | 100 | 314.0048234 | 334.421 | 160,198,656 |
+| n400 | 400 | 1,138.3133687 | 1,165.141 | 173,191,168 |
+| n1600 | 1,600 | 4,881.3781038 | 4,933.735 | 329,134,080 |
+
+All parent supervisors ended rc=0, reaped their workers and reported zero
+remaining owned processes, no cleanup/final-sample errors and no violations.
+Profile-on/off n1600 canonical partial receipts are `MATCH`; their raw gzip
+SHA-256 values differ. The original inputs, journals, receipts, 17 checkpoints,
+profiles, diagnostics and size/SHA-256 manifest are published in the separate
+[v3 artificial checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-artificial-scaling-v3-20261016).
+Its tag and three asset sizes/digests were read back and matched. Measurement
+source FACE remains frozen; a later documentation HEAD does not rebind it.
+
+These are single first-vintage actor observations with zero reserve advances,
+not completed financial arms. Every child attempt and NONRL arm remains
+`FAILED`, CASH remains `UNATTEMPTED`, and partial receipts retain
+`integrity_failure`. Preparation includes three vintages, but their transitions
+and the full 6,599-advance plan were not executed. No complexity order, speedup,
+full-arm/48-arm runtime bound or time extrapolation is established.
+
+The final profile and checkpoint 1,600 contain negative `isinstance` call
+counters. Aggregate counts, affected per-call metrics and calls per second are
+unusable. Raw profiles and the original diagnostic remain unchanged; read the
+bundled `counter-integrity.json` / `counter-integrity.md` companion with them.
+Signed 32-bit C-long overflow on the observed Windows CPython 3.12.0 is a
+source-consistent inference, not a recovered count or rebuilt binary identity
+proof. Actor advances come from separate journals; inclusive cumulative profile
+times overlap and must not be summed. BLAS threads and complete environment
+identity were not established.
+
+At FACE, clean package closure passed 12/12 gates. Exact-head
+[CI 38770180118](https://github.com/shuntatsu/trade_rl/actions/runs/38770180118)
+passed Core (6,151 tests), PPO (346) and Guide; Generic independent research
+review was `PENDING` and failed, so that workflow remains `FAILURE`.
+The later publishing HEAD `1c7e60353956` and byte-oracle HEAD `f02bb33f0f3e`
+received fresh AGY `gemini-4-argon-high` / high software reviews
+([publishing review](https://github.com/shuntatsu/trade_rl/pull/895#pullrequestreview-5541913280),
+[byte-oracle review](https://github.com/shuntatsu/trade_rl/pull/896#pullrequestreview-5541767726)).
+Their review-triggered full CI runs
+[38835303030](https://github.com/shuntatsu/trade_rl/actions/runs/38835303030) and
+[38833039633](https://github.com/shuntatsu/trade_rl/actions/runs/38833039633)
+passed Core, PPO Runtime, Guide and the actual Generic review job. Their earlier
+failed workflows and historical failed checks remain retained. These later
+software gates do not rebind the frozen FACE measurements or establish a
+complexity order, full-matrix runtime bound or whole-scope Step 0 acceptance.
+Historical release execution equivalence, R3, unused/final evaluation, full-48
+completion, after-fee profit, adoption, WINNER and live readiness remain
+unestablished.
+
+The fixed artificial release fixture in
+`tests/evaluation/fixtures/issue888_release_v1/` retains the original compressed
+native plan and NONRL/CASH receipts. Public-reader regressions pin their
+compressed SHA-256 values and exact canonical round trips of the embedded native
+and terminal plans and receipts, preserving the original source and plan digests.
+This verifies reader compatibility only. It runs no Dataset preparation or native
+execution and does not establish historical execution equivalence.
+
+## Issue #888 execution-byte comparison contract (2026-10-16)
+
+The owner approved separate historical-compatibility and same-source execution
+oracles. Historical release files retain their original compressed bytes,
+SHA-256 pins and source/plan identities, with public-reader round trips checked
+separately. Cross-revision plan and receipt equality is not required: their
+implementation provenance intentionally binds different runtime source files.
+No identity field may be removed, replaced or rebound to manufacture equality.
+
+The execution oracle compares the complete canonical plan and receipt bytes
+between the reference and optimized routes within one exact source HEAD, with
+fresh equivalent artificial accounts and unchanged inputs, costs, risk and
+execution settings. Every field, including implementation/runtime provenance,
+remains in the comparison. For the run-local simple-stream memo, the reference
+route calls the current public stream serializer on every collector check; the
+optimized route executes the original guarded memo. A route witness must show
+that both paths actually ran and that the optimized path reused a warm digest.
+Global execution and complete terminal closing require separate coverage,
+including actor/reserve progress, public receipt readback, flat terminal state
+and mutation refusal at the existing guard boundaries.
+
+The driver-level oracle additionally uses the 256 × 2 × 6 artificial fixture:
+one shared frozen plan and inputs, two fresh execution destinations, and complete
+NONRL/CASH arms with 32 actor and eight reserve advances each. Original source
+attempt and input bytes must stay unchanged. The driver's ordinary one-pair
+inline route keeps the test-only getter selection in the same process; it
+establishes native payload parity, not process-parallel scheduling, speedup or
+full-size market throughput.
+
+These are full native payload bytes, not a projection of financial fields.
+Gzip headers are a transport concern: their original raw bytes stay pinned in
+the historical fixture, while canonical payload equality makes no claim of
+compressed-file determinism. This contract changes no runtime guard, economic
+recipe, market-data scope or research authorization. Passing the software oracle
+does not establish a speedup, historical execution equivalence, Step 0 acceptance
+without exact-head independent review, R3 admission or profitability.
+
+## Issue #888 separate 9f artificial observation
+
+The later frozen source `9f81bf65efc5` completed the original four-case v3
+artificial protocol, separately from the historical FACE wave above. Native
+elapsed seconds were 182.5728450 (100 advances), 1,141.8562424 (400),
+4,469.0162443 (1,600 without profiling), and 3,421.9653949 (the separate
+profiled 1,600 case). Each is one first-vintage actor observation, with zero
+reserve advances. CASH, vintage transitions and the full 6,599-advance plan
+remain unattempted. Partial native receipts retain `integrity_failure` and
+their child/arm `FAILED` classification. The profiled and unprofiled durations
+do not establish a speedup; the observations had no exclusive CPU isolation.
+
+The original summary completed, every supervisor returned zero and reported
+zero remaining owned processes. Profile-on/off 1,600 receipts matched all
+13,468,893 canonical payload bytes, including provenance; their compressed
+file hashes differ. All 99 retained original files were independently rehashed.
+The separate
+[9f artificial prerelease](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-artificial-v3-9f81-20261016)
+pins that exact source. All three assets were downloaded and their hashes
+verified after upload. The old FACE release and its asset bindings were
+preserved.
+
+The final 9f profile also contains negative `isinstance` primitive and total
+call counters. Global totals, aggregate denominators and derived call rates
+remain unusable. Individual nonnegative timing rows are diagnostic only;
+inclusive cumulative times overlap. No native speedup, complexity order,
+full-48 runtime bound, historical cross-HEAD execution equality, Step 0-wide
+acceptance, R3, profit, unused/final admission or live readiness follows.
+
+## Issue #888 training-trace clock validation
+
+The retained artificial profile identifies scalar `_timestamp` validation as a
+local target (1,067.061 seconds of profiled self time). Invalid aggregate call
+counts are not used as rates, and inclusive times are not added. A separate
+artificial constructor benchmark fixes 64 and 19,008 pooled rows, nanosecond and
+second input units, one warmup and five repetitions per case. It measures only
+`ForecastTrainingTrace` construction and validates complete payload bytes and
+digests against independent integer clock values after every observation.
+This is not a Dataset preparation, native execution or market measurement.
+
+The frozen constructor protocol ran on Windows/Python 3.12.0/NumPy 1.26.4,
+first at baseline `f02bb33f0f3e`, then at committed
+candidate `7b6ce78086c2`. Median wall times in
+milliseconds (five retained observations after one warmup) were:
+
+| Clock unit | Rows | Baseline | Candidate |
+| --- | ---: | ---: | ---: |
+| ns | 64 | 0.931500 | 0.083200 |
+| ns | 19,008 | 241.075900 | 1.642800 |
+| s | 64 | 0.839600 | 0.041900 |
+| s | 19,008 | 258.185700 | 1.886000 |
+
+Both runs used the same interpreter, script, protocol and immutable inputs;
+every full payload/digest check matched. Baseline and candidate result JSON
+SHA-256 values are respectively
+`9ddbbf5ec97b22b3021fff499148dbb443450645825d3d692f30bc8292fbf9b4`
+and `6f97dafe281d52394a7d6d747a636d252bccdd519d008cf4f5dde113d84d3ff3`.
+The measured candidate's raw Windows production-file SHA-256 is
+`5e68a69d6b76df3c311bc902323ff5d394f12549ce8376ec247c7cb51fbecfd6`.
+Later documentation publication does not rebind either measured source.
+The constructor results establish only this local synthetic timing observation;
+they provide no native/full-matrix extrapolation or complexity-order evidence.
+
+The implementation replaces per-row Python dispatch with per-call array NaT and
+exact round-trip masks. The original scalar validator still handles the first
+invalid element, including failure ordering for mixed NaT and precision loss.
+No clock validation, immutable copy, causal row check, stream digest or runtime
+mutation guard is omitted or cached. Other owners' scalar clock calls remain
+unchanged by that trace optimization. Independent integer/Gregorian-clock tests
+cover complete trace payloads and digests, and a scoped profiler checks a constant scalar-dispatch
+budget on valid long traces without a wall-time test threshold.
+
+The terminal oracle compares the legacy scalar vector path with the actual
+array path within one HEAD for long, short, partial closing and CASH carry.
+Both legs use the public stream digest so a test-only scalar function cannot
+change memo-hit behavior between them. Complete plans, receipts, expected-plan
+readback and actor/reserve progress remain equal with all provenance retained.
+Existing memo-hit and mutation-refusal oracles remain separate. Native speedup,
+full-48 feasibility, R3, profit and economic/live authorization do not follow
+from constructor timing or these software oracles.
+
+## Issue #888 runtime episode clock validation
+
+The runtime binder validates the declared episode at construction, reset and
+every step. Its private normalization now uses fresh NaT and exact nanosecond
+round-trip masks for plain one-dimensional datetime arrays with concrete units.
+The first invalid timestamp still uses the unchanged scalar validator, before
+either declared UTC endpoint. Unsupported carriers retain scalar behavior;
+Python-integer interval subtraction and every profile guard remain unchanged.
+There is no input-identity cache or new runtime/economic configuration.
+
+Dedicated regressions require independent UTC/calendar and large-integer
+expectations, exact error precedence, repeated mutation refusal and public
+step admission. A scoped profiler checks two endpoint scalar calls per valid
+binder invocation. The same-HEAD terminal oracle retains every canonical plan,
+native receipt and expected-plan readback byte for long, short, partial closing
+and nonzero cash carry, and witnesses both real validation routes. These are
+software contracts; native throughput, full-48 feasibility, profit and economic
+authorization require separate evidence.
+
+An artificial public-binder microbenchmark ran once at clean committed source
+`8b267bd6d237`, on Windows/Python 3.12.0/NumPy 1.26.4. It used the same fixture
+runtime and synthetic hourly timestamp carrier for both helper routes, one
+warmup and five observations per route/size, with alternating pair order.
+Median elapsed milliseconds were:
+
+| Selected timestamp rows | Scalar reference | Array normalization |
+| --- | ---: | ---: |
+| 64 | 1.0305 | 0.3117 |
+| 6,528 | 91.8052 | 17.3272 |
+
+All 20 timed observations and four warmups retained matching Python-integer UTC
+expectations, inputs and runtime provenance. The result JSON SHA-256 is
+`e3fc1e66046b7553b3e852d7d5f581e1ae04297dbad401aec949c56eb86422d6`.
+The fixed protocol, runner, raw observations and independent checks accompany
+the [binder timing evidence](https://github.com/shuntatsu/trade_rl/releases/tag/research/issue888-binding-clock-8b267bd6d-20261016).
+The timestamp carrier deliberately bypasses Dataset construction; this measures
+only the public binder, with no market or economic replay. Exclusive CPU
+isolation was not established. The measured source stays pinned to `8b267bd6d237`;
+later documentation commits do not rebind it. These local observations provide
+no native/full-matrix timing or profitability conclusion.
+
+## Issue #888 source-envelope cost-roster digest memo
+
+The native global execution collector now pairs its stream digest memo with a
+private run-local source-envelope digest memo. Each consistency check still
+evaluates Dataset array pins, contract metadata, environment fields and the
+stream digest in their original order, then observes every `HorizonCostEstimates`
+record and field in sorted key order before reusing the initial envelope digest.
+Unsupported mappings, subclasses, non-nanosecond/NaT clocks, non-finite floats
+and changed serializer bindings fall back to a single public cost-payload pass
+reusing the already captured non-cost prefix.
+
+Unit, boundary and same-HEAD terminal regressions cover field/roster mutations
+before reset, during action, after native step and at observer callbacks, plus
+long, short, partial-close and cash-carry byte parity. These software checks do
+not rebind frozen artificial measurements (`FACE`, `9f81`, `8070bfb96`), do not
+extrapolate full-48 wall time and grant no R3, unused/final or live authority.
+
+A controlled benchmark ran at clean candidate source `5f4d453b7bea`, on
+Windows/Python 3.12.0/NumPy 1.26.4. It evaluated synthetic cost rosters of sizes
+1, 10, 50, and 100 with alternating pair order, one warmup and ten timed
+observations per route/size. Median elapsed milliseconds were:
+
+| Cost estimates | Public digest reference | Memo warm hit |
+| ---: | ---: | ---: |
+| 1 | 0.1923 | 0.1159 |
+| 10 | 0.2815 | 0.1383 |
+| 50 | 0.5503 | 0.1442 |
+| 100 | 0.9107 | 0.1916 |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), the six boundary
+envelope checks per execution reduce public `HorizonCostEstimates.payload` calls
+from 24 to 4 (and 240 to 40 on 10-estimate equivalent rosters). Full terminal
+execution retains identical plan and native receipt bytes:
+`nonrl-long` plan `b1a6a5eeed175250279d1ab92e1cab10d928fc6d6f3cecb73d90bcb3bc13cbc8` / receipt `50bc31a2444aee399d6930e27cec115a03f2be974253498375b2654a73a9ea75`,
+`nonrl-short` plan `dffb737f2f1cdf113e065bb660813848ab81d75e0f7ee21ee7cb71529646fbcb` / receipt `90e016564414c49c67938560ee2d1223d685c127672f68056649bd90126ee523`,
+`nonrl-partial-close-then-flat` plan `ea80732b9b45fad5f5a9014905a9a137cdda1ea12955eaafe355f926349149a2` / receipt `6e982b6896f67bcbaa5be619e8781c47663aceed0e6b3b15a1dc6d5c85c161c6`,
+and `cash-nonzero-carry` plan `f0692d3039071dfa2ef18186004c5e981c1f7540680ebc3fef786407c3f0af18` / receipt `f7744566b5816f89513e26b016615855200a69649348c987340577549619a19c`.
+
+The result JSON SHA-256 is
+`f19c6b86e3ce4dd9b17affbd17c3b5575e6d65e6e1bdb88e50cd9fac089e1ee2`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `5f4d453b7bea`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
+## Issue #888 declared-source digest memo
+
+The native global execution collector now pairs its stream and source-envelope
+digest memos with a private run-local declared-source digest memo. Each
+consistency check still evaluates Dataset `identity_arrays()`, contract
+payload, `dataset_id`, and horizon boundaries in their canonical sequence, then
+verifies array pins (shape, strides, dtype, and memoryview) against the initial
+value snapshot before reusing the initial declared-source digest. Unsupported
+mappings, subclasses, non-finite arrays, or changed serializer bindings fall
+back to the public canonical digest path.
+
+Unit, boundary and same-HEAD terminal regressions cover array mutations before
+reset, during action, after native step and at observer callbacks, plus long,
+short, partial-close and cash-carry byte parity. These software checks do not
+rebind frozen artificial measurements (`FACE`, `9f81`, `8070bfb96`), do not
+extrapolate full-48 wall time and grant no R3, unused/final or live authority.
+
+A controlled benchmark ran at clean candidate source `4ab496eff8ee`, on
+Windows/Python 3.12.0/NumPy 1.26.4. It evaluated synthetic array datasets of
+sizes 10, 50, 100, 500, and 1000 with alternating pair order, one warmup and
+ten timed observations per route/size. Median elapsed milliseconds were:
+
+| Dataset rows | Public digest reference | Memo warm hit |
+| ---: | ---: | ---: |
+| 10 | 0.2730 | 0.1248 |
+| 50 | 0.2230 | 0.1023 |
+| 100 | 0.2290 | 0.1038 |
+| 500 | 0.3192 | 0.1450 |
+| 1000 | 0.2348 | 0.1070 |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), the six boundary checks
+per execution reduce public declared-source `content_digest` calls from 24 to 4.
+Full terminal execution retains identical plan and native receipt bytes:
+`nonrl-long` plan `327b24bb5211342c3a849bd68d682221084a0679c18bb46d57460562edaba289` / receipt `31ca2b2adbf7427ce4564543d2c806a54b48237753b75b551d5ff297701e5588`,
+`nonrl-short` plan `d254a80600423ceee5307357e5ae37feb55f7a572f9f0ea0373c243d3091f940` / receipt `42dcf28389b67df6140e148fe945a8fb3cdba5740e8126ca57f8d35e56a269fe`,
+`nonrl-partial-close-then-flat` plan `fde09da4997075f409f7569d30f2cad8165bf6aab697a8d9ccd084a9e150b424` / receipt `685131f23d3e54cf7f4436b9b6948555d1d7bb74c5cc87f8beb8a8e7201c298e`,
+and `cash-nonzero-carry` plan `ebd3f3f03952d153eac4151ea6534b116bad1a9743cc50a5a32a5f7aedb5b71e` / receipt `0494ee1a8df6a11d0612d33472843f7d1311e795ca986b413335bc24c723a3e9`.
+
+The result JSON SHA-256 is
+`8f2083be8930b7052ff84a17af293ea0ec11a75ba9aab759294e185ec45e096e`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `4ab496eff8ee`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
+## Issue #888 n1600 hotpath optimization
+
+The runtime interval binding checks and stream/source-envelope digest memos now
+feature dedicated vectorized and C-iterator hotpath accelerations for 1,600-step
+episodes (`n1600`) and 6,599-step full arms. In `validate_runtime_binding`,
+timestamp array interval verification uses 2's-complement overflow-safe NumPy
+strided vectorized diffs (`times.view(np.int64)`) whenever timestamps are stored
+as `np.ndarray`, reducing per-call interval validation from 1.21 ms to 0.05 ms
+(24.3x speedup).
+
+In `SimpleStreamDigestMemo`, module bindings and class contracts are pre-classified
+at import time into direct object identities, parameterless simple functions,
+and complex default-checked functions, avoiding repeated runtime introspection.
+In `_freeze`, homogenous string tuples (`tuple[str, ...]`) are fast-pathed as
+`(kind, str, value)`, cutting stream vintage inspection. In `_packets`, the
+`_CLOCK` dtype validation checks `for x in col: if x.dtype != _NS:` directly
+without set/map overhead, and `np.fromiter` preallocates flat feature arrays
+with explicit `count=int(lengths.sum())`. In `SourceEnvelopeDigestMemo`,
+`_estimates_state` similarly replaces scalar `getattr(x, "dtype", None)` with
+direct `x.dtype != _NS`.
+
+A controlled benchmark ran at clean candidate source `ff3b71301b84`, on
+Windows/Python 3.12.0/NumPy 1.26.4:
+
+| Component | Baseline / Reference | Accelerated hotpath | Speedup |
+| :--- | ---: | ---: | ---: |
+| `validate_runtime_binding` (1,600 intervals) | 1.2087 ms | 0.0498 ms | 24.25x |
+| `SimpleStreamDigestMemo.get` warm hit (stream) | 0.2612 ms | 0.1285 ms | 2.03x |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), full terminal execution
+retains identical plan and native receipt bytes:
+`nonrl-long` plan `327b24bb5211342c3a849bd68d682221084a0679c18bb46d57460562edaba289` / receipt `31ca2b2adbf7427ce4564543d2c806a54b48237753b75b551d5ff297701e5588`,
+`nonrl-short` plan `d254a80600423ceee5307357e5ae37feb55f7a572f9f0ea0373c243d3091f940` / receipt `42dcf28389b67df6140e148fe945a8fb3cdba5740e8126ca57f8d35e56a269fe`,
+`nonrl-partial-close-then-flat` plan `fde09da4997075f409f7569d30f2cad8165bf6aab697a8d9ccd084a9e150b424` / receipt `685131f23d3e54cf7f4436b9b6948555d1d7bb74c5cc87f8beb8a8e7201c298e`,
+and `cash-nonzero-carry` plan `ebd3f3f03952d153eac4151ea6534b116bad1a9743cc50a5a32a5f7aedb5b71e` / receipt `0494ee1a8df6a11d0612d33472843f7d1311e795ca986b413335bc24c723a3e9`.
+
+The result JSON SHA-256 is
+`9b58f4893ba40083395f05045b7873fe6331fbe9e950629bd110ef4b0ed2edaa`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `ff3b71301b84`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
+## Issue #888 whole-envelope arrays memoization
+
+The global execution context and source-envelope memoization now feature
+accelerated full-envelope caching inside `SourceEnvelopeDigestMemo.get_from_env`,
+eliminating 8 redundant SHA-256 array-pin evaluations per advance during warm
+terminal allocation execution.
+
+When `envelope_memo` is supplied, `_source_envelope_digest` delegates directly
+to `envelope_memo.get_from_env(env, stream_memo, pin=..., digest=...)`. The
+accelerator verifies that:
+1. `pin` and `digest` match their standard library / native implementations (`hashlib.sha256`, `np.ascontiguousarray`, `content_digest`, `allocation_array_pin`).
+2. `env` and `dataset` adhere to standard attributes without overrides, descriptors, or custom `__getattr__`/`__getattribute__` (supporting slots dataclass descriptors like `MarketDataset`).
+3. Single-pass traversal extracts array byte snapshots in reference order before prefix contract generation, ensuring identical bytes even if subsequent calls in-place mutate the source.
+4. Warm baseline hits return the cached digest directly, bypassing 8 calls to `allocation_array_pin` (which each compute full SHA-256 over contiguous array bytes).
+5. Unstable arming (in-place mutation during the initial baseline calculation) and cache misses safely fallback to the canonical reference evaluation path without corrupting memo state.
+
+A controlled benchmark ran at clean candidate source `b406a8db4eb6`, on
+Windows/Python 3.12.0/NumPy 1.26.4:
+
+| Component | Baseline / Reference | Accelerated warm hit | Speedup |
+| :--- | ---: | ---: | ---: |
+| `_source_envelope_digest` (8 array pins + envelope) | 0.3521 ms | 0.2187 ms | 1.61x |
+
+Across the four native cases (`nonrl-long`, `nonrl-short`,
+`nonrl-partial-close-then-flat`, `cash-nonzero-carry`), full terminal execution
+retains identical plan and native receipt bytes:
+`nonrl-long` plan `d643f10009f5c7607ff72c7a973bff28594d73aef49b0436760227ab441b658e` / receipt `79487dabb879f23a492466479521bfe0680cefa108aa5eebceb9f14a54e0b325` (median: 500.25 ms),
+`nonrl-short` plan `9ad05b944839c6bae524a6074963d787757ef47c4b39ee9c8155cd6963b86304` / receipt `6562e8c159713d2ccdabbdf93192248b23d8f406ba9c396e6f01d70ae09b92be` (median: 546.85 ms),
+`nonrl-partial-close-then-flat` plan `20a25877810ef506865a8e462c78a75f8292b5ffa5536e038de522c15f24df5b` / receipt `125760e81e156f2ae043eb427df021806fecdc57e3ef811c502f094f84f91357` (median: 512.78 ms),
+and `cash-nonzero-carry` plan `c37f5eb61af38457f8e87d51e946230bee8a96cc6b272506e5be4ac954ce4d02` / receipt `eca18e8049e9adb5ae5d3917ebef6825ece7723a3474c93101efd40e59a98c08` (median: 706.50 ms).
+
+The measurements JSON SHA-256 is
+`1670734de5406d6385b87e90f0debc7665d5e2377295824dff1448c20d7547d9`.
+The next design hypothesis JSON SHA-256 is
+`db4525f9ccbbd7bc80d1f0f594430a7b337a4aac63087e45385baa29f7489b76`.
+Exclusive CPU isolation was not established. The measured source stays pinned
+to `b406a8db4eb6`; later documentation commits do not rebind it. These local
+observations establish bounded software runtime memoization contracts only;
+they provide no native/full-matrix extrapolation or economic/live authority.
+
+## Issue #888 market-scale warm-hit digest memo optimization
+
+In `SimpleStreamDigestMemo` and `SourceEnvelopeDigestMemo`, cold baseline arming
+retains the complete byte-exact `<f8`/`<i8` `tobytes()` and strict field-type
+verification (`before == _state(...)`), while also recording flat field-object
+reference tuples (`tuple(chain.from_iterable(map(_GET, ...)))`) across the
+validated immutable `SimpleReturnPacket` and `HorizonCostEstimates` instances.
+On warm hits, the memos first verify container and element types plus strict
+object identity (`operator.is_`) across all packet and estimate fields before
+returning the cached digest, falling through to the full byte-exact state
+comparison whenever any reference differs. Because `0.0 is -0.0`, `1 is True`,
+`86400 is 86400.0`, and `0.0 is 0` are all `False` in Python, in-place
+signed-zero and type-coercible mutations via `object.__setattr__` are
+immediately rejected on both `get` and `get_from_env`.
+
+On market-scale stream and cost inputs (`13,054` `SimpleReturnPacket` items and
+`6,527` `HorizonCostEstimates` items) at candidate source `6f9f74136887` on
+Windows/Python 3.12.0/NumPy 1.26.4, per-advance digest verification dropped from
+`76.818 ms` to `14.465 ms` (`5.31x` speedup: `SimpleStreamDigestMemo.get` from
+`27.208 ms` to `7.878 ms`, net `SourceEnvelopeDigestMemo` overhead from
+`48.307 ms` to `5.030 ms`, and `DeclaredSourceDigestMemo.get` `1.556 ms`).
+
+At implementation commit `fcae9e288c25`, `_simple_stream_digest.py`
+accepts empty `dtype.metadata` (`mappingproxy({})`) produced by NumPy `datetime64[ns]`
+unpickling across `ProcessPoolExecutor` worker processes (`bool(dtype.metadata)`), allowing
+unpickled stream instances to successfully arm their warm baseline memo and avoid 1.1s/step
+digest recomputations in parallel workers. On a 16-core machine across 50 steps of full
+terminal execution with `ProgressJournal` advances:
+- 4 workers achieved `98.08 ms / step` average warm latency (wall time `32.58s` including initial setup).
+- 6 workers achieved `125.77 ms / step` average warm latency (wall time `41.69s` including initial setup).
+Although per-worker latency increased by ~28% under this measured
+50-step artificial prefix, six workers had ~17% greater aggregate prefix
+throughput. The ~1.89h vs ~2.21h all-48 estimates were a **linear projection,
+not measured full-arm/full-matrix wall time**.
+The measured source stays pinned to `fcae9e288c25`; later
+documentation commits do not rebind it.
+
+At implementation commit `8b74dfba4`, `TerminalOrderArchive` and `_TerminalOrderNode`
+introduced incremental clock metadata and `weakref.WeakKeyDictionary`-based
+terminal hash caching. **Historical limitation:** each newly appended node
+also copied its complete `asdict_tuple` prefix. That version retained O(n²)
+tuple references and did O(n) copying per appended order; its `asdict_tuple`
+was not O(1) to construct.
+Across 2,000 accumulated terminal orders on Windows/Python 3.12.0:
+- `_terminal_orders_sha256` dropped from `60.4 ms` to `0.61 ms` (`99.2x` speedup).
+- `snapshot_allocation_account` per-call overhead dropped from `100.8 ms` to `26.59 ms` (`3.79x` speedup).
+- `_context` dropped from `64.2 ms` to `27.54 ms` (`2.33x` speedup).
+Combined per-advance overhead for 2,000 terminal orders dropped from ~`486 ms / step` to ~`108 ms / step`
+(`4.5x` speedup) in that bounded Windows benchmark. This **does not**
+demonstrate complete removal of the O(T²) end-to-end episode cost: the
+historical tuple prefixes remained quadratic in retained references and
+whole-context identity had to inspect terminal history repeatedly.
+The measured source stays pinned to `8b74dfba4`; later documentation commits do not rebind it.
+
+
+## Issue #888: terminal-order archive integrity repair (2026-10-19)
+
+A follow-up source-only fix is based on #912 HEAD `dbc97f4e16f7`, with
+a dedicated branch `codex/issue888-terminal-archive-integrity`. On the
+original #912 code, seven purpose-built negative tests failed, reproducing
+noncanonical terminal intent acceptance, mutable order/map aliasing and O(n²)
+retained `asdict_tuple` prefixes. The repaired archive validates each
+terminal intent and exact fill evidence **before** sealing its per-order
+canonical bytes. Subsequent full-Core integration checks exposed two historically
+legitimate orders created from raw integer quantities/prices, whose IDs were
+hashed before the stored numeric representation became float. A separate
+exact-numeric-alias regression was RED for six legitimate combinations,
+then GREEN without changing the issued IDs or the original clock/market-order
+test assertions. Additional seven RED cases showed that Python/NumPy boolean
+numeric fields were accepted or raised an unrelated serialization exception;
+creation now rejects these as domain errors before hashing. A changed
+economic quantity still cannot impersonate any accepted integer/float alias. Public order and mapping views are detached. Its
+`_context` reader streams sealed bytes in canonical sorted-key order, rather
+than rematerializing all orders on each decision. The original public digest
+is the fallback when the serializer or JSON converter/encoder functions
+change; tests check normal, patched-encoder/mapping and
+nonstandard archive subclass/method equivalence. The 6,599-terminal-order
+pickle round-trip is independently tested so `ProcessPoolExecutor` transport
+does not recursively serialize thousands of linked nodes.
+
+An additional exact-`7ce694a9a09b` counterexample changed only the JSON encoder
+initializer to select another item separator. The empty-history suffix still
+matched, but streaming retained old per-order bytes while the public serializer
+encoded different nested order bytes. Both initializer replacement and in-place
+code replacement were RED. The streaming guard now checks the initializer's
+function and code identity and uses the existing public digest fallback after
+either change. This repair supplies no new native R3 execution, market result,
+throughput measurement or unused/final/live authority.
+
+The [bounded GitHub Actions measurement](https://github.com/shuntatsu/trade_rl/actions/runs/39207003158)
+compared the unmodified #912 archive with the candidate on the same
+non-isolated Ubuntu runner, Python 3.12, using identical fabricated terminal
+orders. Measurements are **single source-bound artificial runs**, not live
+market performance, and the approximate retained-byte figure counts only
+copied old tuple references versus sealed per-order byte payloads, not complete
+process RSS.
+
+| Terminal orders | Original append (ms) | Sealed append (ms) | Original retained proxy | Sealed retained proxy |
+| --- | ---: | ---: | ---: | ---: |
+| 100 | 1.29 | 9.97 | 40,400 bytes | 82,974 bytes |
+| 400 | 5.65 | 39.01 | 641,600 bytes | 332,874 bytes |
+| 1,600 | 34.30 | 156.22 | 10,246,400 bytes | 1,334,276 bytes |
+
+**Trade-off:** sealing, revalidation and canonical encoding make individual
+appends slower for these sizes. Reading an entire historical mapping also
+becomes slower; the hot context digest no longer performs that operation.
+A separate [paired synthetic context digest benchmark](https://github.com/shuntatsu/trade_rl/actions/runs/39207003158)
+used seven alternating reference/stream measurements at each length. Every
+result matched the original public `content_digest` exactly.
+
+| Terminal orders | Public full context digest median | Sealed-byte stream median |
+| --- | ---: | ---: |
+| 100 | 1.9365 ms | 0.0927 ms |
+| 400 | 7.5808 ms | 0.2946 ms |
+| 1,600 | 32.5067 ms | 1.1428 ms |
+| 6,599 | 138.9096 ms | 4.5605 ms |
+
+The 6,599 here is a **count of fabricated terminal orders, not the 6,599
+native actor advances in one Tier D arm**. All paths remain O(n) in total
+history bytes per complete context check; the replacement removes the repeated
+mapping reconstruction, not every source of O(T²) end-to-end work.
+The hot observable state and underlying account economics must still match
+all native terminal byte oracles in the final same-HEAD full test run; CI Green
+does not authorize R3, adoption, unused data, paper or live trading.
+
+## Generic software PR review policy (2026-10-14)
+
+[Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
+
+receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
+## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
+
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了した。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
+
+比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
+
+Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、このtechnical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。
+
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 
 利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。
@@ -25,7 +841,7 @@ prefixで選定したconfigを凍結し、同じevaluation windowにbase、`Exec
 
 初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
 
-fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、実装と異なるconfigured AIモデルのexact-HEAD receiptによる正式PR reviewへ自動昇格しない。
 
 ## Quantity-preserving hold repair (2026-10-05)
 
@@ -69,7 +885,7 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 
 実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
 
-このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
+このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認は、実装と異なるconfigured AIモデルのexact-HEAD receiptによる必須PR approvalへ自動昇格しない。
 
 ## Trading-bot tuning contract correction (2026-10-02)
 
@@ -1024,7 +1840,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 ## Causality and evaluation rules
 
 - `feature_available_time <= decision_time` を守る。
-- supervised labelは `label_end_time < fit_cutoff` で完結する。
+- supervised labelは `label_end_time < fit_cutoff` で完結し、始点と終点の価格行がともに観測済みで、両価格の `available_at < fit_cutoff` を満たす場合だけ採用する。欠損barのforward-fill価格とcutoff時点で未公開の価格を学習labelへ使わない。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
 - fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。
@@ -1310,6 +2126,990 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
 
+## Issue #810: opt-in after-cost allocation foundation
+
+The software now includes an independent-account scalar allocator and an actual
+execution consumer through `evaluation.allocation`. Expected-simple return,
+horizon variance, asymmetric transaction costs, future exit/funding/borrow/cash
+estimates and a variance preference determine a bounded surrogate target.
+Actual BookState and pending orders bind each proposal; final risk and canonical
+execution produce a separate approved/filled trace. Exact quantity HOLD cancels
+pending MARKET remainders while preserving canonical carry/split processing.
+
+This is an opt-in software foundation with synthetic decision, independent
+numerical and cash/quantity oracles. The separate direct-simple connection below
+adds synthetic model fits; no expected-simple market model has been fitted,
+costs calibrated, economic comparison run or improved profit established.
+The current-close signal is a declared proxy for next-processing-bar execution;
+risk and venue rules can alter the scalar optimum. A mean-log prediction is not
+an expected-simple prediction. Existing replay/PPO/artifact semantics and the
+20% drawdown research guardrail remain unchanged; gaps or missed fills can still
+exceed that guardrail. No sealed run is reopened.
+
+Issue #810 remains open. Outstanding work includes empirical expected-simple
+calibration, common nonRL/residual/direct RL context and execution,
+objective/financial-clock integration, continuous-account walk-forward,
+calibrated cost/capacity stress, a finite preregistered Study and independently
+authorized economic evidence. This slice supplies neither a new WINNER nor
+unused-data, paper/live-order or deployment eligibility. Final exact-head CI
+and formal independent research approval remain integration requirements.
+
+## Net-profit redesign groundwork (Issue #810)
+
+新規の非LLM trader再設計は、事業目的・資本・金融時計の宣言から開始する。`evaluation/objectives` は期待終端純利益を目的名にし、canonical after-cost ledgerの実現endpointを固定初期資本と符号付き入出金で評価する。複数独立口座と共有口座1つの資本分母、利益/log目的の順位差、負の終端equity、regular clockとdiscountの意味をsynthetic contract testsで検査する。研究DD基準は最大20%を維持する。
+
+`BoundObjectiveClock` により、新規bindingではUTC評価期間とeconomic horizonの一致を整数秒で要求し、個別宣言のdigestを同時に固定する。小数秒を丸めた期間や不一致の時計は拒否する。profile内容やruntimeの検証へは接続されていない。
+
+これはP0の初期software capabilityであり、P0全体完了や経済仮説の成立ではない。現在のPPO log報酬・独立銘柄訓練・Run/Study reader・歴史的選定基準は維持する。PPO training discountの目的と事業目的は別の責務で、gamma/GAEの既定値を重複変更しない。共有資本でのreplayをjoint learningと扱わない。
+
+次段階は参照したrisk/economics/運用recipeの検証と、既存executorを使ったtraining/replay parity、上流のprequential packet、金融clock/終端のadapter整合、合成市場での学習可能性の検査である。これらの不足を閉じ、fresh result-blind G0-G2 reviewと正式な有限予算研究契約を結果前に固定するまで、新規G4実行へ進まない。実データfit/replay、未使用future開封、封印run再試行、live発注はこの変更では実施しない。利益性、WINNER/NO_WINNER/INVALIDの経済判断はまだ未確立である。
+
+## Issue #810: direct-simple forecast connection
+
+A separate versioned producer derives direct close-ratio labels from the existing
+selector's exact mature rows and freezes next-block Ridge projections. Packets
+bind selected snapshot, decision price, availability, horizon and uncalibrated
+pooled marginal label variance. The consumer connects these to actual BookState
+allocation, separately declared horizon costs, hard risk and canonical execution.
+Current/forecast close valuations must match; stale/delayed packets and changed
+proposal inputs fail.
+
+The new consumer requires a declared Dataset/index account clock. Canonical
+execution preserves and advances it, rejecting an old index that would repeat
+dividend/carry despite unchanged marks. Continuation carries book, order book and
+next index together. Synthetic tests cover that failure and equivalent valid
+timestamp storage units. Bootstrap clocks remain caller declarations; this
+bounded consistency check does not close Issue #810's full financial runtime or
+continuous-account research requirements. Legacy unmarked books remain unchanged.
+
+This is software tested on synthetic inputs, not measured market profit. Raw
+close labels are price-return surrogates for next-open execution and exclude
+held-quantity corporate-action wealth. Costs, carry, variance and conditional
+expectations are uncalibrated. Future actions never filter present predictions.
+Old log/PPO/Run/Study semantics and the 20% research DD guardrail are retained.
+
+The existing synthetic signature-cost integration already compares public
+preparation, fitting, cost, proposal and execution on datasets with altered
+future suffixes, but the fixture has zero forecast and variance, so both sides
+choose CASH and do not fill.
+Additional metamorphic cases extend that coverage through public preparation,
+prequential fitting, declared horizon-cost estimation and same-close allocation
+on paired datasets with an identical prefix through decision time. They compare
+the selected numeric snapshot, forecast, six cost rates, account context and an
+unsaturated nonzero target/objective after future price, funding, other-symbol,
+feature and resulting-label suffix changes. A changed mature prefix label is a
+positive sensitivity control. A separate pair preserves the first eligible
+processing bar and compares its one-step fill/account result while poisoning
+only later rows. Dataset, stream, cost-source and proposal digests may change
+with the full source identity and are not equality targets. This remains
+synthetic software coverage: historical point-in-time source availability,
+calibration, profit and economic authority are not established.
+
+The candidate preserves exact P0/P2/allocation histories for review. Remaining
+Issue #810 requirements include full order/account state for common RL consumers,
+the full financial runtime and continuous-account walk-forward, cost/capacity
+evidence, complete finite trial
+registration and independently authorized economic comparison. No new WINNER,
+G4/G5 result, final-data or live-order eligibility is established. Integration
+still requires final-head full CI and formal independent research approval.
+
+## Issue #810: common allocation PPO candidate
+
+An unintegrated opt-in software candidate now connects bounded direct/residual
+actions to the same final risk and canonical independent-account execution.
+Fixed-capital after-cost reward and gamma1 are bound to actual regular clocks.
+The first real SB3 signal protocol passed all three fixed seeds and complete
+save/load execution-trace parity. Subsequent strict receipt/coverage repairs and
+the separate fee-only protocol are verified as software tests, not market
+selection. None of these synthetic schedules establish market profitability.
+
+The candidate rejects stale recipe/capital/profile declarations and UTC overflow,
+preserves signed terminal debt through a distinct canonical execution policy,
+and records actual action counts plus policy/critic-bootstrap observation rows.
+Calendar kind and effective bar duration are bound to deployment semantics.
+Full order/account observations,
+fit-only preprocessing, continuous account updates/walk-forward, calibration,
+capacity sensitivity, complete market trial registration, formal independent
+approval and authorized economic comparison remain open. Existing log/PPO/A2C,
+Run/Study and sealed outcomes are unchanged. No new WINNER/NO_WINNER/INVALID
+economic result, unused-future opening or live eligibility is established.
+
+## Issue #810: allocation snapshot contract stage
+
+現在の候補には、liveな独立口座のaccount/order factsを受け取るimmutable下位DTOを追加した。
+宣言mappingのsoftware testでclock、active-order status、exact quantity、
+deep immutabilityとdigest scopeを検証する。既存PPO v1はこのDTOを消費しない。
+source factsの読み出しは下記observer、numeric projectionは下記pure encoderが担当する。
+明示v2 runtime接続は下記候補に追加した。予約cash・position ageのモデルは未実装である。
+continuous walk-forward、正式な経済比較は後続作業である。
+実市場fit / replay、経済比較、formal independent approvalやprofitabilityを達成した状態ではない。
+
+## Issue #810: live independent-account observer candidate
+
+A separate opt-in software observer now freezes live canonical account facts and
+active MARKET-order evidence. Selected-only vectors preserve the global symbol
+slot; a source digest retains full account/history identity. It requires a known
+matching clock, currently available selected market source, native order
+validation and already-refreshed canonical margin, including bootstrap setup.
+Impossible waiting clocks and zero-fill/nonzero-notional records are rejected;
+completed active remainders are checked with native completion tolerance.
+Active filled progress also respects the native absolute minimum fill quantity;
+legal small fills on large requests remain observable.
+Its cloned checks preserve source book/cache, orders and execution randomness.
+
+Pure no-fit tests cover exact fractions, direction/clock/schema counterexamples,
+detachment and unavailable-price exposure. This DTO is not a numeric RL
+observation, terminal reader, holding-age/reservation model or provenance proof.
+Opt-in policy-state connection is below; train-only preprocessing, sampling, continuous
+walk-forward and complete trial registration remain separate work. No market
+result, G4/G5 approval, unused-future opening or live eligibility is established;
+integration still requires final-head full CI and formal independent approval.
+
+## Issue #810: allocation observation v2 declaration candidate
+
+The lower immutable schema now declares ordered `F+9+13+24K` field names and
+binds feature names, bounded order slots, fixed capital and episode normalization
+length. Software tests cover layout/identity, detachment and constructor failures.
+The peer pure encoder supplies numeric generation; the opt-in runtime below
+consumes it. Allocation v1 recipes/tensors and default consumers remain unchanged.
+There is no new fit/replay, market result, research approval or live eligibility.
+
+## Issue #810: pure allocation observation v2 encoder candidate
+
+An opt-in lower encoder now checks matching snapshot/decision declarations and
+returns detached bounded float32 account/order values. Signed exact quantities,
+current/historical drawdown, causal clock masks and fixed capital retain explicit
+meaning; ID-based execution priority, ages/reservations and source authenticity
+are outside its scope. No-fit arithmetic/failure oracles and v1 behavior checks
+cover this software stage. Opt-in train/load/input receipts are below; train-only
+preprocessing, continuous walk-forward and economic comparison remain open.
+
+## Issue #810: allocation observation v2 runtime candidate
+
+The explicit v2 environment now reads admitted live account/order state, retains
+the same native transitions/rewards and uses distinct strict recipes/bundles.
+Software oracles verify default v1 compatibility, actual partial-order columns,
+terminal sentinels, real SB3 masks/bootstrap, consumed actor/boundary inputs and
+save/load trace parity. This is G0-G2 synthetic software evidence only.
+Sources/receipts do not prove authenticity, full Markov state or profitability.
+Explicit training settings/returned-call telemetry are covered below; fit-only
+preprocessing and sampling, continuous-account handover/walk-forward, calibrated finite market
+Study and formal G4/G5 approval remain open. Existing Run/Study/sealed outcomes
+and deployment eligibility remain unchanged.
+
+## Issue #810: explicit allocation training protocol declaration candidate
+
+The candidate adds a pure immutable declaration with 19 required learning values
+and closed fixed SB3/Torch categorical CPU construction identifiers. A supplied
+positive Adam epsilon is always recorded; the literal initial fixture uses 1e-5.
+No-fit literal/digest and rejection oracles validate the declaration, not training.
+Explicit runtime construction and returned-call receipts are covered below;
+v1/v2 recipes, receipts and defaults remain fixed. Durable raw-action evidence
+and delayed-payoff learnability remain next stages. Preprocessing/sampling,
+actual continuous-account handover, formal review and economic comparison remain open.
+No new market fit/replay, profitability, G4/G5 approval or live eligibility is established.
+
+## Issue #810: explicit allocation PPO protocol runtime candidate
+
+Explicit protocol fits now bind the financial clock and known installed
+PPO/policy/Adam configuration. Bundle/training v3 retains recipe_v2 and adds a
+closed protocol/digest and bounded completed-Adam-call/entered-epoch receipt.
+Fixed two/four-step synthetic oracles verify final capture, minibatch counts,
+native KL no-step behavior, hook cleanup, strict pre-loader tampering and actual
+post-load settings. None v1/v2 bytes/source/action behavior stays unchanged.
+This is G0-G2 software evidence, not parameter-improvement or fit authenticity.
+Raw-action evidence, delayed-payoff learning, fit-only preprocessing/sampling,
+continuous-account handover/walk-forward, market calibration/Study and formal
+G4/G5 approval remain open; existing sealed outcomes and eligibility are unchanged.
+
+## Issue #810: causal allocation preprocessing declaration candidate
+
+A standalone prefix fitter, immutable declaration and feature-only transform now
+have joint availability, equal-symbol arithmetic and closed-identity oracles.
+Fit Dataset lineage and selected-prefix consumption have distinct digests; supplied
+build/normalization hashes do not authenticate upstream causal feature construction.
+Existing raw-feature allocation environments, v1/v2 recipes and v1/v2/v3 bundles
+do not consume this
+declaration; the explicit v3/v4 runtime below composes it. Sampling,
+delayed learning and continuous handover remain subsequent stages; action
+observability is the optional sidecar below.
+No market fit/replay, profitability result or G4/G5/live eligibility is added.
+
+## Issue #810: pure allocation observation v3 candidate
+
+The pure observation/recipe v3 owners compose frozen preprocessing with the existing
+economic layout. Literal normalized feature values, suffix-byte parity, raw-input
+nonmutation and closed-reader rejection are verified. Root/tag dispatch now rejects
+non-native aliases; valid legacy JSON identities and defaults remain unchanged.
+Explicit environments, learners and receipts now compose this pure projection in
+the separate runtime below. Sampling, delayed learning and continuous handover
+remain open. No market fit/replay,
+profitability evidence or G4/G5/live eligibility is added.
+
+## Issue #810: frozen preprocessing runtime candidate
+
+Opt-in observation/recipe v3 now uses frozen prefix statistics and separate actual
+training/inference admission. Explicit-protocol fits produce bundle/training v4,
+closed prefix source links and actual normalized actor/boundary v3 receipts.
+Finite native SB3/source/pre-loader/post-load oracles verify software consumption,
+zero terminal bypass, reset behavior and raw economic isolation. None preserves
+valid old lanes; malformed manifest root/tag aliases now reject. No online fit,
+sampler, Run/Study wiring, delayed-payoff result, continuous handover, market
+fit/replay, profitability evidence or G4/G5/live eligibility is added.
+
+## Issue #810: chronological allocation action sidecar candidate
+
+An optional separate transition_trace_v1 now joins actual PPO actor tensor bits,
+sampled action/logpi/value, chronological buffer admission and raw native
+mapper/risk/book/order/cost/reward facts. Explicit bundle3/input2 and bundle4/input3
+identities remain unchanged and receive only an externally pinned separate sidecar.
+Finite native T2/T4 software oracles cover terminal/reset/rollout boundaries,
+failure-to-complete, closed reader links and None model/economics/RNG parity.
+This improves observability; delayed-payoff learnability, multiwindow/multisymbol
+sampling, continuous handover, Run/Study consumption and economic evaluation
+remain open. No market fit/replay, profitability claim or G4/G5/live eligibility is added.
+
+
+## Issue #810: chronological allocation training schedule/runtime candidate
+
+The next P3/P5 prerequisite now has a software declaration and runtime boundary
+for causal multi-window training. Immutable windows distinguish train,
+validation and held-out roles, retain whole-Dataset identity as separate
+provenance, bind the actually consumed per-episode source scope, and require
+training windows in declared chronological order. The causal window identity
+does not include whole-Dataset lineage, so an unused future suffix cannot rewrite
+an earlier window ID; the full schedule payload still records the declared
+Dataset lineage. Same-symbol windows may not overlap in market time even when
+their Dataset lineage differs, preventing relined or overlapping crops from
+being treated as additional declared intervals. Validation and held-out windows
+must begin after training; held-out windows must also follow declared validation
+windows.
+
+The upper schedule runtime accepts exactly the declared train windows, verifies
+their actual source identities plus common recipe / financial clock / policy
+spaces, and cycles them only on true episode reset. A rollout boundary does not
+advance the window or reset cash, quantity, pending orders, drawdown or execution
+clock inside the active child account. Resetting a live nonterminal account is
+rejected. Per-window reset and decision counts are observable, but are
+deliberately not named an independent-experience count.
+
+This lower declaration/runtime stage remains bounded: it does not itself own a
+learner, artifact publication, continuous economic-account handover or market
+generalization. The opt-in learner consumer immediately below composes this
+runtime without changing the existing single-episode PPO bundle schemas.
+Delayed-payoff learnability and the result-blind `gae_lambda` / rollout-length
+comparison remain separate software evidence before any market P&L comparison
+or new learner family.
+
+
+## Issue #810: scheduled allocation PPO fit consumer candidate
+
+The declared chronological window runtime is now consumed by an opt-in actual
+SB3 PPO fit. The fit remains `n_envs=1`: full independent-account windows are
+cycled in causal declared order, and a PPO rollout boundary does not create a new
+account. True terminal auto-reset is observable separately from actor decision
+reuse.
+
+The training-only receipt records each window's exact decision indices and reuse
+counts plus the observation/successor indices admitted to policy/critic
+consumption. It also records the immutable schedule, common allocation recipe,
+explicit PPO protocol, optimizer-call telemetry and runtime reset/decision
+counts. Consequently, repeated use of a short history is visible as repeated row
+counts rather than being reported as additional independent experience.
+
+The existing v3 frozen-preprocessing path is supported: the original fit prefix
+is reconstructed once and the same frozen transform is admitted on later window
+clocks. Existing single-episode bundle identities and loaders are unchanged; this
+stage deliberately does not publish a new inference artifact or authorize a
+market Study.
+
+This removes the single-episode-sampler ambiguity needed for the delayed-payoff
+oracle, but it does not itself establish market generalization, continuous
+economic-account handover across evaluation windows, or long-horizon
+learnability. Those remain separate P3/P5 evidence before economic comparison.
+
+
+## Issue #810 P5: exact allocation account handoff software capability
+
+The allocation path now has a bounded continuous-account handoff capability.
+A marked-continuation horizon can export its exact canonical account/order state
+only after the declared horizon terminal and only when no economic termination
+occurred. The next contiguous OOS window resumes that state without calling the
+normal reset path.
+
+Focused software oracles establish:
+
+- stochastic slippage execution across a split boundary matches uninterrupted
+  execution, demonstrating that the execution RNG is not reseeded;
+- cash, quantities, exact quantity evidence, peak/drawdown, accumulated costs,
+  carry/account counters and final economics match uninterrupted execution;
+- active GTC residual orders survive the boundary unchanged;
+- previous closing and next opening canonical state digests are identical and
+  satisfy the existing `StitchMode.CONTINUOUS_ACCOUNT` contract;
+- gaps, account changes, execution-policy changes, continuation reuse and
+  economically terminated accounts fail closed.
+
+This is an in-process runtime handoff only. It intentionally requires the same
+`MarketDataset` instance and does not claim exact process restart,
+cross-machine serialization, walk-forward policy selection, or economic
+performance. A higher-level fold runner/policy-switching consumer is the next P5
+step; the existing independent-fold study evidence is unchanged.
+
+
+## Issue #810 P5: continuous allocation OOS fold runner candidate
+
+The exact account handoff from #834 now has a bounded walk-forward consumer.
+The runner binds each actual OOS allocation environment to an explicit
+`WalkForwardFold.test` range and switches a caller-declared policy at fold
+boundaries while preserving one continuous account.
+
+Software evidence requires:
+
+- declared fold test ranges and actual OOS env ranges match exactly;
+- all OOS test ranges are contiguous before the first account reset;
+- only the first fold resets, later folds consume exact account continuations;
+- different policy identities can be used per fold without resetting the account;
+- canonical interval simple returns compound to the final actual account equity;
+- stochastic execution under split folds reaches the same final BookState as an
+  uninterrupted account with the same actions;
+- opening/closing state digests satisfy existing continuous stitching;
+- per-fold cost/turnover/fill/rebalance deltas are derived from canonical account
+  counters rather than a second ledger;
+- invalid fold ranges, Dataset/recipe mismatch, reused environments, invalid
+  action codes and economic termination fail closed.
+
+This remains an execution consumer, not a policy-selection engine. It does not
+prove that a fold's policy was selected without test leakage, does not verify
+policy artifact bytes itself, and does not run market economic selection. Those
+links must be supplied by the later Run/Study evidence layer before P5 or the
+overall Issue #810 research can be called complete.
+
+
+## Issue #810 P5: immutable allocation policy admission candidate
+
+The continuous OOS runner now has a separate immutable-policy admission
+candidate. Each fold declares the expected allocation bundle manifest digest and
+runtime recipe digest. All fold bundles are verified through the existing
+write-once policy loader before the first OOS reset; a broken second/later bundle
+therefore prevents the first fold from opening.
+
+Focused software evidence covers both a backend-neutral fake-loader oracle and a
+real SB3 fit/save/load path. The real path fits a small allocation PPO, publishes
+the existing immutable policy bundle, verifies manifest and policy bytes through
+`load_allocation_policy`, adapts the keyword-only inference method and then
+runs the verified digest through the continuous-account fold runner.
+
+A CI coverage gap was also found while adding this stage: the hosted PPO Runtime
+command did not include the separate
+`tests/integrations/test_allocation_schedule_ppo_runtime.py` module introduced
+with #832. Those five real-SB3 scheduled-training tests had local evidence but
+were not part of the hosted PPO Runtime command. The command is corrected here
+to include both that module and the new artifact-admission runtime test. This
+supersedes any earlier statement that the #832 module was already exercised by
+hosted PPO Runtime.
+
+Artifact admission still does not prove result-blind policy selection or sealed
+outer-test authorization. It verifies immutable inference bytes and recipe
+identity only. Study registration, selection evidence, one-shot sealed-test
+access and economic winner logic remain above this owner.
+
+
+The immutable fold-policy admission stage now runs the complete continuous OOS
+chain preflight before any bundle deserialization. Gap/Dataset/account/recipe
+counterexamples therefore fail before the artifact loader executes, while a real
+saved allocation bundle is verified and admitted in the PPO-runtime lane before
+continuous OOS execution. This remains software evidence only; selection
+authority, sealed outer-test authorization and economic winner gates remain
+separate.
+
+
+## Issue #810 P5: sealed fold-policy authorization candidate
+
+The continuous allocation OOS path can now bind existing sealed outer-test
+authorization to the exact immutable PPO bundle used for each fold. The binding
+checks the canonical access-record digest, experiment-plan identity, Dataset,
+fold/test range and selected policy digest before artifact loading. A missing
+selected policy, altered access digest, wrong plan/range/Dataset/fold or a
+different artifact digest fails closed.
+
+A real SB3 software integration creates a saved allocation bundle and
+`SealedTestLedger` records, then verifies the bundle through the immutable
+artifact path and runs the authorized policy across the continuous account
+chain. This establishes software identity flow only. The owner does not perform
+configuration selection, issue sealed authorization, freeze a Study outcome,
+open unused/final data or establish profitability/production eligibility.
+
+
+The sealed allocation binding now distinguishes canonical record content from
+runtime authority. A fold access record must rebuild to its canonical digest
+and compare equal to an immutable record present in the supplied
+`SealedTestLedger`. Equivalent reconstructed records remain valid after
+persistence, while a record absent from the supplied ledger is rejected before
+policy artifact loading or OOS reset. This remains software authority, not
+durable signed authorization or final-data permission.
+
+
+The supplied sealed ledger now consumes the complete authorized fold batch once,
+after all immutable policy artifacts verify and immediately before OOS execution.
+Artifact-admission failure leaves the records unconsumed; after OOS admission,
+success or later runtime failure leaves them spent, and a replay attempt is
+rejected before artifact loading. Batch consumption is atomic.
+
+This is still in-process software authority. The consumed set is not yet a
+durable cross-process tombstone or signed final-data permit, so restart-safe
+one-shot execution and unused/final-data evidence remain higher-level
+Study/outer-test responsibilities.
+
+
+## Issue #810 P4: common allocation comparison contract candidate
+
+A pure comparison contract now fixes the common context for non-RL allocation,
+residual PPO and direct PPO before any winner logic. The declared identity binds
+Dataset, objective, financial clock, forecast context, economics, risk, fold
+plan, account mode/capital, required/diagnostic scenarios and the RL seed roster.
+
+The evidence validator requires a complete candidate × scenario × seed matrix.
+Candidate rows within one scenario must share the same OOS source and opening
+account state, and each RL seed must use one unchanged policy digest across base,
+cost stress and diagnostics. Missing, duplicate, cross-contract or
+stress-specific-policy rows fail closed.
+
+The derived summary reports base median terminal profit, incremental base profit
+versus non-RL, required validity/risk-execution status and diagnostic failures.
+It does not select a winner. Mapping real continuous OOS ledgers/execution
+evidence into this contract and a separately preregistered selection rule remain
+next P4 stages; no economic result or eligibility is claimed here.
+
+
+## Issue #810 P4: actual continuous OOS comparison-evidence adapter
+
+The pure comparison matrix can now be populated from a completed continuous
+allocation OOS result without caller-supplied P&L or drawdown numbers. The
+adapter binds the actual Dataset, forecast context, fold plan, candidate recipe,
+economic clock and business-objective profile before producing one evidence row.
+
+Terminal after-cost profit is checked two ways: geometric compounding of the
+canonical interval net-return series must match final account equity on the
+declared initial-capital denominator. Drawdown is taken from the final canonical
+BookState rather than reconstructed from interval endpoints, preserving
+intra-step losses. The final closing state digest is recomputed from the actual
+account, and the supplied stitched result is rebuilt from fold evidence to reject
+tampering.
+
+The adapter derives OOS-source, ledger-summary, execution-summary and RL
+fold-policy-schedule identities deterministically. These summary digests are
+bindings, not independent replay/accounting proof. A separate independent
+validity oracle is still required and is referenced by
+`validity_evidence_digest`. Real non-RL/residual/direct execution orchestration
+for every declared scenario/seed and the preregistered winner rule remain later
+P4 stages.
+
+
+## Issue #810 P4: explicit cash/no-trade reference
+
+The common allocation comparison now has a separate cash/no-trade reference
+capability. It does not hard-code zero profit: the same continuous canonical
+account is executed with HOLD-current from a flat book, so declared cash
+interest is realized by the ledger. A software oracle with non-zero cash rate
+confirms positive cash-control return with zero fills, zero turnover and zero
+explicit trading/carry costs.
+
+The control is seedless and is intentionally outside the fixed A/B/C candidate
+roster. This preserves the study question "which allocation method is best?"
+while also allowing the later winner rule to ask the stronger question "is the
+best method actually better than doing nothing / holding cash under the same
+economics?" No winner rule is introduced at this stage.
+
+
+## Issue #810 P4: preregistered allocation selection gate
+
+A pure result-blind selection rule now distinguishes three outcomes:
+
+- `WINNER`: at least one valid candidate passes required risk/execution, beats
+  the cash/no-trade reference, and for RL candidates also beats non-RL.
+- `NO_WINNER`: the comparison is valid but no candidate clears the economic
+  eligibility thresholds.
+- `INVALID`: required candidate or cash-reference evidence itself is
+  invalid/incomplete, so an economic winner must not be inferred.
+
+The selector uses the comparison summary's median base after-cost terminal
+profit as primary score. Exact ties prefer non-RL, then residual PPO, then direct
+PPO. The threshold comparison is frozen as strict greater-than with 1e-12
+absolute/relative equality tolerance, preventing floating-point boundary drift.
+
+Cash/no-trade remains a reference rather than a fourth candidate. The actual
+cash-control evidence has a one-way projection into the pure selector contract,
+binding its evidence digest, common OOS source/opening state, realized profit,
+drawdown and validity. The selector still has no Study mutation or final-data
+authority.
+
+
+## Issue #810 P4: candidate identity separated from stress runtime
+
+A comparison blocker was identified: `AllocationTradingEnv.recipe_digest`
+includes economics/risk through `runtime_profile`, so a cost stress necessarily
+changes the full recipe digest even when the candidate decision logic and policy
+bytes are unchanged. Treating that full digest as the candidate identity would
+make "same frozen policy under stressed execution economics" impossible by
+construction.
+
+The comparison layer now uses a scenario-stable candidate-structure digest and
+keeps the full per-fold runtime recipe in execution evidence. A software oracle
+runs a fee-stressed continuous OOS path where base/stress full recipe digests
+differ, candidate identity remains equal, and comparison evidence is admitted.
+Changing action mode, features, allocator/preprocessing, capital/currency,
+financial clock, calendar or other runtime invariants fails closed. The frozen
+candidate pin includes the non-stressed runtime invariant digest: changing the
+calendar or execution bar duration in every stress fold cannot evade rejection
+by making those folds agree only with each other. Admitted synthetic native
+accounts demonstrate rejection at the evidence adapter. Digest/schema string
+subclasses are rejected rather than coerced to potentially different values.
+
+This does not relax `AllocationPPOPolicy.action` exact-recipe checking.
+Executing one frozen PPO bundle under a declared stress remains separate
+admission work; no economic stress result is established by the identity layer.
+
+## Issue #810: scheduled immutable inference handoff candidate
+
+The scheduled PPO producer now captures a separately versioned v5 inference
+manifest alongside its unchanged detached fit receipt. The explicit policy
+handoff checks complete declared window coverage, actual cyclic reuse/reset
+counts, source/objective clocks, explicit protocol/optimizer/model facts and
+frozen preprocessing. Existing immutable model publication/load and the actual
+artifact-bound continuous OOS consumer are reused under exact full recipe guards.
+
+Synthetic software tests connect actual fixed-budget scheduled fitting to
+write-once bytes, verified reload, deterministic action parity and native account
+parity on a later same-H one-fold chain. Excluded held-out accounts remain
+uninitialized. A trained H4 policy is rejected before reset by two locally H2
+folds, despite their total H4: global-clock multi-fold support remains separate.
+Legacy v1-v4 formats/default consumers and the 20% research guardrail are kept.
+
+This stage does not establish historical source authenticity, delayed actor
+learnability, market profit, calibrated costs/capacity, policy stress admission,
+registered A/B/C economics, unused/final access or paper/live eligibility.
+Formal independent approval and final-head full CI remain integration gates.
+
+## Issue #810 P4: actual fixed nonRL consumer
+
+The seedless baseline now runs residual action2 on the common continuous account,
+with no caller policy, fit or model loading. Synthetic native execution matches
+independently scripted forecast proposals, including literal fees, risk veto,
+pending-order carry and HOLD cancellation. Its result/evidence boundary rejects
+direct carriers, mismatched contexts and generic caller-action results.
+The common NONRL row keeps seed/policy null, candidate identity stable under
+declared fee stress, and full runtime recipes in execution evidence. In-process
+markers are not origin/authenticity proof; independent validity remains supplied.
+All-scenario orchestration, frozen PPO stress admission, calibration and a real
+economic Study remain separate work. This is G0-G2 software evidence, not profit.
+
+## Issue #810: opt-in global OOS clock consumer
+
+One native environment now spans the global OOS horizon, with immutable
+contiguous test segments switching frozen policies without reset/terminal or
+clock normalization at internal boundaries. Whole-roster structural checks and
+scheduled v5 metadata/cutoff preflight precede backend loading and the single
+account reset. Every TRAIN terminal and v3 preprocessing fit-last-event/as-of
+claim is strictly earlier than global start, using absolute source clocks even
+when training and OOS Dataset identities differ. Full global recipe, H, fees,
+capital and fixed normalizer guards remain exact; local-fold paths are unchanged.
+
+Synthetic G2 tests cover literal remaining time, unequal segmentation, native
+orders/risk/counters/RNG and actual small scheduled v3 PPO save/load global parity.
+The separate global result does not directly satisfy the existing common
+comparison DTO; a pure completed-receipt consumer is implemented below.
+This supplies a bounded software prerequisite, without online updates, historical
+fit/source authenticity, delayed actor learnability, market profitability,
+calibrated capacity, frozen-policy stress admission, registered A/B/C evidence,
+unused/final access or paper/live eligibility. The 20% research guardrail remains.
+
+## Issue #810: scheduled actor trace and fixed delayed-credit candidate
+
+An opt-in actual scheduled observer now captures OLD-child native facts and
+NEXT live/prepared-reset input separately, original actor/value/logpi tensors,
+chronological native buffer/GAE/bootstrap and optional native PPO update
+diagnostics/parameter pins. A separate closed backend-free sidecar binds the
+unchanged ordinary saved v5 policy. Rehashed repeated-feature and optimizer-event
+digest contradictions reject; default None/omitted and old readers remain
+compatible. Publication checks unchanged final live parameters without claiming
+historical fit/source authenticity or defeating malicious save/restore forgery.
+
+Local internal software verification ran 21 actual SB3 tests with 0 skips, covering
+independent original actor/bootstrap/buffer/named parameter witnesses, native
+logs, lifecycle failures, zero-step KL stop, None/omitted/enabled native
+model/optimizer/RNG/account parity and ordinary save/sidecar/read/reload/IO
+controls. Core trace/IO 36 tests and native feasibility/bare-buffer 43 tests have
+separate local evidence. These are uncommitted-source software results; final
+PR HEAD full CI and formal independent review remain integration gates.
+
+The separate fixed behavioral harness is declared before models: H16 first paid
+entry only, terminal 8% payoff, seeds 0/7/17 paired rollouts 4/32, 4096 fixed budget,
+six balanced train dates/four held-out dates, common frozen v3 and unchanged
+network/optimizer protocol. It retains initial actor baselines, all six outcomes,
+strict per-cell effective fill/profit/improvement gates and initial-ceiling
+failures. The first six-cell invocation was software INVALID at finish because
+the parent facts reader required a carried order's last mutation clock to equal
+a later no-fill attempt. Native execution preserves that immutable order. A
+narrow reader repair retains state/quantity checks and separates mutation from
+attempt clocks, rejecting invented same-bar/carried clocks or missing eligibility.
+All 24,576 original fact rows then passed a fit-free parent-reader/reward replay.
+
+One corrected-source reproduction completed the same frozen six cells. Initial
+actor files, initial named parameter files and complete native training events
+were byte-identical to the preserved first INVALID invocation in every cell.
+Full sidecar/save/read/reload and aggregate software evidence are VALID;
+all six learning outcomes and `short_learning` are FAILED. No long or short
+factor improves its initial held-out mean. The ratios below are rounded native
+returns relative to capital 1024 and direction-alignment fractions on the four
+synthetic held-out windows; they are not real-market results.
+
+| Seed | Rollout | Initial mean gain | Trained mean gain | Improvement | Filled-sign alignment | Learning |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 0 | 4 | 0.01951171875 | -0.02048828125 | -0.04 | 0 | FAILED |
+| 0 | 32 | 0.01951171875 | 0.01951171875 | 0 | 0.5 | FAILED |
+| 7 | 4 | 0 | -0.0009765625 | -0.0009765625 | 0.5 | FAILED |
+| 7 | 32 | 0 | 0 | 0 | 0 | FAILED |
+| 17 | 4 | 0.01951171875 | -0.0009765625 | -0.02048828125 | 0.5 | FAILED |
+| 17 | 32 | 0.01951171875 | 0.01951171875 | 0 | 0.5 | FAILED |
+
+Unchanged per-cell requirements are alignment >= 0.75, mean after-fee gain
+> 0.025 and improvement > 0.02; every row failed all three. Seeds 0/17 also retain
+`INITIAL_BASELINE_CEILING`, without exclusion or a waiver. Each cell completed
+4096 transitions and 10240 returned Adam calls; actor and critic parameter
+changes occurred at all 1024 short or 128 long updates. Parameter movement and
+valid records do not demonstrate effective learning. The corrected comparison
+SHA256 is `4d942ff1c871f7979545f207dbd86266c028eb138e42a928c3f92ea6de1b236b`;
+the retained archive is 13,405,486 bytes, alongside the unchanged first INVALID
+archive of 12,752,323 bytes. No favorable rerun or hyperparameter tuning was used.
+This remains uncommitted-source evidence; final exact PR HEAD full checks and
+formal independent review are pending.
+
+Before saving any aggregate VALID claim, the report checks every software
+prerequisite including paired initial actor/native-account parity and returned
+optimizer-call counts. Invalid comparisons retain all six outcomes and structured
+reasons, without overwriting per-cell learning gates or claiming overall PASS.
+Software trace completeness is not behavioral success; no favorable tuning or
+long-factor substitution may repair a failed short-factor gate.
+The single CI PPO invocation preserves the complete synthetic fixed-actor
+subtree on success or failure, named by exact PR HEAD/run/attempt with seven-day
+retention. The source/declaration/receipt boundary supports protocol inspection
+and reproduction without claiming identical cross-platform weights or upstream
+historical authenticity; it does not create another learning invocation.
+
+Beyond-rollout actor learnability and causal credit THROUGH bootstrap are not
+established by this failed comparison. No market profit, multiweek delayed actor
+learning, cost/capacity calibration,
+frozen-policy stress economics, registered common A/B/C Study, unused/final
+access or paper/live eligibility is established. The 20% research guardrail and
+separate formal review/final-head integration gates remain.
+
+## Issue #810: bounded frozen configured-fee view
+
+An opt-in typed fee view now separates original scheduled v5 bundle/model pins
+from its actual native stress recipe. Exactly configured fee_rate changes by a
+declared factor >1; global financial H, C, native risk/capacity, all other costs,
+source/forecast/cost beliefs and frozen v3 preprocessing remain fixed. Original
+ordinary inference continues to reject a different complete runtime recipe.
+Whole-roster metadata/archive checks precede backend/reset, and per-action
+actual cost/tensor/source/account guards prevent stale-cache or prediction drift.
+Complete canonical manifest and regular ZIP-digest preflight cover the entire
+artifact roster before the first optional backend, with normal per-load private
+copy/rechecks retained. The source envelope now reuses the native Dataset
+contract owner, including volume units and period/feature-build metadata;
+same-object changes before/during prediction are rejected before native orders.
+
+Core software controls use fake models and no-fit declared synthetic inputs with
+real native fills: fee1 versus2 gives cash499 versus498 and first equity1049
+versus1048 at C1000/qty5/entry100/mark110. This is arithmetic, not learned or
+market profit. After separate source review, the first real-SB3 runtime
+execution passed 3 tests with 0 skips in 31.41 seconds on frozen uncommitted
+source. Unchanged
+scheduled v2/v3 each record actions[1,1,1,1]; the separate deliberately constant
+v3 fixture records[3,0,0,0]. All three preserve model tensor states and original
+policy pins. Actual canonical software receipts explicitly distinguish these
+cases with `learned_alpha_established=false`; the constant native account confirms
+qty5, fee1/2, cash499/498 and first stress equity1048. Eleven actual files were
+preserved and verified in a 275445-byte archive. This closes the bounded runtime
+software check, not learned-alpha or economic-study gates. Exact final-head
+full CI, integration and formal research gates remain pending; hashes do not
+authenticate original fitting or source use.
+
+Issue #810 remains incomplete: the separate source/runtime-pinned common evidence
+consumer below still needs formal review and research admission before registered
+A/B/C comparison. Native global NONRL/cash controls and bounded received/native
+receipts are implemented below; their software consistency does not supply
+independent validity. No refit, profitability conclusion,
+calibration, unused/final access or paper/live eligibility is added. The 20%
+research guardrail remains.
+
+## Issue #810: native global NONRL and cash control candidate
+
+The existing fixed seedless NONRL rule and cash reference now have opt-in native
+global entries, each running one account/reset over complete contiguous OOS
+segments. NONRL privately fixes residual action2; cash privately fixes direct
+HOLD0 from flat and retains native cash interest. Callers cannot supply a policy,
+action sequence, reset seed or local-fold result as the control. Separate exact
+global wrappers retain forecast/control identity and the full global recipe.
+Historical continuous APIs and evidence remain unchanged.
+
+Bounded no-fit H4/C1000 core controls exercise unequal 1+3/3+1 segmentation,
+independent literal/native forecast arithmetic, global remaining fractions
+1/.75/.5/.25, order/counter/RNG carry, risk veto and eligible no-fill attempts.
+Cash annual rate .876 produces 1000*(1+.876/8760)^4 with no trading costs; zero rate
+ends exactly 1000. Malformed declarations reject before reset. Actual native short
+insolvency instead happens after execution and retains signed equity/cash -501
+and its one-step prefix, with no completed global result or fabricated score.
+
+This is a software prerequisite, not learned alpha or market-profit evidence.
+A bounded source/runtime-bound received/native execution receipt is now implemented
+below. The proper pure global common-comparison adapter is implemented below;
+authenticated independent validity remains unestablished.
+No actual learner/model execution, economic Study, online refit, selection,
+unused/final authorization or live eligibility is added. Exact final-head full
+CI, integration and formal independent review remain pending. Issue #810 remains
+incomplete and the 20% research guardrail remains a declared constraint.
+
+
+## Issue #810: bounded global execution receipt candidate
+
+The closed global declaration/facade and concrete lower collector now bind the
+finite shared raw source/H/C/fold/account/objective/clock/scenario context to
+values received by existing public action/native calls. Candidate full recipe,
+selected observation/preprocessing, original artifacts/model state and policy
+seed remain separate from common identity and actual reset seed. Historical
+continuous APIs and original fee receipt/error/None semantics are retained.
+
+No-fit native/fake-policy checks cover four action inputs and transitions over
+unequal H4 segments, one reset, original load/predict counts, fee arithmetic,
+source/cached-cost/model drift and actual signed economic prefixes. A partial
+record retains its failure and cannot become a completed result or score.
+This candidate adds no fits, actual learner calls, economic Study, common matrix,
+independent validity/G3, unused/final access or paper/live eligibility. Exact final
+HEAD full CI, review, integration and downstream gates remain pending. Issue #810
+is incomplete; market profitability and the declared 20% guardrail remain
+unestablished by these software consistency checks.
+
+## Issue #810: completed global comparison evidence candidate
+
+A separate pure adapter now projects exact completed global observations into
+the unchanged candidate/cash comparison contracts. It requires a separately
+frozen full execution plan and closed explicit validity record with a required
+matching assurance scope. Original candidate/policy identity remains separate
+from actual fee runtime, policy seed remains separate from Gym reset seed, and
+candidate-independent global OOS identity adds common context to the unchanged
+legacy source projection. Shared portfolio and partial economic/integrity
+prefixes cannot become completed rows or fallback cash.
+
+The adapter reconstructs the entire supplied native stitching and checks every
+interval's return, log return, prior book/decision equity-weight-DD linkage and
+cumulative/segment/stitched cost, signed funding, borrow, filled turnover, fill
+and rebalance facts. SESSION annualization retains native fold semantics. Primary
+profit is native final equity/C-1 and DD remains native cumulative maximum DD;
+the lower bar-return estimate cannot replace intra-event DD.
+
+Bounded no-fit native/fake-policy controls exercise literal H4/C1000 profit/DD,
+actual cash interest, unequal segments, compensating-return/counter/context
+tampering and complete seeds0/7 x base/fee_x2 software matrices. Existing matrix
+and selection behavior remains: no missing or duplicate padding, no policy drift,
+explicit INVALID retained, and no NO_WINNER manufactured for incomplete data.
+The existing saved-v3 policy7/reset17 and three fee policy7/reset7 integration
+cases attach explicitly bounded G2 artifacts to the same existing calls after
+all original assertions. This source update adds no fit, prediction or replay;
+its actual-backend and final exact-source verification remain separately gated.
+
+`bounded_software_g2` and `independent_g3` are declared content scopes; neither
+scope name nor review/accounting reference hash establishes independent review
+or adequate G3. No learned alpha, market profitability, registered economic Study,
+calibration, online refit, unused/final access or paper/live eligibility is added.
+Issue #810 remains incomplete. Formal review, final full verification and
+integration remain required; maximum 20% DD remains a research constraint.
+
+## Issue #810 P3: payoff-release timing control and bounded successor diagnostic
+
+A separate source-only diagnostic fixture now accepts payoff_index8 against the
+unchanged omitted/explicit22. The same artificial 8% cue payoff reaches the
+second transition of H16 instead of terminal22. The full mark family, including
+index_price, moves; opens128, sole positive processing volume7, raw cue/prefix
+information, capital1024, action/fee/hard-risk contracts and true terminal remain
+fixed. Legacy22 identities, data, recipes and native scripted traces are retained.
+
+The early arm has distinct Dataset and canonical day1/cue+1 preprocessing lineage,
+shared by all six training and four held-out windows. Actual prefix moments and
+forecast label rows remain equal. Supplied early declarations validate against
+that owner without replacement; the owner belongs to the training roster.
+Independent Fraction tests check entry quantities/cash/fee, interval reward
+release, terminal equity, zero later fills and schedule resets at true terminal.
+
+The initial close-only DD oracle was falsified and corrected from the native
+open-then-mark valuation sequence, preserving its failed attempt. Correct early
+entry has maxDD1/1024 at8 but1024/26599 at9: later opens128 temporarily value the
+retained position at equity1023 against peak1063.96 before marked recovery.
+Correct late entry retains maxDD1/1024; wrong entry1049/25600 and cash0 are unchanged.
+Terminal gains remain999/25600 for correct and -1049/25600 for wrong. Later wealth,
+DD/risk/pending states and observations can differ, so this timing control cannot
+attribute a future learning difference solely to reward access or bootstrap.
+
+The original source-only timing Task retained actor/model execution budget 0.
+A separately bounded successor diagnostic completed once for seeds 0/7/17 at
+rollout lengths 4/32, each 4096 transitions. All six software results were VALID
+and all strict learning gates FAILED; four initial-baseline ceilings remain.
+The completed successor's source identity remains in its execution receipt;
+the retained local receipt SHA-256 is `1e163578f54e13da4b24a7a8fd36d86c8b0f9743f84a7ee980f6cd6a4e98b141`
+and raw archive SHA-256 is `6d2e40ee25ae5abae0e9d2326fd96ee6ae4a222796ec948c82439dfe37b3e033`.
+Short 4 held-out cue alignment was 0.5/0/0 with net gains 0.01951171875/0/0;
+long 32 alignment was 1/0.5/1 with gains 0.0390234375/0.01951171875/0.0390234375.
+Earlier/later results are descriptive synthetic diagnostics, not isolated
+bootstrap proof, an optimizer cure or market profit evidence. Original FAILED
+and INITIAL_BASELINE_CEILING outcomes and strict old gates remain unchanged.
+P3 and Issue #810 remain incomplete alongside calibration, market profitability,
+G3-G5, unused/final access and paper/live eligibility. Exact final-head full
+verification, formal review and integration remain required; the 20% research
+guardrail remains fixed.
+
+## Issue #810 P2: frozen forecast-error diagnostic infrastructure
+
+An opt-in evaluation-only reader now requires an explicit decision roster and
+publication cutoff. It detects missing predictions, mismatched selected Dataset
+snapshots and immature exact endpoints before reporting packet-weighted bias,
+MAE and RMSE globally and by symbol/vintage/horizon. A later prequential vintage
+may fit inside the evaluation range while preserving its own causal boundary.
+Literal synthetic errors and source/availability negatives verify the reader;
+no market-data study or new fit/prediction is performed by this capability.
+Raw same-close price errors omit fees, funding, wealth, execution and capacity.
+The supplied frozen stream remains uncalibrated; content binding does not
+authenticate historical fitting or Dataset provenance. Measured market forecast
+calibration, venue costs/capacity, profitable execution and Issue #810 completion
+remain unestablished. Final full verification, formal review and integration
+remain separately required; the 20% maximum DD research constraint is unchanged.
+
+## Issue #810 P3: complete scheduled raw-credit diagnostic capability
+
+An opt-in pure reader now summarizes complete already-validated scheduled
+records by true first/later decision, every raw action 0..3, window and exact
+POST held-quantity sign. Target groups distinguish an observed own-episode
+terminal inside the recorded rollout from live bootstrap; a live-ended buffer
+can contain both. All rows remain in transition-weighted raw float32 collector
+reward/value/return/advantage statistics, with zero-coverage actions explicit.
+Separate native filled-notional/cost statistics and positive-filled-notional
+transition counts describe actual supplied execution, not counterfactual fills.
+
+These are descriptive software diagnostics, not an optimizer repair or actor
+learning verdict. Generic later decisions can fill; zero later capacity belongs
+only to the separate fixed H16 fixture. Terminal-bound GAE is not a Monte Carlo
+return, and shuffled normalized minibatch exposure/gradient attribution remain
+NOT ESTABLISHED. No new backend training, model prediction, market experiment
+or profitability assessment is performed by the reader. All-six FAILED and
+INITIAL_BASELINE_CEILING outcomes remain, with no gate waiver. P3 and Issue #810
+remain incomplete; calibration, profitable execution, G3-G5, formal review and
+exact final-head integration remain separately required under the unchanged
+20% research DD guardrail.
+
+## Issue #810: durable frozen simple-return input prerequisite
+
+The existing causal direct-simple producer and allocation consumer now have an
+opt-in single-file persistence boundary. Canonical stream bytes retain their
+existing content identity; loading requires both externally supplied stream
+digest and Dataset ID, with no adjacent manifest trust. Fully staged,
+fsynced bytes become visible only through exclusive hard-link publication.
+Unsupported filesystems fail closed, and existing targets or racing publishers
+cannot be overwritten. A successful link remains success if ordinary staging
+cleanup subsequently fails; an owned temporary file may remain in that case.
+Stationary special files and final symlinks are rejected before opening, while
+opened-file validation still checks the captured snapshot.
+
+Synthetic file-boundary tests verify corruption, external-pin drift, rehashed
+semantic disagreement, future-suffix causal identity, concurrent publication,
+partial write and staging-reader failures, and the unchanged literal allocation
+proposal after reload. A portable nonregular-input negative runs on Windows;
+the actual no-writer FIFO test requires POSIX and is skipped on Windows.
+This capability does
+not load the saved real-market arrays, fit a market model, derive costs or
+training windows, run PPO or produce a market comparison. Historical source
+and fit authentication, market calibration and profitable execution remain
+unestablished. Parent namespaces are caller-trusted; power-loss durability,
+asynchronous interruption and hostile parent replacement are not guaranteed.
+Issue #810 remains incomplete. Formal independent review, G3-G5, final-head
+verification/integration and the 20% maximum DD research constraint are retained.
+
+## Issue #810: same-close development preparation prerequisite
+
+An opt-in evaluation composition now connects the existing canonical Dataset
+loader, causal direct-simple producer and exclusive stream publisher. It
+requires an externally pinned Dataset, explicit already-authorized development
+bounds, declared direct canonical causal feature lineage, ordered feature and
+training-symbol scopes, explicit blocks/horizon/alpha and complete existing
+horizon-cost payloads for every predicted symbol/decision. Fit symbols do not
+restrict prediction symbols. The result returns common stream/artifact inputs
+and costs grouped by Dataset symbol and decision, without a new persisted
+schema, lane-specific refit or Tier-1 facade extension.
+
+The same preparation now accepts verified direct portable identity v6 and v7
+without changing their identities or admission checks. Synthetic saved-artifact
+tests cover v3/v6, v4/v6 and v4/v7 through explicit-row and declared-cost paths,
+including before-fit refusal of old build versions, derived lineage and mark
+mismatch. V7 settlement products survive unchanged while declared costs retain
+rate-based funding projection; zero aggregate rates can coexist with nonzero
+products. Legacy v6 remains the historical bar-mark fallback and is not evidence
+of authentic settlement coverage. This interoperability Task performs no actual
+market-data read, fit, calibration or economic comparison.
+
+Synthetic saved-builder tests connect literal mean/variance/allocation to the
+existing consumer, preserve earlier causal predictions under future changes,
+and reject unsafe source/scope/basis/cost declarations before fitting. This is
+a software prerequisite. The whole artifact must already be authorized before
+the loader reads it; later bounds checks do not supply read authority. The saved
+real artifact has not been loaded or cropped for this Task, and its close/mark
+compatibility remains NOT ESTABLISHED. No real-market fit, forecast, replay,
+PPO training or profit comparison was performed. Calibration, authenticated
+history, formal research review, G3-G5, final-head integration and the full
+Issue #810 objective remain incomplete under the 20% research DD constraint.
+
+An optional declared-cost recipe now supplies one common six-rate tuple through
+that preparation, exclusive with the existing explicit rows. It retains the
+exact frozen native execution configuration, and its concrete estimator runs
+once on the already-loaded synthetic Dataset before complete-cost admission,
+fitting and publication. Old explicit-row callers and four-field positional
+results retain their behavior. No additional persisted schema, ledger, learner,
+callback or artifact/execution authority is introduced.
+
+The concrete estimator additionally accepts paired typed caller-declared
+simulation economics and an expected verified Dataset ID. This accommodates an
+explicit development cost declaration without changing Dataset content or
+promoting wrapped lineage to direct-build status. All seven profile arrays
+must match throughout all rows/symbols; existing top-level declarations cannot
+be silently replaced. Explicit-mode cost identities are distinct even when
+numeric rates match, while legacy source digests and recipe fields retain their
+contract. The direct preparation and Signature gates are unchanged.
+
+This is a software interoperability prerequisite, not calibration or profit
+evidence. Result-blind review and synthetic conformance must be verified on its
+exact committed head before new cost execution. No actual-market costs, fit,
+native comparison, unused-period read or new winner follows from this API.
+The consumed 2025 structural observation alone does not authenticate selected
+feature construction, received-time or nested source copying. Phase 2 NONRL
+versus CASH economic comparison remains incomplete; past negative comparisons
+remain unchanged. The 20% DD constraint and the full Issue #810 objective are
+retained.
+
+First-scope restrictions are regular continuous bars, quote-notional turnover,
+MARKET/zero extra latency, previous-bar OPEN capacity, available same-close
+valuation, explicit matching build economics, complete available aligned past
+funding and declared zero cash interest. Capacity is min caps times turnover
+times OPEN fraction; participation uses total turnover. Aggregated funding rates
+are summed once, with counts only for coverage and due consistency. Gap/age
+limits are counted-bar-close proxies because exact settlement clocks were lost.
+The config's immutable tuple fractions are checked before its own policy digest.
+Future source suffixes preserve earlier numerical rates, while provenance may
+change. Literal synthetic costs and signed utility/refusal checks support this
+software mechanism, not market calibration or profitability.
+
+Current cap/size and symmetric execution/exit costs remain declared proxies;
+future prices/rates, pending competition, actual fills and financing are
+unverified. No real saved-market arrays, fit, replay, new economic output or
+sealed-run retry was used for this prerequisite. Formal independent review,
+exact committed-head full verification, normal stacked PR integration and the
+broader Issue #810 economic objective remain separate and incomplete.
+
 ## Opt-in causal rolling Signature implementation (2026-10-09)
 
 `data/features/signature.py` introduces a software-only, opt-in rolling
@@ -1375,6 +3175,697 @@ symbol-order, financial-input and synthetic artifact reload checks cover these
 software prerequisites. Historical publication truth, calibrated market costs,
 formal research approval and economic advantage remain unestablished. No real
 market fit/replay, candidate/Study change or unused-data access is implied.
+
+## Issue #810: allocation and Signature integration prerequisite (2026-10-09)
+
+The allocation/NONRL/PPO/common-account line at 2ca52faa and the native-clock/
+Signature/financial-pair line at d2d93064 are joined on a dedicated companion
+branch. Both existing source histories and current contract additions are
+preserved. Finer native history uses last_n_eligible_pair_events_v1, with no
+adoption of the alternative reset-on-gap branch.
+
+One explicit single-clock Signature route now enters the maintained preparation:
+separately pin its canonical direct parent, reconstruct the complete augmentation,
+conserve every financial/global/local-prefix input, require the complete ordered
+fit universe and estimate declared costs from that parent. The common stream
+keeps the augmented identity. Default direct-only admission is retained; native
+MTF Signature and strict fit-symbol subsets remain refused on this route.
+Closed synthetic tests bind the actual training-row trace/counts, literal model/
+allocation/cash fees, source/cost identity, pre-fit rejection and earlier economic
+invariance under changed future content. Existing NONRL/residual/direct/cash
+allocation and canonical execution contracts are reused.
+
+This implements a representation-admission prerequisite for the three-book
+research direction: pathway features, realistic costs/execution and optional RL
+increment over fixed NONRL/cash controls. It does not complete a controlled
+baseline/Signature experiment: matching eligible training rows and freezing a
+selection protocol remain mandatory. No actual market artifact, economic
+result, training/replay, calibration or unused/final period was opened here.
+No previous funding/capture run or sealed workflow was repeated.
+
+Full exact committed-head software verification and formal independent research
+review are separate requirements. This companion remains Draft while formal
+review is PENDING. Profit improvement, G4/G5, live readiness and Issue #810's
+overall completion remain NOT ESTABLISHED.
+
+## Issue #810: native forecast-control preflight (2026-10-10)
+
+The native executor accepts a caller-pinned declaration for two distinct
+standalone NONRL forecasts and a direct cash control, with an optional admission
+check in the existing native executor. Shared financial source/account/clocks,
+capital/H, costs/risk and the complete fixed recipe stay equal; full per-arm
+plan/common/source identities remain separate. Rejection precedes account reset.
+No existing v1 A/B/C comparison schema or RL matrix requirement is relaxed.
+
+Closed synthetic preparation-to-consumer tests match ordered training traces,
+labels/weights/original features and complete forecast clocks, then verify the
+hand-derived Signature prediction, target allocation and actual cash/fee arithmetic.
+A delayed-information fixture separately checks unequal symbol weights with
+predeclared numerical tolerances. These are software tests, not economic results.
+Native accounts remain independent-symbol marked continuation; completion may
+retain positions or orders. Identical seeded costs do not promise identical
+calendar-indexed shocks across different trades.
+
+A separate complete controlled-forecast evidence/report boundary, frozen study
+and formal independent approval remain required before an economic comparison.
+There is no market artifact/result access, actual-market fit/replay, calibration,
+selection, unused-period read, historical run reopening or sealed-run retry in
+this change. Formal review remains PENDING; profit improvement, G4/G5, live
+readiness and the overall Issue #810 objective remain NOT ESTABLISHED.
+
+## Issue #810: native terminal closing prerequisite (2026-10-10)
+
+`allocation_terminal_execution` adds opt-in evaluation-only actual closing for
+fixed NONRL and native cash. A frozen full physical horizon contains an unchanged
+marked policy prefix and reserved closing bars, with distinct settled objective,
+clock and recipe identities. Closing uses the same canonical account/executor,
+costs, hard risk, carry and orders; all reserved bars process even when flat.
+No learner or second ledger is introduced, and PPO is refused until matching
+training/admission economics exist. MARKET latency0/2 and independent
+symbol constraints remain.
+
+Closed synthetic software tests independently reconcile long/short cash and
+closing fees/carry, partial and deferred closes, pending entry cancellation,
+exact dust, nontradable/no-volume bars, hard turnover, unequal-segment RNG/account
+continuity, DD breaches and signed insolvency loss. Settlement coverage/flatness
+and risk eligibility are distinct. A profitable marked remainder cannot become
+settled profit. Native marked prefix receipts and historical actor trace bytes
+retain their original meaning.
+
+This runtime observation has no serialized Study evidence reader or independent
+approval authority. No market data/artifact/result, actual-market fit/replay,
+calibration, selection, unused/final period, historical capture or sealed run was
+opened or repeated. Economic qualification of settled forecast controls, matching
+PPO terminal learning, frozen protocol and formal independent review remain required.
+Exact-head full software verification and formal research review are separate;
+formal review is PENDING. Profit improvement, G4/G5, live readiness and the overall
+Issue #810 objective remain NOT ESTABLISHED.
+
+## Issue #810: versioned native static-cap prerequisite
+
+Global receipt v2 now verifies lawful native allocator bounds intersected with
+actual risk and leverage limits. It preserves original recipe identity and all
+other transition/risk/account checks. Complete actual cost schema, types, ranges
+and economics are required before native reset and even for empty v2 failures.
+Historical global v1 records retain literal bytes, failure meaning and error
+precedence; actor/scheduled traces retain strict v1 validation. Their capped
+admission remains follow-on work rather than an implicit historical upgrade.
+
+Closed synthetic no-fit controls cover lawful risk/leverage/cash cases, forged
+bounds and stale pins, malformed costs, exact entry/closing fees, partial
+settlement/carry, native comparison propagation and single hard drawdown
+projection. No optimizer, risk, ledger, training or market result changed. These
+checks establish a bounded software prerequisite only. Formal research review
+remains PENDING; economic profit improvement, settled PPO parity, G3-G5, live
+readiness and the overall Issue #810 goal remain NOT ESTABLISHED.
+
+## Issue #810: closed settled forecast software comparison
+
+`allocation_terminal_evidence` validates terminal runtime observation v2 against
+a separately frozen exact plan and its original global prefix receipt. It checks
+physical endpoints/clocks, actor-free returned facts, observable local-state
+continuity, unchanged hard risk, cumulative costs/carry/counts, signed rewards
+and summaries. Retained filled/partial-fill event notionals must equal execution
+totals and each symbol's total in both prefix and close rows.
+Closed admission also links fill direction and price/notional, retains known
+pending orders until their last event terminates them, and checks one-bar normal
+funding snapshots against the returned account. Terminated funding snapshots
+retain their pre-flatten meaning. Direct v1 digest lookup preserves original
+execution/order error precedence; its legacy admission is not widened into
+closed terminal evidence.
+Additional retained-fact closure rejects costs on untraded symbols, inconsistent
+capacity conservation, disappearance of a carried order without its own terminal
+event, and invented cash or inventory in an opening-flat no-fill interval. The
+capacity pool and sequential fills bind actual participation limits and returned
+maxima. Submitted and surviving orders retain known intent/status, sequential
+cumulative notionals and transition versions. Independent inventory, fixed
+multipliers, successful-fill rebalance counts and live margin fields are checked.
+The exact-flat no-fill cash equation admits only signed recorded interest; zero
+interest preserves cash exactly, while nonzero interest has native ULP rounding
+allowance. Original nested prefix diagnostics are retained. These are bounded
+returned-fact checks, not general historical cash-flow authentication across
+unretained inventory actions.
+Remaining quantities follow known event fills, and FILLED records cannot retain
+residuals or overfill. Forward ULP-bounded cumulative arithmetic preserves lawful
+rounding; a failed prefix retains its original diagnostic and prefix stage.
+Legacy terminal observation v1 remains diagnostic-only. Partial and failed closes
+retain actual known inventory/orders and have no settled
+profit; DD eligibility remains separate from settlement completion.
+
+`allocation_settled_forecast_comparison` preserves original control/treatment/cash
+forecast assignments and complete native identities. Explicit independent
+accounts and scenarios require the entire Cartesian roster, with every role
+exactly once. A report retains validated receipts and shows every group; missing,
+duplicated, foreign or swapped observations reject. Incomplete or DD-ineligible
+groups provide no comparison delta. No Study, winner or PPO matrix is introduced.
+
+These are closed synthetic software prerequisites. Internally consistent hashes
+and aggregate returned facts do not authenticate historical costs, RNG, intrabar
+DD or full fill archives. No new market fit/replay, data/result inspection,
+selection, unused period or sealed workflow is authorized by this capability.
+Matching settled PPO learning, a result-blind frozen economic protocol, formal
+independent review and actual after-cost improvement remain unestablished.
+Issue #810 and live profitability remain incomplete.
+
+## Settled learning work: clock and shared native reserve
+
+The opt-in lower `SettledAllocationClockContract` now declares actor P, nonempty
+reserve R, physical H=P+R and the last actor's variable reward duration. It uses
+fixed-capital equity-delta/gamma1 and GAE per actor transition, with full-H
+remaining fractions and a distinct closed schema. It does not change the
+historical regular financial clock or marked-continuation training.
+
+The distinct settled software lane now includes observed actor/native source,
+transition/append/critic/buffer evidence, fixed-protocol CPU SB3 fit and verified
+bundle v6 save/load with same-H inference. Mechanical unfinished closing prevents
+publication; stopped/debt and DD-ineligible paths keep truthful signed diagnostics.
+The declared clock alone still establishes none of these relationships.
+NONRL/cash priority, 20% DD and sealed/final boundaries remain unchanged.
+
+The shared `allocation_reserved_closing` iterator now executes the existing
+NONRL/cash terminal route's native reserve without creating another account or
+ledger. It preserves zero-target hard risk, actual returned book/orders/RNG,
+full flat cash carry, before-state diagnostics and final yielded-row validation.
+Partial closing and signed debt remain actual observations. The distinct
+`SettledAllocationTradingEnv` now binds one independent account, full physical
+horizon, observation v2 and recipe v4, then uses that same finalizer. Fixed
+synthetic cases directly verify signed after-cost reward, full reserved cash
+carry, native frontier preservation and separate settlement/DD eligibility.
+Live instance replacement and reset-based discard are rejected; unsuccessful
+closing remains sticky across later episodes. The pre-fit source envelope pins
+actor information separately from inclusive all-symbol native financial rows.
+
+The fixed synthetic CPU oracles cover P1/R2 termination inside a rollout,
+P2/R2, and P3/R1 live rollout/budget tails. A deliberately constant actual critic7
+remains7 in returned tensors while terminal masks remove its bootstrap; lambda
+is applied per actor transition. Native partial fills, effective lot floors,
+short borrow, signed funding/dividend/interest and unchanged saved-policy horizon
+are separate software checks. A native sub-tolerance exact remainder stays
+unsettled; it cannot be erased to admit a model. Callback cancellation, an append
+that writes then raises, autoreset failure and post-fit weight mutation retain
+actual frontiers without successful publication.
+
+Rehashed capture counterexamples reject swapped submitted order identity,
+invented fill counts, hidden current drawdown, absent funding offset with invented
+interest, false initial counters and impossible per-update epoch distribution.
+These checks validate supplied joint facts, not historical authenticity of hidden
+execution state or stochastic costs. Economic early ends have limited carry
+phase evidence and do not qualify as completed settled episodes.
+
+Interrupted returned native processing cannot be treated as an unused opening:
+the failed episode remains publication-invalid before a later reset, and its
+detached frontier stays on the original exception when encoding succeeds.
+Diagnostic interruption cannot substitute for that primary failure.
+
+Actor and reserve returns are now retained before fallible returned-stage/fact
+diagnostics. A failed detached-row capture cannot roll the live account back to
+its previous bar. The reserve iterator's optional retention handoff is used by
+the distinct settled account; the existing NONRL terminal carrier and ordering
+remain unchanged. Unreturned executor effects and interruption inside adoption
+remain outside this returned-frontier guarantee.
+
+The finite synthetic fits establish software execution and artifact contracts,
+not successful profit learning. No new market learning, economic comparison,
+profit improvement or formal research approval is established. Exact-head full
+CI/package verification and formal approval remain separate. The work and
+Issue #810 are still active and incomplete.
+
+### Bounded synthetic settled learnability
+
+A separate test-only Task fixes two manufactured cases, seeds 0/7/17 and one
+4096-transition fit per case/seed. USD1000, DD20% and the same native P16/R2/H18
+execution apply to initialization, learned policies, cash, strong cue-rule and
+fixed-position controls. Cue removal/inversion preserves financial inputs.
+Every sixteen-pattern evaluation includes the training pattern and is a known
+regression task, not independent market generalization. Six-slot evidence keeps
+mechanical conformance, learning predicates and failures distinct; missing or
+invalid evidence cannot qualify. Results require verified exact-source captures
+and saved-bundle closure, rather than a passing test count alone.
+
+The initial fixed run completed all six fits and independent native/capture/
+bundle readback: software conformance is VALID, but aggregate learning is
+FAILED. The source-frozen run started on the `14a98c5` overlay; the unchanged
+four harness owners were committed as `85ca536`. Every signal case met its
+fixed predicates, including 100% effective payoff-direction alignment:
+
+| Seed | Signal mean net gain | Fee-only mean net gain | Fee-only entry probability before → after | Learning |
+| --- | --- | --- | --- | --- |
+| 0 | 3.854494% | 0% | 49.944117% → 0.259792% | PASS / PASS |
+| 7 | 3.825444% | 0% | 50.005627% → 0.839054% | PASS / PASS |
+| 17 | 3.940466% | −0.5% | 49.943060% → 71.326324% | PASS / FAILED |
+
+Seed17 traded in every fee-only evaluation pattern and failed both zero-trading
+and the fixed probability-reduction predicate. It is retained with the same
+4096-transition budget; no seed removal, retry or threshold change qualifies
+this run. The strong cue-rule mean signal gain was 3.854494%, and cash was 0%.
+These manufactured sixteen-pattern outcomes do not establish PPO superiority
+over simple rules or an independent market edge. The local publication summary
+SHA-256 is `e186c1f37b13d9b643dd13897ebb4a3d19ecf0d78b74688b696de0fa100e6d18`.
+CI replicas are separately identified software checks and cannot replace the
+initial failed learning outcome.
+
+This Task does not fit/replay market data, qualify economic comparisons or open
+unused/final data. Market profitability, PPO value over real simple rules,
+formal independent review and the parent profitable-system goal remain
+unestablished. The earlier finite software fits are not rebound to new learning
+outcomes. Exact-head CI and formal research approval remain separate.
+
+## Native Signature source identity and decision availability (2026-10-11)
+
+The native Signature and single-clock Signature augmentation now require a
+verified input Dataset content identity before deriving a new authenticated
+Dataset. Native Signature features are masked when base market information is
+unavailable or untradable at a decision even if the lower-clock path is
+completed. Finer-clock cross-asset feature preparation identity-binds raw
+native timestamp / availability / close / tradability bytes, and both the
+native MTF Signature and cross-asset producers reject future native source
+tails beyond the base Dataset decision horizon. Synthetic tests exercise
+same-feature/different-source identity, future tail rejection, unverified
+parent refusal before native reads, and masked unavailable base decisions.
+
+The retained rolling-history policy counts the last N eligible paired
+native returns, not a strictly consecutive-bar lookback. That alternative
+requires an independent preregistered factor. No historical frozen Study
+evidence, non-RL/cash comparison outcome, PPO training result, unused-future
+authorization, real-world after-cost profitability or live readiness is
+inferred or reclassified from these G1-G3 software checks.
+
+## Native settled readback prerequisite
+
+The next finite software Task adds a native-only reader for actual detached
+settled records without pretending that a learner produced them. Its frozen
+nine-case synthetic roster and literal/coupled falsifiers cover cost, risk,
+capacity, full reserve, recovered drawdown, signed debt and post-return failure
+frontiers. The scope excludes new learning, market/controller comparisons,
+calibration, Signature additions to frozen research and unused/final inputs.
+
+This prerequisite does not revise the initial six-fit learnability outcome:
+aggregate learning remains FAILED, including fee-only seed17. Native accounting
+qualification and software CI cannot establish controller profitability or PPO
+value over cash/simple NONRL controls. Concrete source review, executed G2,
+exact-head full CI/package validation and formal independent approval remain
+separate evidence states. Issue #810 and the profitable-system goal remain
+active and incomplete.
+
+## Matched native CASH/NONRL comparison prerequisite
+
+The next bounded software comparison uses equal USD1000 capital, complete source
+identity, costs and DD20% with one continuous P2/R1/H3 account for CASH and one
+for the fixed NONRL allocator. Full Dataset matching includes all global,
+unselected and out-of-window arrays in addition to actor/native selections.
+Every ordered declared arm remains present; ineligible or failed observations
+cannot produce a primary profit difference.
+
+The three predeclared manufactured oracles cover nonzero cash carry, a lawful
+fee loss relative to cash and positive recovered wealth despite an earlier
+25.390625% DD breach. These known regression cases validate comparison/accounting
+contracts; they are not market alpha, an unused-period result or a claim that
+NONRL/PPO beats cash. The original six-fit aggregate learning result remains
+FAILED. Exact-head software CI and AGY source review do not constitute formal
+independent research approval. Issue #810 and the profitable-system objective
+remain active and incomplete.
+
+
+## Issue #810: standalone terminal NONRL/CASH comparison prerequisite
+
+The existing settled report owner now supplies a separate two-arm frozen matrix
+for a single cost-aware NONRL controller versus CASH. A second forecast and PPO
+are not required for this Phase2 baseline. Complete native source/forecast/cost
+beliefs, actual execution policy, risk, capital and terminal clocks are matched;
+only the native role, action mode and their validated derived identities differ.
+Every original raw terminal observation uses the existing closed receipt reader.
+Missing/duplicate/foreign cells reject. Partial or failed settlement and DD above
+20% remain visible with no qualified paired delta. The three-arm forecast-factor
+report, existing RL matrices and bounded native-capture guards are unchanged.
+
+Hand-solved synthetic tests cover actual round-trip charges, complete declared
+account/scenario products, partial closes and a real native DD-ineligible close.
+These are software prerequisites. No new market fit/replay or profit result has
+been generated. Observed-cost, whole-intrabar-DD, historical source and nonlinear
+reference-size cost-proxy limits remain. New real-market development runs still
+require a frozen cost/data/candidate budget, source and independent research
+review, with all original 2025 negative outcomes and cash controls preserved.
+Signature is a separately controlled feature hypothesis; RL must later show
+added value. Issue #810, unused-future and live profitability remain incomplete.
+
+## Issue #810: closed-loop MARKET latency stress prerequisite
+
+The existing scalar adapter/account observer now admit integer MARKET latency0
+or2. Fixed NONRL/CASH carrier preflight checks all actor first-eligible rows and
+forecast horizons before reset. Native submit/processing clocks, pending-order
+retention/cancellation/replacement, actual capacity and finite terminal reserve
+remain unchanged. Generic RL callers share per-decision checks only; no new fit
+is authorized. Declared cost production and strong bounded native readers retain
+their MARKET0 limits.
+
+The prospective comparison freezes base0 same-close forecasts and cost beliefs,
+controller, capital/risk and common actor/reserve clocks across execution settings.
+Different actual holdings may create different later targets, so this measures
+the full closed-loop execution treatment. Synthetic wait, HOLD, partial-close and
+source/horizon falsifiers test software semantics, not profitable alpha. No new
+market artifact read, fit, replay, unused-future result or live authority is
+supplied. A finite independently reviewed real-market protocol remains required.
+
+## Issue #810: Dataset scalar identity contract repair
+
+The Dataset constructor now checks the persisted `dataset_contract` against
+the live scalar descriptor. Relabeling symbols or local/global features,
+changing volume units, calendar/cadence metadata or feature/normalization
+digests cannot retain a verified old Dataset ID. Runtime identity recomputation
+also binds the current descriptor. Normal v6/v7 artifacts retain their payload
+and ID; an intentional transform must mint a new content identity.
+
+Verified identity additionally requires stored/live descriptor agreement;
+recomputation must not conceal a changed, missing or malformed stored descriptor.
+
+Synthetic regressions reproduced nine accepted scalar changes and an undetected
+live feature-label change before the repair. The checks cover their rejection,
+stored-descriptor tampering, explicit reidentification and normal legacy artifact
+loading. This repair
+provides no new market read, forecast fit, native replay or economic result.
+Frozen research sources and outputs remain separate, and Issue #810 and the
+profitable-system objective remain incomplete.
+
+## Issue #810: Dataset activity alias source repair
+
+Dataset source projections now validate that the native `asset_active` mask
+and the canonical `symbol_active` mask agree in shape, boolean dtype and contents.
+One-sided changes previously retained a verified ID and escaped the generic
+global source projections. Synthetic regressions cover both alias directions,
+malformed values and rejection before native reset or execution. Equal-content
+separate arrays remain valid, and normal v6/v7 identities keep their bytes.
+
+This is a software source-binding repair. It supplies no new market input,
+forecast fit, native market replay, economic result or live authority. The
+whole-Dataset reconstruction and formally reviewed after-cost comparison
+remain separate prerequisites; Issue #810 and profitable-system evidence
+remain incomplete.
+
+## Issue #810: independent diagnostic account arithmetic software candidate
+
+The repository-local `tools/market_account_oracle/` kernel derives account
+arithmetic from explicit primitives without importing production `trade_rl`.
+It retains signed exact-rational inventory, uses a local 50-digit Decimal
+context, and separates contract from execution-cost multipliers. Fill, carry
+and marked-wealth reporting uses conservative float projections; selected
+settlement proceeds use exact rational products before Decimal reporting.
+Unsupported stochastic slippage fails closed.
+
+Synthetic falsifiers cover coherent observed-value tampering, exact-third
+settlement, caller Decimal-context isolation, signed drawdown beyond 100%, and
+lot, maker/taker, funding and borrow contracts. They test manufactured
+arithmetic only. Raw source/policy and order authentication, OHLC/tick and
+effective-profile checks, clock/gap ordering, margin/admission, and complete
+6,599-step flat/no-pending replay remain absent. This kernel is not full B4 and
+provides no G0–G4, profit, R3, unused-period or live admission, or new financial
+assumptions or production authority.
+
+The arithmetic kernel has separate software-source review and local validation;
+these do not supply raw-source authentication or a complete B4 replay. Its prior
+design-only review is not source approval. Issue #810 and the profitable-system
+objective remain incomplete.
+
+## Issue #810: independent MARKET scalar facts capability
+
+`tools.market_account_oracle.market` derives a MARKET execution price from an
+explicit current open and raw capacity from explicit caller-selected row facts.
+Prior-bar mode uses only the adjacent prior close and volume, with zero capacity
+at the first row; processing-bar mode uses current open and volume. Base-asset,
+contract and quote-notional units retain distinct multiplier conversions.
+Tick rounding follows the binary64 division/round/multiply contract, including
+adverse buy-up/sell-down and a one-tick minimum.
+
+These are comparison-only raw denominator facts, not fills or participation
+limits. Dataset/protocol/policy/profile authentication, full OHLC/STOP and order
+replay, accepted events, margin/admission, complete 6,599-step execution, and
+formal G0–G4 or economic evidence remain outside this capability. Independent
+source review and final full gates are required for this addition; it grants no
+profit, real-data R3, unused-period or live authority.
+
+## Issue #810: pinned v4 market content verifier capability
+
+`tools/market_replay_oracle/` verifies caller-pinned v4 `manifest.json` and `arrays.npz`
+bytes, bounds and checks all 43 stored NPY headers, including activity-mask alias
+equality, before exposing immutable array views, and independently recomputes the v7
+content identity and scalar contract. Its accepted clock is continuous 24/7 with regular
+nanosecond rows; an unspecified nominal interval is derived from that cadence.
+`funding_due` is preserved as content and is not inferred from the event-count array.
+
+This is content consistency under caller-supplied root and pins, not protocol/source
+authentication, consumed-window authorization, effective-profile validation,
+causal-feature validation, or financial replay. It adds no execution/accounting
+authority and establishes no full B4, G0/G2, R3, profit, unused-period or live evidence.
+Research status and existing financial assumptions are unchanged.
+
+## Issue #810: static frozen-attempt input binding
+
+The attempt-binding layer combines caller-pinned protocol bytes, exact source HEAD and
+raw snapshot manifest, supported static profile fingerprints, and the independently
+verified raw Dataset pins. It maps the frozen 48-arm configuration/symbol/scenario/role
+roster to UTC actor windows, vintage transitions and reserve intervals, and compares
+complete effective policy dictionaries with separately derived canonical digests as
+secondary checks. The runtime economic window covers 6,527 actor hours; 24- and
+72-hour forecast horizons remain separate.
+
+This is static source and input binding only. It does not attest to a running process,
+provider or external venue, import or execute native code, fit forecasts, inspect result
+values or calculate PnL. Intent/fill, margin, runtime clock/carry conformance and the
+complete 6,599-advance financial replay remain unfinished. It does not establish formal
+G0/G2, full B4, profit, R3, unused-period or live evidence; the frozen protocol and
+financial assumptions remain unchanged.
+
+## Issue #810: per-advance order-event evidence reader
+
+The offline `tools.market_replay_oracle` facade now includes a bounded reader for one
+caller-pinned, single-symbol `order_events` batch (1 MiB / 4,096-event limits). It checks
+strict JSON, closed v1/v2 fields, caller-expected dataset/policy/symbol, decision and
+processing index/time pairs, processing-only fills, and per-batch sequence numbering.
+V2 fill quantities require a signed integer lot count and a positive matching lot step;
+their exact `Fraction` product must conservatively project to the stored float. V1 fills
+require zero effective lot, and v1 non-fills must contain zero fill values.
+
+This is parsed event evidence only. Effective-lot derivation, source/receipt/attempt
+authentication, intent history, admission, native costs/accounting and full 6,599-step
+replay remain unresolved. It does not complete B4 or protocol-authenticated v4, change
+the frozen G v3 financial assumptions, or establish G0/G2, profit, R3, unused-period or
+live authority.
+
+## Issue #810: streaming bound event-row coverage candidate
+
+The candidate walker streams one arm: 6,527 actor advances `[2903, 9430)` and 72
+reserve advances `[9430, 9502)`. It binds actor rows to event contexts, checks
+one-bar clocks and parses batches. Empty arrays count as present; absent, null and
+non-array batches reject. Invalid native clocks remain rejected coverage, not
+accepted evidence.
+
+The native selected-arm consumer now obtains the paired exact v4 binding during
+static H/v3-H/v4/source/Dataset readback, then runs the walker over both original
+manifest-pinned receipt sections before forecast or Q replay. It checks original
+row clocks and symbol metadata alongside nested event arrays. It requires all
+6,527 actor and 72 reserve batches, no missing actor tail, and no native-fact
+validation failures or invalid reserve clocks; ordinary witnessed order
+rejections remain events, not native-row failures. The later Q replay performs
+its own receipt pass and retains its existing row, order, risk, book, and terminal
+comparisons. Synthetic indexed-receipt tests exercise this wiring and failure
+ordering; no fresh H/runtime result is asserted. The event pass reads rows
+through the manifest-pinned output index but does not independently authenticate
+the native source snapshot or outer attempt. It remains comparison evidence, not
+intent admission, independent accounting, or terminal-ledger authority. Those
+requirements remain necessary for full B4. G v3 and financial assumptions are
+unchanged; no formal G0-G2, R3, profit, unused-period or live authority follows.
+
+## Issue #810: distinct native/comparison declaration pair candidate
+
+The next static prerequisite pairs the unchanged H native v3 protocol with the
+separate H-bound v4 comparison declaration. Independent source reconstruction
+and public-loader readback agree on H's declaration for four workers. Pairing
+checks complete shared-field equality and both independent raw pins, retaining
+distinct immutable snapshots without relabeling either document.
+
+The design received a result-blind AGY review. Implementation source review and
+required final gates remain separate. A future fresh H v3 execution can use the
+distinct v4 comparison document only with an outer binding that proves actual
+freshness, runtime provenance and both consumers' exact inputs. Existing H/G
+attempts cannot be promoted by this static check. Outer receipt verification,
+intent/admission, independent accounting and terminal settlement remain open;
+no new fit, market run, profit, full B4, formal G0/G2 or live evidence is supplied.
+
+## Issue #810: bounded original-receipt parser candidate
+
+The active full-B4 integration now includes a bounded streaming gzip/JSON
+reader for caller-pinned original receipt files. It verifies the compressed
+input and complete stream while selecting actor or reserve rows; these rows
+remain provisional until verification finishes. Manufactured 6,599-row parser
+fixtures establish parser mechanics only, not native execution or a completed
+attempt. Outer receipt binding, order intent and witness closure, independent
+accounting, and terminal settlement remain open in this single integration
+workstream. No full B4, formal G0/G2, profit, R3, or live authority is claimed.
+
+The same integration now checks the native flat output manifest against its
+caller-pinned original bytes and exact file roster. Bounded reads retain the
+original file identities, reject links and path aliases, and expose explicit
+rechecks. Actor and reserve readers obtain the same gzip pin from this index.
+This joins file and row-structure verification; it does not authenticate the
+manifest's author, the root launch or runtime consumption. Failed and partial
+native attempts retain their original artifacts and do not acquire full-B4
+status through this file index.
+
+The package now contains separate caller-input forecast, independent after-cost
+allocation/action-risk, expected two-symbol MARKET/GTC intent and bounded owned-row
+driver components. Public-native artificial comparisons exercise 32 actor and 8
+reserve rows across the exact frozen BASEL0/COST2L0/BASEL2 profiles, nonrl/cash
+roles, 24/72-hour horizons and both symbol slots. This is software evidence only;
+caller pins do not establish source producer, runtime consumer or root-attempt
+authentication. The driver does not consume an authenticated original run or
+establish the full frozen financial 48-cell replay. G0/G2, profit, R3, unused-period,
+and live authority remain unestablished; financial assumptions remain unchanged.
+A bounded frozen-forecast index complements these components: it checks a
+caller-supplied raw byte pin, decodes once, and looks up a selected packet/vintage
+pair. The lookup reuses the semantic adapter but grants no source authentication;
+its 64 MiB input and 4,096-character numeric-token caps are parser limits, not RSS
+guarantees.
+
+A separate internal binary64 scalar projection now exercises H-compatible cash and wealth operation order against the public BookState using only caller-owned synthetic opening facts and explicit events, alongside the Fraction/Decimal reference ledger. It is not a row-level replay or financial result. Its explicit cross-margin event now reproduces maintenance, collateral haircut, deficit reset and terminal flattening, including binary64 tolerance boundaries. Isolated margin, split transitions, source and receipt authentication, phase coordination, intent/admission, and outer-attempt closure remain incomplete; no economic assumptions change.
+
+
+## Issue #810: caller-owned decision identity capability
+
+The full-B4 comparison package has an internal identity builder for explicit context and actor components, including risk-target identities and MARKET/GTC order payloads. Order-ID generation reuses the package's expected-intent primitive. The builder reproduces hashes from supplied components; it does not authenticate a forecast, Dataset, account phase, or attempt. The public NONRL allocation proposal path validates a known BookState processing clock against the selected Dataset and requires an exact decision-index match. Unknown-clock bootstrap remains supported. This is early admission validation; it does not claim duplicate-fill or P&L repair. Context admission, root-owned attempt binding, order lifecycle, independent accounting, and terminal-flat/no-pending evidence remain incomplete. These software components establish no full B4, G0-G2, profit, R3, unused-period, or live authority, and change no financial assumptions.
+
+The internal row driver now has an H/v3 indexed receipt consumer that runs the
+owned replay across actor and reserve rows, waits for both structural scans to
+reach EOF, rebuilds and compares every actor identity digest, checks every
+indexed forecast vintage against the selected configuration's alpha, horizon,
+feature roster and prediction symbols, checks the native plan/runtime/cost/risk
+declarations against the frozen binding, compares final settlement, and
+rechecks the indexed forecast and output tree. Public-native artificial 32+8
+comparisons complete for NONRL and CASH; missing actor rows, mutated actor
+identity, a switched alpha stream, mismatched cost profile and a corrupt gzip
+tail reject without returning a completion record. Bounded file reads stop
+when a file grows beyond its pin. This is software evidence only. The current
+composed head still requires fresh exact-head independent review and full
+repository/CI closure; the complete frozen 48-cell B4 run remains unexecuted.
+No economic acceptance or live readiness is established.
+
+The coordinator also derives the exact four-configuration × two-symbol ×
+three-scenario × two-role roster from the validated H/v3-H/v4 pair and exposes a
+shared-index comparison entry that brackets bounded arm reads with two whole-index
+rechecks. `build_frozen_h_launch_plan` creates a typed offline plan binding the
+frozen source, Dataset, review bytes, cwd, executable, exact argv and fresh separate
+roots. The separate `run_and_consume_frozen_h_market_matrix` entry connects that
+plan to the root-owned process witness and shared 48-arm consumer. The default CLI
+remains offline-plan-only. An artificial join-unit test still stubs the typed-run
+result and matrix comparison; it remains unit-level control-flow evidence. A
+separate artificial H component attempt has launched the operator and root process
+witness, but did not complete a root-consumed pair. The native 48-arm matrix remains
+unstarted.
+
+Before a native 48-arm run, one matched artificial NONRL/CASH component-loop pair
+must each complete 6,527 actor plus 72 reserve advances, with nonzero actor
+decisions/fills and terminal reserve settlement. The fixed synthetic schedule
+requires an actor-boundary fill followed by a first-reserve zero-target close;
+every actor/reserve row also checks that no active order targets the other
+symbol. The coordinator now contains an
+offline typed plan and a tracked fixed-input operator for that artificial path.
+The operator is designed to use a separate artificial Dataset/protocol/receipt
+under the pinned H interpreter, working directory and import root, calling
+unchanged public H Dataset and market execution APIs. The plan pins the complete
+deterministic input, forecast, cost, risk and execution recipe; the operator
+reports the Dataset identity derived by H's builder. Its outputs remain artificial
+and do not impersonate a frozen H/v3-H/v4 attempt or confer authentication. The
+preserved output bundle `b058e58211ef4ddb8ebc2719bec6a850` used H source
+`8bc2fd0c` and Q source `b93c161f`. Its H child exited 0 with the owned process
+tree empty, and the root-validated 601-byte manifest pins both role receipts.
+That root-aware consumer rejected the attempt before replay because the typed
+root authority omitted Q's shared protocol-binding digest and Dataset ID. Local
+source commit `2b228612` binds both from Q-owned inputs; the old output and
+witness remain bound to their original pins. The `8bc2fd0c` source remains the
+frozen native 48-arm reference, but its v1 event lacks the signed lot count and
+effective lot size required for positive-lot v2 fills.
+
+The separate artificial-only H source `d361b6e3` adds that versioned fill
+evidence while retaining v1 for legacy and non-fill events. It leaves Dataset,
+forecast, cost and account calculations unchanged, and does not replace the
+frozen native 48-arm source. A later H `d361b6e3` / Q `8cb81d` attempt exercised
+the typed root authority and reached the first NONRL active-order comparison,
+which failed because Q compared `asdict()` output containing `reduce_only: false`
+against H's canonical intent payload, which omits that false field. The Q
+consumer now compares the native intent shape with the owned intent's canonical
+payload. Regressions retain strict key/value checks for true `reduce_only` and
+mutated identity fields.
+
+The paired static protocol readers now also have an explicit closed candidate
+profile for H source `b6318664`, derived from its metadata-only protocol
+declaration. The existing default remains the `d361b6e3` pair, and the legacy
+v3 reader remains frozen to `8bc2fd0c`; no source pin or prior artifact was
+rebound. This adds declaration/readback software support only. It is not a fresh
+H attempt, a completed root-consumed pair, Full-B4 acceptance, or native-48
+evidence.
+
+After that fix, the public unrooted NONRL consumer call returned against the
+preserved, manifest-pinned receipt and fixed Q spec. Its normal-return contract
+implies all 6,527 actor and 72 reserve rows passed, but the external diagnostic
+exited 1 afterward when its summary formatter requested a nonexistent
+`research_authorized` field. No comparison result was serialized or exported, so
+the row count is contract-backed inference only. This unrooted single-role check
+does not authenticate the old root attempt; CASH has not been re-consumed and no
+root-consumed pair is complete. No root-consumed pinned-H 6,599-step pair, native
+48-arm, repository-wide final gate, economic, unused-period or live evidence is
+claimed. The current worktree remains development code; these interfaces do not
+promote it to Full-B4 authority.
+
+The native-arm consumer now also runs an independent `ReferenceAccount` ledger
+after each matched Q row, deriving price, fill cost and carry from the pinned
+Dataset and policy while preserving one account across actor and reserve phases.
+Synthetic tests cover row-level agreement and actor-to-reserve continuity. This
+source change has not been exercised on a fresh authenticated H/Q attempt and
+does not change the incomplete-pair status above.
+
+The typed artificial recipe now fixes a no-fit projection with intercept -0.02
+and a coefficient derived from the stored float32 feature range, producing
+predeclared baseline and pulse returns of -0.02 and +0.02. Its training rows are
+trace provenance only, not fitted Ridge evidence. The Q adapter independently
+reconstructs Dataset identity and the complete canonical forecast stream; the
+pair consumer checks those exact forecast bytes before scanning either receipt.
+A bounded Q-only after-cost oracle covers the three vintage baselines and pulses
+plus the final actor decision against the pinned cost recipe. The standalone
+Q-only synthetic software replay consumed all 6,599 actor and reserve advances
+per role (6,527 actor plus 72 reserve; 13,198 advances total) for NONRL and CASH.
+It checked required NONRL actor fill indices 2906, 5090, 7298 and 9430, the
+reserve close at 9431, no CASH fills, and terminal flat/no-active-order closure.
+That Q-only result is separate from the uncompleted H-rooted comparison above.
+The fabricated H-shaped receipt regression remains an actor-index extraction
+test only. No fresh root-consumed artificial pair, frozen native 48-arm,
+independent full-B4 accounting, economic or unused-period evaluation, or live
+evidence is established. These interfaces do not grant research or G0-G4
+authority, change financial assumptions, or establish profitability.
+
+A fresh root-observed artificial attempt `9a078291` used Q source `6fe0d629`
+with the separate artificial-only H source `d361b6e3`. The H child exceeded the
+existing 3,600-second child timeout; the recorded witness interval was about
+3,603 seconds. Cleanup completed with the owned process tree empty and no cleanup
+errors. A NONRL receipt path was present, but there was no CASH receipt, finish
+witness, pair result or Q consumption, so this attempt did not complete a
+root-consumed pair. No retry was started, and the older failed artifacts remain
+bound to their original source pins. The attempt's authority flags remained
+false.
+
+The artificial operator now has an opt-in progress JSONL sidecar for future
+diagnostic attempts. The default omits its optional plan path and launch flag;
+the observer source identity continues to pin the actual Q revision. When
+enabled, the parent binds an absent safe path under its `output/verify` root to
+the typed plan, child plan, arguments and root input authority. The child alone
+creates the sidecar exclusively, after plan/CLI validation and before Dataset
+construction or replay. It records only role, phase, start index and processing
+index at each role/phase start, at a bounded stride and at the phase endpoint,
+with hard record and byte caps. Failure to create the sidecar exclusively fails
+the invocation before Dataset construction or replay. After creation,
+serialization or write errors disable logging without escaping the callback or
+replacing a primary execution error. The H account/order/history/RNG guards stay
+active, and their per-advance cost remains even when writes are throttled.
+Progress is not a result or authority signal. This diagnostic does not change
+the financial recipe, event protocol, H source pin, or child timeout; no
+successful pair or economic result is claimed.
 
 ## Native finer-clock cross-asset input provenance hardening (2026-10-11)
 

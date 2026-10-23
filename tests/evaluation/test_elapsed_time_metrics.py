@@ -55,5 +55,7 @@ def test_numpy_integer_periods_preserve_default_annualization() -> None:
 
     metrics = evaluate_performance(series)
 
+    assert type(series.periods_per_year) is int
     assert series.annualization_periods_per_year == 252.0
     assert metrics.periods_per_year == 252
+    assert type(metrics.periods_per_year) is int

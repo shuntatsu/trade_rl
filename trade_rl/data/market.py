@@ -148,6 +148,7 @@ class MarketDataset:
             or periods_per_year <= 0
         ):
             raise ValueError("periods_per_year must be a positive integer")
+        object.__setattr__(self, "periods_per_year", int(periods_per_year))
         try:
             calendar_kind = MarketCalendarKind(self.calendar_kind)
         except ValueError as error:

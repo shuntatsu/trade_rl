@@ -35,6 +35,7 @@ class ReturnSeries:
             or periods_per_year <= 0
         ):
             raise ValueError("periods_per_year must be a positive integer")
+        object.__setattr__(self, "periods_per_year", int(periods_per_year))
         if self.elapsed_years is not None and (
             not math.isfinite(self.elapsed_years) or self.elapsed_years <= 0.0
         ):

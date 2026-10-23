@@ -86,7 +86,24 @@ def test_market_dataset_accepts_numpy_integer_annualization_clock() -> None:
     market = MarketDataset(**values)
 
     assert market.periods_per_year == 8_760
-    assert isinstance(market.periods_per_year, np.integer)
+    assert type(market.periods_per_year) is int
+
+
+def test_numpy_integer_clock_has_same_canonical_dataset_identity() -> None:
+    numpy_values = kwargs()
+    numpy_values["periods_per_year"] = np.int64(8_760)
+    numpy_market = MarketDataset(**numpy_values)
+    native_market = MarketDataset(**kwargs())
+
+    numpy_identified = numpy_market.with_content_identity()
+    native_identified = native_market.with_content_identity()
+
+    assert numpy_identified.periods_per_year == 8_760
+    assert (
+        numpy_identified.identity_payload_json
+        == native_identified.identity_payload_json
+    )
+    assert numpy_identified.dataset_id == native_identified.dataset_id
 
 
 def test_session_calendar_rejects_nat_timestamp_with_valid_availability() -> None:

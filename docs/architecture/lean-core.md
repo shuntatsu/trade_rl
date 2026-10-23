@@ -824,9 +824,12 @@ subclasses, unsupported mappings or changed serializer contracts use the
 current public digest calculation without re-executing earlier callbacks.
 Standalone public declaration/runtime helpers continue to calculate canonical
 identities directly by default; the terminal runner creates a fresh memo for
-each invocation and retains it only for that invocation. The private plumbing
-does not define a caller-managed cross-run cache contract. Cost, source, clock
-and policy checks keep their existing timing.
+each invocation and retains it only for that invocation. The Tier D fixed
+NONRL/CASH pair declarer creates a separate fresh memo inside each role and
+threads it through that role's initial global plan and terminal prefix
+re-declaration. It does not share memo state across roles, pairs or top-level
+runs. The private plumbing does not define a caller-managed cross-run cache
+contract. Cost, source, clock and policy checks keep their existing timing.
 This is a single-process optimization, not protection against arbitrary
 hostile Python code or concurrent unsynchronized mutation.
 

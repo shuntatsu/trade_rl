@@ -648,6 +648,12 @@ loading or research authorization. The private path changes only repeated
 simple-stream digest computation and leaves source-envelope and declared-source
 memo ownership with the collector.
 
+The Tier D fixed NONRL/CASH `declare_pair` composition creates one fresh memo
+inside each role iteration and passes that same role-local object to the initial
+global plan and terminal current-prefix re-declaration. A later role, pair or
+top-level run starts with a new memo; standalone public helpers keep their
+direct-by-default behavior.
+
 Same-source regression tests compare full canonical plans and native receipts
 through complete terminal closing. The reference leg replaces only the private
 memo getter with the current public stream digest; the optimized leg runs the

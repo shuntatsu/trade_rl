@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -108,11 +109,21 @@ def stitch_oos(
         boundaries.append((current.start, current.stop))
         previous = current
 
+    elapsed_years = None
+    if any(result.returns.elapsed_years is not None for result in ordered):
+        elapsed_years = math.fsum(
+            result.returns.elapsed_years
+            if result.returns.elapsed_years is not None
+            else len(result.returns.values) / result.returns.periods_per_year
+            for result in ordered
+        )
+
     return StitchedOOS(
         returns=ReturnSeries(
             values=tuple(combined),
             kind=first.returns.kind,
             periods_per_year=first.returns.periods_per_year,
+            elapsed_years=elapsed_years,
         ),
         fold_indices=fold_indices,
         boundaries=tuple(boundaries),

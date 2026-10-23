@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -71,43 +71,42 @@ def _process_identity_from_popen(
     process: subprocess.Popen[Any],
 ) -> tuple[int, int]:
     """Read the launched process birth time from Popen's retained Windows handle."""
-    if os.name != "nt":
-        raise OSError("launched-process identity is available only on Windows")
-    pid = process.pid
-    handle = getattr(process, "_handle", None)
-    if type(pid) is not int or pid <= 0 or not isinstance(handle, int):
-        raise ValueError("Popen did not retain a valid process handle and PID")
+    if sys.platform == "win32":
+        pid = process.pid
+        handle = getattr(process, "_handle", None)
+        if type(pid) is not int or pid <= 0 or not isinstance(handle, int):
+            raise ValueError("Popen did not retain a valid process handle and PID")
 
-    import ctypes
-    from ctypes import wintypes
+        import ctypes
+        from ctypes import wintypes
 
-    class _FileTime(ctypes.Structure):
-        _fields_ = [
-            ("low", wintypes.DWORD),
-            ("high", wintypes.DWORD),
-        ]
+        class _FileTime(ctypes.Structure):
+            _fields_ = [
+                ("low", wintypes.DWORD),
+                ("high", wintypes.DWORD),
+            ]
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    get_process_times = kernel32.GetProcessTimes
-    get_process_times.argtypes = (
-        wintypes.HANDLE,
-        ctypes.POINTER(_FileTime),
-        ctypes.POINTER(_FileTime),
-        ctypes.POINTER(_FileTime),
-        ctypes.POINTER(_FileTime),
-    )
-    get_process_times.restype = wintypes.BOOL
-    creation, exit_time, kernel_time, user_time = (_FileTime() for _ in range(4))
-    if not get_process_times(
-        wintypes.HANDLE(handle),
-        ctypes.byref(creation),
-        ctypes.byref(exit_time),
-        ctypes.byref(kernel_time),
-        ctypes.byref(user_time),
-    ):
-        raise ctypes.WinError(ctypes.get_last_error())
-    filetime_ticks = (creation.high << 32) | creation.low
-    return pid, filetime_ticks + _WINDOWS_TO_DOTNET_TICKS
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_process_times = kernel32.GetProcessTimes
+        get_process_times.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(_FileTime),
+            ctypes.POINTER(_FileTime),
+            ctypes.POINTER(_FileTime),
+        )
+        get_process_times.restype = wintypes.BOOL
+        creation, exit_time, kernel_time, user_time = (_FileTime() for _ in range(4))
+        if not get_process_times(
+            wintypes.HANDLE(handle),
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        filetime_ticks = (creation.high << 32) | creation.low
+        return pid, filetime_ticks + _WINDOWS_TO_DOTNET_TICKS
+    raise OSError("launched-process identity is available only on Windows")
 
 
 @dataclass

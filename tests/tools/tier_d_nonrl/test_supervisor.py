@@ -118,6 +118,33 @@ def test_process_tree_uses_only_handle_identity_and_bounds_cim_precision(monkeyp
     assert unbound.owned == {}
 
 
+def test_popen_identity_lookup_rejects_non_windows_before_windows_api(monkeypatch):
+    process_tree_module = importlib.import_module(
+        "tools.tier_d_nonrl.tier_d_process_tree"
+    )
+    monkeypatch.setattr(
+        process_tree_module, "sys", SimpleNamespace(platform="linux"), raising=False
+    )
+    import ctypes
+
+    windows_api_calls = []
+
+    def unexpected_windows_api(*args, **kwargs):
+        windows_api_calls.append((args, kwargs))
+        raise OSError("Windows API was accessed on a non-Windows platform")
+
+    monkeypatch.setattr(ctypes, "WinDLL", unexpected_windows_api, raising=False)
+    tree = process_tree_module.ProcessTree.from_popen(
+        SimpleNamespace(pid=10, _handle=1)
+    )
+
+    assert tree.expected_root_identity is None
+    assert tree.root_identity is None
+    assert tree.root_identity_error is not None
+    assert "only on Windows" in tree.root_identity_error
+    assert windows_api_calls == []
+
+
 def test_process_tree_rejects_birth_time_outside_cim_precision_tolerance():
     tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     near_miss = node(10, 1, 111, 4)

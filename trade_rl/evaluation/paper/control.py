@@ -34,6 +34,10 @@ class CollectionControl:
                 (protocol_sha256,)
             ]:
                 raise ValueError("collection control protocol digest mismatch")
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS cycles_incomplete_idx "
+                "ON cycles(id) WHERE complete=0"
+            )
             if (
                 self.connection.execute(
                     "SELECT id FROM cycles WHERE complete=0 LIMIT 1"

@@ -236,3 +236,29 @@ def test_invalid_event_cannot_modify_journal(tmp_path, key, kind, payload):
     with pytest.raises((TypeError, ValueError)):
         journal.append(key, kind, payload, expected_parent=digest)
     assert journal.events() == []
+
+
+def test_verified_event_iterator_rejects_invalid_tail_before_yielding_prefix(tmp_path):
+    root, digest, journal = initialized(tmp_path)
+    first = journal.append("one", "observation", {}, expected_parent=digest)
+    journal.append("two", "observation", {}, expected_parent=first["sha256"])
+    with sqlite3.connect(root / "journal.sqlite") as connection:
+        connection.execute("DROP TRIGGER events_no_update")
+        connection.execute("UPDATE events SET body=? WHERE sequence=1", (b"{}",))
+
+    with pytest.raises(ValueError, match="digest"):
+        next(journal.iter_events())
+
+
+def test_verified_event_iterator_holds_one_read_snapshot_until_closed(tmp_path):
+    root, digest, journal = initialized(tmp_path)
+    with sqlite3.connect(root / "journal.sqlite") as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+    first = journal.append("one", "observation", {}, expected_parent=digest)
+    second = journal.append("two", "observation", {}, expected_parent=first["sha256"])
+    stream = journal.iter_events()
+    assert next(stream) == first
+
+    third = journal.append("three", "observation", {}, expected_parent=second["sha256"])
+    assert list(stream) == [second]
+    assert journal.events() == [first, second, third]

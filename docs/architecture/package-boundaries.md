@@ -155,8 +155,12 @@ selection does not change the provider-independent execution model.
 `evaluation/paper/store.py` owns protocol-bound, append-only event persistence
 with canonical JSON hashes, contiguous sequence/parent checks, atomic
 compare-and-append and idempotency. Reopening permits SQLite recovery only after
-validating the expected protocol digest. This is an evidence store, not another
-financial ledger. `paper/account.py` composes the existing FundingCarryBot,
+validating the expected protocol digest. `events()` retains its list contract;
+`iter_events()` validates the complete chain before yielding from one read-only
+SQLite snapshot. The engine replays that stream and keeps only each known key's
+trusted sequence and digest, re-reading and validating the original row for an
+idempotent retry. This is an evidence store, not another financial ledger.
+`paper/account.py` composes the existing FundingCarryBot,
 BookState and depth matcher, tracks exact fill-time holdings for later funding
 receipts, and owns permanent risk/quality stops. `paper/engine.py` binds verified
 source references to saved commands, commits isolated account transitions, and

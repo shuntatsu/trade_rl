@@ -4,6 +4,8 @@ import tomllib
 from pathlib import Path
 
 import trade_rl.evaluation as evaluation
+from trade_rl.evaluation.paper.engine import PaperEngine
+from trade_rl.evaluation.paper.store import PaperJournal
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl" / "evaluation"
@@ -130,6 +132,13 @@ def test_evaluation_responsibility_packages_exist() -> None:
     )
     missing = [path for path in required if not (PACKAGE / path).is_file()]
     assert missing == []
+
+
+def test_paper_journal_streaming_stays_within_its_existing_owner() -> None:
+    assert PaperJournal.iter_events.__module__ == "trade_rl.evaluation.paper.store"
+    assert PaperEngine.__module__ == "trade_rl.evaluation.paper.engine"
+    assert "PaperJournal" not in evaluation.__all__
+    assert "PaperEngine" not in evaluation.__all__
 
 
 def test_retired_evaluation_private_paths_are_absent() -> None:

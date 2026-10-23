@@ -295,6 +295,57 @@ def test_cycle_roster_reconciles_actual_commands_and_captures(tmp_path, monkeypa
     )
 
 
+@pytest.mark.parametrize("control_state", ["missing", "identity_mismatch"])
+def test_collection_control_preflight_precedes_malformed_audit_records(
+    tmp_path, control_state
+):
+    import sqlite3
+
+    root = tmp_path / "collection"
+    root.mkdir()
+    digest = "a" * 64
+    if control_state == "identity_mismatch":
+        with sqlite3.connect(root / "collection-control.sqlite") as connection:
+            connection.execute("CREATE TABLE identity(digest TEXT NOT NULL)")
+            connection.execute("INSERT INTO identity VALUES(?)", ("b" * 64,))
+            connection.execute(
+                "CREATE TABLE cycles(id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, complete INTEGER NOT NULL)"
+            )
+
+    if control_state == "missing":
+        assert assessment.collection_evidence_reasons(
+            root,
+            digest,
+            [{}],
+            start=NOW,
+            end=NOW + timedelta(days=1),
+        ) == ["missing_collection_control"]
+        assert assessment._collection_evidence_reasons_from_compact_events(
+            root,
+            digest,
+            [("decision", {})],
+            start=NOW,
+            end=NOW + timedelta(days=1),
+        ) == ["missing_collection_control"]
+    else:
+        with pytest.raises(ValueError, match="protocol mismatch"):
+            assessment.collection_evidence_reasons(
+                root,
+                digest,
+                [{}],
+                start=NOW,
+                end=NOW + timedelta(days=1),
+            )
+        with pytest.raises(ValueError, match="protocol mismatch"):
+            assessment._collection_evidence_reasons_from_compact_events(
+                root,
+                digest,
+                [("decision", {})],
+                start=NOW,
+                end=NOW + timedelta(days=1),
+            )
+
+
 @pytest.mark.parametrize(
     "defect,reason",
     [
@@ -360,6 +411,60 @@ def test_assessment_excludes_active_collector_then_rejects_empty_complete_period
     assert "missing_instrument_fills" in report["reasons"]
     with pytest.raises(ValueError, match="external anchor"):
         assessment.evaluate_paper_study(root, **{**arguments, "expected_tip": "a" * 64})
+
+
+def test_assessment_streams_events_without_materializing_journal(tmp_path, monkeypatch):
+    from trade_rl.evaluation.paper.engine import PaperEngine
+    from trade_rl.evaluation.paper.store import PaperJournal
+    from trade_rl.evaluation.paper.supervisor import PaperCollector
+
+    root = tmp_path / "study"
+    start = NOW + timedelta(minutes=5)
+    digest = seal_paper_study(
+        root,
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
+    engine = PaperEngine(root, expected_protocol_sha256=digest)
+    engine.gap("synthetic-gap", at=start + timedelta(seconds=1), reason="fixture")
+    expected_tip = engine.status()["tip"]
+    with PaperCollector(root, expected_protocol_sha256=digest):
+        pass
+    import sqlite3
+
+    with sqlite3.connect(root / "collection-control.sqlite") as connection:
+        connection.execute(
+            "INSERT INTO cycles(started_at,complete) VALUES(?,1)",
+            ((start + timedelta(seconds=1)).isoformat(),),
+        )
+    (root / "sources").mkdir()
+
+    stream_calls = 0
+    original_iter_events = PaperJournal.iter_events
+
+    def tracked_iter_events(journal):
+        nonlocal stream_calls
+        stream_calls += 1
+        yield from original_iter_events(journal)
+
+    def reject_materialization(_journal):
+        pytest.fail("assessment must consume the validated event stream")
+
+    monkeypatch.setattr(PaperJournal, "iter_events", tracked_iter_events)
+    monkeypatch.setattr(PaperJournal, "events", reject_materialization)
+
+    report = assessment.evaluate_paper_study(
+        root,
+        expected_protocol_sha256=digest,
+        expected_tip=expected_tip,
+        clock=lambda: start + timedelta(days=90, seconds=180),
+    )
+
+    assert stream_calls == 2
+    assert report["decision"] == "PAPER_SCREEN_REJECTED"
+    assert "cycle_command_mismatch" in report["reasons"]
+    assert "missing_collection_control" not in report["reasons"]
 
 
 def test_final_assessment_requires_the_original_source_runtime(tmp_path, monkeypatch):

@@ -80,6 +80,42 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+### Synthetic software invariant: prospective paper carry ledger
+
+- **Statement:** For explicit signed lot requests and a small, literal source
+  fixture, the paper engine's financial state agrees with a separate Decimal
+  reference calculation. The reference derives capacity-limited fills and
+  adverse prices from displayed depth, charges venue fees once, applies signed
+  principal to cash, values positions at spot-mid / perpetual-mark prices, and
+  applies each funding event to the position held strictly before its settlement
+  time. A terminal request is complete only after actual fills leave no position
+  or pending decision.
+- **Scope:** `tests/evaluation/paper_ledger_oracle.py` consumes synthetic source
+  literals and declared target quantities. The driver checks that the current
+  fixed rule emits the fixture's literal target and feeds the same raw fixture
+  through the existing capture/parser and paper engine. The reference itself
+  imports no production accounting, strategy, or depth-execution helper, and it
+  never uses reported fills, fees, or account metrics as inputs. Comparisons use
+  fixed `2e-9` absolute and `2e-12` relative tolerances for binary64 projections.
+- **Counterexamples:** Funding must not accrue to a position first filled at the
+  same settlement timestamp; a settlement at the retry timestamp uses only the
+  earlier partial holding. A trade's adverse fill price determines signed cash
+  and fees while the independent market mark determines equity. A matched
+  partial leaves an unfilled request for a later decision; an asymmetric partial
+  stops increases and funding/close calculations use the actual leg quantities.
+  Terminal intent does not make the account flat before its closing fills.
+- **Oracle:** `tests/evaluation/test_paper_ledger_oracle.py` compares cash,
+  quantities, marks, equity, peak/drawdown, fees, turnover, funding, futures
+  collateral, each fill, pending state, and terminal flatness over entry,
+  partial completion, funding, and terminal close.
+- **Known limitations:** This is synthetic software coverage for the supported
+  four-instrument paper ledger. It does not independently parse or attest raw
+  capture bytes or exchange-rule metadata; those remain covered by their own
+  source-contract tests. Its strategy check covers only the fixture's declared
+  target, not ranking, general sizing, or candidate selection. It does not
+  establish complete risk or liquidation conformance, full source-to-ledger
+  conformance, formal G2 approval, real-feed behavior, or economic performance.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 Quantity-preserving hold has two independent G2 counterexamples. With a constant

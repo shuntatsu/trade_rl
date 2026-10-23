@@ -115,6 +115,7 @@ def build_causal_forecast_training_set(
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps = dataset.timestamps.astype("datetime64[ns]")
     timestamps_ns = timestamps.astype(np.int64)
+    price_available_at = dataset.resolved_array("available_at")
     horizon_ns = int(
         np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
     )
@@ -138,6 +139,11 @@ def build_causal_forecast_training_set(
                 continue
             end_index = time_to_index.get(end_ns)
             if end_index is None or end_index <= start_index:
+                continue
+            if (
+                price_available_at[start_index, symbol_index] > cutoff
+                or price_available_at[end_index, symbol_index] > cutoff
+            ):
                 continue
             if not bool(np.all(availability[start_index, list(indices)])):
                 continue

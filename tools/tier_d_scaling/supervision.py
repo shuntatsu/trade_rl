@@ -99,7 +99,7 @@ def supervised(command: list[str], root: Path) -> int:
                 stdin=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            tree = ProcessTree(process.pid)
+            tree = ProcessTree.from_popen(process)
             usage = sample("initial")
             while True:
                 if exceeded := _violations(usage, limits):
@@ -128,6 +128,10 @@ def supervised(command: list[str], root: Path) -> int:
                     ambiguous_remaining = usage["ambiguous_rss_process_count"]
                 except Exception as error:
                     final_sample_error = f"{type(error).__name__}: {error}"
+                if tree is not None and tree.root_identity is None:
+                    failure = failure or (
+                        "worker root process birth identity was never observed"
+                    )
                 if owned_remaining and returncode is not None:
                     failure = (
                         failure

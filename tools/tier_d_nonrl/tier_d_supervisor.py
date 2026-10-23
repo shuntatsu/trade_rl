@@ -195,7 +195,7 @@ def supervised_run(
         with subprocess.Popen(
             command, cwd=REPO, env=environment, stdout=output, stderr=subprocess.STDOUT
         ) as process:
-            tree = ProcessTree(process.pid) if os.name == "nt" else None
+            tree = ProcessTree.from_popen(process) if os.name == "nt" else None
             try:
                 if tree is not None:
                     initial_sample = tree.sample()
@@ -338,6 +338,15 @@ def supervised_run(
                         and failure is None
                     ):
                         failure = "verified owned descendants remained after worker exit; retain partial attempt"
+                    if (
+                        tree is not None
+                        and tree.root_identity is None
+                        and failure is None
+                    ):
+                        failure = (
+                            "worker root process birth identity was never observed; "
+                            "retain partial attempt"
+                        )
                     if (
                         failure is not None
                         or process.returncode not in (None, 0)

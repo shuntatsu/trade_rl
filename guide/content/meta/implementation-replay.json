@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "80ffb3dc951a1fd7f315831ca6421b08615056561080a5a840483c87476ea429"
+      "sha256": "fef78f768fd998798db4d5a66c694f21b83cbd27107d7722bbd59bd1e5936584"
     }
   ],
   "code_references": [
@@ -27,7 +27,7 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "f80c5240c77670efc29e5f0f74f327408221f2f8993edc1a92016c690bbdcc67",
+      "source_sha256": "8867c2d6f161d2a4e7cb2a03d6c3c0c19aec3f400908bc9c55bc62b7fb88aeea",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで保有年齢を含む観測を作り、戦略意図から希望数量を計算します。最小保有中の抑制後もhard riskとterminal settlementを通し、約定・帳簿・区間収益・抑制イベントを更新します。",
       "variables": [

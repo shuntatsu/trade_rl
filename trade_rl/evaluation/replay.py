@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from trade_rl.data.market import MarketDataset
+from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
@@ -467,6 +467,11 @@ def run_single_symbol_replay(
         raise ValueError("PPO minimum hold requires the age-aware observation")
     target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
 
+    _require_available_marks_at_row(
+        dataset,
+        row_index=start_index,
+        selected_symbol_indices=(symbol_index,),
+    )
     initial_prices = dataset.resolved_array("mark_price")[start_index]
     book = BookState.zero(
         dataset.n_symbols,
@@ -506,6 +511,12 @@ def run_single_symbol_replay(
     index = start_index
 
     while index < agent_stop_index:
+        _require_available_marks_at_row(
+            dataset,
+            row_index=index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=book.quantities,
+        )
         quantity_before = float(book.quantities[symbol_index])
         position_age_before = position_age_bars
         observation = _observation(
@@ -565,6 +576,12 @@ def run_single_symbol_replay(
                 target_weight,
                 symbol_index=symbol_index,
             )
+        _require_available_marks_at_row(
+            dataset,
+            row_index=index + 1,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=book.quantities,
+        )
         execution = executor.execute_interval(
             book,
             constrained.weights,
@@ -622,12 +639,24 @@ def run_single_symbol_replay(
         current_intent = PositionIntent.FLAT
         desired_quantity = 0.0
         while index < stop_index and book.termination_reason is None:
+            _require_available_marks_at_row(
+                dataset,
+                row_index=index,
+                selected_symbol_indices=(symbol_index,),
+                held_quantities=book.quantities,
+            )
             quantity_before = float(book.quantities[symbol_index])
             flat_target = np.zeros(dataset.n_symbols, dtype=np.float64)
             constrained = risk_controller.constrain(
                 flat_target,
                 current=book.weights,
                 drawdown=book.max_drawdown,
+            )
+            _require_available_marks_at_row(
+                dataset,
+                row_index=index + 1,
+                selected_symbol_indices=(symbol_index,),
+                held_quantities=book.quantities,
             )
             execution = executor.execute_interval(
                 book,
@@ -775,6 +804,12 @@ def run_shared_cash_replay(
         execution_cost=resolved_execution_cost,
         settle_terminal_position=settle_terminal_position,
     )
+    roster_symbol_indices = tuple(range(len(strategy_tuple)))
+    _require_available_marks_at_row(
+        dataset,
+        row_index=start_index,
+        selected_symbol_indices=roster_symbol_indices,
+    )
     initial_prices = dataset.resolved_array("mark_price")[start_index]
     book = BookState.zero(
         dataset.n_symbols,
@@ -820,6 +855,12 @@ def run_shared_cash_replay(
         interval_index: int,
     ) -> ExecutionResult:
         nonlocal active_order_remainders, book, terminal_order_reasons
+        _require_available_marks_at_row(
+            dataset,
+            row_index=interval_index + 1,
+            selected_symbol_indices=roster_symbol_indices,
+            held_quantities=book.quantities,
+        )
         observations_before = execution_observation_count
         exact_quantities_before = tuple(str(value) for value in book.exact_quantities)
         cash_before = float(book.cash)
@@ -899,6 +940,12 @@ def run_shared_cash_replay(
         return execution
 
     while index < agent_stop_index:
+        _require_available_marks_at_row(
+            dataset,
+            row_index=index,
+            selected_symbol_indices=roster_symbol_indices,
+            held_quantities=book.quantities,
+        )
         intents: list[PositionIntent] = []
         effective_intents: list[PositionIntent] = []
         changed_intents: list[bool] = []
@@ -1029,6 +1076,12 @@ def run_shared_cash_replay(
     ):
         flat_proposal = np.zeros(dataset.n_symbols, dtype=np.float64)
         while index < stop_index and book.termination_reason is None:
+            _require_available_marks_at_row(
+                dataset,
+                row_index=index,
+                selected_symbol_indices=roster_symbol_indices,
+                held_quantities=book.quantities,
+            )
             quantities_before = tuple(float(value) for value in book.quantities)
             constrained = risk_controller.constrain(
                 flat_proposal,

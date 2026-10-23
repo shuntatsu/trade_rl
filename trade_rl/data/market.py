@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -1033,3 +1033,42 @@ class MarketDataset:
                     raw * multipliers[symbol_index] * price_vector[symbol_index]
                 )
         return result
+
+
+def _require_available_marks_at_row(
+    dataset: MarketDataset,
+    *,
+    row_index: int,
+    selected_symbol_indices: Sequence[int],
+    held_quantities: np.ndarray | None = None,
+) -> None:
+    """Reject declared-late row marks before a named consumer processes them."""
+
+    if isinstance(row_index, bool) or not isinstance(row_index, int):
+        raise ValueError("decision-time mark row index must be an integer")
+    if not 0 <= row_index < dataset.n_bars:
+        raise ValueError("decision-time mark row index is outside the dataset")
+    if held_quantities is not None and held_quantities.shape != (dataset.n_symbols,):
+        raise ValueError("held quantities do not match market symbols")
+
+    relevant_symbols = set(selected_symbol_indices)
+    if held_quantities is not None:
+        relevant_symbols.update(
+            int(symbol_index) for symbol_index in np.flatnonzero(held_quantities != 0.0)
+        )
+    available_at = dataset.available_at
+    assert available_at is not None
+    timestamp = dataset.timestamps[row_index]
+    late_symbols = sorted(
+        symbol_index
+        for symbol_index in relevant_symbols
+        if available_at[row_index, symbol_index] > timestamp
+    )
+    if late_symbols:
+        names = ", ".join(dataset.symbols[index] for index in late_symbols)
+        raise ValueError(
+            "decision-time mark unavailable for "
+            f"{names} at row {row_index}: "
+            f"available_at={available_at[row_index, late_symbols[0]]}, "
+            f"timestamp={timestamp}"
+        )

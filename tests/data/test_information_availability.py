@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,10 @@ from trade_rl.data.source import (
     InMemoryMarketDataSource,
     RawMarketSeries,
 )
+from trade_rl.evaluation import run_single_symbol_replay
+from trade_rl.simulation import BookState, ExecutionResult, MarketExecutor
+from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.position_intent import PositionIntent
 
 
 def _timestamps(count: int = 24) -> np.ndarray:
@@ -121,6 +126,106 @@ def test_delayed_tradability_is_hidden_from_policy_and_global_fraction() -> None
     )
     assert delayed_true.global_features[10, 1] == 0.0
     assert delayed_false.global_features[10, 1] == 0.0
+
+
+class _RecordingLong:
+    def __init__(self) -> None:
+        self.observations: list[StrategyObservation] = []
+
+    def decide(self, observation: StrategyObservation) -> PositionIntent:
+        self.observations.append(observation)
+        return PositionIntent.LONG
+
+
+def test_delayed_close_is_rejected_before_target_row_execution_and_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = _raw(delayed_index=10)
+    altered_close = raw.close.copy()
+    altered_close[10] *= 1.1
+    altered_high = raw.high.copy()
+    altered_low = raw.low.copy()
+    altered_high[10] = max(raw.open[10], altered_close[10]) * 1.001
+    altered_low[10] = min(raw.open[10], altered_close[10]) * 0.999
+
+    twins = (
+        _build(raw),
+        _build(
+            replace(
+                raw,
+                close=altered_close,
+                high=altered_high,
+                low=altered_low,
+            )
+        ),
+    )
+    first, second = twins
+    for market in twins:
+        assert market.information_available is not None
+        assert market.available_at is not None
+        assert not market.information_available[10, 0]
+        assert market.available_at[10, 0] == market.timestamps[11]
+        assert market.tradable[10, 0]
+        np.testing.assert_allclose(
+            market.resolved_array("mark_price")[10, 0], market.close[10, 0]
+        )
+    np.testing.assert_array_equal(first.timestamps, second.timestamps)
+    np.testing.assert_array_equal(first.available_at, second.available_at)
+    np.testing.assert_array_equal(
+        first.information_available, second.information_available
+    )
+    np.testing.assert_array_equal(first.tradable, second.tradable)
+    np.testing.assert_allclose(first.features, second.features)
+    np.testing.assert_allclose(first.open[:11], second.open[:11])
+    np.testing.assert_allclose(first.close[:10], second.close[:10])
+    assert first.close[10, 0] != second.close[10, 0]
+
+    row_nine_states: list[tuple[float, float, float | None]] = []
+    original_execute_interval = MarketExecutor.execute_interval
+    for market in twins:
+        strategy = _RecordingLong()
+        execution_starts: list[int] = []
+
+        def record_execution_start(
+            executor: MarketExecutor,
+            book: BookState,
+            target_weights: np.ndarray,
+            *,
+            start_index: int,
+            bars: int,
+        ) -> ExecutionResult:
+            execution_starts.append(start_index)
+            return original_execute_interval(
+                executor, book, target_weights, start_index=start_index, bars=bars
+            )
+
+        with monkeypatch.context() as patch:
+            patch.setattr(MarketExecutor, "execute_interval", record_execution_start)
+            with pytest.raises(ValueError, match="decision-time mark unavailable"):
+                run_single_symbol_replay(
+                    market,
+                    strategy,
+                    start_index=8,
+                    stop_index=11,
+                    gross_budget=0.5,
+                )
+        assert execution_starts == [8]
+        assert [observation.index for observation in strategy.observations] == [8, 9]
+
+        row_nine = next(
+            observation
+            for observation in strategy.observations
+            if observation.index == 9
+        )
+        row_nine_states.append(
+            (
+                row_nine.current_weight,
+                row_nine.current_position_quantity,
+                row_nine.gross_position_return,
+            )
+        )
+
+    assert row_nine_states[0] == row_nine_states[1]
 
 
 def test_information_availability_changes_dataset_identity() -> None:

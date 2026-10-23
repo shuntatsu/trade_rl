@@ -46,6 +46,8 @@ feature_available_time <= decision_time
 
 PPOを含む候補群を学習する前に、学習対象の銘柄について、学習に使う価格の利用可能時刻が締切までとDatasetに記録されているかを確認します。報酬計算や最終決済で使う末尾の価格も対象です。遅れて届いた価格があれば、学習期間を短くして続けずに停止します。ここで確認するのはDatasetに記録された利用可能時刻であり、実際のvenue arrivalを独立に証明するものではありません。
 
+fit cutoffとは別に、single-symbol/shared-cash replayとPPO環境は、次に処理する各bar行の `available_at` がその行のtimestampより後なら、帳簿・risk・strategy・executionへ渡す前に停止します。直接`MarketExecutor.execute_interval`のtarget admissionでも、有効なtargetが非zero、または帳簿にnonzeroのexact holdingがある銘柄のtarget rowが遅着なら、valuation・reconciliation前に停止します。同時刻のavailabilityは通し、`information_available=False`だけでは拒否しません。flat accountのzero targetによるpending order cancelは許し、未選択flat銘柄や未処理tailは調べません。これはDatasetの宣言時刻に対する範囲限定runtime guardです。明示`mark_price`・外部帳簿markの独立時刻、明示`OrderIntent`実行、直接close liquidation、過去のvenue arrivalまでは保証しません。cutoff preflightが通っても、実行行のavailability contractを代替するものではありません。
+
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。
 
 ## 4. 同じ入力から同じDataset identityを作る

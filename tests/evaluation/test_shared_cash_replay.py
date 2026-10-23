@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -8,7 +8,12 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation import replay as replay_module
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation import (
+    BookState,
+    ExecutionCostConfig,
+    ExecutionResult,
+    MarketExecutor,
+)
 from trade_rl.simulation.orders.model import OrderEvent, OrderStatus
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -110,6 +115,60 @@ def _two_symbol_market() -> MarketDataset:
         ),
         symbols=("BTCUSDT", "ETHUSDT"),
     )
+
+
+def test_shared_replay_rejects_late_flat_roster_mark_before_target_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _two_symbol_market()
+    assert dataset.available_at is not None
+    assert dataset.information_available is not None
+    available_at = dataset.available_at.copy()
+    information_available = dataset.information_available.copy()
+    available_at[2, 1] = dataset.timestamps[3]
+    information_available[2, 1] = False
+    delayed = replace(
+        dataset,
+        available_at=available_at,
+        information_available=information_available,
+    )
+    strategies = (
+        FixedIntent(PositionIntent.FLAT),
+        FixedIntent(PositionIntent.FLAT),
+    )
+    execution_starts: list[int] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_execution_start(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        execution_starts.append(start_index)
+        return original_execute_interval(
+            executor, book, target, start_index=start_index, bars=bars
+        )
+
+    monkeypatch.setattr(
+        MarketExecutor,
+        "execute_interval",
+        record_execution_start,
+    )
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        replay_module.run_shared_cash_replay(
+            delayed,
+            strategies,
+            start_index=0,
+            stop_index=4,
+            gross_budget=0.2,
+        )
+
+    assert execution_starts == [0]
+    assert [item.index for item in strategies[0].observations] == [0, 1]
+    assert [item.index for item in strategies[1].observations] == [0, 1]
 
 
 def _risk(*, max_gross: float, max_turnover: float | None) -> PreTradeRisk:

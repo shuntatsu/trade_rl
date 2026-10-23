@@ -1041,7 +1041,11 @@ Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbo
 
 #### Candidate-suite raw-price availability preflight
 
-`run_lean_candidate_suite` はevent-time window `timestamp < fit_cutoff` を維持したまま、選択fit symbolのDataset `available_at` がinclusiveな `[0, ppo_training_stop_index]` でcutoff以下かを、Ridge / LightGBM / PPOの全fitより前に検証する。PPO rewardとterminal-settlement reserveのendpointも対象にし、同時刻のavailabilityは許容する。遅着barがあればwindowを短縮せずsuiteをfail closedにする。この条件はcutoffを宣言するCandidateSuiteに限り、generic `fit_ppo_strategy` は変更しない。Dataset宣言時刻の検査だけであり、実際の過去venue arrivalやruntime account-mark visibilityを保証せず、後者は別のpending contractである。
+`run_lean_candidate_suite` はevent-time window `timestamp < fit_cutoff` を維持したまま、選択fit symbolのDataset `available_at` がinclusiveな `[0, ppo_training_stop_index]` でcutoff以下かを、Ridge / LightGBM / PPOの全fitより前に検証する。PPO rewardとterminal-settlement reserveのendpointも対象にし、同時刻のavailabilityは許容する。遅着barがあればwindowを短縮せずsuiteをfail closedにする。この条件はcutoffを宣言するCandidateSuiteに限り、generic `fit_ppo_strategy` は変更しない。Dataset宣言時刻の検査だけであり、実際の過去venue arrivalやruntime account-mark visibility全体を保証しない。
+
+#### Runtime declared-late row mark admission
+
+single-symbol replay、shared-cash replay、PPO環境は、実際に処理する行について `available_at[row, symbol] > timestamps[row]` のraw-row markを初期帳簿、strategy/risk観測、interval execution、terminal settlement、または返却するterminal observationへ渡す前にfail closedにする。チェックは開始/reset行と、約定またはsettlementが処理する各target行の両方で行う。比較対象は同じ行のevent timestampであり、前のdecision時刻ではない。single-symbol replayとPPOは選択銘柄とnonzeroの実保有銘柄を、shared-cash replayは全selected strategy rosterを対象にする。未選択flat銘柄と未処理のfuture tailは対象外で、`information_available=False`だけではこのguardを発火させない。直接`MarketExecutor.execute_interval`では、既存のshape・finite・gross条件を満たす有効targetのnonzero weightsと`BookState`のnonzero exact quantitiesを対象に、target decision rowの遅着raw markをvaluation・reconciliation・注文作成より前に拒否する。flat accountのzero targetでpending orderだけをcancelする場合は許す。これらはDataset宣言のrow timeに対する限定的なsoftware guardである。独立clockのない明示`mark_price`や外部`BookState.mark_prices`、明示`OrderIntent`実行、直接`liquidate_at_close`、過去のvenue arrivalは対象外であり、full-system point-in-time mark visibility、G0、economic evidenceを示すものではない。
 
 初回real-data M2のPPO Observation v2は、selected local feature values、availability / finite mask、normalized local staleness、current intent、current weightだけをこの順序で使う。symbol IDは含めない。Training episodeはfit symbolをround-robinし、各episodeは一つのactive symbolだけを扱う。
 

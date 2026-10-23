@@ -135,6 +135,8 @@ PPOでも `max_turnover` と `drawdown_deleveraging` はそのstepのtransient r
 
 stepの`info`では、risk後の`target_weight`と約定後の`realized_weight`を分け、risk理由、fill ratio、requested/filled turnover、cost・funding・borrow・dividend・cash-interestの金額、termination理由も返します。policy判断・risk制約・partial fill・carryを同じ値として扱わないための診断情報です。
 
+PPO環境はreset開始行、stepの現在行と処理対象行、各terminal-settlement行を確認し、raw rowの `available_at` が同じ行のtimestampより後なら処理を停止します。これにより宣言された遅着価格を初期weight、risk、約定、terminal observationへ通しません。`information_available=False`だけでは拒否せず、同時刻は許します。独立availability clockのない明示`mark_price`や、PPO外の直接`MarketExecutor`利用に対する全体保証ではありません。
+
 Directional PPOでは学習とdevelopment評価が同じbase execution設定を共有し、Datasetにあるborrowも両方で課します。過去のPPO実験は当時の実装へ固定された証拠であり、この修正後の学習経済へ自動的に読み替えません。
 
 ## 6. net returnからrewardを作る

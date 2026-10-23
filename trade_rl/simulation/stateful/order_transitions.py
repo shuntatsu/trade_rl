@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,6 +11,7 @@ import numpy as np
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.admission import OrderAdmissionPolicy
 from trade_rl.simulation.orders.model import OrderStatus, PendingOrder, TimeInForce
+from trade_rl.simulation.quantities import exact_quantity, project_quantity
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarContext
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
@@ -117,6 +119,25 @@ class StatefulOrderTransitionProcessor:
             runtime.book,
             mark_prices=context.open_prices,
         )
+        processing_open_equity = projected_book.portfolio_value
+        processing_open_gross = float(
+            np.sum(
+                np.abs(
+                    projected_book.quantities
+                    * projected_book.mark_prices
+                    * projected_book.contract_multipliers
+                )
+            )
+        )
+        processing_open_over_cap = (
+            not projected_book.insolvent
+            and np.isfinite(processing_open_equity)
+            and processing_open_equity > 1e-12
+            and np.isfinite(processing_open_gross)
+            and processing_open_gross
+            > processing_open_equity * self.admission.max_leverage + 1e-12
+        )
+        remaining_positions = list(actual_positions)
         accepted: list[PendingOrder] = []
         for order in tuple(
             sorted(
@@ -183,7 +204,8 @@ class StatefulOrderTransitionProcessor:
                 maximum_quantity=None if rule is None else rule.maximum_quantity,
                 market_only=rule is not None,
                 reference_prices=context.open_prices,
-                actual_position=actual_positions[symbol],
+                actual_position=remaining_positions[symbol],
+                allow_over_cap_reduce_only=processing_open_over_cap,
             )
             if not decision.accepted:
                 reason = decision.reason or "admission_rejected"
@@ -226,11 +248,26 @@ class StatefulOrderTransitionProcessor:
                 )
             accepted.append(current)
             admitted = decision.admitted_quantity
-            projected_book.apply_admitted_order(
-                symbol_index=symbol,
-                quantity=admitted,
-                price=float(context.open_prices[symbol]),
+            projected_position = projected_book.quantities[symbol]
+            is_closing = projected_position * admitted < 0.0 and abs(admitted) <= abs(
+                projected_position
             )
+            if order.intent.reduce_only:
+                remaining = remaining_positions[symbol]
+                if context.lot_size[symbol] == 0.0 and admitted == -project_quantity(
+                    remaining
+                ):
+                    # BookState consumes its exact rational inventory for a
+                    # capacity-sufficient no-lot request covering this projection.
+                    remaining_positions[symbol] = Fraction(0)
+                else:
+                    remaining_positions[symbol] = remaining + exact_quantity(admitted)
+            if not is_closing:
+                projected_book.apply_admitted_order(
+                    symbol_index=symbol,
+                    quantity=admitted,
+                    price=float(context.open_prices[symbol]),
+                )
         return accepted
 
     def expire_attempted_remainders(

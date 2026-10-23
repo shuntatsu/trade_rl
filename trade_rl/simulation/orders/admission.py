@@ -159,11 +159,14 @@ class OrderAdmissionPolicy:
         minimum_quantity: float = 0.0,
         maximum_quantity: float | None = None,
         market_only: bool = False,
+        allow_over_cap_reduce_only: bool = False,
     ) -> AdmissionDecision:
         """Return an explicit admission or economic rejection reason."""
 
         if actual_position is not None and not isinstance(actual_position, Fraction):
             raise OrderAdmissionError("actual_position must be an exact Fraction")
+        if not isinstance(allow_over_cap_reduce_only, bool):
+            raise OrderAdmissionError("allow_over_cap_reduce_only must be a boolean")
 
         prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
         quantities = np.asarray(book.quantities, dtype=np.float64).reshape(-1)
@@ -300,12 +303,22 @@ class OrderAdmissionPolicy:
         projected = quantities.copy()
         projected[symbol] += admitted_quantity
         gross_notional = float(np.sum(np.abs(projected * prices * multipliers)))
+        current_gross_notional = float(
+            np.sum(np.abs(quantities * prices * multipliers))
+        )
         equity = book.portfolio_value
+        leverage_exceeded = gross_notional > equity * self.max_leverage + _TOLERANCE
+        over_cap_reduction = (
+            allow_over_cap_reduce_only
+            and intent.reduce_only
+            and intent.order_type is OrderType.MARKET
+            and gross_notional < current_gross_notional - _TOLERANCE
+        )
         if (
             book.insolvent
             or not math.isfinite(equity)
             or equity <= _TOLERANCE
-            or gross_notional > equity * self.max_leverage + _TOLERANCE
+            or (leverage_exceeded and not over_cap_reduction)
         ):
             return self._reject("pretrade_leverage_exceeded")
 

@@ -18,7 +18,10 @@ def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
 def _finite(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be finite")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result

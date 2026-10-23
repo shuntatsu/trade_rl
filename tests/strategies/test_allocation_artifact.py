@@ -413,6 +413,13 @@ def test_boolean_ppo_gamma_is_not_numeric_one():
         capability("model").AllocationPPOPolicy(Policy(), raw)
 
 
+def test_objective_overflow_is_rejected_as_a_malformed_manifest():
+    raw = manifest()
+    raw["training"]["objective"]["maximum_drawdown"] = 10**400
+    with pytest.raises(ValueError, match="maximum_drawdown.*finite"):
+        capability("manifest").validate_allocation_manifest(raw)
+
+
 def test_raw_observation_space_cannot_be_replaced_by_clipped_box():
     policy = Policy()
     policy.observation_space = gym.spaces.Box(-1.0, 1.0, (17,), np.float32)

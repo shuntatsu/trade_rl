@@ -296,6 +296,18 @@ source/control evidence and actual terminal flatness. Fee headroom is assessed
 on the realized trajectory, not a separate doubled-fee strategy replay. Minute
 observations cannot guarantee intraminute risk. Status output is operational;
 only full offline replay at the fixed deadline may decide the paper screen.
+
+Prospective snapshot capture accepts at most 64 KiB per JSON response, and
+current spot/perpetual exchange-info capture accepts at most 32 MiB per response;
+the transport reads at most one extra byte to detect an over-limit body. Any
+over-limit response fails capture without publishing a truncated raw response,
+while completed raw responses remain available. Collection control indexes only
+incomplete-cycle IDs; a pending cycle still halts reopen, including for legacy
+databases. These are software resource and lookup controls, not evidence that a
+ninety-day minute-observation run fits storage or runtime limits. No new capture,
+collector run, replay, P&L, or profitability evidence was produced by these
+changes.
+
 The first formal prospective screen is sealed under protocol
 `843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7`.
 Its fixed UTC start is 2026-09-17 20:05, close is 2026-12-16 20:05, and terminal

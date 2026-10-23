@@ -3866,3 +3866,26 @@ active, and their per-advance cost remains even when writes are throttled.
 Progress is not a result or authority signal. This diagnostic does not change
 the financial recipe, event protocol, H source pin, or child timeout; no
 successful pair or economic result is claimed.
+
+## Issue #810: long-term profitability program status (2026-10-23)
+
+The active [long-term profitability program plan](../plans/issue810-profitability-program.md)
+organizes source reliability, forecast/data readiness, NONRL controls, parallel
+RL software readiness, execution economics, independent assurance, and the
+gated development comparison. It is a work plan and grants no fit, replay,
+unused-data, winner, or live-order authority.
+
+The durable [development checkpoint](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-development-checkpoint-20261015)
+and [current Issue #810 progress readback](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6357712193)
+are the portable source references.
+
+A 48-role plan exists, but per-cell artifact bindings remain empty or
+unestablished and zero native arms are complete. Twelve configuration
+combinations do not establish twelve verified fitted artifacts. A fresh full
+matrix on the current candidate has not completed; the latest artificial attempt
+`6b6e…` reached partial NONRL and CASH progress without global finalization and
+remains UNKNOWN/STOPPED, while the earlier incomplete `41f7…` attempt remains
+preserved. The R2 source and frozen H source are not interchangeable without
+exact runtime evidence. Issue #810 profitability, G4/G5, unused-period evaluation,
+and live eligibility remain unestablished. The plan grants no fit, replay,
+unused-data, winner, or live-order authority.

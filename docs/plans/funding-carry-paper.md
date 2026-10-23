@@ -43,8 +43,13 @@ Status: Active
   and funding-window coverage, and post-close funding qualification.
 - [x] Complete fresh result-blind source review of the known predecessor and
   four-fill / funding-window alignments. The predecessor chain is verified
-  within the inspected workspace; global attempt uniqueness and a full
-  source-to-ledger oracle remain unestablished.
+  within the inspected workspace; global attempt uniqueness and full
+  source-to-ledger conformance remain unestablished.
+- [x] Add a test-only Decimal reference ledger for literal synthetic paper
+  source events. It independently checks signed cash, positions, marks, depth
+  fills, fees, positive/negative funding settlement quantities at exact event
+  times, asymmetric partials, collateral, and actual terminal/recovery fills; it
+  does not establish raw-source parsing, strategy selection, or full G2.
 - [ ] Run prospective paper observation and report the complete declared gate.
 
 No successful probe, past development profit or partial paper record completes

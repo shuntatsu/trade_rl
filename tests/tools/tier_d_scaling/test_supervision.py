@@ -85,7 +85,7 @@ def install(
             rows.append(ProcessUsage(20, 10, 101, rss))
         return tuple(rows)
 
-    tree = ProcessTree(10, provider=provider)
+    tree = ProcessTree(10, provider=provider, expected_root_identity=(10, 100))
 
     def popen(command, **kwargs):
         assert command == ["MANUFACTURED_WORKER"]
@@ -120,7 +120,14 @@ def install(
     monkeypatch.setattr(module, "_platform_name", lambda: "nt")
     monkeypatch.setattr(module, "monotonic", lambda: clock[0])
     monkeypatch.setattr(module.subprocess, "Popen", popen)
-    monkeypatch.setattr(module, "ProcessTree", lambda pid: tree)
+
+    class ManufacturedTree(ProcessTree):
+        @classmethod
+        def from_popen(cls, actual_process):
+            assert actual_process is process
+            return tree
+
+    monkeypatch.setattr(module, "ProcessTree", ManufacturedTree)
     monkeypatch.setattr(module, "terminate_owned_tree", cleanup)
     return process, state, kills, clock
 
@@ -273,7 +280,7 @@ def test_late_ambiguous_orphan_blocks_success_and_is_never_killed(
 def test_owned_leaf_found_by_final_verification_is_also_cleaned(tmp_path, monkeypatch):
     module, root = api(), tmp_path / "late-owned"
     _, state, kills, _ = install(module, monkeypatch, root, orphan=True)
-    tree = module.ProcessTree(10)
+    tree = ProcessTree(10, expected_root_identity=(10, 100))
     original = tree.provider
 
     def transiently_missing_final_snapshot():

@@ -99,7 +99,7 @@ def supervised(command: list[str], root: Path) -> int:
                 stdin=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            tree = ProcessTree(process.pid)
+            tree = ProcessTree.from_popen(process)
             usage = sample("initial")
             while True:
                 if exceeded := _violations(usage, limits):

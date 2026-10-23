@@ -195,7 +195,7 @@ def supervised_run(
         with subprocess.Popen(
             command, cwd=REPO, env=environment, stdout=output, stderr=subprocess.STDOUT
         ) as process:
-            tree = ProcessTree(process.pid) if os.name == "nt" else None
+            tree = ProcessTree.from_popen(process) if os.name == "nt" else None
             try:
                 if tree is not None:
                     initial_sample = tree.sample()

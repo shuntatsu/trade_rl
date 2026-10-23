@@ -160,7 +160,7 @@ def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> 
     assert all(
         "tools/market_b4_artificial_component_operator.py" in line for line in routes
     )
-    assert workflow.count("tools/market_b4_oracle") == 2
+    assert sum("tools/market_b4_oracle" in line for line in routes) == 2
     assert workflow.count("tools/market_b4_artificial_component_operator.py") == 2
 
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
@@ -250,6 +250,7 @@ def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> N
     assert '"native execution requires a frozen H source-root' in runner
     assert '"process_started": False' in runner
     assert "def run_and_consume_frozen_h_market_matrix(" in runner
+    assert "ProcessTree.from_popen(process)" in runner
     assert "leaves the tree unknown and cleanup incomplete" in normalized_boundaries
     assert (
         "root PID that has never been observed remains ambiguous"
@@ -257,6 +258,10 @@ def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> N
     )
     assert (
         "empty snapshot without a captured root birth identity" in normalized_boundaries
+    )
+    assert (
+        "binds the candidate root to the creation time read from the launched"
+        in normalized_boundaries
     )
     assert not any(
         isinstance(node, ast.Attribute) and node.attr == "Popen"

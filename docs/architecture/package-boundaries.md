@@ -1942,6 +1942,18 @@ successful child exit with only empty, ambiguity-free samples and no observed
 root remains incomplete in both Tier-D supervisors; the market supervisor also
 skips stopped-receipt reconciliation.
 
+Before sampling a launched Windows child, each supervisor reads its creation
+FILETIME through the process handle retained by `subprocess.Popen`; it does not
+look up a PID and treat the first matching row as proof. The CIM snapshot's
+`CreationDate` is exposed at microsecond precision, so its tick value is compared
+with the handle's exact 100-nanosecond FILETIME conversion using the existing
+10-tick (one-microsecond) precision allowance. The admitted `root_identity` is
+the observed CIM row identity after that PID-and-time comparison, not a claim
+that CIM supplied an exact 100-nanosecond timestamp. If the handle query is
+unavailable or the row does not match, the root remains unverified; a PID-only
+`ProcessTree` cannot infer root ownership, and its descendants remain ambiguous
+RSS evidence rather than kill targets.
+
 On Linux, explicit synthetic-mode supervision samples only the worker root
 process through `/proc/<pid>/status`; descendant RSS is not included. This
 root-only diagnostic does not satisfy the market resource contract, which
@@ -2258,6 +2270,13 @@ unknown and cleanup incomplete. A live row naming a root PID that has never been
 observed remains ambiguous until a verified root identity is available; it is
 never a kill candidate. An empty snapshot without a captured root birth identity
 also remains unknown and cannot certify the owned tree empty.
+The observer binds the candidate root to the creation time read from the
+launched `Popen` process handle before accepting a same-PID CIM row; PID reuse
+or unavailable handle identity therefore cannot turn a replacement into the
+owned root. The 10-tick comparison allowance covers the snapshot's microsecond
+precision, while the recorded birth ticks remain the observed CIM value.
+Windows CI runs focused native process ownership tests for that handle binding,
+descendant cleanup, and the root-observed timeout path.
 The observer pins its
 `tools/tier_d_nonrl/tier_d_process_tree.py` dependency and refuses process creation
 on platforms without the frozen Windows process-tree observer. Its current child

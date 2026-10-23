@@ -233,6 +233,16 @@ jobs:
       - name: Artifact publication tests
         run: uv run --no-sync python -m pytest -q tests/artifacts tests/data/test_market_artifact.py
 
+      - name: Windows process ownership tests
+        if: matrix.os == 'windows-latest'
+        run: >-
+          uv run --no-sync python -m pytest -q
+          tests/tools/tier_d_nonrl/test_supervisor.py::test_actual_windows_redirector_memory_and_owned_leaf_termination
+          tests/tools/tier_d_nonrl/test_supervisor.py::test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated
+          tests/tools/tier_d_nonrl/test_parallel_supervision.py::test_actual_supervisor_samples_and_reaps_real_pool_workers
+          tests/tools/tier_d_nonrl/test_progress_supervision.py::test_actual_stalled_journal_stops_owned_child_and_retains_verified_prefix
+          tests/tools/market_b4_oracle/test_outer_witness.py::test_real_timeout_stops_sleeping_child_and_descendant_and_keeps_failure
+
   ppo-runtime:
     name: PPO Runtime${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
     if: >-

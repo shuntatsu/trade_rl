@@ -33,7 +33,7 @@ def node(pid, parent, created, rss):
 
 
 def test_snapshot_sums_redirector_and_all_lawful_descendants_only():
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     sample = tree.observe(
         (
             node(10, 1, 100, 4),
@@ -50,7 +50,7 @@ def test_snapshot_sums_redirector_and_all_lawful_descendants_only():
 
 
 def test_creation_identity_refuses_pid_reuse_and_attributes_historical_child_ambiguously():
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     tree.observe((node(10, 1, 100, 4), node(20, 10, 101, 30)))
     orphan = tree.observe((node(20, 10, 101, 31), node(21, 20, 102, 7)))
     assert (
@@ -65,6 +65,69 @@ def test_creation_identity_refuses_pid_reuse_and_attributes_historical_child_amb
     assert reused.ambiguous_members == (historical_child,)
 
 
+def test_first_snapshot_pid_reuse_never_owns_replacement_or_its_orphan():
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
+    # The process launched as PID 10 was born at tick 100. Its first visible
+    # snapshot row is a reused PID, while an older child still names PID 10.
+    # The expected identity is supplied by Popen's retained process handle.
+    replacement = node(10, 1, 200, 4)
+    surviving_child = node(20, 10, 150, 30)
+
+    first = tree.observe((replacement, surviving_child))
+    second = tree.observe((surviving_child,))
+
+    assert tree.root_identity is None
+    assert tree.owned == {}
+    assert first.owned_members == second.owned_members == ()
+    assert first.ambiguous_members == second.ambiguous_members == (surviving_child,)
+
+
+def test_process_tree_uses_only_handle_identity_and_bounds_cim_precision(monkeypatch):
+    module = api()
+    process_tree_module = importlib.import_module(
+        "tools.tier_d_nonrl.tier_d_process_tree"
+    )
+    launched = SimpleNamespace(pid=10)
+    monkeypatch.setattr(
+        process_tree_module,
+        "_process_identity_from_popen",
+        lambda process: (process.pid, 100),
+    )
+    within_precision = node(10, 1, 110, 4)
+    tree = module.ProcessTree.from_popen(launched, provider=lambda: (within_precision,))
+
+    assert tree.expected_root_identity == (10, 100)
+    assert tree.sample().owned_members == (within_precision,)
+    assert tree.root_identity == within_precision.identity
+
+    def failed_identity(_process):
+        raise OSError("handle query failed")
+
+    monkeypatch.setattr(
+        process_tree_module, "_process_identity_from_popen", failed_identity
+    )
+    replacement = node(10, 1, 200, 4)
+    unbound = module.ProcessTree.from_popen(launched, provider=lambda: (replacement,))
+    sample = unbound.sample()
+
+    assert unbound.expected_root_identity is None
+    assert "handle query failed" in unbound.root_identity_error
+    assert unbound.root_identity is None
+    assert sample.owned_members == ()
+    assert unbound.owned == {}
+
+
+def test_process_tree_rejects_birth_time_outside_cim_precision_tolerance():
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
+    near_miss = node(10, 1, 111, 4)
+
+    sample = tree.observe((near_miss,))
+
+    assert tree.root_identity is None
+    assert tree.owned == {}
+    assert sample.owned_members == ()
+
+
 @pytest.mark.parametrize(
     ("replacement_parent_pid", "owned_pids", "ambiguous_pids"),
     (
@@ -76,7 +139,7 @@ def test_creation_identity_refuses_pid_reuse_and_attributes_historical_child_amb
 def test_process_tree_attributes_pre_reuse_child_of_reused_parent_ambiguously(
     replacement_parent_pid, owned_pids, ambiguous_pids
 ):
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     root = node(10, 1, 100, 4)
     original_parent = node(20, 10, 101, 30)
     historical_parent = node(30, 10, 102, 10)
@@ -94,7 +157,7 @@ def test_process_tree_attributes_pre_reuse_child_of_reused_parent_ambiguously(
 
 
 def test_process_tree_counts_child_first_seen_after_redirector_exit():
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     redirector = node(10, 1, 100, 4_400_000)
     tree.observe((redirector,))
 
@@ -108,7 +171,7 @@ def test_process_tree_counts_child_first_seen_after_redirector_exit():
 
 
 def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     tree.observe((node(10, 1, 100, 4_400_000),))
 
     replacement = node(10, 1, 200, 1_000_000)
@@ -120,7 +183,7 @@ def test_process_tree_does_not_attach_child_to_reused_redirector_pid():
 
 
 def test_process_tree_attributes_pre_reuse_orphan_as_ambiguous():
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     tree.observe((node(10, 1, 100, 4_400_000),))
 
     replacement = node(10, 1, 200, 1_000_000)
@@ -134,7 +197,7 @@ def test_process_tree_attributes_pre_reuse_orphan_as_ambiguous():
 
 
 def test_late_process_attribution_is_rss_only_and_propagates_ambiguity():
-    tree = api().ProcessTree(10)
+    tree = api().ProcessTree(10, expected_root_identity=(10, 100))
     redirector = node(10, 1, 100, 4_400_000)
     tree.observe((redirector,))
     replacement = node(10, 1, 200, 1_000_000)
@@ -157,7 +220,9 @@ def test_pid_reuse_after_parent_exit_never_grants_kill_authority(monkeypatch):
     redirector = node(10, 1, 100, 4_400_000)
     replacement = node(10, 1, 200, 1_000_000)
     late_child = node(20, 10, 201, 248_800_000)
-    tree = module.ProcessTree(10, provider=lambda: (redirector,))
+    tree = module.ProcessTree(
+        10, provider=lambda: (redirector,), expected_root_identity=(10, 100)
+    )
     tree.sample()
     tree.observe((replacement,))
     tree.provider = lambda: (late_child,)
@@ -195,7 +260,11 @@ def test_visible_reused_parent_with_older_child_blocks_cleanup_verification(
     original = node(10, 1, 100, 4_400_000)
     replacement = node(10, 1, 200, 1_000_000)
     child = node(20, 10, 150, 248_800_000)
-    tree = module.ProcessTree(10, provider=lambda: (replacement, child))
+    tree = module.ProcessTree(
+        10,
+        provider=lambda: (replacement, child),
+        expected_root_identity=(10, 100),
+    )
     tree.observe((original,))
     kill_payloads = []
 
@@ -232,7 +301,7 @@ def test_cleanup_kills_only_verified_members_when_ambiguous_rows_remain(
     original_child = node(20, 10, 101, 40_000_000)
     replacement = node(20, 1, 200, 1_000_000)
     historical_child = node(21, 20, 150, 248_800_000)
-    tree = module.ProcessTree(10)
+    tree = module.ProcessTree(10, expected_root_identity=(10, 100))
     tree.observe((root, original_child))
     sampled = tree.observe((root, replacement, historical_child))
     assert sampled.owned_members == (root,)
@@ -387,9 +456,18 @@ def test_supervisor_requires_observed_root_before_successful_completion(
     process = FinishedProcess()
 
     class ObservedTree(ProcessTree):
+        @classmethod
+        def from_popen(cls, actual_process):
+            tree = cls(actual_process.pid)
+            tree.expected_root_identity = (actual_process.pid, 100)
+            return tree
+
         def __init__(self, pid):
             assert pid == process.pid
-            super().__init__(pid, provider=lambda: next(samples, ()))
+            super().__init__(
+                pid,
+                provider=lambda: next(samples, ()),
+            )
 
     monkeypatch.setattr(module.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(module, "ProcessTree", ObservedTree)
@@ -441,7 +519,7 @@ def test_actual_windows_redirector_memory_and_owned_leaf_termination(tmp_path):
     process = subprocess.Popen(
         [sys.executable, "-B", "-c", root_code, str(ready), leaf_code]
     )
-    tree = module.ProcessTree(process.pid)
+    tree = module.ProcessTree.from_popen(process)
     try:
         deadline = time.monotonic() + 10
         while not ready.exists() and time.monotonic() < deadline:
@@ -449,6 +527,13 @@ def test_actual_windows_redirector_memory_and_owned_leaf_termination(tmp_path):
         assert ready.exists()
         sample = tree.sample()
         assert len(sample.members) >= 2
+        assert tree.expected_root_identity is not None
+        root_member = next(
+            member for member in sample.owned_members if member.pid == process.pid
+        )
+        assert tree.root_identity == root_member.identity
+        assert tree.expected_root_identity[0] == process.pid
+        assert abs(tree.expected_root_identity[1] - root_member.creation_ticks) <= 10
         assert sample.rss_bytes > sample.root_rss_bytes + 24 * 1024 * 1024
         write_json(
             tmp_path / "actual-process-tree.json",
@@ -511,6 +596,10 @@ def test_supervisor_calls_owned_cleanup_after_repeated_snapshot_failure(
     class FailingTree:
         calls = 0
 
+        @classmethod
+        def from_popen(cls, process):
+            return cls(process.pid)
+
         def __init__(self, pid):
             self.last_sample = ProcessTreeSample(
                 (node(10, 1, 100, 4), node(20, 10, 101, 30)),
@@ -565,7 +654,7 @@ def test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated(
     unrelated = original_popen(
         [sys.executable, "-B", "-c", "import time; time.sleep(30)"]
     )
-    unrelated_tree = ProcessTree(unrelated.pid)
+    unrelated_tree = ProcessTree.from_popen(unrelated)
     unrelated_tree.sample()
 
     def launch(command, **kwargs):
@@ -622,7 +711,7 @@ def test_actual_supervisor_cim_failure_stops_owned_leaf_keeps_unrelated(
     finally:
         worker = observed.get("worker")
         if worker is not None and worker.poll() is None:
-            real_tree = ProcessTree(worker.pid)
+            real_tree = ProcessTree.from_popen(worker)
             real_tree.sample()
             module.terminate_owned_tree(worker, real_tree)
         module.terminate_owned_tree(unrelated, unrelated_tree)

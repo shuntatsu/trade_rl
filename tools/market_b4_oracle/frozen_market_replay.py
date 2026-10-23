@@ -14,6 +14,7 @@ import json
 import math
 from dataclasses import dataclass, replace
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Any, Mapping, TypedDict, cast
 
 import numpy as np
@@ -1103,7 +1104,7 @@ class _OwnedOrder:
         )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _TerminalProjectionEntry:
     """One unique order entry with strong direct predecessor/source references."""
 
@@ -1111,6 +1112,7 @@ class _TerminalProjectionEntry:
     projection: OwnedPendingOrder
     predecessor_id: str | None
     predecessor_source: _OwnedOrder | None
+    projection_state: tuple[object, ...]
     mapping_bytes: bytes | None = None
 
 
@@ -1119,18 +1121,30 @@ class _TerminalIdentityMemo:
 
     __slots__ = (
         "scope",
-        "entries",
-        "by_projection_id",
+        "_entries",
+        "_entries_view",
+        "_by_projection_id",
+        "_by_projection_id_view",
         "mapping_bytes",
         "disabled",
     )
 
     def __init__(self) -> None:
         self.scope: tuple[object, ...] | None = None
-        self.entries: dict[str, _TerminalProjectionEntry] = {}
-        self.by_projection_id: dict[int, _TerminalProjectionEntry] = {}
+        self._entries: dict[str, _TerminalProjectionEntry] = {}
+        self._entries_view = MappingProxyType(self._entries)
+        self._by_projection_id: dict[int, _TerminalProjectionEntry] = {}
+        self._by_projection_id_view = MappingProxyType(self._by_projection_id)
         self.mapping_bytes = 0
         self.disabled = False
+
+    @property
+    def entries(self) -> Mapping[str, _TerminalProjectionEntry]:
+        return self._entries_view
+
+    @property
+    def by_projection_id(self) -> Mapping[int, _TerminalProjectionEntry]:
+        return self._by_projection_id_view
 
     def ensure_scope(self, scope: tuple[object, ...]) -> None:
         if self.scope != scope:
@@ -1138,35 +1152,125 @@ class _TerminalIdentityMemo:
             self.scope = scope
 
     def clear(self, *, disable: bool = False) -> None:
-        self.entries.clear()
-        self.by_projection_id.clear()
+        self._entries.clear()
+        self._by_projection_id.clear()
         self.mapping_bytes = 0
         self.disabled = disable
 
-    def transaction(self) -> _TerminalIdentityMemoTransaction:
-        return _TerminalIdentityMemoTransaction(self)
+    def transaction(
+        self,
+        *,
+        terminal: Mapping[str, _OwnedOrder],
+        all_orders: Mapping[str, _OwnedOrder],
+    ) -> _TerminalIdentityMemoTransaction:
+        return _TerminalIdentityMemoTransaction(self, terminal, all_orders)
 
 
 class _TerminalIdentityMemoTransaction:
     """Stage projection and canonical-map entries until identity construction succeeds."""
 
-    __slots__ = ("memo", "projections", "by_projection_id", "mappings")
+    __slots__ = (
+        "memo",
+        "terminal",
+        "all_orders",
+        "projections",
+        "by_projection_id",
+        "mappings",
+        "validated_entries",
+    )
 
-    def __init__(self, memo: _TerminalIdentityMemo) -> None:
+    def __init__(
+        self,
+        memo: _TerminalIdentityMemo,
+        terminal: Mapping[str, _OwnedOrder],
+        all_orders: Mapping[str, _OwnedOrder],
+    ) -> None:
         self.memo = memo
+        self.terminal = terminal
+        self.all_orders = all_orders
         self.projections: dict[str, _TerminalProjectionEntry] = {}
         self.by_projection_id: dict[int, _TerminalProjectionEntry] = {}
         self.mappings: dict[int, tuple[OwnedPendingOrder, bytes]] = {}
+        self.validated_entries: dict[str, _TerminalProjectionEntry] = {}
 
     def projection_for(
         self, order_id: str, source: _OwnedOrder
     ) -> OwnedPendingOrder | None:
         if self.memo.disabled:
             return None
-        entry = self.projections.get(order_id) or self.memo.entries.get(order_id)
-        if entry is None or entry.source is not source:
+        staged = self.projections.get(order_id)
+        if staged is not None:
+            return staged.projection if staged.source is source else None
+        entry = self.memo.entries.get(order_id)
+        if entry is None:
+            return None
+        if not self._entry_chain_is_current(order_id, entry, source):
+            self.memo.clear()
+            self.validated_entries.clear()
             return None
         return entry.projection
+
+    def _entry_chain_is_current(
+        self, order_id: str, entry: _TerminalProjectionEntry, source: _OwnedOrder
+    ) -> bool:
+        """Validate this hit and any ancestors not yet checked this transaction."""
+        current_id = order_id
+        current_entry = entry
+        current_source = source
+        seen: set[str] = set()
+        validated: list[tuple[str, _TerminalProjectionEntry]] = []
+        while True:
+            if current_id in seen:
+                return False
+            seen.add(current_id)
+            state = _terminal_projection_state(current_source, current_entry.projection)
+            if (
+                state is None
+                or state != current_entry.projection_state
+                or current_entry.source is not current_source
+                or current_source.intent.order_id != current_id
+                or self.terminal.get(current_id) is not current_source
+                or self.all_orders.get(current_id) is not current_source
+                or current_entry.predecessor_id
+                != current_source.intent.replaced_order_id
+            ):
+                return False
+            current_is_validated = (
+                self.validated_entries.get(current_id) is current_entry
+            )
+            predecessor_id = current_entry.predecessor_id
+            if predecessor_id is None:
+                if (
+                    current_entry.predecessor_source is not None
+                    or current_entry.projection.intent.replaced_order is not None
+                ):
+                    return False
+                if not current_is_validated:
+                    validated.append((current_id, current_entry))
+                break
+            if predecessor_id in seen:
+                return False
+            predecessor_source = self.terminal.get(predecessor_id)
+            predecessor_entry = self.memo.entries.get(predecessor_id)
+            if (
+                predecessor_source is None
+                or predecessor_source is not current_entry.predecessor_source
+                or self.all_orders.get(predecessor_id) is not predecessor_source
+                or predecessor_entry is None
+                or predecessor_entry.source is not predecessor_source
+                or current_entry.projection.intent.replaced_order
+                is not predecessor_entry.projection
+            ):
+                return False
+            if not current_is_validated:
+                validated.append((current_id, current_entry))
+            if self.validated_entries.get(predecessor_id) is predecessor_entry:
+                break
+            current_id = predecessor_id
+            current_entry = predecessor_entry
+            current_source = predecessor_source
+        self.validated_entries.update(validated)
+        return True
 
     def stage_projection(self, entry: _TerminalProjectionEntry) -> None:
         if self.memo.disabled:
@@ -1253,8 +1357,8 @@ class _TerminalIdentityMemoTransaction:
             self.memo.clear(disable=True)
             return False
         for order_id, entry in self.projections.items():
-            self.memo.entries[order_id] = entry
-            self.memo.by_projection_id[id(entry.projection)] = entry
+            self.memo._entries[order_id] = entry
+            self.memo._by_projection_id[id(entry.projection)] = entry
         for order, payload in self.mappings.values():
             entry = self.by_projection_id.get(id(order))
             if entry is None or entry.projection is not order:
@@ -1263,7 +1367,14 @@ class _TerminalIdentityMemoTransaction:
                 continue
             if entry.mapping_bytes is None:
                 self.memo.mapping_bytes += len(payload)
-                entry.mapping_bytes = payload
+                updated = replace(entry, mapping_bytes=payload)
+                order_id = entry.source.intent.order_id
+                if self.projections.get(order_id) is entry:
+                    self.projections[order_id] = updated
+                if self.by_projection_id.get(id(order)) is entry:
+                    self.by_projection_id[id(order)] = updated
+                self.memo._entries[order_id] = updated
+                self.memo._by_projection_id[id(order)] = updated
         return True
 
 
@@ -1367,6 +1478,87 @@ def _cacheable_terminal_projection(
         and projection.evidence_version == source.evidence_version
         and projection.exact_cumulative_filled_quantity
         == str(source.exact_filled_quantity)
+    )
+
+
+def _terminal_projection_state(
+    source: _OwnedOrder, projection: OwnedPendingOrder
+) -> tuple[object, ...] | None:
+    """Snapshot admitted immutable scalar fields for constant-time hit checks."""
+    if (
+        type(source) is not _OwnedOrder
+        or type(source.intent) is not ExpectedIntent
+        or type(source.actor_identity) is not ActorIntentBasis
+        or type(source.actor_identity.target_identity) is not str
+        or type(projection) is not OwnedPendingOrder
+        or type(projection.intent) is not OwnedIntentComponents
+        or type(projection.intent.identity_source) is not ActorIntentBasis
+        or projection.intent.identity_source is not source.actor_identity
+    ):
+        return None
+    intent = source.intent
+    projected_intent = projection.intent
+    values: tuple[object, ...] = (
+        source.status,
+        source.exact_filled_quantity,
+        source.cumulative_filled_notional,
+        source.last_processed_index,
+        source.terminal_reason,
+        source.evidence_version,
+        intent.order_id,
+        intent.dataset_id,
+        intent.target_identity,
+        intent.execution_policy_digest,
+        intent.symbol_index,
+        intent.requested_quantity,
+        intent.order_type,
+        intent.time_in_force,
+        intent.limit_price,
+        intent.stop_price,
+        intent.submit_index,
+        intent.eligible_index,
+        intent.expiry_index,
+        intent.submission_reference_price,
+        intent.decision_equity,
+        intent.replaced_order_id,
+        intent.reduce_only,
+        projection.remaining_quantity,
+        projection.cumulative_filled_quantity,
+        projection.cumulative_filled_notional,
+        projection.status,
+        projection.trigger_index,
+        projection.last_processed_index,
+        projection.terminal_reason,
+        projection.evidence_version,
+        projection.exact_cumulative_filled_quantity,
+        projected_intent.dataset_id,
+        projected_intent.execution_policy_digest,
+        projected_intent.symbol_index,
+        projected_intent.requested_quantity,
+        projected_intent.order_type,
+        projected_intent.time_in_force,
+        projected_intent.limit_price,
+        projected_intent.stop_price,
+        projected_intent.submit_index,
+        projected_intent.eligible_index,
+        projected_intent.expiry_index,
+        projected_intent.submission_reference_price,
+        projected_intent.decision_equity,
+        projected_intent.reduce_only,
+        source.actor_identity.target_identity,
+    )
+    if any(
+        value is not None and type(value) not in (str, int, float, bool, Fraction)
+        for value in values
+    ):
+        return None
+    return (
+        id(source.intent),
+        id(source.actor_identity),
+        id(projection.intent),
+        id(projected_intent.identity_source),
+        id(projected_intent.replaced_order),
+        tuple((type(value), value) for value in values),
     )
 
 
@@ -1972,9 +2164,9 @@ class FrozenMarketReplay:
                 self.selected_symbol_index,
             )
         )
-        if not self._terminal_identity_memo_is_current():
-            terminal_memo.clear()
-        memo_transaction = terminal_memo.transaction()
+        memo_transaction = terminal_memo.transaction(
+            terminal=terminal, all_orders=self._all_orders
+        )
         projection_memo: dict[int, tuple[_OwnedOrder, OwnedPendingOrder]] = {}
         risk = {
             "max_gross": self.policy.maximum_gross,
@@ -2137,43 +2329,6 @@ class FrozenMarketReplay:
             final_risk_weights=final_weights,
         )
 
-    def _terminal_identity_memo_is_current(self) -> bool:
-        memo = self._terminal_identity_memo
-        for order_id, entry in memo.entries.items():
-            source = entry.source
-            if (
-                source.intent.order_id != order_id
-                or self._terminal.get(order_id) is not source
-                or self._all_orders.get(order_id) is not source
-            ):
-                return False
-            predecessor_id = source.intent.replaced_order_id
-            if predecessor_id != entry.predecessor_id:
-                return False
-            if predecessor_id is None:
-                predecessor_projection = None
-                if entry.predecessor_source is not None:
-                    return False
-            else:
-                if predecessor_id == order_id:
-                    return False
-                predecessor = self._terminal.get(predecessor_id)
-                predecessor_entry = memo.entries.get(predecessor_id)
-                if (
-                    predecessor is None
-                    or predecessor is not entry.predecessor_source
-                    or self._all_orders.get(predecessor_id) is not predecessor
-                    or predecessor_entry is None
-                    or predecessor_entry.source is not predecessor
-                ):
-                    return False
-                predecessor_projection = predecessor_entry.projection
-            if not _cacheable_terminal_projection(
-                source, entry.projection, predecessor_projection
-            ):
-                return False
-        return True
-
     def _owned_projection(
         self,
         order: _OwnedOrder,
@@ -2258,12 +2413,16 @@ class FrozenMarketReplay:
             and current_owner
             and _cacheable_terminal_projection(order, projection, replaced)
         ):
+            state = _terminal_projection_state(order, projection)
+            if state is None:
+                return projection
             terminal_memo.stage_projection(
                 _TerminalProjectionEntry(
                     source=order,
                     projection=projection,
                     predecessor_id=order.intent.replaced_order_id,
                     predecessor_source=predecessor,
+                    projection_state=state,
                 )
             )
         return projection

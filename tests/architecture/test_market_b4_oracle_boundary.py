@@ -160,6 +160,19 @@ def test_unfinished_composition_facade_grants_no_public_result_api() -> None:
     assert isinstance(tree.body[0].value.value, str)
 
 
+def test_terminal_identity_memo_stays_private_to_the_replay_component() -> None:
+    replay_path = ROOT / "tools/market_b4_oracle/frozen_market_replay.py"
+    replay_tree = ast.parse(replay_path.read_text(encoding="utf-8"))
+    memo_classes = [
+        node.name
+        for node in replay_tree.body
+        if isinstance(node, ast.ClassDef) and "TerminalIdentityMemo" in node.name
+    ]
+
+    assert memo_classes == ["_TerminalIdentityMemo", "_TerminalIdentityMemoTransaction"]
+    assert _public_exports(OWNER.replace(".", "/")) == set()
+
+
 def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     routes = [

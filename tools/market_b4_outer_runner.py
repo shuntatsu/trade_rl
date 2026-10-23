@@ -1864,14 +1864,18 @@ def _observe_owned_tree(
 
 def _child_observation(process: Any, tree: Any) -> dict[str, object]:
     observation_error: str | None = None
-    tree_observation_failed = False
     sample = getattr(tree, "last_sample", None)
-    try:
-        sample = tree.sample()
-    except Exception as error:
-        tree_observation_failed = True
-        observation_error = f"{type(error).__name__}: {str(error)[:300]}"
+    tree_observation_failed = tree is None and process is not None
+    if tree_observation_failed:
+        observation_error = "process-tree observer unavailable after child launch"
+    elif tree is not None:
+        try:
+            sample = tree.sample()
+        except Exception as error:
+            tree_observation_failed = True
+            observation_error = f"{type(error).__name__}: {str(error)[:300]}"
     root_identity = getattr(tree, "root_identity", None)
+    root_identity_missing = tree is not None and root_identity is None
     identities = getattr(tree, "owned", {})
     process_id = getattr(process, "pid", None)
     root_pid, birth_ticks = (
@@ -1901,6 +1905,11 @@ def _child_observation(process: Any, tree: Any) -> dict[str, object]:
         owned_tree_empty = None
         observation_error = observation_error or (
             "process-tree sample omitted member or ambiguity classification"
+        )
+    elif root_identity_missing:
+        owned_tree_empty = None
+        observation_error = observation_error or (
+            "root process birth identity was never observed"
         )
     else:
         owned_tree_empty = not members
@@ -1936,6 +1945,8 @@ def _cleanup_owned_tree(process: Any, tree: Any) -> dict[str, object]:
                 _stop_owned_tree(process, tree)
             except Exception as error:
                 errors.append(f"tree stop {type(error).__name__}: {str(error)[:300]}")
+        else:
+            errors.append("process-tree observer was unavailable after child launch")
         if poll_process() is None:
             try:
                 process.terminate()
@@ -1951,7 +1962,10 @@ def _cleanup_owned_tree(process: Any, tree: Any) -> dict[str, object]:
         except Exception as error:
             errors.append(f"root reap {type(error).__name__}: {str(error)[:300]}")
     deadline = time.monotonic() + 5.0
-    tree_empty: bool | None = tree is None
+    if tree is None:
+        tree_empty: bool | None = True if process is None else None
+    else:
+        tree_empty = False
     if tree is not None:
         tree_empty = False
         while time.monotonic() < deadline:
@@ -1974,6 +1988,10 @@ def _cleanup_owned_tree(process: Any, tree: Any) -> dict[str, object]:
                 errors.append("final tree sample omitted process members")
                 break
             if not members:
+                if getattr(tree, "root_identity", None) is None:
+                    errors.append("root process identity was never observed")
+                    tree_empty = None
+                    break
                 tree_empty = True
                 break
             time.sleep(_SAMPLE_INTERVAL_SECONDS)

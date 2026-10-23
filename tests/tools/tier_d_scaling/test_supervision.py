@@ -28,6 +28,7 @@ def install(
     orphan=False,
     rss_excess=False,
     late_orphan=False,
+    unobserved_root=False,
     provider_failure=False,
     cleanup_failure=False,
 ):
@@ -69,9 +70,13 @@ def install(
         if provider_failure and state.samples > 1:
             raise OSError("manufactured persistent CIM failure")
         rows = [ProcessUsage(99, 1, 99, 999_000_000)]
-        if process.returncode is None:
+        if process.returncode is None and not unobserved_root:
             rows.append(ProcessUsage(10, 1, 100, 4_000_000))
-        if state.leaf_alive and not (late_orphan and process.returncode is None):
+        if (
+            state.leaf_alive
+            and not unobserved_root
+            and not (late_orphan and process.returncode is None)
+        ):
             rss = (
                 module.LIMITS["rss_bytes"] + 1
                 if rss_excess and clock[0] > 0
@@ -165,6 +170,23 @@ def test_success_samples_resources_reaps_and_keeps_separate_worker_log(
         event["stage"] for event in events if event["event"] == "resource_sample"
     } >= {"initial", "final"}
     assert value["limits"] == module.LIMITS
+
+
+def test_supervisor_fails_when_empty_samples_never_observe_worker_root(
+    tmp_path, monkeypatch
+):
+    module, root = api(), tmp_path / "unobserved-root"
+    _, state, kills, _ = install(module, monkeypatch, root, unobserved_root=True)
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 1
+
+    value = report(root)
+    assert value["status"] == "FAILED"
+    assert "root process birth identity was never observed" in value["failure"]
+    assert value["returncode"] == 0 and state.reaped and value["worker_reaped"]
+    assert value["owned_members_remaining"] == 0
+    assert value["ambiguous_rss_members_remaining"] == 0
+    assert kills == []
 
 
 def test_sampled_aggregate_rss_kills_owned_leaf_and_never_unrelated_process(

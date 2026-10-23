@@ -172,21 +172,34 @@ def _assert_output_root(plan: dict[str, object], observer_root: Path) -> Path:
     verify_root = observer_root / "output" / "verify"
     if (
         not output.is_absolute()
+        or ".." in output.parts
         or output == verify_root
         or not output.is_relative_to(verify_root)
         or output.exists()
         or output.is_symlink()
     ):
         raise ValueError("component output root must be fresh under verify")
-    parent = output.parent
-    while parent != verify_root:
-        info = parent.lstat()
+    try:
+        resolved_verify_root = verify_root.resolve(strict=True)
+        resolved_output = output.resolve(strict=False)
         if (
-            not stat.S_ISDIR(info.st_mode)
-            or getattr(info, "st_file_attributes", 0) & 0x400
+            resolved_output == resolved_verify_root
+            or not resolved_output.is_relative_to(resolved_verify_root)
         ):
-            raise ValueError("component output ancestor is not a plain directory")
-        parent = parent.parent
+            raise ValueError("component output root must be fresh under verify")
+        parent = output.parent
+        while True:
+            info = parent.lstat()
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400
+            ):
+                raise ValueError("component output ancestor is not a plain directory")
+            if parent == observer_root:
+                break
+            parent = parent.parent
+    except (OSError, RuntimeError) as error:
+        raise ValueError("component output root must be fresh under verify") from error
     return output
 
 

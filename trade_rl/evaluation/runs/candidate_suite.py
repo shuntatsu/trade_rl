@@ -19,6 +19,7 @@ from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.dataset_scope import validated_symbol_indices
 from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
@@ -159,11 +160,23 @@ class LeanCandidateConfig:
 def _ppo_training_stop_index(
     dataset: MarketDataset,
     fit_cutoff: np.datetime64,
+    fit_symbol_indices: tuple[int, ...],
 ) -> int:
     eligible = np.flatnonzero(dataset.timestamps < fit_cutoff)
     if eligible.size < 2:
         raise ValueError("PPO fitting requires at least two bars before fit_cutoff")
-    return int(eligible[-1])
+    stop_index = int(eligible[-1])
+    fit_symbols = validated_symbol_indices(dataset, fit_symbol_indices)
+    symbol_index_array = np.asarray(fit_symbols, dtype=np.intp)
+    training_availability = dataset.resolved_array("available_at")[: stop_index + 1, :][
+        :, symbol_index_array
+    ]
+    if np.any(training_availability > fit_cutoff):
+        raise ValueError(
+            "PPO training bar price availability exceeds fit_cutoff "
+            "for selected fit symbols"
+        )
+    return stop_index
 
 
 def require_age_aware_hourly_clock(
@@ -235,6 +248,12 @@ def run_lean_candidate_suite(
     if dataset.timestamps[start_index] < config.fit_cutoff:
         raise ValueError("evaluation must not start before fit_cutoff")
 
+    ppo_training_stop_index = _ppo_training_stop_index(
+        dataset,
+        config.fit_cutoff,
+        config.fit_symbol_indices,
+    )
+
     ridge_model = fit_ridge_forecast(
         dataset,
         feature_indices=config.feature_indices,
@@ -256,7 +275,7 @@ def run_lean_candidate_suite(
         feature_indices=config.feature_indices,
         fit_symbol_indices=config.fit_symbol_indices,
         start_index=0,
-        stop_index=_ppo_training_stop_index(dataset, config.fit_cutoff),
+        stop_index=ppo_training_stop_index,
         gross_budget=gross_budget,
         total_timesteps=config.ppo_total_timesteps,
         seed=config.ppo_seed,

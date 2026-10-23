@@ -88,7 +88,7 @@ def test_actual_supervisor_samples_and_reaps_real_pool_workers(tmp_path, monkeyp
     unrelated = original_popen(
         [sys.executable, "-B", "-c", "import time; time.sleep(30)"]
     )
-    unrelated_tree = ProcessTree(unrelated.pid)
+    unrelated_tree = ProcessTree.from_popen(unrelated)
     unrelated_sample = None
     observed: dict[str, object] = {"samples": []}
 
@@ -184,7 +184,7 @@ def test_actual_supervisor_samples_and_reaps_real_pool_workers(tmp_path, monkeyp
             if process is not None:
                 tree = observed.get("tree")
                 if tree is None or not tree.owned:
-                    tree = ProcessTree(process.pid)
+                    tree = ProcessTree.from_popen(process)
                     tree.sample()
                 terminate_owned_tree(process, tree)
         finally:

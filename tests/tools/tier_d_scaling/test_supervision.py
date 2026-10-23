@@ -28,6 +28,9 @@ def install(
     orphan=False,
     rss_excess=False,
     late_orphan=False,
+    unobserved_root=False,
+    reused_root=False,
+    root_rss_excess=False,
     provider_failure=False,
     cleanup_failure=False,
 ):
@@ -69,9 +72,18 @@ def install(
         if provider_failure and state.samples > 1:
             raise OSError("manufactured persistent CIM failure")
         rows = [ProcessUsage(99, 1, 99, 999_000_000)]
-        if process.returncode is None:
-            rows.append(ProcessUsage(10, 1, 100, 4_000_000))
-        if state.leaf_alive and not (late_orphan and process.returncode is None):
+        if process.returncode is None and not unobserved_root:
+            root_rss = (
+                module.LIMITS["rss_bytes"] + 1
+                if root_rss_excess and state.samples == 1
+                else 4_000_000
+            )
+            rows.append(ProcessUsage(10, 1, 200 if reused_root else 100, root_rss))
+        if (
+            state.leaf_alive
+            and not unobserved_root
+            and not (late_orphan and process.returncode is None)
+        ):
             rss = (
                 module.LIMITS["rss_bytes"] + 1
                 if rss_excess and clock[0] > 0
@@ -80,7 +92,7 @@ def install(
             rows.append(ProcessUsage(20, 10, 101, rss))
         return tuple(rows)
 
-    tree = ProcessTree(10, provider=provider)
+    tree = ProcessTree(10, provider=provider, expected_root_identity=(10, 100))
 
     def popen(command, **kwargs):
         assert command == ["MANUFACTURED_WORKER"]
@@ -115,7 +127,14 @@ def install(
     monkeypatch.setattr(module, "_platform_name", lambda: "nt")
     monkeypatch.setattr(module, "monotonic", lambda: clock[0])
     monkeypatch.setattr(module.subprocess, "Popen", popen)
-    monkeypatch.setattr(module, "ProcessTree", lambda pid: tree)
+
+    class ManufacturedTree(ProcessTree):
+        @classmethod
+        def from_popen(cls, actual_process):
+            assert actual_process is process
+            return tree
+
+    monkeypatch.setattr(module, "ProcessTree", ManufacturedTree)
     monkeypatch.setattr(module, "terminate_owned_tree", cleanup)
     return process, state, kills, clock
 
@@ -165,6 +184,43 @@ def test_success_samples_resources_reaps_and_keeps_separate_worker_log(
         event["stage"] for event in events if event["event"] == "resource_sample"
     } >= {"initial", "final"}
     assert value["limits"] == module.LIMITS
+
+
+def test_supervisor_fails_when_empty_samples_never_observe_worker_root(
+    tmp_path, monkeypatch
+):
+    module, root = api(), tmp_path / "unobserved-root"
+    _, state, kills, _ = install(module, monkeypatch, root, unobserved_root=True)
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 1
+
+    value = report(root)
+    assert value["status"] == "FAILED"
+    assert "root process birth identity was never observed" in value["failure"]
+    assert value["returncode"] == 0 and state.reaped and value["worker_reaped"]
+    assert value["owned_members_remaining"] == 0
+    assert value["ambiguous_rss_members_remaining"] == 0
+    assert kills == []
+
+
+def test_reused_root_rss_still_trips_the_supervisor_budget(tmp_path, monkeypatch):
+    module, root = api(), tmp_path / "reused-root-rss"
+    _, state, kills, _ = install(
+        module,
+        monkeypatch,
+        root,
+        reused_root=True,
+        root_rss_excess=True,
+    )
+
+    assert module.supervised(["MANUFACTURED_WORKER"], root) == 1
+
+    value = report(root)
+    assert value["status"] == "FAILED"
+    assert "rss_bytes" in value["failure"]
+    assert value["peak_rss_bytes"] > module.LIMITS["rss_bytes"]
+    assert kills == []
+    assert state.reaped and value["worker_reaped"]
 
 
 def test_sampled_aggregate_rss_kills_owned_leaf_and_never_unrelated_process(
@@ -251,7 +307,7 @@ def test_late_ambiguous_orphan_blocks_success_and_is_never_killed(
 def test_owned_leaf_found_by_final_verification_is_also_cleaned(tmp_path, monkeypatch):
     module, root = api(), tmp_path / "late-owned"
     _, state, kills, _ = install(module, monkeypatch, root, orphan=True)
-    tree = module.ProcessTree(10)
+    tree = ProcessTree(10, expected_root_identity=(10, 100))
     original = tree.provider
 
     def transiently_missing_final_snapshot():

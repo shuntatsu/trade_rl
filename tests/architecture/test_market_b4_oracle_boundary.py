@@ -173,7 +173,7 @@ def test_composition_package_is_in_both_research_type_routes_and_lf_scoped() -> 
     assert all(
         "tools/market_b4_artificial_component_operator.py" in line for line in routes
     )
-    assert workflow.count("tools/market_b4_oracle") == 2
+    assert sum("tools/market_b4_oracle" in line for line in routes) == 2
     assert workflow.count("tools/market_b4_artificial_component_operator.py") == 2
 
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
@@ -222,6 +222,7 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
     boundaries = (ROOT / "docs/architecture/package-boundaries.md").read_text(
         encoding="utf-8"
     )
+    normalized_boundaries = " ".join(boundaries.split())
     assert "`tools/market_b4_artificial_component_operator.py`" in boundaries
     assert "ARTIFICIAL_COMPARISON_ONLY" in boundaries
     assert "do not authenticate its producer" in boundaries
@@ -229,6 +230,15 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
     assert "re-raises the original exception" in boundaries
     assert "Failure cleanup removes partial" in boundaries
     assert "existing five-file" in boundaries
+    assert (
+        "rejects an output-root path containing a `..` component"
+        in normalized_boundaries
+    )
+    assert (
+        "strict descendant of the resolved `output/verify` root"
+        in normalized_boundaries
+    )
+    assert "Before the first output-root `mkdir`" in normalized_boundaries
     assert "Q's shared pair" in boundaries
     assert "Dataset before consuming either role receipt" in boundaries
     assert "Windows alternate data streams" in boundaries
@@ -237,6 +247,9 @@ def test_artificial_h_operator_boundary_is_documented() -> None:
 
 def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> None:
     runner = (ROOT / "tools/market_b4_outer_runner.py").read_text(encoding="utf-8")
+    boundaries = (ROOT / "docs/architecture/package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
     runner_tree = ast.parse(runner)
     main = next(
         node
@@ -246,9 +259,23 @@ def test_outer_runner_default_cli_is_offline_and_pins_observer_dependency() -> N
     observer = (ROOT / "tools/market_b4_oracle/outer_witness.py").read_text(
         encoding="utf-8"
     )
+    normalized_boundaries = " ".join(boundaries.split())
     assert '"native execution requires a frozen H source-root' in runner
     assert '"process_started": False' in runner
     assert "def run_and_consume_frozen_h_market_matrix(" in runner
+    assert "ProcessTree.from_popen(process)" in runner
+    assert "leaves the tree unknown and cleanup incomplete" in normalized_boundaries
+    assert (
+        "root PID that has never been observed remains ambiguous"
+        in normalized_boundaries
+    )
+    assert (
+        "empty snapshot without a captured root birth identity" in normalized_boundaries
+    )
+    assert (
+        "binds the candidate root to the creation time read from the launched"
+        in normalized_boundaries
+    )
     assert not any(
         isinstance(node, ast.Attribute) and node.attr == "Popen"
         for node in ast.walk(main)

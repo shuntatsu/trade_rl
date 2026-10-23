@@ -21,7 +21,8 @@ from trade_rl.data.market import MarketDataset
 
 DATASET_MANIFEST_NAME: Final = "manifest.json"
 DATASET_ARRAYS_NAME: Final = "arrays.npz"
-DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v3"
+_DATASET_ARTIFACT_SCHEMA_V3: Final = "market_dataset_artifact_v3"
+DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v4"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
 
 
@@ -185,7 +186,8 @@ def load_dataset_files(root: Path) -> MarketDataset:
     )
     if content_digest(manifest) != artifact_digest:
         raise ValueError("dataset manifest digest mismatch")
-    if manifest.get("schema_version") != DATASET_ARTIFACT_SCHEMA:
+    artifact_schema = manifest.get("schema_version")
+    if artifact_schema not in {DATASET_ARTIFACT_SCHEMA, _DATASET_ARTIFACT_SCHEMA_V3}:
         raise ValueError("unsupported dataset artifact schema")
     if manifest.get("arrays_file") != DATASET_ARRAYS_NAME:
         raise ValueError("dataset arrays file identity is invalid")
@@ -197,6 +199,16 @@ def load_dataset_files(root: Path) -> MarketDataset:
 
     metadata = _mapping(manifest.get("arrays"), field="arrays")
     expected_names = set(metadata)
+    if (
+        artifact_schema == DATASET_ARTIFACT_SCHEMA
+        and "funding_price_rate" not in expected_names
+    ):
+        raise ValueError("dataset v4 artifact is missing funding_price_rate")
+    if (
+        artifact_schema == _DATASET_ARTIFACT_SCHEMA_V3
+        and "funding_price_rate" in expected_names
+    ):
+        raise ValueError("dataset v3 artifact must not contain funding_price_rate")
     arrays: dict[str, np.ndarray] = {}
     with np.load(io.BytesIO(payload), allow_pickle=False) as archive:
         if set(archive.files) != expected_names:
@@ -226,6 +238,8 @@ def load_dataset_files(root: Path) -> MarketDataset:
         raise ValueError("dataset_id does not match canonical dataset metadata")
     kwargs: dict[str, Any] = {**scalar_meta, **arrays}
     allowed = {item.name for item in fields(MarketDataset) if item.init}
+    if artifact_schema == _DATASET_ARTIFACT_SCHEMA_V3:
+        allowed.remove("funding_price_rate")
     if set(kwargs) != allowed:
         missing = sorted(allowed - set(kwargs))
         extra = sorted(set(kwargs) - allowed)

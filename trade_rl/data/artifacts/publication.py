@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME as MARKET_ARTIFACT_ARRAYS,
 )
@@ -70,7 +71,7 @@ def publish_market_dataset_artifact(
     if not dataset.identity_verified:
         raise ValueError("market dataset publication requires a canonical identity")
     output = Path(root)
-    if output.exists():
+    if output.exists() or output.is_symlink():
         raise FileExistsError(f"market artifact destination already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
@@ -81,7 +82,7 @@ def publish_market_dataset_artifact(
         loaded = load_dataset_files(staging)
         if loaded.dataset_id != dataset.dataset_id:
             raise ValueError("staged market artifact changed dataset identity")
-        staging.rename(output)
+        atomic_rename_directory(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise

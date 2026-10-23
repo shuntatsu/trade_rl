@@ -154,6 +154,10 @@ class StatefulExecutionRuntime:
             dataset.funding_rate[processing_index],
             dtype=np.float64,
         )
+        funding_price_rates = np.asarray(
+            dataset.resolved_array("funding_price_rate")[processing_index],
+            dtype=np.float64,
+        )
         equity_after_funding = float(self.book.portfolio_value)
         self.funding_evidence.append(
             FundingBoundaryEvidence(
@@ -166,6 +170,9 @@ class StatefulExecutionRuntime:
                     float(value) for value in contract_multipliers
                 ),
                 funding_rates=tuple(float(value) for value in funding_rates),
+                funding_price_rates=tuple(
+                    float(value) for value in funding_price_rates
+                ),
                 funding_amount=float(funding_amount),
                 equity_before_funding=equity_after_funding - float(funding_amount),
                 equity_after_funding=equity_after_funding,
@@ -180,6 +187,8 @@ class StatefulExecutionRuntime:
         event_type: str,
         processing_index: int,
         filled_quantity: float = 0.0,
+        filled_lot_count: int | None = None,
+        lot_size: float = 0.0,
         execution_price: float | None = None,
         filled_notional: float = 0.0,
         capacity_before: float = 0.0,
@@ -193,7 +202,11 @@ class StatefulExecutionRuntime:
         executor = self.executor
         self.events.append(
             OrderEvent(
-                schema_version="order_event_v1",
+                schema_version=(
+                    "order_event_v2"
+                    if filled_lot_count is not None
+                    else "order_event_v1"
+                ),
                 sequence=len(self.events),
                 order_id=updated.order_id,
                 reduce_only=updated.intent.reduce_only,
@@ -209,6 +222,8 @@ class StatefulExecutionRuntime:
                 requested_quantity=updated.intent.requested_quantity,
                 remaining_quantity=updated.remaining_quantity,
                 filled_quantity=filled_quantity,
+                filled_lot_count=filled_lot_count,
+                lot_size=lot_size,
                 execution_price=execution_price,
                 filled_notional=filled_notional,
                 capacity_before=capacity_before,

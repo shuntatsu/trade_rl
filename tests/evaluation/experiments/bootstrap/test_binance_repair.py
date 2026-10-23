@@ -154,6 +154,19 @@ class _RepairFixtureTransport:
         assert BinanceTransportMode(mode) is BinanceTransportMode.REST
         return _snapshot()
 
+    def load_funding_events(
+        self,
+        *,
+        market: BinanceMarket | str,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        mode: BinanceTransportMode | str = BinanceTransportMode.VISION,
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        assert BinanceMarket(market) is BinanceMarket.USDS_M
+        assert BinanceTransportMode(mode) is BinanceTransportMode.VISION
+        return [], "vision"
+
     def _request_bytes(self, url: str) -> bytes:
         self.download_calls.append(url)
         payload = self._payload(url)

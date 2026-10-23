@@ -34,6 +34,8 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 source URL、SHA-256、size、取引所metadata等を保存し、再取得時にも同じ入力だったか照合できる状態にします。
 
+Canonical M2ではfunding eventのrateとexchange settlement markも取得時に`funding-events.json`へ固定し、manifest digestでDataset入力へ結びます。以後のbuildは保存済みevent snapshotを使い、mark欠損を隠れたREST fallbackで埋めません。
+
 ## 3. 未来情報を混ぜずに特徴量を作る
 
 基本条件は次です。
@@ -54,7 +56,13 @@ feature_available_time <= decision_time
 
 ## 5. Datasetを変更不能なartifactへする
 
-MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、publish後に再読込してcontent identityを検証します。
+MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、公開前の再読込でcontent identityを検証します。
+
+完成済みの内容を一括で公開し、競合する処理が先に作った空フォルダも置き換えません。公開先の環境がこの操作に対応していない場合は、上書きや部分的なコピーに切り替えず中止します。
+
+銘柄名、特徴量名、出来高単位、calendarなどの意味も、保存した識別情報と照合します。数値配列が同じでも意味を変更したデータを古いIDで受理しません。意図した変更は新しいcontent identityを作ります。
+
+保存用と約定処理用の銘柄の有効状態も照合し、片側だけが変わったデータを検証へ渡しません。
 
 同じpublication先が既に存在する場合は、静かに上書きせずfail closedにします。
 

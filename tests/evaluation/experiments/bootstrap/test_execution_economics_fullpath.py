@@ -105,7 +105,7 @@ def test_v2_bootstrap_and_inspection_accept_matching_execution_economics(
         return BinanceDatasetBuildResult(
             dataset=dataset,
             metadata=(),
-            sources_used=("frozen:exchange-info", "vision"),
+            sources_used=("frozen:exchange-info", "frozen:funding-events", "vision"),
             feature_timeframes=("1h",),
         )
 

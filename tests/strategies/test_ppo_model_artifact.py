@@ -91,7 +91,7 @@ def test_normalized_model_save_retries_transient_windows_publication_lock(
         Policy(), feature_indices=(0,), feature_normalizer=_fit()
     )
     monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
-    original_rename = type(root).rename
+    original_rename = atomic_write._rename_directory_noreplace
     attempts = 0
     delays = []
 
@@ -102,7 +102,7 @@ def test_normalized_model_save_retries_transient_windows_publication_lock(
             raise PermissionError("temporary Windows publication lock")
         return original_rename(source, target)
 
-    monkeypatch.setattr(type(root), "rename", locked_once)
+    monkeypatch.setattr(atomic_write, "_rename_directory_noreplace", locked_once)
     monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
 
     digest = save_normalized_ppo(root, strategy)
@@ -474,7 +474,7 @@ def test_inference_bundle_retries_transient_windows_publication_lock(
         feature_normalizer=_fit() if normalized else None,
     )
     monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
-    original_rename = type(root).rename
+    original_rename = atomic_write._rename_directory_noreplace
     attempts = 0
     delays = []
 
@@ -485,7 +485,7 @@ def test_inference_bundle_retries_transient_windows_publication_lock(
             raise PermissionError("temporary Windows publication lock")
         return original_rename(source, target)
 
-    monkeypatch.setattr(type(root), "rename", locked_once)
+    monkeypatch.setattr(atomic_write, "_rename_directory_noreplace", locked_once)
     monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
     digest = save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
 
@@ -513,7 +513,7 @@ def test_inference_bundle_cleans_staging_after_exhausted_publication_lock(
         attempts += 1
         raise PermissionError("persistent Windows publication lock")
 
-    monkeypatch.setattr(type(root), "rename", always_locked)
+    monkeypatch.setattr(atomic_write, "_rename_directory_noreplace", always_locked)
     monkeypatch.setattr(atomic_write.time, "sleep", lambda delay: None)
     with pytest.raises(PermissionError, match="persistent Windows"):
         save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
@@ -540,7 +540,9 @@ def test_inference_bundle_does_not_overwrite_a_competing_publication(
         (Path(target) / "policy.zip").write_bytes(b"competing policy")
         raise PermissionError("destination was published concurrently")
 
-    monkeypatch.setattr(type(root), "rename", competing_publication)
+    monkeypatch.setattr(
+        atomic_write, "_rename_directory_noreplace", competing_publication
+    )
     with pytest.raises(PermissionError, match="concurrently"):
         save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
 

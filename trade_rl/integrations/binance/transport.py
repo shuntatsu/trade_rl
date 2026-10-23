@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -333,11 +333,11 @@ class BinancePublicTransport:
         symbol: str,
         start_ms: int,
         end_ms: int,
-    ) -> list[tuple[int, float]]:
+    ) -> list[tuple[int, float, float | None]]:
         if market is BinanceMarket.SPOT:
             return []
         cursor = start_ms
-        result: list[tuple[int, float]] = []
+        result: list[tuple[int, float, float | None]] = []
         while cursor < end_ms:
             url = self._query_url(
                 _REST_BASE[market.value],
@@ -352,14 +352,32 @@ class BinancePublicTransport:
             payload = self._request_json(url)
             if not isinstance(payload, list):
                 raise BinanceTransportError("Binance funding response must be a list")
-            chunk: list[tuple[int, float]] = []
+            chunk: list[tuple[int, float, float | None]] = []
             for item in payload:
                 if not isinstance(item, dict):
                     raise BinanceTransportError("Binance funding row must be an object")
-                timestamp = _normalize_epoch_ms(item.get("fundingTime"))
-                rate = _finite_float(item.get("fundingRate"), field="funding rate")
+                try:
+                    timestamp = _normalize_epoch_ms(item.get("fundingTime"))
+                    rate = _finite_float(item.get("fundingRate"), field="funding rate")
+                    mark_value = item.get("markPrice")
+                    mark_price = (
+                        None
+                        if mark_value is None or mark_value == ""
+                        else _finite_float(
+                            mark_value,
+                            field="funding settlement mark price",
+                        )
+                    )
+                except (TypeError, ValueError) as error:
+                    raise BinanceTransportError(
+                        f"Binance funding row is invalid: {error}"
+                    ) from error
+                if mark_price is not None and mark_price <= 0.0:
+                    raise BinanceTransportError(
+                        "Binance funding settlement mark price must be positive"
+                    )
                 if start_ms <= timestamp <= end_ms:
-                    chunk.append((timestamp, rate))
+                    chunk.append((timestamp, rate, mark_price))
             result.extend(chunk)
             if len(chunk) < 1_000:
                 break
@@ -378,10 +396,10 @@ class BinancePublicTransport:
         symbol: str,
         start_ms: int,
         end_ms: int,
-    ) -> list[tuple[int, float]]:
+    ) -> list[tuple[int, float, float | None]]:
         if market is BinanceMarket.SPOT:
             return []
-        result: list[tuple[int, float]] = []
+        result: list[tuple[int, float, float | None]] = []
         for month in _iter_months(start_ms, end_ms):
             url = vision_funding_url(market, symbol, month)
             rows = _csv_rows_from_zip(self._request_bytes(url), source=url)
@@ -402,16 +420,33 @@ class BinancePublicTransport:
                 raise BinanceTransportError(
                     f"Binance Vision funding header is unsupported: {tuple(header)}"
                 )
+            mark_field = next(
+                (name for name in ("markPrice", "mark_price") if name in header),
+                None,
+            )
             for row in rows[1:]:
                 try:
                     timestamp = _normalize_epoch_ms(row[header[time_field]])
                     rate = _finite_float(row[header[rate_field]], field="funding rate")
+                    mark_text = None if mark_field is None else row[header[mark_field]]
+                    mark_price = (
+                        None
+                        if mark_text is None or not mark_text.strip()
+                        else _finite_float(
+                            mark_text,
+                            field="funding settlement mark price",
+                        )
+                    )
+                    if mark_price is not None and mark_price <= 0.0:
+                        raise BinanceTransportError(
+                            "Binance funding settlement mark price must be positive"
+                        )
                 except IndexError as error:
                     raise BinanceTransportError(
                         f"Binance Vision funding row is short: {url}"
                     ) from error
                 if start_ms <= timestamp <= end_ms:
-                    result.append((timestamp, rate))
+                    result.append((timestamp, rate, mark_price))
         return result
 
     def _load_vision_funding_range(
@@ -421,7 +456,7 @@ class BinancePublicTransport:
         symbol: str,
         start_ms: int,
         end_ms: int,
-    ) -> tuple[list[tuple[int, float]], str]:
+    ) -> tuple[list[tuple[int, float, float | None]], str]:
         end_time = datetime.fromtimestamp(end_ms / 1_000, tz=UTC)
         trailing_month_start = end_time.replace(
             day=1,
@@ -443,7 +478,7 @@ class BinancePublicTransport:
             )
 
         vision_end_ms = max(start_ms, trailing_month_start_ms)
-        result: list[tuple[int, float]] = []
+        result: list[tuple[int, float, float | None]] = []
         sources: list[str] = []
         if start_ms < vision_end_ms:
             result.extend(
@@ -451,7 +486,7 @@ class BinancePublicTransport:
                     market=market,
                     symbol=symbol,
                     start_ms=start_ms,
-                    end_ms=vision_end_ms,
+                    end_ms=vision_end_ms - 1,
                 )
             )
             sources.append("vision")
@@ -466,6 +501,137 @@ class BinancePublicTransport:
         sources.append("rest")
         return result, "+".join(sources)
 
+    def _complete_funding_marks(
+        self,
+        *,
+        events: Sequence[tuple[int, float] | tuple[int, float, float | None]],
+        market: BinanceMarket,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        source: str,
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        normalized = [
+            (event[0], event[1], None if len(event) == 2 else event[2])
+            for event in events
+        ]
+        if all(mark is not None for _, _, mark in normalized):
+            complete: list[tuple[int, float, float]] = []
+            for timestamp, rate, mark in normalized:
+                if mark is None:
+                    raise AssertionError("funding mark completeness changed")
+                if not math.isfinite(mark) or mark <= 0.0:
+                    raise BinanceTransportError(
+                        "Binance funding settlement mark price must be positive"
+                    )
+                complete.append((timestamp, rate, mark))
+            return complete, source
+
+        rest_events = self._load_rest_funding(
+            market=market,
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+        marks: dict[int, float] = {}
+        for event in rest_events:
+            if len(event) == 3 and event[2] is not None:
+                marks[event[0]] = event[2]
+        completed: list[tuple[int, float, float]] = []
+        for timestamp, rate, mark_price in normalized:
+            resolved_mark = (
+                mark_price if mark_price is not None else marks.get(timestamp)
+            )
+            if resolved_mark is None:
+                raise BinanceTransportError(
+                    "Binance funding settlement mark price is unavailable"
+                )
+            if not math.isfinite(resolved_mark) or resolved_mark <= 0.0:
+                raise BinanceTransportError(
+                    "Binance funding settlement mark price must be positive"
+                )
+            completed.append((timestamp, rate, float(resolved_mark)))
+        return completed, f"{source}+rest-marks"
+
+    @staticmethod
+    def _require_funding_marks(
+        events: Sequence[tuple[int, float, float | None]],
+    ) -> list[tuple[int, float, float]]:
+        marked: list[tuple[int, float, float]] = []
+        for timestamp, rate, mark_price in events:
+            if mark_price is None:
+                raise BinanceTransportError(
+                    "Binance funding settlement mark price is unavailable"
+                )
+            if not math.isfinite(mark_price) or mark_price <= 0.0:
+                raise BinanceTransportError(
+                    "Binance funding settlement mark price must be positive"
+                )
+            marked.append((timestamp, rate, mark_price))
+        return marked
+
+    def load_funding_events(
+        self,
+        *,
+        market: BinanceMarket | str,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        """Load funding settlements with the mark used by the exchange."""
+
+        resolved_market = _market(market)
+        if resolved_market is BinanceMarket.SPOT:
+            return [], "spot:no-funding"
+        resolved_mode = _mode(mode)
+        if resolved_mode is BinanceTransportMode.REST:
+            events = self._load_rest_funding(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
+            return self._require_funding_marks(events), "rest"
+        if resolved_mode is BinanceTransportMode.VISION:
+            events, source = self._load_vision_funding_range(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
+            return self._complete_funding_marks(
+                events=events,
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source=source,
+            )
+        try:
+            events = self._load_rest_funding(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
+            return self._require_funding_marks(events), "rest"
+        except BinanceTransportError:
+            events, source = self._load_vision_funding_range(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
+            return self._complete_funding_marks(
+                events=events,
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source=source,
+            )
+
     def load_funding_rates(
         self,
         *,
@@ -475,44 +641,44 @@ class BinancePublicTransport:
         end_ms: int,
         mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
     ) -> tuple[list[tuple[int, float]], str]:
+        """Load legacy timestamp/rate pairs without requiring settlement marks."""
+
         resolved_market = _market(market)
         if resolved_market is BinanceMarket.SPOT:
             return [], "spot:no-funding"
         resolved_mode = _mode(mode)
         if resolved_mode is BinanceTransportMode.REST:
-            return (
-                self._load_rest_funding(
-                    market=resolved_market,
-                    symbol=symbol,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                ),
-                "rest",
+            events = self._load_rest_funding(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
             )
+            return [(timestamp, rate) for timestamp, rate, _ in events], "rest"
         if resolved_mode is BinanceTransportMode.VISION:
-            return self._load_vision_funding_range(
+            events, source = self._load_vision_funding_range(
                 market=resolved_market,
                 symbol=symbol,
                 start_ms=start_ms,
                 end_ms=end_ms,
             )
+            return [(timestamp, rate) for timestamp, rate, _ in events], source
         try:
-            return (
-                self._load_rest_funding(
-                    market=resolved_market,
-                    symbol=symbol,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                ),
-                "rest",
-            )
-        except BinanceTransportError:
-            return self._load_vision_funding_range(
+            events = self._load_rest_funding(
                 market=resolved_market,
                 symbol=symbol,
                 start_ms=start_ms,
                 end_ms=end_ms,
             )
+            return [(timestamp, rate) for timestamp, rate, _ in events], "rest"
+        except BinanceTransportError:
+            events, source = self._load_vision_funding_range(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
+            return [(timestamp, rate) for timestamp, rate, _ in events], source
 
     def load_exchange_information(
         self,

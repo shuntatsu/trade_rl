@@ -35,6 +35,9 @@ class SealedTestLedgerProtocol(Protocol):
     @property
     def records(self) -> tuple[SealedTestAccessRecord, ...]: ...
 
+    @property
+    def consumed_access_digests(self) -> tuple[str, ...]: ...
+
     def authorize_once(
         self,
         *,
@@ -45,6 +48,14 @@ class SealedTestLedgerProtocol(Protocol):
         selected_configuration: str,
         selected_policy_digest: str | None,
     ) -> SealedTestAccessRecord: ...
+
+    def consume_once(
+        self, record: SealedTestAccessRecord
+    ) -> SealedTestAccessRecord: ...
+
+    def consume_all_once(
+        self, records: tuple[SealedTestAccessRecord, ...]
+    ) -> tuple[SealedTestAccessRecord, ...]: ...
 
 
 def build_sealed_test_access_record(
@@ -80,10 +91,15 @@ def build_sealed_test_access_record(
 class SealedTestLedger:
     _opened: set[tuple[str, str, int]] = field(default_factory=set, init=False)
     _records: list[SealedTestAccessRecord] = field(default_factory=list, init=False)
+    _consumed_access_digests: list[str] = field(default_factory=list, init=False)
 
     @property
     def records(self) -> tuple[SealedTestAccessRecord, ...]:
         return tuple(self._records)
+
+    @property
+    def consumed_access_digests(self) -> tuple[str, ...]:
+        return tuple(self._consumed_access_digests)
 
     def authorize_once(
         self,
@@ -109,6 +125,50 @@ class SealedTestLedger:
         self._opened.add(key)
         self._records.append(record)
         return record
+
+    @staticmethod
+    def _canonical_record(record: SealedTestAccessRecord) -> SealedTestAccessRecord:
+        if type(record) is not SealedTestAccessRecord:
+            raise ValueError("sealed access consumption requires an access record")
+        rebuilt = build_sealed_test_access_record(
+            experiment_plan_digest=record.experiment_plan_digest,
+            dataset_id=record.dataset_id,
+            fold_index=record.fold_index,
+            test_range=record.test_range,
+            selected_configuration=record.selected_configuration,
+            selected_policy_digest=record.selected_policy_digest,
+        )
+        if rebuilt != record:
+            raise ValueError("sealed access record digest is inconsistent")
+        return record
+
+    def consume_all_once(
+        self, records: tuple[SealedTestAccessRecord, ...]
+    ) -> tuple[SealedTestAccessRecord, ...]:
+        if type(records) is not tuple or not records:
+            raise ValueError("sealed access consumption requires immutable records")
+        canonical = tuple(self._canonical_record(record) for record in records)
+        if len({record.access_digest for record in canonical}) != len(canonical):
+            raise ValueError("sealed access consumption records must be unique")
+
+        admitted: list[SealedTestAccessRecord] = []
+        for record in canonical:
+            match = next((value for value in self._records if value == record), None)
+            if match is None:
+                raise ValueError(
+                    "sealed access record was not authorized by this ledger"
+                )
+            if record.access_digest in self._consumed_access_digests:
+                raise ValueError("sealed access record was already consumed")
+            admitted.append(match)
+
+        self._consumed_access_digests.extend(
+            record.access_digest for record in admitted
+        )
+        return tuple(admitted)
+
+    def consume_once(self, record: SealedTestAccessRecord) -> SealedTestAccessRecord:
+        return self.consume_all_once((record,))[0]
 
 
 __all__ = [

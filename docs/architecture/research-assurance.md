@@ -23,6 +23,27 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
 
+## Issue #810 signed insolvency software prerequisite
+
+The G0 question is whether an opt-in fixed-capital profit consumer can preserve
+losses beyond initial capital without changing historical zero-floor contracts.
+It is a software prerequisite, not an economic edge hypothesis or profit result.
+G1 declares independent canonical books, signed marked equity after economic
+termination, zero remaining quantity/margin, no additional liquidation trade,
+and an execution identity distinct from the historical policy. No market fit,
+replay, Study selection or unused-future access is authorized by this change.
+
+The G2 independent oracle starts with capital 1000, sells five units at 100 with
+fee 1, and marks a subsequent short liability at 400. Cash 1499 minus liability
+2000 must remain debt -501; the legacy mode must remain 0. Repeated margin updates must
+not erase that debt or add a second fee. Captured nominal/stressed legacy hashes,
+cross-policy order rejection and invalid-assignment tests guard compatibility.
+Multi-bar and same-bar counterexamples terminate through price, dividend,
+cash-interest and fill-fee phases. Later prices/carry and already admitted fills
+must not change terminal debt, and actual consumed-bar metadata must agree.
+The tests do not establish realistic liquidation slippage, recovery rules or
+debt interest, and bounded legacy interval/log diagnostics are not signed profit.
+
 ## G0: Research Question Validity
 
 研究を実行する前に、最低限次のResearch Question Contractを明示する。
@@ -826,6 +847,88 @@ Economic execution remains blocked until a fresh independent result-blind G0–G
 review is bound to the exact protocol, implementation, and data scope. A later
 G3 evidence review remains separate from the G4 result decision.
 
+## Research-specific contract: prequential Ridge stream
+
+### G0 — bounded question and limitations
+
+Issue #810 requires a forecast produced before the downstream decision, rather
+than a full-period fitted model's in-sample predictions. This stage asks whether
+the existing Ridge can be fitted on each available prefix, frozen, and used
+only in the following block with its timing and input identity preserved. The
+operational target is a causal input to a later common decision context, not
+selection of a profitable policy.
+
+The tentative economic premise is that measured, past price/volume features
+may retain conditional predictive information over a declared horizon. No
+specific persistence, market participant mechanism or after-cost edge is
+established here. Fitting more frequently does not create independent market
+experience. Ridge conditional mean log return is not expected simple return;
+exponentiating it does not remove that distinction. Its uncalibrated vintage
+cannot provide predictive coverage or an uncertainty bound.
+
+For this software stage, the primary check is temporal non-interference and
+the independently calculated synthetic Ridge forecast. Counterfactuals change
+only unused future suffixes, source publication boundaries, selected rows or
+forecast availability. A changed earlier prediction under an unchanged causal
+scope, use of a not-ready packet, or an inconsistent identity falsifies the
+capability. No economic trial, winner selection or new-data consumption is part
+of this stage. An exact economic question, Dataset/window, capital/risk/cost,
+trial budget, controls, source/runtime bundle and Study must be preregistered
+and independently reviewed before G4. G0/G1 for that Study remain NOT ESTABLISHED.
+The 20% observed-drawdown research guardrail is unchanged.
+
+### G1 — frozen availability and forecast semantics
+
+Each fit cutoff, declared completion, prediction block and inference delay is
+fixed before generation. Both price-label endpoints and their actual recorded
+publication clocks must be strictly before the cutoff. Completion is at or
+after cutoff, and the next block starts strictly after cutoff and at or after
+completion. Blocks are non-overlapping; a later vintage can use labels that
+have newly matured but cannot overwrite an earlier vintage.
+
+The sole existing row selector also supplies the actual ordered row/endpoint
+trace; the same immutable training object supplies the Ridge solve. The stream
+stores selected feature names/indices/values, weights, endpoint symbols/prices,
+source clocks, fit-only scaler and solved model parameters. Symbol IDs are
+lineage only, not fitted features. The producer accepts only source and selected
+features available on their Dataset row, conservatively rejecting late sources.
+It does not claim delayed-data reconstruction or independently validate the
+Dataset's upstream feature causality and historical source availability.
+
+Packet `as_of` denotes the feature snapshot time. A manually assembled snapshot
+can refer to a source published earlier; the source must be available by that
+snapshot. The current producer uses the Dataset bar close and admits only
+on-time inputs. Forecast readiness equals the maximum of snapshot, source and
+declared completion, plus the block's declared inference delay. All timing is
+`declared_simulation_v1`: no actual fit completion or latency receipt is claimed.
+
+Only the newest ready packet for the requested symbol in the active block,
+strictly before its horizon end, can reach the existing cost-aware controller.
+No-ready, missing input, wrong symbol, previous-block fallback and expired
+forecast are errors. There is no account, reward, portfolio allocator, ledger,
+fill, RL training or execution-clock change. The current switching-cost proxy
+is retained as a surrogate, not optimal after-cost portfolio allocation.
+
+### G2 — invariants and independent oracles
+
+| Invariant | Minimal counterexample | Oracle |
+|---|---|---|
+| Fit consumes only mature rows | endpoint or publication equals cutoff | Hand-listed actual start/end/symbol rows and strict timestamp comparisons |
+| Model depends only on its fit scope | mutate unused suffix prices/features/availability and whole-Dataset ID | Identical earlier model, packet and causal-scope digests |
+| Recorded prediction is the actual Ridge on selected inputs | constant or linear/quadratic synthetic signal | Hand-calculated intercept and regularized slope, then LONG/SHORT/cost-veto decisions |
+| Ready/expiry clock controls use | inference delay spans the newest snapshot, block gap, exact horizon end | Newest ready packet only; explicit error at uncovered decisions |
+| Frozen inputs cannot drift | mutate caller lists or reset NumPy write flags | Copied tuple/byte-backed arrays retain identical identities and forecasts |
+| Serialization retains the frozen contract | change training/model/timing with old or recomputed outer hash | Externally pinned content digest, nested identity/schema and model-input consistency checks |
+| Sparse selected inputs do not allocate a dense universe | valid one-column model with an enormous feature index | Allocation interception while constructor/readback retain the same prediction |
+
+Digest checking proves content integrity against an independently retained digest,
+not authenticity of the caller's Dataset or fitting receipt. The reader neither
+refits nor proves that model parameters were genuinely produced by the recorded
+training process. A caller can fabricate an internally consistent artifact and
+its new digest; external source/runtime and execution evidence remain required.
+Synthetic tests and a fresh result-blind source review do not establish G3-G5,
+profitability, full P2 delivery, downstream RL validity or live eligibility.
+
 ## G3: Evidence Validity
 
 G3は既存のcausal data、common accounting、immutable artifact、provenance、controlled factor、lineage、result-blind preregistrationをまとめて「その結果を研究判断へ使ってよいか」を問う。
@@ -886,8 +989,1634 @@ Production eligibility: NOT ESTABLISHED
 - comparison threshold / winner ruleを変える → resultを見た後の救済にせず、G4 protocolとして新しい事前定義を作る。
 - final/unused/live eligibilityを変える → G5 authorityを更新し、development evidenceを代替にしない。
 
+## Signature paired-input software prerequisite
+
+The native cross-asset representation also has a clock-specific prerequisite.
+G0 asks whether the intended information grain is preserved, not whether a
+rolling statistic predicts profit. G1 admits finer-clock returns only from
+adjacent active/tradable rows published by their own closes, before accumulating
+the maintained last-N eligible pair history. Late rows are permanently excluded
+under this declared representation policy. Equal/coarser clocks retain their
+aligned-return history; no alternative Signature or rolling owner is introduced.
+Affected configuration digests and identity metadata bind the same explicit
+`native_before_base_sync_v1` route marker and explicit
+`native_cross_asset_history=last_n_eligible_pair_events_v1` history policy.
+Different gap policies must not share an indistinguishable configuration digest;
+array-bound Dataset identity does not substitute for representation provenance.
+
+G2 uses four literal 15m log returns (.02, -.01, .03, -.02) with a second asset
+twice those returns: first-hour beta 2, correlation 1, relative return -.02,
+dispersion .01 and momentum ranks [-1, 1]. A missing second physical row excludes
+the second/third returns, without resetting surviving pair history. With asset
+returns (.03, .04, -.01, .05), the retained first/fourth pair beta is -.5.
+For coarser 4h rows, publication of the 8h row at 13h makes the aligned history
+observe 4h then 12h: beta -4, whereas an incorrect raw-native route yields -1.25.
+Prefix, source-age/expiry, symbol-order, unchanged financial inputs and artifact
+identity oracles accompany these arithmetic checks. They do not certify actual
+historical publication clocks, source coverage, calibrated execution, research
+approval, tradable edge or G4–G5 readiness.
+
+G0 asks whether a local Signature addition can be compared while retaining the
+same original information, financial inputs and clock semantics. G1 permits
+appended local feature columns and representation provenance only. The existing
+Dataset identity owners supply the array roster and normalized metadata; neither
+a new ledger nor equality of whole Dataset IDs is appropriate here.
+
+G2 uses independently reidentified synthetic pairs. Rate `.001`, settlement
+product `.12` and count `1` versus product `.13` must reject before fitting or
+replay. Count `2` must also reject with unchanged rate/product: two `.0005` events
+at marks `100` and `140` retain product `.12`, so count alone does not imply a
+cash difference. Other counterexamples change cash yield, contract multiplier,
+volume units, valid session clocks, annualization or original local/global
+information. Different optional continuous nominal-hour arguments that both
+resolve to one hour remain admissible. Fit/replay sentinels verify refusal order.
+
+These are input-consistency and software mechanism checks. Identity verification
+does not attest Signature computation, historical source availability, calendar
+coverage, cost calibration or tradable edge. Existing studies and economic
+results are not reclassified; G4/G5 and formal independent review remain separate.
+
 ## Completion condition
 
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Result-blind scalar allocation foundation
+
+The optional after-cost family asks a bounded software question: can declared
+single-horizon expected-simple/cost/risk inputs produce a deterministic scalar
+allocation and reach the existing actual-account execution path without a
+second ledger? The economic hypothesis is only that excluding incremental
+trades whose expected benefit does not cover their costs can reduce avoidable
+turnover. This foundation supplies no empirical market edge or causal demand
+mechanism and cannot establish profit, forecast quality or future eligibility.
+
+Capital, observation and action are one independent-symbol account; multiple
+training symbols are not shared capital. The current decision sees only
+canonical actual holdings/cash/marks/risk and pending-order facts plus declared
+available estimates. One horizon covers mean simple return, its unannualized
+variance, all initial-notional costs and cash/carry estimates. Provenance and
+availability are caller declarations, not historical point-in-time proofs.
+The same-close scalar utility is the formula in the optional allocation section
+of lean-core. It is neither RL reward nor realized account P&L. First eligible
+MARKET first possible fills use submit+max(1,L), with integer L0/L2 admission.
+Execution uses the canonical signed self-financing cash model and ledger; this
+is not an assertion about exchange futures collateral economics.
+
+Hard risk uses latched maximum drawdown and takes priority over HOLD. Pending
+MARKET reduce-only remainders are explicitly included in HOLD cancellation;
+nonmarket/protective orders are unsupported and rejected. One bar advances
+through canonical fills/carry/corporate actions. A fixed terminal horizon,
+forced close, walk-forward state, cost calibration and a finite economic trial
+budget are not defined by this software and remain required before research.
+
+The composed optimizer must respect the actual executor's existing shorting
+permission. Its configured interval is intersected with static risk/leverage
+caps and, when shorting is disabled, nonnegative weights before optimization.
+This preserves positive configured minima and rejects an empty intersection;
+it does not clip orders or weaken final hard risk. A G2 counterexample opens
+five units at100 with initial cash1000 and a 0.002 fee, then supplies negative
+alpha at110. Before terminal handling, the long-only actor must close through
+ordinary execution, leaving quantity0, cash1047.9 and cumulative fees2.1.
+The short-enabled control instead crosses to a genuine negative position.
+These are fixed-input synthetic cash/quantity oracles, not market edge evidence.
+
+G0/G1 counterfactuals are fee-only cash, useful-signal entry, asymmetrical entry
+and reversal costs, held-short funding/borrow, signed cash return, risk interior
+solutions, exact ties and over-cap/empty feasible intervals. G2 uses independent
+piecewise SciPy/reference arithmetic and hand cash/quantity reconstruction from
+canonical synthetic fills; production utility and accounting functions are not
+reused as numerical oracles. Adversarial cases include mean-log unit and delayed
+return-interval mismatch, future availability, stale equal-equity holdings,
+pending-only change, terminal-order archive mutation, altered estimate horizon,
+recipe or target, changed account/dataset/policy/risk config, nonunit multipliers,
+mark drift, splits, partial fills and risk-forced de-risking. Additional
+counterexamples cover rounded flat-segment scores/turnover ties, nanosecond date
+overflow, zero-width drawdown boundaries, caller tolerance hiding drawdown,
+initial canonical margin failure, expired/late pending orders and future terminal
+transitions. A snapshot digest
+is consistency evidence, not an access-control or estimator-authenticity proof.
+
+Primary software acceptance is agreement with these bounded decision/execution
+oracles and fail-closed rejection before order admission. A submitted target
+must never be labelled filled without canonical evidence. There is no G4 score,
+winner or data selection here. Synthetic tests neither consume nor return
+unused market data. Real fitting/replay additionally requires fixed objective,
+capital/clocks, estimator/cost availability, Study scope/trial budget, fresh
+source-bound G0-G2 review and independent economic authorization. Formal GitHub
+research approval is separate from read-only AI source review.
+
+## Net-profit redesign: initial P0 declarations
+
+Issue #810のP0は、期待終端純利益と訓練surrogateの混同、口座数による資本分母の混同、金融時間を無視したdiscount設定を結果前に反証する。これは新しい研究の宣言capabilityであり、現行Studyの問いや失敗判定を変更しない。
+
+- G0: 同じ資本・risk・情報・執行条件で新規運用方式を比較する。目的は期待終端純利益だが、単一の実現endpointを期待値や将来利益の保証と呼ばない。有効なsignalを消してcashだけ選ぶことも完了証拠にはしない。
+- G1: canonical after-cost equity、固定初期資本、符号付き純入出金、有限UTC期間、決済/継続評価、参照profile/運用recipeを宣言する。複数独立口座の資本総額と共有口座1つの資本を区別する。equity増分とlog reward、business objectiveとdiscount/GAEは別の意味である。
+- G2: `tests/evaluation/objectives/` は独立した終端金額から資本分母・入出金・残債を検算する。等確率の1.20/0.90と確定1.045は期待利益と期待logの順位が逆転する反例。入出金込みの固定分母equity増分が終端値へtelescopingすること、1h/4h decisionの同じ実時間discount、NaN/inf/bool・未知mode・不整合clock・aware境界・identity変更の反例を検査する。`BoundObjectiveClock` は期間とhorizonの不一致、float換算で隠れる小数秒、DST境界を検査し、両宣言のidentityを同時にbindする。
+
+Known limitations: profile digest参照の内容検証、runtime clock/terminal bootstrap、共有口座joint learning、prequential forecasts、account parity、採用selector、正式事前登録・G4 authorizationはこのcapabilityにない。`terminal_profit_aligned` は宣言の代数的整合だけであり、現行PPOや未接続のadapterがそのrewardを実現している証拠ではない。P0全体の通過、新規経済実験の許可、G4/G5は別途source-bound machine evidenceとfresh result-blind reviewを必要とする。
+
+## Result-blind direct-simple connection
+
+G0 asks whether a prefix-only price-return estimate can reach actual-account
+allocation without changing units, using future labels or creating a second
+ledger. This is the nonRL baseline connection for the later nonRL/residual/direct
+RL comparison. Direct labels avoid the expectation/log transformation error;
+there is no new market-demand causal story or established edge. Primary software
+acceptance is independent arithmetic and quantity/cash/fee agreement plus
+fail-closed rejection. No economic score selects a model or parameter here.
+
+G1 fixes independent-symbol capital, existing selected features and balanced
+weights, one mature fit per block, frozen uncalibrated linear projection and
+pooled marginal label variance. Availability is a declared simulation assumption.
+Allocation requires the exact decision packet/horizon and matching same-close
+account valuation. Costs/carry have separate causal declarations. Hard risk and
+next-processing-bar execution preserve existing priority. Raw price labels omit
+corporate-action wealth and carry; future corporate actions never filter current
+admission. Later actions and next-open gaps remain canonical outcomes and expose
+this surrogate's limits. No terminal wealth/RL reward or walk-forward model
+exchange is implemented by this connection.
+
+G2 uses +1 and -.5 direct labels: mean .25, marginal variance .5625, whereas
+`expm1(mean_log)` is zero. Independent nonconstant Ridge arithmetic verifies
+direct-label projection and absolute weight effects. Future suffix price,
+feature, publication, split and dividend changes cannot alter earlier vintages
+or packets. Maturity boundaries, stale/delayed packets, rehashed nested
+unit/label/variance/model/recipe mismatches, unavailable selected features and
+mark/close mismatch are rejected. Producer-to-executor tests independently
+reconstruct fills, quantities, fees and cash, including next-open gaps and
+split-aware HOLD. Changed forecast/cost/account inputs fail before admission.
+Legacy numeric/payload oracles preserve old log behavior.
+
+Equivalent valid hour/second/millisecond timestamp storage must produce the same
+normalized stream. A returned account cannot replay a paid dividend at an old
+decision with unchanged marks: a declared Dataset/index processing clock is
+checked before admission and advanced by canonical execution. Correct
+continuation carries book, order book and next index, charging that dividend
+once. Legacy unmarked books remain unchanged. The clock authenticates neither a
+caller-supplied bootstrap account nor historical source availability.
+
+These inputs are synthetic. The reader checks recorded consistency against an
+external digest, not an independent fitting receipt or historical authenticity.
+Real-data fitting/replay, unused-data consumption, selection and G4/G5 remain
+unauthorized by this software. Fresh source-bound AI G0-G2 review, final-head
+full CI, formal independent research approval and preregistered empirical
+contracts remain separate requirements.
+
+## Allocation PPO software mechanism (Issue #810)
+
+G0 is whether a bounded single-account direct/residual policy can use the common
+after-cost transition and profit clock without treating learning as market
+evidence. The current observation is partial/raw; calibrated forecasts,
+normalization, full account/order state, continuous walk-forward and a finite
+market Study remain separate requirements.
+
+G1 fixes Discrete4 raw actions, bounded mapping, one final risk call, actual
+canonical Book equity, gamma=1, fixed-capital delta reward and true finite-horizon
+termination. GAE=.95 is an estimator choice. The fixed software learning protocol
+uses policy seeds0/7/17,4096 transitions each and separate train10/held-out
+100/101/102 cue schedules. The signal test requires at least80% effective exposure
+alignment, after-cost gain>.025 and gain above initialization>.02 in each held-out
+schedule. A separately fixed zero-response/.005-fee protocol requires no fills
+and zero net gain. Neither protocol is a market profitability test.
+
+G2 covers stale declarations, checked UTC/ns range, single-charge cash/fee
+oracles, signed -501 terminal debt/-1.501 reward, exact residual-center identity,
+quantity HOLD, rollout bootstrap/terminal masking and real SB3 learning.
+Save/load compares complete canonical execution traces. Lower receipts reject
+schema/layout/model/clock/budget/profile/time inconsistencies and verify policy
+bytes before deserialization. Observed row counts sum to realized training steps;
+their digests exclude unused global inputs and unvisited processing rows.
+Receipts remain consistency statements, not fitting/source authenticity or
+economic calibration. Formal independent approval, exact-head full CI and
+preregistered G4/G5 authorization remain required before market results.
+
+## Allocation snapshot DTO assurance
+
+Issue #810のaccount-state整備の最初のstageは、immutable DTOのsoftware contractである。
+G2 oracleはproducerやcanonical ledgerを呼ばない明示的な宣言mappingで、deep immutability、
+selected-vector scope、因果clock、live-only、exact rationalの保守的projectionを反証する。
+同じunsigned pending grossでも反対directionを持つorderは異なる射影digestになる。
+submission / eligibility前のtransition、不可能なactive status / filled progress、
+未知のnested key、DAY expiry不足、MARKETのlimit / stop指定を拒否する。
+partial fillのtrigger省略と、partial orderの再triggerというnativeに可能な状態は保持する。
+SUBMITTEDは未処理、LATENCY_WAITは処理済みのtransition clockを要求し、
+待機statusと処理記録が矛盾する宣言も拒否する。
+約定数量ゼロには約定金額ゼロを要求するが、nativeが許す部分約定の金額ゼロは保持する。
+structural consistencyはsource authenticity、ledger closure、完全なMarkov observation、
+学習可能性、費用後利益の証拠ではない。このstageはG4結果生成を許可しない。
+
+## Independent account observer mechanism (Issue #810)
+
+G0 asks whether a detached predecision record preserves observable canonical
+account/order facts without source mutation or unavailable-price exposure. It
+does not assert complete policy state, historical authenticity or market value.
+
+G1 fixes live independent-symbol, MARKET latency0/2 scope, a known
+Dataset/index clock, selected-source availability and caller-refreshed margin.
+The producer uses native context/order validation and a detached margin check.
+It reuses native fill-completion tolerance to reject already-completed active
+remainders; the lower DTO separately rejects nonzero notional without fills.
+Nonzero active progress must exceed the native absolute minimum fill quantity.
+Progress presence is read from the exact rational quantity, including declarations
+whose reporting float underflows to zero.
+G2 also preserves legal small fills on large requests, distinguishing this
+minimum from the separate request-scaled completion tolerance.
+Selected-only vectors retain the global symbol slot; full native state/history
+binds the source digest. The DTO checks structure, exact signed quantities and
+compatible order clocks. No cash reservation, age, terminal-reader or numerical
+observation semantics are invented. The existing 20% research risk guardrail
+retains its meaning and is not a loss guarantee.
+
+G2 software tests cover source/cache/RNG nonmutation, deep immutability, equal
+gross/count but opposite pending directions, exact 1/3 and 2/3, conservative
+reporting, native order identity/TIF/status, malformed schemas/clocks, stale
+margin, unavailable marks and future-suffix invariance at fixed declared identity.
+These no-fit fixtures do not independently establish account/source provenance.
+Full exact-head verification, formal independent research approval and a
+preregistered G4 contract remain required before new economic evidence.
+
+## Allocation observation v2 declaration assurance
+
+G0 asks whether an immutable, versioned layout can fix future input meaning
+without changing the allocation v1 recipe or tensor. This stage defines a
+contract; numerical account/order projection has a separate encoder owner.
+
+G1 requires unique ordered feature names, K in 1..64, positive finite native
+capital and positive episode steps. The digest binds all four fields, the
+`F+9+13+24K` layout and declared projection/sorting/padding/overflow semantics.
+The separate encoder implements these identifiers; the declaration alone is
+not evidence of arithmetic, causal offsets or native order-priority behavior.
+
+G2 no-fit tests check strict types/bounds, field order/namespaces, required
+identity fields, detached payloads and native capital overflow/underflow.
+Architecture tests reject direct runtime/numeric imports and encoder publication.
+Snapshot binding and arithmetic/mask oracles belong to the encoder assurance
+below. PPO train/load parity, formal research approval and preregistered G4/G5
+economic evidence remain separate requirements.
+
+## Allocation observation v2 encoder assurance
+
+G0 asks whether declared causal snapshot/decision facts retain signed financial
+meaning in bounded numeric slots. It does not assert native execution priority,
+complete Markov state, source authenticity, learnability or market value.
+
+G1 fixes `F+9+13+24K`, matching C/horizon/features/account identity, exact economic
+sorting, optional-clock masks, zero padding and overflow rejection. Float32
+economic ratios never overstate exact magnitude; raw features keep ordinary
+guarded conversion. Native source admission remains the observer's responsibility.
+
+G2 no-fit declaration oracles cover complete vectors, positive/negative thirds,
+binary-value inequalities and successor maximality, subnormal/overflow failures,
+large intermediate products, equal projections with unequal exact order facts,
+ID/permutation invariance, absent/index-zero clocks and input nonmutation.
+V1 numeric/recipe behavior stays fixed. These fixtures are not native order
+admission or market evidence; runtime integration is covered below, G4/G5 remains open.
+
+## Allocation observation v2 runtime assurance
+
+G0 asks whether explicit opt-in state projection can share native transitions,
+reward and source receipts with v1. Partial observation, source authenticity,
+learnability and market profit are not established by this software stage.
+
+G1 preserves default v1 bytes and introduces a distinct v2 recipe/bundle binding
+features, K, C, episode steps and complete ordered fields. V2 reset refreshes
+canonical margin before live source admission. True horizon/insolvency termination
+returns a zero sentinel, never a live snapshot; truncation is not generated.
+Critic bootstrap is allowed only at a nonterminal rollout boundary.
+
+G2 compares same-action canonical books/rewards across versions, independent
+initial/live numeric columns, strict pre-loader layout/capital/horizon failures,
+and real installed SB3 terminal-return/nonterminal-bootstrap and save/load/source
+receipt oracles on fixed synthetic episodes. Independent real actor/critic spies
+match phase hashes/counts for two/four-step fits; exact actor value0 and boundary
+critic7 isolate terminal masking without a loose tolerance. V2-only receipts
+record consumed tensors/boundary inputs, not merely env-emitted observations;
+zero-count phase/digest inconsistencies fail before loading. Receipt integrity
+does not establish historical authenticity or a complete learning protocol.
+No market selection is performed; G4/G5, calibrated forecasts, train-only
+preprocessing/sampling and continuous-account walk-forward remain open.
+
+## Allocation PPO training declaration software prerequisite
+
+G0 asks whether a lower declaration can expose all intended pinned learning
+choices without changing existing training or implying economic improvement.
+G1 requires explicit immutable values, fixed categorical CPU identifiers,
+constant schedules, gamma 1 and exact single-account minibatches. Version tokens
+declare intended semantics; they do not verify an installed runtime or bind a clock.
+G2 independent literal payload/stdlib digest oracles cover all variable identity,
+detachment, required settings, nested closure, bool/numeric collisions, mutable
+tuple subclasses, non-JSON conversions and invalid numeric/schedule/architecture
+inputs. Import checks exclude optional learners.
+No model is constructed or trained by this pure declaration. The explicit
+consumer is below; persisted raw action/logprob and delayed-payoff learning
+still need connected oracles.
+These software checks provide neither formal independent approval nor G4/G5 authority.
+
+## Explicit allocation PPO protocol consumer assurance
+
+G0 asks whether an explicit immutable learning declaration can bind the actual
+constructor and mechanical optimizer-call receipts without altering v1/v2.
+G1 fixes a separate v3 training/bundle contract with the same v2 runtime recipe,
+clock-bound rollout/gamma/GAE, complete exposed PPO/policy/Adam settings and a
+read-only instance post-hook. Final capture follows the last native train call;
+hook cleanup is mandatory on exceptions. Counts describe returned Adam calls,
+not parameter improvement, gradient success or source/fitting authenticity.
+G2 is result-blind: two/four-step no-KL fixtures require two/four Adam calls;
+four-step/two-minibatch fixture separates four calls from two entered epochs.
+Controlled log-ratio1 and targetKL0.1 must stop before any step but enter one
+epoch. Rehashed protocol/count/version tampering fails before deserialization;
+actual loaded settings, None compatibility and exceptional hook cleanup are
+checked separately. No market comparison, learnability or G4/G5 claim is added.
+
+Installed-SB3 synthetic checks use independent returned-step spies and literal
+constructor kwargs. They separate actor/collector inputs from actual optimizer
+mechanics and confirm native KL stopping preserves parameters/Adam state.
+Post-load optimizer, built activation and backend-release mismatches reject;
+None v1/v2 canonical bytes, source fields and action traces match omitted mode.
+These bounded observations do not authenticate historical fitting or constitute
+a complete preprocessing/sampling, restart or market learning protocol.
+
+## Allocation causal prefix preprocessing assurance
+
+G0 asks whether frozen selected-feature statistics exclude information unavailable
+at each original decision. G1 fixes joint admission, strict prefix clocks,
+equal-symbol population variance, scope guards and feature-only frozen transform.
+G2 literal oracles exclude a delayed middle value 1000 from [0,1000,2], yielding
+mean/scale 1/1; unequal admitted row counts yield symbol-weighted mean 5 rather
+than pooled mean 2.5. Future/outsider cells and excluded magnitudes do not change
+fit consumption or coefficients; recorded masks/clocks remain bound. Nonmutation,
+closed-reader, clock, dependency and finite-reporting oracles are software evidence.
+Feature casting does not promise nonzero preservation or enforce a policy window.
+They establish neither upstream feature causality/authenticity nor actual PPO
+consumption, delayed-payoff learnability, sampling coverage or G4/G5 authorization.
+
+## Pure allocation observation v3 assurance
+
+G0 asks whether frozen feature projection can preserve the economic state exactly.
+G1 fixes a distinct observation/recipe identity, unchanged F+22+24K field order,
+one first-F transform and closed reconstruction, retaining raw-v2 admissibility.
+G2 literal mean/scale 1/1 maps future raw 4 to 3; two features map [4,14] to [3,2].
+Partial/opposed orders preserve the entire v2 economic suffix bytes and raw facts.
+Binding, nested aliases, version mixing and dispatch-subclass oracles reject; valid
+legacy JSON identities are unchanged, while non-native root/tag aliases now reject.
+Raw feature zero maps to -1, so an economic terminal zero vector must bypass this
+live-input encoder. Tiny normalized residuals may round to zero. These are pure
+software projection oracles. Actual runtime source/consumption checks are separate
+below; they do not establish upstream authenticity or G4/G5 approval.
+
+## Frozen preprocessing runtime assurance
+
+G0 asks whether causal prefix statistics reach PPO without altering raw economics.
+G1 fixes separate train/inference admission, frozen coefficients across resets,
+first-F-only projection, zero terminal bypass and the v3/v4 version pairing.
+G2 excludes delayed 1000 from [0,1000,2], yielding mean/scale1/1. Actual SB3 actor
+inputs [4,6] become [3,5]; nonterminal critic sees 7 and done/autoreset critic sees
+3, separately from terminal 0. Independent framed hashes bind actual tensors.
+Fixed actions preserve full native books/orders/rewards including partial fills
+and signed insolvency. Actual prefix, scope and policy clock mismatch rejects
+before backend construction; changed admitted prefix values unseen by the actor
+reject after learning. Excluded values' magnitudes are outside the fit digest. Future
+ID/column/index changes admit under semantic bindings. Repinned bad receipt links
+reject before deserialization; v4 save/load and actual optimizer/epoch guards hold.
+These finite mechanics do not prove delayed-payoff learning, sampling coverage,
+historical source/fitting authenticity, continuous handover or G4/G5 profitability.
+
+## Chronological action trace assurance
+
+G0 separates sampled action, mapper target, hard-risk approval and native fills.
+G1 fixes actual tensor capture, pre-overwrite detachment, admitted full rollouts,
+independent episode/rollout ordinals and completion after ordinary fit validation.
+G2 literal C1024, price128→144, fee1/512 maps action3 to quantity4, cash511,
+equity1087 and cost1; zero/partial capacity yields quantities0/1. Raw1 and raw3
+can share approved0; HOLD preserves quantity while cancelling residuals and
+recording cash interest. Native T2/T4 fits bind actual normalized/raw inputs,
+logpi/value, resets, buffers, saved bundles and public reader output. Rehashed
+row/scalar/order/terminal mismatches reject. Last callback False, optimizer error
+and post-fit source/protocol failure refuse completion. None preserves model,
+manifest, full fixed-action economic traces and Python/NumPy/Torch RNG.
+These finite observability checks do not establish delayed learning, sampler
+coverage, continuous handover, source authenticity, market profits or G4/G5 approval.
+
+## Allocation scenario identity software assurance
+
+G0 asks whether a fixed allocation candidate can be compared under declared
+execution-cost/risk stress without changing its decision structure or common
+capital and timing. It is an evidence-integrity prerequisite, not an economic
+edge hypothesis or authority to execute market research.
+
+G1 distinguishes the complete per-fold runtime recipe from a scenario-stable
+candidate projection. The projection retains action/observation/allocator and
+preprocessing structure plus all runtime fields except economics/risk digests.
+The comparison contract pins this projection before the results; execution
+evidence separately binds each actual complete runtime recipe. Runtime agreement
+inside one submitted scenario does not establish agreement with the frozen
+base candidate. The scenario adapter still checks the declared economics/risk.
+
+G2 includes a valid declared fee-change control, seven invariant mutations and
+two admitted native continuous-account counterexamples: every stress fold uses
+one SESSION Dataset with the same declared ID, with nominal bar duration 0.5 or
+1.0 hours. Both complete the canonical runner but must fail the frozen candidate
+pin. Native schema/digest string guards also reject subclasses whose string
+conversion can differ from their canonical JSON value.
+Declared digest pins also require native strings so overloaded comparisons
+cannot make a mismatched pin appear equal.
+The actual comparison-evidence adapter enforces the same native-string rule
+for its predeclared candidate pin; guarding the standalone validator alone
+does not protect that separate admission boundary.
+
+These are fixed synthetic software oracles, not market fit/replay, independent
+Dataset authenticity proof, learned-policy stress admission or a G4 result.
+The identity helpers project supplied recipes; they are not complete domain
+parsers. The evidence adapter separately validates actual environment bindings.
+Historical PPO inference retains exact full-recipe checking. The candidate
+projection does not grant sealed access, change past artifacts or authorize
+Study selection, final-data access or deployment.
+
+## Scheduled allocation inference software assurance
+
+G0 asks whether a finite scheduled fit can become verified immutable inference
+bytes and reach the actual canonical OOS consumer without inventing a legacy
+single-episode receipt. This is a producer/consumer software prerequisite for
+Issue #810, not an edge hypothesis, learnability test or economic selection.
+
+G1 keeps independent-symbol capital, Discrete4 mapping, hard risk and canonical
+execution/accounting/fixed-capital reward. Bundle v5 is explicit, supports only
+existing recipe v2/v3 and binds complete training-window source/objective
+records, declared chronological schedule, seed/budget, clock, explicit protocol,
+optimizer calls, usage, exact row reuse and frozen preprocessing. Train accounts
+reset only at true terminal; rollouts continue accounts. Validation/held-out
+windows are excluded. Write-once publication, verified private policy copy and
+actual post-load model checks retain their existing owners. Full recipe/H/fee
+checking stays exact: adding two H2 folds does not admit an H4 trained recipe.
+Same-H single-fold continuous inference is the bounded connected capability.
+
+G2 uses independent declared N64/H16 two-window counts: two complete cycles,
+32 decisions per window and reset counts 3/2 with the final prepared autoreset.
+Rehashed malformed source digest and float indices must fail; schema aliases,
+changed order/role/range/clock/budget/consumption/usage/protocol/preprocessing,
+model seed/timestep/epochs and policy-byte tamper have separate failure controls.
+A fixed actual SB3 8-step synthetic two-day schedule feeds write-once save/load
+and a later-day same-H one-fold continuous OOS account. Reloaded deterministic
+actions and actual native account facts must match in-memory inference.
+Declared excluded data remains uninitialized; incompatible H2 fold recipes fail
+before OOS reset. A frozen mean/scale 1/1 independently maps raw feature 4 to 3.
+
+Known limits: declarations and hashes are consistency bindings, not unforgeable
+source/fit authentication. The receipt records source rows rather than the full
+actor/critic tensor sidecar. A same-H one-fold chain does not establish global
+clock normalization across multiple folds, refit/update timing, actor learning,
+calibration, a finite registered market comparison, G4/G5 or deployment access.
+
+## Fixed nonRL consumer G0-G2
+
+G0 is a software mechanism: residual action2 reproduces the current after-cost
+allocator proposal, then the one canonical risk/execution/accounting path. G1
+binds fixed-rule and candidate identity, causal forecast/cost clocks, contiguous
+account state and full actual runtime recipes; supplied validity evidence is not
+independently authenticated by this wrapper. G2 uses declared coefficients with
+no fitting: capital 1000, execution price 100, target .5 and fee .002 buy 5
+with cash 499; the next valuation price 110 gives equity 1049.
+Independent forecast execution agrees on quantities, order IDs/events and costs;
+risk veto, partial-fill carry/HOLD cancellation and pre-reset rejection are tested.
+No market profitability, calibration, full comparison run or G3-G5 is established.
+
+## Global OOS clock G0-G2
+
+G0 is a software mechanism: predeclared frozen policies can switch inside one
+native global finite OOS episode without resetting its actor clock or account.
+G1 preserves full global recipe/H, one capital denominator, native risk/orders,
+RNG, fixed-capital reward and a common frozen v3 normalizer when used. One reset
+and one true terminal occur at global endpoints. Scheduled v5 TRAIN terminals
+and preprocessing fit-last-event/as-of claims must be strictly before global
+start; equality is rejected. Complete metadata preflight precedes any backend.
+
+G2 falsifies local H2 resets with literal global H4 remaining fractions
+1/.75/.5/.25 versus 1/.5/1/.5, propagated into actual actions/cash. Unequal 1+3
+and 3+1 segmentation must match directly uninterrupted observations, account,
+pending orders, counters and seeded execution RNG. Capital1000/target.5/fee.002
+buys5 at100 with cash499; partial capacity1 leaves cash899.8 and remainder4.
+Malformed/late mutated rosters, scalar aliases, incompatible H2/full recipes,
+actions and native early insolvency fail closed. A fixed actual synthetic v3
+scheduled PPO fit/save/load feeds global H4 1+3 with deterministic action/account
+parity. An internally valid repinned late TRAIN claim in the second artifact
+fails before the first backend or OOS reset; strict cutoff/native-type negatives
+and historical loader regressions are separate controls.
+
+Known limits: clocks/hashes bind consistent declarations, not historical fit or
+source authenticity. Packet/feature preparation remains per native decision;
+complete source preflight or unread-future guarantees are not established.
+The separate completed-global evidence consumer is defined below. No online refit,
+selection, completion/availability proof, learning/profit, stress admission,
+Study registration, G4/G5, final/sealed authority or market execution is added.
+
+## Scheduled actor trace and finite delayed credit G0-G2
+
+G0 is an actual scheduled PPO producer to a closed reader and separate saved-v5
+sidecar. G1 holds native financial H, source windows, causal preprocessing,
+mapper/risk/account/reward and all explicit PPO protocol fields. A rollout
+boundary continues the current account; only true terminal rotates to the
+prepared next child. Trace COMPLETE means successful software fitting with
+closed evidence, not profitable or improved learning.
+
+G2 independently wraps the original actor and bootstrap calls, native buffer
+target computation and native train. Original input/action/value/logpi,
+pre-forward episode-start masks and original env rewards match all six actual
+chronological buffer arrays. Original named parameter bytes are independently
+framed for both actor/critic pre/post pins; wrong-but-different pins fail. Three
+H4 windows with indices 6..9, rollout 6 and 12 decisions distinguish live W2/index 8
+bootstrap from the final OLD W3 terminal and prepared W1/index 6 reset, which
+gets no further actor call. Exact native cancellation and carried-precision
+discriminators reject blanket float 32 or one-ULP GAE substitutes.
+
+Connected counterexamples reject rehashed contradictory features on a later
+reuse of the same immutable row, and native optimizer-call distributions that
+disagree with the deterministic receipt digest despite equal totals. A positive
+two-cycle long-versus-short native fixture keeps the feature prefix equal while
+account suffixes differ. Lifecycle controls cover setup, optimizer, observer,
+finish, partial attachment, last callback False, post-fit source/model mutation,
+missing/stale/boolean/nonfinite diagnostics and mode downgrade. The first native
+ordinal True alias must fail at update 1. Zero-step KL stops preserve actual
+parameters, and zero-variance EV retains null with its sole declared reason.
+None/omitted/enabled model/optimizer/RNG/native-economics parity, ordinary v5
+save/read/reload, staged cleanup, write-once, symlink alias and final-live parameter
+mutation are separately checked. These are supplied-fact consistency oracles,
+not upstream source or historical fitting authentication.
+
+The separate fixed behavioral fixture declares H16, capital 1024, initial/entry
+price 128, first decision 6/process 7 capacity only and zero later volume. Signed
+quantity+/-4 pays entry fee 1. Native marked continuation gives correct terminal
+profit 39.96, wrong-41.96, fee-only-1 and cash 0; there is no terminal liquidation
+fee. Allocation adapter extra latency 0 is admitted; 1/2 are rejected. Separate
+existing native executor controls show 0/1 filling on 7 and 2 pending/no fill
+through 22. This does not expand adapter latency admission.
+
+Before models, the behavioral harness freezes all six paired cells: seeds 0/7/17,
+rollouts 4/32, six balanced train dates and four unseen held-out dates, common
+frozen v3 preprocessing with no clipping, 4096 transitions, minibatch 4, epochs 10,
+gamma 1, lambda .95 and the same full declared network/Adam protocol. Each cell
+records an untrained identical-seed initial actor, independent initial named
+bytes, actual early effective fill/fee and terminal native account. Actual fits
+must save/read/reload with native parity and retain early-row GAE/return/value/
+logpi, bootstrap and actual actor/critic updates. Rollout frequency and advantage
+normalization groups differ inherently; total returned Adam calls are 10240 in
+each factor absent KL stopping.
+
+Per-cell earliest effective filled-sign alignment>=.75, mean after-fee gain>.025
+and improvement over initialization>.02 are strict. All three short seeds must
+pass separately. Initial baseline>=.0190234375 makes the strict improvement gate
+uninformative; retain `INITIAL_BASELINE_CEILING` failure, with no seed exclusion
+or gate waiver. Every invocation attempts all six once before aggregation,
+retains failed/invalid outcomes and forbids favorable retries or tuning to green.
+Before persisting the comparison, aggregate software conformance checks the
+exact matrix, returned-call/budget counts, native parameter changes, paid early
+rows and paired initial parameter/action/account equality. A failed prerequisite
+persists INVALID with structured reasons and cannot furnish overall short PASS;
+all original per-cell learning outcomes remain unchanged.
+The existing CI PPO invocation uses a unique run/attempt temporary directory and
+uploads only its `fixed-delayed-actor` subtree even when that invocation fails.
+The artifact name binds the checked-out PR HEAD and run/attempt; retention is
+seven days. It retains the pre-fit declaration, initial baselines, all six raw
+outcomes, ordinary policy bundles and sidecars without rerunning or selecting
+successful cells. Exact HEAD source and these receipts permit inspection and
+reproduction of the declared finite protocol, not historical fit authentication
+or guaranteed identical learned weights across runtime platforms. No unrelated
+temporary files or authentication material belong to this artifact scope.
+Software evidence can be VALID while `short_learning` is FAILED; passing
+software tests never waives the behavioral acceptance gate.
+
+The first actual six-cell invocation completed all transitions but became
+software INVALID at finish: the parent facts reader equated a new `no_fill`
+attempt clock with the unchanged pending order's prior state-mutation clock.
+The native executor was unchanged. The repaired parent rule retains latest
+status/remaining equality and joins the last state-changing event clock. A
+no-fill-only carried clock must be non-null and no later than the decision;
+submitted-plus-no-fill cannot skip eligibility. Genuine eligible and partial
+GTC carries, forged current/stale clocks, status/remaining and missing-eligibility
+counterexamples are checked. The 24,576 original parent fact rows and collector
+reward bytes then passed a fit-free replay with optional learner imports blocked.
+That replay alone did not furnish a completed trace or trained evaluation.
+
+One corrected-source reproduction used the same six frozen cells without gate,
+seed, budget or protocol changes. Every initial actor file, independent initial
+parameter file and complete native training event ledger matched the preserved
+first INVALID invocation byte-for-byte. Full sidecar/ordinary save/read/reload
+and aggregate software checks passed; all six learning outcomes and
+`short_learning` remained FAILED. Returned Adam calls were 10240 per cell;
+actor/critic parameter changes occurred at 1024 short or 128 long updates.
+No factor improved its corresponding initial mean held-out gain. Seeds 0/17
+retain the predeclared initial-ceiling reason, and every cell also failed all
+three actual alignment, gain and improvement gates. This is a reader repair
+reproduction, not favorable result selection or tuning to green. The corrected
+comparison SHA256 is
+`4d942ff1c871f7979545f207dbd86266c028eb138e42a928c3f92ea6de1b236b`;
+its retained archive is 13,405,486 bytes. The first INVALID archive and outcomes
+remain separate and unchanged. These are local uncommitted-source results;
+final exact PR HEAD checks and formal independent review remain pending.
+
+Four held-out dates offer only two distinct initial cue conditions. Later visible
+cues and advantages provide alternate transfer pathways, so even a future short
+success alone would not identify causal credit THROUGH bootstrap. This failed
+comparison establishes neither beyond-rollout actor learnability, market
+generalization, calibrated economic profit, G4/G5 nor deployment.
+
+## Frozen fee-view G0-G2 software assurance
+
+G0: can the same frozen scheduled v5 policy execute under one predeclared
+configured-fee-only stress on the native total financial H? G1 preserves all
+original bundle/tensor pins and ordinary full-recipe rejection; a distinct typed
+view admits exactly the actual stress recipe. Only positive configured fee_rate
+is multiplied by factor >1. Global H/C, observation/action/preprocessing, risk,
+all other native cost fields/capacity, forecast/cost beliefs and declared source
+envelope stay fixed. No refit, local-H substitution or alternate ledger exists.
+
+G2 uses declared no-fit forecast coefficients and fake archive/model doubles,
+with real native account/execution. C1000, target.5, entry100 and next mark110
+produce qty5, fee1/cash499/equity1049 versus fee2/cash498/equity1048 for .002/.004.
+Independent account float32 inputs and global remaining fractions1/.75/.5/.25
+are checked across 1+3 and 3+1 segments, with one reset and terminal10. Unchanged
+frozen v3 application and absence of refitting are explicit controls. Rehashed
+cost-roster/nonfee/risk/H/original-pin changes, late metadata/archive failures
+and during-prediction cost/tensor/account/clock/source changes fail closed.
+The late archive control keeps canonical valid metadata and distinct roots:
+a good first ZIP must not reach its backend when only the second ZIP is corrupt.
+Same-object Dataset contract controls change volume units, periods/year or
+feature-build pins before/during prediction and require zero native executor
+calls. At literal raw volume100/open100, BASE_ASSET means notional10000 while
+QUOTE_NOTIONAL means100; unchanged targetnotional500 must not execute under
+the changed capacity. The unchanged low-volume base/stress pair still buysqty5.
+Actual cost payload is recomputed before/after prediction so a stale identity
+cache cannot conceal in-place configuration drift inside this fee-view scope.
+
+The dedicated actual-SB3 test protocol predetermines two unmodified small v2/v3
+scheduled fits and a separate deliberately constant v3 actor fixture; no actor
+edits follow OOS execution. The constant fixture tests native arithmetic and
+never demonstrates learned alpha. Following separate source review, the first
+actual execution on frozen uncommitted source passed all 3 tests with 0 skips.
+Unchanged scheduled v2/v3 each record actions[1,1,1,1]; the declared constant
+v3 fixture records[3,0,0,0], native qty5, fee1/2, cash499/498 and first stress
+equity1048. All receipts retain equal model tensor states before/after and
+explicitly mark `learned_alpha_established=false`. The archived actual receipts
+establish bounded software consistency; exact final-head full CI, integration
+and formal research gates remain pending.
+
+Known limits: tensor checks cover parameters/persistent buffers, not arbitrary
+optimizer or transient backend state. Source hashes bind a declared finite
+envelope plus actual actor rows, not authenticated usage or historical fitting.
+Rehashing full source per action has no market-scale performance evidence.
+This distinct global receipt cannot directly satisfy the historical common
+comparison DTO; the separate consumer below projects completed validated content.
+No registered A/B/C economics, gain threshold, calibration, research
+selection, G3-G5, final/sealed authority or market/live eligibility is supplied.
+
+The single combined PPO CI invocation also preserves the fee software JSON
+receipts and original genuine/constant policy bundles on success or failure.
+Its artifact binds exact HEAD/run/attempt and has seven-day retention. A JSON
+software receipt is written only after that case's existing assertions pass;
+missing receipts or a partial archive never imply a successful case. Uploading
+these controlled software artifacts does not grant learning or study approval.
+
+## Native global controls G0-G2
+
+G0 fixes one seedless residual-action2 allocator baseline and one direct-HOLD0
+cash reference on the existing global account. G1 requires one reset, contiguous
+absolute clocks, complete H/C and normalizer, native order/risk/counter/RNG carry,
+complete forecast/cost-clock preflight, and distinct exact global result types.
+Malformed declarations reject before reset. Native economic termination is a
+separate post-event condition: preserve the actual signed account and incomplete
+prefix, then raise without declaring complete H or a comparison row.
+
+Result-blind no-fit G2 controls use H4/C1000, hourly decisions 6..9/terminal 10,
+unequal 1+3/3+1 segments and an uninterrupted native/independent forecast oracle.
+Literal targets .5/0/.5/0 with fee .002 give first qty 5/cash 499/equity 1049.
+Later sizing uses current cash 1047.9 at decision close 110, so third qty is
+1047.9/220, executing at next open 100; final cash is 1045.99472727 and total fees
+4.005272727. Risk veto and partial/no-fill carry preserve native state and seeded
+execution RNG. Cash annual rate .876 over 8760 periods gives
+1000*(1+.876/8760)^4, while zero rate ends exactly 1000; neither creates fills,
+turnover, trading costs, funding or borrow. A declared short qty 5 at 100, fee 1,
+mark 400 terminates after one native event at retained-debt cash/equity -501.
+These are bounded software arithmetic/state controls with no fitting, actual
+learner backend, market-data study or G3-G5 authority. Structural hashes do not
+prove historical source use or authenticity; full independent native accounting
+and separately reviewed evidence/independent-validity gates remain required
+for research validity; bounded received/native receipts are implemented below.
+
+
+## Global received/native receipt controls
+
+The opt-in closed plan pins a candidate-independent raw Dataset envelope, full
+absolute segment roster/H4/C1000 account, objective/clock/scenario and expected
+implementation/runtime. Cell pins retain action/observation/preprocessing/full
+recipe, original manifest/ZIP and policy seed separately from the actual env reset
+seed. Completed receipts require one reset, four actual action inputs/native
+transitions, original model state, segment/state continuity and global terminal.
+The public received argument is copied before the same call; terminal zero vectors
+are not fifth inputs. Native facts reuse the original detached closed reader.
+
+Bounded no-fit controls cover unequal 1+3/3+1, private NONRL2/cash0, literal cash
+interest, partial/no-fill carry, native retained-debt cash/equity -501, source/cost/
+model drift, occupied/foreign observers, whole ZIP preflight and unchanged None
+load/private-bind/receipt behavior. Model seed7/reset17 remains distinct on the
+ordinary artifact route; fee preserves its original comparison seed guard.
+Inside-call drift records the actual return with no native event, or an exception
+if the original fee action guard raises. Post-native drift keeps the real prefix.
+The original failure propagates; missing hashes/facts never imply completion.
+These software records establish neither raw getter use, backend predict inputs,
+historical fit/source origin nor independent accounting/G3 or profitability.
+Formal gates and actual-model runtime clearance remain separate requirements;
+the pure global common-evidence consumer is below. No economic/final/online
+execution is added here.
+
+## Completed global comparison G0-G2
+
+G0 supplies a result-blind comparison consumer, separate expected execution plan
+and closed explicit validity content. It adds no new economic Study or execution.
+G1 binds exact completed global types, full plan/common/cell/receipt/implementation
+and runtime pins, registered original candidate, policy seed, actual reset seed,
+complete H/C, actual scenario economics/risk and independent-symbol account mode.
+Native drawdown-stop configuration must match the comparison's declared guardrail.
+Shared portfolio, stale references, wrong expected scope, historical/local-fold
+substitutes and incomplete native prefixes fail before evidence construction.
+
+G2 uses independently supplied H4/C1000 literals. Native NONRL final equity is
+5752971/5500, profit 252971/5500000, fees 22029/5500 and cumulative DD
+16529/5769500 over unequal 1+3/3+1 segments. A one-bar entry has native DD .001
+despite bar-return DD zero. Native cash keeps actual interest:
+1000*(1+.876/8760)^4, or 1000 at zero rate. The complete supplied stitching is
+reconstructed, preserving fold-to-stitched annualization even on SESSION data;
+its values, kind, indices, boundaries, mode, gaps and diagnostics must agree.
+
+Connected adversarial controls retain valid closed native types while changing
+compensating interval returns, cumulative or segment counters, decision equity,
+weight/DD joins and runtime candidate projection. Each interval's cost, signed
+funding of either sign, borrow, filled turnover, actual fill and rebalance count
+joins to native cumulative books and segment/stitched totals. Unsigned counters
+cannot decrease, completed orders are not fills, and requested turnover is not
+filled turnover. Full-H geometric profit matches native equity/C-1 within
+rel_tol 1e-10/abs_tol 1e-12; return-path DD cannot exceed native cumulative DD.
+
+The native/fake-policy complete software matrix has ten candidate cells and two
+cash references for seeds0/7 and base/fee_x2. Existing validators reject missing,
+duplicate, unregistered, source/opening or policy-drift cells; explicit INVALID
+required evidence stays INVALID. No partial matrix is padded or converted into
+NO_WINNER. The two existing actual-backend integration modules only attach
+bounded G2 receipt/validity/comparison artifacts to their original invocations;
+their execution and final full gates require separate frozen-source clearance.
+
+Both `bounded_software_g2` and `independent_g3` are explicitly declared content
+scopes matched by a required builder input. Neither scope name, review/accounting
+reference nor digest authenticates independence, accounting adequacy or G3.
+The record does not default to VALID, and reference hashes cannot authorize a
+Study. Historical source/getter/fit authenticity, full independent accounting,
+G3-G5, calibrated economics, profitability and final/paper/live eligibility remain
+unestablished. The maximum 20% DD limit is a research constraint, not a guarantee.
+
+## Payoff-release timing software control
+
+G0 asks whether the same artificial exogenous cue payoff can arrive within the
+first four transitions while retaining the fixed H16 entry opportunity and
+terminal amounts. This tests mechanical reward access. Earlier wealth, holding
+weights, cumulative drawdown, risk inputs, pending requests and financial
+observations can change; timing alone does not isolate bootstrap necessity.
+
+G1 adds only a closed fixture opt-in: native integer payoff_index8 versus the
+unchanged omitted/explicit22. Other types/clocks and payoffFalse+8 reject before
+construction. The old22 identity mapping is retained;8 has a distinct versioned
+Dataset domain. Exactly mark_price/index_price/close/high/low move from8 instead
+of22. Opens remain128, sole executable volume is1000 at7, and cue features,
+publication clocks, funding/borrow/cash, capital1024, fees, action/risk contracts
+and decisions6..21/process7..22 remain fixed. There is no terminal liquidation.
+
+The early canonical normalizer owner is day1/cue+1 at8 and belongs to its six
+training windows; four held-out windows share the unchanged frozen declaration.
+Its admitted rows0..2, mean0, population variance2/3 and actual forecast label
+pairs0->1 through3->4 with zero labels agree with22. Source/declaration/recipe
+and schedule lineage differ. Supplied early content is checked against that
+canonical owner with validate_training_preprocessing, whose prefix reconstruction
+checks rather than replaces the supplied coefficients. Child IDs need not equal
+the common owner. The22 inference-application compatibility remains unchanged.
+Complete live observations at6 and after paid entry7 must agree across arms.
+
+G2 uses independent Fraction amounts: q=4*cue for correct, -4*cue for wrong,
+0 for cash; fee=abs(q)*128/512 and cash=1024-q*128-fee. The terminal mark is
+128*(1+2*cue/25), giving gains999/25600, -1049/25600 and0. Entry fee reward arrives
+at7 and signed mark contribution+/-1/25 at8 or22; native interval rewards telescope
+to the same endpoint. Every later first-entry decision7..21 and adversarial
+pending/direct/FLAT/opposite requests must retain zero post7 fills. Four transitions
+leave the same live child at10; only true terminal22 permits schedule rotation.
+
+Maximum DD must include native pre-fill open valuation, entry fee and final mark
+in that order, not only returned interval endpoints. Correct early entry marks
+equity26599/25 at8 with maxDD1/1024, then the unchanged open128 values equity1023
+at9 before recovery: cumulative maxDD1024/26599. Correct late entry retains
+maxDD1/1024 because its first favorable mark is terminal22. Wrong maxDD is1049/25600
+in both arms; cash DD0. All remain below unchanged drawdown_start.10. These are
+synthetic valuation checkpoints, not a measured market intrabar path.
+
+The original source-only control Task grants no actor execution authority or new
+behavioral PASS rule. A separately preregistered successor completed six bounded
+fits on a separately frozen source; all strict learning
+gates FAILED, as recorded in `docs/research/current-status.md`. Original FAILED /
+INITIAL_BASELINE_CEILING results and strict learning gates remain. Neither the
+control nor that descriptive synthetic comparison establishes an optimizer cure,
+causal bootstrap credit, G3-G5, calibrated economic profit, final access or
+paper/live eligibility.
+
+## Frozen simple-return diagnostic assurance
+
+G0 asks whether already recorded point forecasts agree with exact mature raw
+price returns on a caller-declared roster; it does not ask whether trading profits.
+G1 fixes decision indices and evaluation publication cutoff before pairing each
+decision with its own vintage symbol scope and exact horizon endpoint. Omitted,
+duplicate or unknown packets, snapshot/name drift and causal clock violations
+reject rather than select favorable available rows. Later prequential fits are
+admissible under their own fit cutoffs, without a global first-decision cutoff.
+G2 uses literal residuals[-.10,+.10,0]: bias0, MAE1/15 and RMSEsqrt(1/150).
+Unequal groups retain packet-weighted pooled errors. Source bindings and cached
+vintage content checks establish supplied consistency, not authenticated model
+fitting or dataset provenance. No fit/prediction, calibration-state promotion,
+economic Study, G3-G5, unused/final access or paper/live authority is added.
+
+## Scheduled credit diagnostic G0-G2
+
+G0 asks whether complete already-recorded scheduled transitions distinguish
+episode-start exploration and raw collector targets from later decisions.
+G1 retains every admitted row and all four native raw actions. Joint groups
+bind window, actual episode-start phase, raw action, exact POST held sign and
+the first true terminal reachable inside that row's recorded rollout, otherwise
+live bootstrap. A terminal-bound GAE target is not necessarily Monte Carlo;
+lambda below one can preserve earlier critic influence. Recorded float32
+reward/value/return/advantage remain distinct from account precision and actual
+shuffled normalized minibatch advantages or gradient attribution. Native filled
+notional, interval cost and positive-filled-notional counts are descriptive;
+POST held sign does not imply a new fill, and generic later decisions may fill.
+
+G2 requires literal target/fill/cost arithmetic, transition-weighted unequal
+groups, terminal-inside-live-buffer and post-terminal live controls, raw-action
+versus retained-position distinctions, all-action zero coverage, immutable
+full-input binding and inherited missing/reordered/GAE/source/mode rejection
+before any summary. This pure reader performs no new learning or economic
+execution. Supplied hashes do not authenticate fitting history; actual minibatch
+exposure, gradient attribution, improved learning and market profit are
+NOT ESTABLISHED. Existing failed synthetic learning gates remain unchanged,
+as do formal review, G3-G5 and final-head verification requirements.
+
+## Frozen simple-return file boundary G0-G2
+
+G0 asks whether an already-declared causal prediction stream can be retained
+and reused exactly, without substituting legacy log/residual forecasts or
+promoting successful serialization into evidence of economic value. G1 retains
+the existing stream records, return units, mature-prefix selection, projection,
+availability assumptions and allocation admission. File bytes are canonical;
+externally retained digest and Dataset ID are required to load. The current
+reader checks frozen projections but does not authenticate historical fitting.
+
+G2 requires independent raw SHA-256, unchanged canonical bytes and causal scope,
+external-pin drift and semantic rejection after hashes are recomputed,
+noncanonical JSON rejection even under its own raw hash, and one complete
+winner under concurrent exclusive publication. Existing destinations including
+symlinks/directories must survive. Stationary nonregular inputs must be rejected
+before a blocking open: a portable opener sentinel covers that boundary, and a
+bounded child checks an actual POSIX FIFO without a writer on supporting hosts.
+Partial writes, staging-reader rejection and fsync/link failures before commit
+leave no final; an ordinary owned-temporary cleanup failure after successful
+link must still report success. The retained temporary file is a known limitation.
+Literal mean .25, variance .5625 and allocation weight .2 verify reloaded input
+through the existing consumer; altered decision context remains inadmissible.
+
+The parent directory is caller-trusted. Hard-link incompatibility fails closed;
+power loss, asynchronous interruption and hostile namespace replacement are
+outside this contract. Synthetic unit fixtures do not establish actual market
+calibration, learning, profit, G3-G5 or final/live eligibility. Formal review,
+the unchanged 20% research DD guardrail and final-head verification still apply.
+
+## Development input preparation G0-G2
+
+G0 asks whether explicit, already-authorized development inputs can reach the
+existing shared forecast/allocation boundary without lane-specific refitting,
+implicit cost zeros or replacing price basis. G1 keeps the existing raw
+same-close surrogate, prefix maturity, fit-symbol dependency scope, declared
+historical publication clocks and complete independent cost declarations.
+Full artifact read permission is the caller's prior responsibility; post-load
+identity/bounds checks cannot protect a previously unopened unused period.
+
+G2 uses actual synthetic MarketBuilder output saved through the existing
+canonical writer. ALPHA-only training contains returns 1,-.5,1,-.5; constant
+features give literal mean .25, variance .5625 and weight .2 with buy cost .025.
+BETA is predicted and requires costs despite exclusion from fitting. Reversed
+feature/cost input order tests exact names and Dataset-symbol/decision ordering.
+Future raw prices and feature ranges change whole content but not earlier
+vintages or packets. Wrong identity, unknown lineage/normalization, period or
+price-basis escape, unavailable inputs and dependency violations fail before
+fitting/publication. Every missing rate, incomplete/extra/duplicate cost roster,
+future cost availability and malformed clocks/horizons must also fail there.
+
+These declarations do not independently authenticate build history, source
+availability, historical compute completion or calibrated venue economics.
+Known direct portable identity v6 and v7 pass the same preparation gates. The
+saved synthetic matrix covers old v3/v6, current v4/v6 and v4/v7 artifacts through
+the real loader, producer and publisher, retaining each original Dataset ID and
+the independent literal forecast/cost oracles. Loadable old-v6 build-v2, derived
+lineage and close/mark mismatch fail before fitting or publication. Legacy
+acceptance supplies no authentic-settlement admission or actual-data read grant.
+
+A v7 product-only counterexample retains zero aggregate ALPHA rates with
+nonzero settlement products and positive BETA rates. Changing only ALPHA
+products changes Dataset identity while its projected funding stays zero and
+BETA remains .000025. Preserved channels and owner call counts detect implicit
+conversion, product/rate confusion and duplicate preparation. Native accounting
+and the legacy changed-economics guard remain in their existing owners.
+
+Real Binance close/mark compatibility remains NOT ESTABLISHED; a correct
+same-close rejection is not repaired by rewriting marks. This software stage
+establishes no market fit/replay, economic comparison, G3-G5, live eligibility
+or Issue #810 completion. Formal independent approval, exact-head verification
+and the unchanged 20% research DD guardrail remain separate requirements.
+
+## Declared horizon-cost producer G0-G2
+
+G0 asks whether one declared reference-size cost tuple can reach every existing
+allocation lane through the common preparation without implicit zeros,
+lane-specific execution defaults or a second ledger. G1 adds an optional frozen
+recipe to the existing explicit-row route. It binds the native execution config
+digest and nonempty component assumptions, complete available past funding,
+regular continuous clocks, quote turnover, current-condition symmetric MARKET
+costs, previous-bar OPEN capacity, annual borrow and explicit zero cash. Recipe
+and source pins bind declarations; they supply no calibration or read authority.
+
+The independent synthetic oracle fixes M=100000, reference=1000, caps .04/.03,
+OPEN=.5: capacity=1500 and participation=.01. Additive fees .0037, spread .007,
+impact .005 and expected absolute-normal/tail slippage .006, with execution
+multiplier 2, give one-way .0434. Two completed funding bars contain .0001 and
+.0005 with event counts 1 and 2; 48h/24h extrapolation gives .0012, without another
+event-count multiplier. Annual borrow .1095 with multiplier 1.5 gives .0009 under
+365*24; explicit cash gives 0. Independent signed entry/holding/flat/reversal
+utility checks and six-distinct abstract allocator coefficients detect swaps.
+The nonzero-cash abstract arithmetic fixture is inadmissible to the producer.
+
+G2 refusal checks cover strict profile disagreement, source/recipe clocks,
+mutable trigger aliases before config hashing, complete-cost coverage,
+quote-unit/capacity/mark incompatibility and incomplete available funding.
+A 24h lookback on 5h bars rejects; a boundary settlement is excluded from
+(decision-lookback, decision]. Counts must agree with due flags and no-event
+rates in the available prefix. Gap and age controls count aggregated bar closes,
+not exact settlements; exact timing was lost and age can be understated by one
+bar. Future price/volume/funding changes preserve earlier numerical rates even
+when whole-Dataset/source identities change. Execution stress leaves carry
+unchanged. Preparation keeps one loader, one estimator, one fit and one publisher,
+and retains its old explicit-row interface and four-field positional result.
+
+Symmetric future-exit and reference-size nonlinear costs are proxies, not exact
+economics for arbitrary future actions. Future funding, price gaps, pending
+competition, rounding, partial fills and financing are unverified. Expected
+costs are not charged to the ledger, and the exit coefficient proves no actual
+liquidation. Synthetic software evidence does not establish profit, parameter
+selection, market calibration, formal independent approval, G3-G5 or Issue #810
+completion. Exact-head verification and the 20% research DD guardrail still apply.
+
+## Signature allocation admission G0-G2
+
+G0 asks whether a pinned single-clock representation can reach the existing
+common allocation input path without changing financial inputs, fitting scope
+semantics or realized accounting. This is a software prerequisite; no economic
+edge is assumed. G1 requires separate whole-artifact read authority, direct
+canonical parent lineage, exact producer reconstruction, complete pair
+conservation, the full Dataset-symbol tuple, mature-prefix fitting and available
+prediction features. Recipe projections use parent economics and initial-notional
+units; the augmented identity stays on the stream. Risk/action/account contracts
+and the 20% research DD constraint remain unchanged.
+
+The independent first-vintage oracle selects the appended time word of a
+window-3/depth-2 Signature. Warmup removes starts 0,1; cutoff 5/horizon 1 admits
+starts 2,3 for each of ALPHA/BETA and excludes endpoint 5. Labels [1,-.5,0,0]
+yield four samples, mean 1/8 and marginal population variance 19/64. With unit
+risk aversion and buy estimates .025/0, fresh-cash targets are 16/95 and 4/19.
+At constant prices 100/50 and actual fee .002, ALPHA quantity 32/19 gives cash
+78968/95 and equity 94968/95; BETA quantity 80/19 gives cash 14992/19 and equity
+18992/19. Surrogate buy cost is not debited again. Zero target retains cash 1000
+without fills/fees. Trace/count checks are essential: an incorrectly unmasked
+first prefix can share the same mean/variance. Cutoff 9 has twelve samples,
+mean 1/24 and variance 59/576, exposing that eligibility difference numerically.
+
+G2 counterexamples alter an appended value while rehashing an otherwise valid
+artifact, mutate its original prefix/economics, change the parent pin/reference,
+remove half the declaration, forge single-clock settings, supply MT features,
+restrict/reorder fit symbols or delay prediction information. They must fail
+before fitting/publication. Existing six-rate literals and a parent-estimator
+binding check prevent generating costs from the augmented incomplete provenance.
+Future-source mutation preserves earlier economic values and flat cash while
+Dataset/stream/cost/proposal provenance updates to the changed content.
+
+Green proves bounded software behavior. It does not prove matched baseline
+eligibility, predictive improvement, historical publication truth, calibrated
+fills or funding, G3-G5, formal independent approval or profitable deployment.
+The fresh source-only AI review supplies no external research approval.
+
+## Native controlled-forecast preflight G0-G2
+
+G0 asks whether distinct frozen forecast assignments can reach the existing
+fixed NONRL/cash consumer while preserving all financial declarations. No edge
+is assumed. G1 binds externally assigned control/treatment forecast digests,
+standalone native plans, equal shared fields except forecast, the same complete
+NONRL rule/allocator/actor recipe and a cash recipe differing only in action mode.
+The full native per-arm identities are retained, including source envelopes that
+embed different streams. It is a caller consistency boundary, not a frozen Study.
+
+The closed canonical fixture prepares original range/body plus constant time
+features against original range/body plus all window-3/depth-2 tp Signature words.
+Every vintage must retain the same ordered row trace, labels, sample weights and
+original-column projection, and the same literal complete prediction-clock roster.
+The four first-prefix labels [1,-.5,0,0] give mean 1/8 and variance 19/64.
+Opposite standardized mixed words tp/pt have coefficients -sqrt(2)/6 and
+sqrt(2)/6 at alpha=1. A prospective 100,200,100 path gives prediction 19/24
+(float32 Signature tolerance 1e-7), against control 1/8. With cap .5, risk aversion
+1 and buy proxy .025, actual targets are .5 and 16/95. Actual fee .002 at OPEN100
+gives treatment quantity5/cash499/equity999 and control quantity32/19,
+cash78968/95/equity94968/95. No proxy is debited again. The next treatment
+forecast -5/24 exits for cash998; cash HOLD preserves1000 without fills/fees.
+Control remains invested: completed native execution is not settled-flat evidence.
+
+A separate delayed-BETA fixture has six ALPHA and five BETA mature rows, weights
+11/12 and 11/10, mean1/24 and variance59/576. Original-constant-plus-time and
+time-only fits agree within a predeclared float64 tolerance1e-10. This is an
+explicit nonbinary-weight oracle, not a general bitwise-neutrality promise.
+G2 rejects fixed financial/source/clock/account drift, rule/allocator/action
+changes, real execution fee/seed changes, wrong cash context or plan roles/types,
+equal/swapped/malformed pins, foreign plans and invalidly mutated declaration/plan
+bytes before provenance/reset. This checks current consistency; coordinated valid
+replacements are not historical tamper authentication. Default controls remain covered.
+
+This native preflight does not itself establish completed forecast evidence or
+economic qualification; the separate bounded settled software report is defined
+below. A frozen economic selection budget is still absent. V1 A/B/C retains one
+forecast and its mandatory RL matrix; controls cannot
+be disguised as RL cells or different scenarios. Matching the closed fixture
+does not prove general training matching, calibrated market costs, profitability,
+formal independent approval or G3-G5. Equal seeded configs need not consume
+identical random shocks when the arms trade differently. The 20% research DD and
+future settled/unused-period qualification requirements remain unchanged.
+
+## Allocation terminal closing software prerequisite
+
+The G0 question is whether `allocation_terminal_execution` can expose actual
+closing costs and failure on one canonical NONRL/cash account before claiming
+settled profit. This is a software prerequisite, not an economic edge hypothesis,
+and grants no market execution, Study, unused-data or live authority.
+
+G1 pins an evaluation-only settled full horizon: unchanged marked policy prefix,
+predeclared reserved processing bars, same native account/orders/executor/RNG/risk,
+fixed initial-capital denominator, gamma=1 equity deltas and unchanged declared
+MARKET latency0/2 execution. Zero target obeys hard risk and native liquidity.
+Already flat books still process every reserve bar. Current PPO training remains
+marked continuation and is not admitted as a settled policy. Prefix and whole
+window objectives/clock/recipe identities are distinct and retained together.
+
+G2 counterexamples use independently calculated long/short cash, entry and close
+fees, held funding/borrow and cash interest; a profitable partial close must be
+unsettled. Unequal segments preserve one reset and RNG/account economics. Deferred
+capacity-limited closes preserve actual book/order handoff and pending intent.
+No-volume, untradable, exact dust and hard-turnover constraints retain inventory;
+adverse close DD is visible and ineligible, and native retained debt produces
+signed fixed-C losses below -100%. Source drift rejects before reset, closing
+does not consume future features, malformed returned clocks retain detached
+facts, and exceptions preserve only known returned bars. Legacy actor trace
+bytes are independently pinned before the generic freezer extraction.
+
+Session design/source review and software tests do not establish authenticated
+independent G3, a qualified economic comparison or G4/G5. Matching PPO terminal
+learning, economic qualification of settled forecast controls, frozen finite protocol and formal
+independent research approval remain necessary follow-on boundaries.
+
+## Closed settled forecast software G0-G2
+
+G0 tests whether internally inconsistent or incomplete terminal comparisons are
+rejected before economic research. It assumes no alpha: stronger forecasts can
+increase turnover and fee loss in a constant-price market. G1 preserves native
+independent accounts, full original capital and physical prefix-plus-reserve
+clocks, unchanged zero-target hard risk, actual execution costs and original
+forecast assignments. This settled NONRL/cash factor comparison cannot establish
+training/evaluation parity for the current marked PPO terminal.
+
+G2 uses independent literal cash/fee/carry and signed debt oracles, profitable
+partial liquidation, untradability/turnover constraints, flat cash interest,
+state-chain mutations, physical date shifts, forged summaries and complete
+role/account/scenario roster mutations. A constant-price single-entry fixture
+with capital1000 and actual fee.002 in each direction has control quantity32/19
+and settled wealth94936/95, treatment quantity4 and wealth998.4, and cash1000.
+The larger forecast worsens settled wealth. These are predetermined synthetic
+conformance values, not empirical strategy results or a profitability claim.
+
+`allocation_terminal_evidence` checks source/plan identity, native integer clocks, full risk
+target, visible local state, cumulative cost/carry/counter algebra and signed
+reward telescoping. Filled/partial-fill event amounts must equal execution totals
+and symbol totals; moving a notional to an untraded coordinate rejects even when
+the scalar total is unchanged.
+Order direction, price-times-quantity notional and the latest nonterminal order's
+active membership are retained invariants. One-bar funding cardinality and normal
+solvent endpoint/snapshot equality use returned facts; economic termination may
+flatten after the boundary and retains a separate snapshot. General fill ratios
+and historical funding prices cannot be independently recovered from aggregates.
+No-fill coordinates have zero execution cost; retained capacity conserves its
+initial, consumed and remaining amounts and declared participation bound. Known
+carried order IDs need their own terminal events before disappearing. Retained
+submission/intent/status, cumulative notional and evidence-version links reject
+invented order progress. Single-pool fill subtraction, participation maxima and
+notional lower bounds join native capacity; fixed multipliers, independent-symbol
+inventory, rebalance counts and live margin fields join actual cost policy.
+An opening exact-flat no-fill account remains exact-flat and has no inventory
+cash flows. Only recorded signed cash interest changes cash, including negative
+interest and retained debt. Zero interest preserves cash exactly; nonzero
+interest allows operation-magnitude ULP error from native sequential application,
+without a fixed absolute tolerance floor. Nested prefix failures retain the
+original diagnostic. These
+bounded links do not authenticate the historical cash-flow inputs or reconstruct
+general inventory transitions across splits and delisting settlement.
+Source pins plus aggregates do not authenticate historical fee decomposition,
+stochastic execution or complete intent/fill
+archive. Endpoint facts support cumulative native DD lower bounds and continuity,
+not exact independent intrabar DD reconstruction. Valid failure observations
+retain the last returned frontier and original diagnostic; malformed returned
+rows cannot enter accepted evidence. AI design/source review and exact-head
+software CI do not establish authenticated G3 or authorize economic G4/G5.
+The separate `allocation_settled_forecast_comparison` owner requires the full
+declared roster and retains validated receipt objects; summaries alone do not
+admit evidence or establish a profitable candidate.
+
+## Global static-cap verification G0-G2
+
+G0 is a software mismatch hypothesis: lawful native static-cap execution must
+verify, and forged caps must reject. G1 binds the original allocator to the exact
+native intersection with actual risk and complete retained-debt cost policy.
+Hard risk, drawdown projection, turnover and native account execution stay
+unchanged. New v2 receipts admit complete costs before reset and even for empty
+failures, while immutable version dispatch preserves historical v1 semantics.
+
+Closed no-fit G2 oracles pin literal pre-edit v1 success/failure bytes and error
+precedence; risk/leverage/both caps, cash HOLD, asymmetric/short/singleton and
+infeasible bounds; coherently repinned forged allocators; stale cost/risk pins;
+and malformed complete costs. Capital1000/price100/fee.002 closes quantity4 to
+equity998.4 under risk.4 and quantity3 to equity998.8 under leverage.3. Native
+partial settlement preserves its residual and charges funding after fills.
+Comparison/terminal composition and single actual drawdown projection are
+software evidence only. Exact-head source review/full CI and formal independent
+research approval remain separate. This supplies no economic edge, G3-G5,
+settled PPO admission, market profit or live readiness.
+
+## Settled learning clock software prerequisite
+
+G0 asks whether an explicit settled learning lane can optimize the same native
+after-cost endpoint later used for comparison. NONRL and cash remain controls;
+no alpha hypothesis, economic execution or profit claim follows from this
+software prerequisite. The full work requires actual runtime/fit, independent
+source and transition evidence, save/load and same-H inference, rather than a
+declaration-only completion.
+
+G1 separates P actor steps from nonempty R physical closing bars. The final
+actor aggregates its ordinary bar and all R reserve bars on original capital,
+with gamma1 and GAE explicitly per actor transition. Hard risk and the existing
+executor/book/orders/RNG remain the intended execution owners. Every reserve
+bar must process even after flatness. Calendar carry, failure policy and the
+20% DD eligibility remain separate from algebraic clock declarations.
+
+The current lower-clock G2 oracle uses P=2,R=2,dt=3600: spans [0,1) and [1,4),
+durations3600/10800 and last-actor fraction3/4. P=1,R=2,rollout2 refuses a false
+rollout-divisibility assumption and exposes the future inside-buffer terminal
+bootstrap oracle. The closed reader rejects altered physical horizon, reward
+duration, GAE clock, early-flat coverage, bool counts and legacy schema. These
+are declaration checks only. The separate runtime oracles below cover actual
+critic7 masks and source/artifact relationships. No G3-G5 or formal research
+authorization follows from these software checks.
+
+Shared native reserve execution is now extracted into
+`allocation_reserved_closing`. Its bounded synthetic software oracles include
+literal long1039/short1041, original-capital fee-only998, flat cash interest
+through the full reserve, retained partial/dust/pending inventory, signed debt,
+returned book/orders/RNG continuity and rejection after the final yielded row.
+The terminal adapter retains the original before-state/failure order and frozen
+legacy receipt bytes under fixed software provenance. This adds native closing
+mechanism evidence; it does not establish settled actor/critic/source/fit or
+artifact parity. Those full-lane G2 checks and G3-G5 remain required.
+
+The distinct settled composition now executes P actor transitions and H native
+bars through the same account/risk/orders/RNG. Literal software oracles directly
+check fee-only998 with rewards−.001/−.001 and last actor fraction3/4, long1039,
+short1041, full flat cash carry1003.003001, residual partial fill and signed
+debt−504.5. It retains every returned row before rejection, including an invalid
+final clock. A settled DD breach remains present and ineligible. Mid-episode
+native instance replacement and reset-based account discard reject while keeping
+the frontier; later eligible cash cannot erase a previous closing failure.
+
+The source envelope is checked before account creation and each native boundary:
+actor-only selected information is separate from all physical financial/capacity
+rows, including funding_price_rate. Reserve feature changes are not actor
+consumption; reserve financial drift rejects before execution. These are bounded
+synthetic runtime/contract checks.
+
+Distinct fixed-budget CPU G2 oracles use the actual SB3 learner with literal
+critic7 and fixed initial action biases. P1/R2/rollout2 has two true terminals;
+P2/R2 with lambda.95 retains advantages[-6.65,-7] and returns[.35,0]; P3/R1
+retains a live critic7 boundary, then terminal masks and a live budget tail.
+This checks collector arithmetic rather than optimizing a trading strategy.
+Native nonzero orders, partial fills, effective lot floors, signed carry and
+same-H write-once save/load supply separate contracts. Exact residuals, no
+completed eligible episode, stopped callbacks, partial failed appends, autoreset
+failure and changed final model weights must refuse successful publication.
+
+Actual native-return interruption oracles retain index7, cash499, equity999
+and quantity5 before the actor counter advances. KeyboardInterrupt/SystemExit
+must mark sticky failure and preserve the detached frontier before any later
+reset; interruption while encoding diagnostics must not mask the original error.
+
+Returned-stage failures are injected separately in actor and reserve processing,
+and reserve fact capture can fail before the iterator yields. Each actual
+returned account must already be adopted: actor index7/cash499/equity999/quantity5
+or reserve index8/cash998/equity998/quantity0 in the fixed-price fee-only oracle.
+The reserve retention hook is caller-owned; no additional execution is allowed.
+These oracles cover post-return diagnostics, not unreturned executor effects
+or interruption inside the retention handoff itself.
+
+Adversarial G2 source/capture oracles change canonical order IDs and target
+identities, native counters, DD, funding/interest and per-update epoch counts;
+rehashing is insufficient to pass the independent relational validator.
+Known limitations: full archives/RNG and observed stochastic prices/costs are
+not authenticated; economic early ends lack full phase-specific carry bases.
+Joint exact lot counts are validated from retained Book/source/event facts,
+not claimed independently observed hidden allocator counts. No new profit,
+economic G3-G5, learnability or formal research approval follows.
+
+The separate bounded synthetic learnability G0 asks whether an unfixed settled
+actor learns delayed cue-conditioned decisions after fees and avoids pure-fee
+entries. Collector/constant-critic oracles do not answer this question. G1 fixes
+two cases, seeds 0/7/17, one 4096-transition fit per case/seed, an explicit CPU
+protocol and sixteen known four-sign patterns before outcomes. The roster
+includes the training pattern; it is not an independent statistical market
+sample. Initial/trained models, cash, strong cue-rule, fixed long/short HOLD and
+removed/inverted cue controls share capital, native execution, risk and full H.
+No threshold, pattern, seed or budget is adapted from an outcome.
+
+Pre-fit G2 checks literal fees/quantities, delayed payoff, absent late-entry
+capacity, future-input perturbations and the sole directional channel. Post-fit
+G2 requires actual source/input/native/append/update/v6 closure and equivalent
+save/load execution. The complete six-slot registry derives gains from terminal
+equity and checks clocks, exact flatness, orders, DD, native fills and source
+bindings. It independently validates saved full captures and policy bytes.
+Original failures, partial frontiers, unexecuted patterns and storage errors
+remain visible and prevent mechanical qualification.
+
+Learning criteria are separate: every signal seed needs mean signed terminal
+gain >2%, improvement over initialization >1.5 percentage points, effective
+payoff direction >=75%, cue-removal degradation >=1.5 points and nonpositive
+inverted-cue gain. Every fee-only seed needs zero gains/fills in every pattern
+and >=20-point reduction in entry probability on the same 64 cash observations
+under eval/no-grad, without changing parameters or RNG. An initial ceiling or
+any false predicate is retained as failure. Software/process success or a
+faithfully stored false predicate is not learning success. Neither synthetic
+qualification nor source review grants market G3-G5, formal independent approval
+or unused/final/live authority.
+
+## Native settled readback precursor assurance
+
+This result-blind software prerequisite closes four native relationships before
+controller comparisons: counters/turnover, all normal peak/DD update sites,
+post-risk target-to-intent sizing, and capacity/fill/event/cost aggregates.
+Its frozen local batch contains nine fresh USD1000 accounts and at most 25
+declared native bars: cash carry, residual2 NONRL baseline, direct long/short,
+partial/no-market reserve, recovered reserve drawdown, signed-debt economic end,
+and actor/reserve post-return BaseException seams. Coefficients are literal
+synthetic declarations, not an estimated Ridge model. No neural/RL or Ridge
+solver fit, market access, policy save/load or economic selection is permitted.
+
+Independent literals include residual target3/16 and quantity15/8, long/short
+round-trip wealth992.1875 with fees7.8125, partial/no-market wealth998.4375, and
+recovered reserve DD0.25390625. The failure oracles preserve the original
+exception, validated prefix and actual adopted tail without a subsequent call.
+Constructed open200/open50 variants reuse partial-case bytes with new source
+identities and fully rebound proposals/orders/states. Honest variants must
+qualify before endpoint-only peak/DD mutants are rejected. Quantity/capacity,
+counters, turnover, pending progress and failed-witness mutants also rehash
+linked duplicates. Constructed variants claim no additional native origin.
+
+The local plan permits at most three new nine-case batches (75 declared bars),
+with every software invocation recorded separately. Required inherited CI
+replicas are separate software checks, not an enforced total backend budget.
+Fresh concrete source/G2-plan review is required before the first native batch;
+design review does not establish executed G2. Neither these native checks nor
+AGY source review constitute formal independent GitHub research approval,
+G3-G5 economic evidence, unused/final authorization or parent completion.
+
+## Matched native CASH/NONRL software comparison assurance
+
+G0 asks whether a source-bound consumer rejects mismatched or risk-ineligible
+controls while retaining every predeclared arm. G1 fixes equal USD1000 capital,
+P2/R1/H3/hourly clocks, fee1/128, unchanged native execution and DD20%, with one
+continuous account per method. Declared coefficients are regression literals,
+not fitted predictors. Equal full Dataset identities and raw array pins,
+forecast streams, costs, risk and complete objective/recipe material precede
+capture. Plan hashes cannot authenticate when a physical execution occurred.
+
+The fixed G2 roster independently predicts: continuous toy cash carry with
+mathematical wealth1003.003001 and the exact native IEEE expression; partial
+entry/no-market continuation with NONRL wealth998.4375 versus cash1000; and
+recovered NONRL wealth1116.2109375 with native maxDD65/256, therefore ineligible.
+Second actor requests are respectively1023/256 and -5/256 in the latter two
+groups; neither is HOLD. Final native reserve cancels pending orders and closes
+the actual position. A positive recovered endpoint cannot erase an earlier DD
+breach or produce a primary paired delta.
+
+Malformed or foreign inputs reject. Valid failed/ineligible captures retain
+their original prefix/frontier/failure provenance and both arm rows. Full planned
+intents and actual attempted-prefix digests are distinct. Early terminal fields
+are null; observed endpoint values remain diagnostic until both admissions pass.
+Rehashed plan, action, reward and report-authority variants must not qualify.
+
+Fresh concrete source/G2-plan review precedes the first new native batch. At
+most three new local six-account batches are permitted, each with six resets,
+twelve actor calls and eighteen declared native bars. Inherited Core and actual
+learner CI replicas retain separate identities and budgets. Source review,
+executed software G2, full exact-head CI and formal independent GitHub approval
+remain separate. No original learning failure, sealed run or economic outcome is
+retried/reclassified. Opaque history/RNG and runtime authentication limitations
+persist; this comparison grants no market/unused/final/live authority.
+
+
+## Standalone terminal NONRL/CASH comparison assurance
+
+### Execution-only latency software prerequisite
+
+G0 asks whether existing MARKET latency2 can be admitted without weakening native
+pending clocks, physical source coverage or finite terminal eligibility. G1 fixes
+the original same-close controller/beliefs, independent capital, risk and common
+actor/reserve clocks; only execution latency changes. Actual returned holdings
+feed each next decision, so targets and orders can differ. Base0 declared costs
+are unchanged surrogates, not latency-calibrated predictions.
+
+G2 hand oracles use cash1000/price100: a target.5 at6 fills7 in L0 but waits7 and
+fills8 in L2; matching pending identity survives, HOLD cancels, a changed target
+replaces with a new eligibility. Future pending clocks and missing first-eligible
+source/horizon reject. A constructed fee.01, variance.02, risk_aversion1 example
+with forecast.03 then.015 chooses first weight.25. L0 subsequently holds its
+actual quantity and closes to995; L2 chooses zero and cancels, remaining1000.
+These are hand arithmetic with IEEE-tolerant native checks, not market results.
+Four units at reserve8 close through L2 wait9 and capacity2 at10/11; finite R1/R2
+remain unsettled and R3 may finish. Coverage alone cannot establish settlement.
+All original failure/DD and unsupported-source diagnostics survive. Ordinary
+latency integers0/2 are the closed scope; bool,1,3 and nonmarket profiles reject.
+Declared cost production and bounded native toy readers remain MARKET0. Source
+review and these software tests supply no G3/G4, new market execution or formal
+GitHub independent approval.
+
+G0 is the software prerequisite for comparing one cost-aware non-RL controller
+with no trading, without making PPO or another forecast compulsory. It asserts
+no market edge. G1 fixes the same complete native common context and original
+forecast, cost beliefs, execution cost policy, capital, risk and clocks. Only
+the validated native role/reset/control identity, direct versus residual action
+mode and their derived recipe/terminal deployment identities differ. The full
+account/scenario Cartesian roster is declared before native accounts start.
+
+G2 includes an independent rational flat-price oracle: q=32/19 units at100 with
+entry and closing fee .002 produces total cost64/95 and terminal wealth94936/95,
+versus cash1000, so the fixed-capital NONRL-minus-CASH return is -64/95000. A
+capacity-limited close remains incomplete. The existing native adverse-close
+oracle produces settled equity742 and DD.258; its complete close cannot qualify
+the paired delta under DD.20. Foreign forecasts/cost beliefs/source contexts,
+duplicate/missing roles and fabricated summaries reject. The old three-arm
+forecast comparison keeps its original contracts and regression oracles.
+
+Fresh bound source/G2-plan review precedes new native feature checks. New market
+data reads, fits/replays and economic qualification are outside this software
+Task. Declared source equality does not authenticate all physical arrays or
+historical availability. Retained terminal facts do not independently reconstruct
+all charges on filled symbols or the entire intrabar price path. Reference-size
+nonlinear impact and forecast carry are explicit cost proxies; matching policies
+does not equate forecast estimates to realized charges. A future generated-cost
+Study must separately pin its full declared cost recipe and its relation to the
+actual executor. No original failed learning or sealed workflow is retried.
+
+## Independent diagnostic account arithmetic G2 contract
+
+A result-blind G2 adapter may use this kernel only with primitives bound to the
+exact source, protocol, policies, clocks, intents, accepted events and transition
+phases. It must derive inventory, cash, costs, carry, settlement, wealth and
+terminal state independently; native books, interval returns, quantities and
+aggregate costs remain comparison-only. Quantities compare exactly, observed
+fields close strictly, and monetary tolerance stays fixed at
+`1e-8 + 1e-12 × abs(reference)`.
+
+Synthetic falsifiers include coherent cash/wealth/cost tampering, exact-third
+settlement, caller Decimal-context isolation and signed drawdown beyond 100%,
+plus lot, fee/spread, funding and borrow cases. Stochastic slippage fails closed.
+These cases test manufactured arithmetic only. Source and order authentication,
+OHLC/tick and effective-profile validation, clock/gap ordering, margin/admission
+and a complete 6,599-step flat/no-pending replay remain adapter work. The kernel
+is not full B4 and establishes no G0–G4, profit, R3, unused-period or live
+admission.
+
+## Independent MARKET scalar facts contract
+
+The bounded `market_order_facts` primitive accepts caller-selected raw rows,
+reporting tick-adjusted current-open price and capacity from adjacent prior
+close/volume or current open/volume. Binary64 ticks, adverse side rounding and
+unit conversion are software semantics; raw capacity is not an admitted fill
+or cost result.
+
+The caller must bind source/protocol identity, policy, effective profile,
+intent, accepted events and clocks. There is no Dataset authentication, full
+OHLC/STOP processing, margin/admission, accepted-order replay or complete
+6,599-step flat/no-pending run. This is not full B4 and grants no G0–G4, profit,
+real-data R3, unused-period or live authority. Native execution/accounting
+remains the sole authoritative ledger and comparison target.
+
+## Pinned content checks do not authorize research inputs
+
+The v4/v7 content verifier proves that two files match caller-supplied hashes and sizes,
+that the bounded artifact structure is valid, and that the independently recomputed
+content identity agrees with its stored and caller-pinned IDs. The caller-provided root
+and pins are not authenticated by this check. It cannot establish protocol/source
+provenance, a consumed time window, effective profile, causal feature availability, or
+that any native execution consumed these bytes.
+
+The check is not an economic oracle or full B4 replay: it does not interpret fills,
+funding, borrow, risk, margin, terminal settlement or profit. In particular,
+`funding_due` remains an identity-bound array; no rule equates it with
+`funding_event_count`. No G0/G2, formal research approval, R3, profit, unused-period or
+live authority follows from content verification.
+
+## Frozen attempt input binding remains a static prerequisite
+
+The pinned attempt layer binds raw caller-pinned protocol bytes, an exact native source
+HEAD and raw snapshot manifest, supported static profile source fingerprints, and the
+verified raw Dataset pins. It maps the frozen 48-arm configuration, symbol, scenario and
+role roster to UTC actor windows, vintage transitions and reserve intervals. Complete
+effective policy dictionaries are compared directly; independently derived canonical
+digests are secondary consistency checks. The runtime economic window is 6,527 actor
+hours; forecast horizons of 24 and 72 hours are distinct.
+
+This verifies declared static inputs and their mapping, not the running process, provider
+or external venue. It neither imports nor executes native code, fits forecasts, reads
+economic outputs or computes PnL. It does not establish that execution honored clocks,
+orders, fills, margin or carry, and it does not reconstruct the full 6,599-advance
+financial ledger. Formal G0/G2, full B4 and economic qualification remain separate and
+incomplete; financial assumptions and the frozen protocol are unchanged.
+
+## Per-advance event evidence is not an execution oracle
+
+The pinned event reader verifies one caller-pinned JSON batch for a single symbol and
+adjacent decision/processing clocks, with strict closed v1/v2 fields and a 1 MiB / 4,096
+event bound. Event indices and timestamps must match the supplied context; fills may
+occur only at processing time. V1 non-fills carry no fill, v1 fills require zero lot,
+and v2 fills carry a signed integer lot count and positive matching lot step whose exact
+`Fraction` product conservatively projects to the reported float. Sequence numbering
+restarts at zero for each batch.
+
+The context and byte pin are caller supplied; this parser does not derive effective lot,
+authenticate source/outer receipt/attempt, reconstruct order intent/history, or prove
+admission. It does not calculate costs or account transitions and is not the complete
+6,599-advance B4 replay or a protocol-authenticated v4 check. No G0/G2, profit, R3 or
+live authority follows; native execution/accounting remain the only authoritative ledger.
+
+## Bound event-row coverage is a software prerequisite only
+
+The G0-shaped software question is whether a one-pass walk preserves frozen
+actor/reserve clocks while reporting batch presence and rejected native rows. It is
+not the economic G0 hypothesis or a formal G0 disposition. G1 fixes one arm, 6,527
+actor advances, 72 reserve advances, source and financial assumptions; risk, cost,
+capital and adoption thresholds do not change.
+
+G2 falsifiers include absent/null/non-array versus empty batches, shifted/duplicate
+clocks, foreign context, skipped advances, malformed failure/clock fields, missing
+non-tail native data, callback errors and incomplete prefixes. `clock_valid ==
+false` remains rejected; batch presence may be complete while rows are rejected.
+These are software cases, not market observations or economic results.
+
+Rows are caller-supplied dictionaries and canonical batch bytes are derived from
+them. Source bytes, manifests, receipts, attempt identity and the outer tree are not
+authenticated. Intent/admission, independent charges/carry/settlement/drawdown and
+terminal-flat proof remain required for full B4; this component grants no G0/G1/G2,
+R3, profit, unused-period or live authority.
+
+## Native/comparison declaration equality is static evidence
+
+H's unchanged native runner accepts its source-bound v3 declaration; the
+independent exact-fill comparator consumes a distinct H-bound v4 declaration.
+`load_declared_protocol_pair` pins both documents independently and requires
+their complete shared declarations to agree. It does not relabel native v3 as
+v4, modify the producer, or change any financial assumption or acceptance gate.
+
+Software falsifiers cover coherently rehashed shared-field changes, foreign
+source heads, schema confusion, malformed/oversized JSON, same-file aliases and
+observed changes during validation. Positive equality and raw pin rechecks do
+not prove future process consumption or freshness. A fresh execution must be
+established by an outer runtime/provenance binding before admission; an existing
+attempt, copied protocol or new identifier cannot satisfy that requirement.
+Design review, static equality and software tests supply no full B4, formal
+G0/G2, economic, R3, unused-period or live authorization.
+
+## Structural receipt scanning is provisional input evidence
+
+The bounded receipt reader checks pinned compressed bytes, gzip integrity,
+streaming decompression limits and strict JSON structure while selecting actor
+or reserve rows. Its count and scan proof describe parser input only; yielded
+rows remain provisional until the complete stream verifies. Manufactured
+6,599-row fixtures test parser mechanics, not a native full run. This reader
+does not bind an outer attempt, order intent, accepted-fill history, independent
+accounting or terminal settlement. Full B4, formal G0/G2 and economic evidence
+remain unestablished by this component; no financial conditions change.
+
+Before a native frozen 48-arm run, the current gate plan requires one matched,
+artificial NONRL/CASH component-loop pair to complete all 6,527 actor and 72
+reserve advances per arm, including nonzero actor decisions/fills and terminal
+reserve settlement. Its fixed synthetic schedule includes a final actor-boundary
+exposure fill and requires the zero-target close to fill on the first reserve
+processing bar; each row also checks that no active order targets the other
+symbol. The coordinator now contains an offline typed plan and a
+tracked fixed-input operator for that artificial path. The operator is designed
+to run outside the frozen H checkout under its pinned interpreter, cwd and import
+root, and call unchanged public H Dataset and market execution APIs on a distinct
+synthetic Dataset/protocol. Its plan binds the full deterministic input, cost,
+risk, forecast and execution recipe; the operator must emit its actual
+builder-derived synthetic Dataset identity. Its receipt and identity remain
+explicitly artificial; this does not attest a frozen H/v3-H/v4 attempt or
+authorize the 48-arm consumer. The existing 32+8 public-native fixtures and
+bounded 640-step profile do not satisfy that long-window prerequisite. The
+pinned-H operator has not been launched; no pinned-H-generated long pair or
+actual H component integration has run. The Q-side synthetic replay described
+below is software-only and is not a native attempt or economic result.
+
+The result-blind forecast recipe fixes a no-fit intercept of -0.02 and derives
+the slope from the stored float32 feature range so nonpulse and pulse returns are
+-0.02 and +0.02. Training rows are trace provenance, not fitted or calibrated
+evidence. The Q-side adapter reconstructs the full Dataset identity and canonical
+forecast bytes independently; the artificial pair consumer compares those bytes
+before receipt scanning. The Q-only synthetic software replay consumed all 6,599
+actor and reserve advances per role (6,527 actor plus 72 reserve; 13,198 total)
+for NONRL and CASH. It checked the required NONRL actor fill indices 2906, 5090,
+7298 and 9430, the reserve close at 9431, no CASH fills, and terminal flat/no-
+active-order closure. A separate regression with fabricated H-shaped receipt rows
+checks actor index extraction only; it did not launch the pinned-H operator or call
+H execution APIs. The actual pinned-H pair and native 48-arm remain unrun, as do
+economic, unused-period and live evaluations.
+
+The output-file index requires an independently supplied manifest byte pin;
+manifest consistency cannot establish root-launch authorship or consumption.
+File reads are bounded and explicit rechecks compare original identities,
+metadata and hashes. Files remain subject to the trusted-host immutability
+assumption. Independent allocation arithmetic receives supplied horizon
+assumptions only. Hand-calculated and differential manufactured cases do not
+authenticate forecasts, intents, accepted fills, account transitions or profits.
+
+## Frozen decision-to-intent replay and outer-attempt boundary
+
+The internal B4 comparison modules connect a pinned forecast view and caller-owned
+row facts to the frozen after-cost allocation, action/risk projection, expected
+MARKET/GTC intent, owned fills, binary64 account events, carry, and reserve settlement.
+`FrozenMarketReplay` advances this state from raw rows; `offline_replay_consumer.py`
+scans both actor and reserve receipt phases to EOF, compares each native row and
+canonical actor identity against the independent owned replay, then checks final-flat
+and no-active-order state. The selected-arm consumer can report a pinned-input
+comparison for one account, scenario and role. Public-native artificial fixtures cover
+32 actor plus 8 reserve rows for the frozen profiles, horizons, roles and symbol slots.
+
+The current native matrix entry derives an exact 48-arm roster from the validated
+H/v3-H/v4 pair and caller-pinned Dataset: four forecast configurations, two symbols,
+three frozen scenarios and two standalone roles. It checks the frozen plan and
+forecast roster, brackets arm-by-arm bounded reads with one output-index recheck at
+each outer edge, and rechecks static H/Dataset inputs at those same edges. Its result
+remains a pinned-input comparison; it has not consumed a native 48-arm output tree.
+
+The exercised root-owned observer workflows use explicitly artificial children.
+Its failure path retains a start record and observed child/tree cleanup facts
+without publishing a successful finish or manifest pin; its Windows process-tree
+dependency is pinned into the observer source closure. A copied artificial receipt
+can still be compared, but the result remains `ARTIFICIAL_COMPARISON_COMPLETE`,
+unauthenticated, and unauthorized. The typed `build_frozen_h_launch_plan`
+validates distinct H/v3 and H/v4 pins, the frozen H source/Dataset pins, a
+byte-pinned review record, the H Python executable, the exact public
+`tools.tier_d_nonrl --mode market` argv and working directory, and separate fresh
+child-output and ignored observer-witness roots. Plan construction is offline.
+`run_and_consume_frozen_h_market_matrix` connects the typed plan, root process
+witness and exact 48-arm consumer. A positive orchestration test stubs the observed
+execution and matrix comparison to exercise this success branch; it does not start
+a process or execute the consumer. The actual native path has not been invoked or
+root-witnessed.
+
+These components do not establish a native full frozen 48-arm comparison or consume
+its 6,527 actor and 72 reserve rows per arm. Full B4 remains false until the long
+synthetic prerequisite above and then a source-bound native launch witness, exact
+input and output pins, complete roster/window coverage, both
+phase EOF checks, canonical identity and financial comparisons, final-flat/no-pending
+state, final source recheck, and required repository gates all pass on one committed
+HEAD. Synthetic and public-API differential tests are software falsifiers only; they
+provide no formal G0-G2, R3, profit, unused-period, or live authority.
+
+## Caller-pinned frozen forecast index
+
+`FrozenForecastIndex` verifies the caller-supplied byte count and SHA-256 before strict JSON decoding, bounds the input at 64 MiB and numeric tokens at 4,096 characters, and rejects duplicate packet keys, vintage digests, unresolved references, and oversized structures. It indexes one already-pinned stream and sends a derived two-row packet/vintage view through the frozen forecast adapter. The selected view is not a new full-stream canonical digest and does not establish source authorship, Dataset provenance, native consumption, an economic result, full B4, formal G0-G2, or research approval.
+
+The scalar `binary64_account.py` compatibility view keeps an independently owned binary64 account beside the exact Fraction/Decimal reference ledger. It is initialized only with caller-supplied state and explicit events, never native observed financial values. Explicit cross-margin events include maintenance, collateral haircut, refreshed deficit and terminal flattening; isolated margin and splits remain unsupported. This primitive does not authenticate rows, coordinate phases, derive admission, or close full B4. Manufactured and differential cases provide no formal G0/G1/G2 or economic result.
+
+
+## Identity reconstruction is not source or attempt admission
+
+The internal identity composer hashes explicit context, proposal, action, risk-target, and order fields. Manufactured and public-API differential cases check serialization contracts only; they do not prove that caller values belong to an original receipt or fresh attempt. Forecast/source lineage, native clock and margin checks, complete order-history ownership, accepted-fill accounting, and terminal closure remain required. No economic or formal G0-G2 evidence follows from identity parity.

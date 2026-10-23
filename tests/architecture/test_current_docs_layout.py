@@ -68,7 +68,9 @@ COMPLIANCE_GIT_BLOBS = {
 
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 FULL_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b")
-TRANSIENT_PR_RE = re.compile(r"\b(?:PR|pull request)\s*#\d+\b", re.IGNORECASE)
+TRANSIENT_PR_RE = re.compile(
+    r"\b(?:PR|pull request)\s*#\d+(?![A-Za-z0-9_])", re.IGNORECASE
+)
 
 
 def _doc_files() -> set[str]:
@@ -545,6 +547,14 @@ def test_current_authority_docs_do_not_embed_transient_pr_or_full_sha_refs() -> 
         text = path.read_text(encoding="utf-8")
         assert FULL_SHA_RE.search(text) is None, path.relative_to(ROOT)
         assert TRANSIENT_PR_RE.search(text) is None, path.relative_to(ROOT)
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ("PR #794のtraining discount objective", "pull request #790のshared-cash replay"),
+)
+def test_transient_pr_reference_matches_japanese_suffix(reference: str) -> None:
+    assert TRANSIENT_PR_RE.search(reference) is not None
 
 
 def test_permanent_compliance_material_matches_verified_base() -> None:

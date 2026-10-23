@@ -9,7 +9,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_ROOT = ROOT / "trade_rl"
 SCHEMA_VERSION = "guide-code-symbols-v1"
@@ -175,7 +174,9 @@ def _decorator_name(decorator: ast.expr) -> str | None:
 
 
 def _is_overload(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    return any(_decorator_name(decorator) == "overload" for decorator in node.decorator_list)
+    return any(
+        _decorator_name(decorator) == "overload" for decorator in node.decorator_list
+    )
 
 
 def _resolved_source_file(source_root: Path, path: Path) -> Path:
@@ -186,7 +187,9 @@ def _resolved_source_file(source_root: Path, path: Path) -> Path:
     try:
         resolved.relative_to(source_root)
     except ValueError as exc:
-        raise GuideCodeSymbolError(f"Python source escapes source root: {path}") from exc
+        raise GuideCodeSymbolError(
+            f"Python source escapes source root: {path}"
+        ) from exc
     if not resolved.is_file():
         raise GuideCodeSymbolError(f"Python source is not a file: {path}")
     return resolved
@@ -202,7 +205,9 @@ def _symbol_entry(
 ) -> dict[str, object]:
     end_line = node.end_lineno
     if end_line is None:
-        raise GuideCodeSymbolError(f"missing end line for code symbol: {qualified_name}")
+        raise GuideCodeSymbolError(
+            f"missing end line for code symbol: {qualified_name}"
+        )
     start_line = _source_start_line(node)
     local_names: list[str] = []
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -241,19 +246,43 @@ def _class_symbols(
             lines=lines,
         )
     ]
-    for child in node.body:
+    consumed_accessors: set[int] = set()
+    for index, child in enumerate(node.body):
+        if index in consumed_accessors:
+            continue
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if _is_overload(child):
                 continue
-            symbols.append(
-                _symbol_entry(
-                    qualified_name=".".join((qualified_class, child.name)),
-                    kind="method",
-                    path=path,
-                    node=child,
-                    lines=lines,
-                )
+            entry = _symbol_entry(
+                qualified_name=".".join((qualified_class, child.name)),
+                kind="method",
+                path=path,
+                node=child,
+                lines=lines,
             )
+            accessors = _property_accessors(node.body, index, child)
+            if accessors:
+                last = accessors[-1]
+                end_line = last.end_lineno
+                if end_line is None:
+                    raise GuideCodeSymbolError(
+                        f"missing end line for code symbol: {entry['qualified_name']}"
+                    )
+                entry["end_line"] = end_line
+                entry["source_sha256"] = _source_digest(
+                    lines, _source_start_line(child), end_line
+                )
+                entry["local_names"] = sorted(
+                    {
+                        name
+                        for member in (child, *accessors)
+                        for name in _LocalNameCollector(member.args).collect(
+                            member.body
+                        )
+                    }
+                )
+                consumed_accessors.update(range(index + 1, index + 1 + len(accessors)))
+            symbols.append(entry)
         elif isinstance(child, ast.ClassDef):
             symbols.extend(
                 _class_symbols(
@@ -265,6 +294,40 @@ def _class_symbols(
                 )
             )
     return symbols
+
+
+def _property_accessors(
+    body: list[ast.stmt],
+    index: int,
+    getter: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
+    if (
+        len(getter.decorator_list) != 1
+        or not isinstance(getter.decorator_list[0], ast.Name)
+        or getter.decorator_list[0].id != "property"
+    ):
+        return []
+    accessors: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+    roles: set[str] = set()
+    for candidate in body[index + 1 :]:
+        if (
+            not isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef))
+            or candidate.name != getter.name
+            or len(candidate.decorator_list) != 1
+        ):
+            break
+        decorator = candidate.decorator_list[0]
+        if (
+            not isinstance(decorator, ast.Attribute)
+            or not isinstance(decorator.value, ast.Name)
+            or decorator.value.id != getter.name
+            or decorator.attr not in ("setter", "deleter")
+            or decorator.attr in roles
+        ):
+            break
+        roles.add(decorator.attr)
+        accessors.append(candidate)
+    return accessors
 
 
 def build_symbol_index(source_root: Path, *, revision: str) -> dict[str, object]:
@@ -338,16 +401,22 @@ def _runtime_symbol_names(topics_dir: Path) -> list[str]:
             resolved = path.resolve(strict=True)
             resolved.relative_to(topics_dir)
         except (OSError, RuntimeError, ValueError) as exc:
-            raise GuideCodeSymbolError(f"Guide topic escapes topics directory: {path}") from exc
+            raise GuideCodeSymbolError(
+                f"Guide topic escapes topics directory: {path}"
+            ) from exc
         try:
             topic = json.loads(resolved.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise GuideCodeSymbolError(f"cannot read Guide topic JSON: {path}") from exc
         if not isinstance(topic, dict):
-            raise GuideCodeSymbolError(f"Guide topic JSON root must be an object: {path}")
+            raise GuideCodeSymbolError(
+                f"Guide topic JSON root must be an object: {path}"
+            )
         references = topic.get("code_references", [])
         if not isinstance(references, list):
-            raise GuideCodeSymbolError(f"Guide topic code_references must be a list: {path}")
+            raise GuideCodeSymbolError(
+                f"Guide topic code_references must be a list: {path}"
+            )
         for index, reference in enumerate(references):
             if not isinstance(reference, dict):
                 raise GuideCodeSymbolError(
@@ -415,7 +484,11 @@ def write_symbol_index(
 
 
 def resolve_revision(explicit: str | None = None) -> str:
-    candidates = [explicit, os.environ.get("GUIDE_SOURCE_REV"), os.environ.get("GITHUB_SHA")]
+    candidates = [
+        explicit,
+        os.environ.get("GUIDE_SOURCE_REV"),
+        os.environ.get("GITHUB_SHA"),
+    ]
     for candidate in candidates:
         if candidate:
             return _validated_revision(candidate)
@@ -433,7 +506,9 @@ def resolve_revision(explicit: str | None = None) -> str:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate the Human Guide code-symbol index.")
+    parser = argparse.ArgumentParser(
+        description="Generate the Human Guide code-symbol index."
+    )
     parser.add_argument("--write", type=Path, required=True, metavar="OUTPUT")
     parser.add_argument("--revision")
     parser.add_argument(

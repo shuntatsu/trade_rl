@@ -10,7 +10,8 @@ import numpy as np
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 
-MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
+MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v7"
+_LEGACY_MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
 
 DATASET_ID_ARRAY_FIELDS = (
     "timestamps",
@@ -31,6 +32,7 @@ DATASET_ID_ARRAY_FIELDS = (
     "close",
     "volume",
     "funding_rate",
+    "funding_price_rate",
     "funding_event_count",
     "tradable",
     "symbol_active",
@@ -54,6 +56,11 @@ DATASET_ID_ARRAY_FIELDS = (
     "delisting_recovery",
     "cash_rate",
     "contract_multipliers",
+)
+_LEGACY_DATASET_ID_ARRAY_FIELDS = tuple(
+    field_name
+    for field_name in DATASET_ID_ARRAY_FIELDS
+    if field_name != "funding_price_rate"
 )
 
 
@@ -116,12 +123,18 @@ def compute_market_dataset_id(
 ) -> str:
     """Recompute one dataset ID from its persisted payload and stored arrays."""
 
-    if payload.get("schema") != MARKET_DATASET_IDENTITY_SCHEMA:
+    schema = payload.get("schema")
+    fields: tuple[str, ...]
+    if schema == MARKET_DATASET_IDENTITY_SCHEMA:
+        fields = DATASET_ID_ARRAY_FIELDS
+    elif schema == _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA:
+        fields = _LEGACY_DATASET_ID_ARRAY_FIELDS
+    else:
         raise ValueError("unsupported market dataset identity schema")
-    missing = [name for name in DATASET_ID_ARRAY_FIELDS if name not in arrays]
+    missing = [name for name in fields if name not in arrays]
     if missing:
         raise ValueError(f"dataset identity arrays are missing fields: {missing}")
     return content_and_arrays_digest(
         payload,
-        ((name, arrays[name]) for name in DATASET_ID_ARRAY_FIELDS),
+        ((name, arrays[name]) for name in fields),
     )

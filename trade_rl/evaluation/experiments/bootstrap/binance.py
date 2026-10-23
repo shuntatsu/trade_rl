@@ -33,6 +33,8 @@ from trade_rl.integrations.binance.vision import _normalize_epoch_ms
 _PLAN_SCHEMA = "canonical_m2_vision_plan_v1"
 _RESOLUTION_SCHEMA = "canonical_m2_vision_resolution_v1"
 _METADATA_EVIDENCE_SCHEMA = "frozen_binance_exchange_info_evidence_v1"
+_FUNDING_EVENTS_SCHEMA = "frozen_binance_funding_events_v1"
+_FUNDING_EVENTS_FILE = "funding-events.json"
 _DAY = timedelta(days=1)
 
 
@@ -48,6 +50,16 @@ class _LiveSourceTransport(Protocol):
         mode: BinanceTransportMode | str = BinanceTransportMode.REST,
     ) -> BinanceExchangeInfoSnapshot: ...
 
+    def load_funding_events(
+        self,
+        *,
+        market: BinanceMarket | str,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        mode: BinanceTransportMode | str = BinanceTransportMode.VISION,
+    ) -> tuple[list[tuple[int, float, float]], str]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class _VisionRepair:
@@ -61,6 +73,10 @@ class _VisionRepair:
 class _FrozenDatasetTransport:
     market_data: BinancePublicTransport
     metadata: FrozenBinanceExchangeInfoTransport
+    funding_market: BinanceMarket
+    funding_start_ms: int
+    funding_end_ms: int
+    funding_events: dict[str, tuple[tuple[int, float, float], ...]] | None
     repairs: tuple[_VisionRepair, ...] = ()
 
     def load_klines(
@@ -156,13 +172,57 @@ class _FrozenDatasetTransport:
         end_ms: int,
         mode: BinanceTransportMode | str = BinanceTransportMode.VISION,
     ) -> tuple[list[tuple[int, float]], str]:
-        return self.market_data.load_funding_rates(
+        if self.funding_events is None:
+            return self.market_data.load_funding_rates(
+                market=market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                mode=mode,
+            )
+        events, source = self.load_funding_events(
             market=market,
             symbol=symbol,
             start_ms=start_ms,
             end_ms=end_ms,
             mode=mode,
         )
+        return [(timestamp, rate) for timestamp, rate, _mark in events], source
+
+    def load_funding_events(
+        self,
+        *,
+        market: BinanceMarket | str,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        mode: BinanceTransportMode | str = BinanceTransportMode.VISION,
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        if self.funding_events is None:
+            return self.market_data.load_funding_events(
+                market=market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                mode=mode,
+            )
+        if BinanceMarket(market) is not self.funding_market:
+            raise ValueError("frozen funding snapshot market differs from request")
+        if BinanceTransportMode(mode) is not BinanceTransportMode.VISION:
+            raise ValueError("frozen funding snapshot only supports Vision mode")
+        if start_ms < self.funding_start_ms or end_ms > self.funding_end_ms:
+            raise ValueError("frozen funding snapshot does not cover requested range")
+        if end_ms < start_ms:
+            raise ValueError("funding range end must not precede start")
+        try:
+            events = self.funding_events[symbol]
+        except KeyError as error:
+            raise ValueError(
+                "frozen funding snapshot lacks requested symbol"
+            ) from error
+        return [
+            event for event in events if start_ms <= event[0] <= end_ms
+        ], "frozen:funding-events"
 
     def load_exchange_information(
         self,
@@ -187,6 +247,7 @@ class FrozenBinanceSource:
     raw_source_roster: tuple[dict[str, object], ...]
     raw_source_roster_digest: str
     metadata_evidence: dict[str, object]
+    funding_events_digest: str | None
 
 
 def _vision_plan_payload(config: CanonicalM2BootstrapConfig) -> dict[str, object]:
@@ -419,11 +480,141 @@ def _metadata_evidence(
     }
 
 
+def _validate_funding_event_rows(
+    value: object,
+    *,
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+) -> tuple[tuple[int, float, float], ...]:
+    if not isinstance(value, list):
+        raise ValueError(f"funding event rows for {symbol} must be an array")
+    result: list[tuple[int, float, float]] = []
+    previous: int | None = None
+    for row in value:
+        if not isinstance(row, (list, tuple)) or len(row) != 3:
+            raise ValueError(f"funding event row for {symbol} must have three fields")
+        timestamp, raw_rate, raw_mark = row
+        if isinstance(timestamp, bool) or not isinstance(timestamp, int):
+            raise ValueError(f"funding event timestamp for {symbol} must be an integer")
+        if not start_ms <= timestamp <= end_ms:
+            raise ValueError(
+                f"funding event timestamp for {symbol} is outside the range"
+            )
+        if previous is not None and timestamp <= previous:
+            raise ValueError(
+                f"funding event timestamps for {symbol} must be unique and ordered"
+            )
+        previous = timestamp
+        if isinstance(raw_rate, bool) or not isinstance(raw_rate, (int, float)):
+            raise ValueError(f"funding rate for {symbol} must be numeric")
+        if isinstance(raw_mark, bool) or not isinstance(raw_mark, (int, float)):
+            raise ValueError(f"funding settlement mark for {symbol} must be numeric")
+        rate = float(raw_rate)
+        mark = float(raw_mark)
+        if not math.isfinite(rate):
+            raise ValueError(f"funding rate for {symbol} must be finite")
+        if not math.isfinite(mark) or mark <= 0.0:
+            raise ValueError(f"funding settlement mark for {symbol} must be positive")
+        result.append((timestamp, rate, mark))
+    return tuple(result)
+
+
+def _funding_events_payload(
+    config: CanonicalM2BootstrapConfig,
+    *,
+    live_transport: _LiveSourceTransport,
+) -> dict[str, object]:
+    start_ms = int(config.data_start.timestamp() * 1_000)
+    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
+    events_by_symbol: dict[str, list[list[int | float]]] = {}
+    sources: dict[str, str] = {}
+    for symbol in config.symbols:
+        events, source = live_transport.load_funding_events(
+            market=config.market,
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            mode=BinanceTransportMode.VISION,
+        )
+        if not isinstance(source, str) or not (
+            source.startswith("vision") or source == "spot:no-funding"
+        ):
+            raise ValueError("funding snapshot must be resolved from Vision evidence")
+        validated = _validate_funding_event_rows(
+            events,
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+        events_by_symbol[symbol] = [list(event) for event in validated]
+        sources[symbol] = source
+    return {
+        "end_ms": end_ms,
+        "market": config.market.value,
+        "schema_version": _FUNDING_EVENTS_SCHEMA,
+        "sources": sources,
+        "start_ms": start_ms,
+        "symbols": events_by_symbol,
+    }
+
+
+def _read_funding_events_snapshot(
+    config: CanonicalM2BootstrapConfig,
+    root: Path,
+) -> tuple[dict[str, tuple[tuple[int, float, float], ...]], str]:
+    path = root / _FUNDING_EVENTS_FILE
+    payload = _read_json_object(path, label="frozen Binance funding events")
+    expected_keys = {
+        "end_ms",
+        "market",
+        "schema_version",
+        "sources",
+        "start_ms",
+        "symbols",
+    }
+    start_ms = int(config.data_start.timestamp() * 1_000)
+    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema_version") != _FUNDING_EVENTS_SCHEMA
+        or payload.get("market") != config.market.value
+        or payload.get("start_ms") != start_ms
+        or payload.get("end_ms") != end_ms
+    ):
+        raise ValueError("frozen Binance funding event snapshot differs from contract")
+    raw_symbols = payload.get("symbols")
+    raw_sources = payload.get("sources")
+    if (
+        not isinstance(raw_symbols, dict)
+        or set(raw_symbols) != set(config.symbols)
+        or not isinstance(raw_sources, dict)
+        or set(raw_sources) != set(config.symbols)
+    ):
+        raise ValueError("frozen Binance funding event symbols differ from contract")
+    events: dict[str, tuple[tuple[int, float, float], ...]] = {}
+    for symbol in config.symbols:
+        source = raw_sources[symbol]
+        if not isinstance(source, str) or not (
+            source.startswith("vision") or source == "spot:no-funding"
+        ):
+            raise ValueError("frozen funding event source is unsupported")
+        events[symbol] = _validate_funding_event_rows(
+            raw_symbols[symbol],
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return events, digest
+
+
 def _inspect_frozen_binance_source(
     config: CanonicalM2BootstrapConfig,
     source_root: str | Path,
     *,
     require_resolution: bool = True,
+    require_funding_snapshot: bool = True,
 ) -> FrozenBinanceSource:
     """Reconstruct one frozen Binance source without network access."""
 
@@ -487,9 +678,21 @@ def _inspect_frozen_binance_source(
         mode=BinanceTransportMode.REST,
     )
     cache_transport = BinancePublicTransport(cache_root=cache_root, allow_network=False)
+    if require_funding_snapshot:
+        funding_events, funding_events_digest = _read_funding_events_snapshot(
+            config,
+            root,
+        )
+    else:
+        funding_events = None
+        funding_events_digest = None
     composite = _FrozenDatasetTransport(
         market_data=cache_transport,
         metadata=metadata_transport,
+        funding_market=config.market,
+        funding_start_ms=int(config.data_start.timestamp() * 1_000),
+        funding_end_ms=int(config.data_stop_exclusive.timestamp() * 1_000),
+        funding_events=funding_events,
         repairs=repairs,
     )
     start_ms = int(config.data_start.timestamp() * 1_000)
@@ -515,6 +718,7 @@ def _inspect_frozen_binance_source(
         raw_source_roster=roster,
         raw_source_roster_digest=content_digest(list(roster)),
         metadata_evidence=_metadata_evidence(snapshot),
+        funding_events_digest=funding_events_digest,
     )
 
 
@@ -573,6 +777,8 @@ def _freeze_binance_source(
         sync_binance_vision_urls(repair_urls, transport=live)
     resolution_payload = _vision_resolution_payload(config, repairs)
     _write_json(root / "vision-resolution.json", resolution_payload)
+    funding_payload = _funding_events_payload(config, live_transport=live)
+    _write_json(root / _FUNDING_EVENTS_FILE, funding_payload)
 
     return _inspect_frozen_binance_source(config, root)
 

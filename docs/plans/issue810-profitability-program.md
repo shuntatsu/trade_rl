@@ -31,8 +31,8 @@ The backlog contains 24 independently bounded cards across seven streams. Depend
 ```mermaid
 flowchart LR
     A[Source, data, and run durability] --> I[Authenticated artificial pair]
-    B[Forecast and point-in-time data] --> N[NONRL/CASH 48-arm readiness]
-    C[NONRL allocation and cash controls] --> N
+    B[Forecast and point-in-time data] --> N[Original 48 NONRL/CASH readiness; independent_symbol]
+    C[Account-mode allocation and cash-control software parity] --> N
     E[Execution costs, risk, and settlement] --> N
     F[Independent oracle and G0-G3 registration] --> N
     I --> N
@@ -40,12 +40,15 @@ flowchart LR
     C --> R
     E --> R
     F --> R
-    N --> P[NONRL registered decision]
+    N --> P[Original scoped NONRL/CASH decision]
     R --> Q[RL registered decision]
     P -->|NO_WINNER or falsified mechanism| S[Stop or one bounded next-factor study]
     Q -->|NO_WINNER| S
-    P -->|Accepted WINNER| T[Separate final authorization and paper/shadow path]
-    Q -->|Accepted WINNER| T
+    P --> A[Broader adoption gate]
+    Q --> A
+    H[Separate fixed-rule G4 receipts on matched source, runtime, inputs, capital, window, costs, risk, and account] --> A
+    J[P5 state-preserving chronological update evidence and frozen recipe] --> A
+    A --> T[Separate final authorization and paper/shadow path]
     T --> U[Live eligibility requires separate human approval]
 ```
 
@@ -77,12 +80,12 @@ These milestones organize decision evidence; they do not serialize independent c
 |---|---|---|
 | M0 — Source and attempt integrity | Exact Dataset/manifest/source/runtime bindings, stopped-run recovery, measured validation cost, authenticated artificial comparison pair. Missing bindings stay UNAVAILABLE; technical completion is not an economic result. | W01-W03, W16, W19 |
 | M1 — Causal data and cost scope | Point-in-time feature/label availability, forecast maturity, exact fees/funding/impact/latency assumptions, and source-pinned direct-simple units. | W04-W05, W13 |
-| M2 — Forecast and fixed controls | Calibrated forecast diagnostics kept separate from P&L, same-capital cash/fixed-rule controls, bounded allocation and risk/no-trade semantics. | W06-W09 |
-| M3 — NONRL feasibility | Existing allocator, order path, and terminal handling pass capacity/stress and independent ledger checks; G0-G3, lineage, and current-source review are complete. | W07-W09, W13-W18 |
-| M4 — Controlled development comparison | The authorized original 48-role roster completes with immutable receipts and registered NONRL/CASH metrics; incomplete cells remain INCOMPLETE. This plan alone does not authorize the run. | W20-W21 |
+| M2 — Forecast and control software parity | Calibrated forecast diagnostics stay separate from P&L; cash/fixed-rule interfaces preserve the registered account contract. Software parity is not fixed-rule economic evidence. | W06-W09 |
+| M3 — NONRL feasibility | Original independent_symbol account, order path, and terminal handling pass capacity/stress and independent-ledger checks; separately registered shared_portfolio work is not an original-matrix prerequisite. G0-G3, lineage, and exact-source review remain required. | W07-W09, W13-W18 |
+| M4 — Scoped development comparison | The original 48-role NONRL/CASH roster completes with immutable receipts and its original preregistered decision only; it has no fixed-rule arms. Incomplete cells remain INCOMPLETE and this plan does not authorize the run. Broader adoption needs separate fixed-rule G4 and P5 evidence. | W20-W21 |
 | M5 — One mechanism-driven next factor | Only after a completed NO_WINNER decision, test one falsifiable mechanism under a fresh finite preregistration; otherwise retain cash as the active control. | W22 |
 | M6 — RL incremental question | Clock, objective, parity, cheap learnability, P5 state-preserving updates, frozen controls, independent gates, and explicit fit/compute budget support a bounded direct or residual comparison. Positive NONRL P&L is not a prerequisite. | W10-W12, W17-W18, W23 |
-| M7 — Final and operational readiness | A development WINNER whose P5 handover already passed enters the distinct one-shot unused-window gate; paper/shadow uses that frozen recipe. Any live order remains a separate explicit human approval. | W24 |
+| M7 — Final and operational readiness | A program-level WINNER requires matched fixed-rule G4 receipts and a passing P5 handover/update recipe before the distinct one-shot unused-window gate; paper/shadow uses that frozen recipe. Any live order remains a separate explicit human approval. | W24 |
 
 ## Work cards
 
@@ -144,29 +147,29 @@ Before adding a component, the owner inspects the current implementation and nea
 
 ### Stream C — NONRL allocation and controls
 
-**W07 — Bound shared-capital allocation and after-cost decision semantics.**
+**W07 — Bound account-mode allocation and after-cost decision semantics.**
 
-- **Owner / lease:** one allocation worker; audit and extend the existing allocator under a write lease for `trade_rl/evaluation/forecast_allocation.py` and `trade_rl/evaluation/allocation_decision.py`; `allocation_costs.py` and the public strategy interface are read-only dependencies owned by W13. Do not create a parallel allocator if the existing interface can express the registered action.
-- **Entry:** W04/W05 causal packet units and the current shared-capital, risk, and execution contracts are available.
-- **Deliverable / exit evidence:** one explicit allocator maps the same forecast, book state, and fixed costs to a bounded joint action; invariants and independent action-choice differential checks pass.
-- **Falsifier / decision:** symbol-local sizing ignores shared cash, forecast uncertainty/cost units mismatch, or the choice depends on a future row; reject the allocator contract.
-- **Cap:** synthetic and already-consumed development inputs; no parameter sweep, live orders, or financial assumption change.
+- **Owner / lease:** one allocation worker; audit and extend the existing allocator under a write lease for trade_rl/evaluation/forecast_allocation.py and trade_rl/evaluation/allocation_decision.py; allocation_costs.py and the public strategy interface are read-only dependencies owned by W13. Do not create a parallel allocator if the existing interface can express the registered action.
+- **Entry:** W04/W05 causal packet units and the registered capital, account-mode, risk, and execution contracts are available.
+- **Deliverable / exit evidence:** preserve account_mode=independent_symbol, the existing default and the mode used by the original 48-arm matrix, including its per-account capital, financial-clock, and risk invariants. A separately preregistered shared_portfolio candidate may use the existing allocator to map forecast, book state, and fixed costs to a bounded joint action using the same total-capital denominator; verify each mode with independent action-choice and boundary checks.
+- **Falsifier / decision:** any implementation silently changes the default account mode, merges independent-symbol capital, mismatches forecast uncertainty/cost units, or depends on a future row; reject that contract.
+- **Cap:** the original 48-arm matrix remains independent_symbol. shared_portfolio needs a separate preregistration and evidence budget; it is not an implicit migration or a W20 prerequisite.
 
-**W08 — Make cash and fixed-rule controls directly comparable.**
+**W08 — Define software parity for cash and fixed-rule controls.**
 
-- **Owner / lease:** one control-baseline worker; `trade_rl/evaluation/allocation_cash_control.py`, `trade_rl/evaluation/allocation_nonrl_walk_forward.py`, `trade_rl/evaluation/allocation_comparison.py`, and comparison evidence adapters in `trade_rl/evaluation/`.
-- **Entry:** capital, decision clock, hold/close rules, costs, symbol roster, period scope, and execution path match the candidate contract.
-- **Deliverable / exit evidence:** cash, the registered fixed rules, and NONRL candidate consume the same continuous account and produce the same terminal/accounting schema; comparison and cash-control tests pass.
-- **Falsifier / decision:** a control receives different capital, data, fee, clock, or settlement treatment; comparison is INVALID until repaired.
-- **Cap:** preserve existing controls and parameters; one declared comparison recipe, no post-result control retuning.
+- **Owner / lease:** one control-baseline worker; trade_rl/evaluation/allocation_cash_control.py, trade_rl/evaluation/allocation_nonrl_walk_forward.py, trade_rl/evaluation/allocation_comparison.py, and comparison evidence adapters in trade_rl/evaluation/.
+- **Entry:** capital, decision clock, hold/close rules, costs, symbol roster, period scope, account mode, and execution path are specified for the candidate and each software control.
+- **Deliverable / exit evidence:** tests show that cash and each registered fixed-rule interface can consume the same declared account and emit the same terminal/accounting schema. This establishes software parity only; it does not establish fixed-rule economic receipts, G4, or superiority. Broader program adoption requires a separate preregistered, source/runtime/input-bound fixed-rule G4 receipt under the same capital, window, cost, risk, and account contract; see W21.
+- **Falsifier / decision:** a control interface receives different capital, data, fee, clock, or settlement treatment; software parity is INVALID until repaired. Missing economic control receipts leave broader fixed-rule comparison NOT ESTABLISHED.
+- **Cap:** preserve existing controls and parameters; one declared software-parity recipe, no post-result control retuning or W20 fixed-rule arms.
 
-**W09 — Close the global risk and no-trade feasibility envelope.**
+**W09 — Close account-mode-specific risk and no-trade feasibility envelopes.**
 
-- **Owner / lease:** one risk/allocation worker; `trade_rl/evaluation/allocation_selection.py`, `trade_rl/evaluation/allocation_global_execution.py`, `trade_rl/risk/portfolio.py`, and `trade_rl/risk/pretrade.py`.
-- **Entry:** W07 and W08 share a fixed account and order interface.
-- **Deliverable / exit evidence:** global exposure, concentration, cash reservation, no-trade region, hard risk priority, and terminal close constraints have boundary counterexamples and an independent risk oracle.
-- **Falsifier / decision:** any candidate breaches the fixed risk budget, violates the 20% research DD guardrail, or cannot settle flat; stop candidate admission.
-- **Cap:** existing registered exposure limits only; no risk limit expansion and no extra market arm.
+- **Owner / lease:** one risk/allocation worker; trade_rl/evaluation/allocation_selection.py, trade_rl/evaluation/allocation_global_execution.py, trade_rl/risk/portfolio.py, and trade_rl/risk/pretrade.py.
+- **Entry:** W07 and W08 pin the account-mode-specific capital, clock, control, and order contracts.
+- **Deliverable / exit evidence:** for original independent_symbol comparisons, independently check each account's capital denominator, financial clock, risk limits, no-trade region, hard risk priority, and terminal-close constraints. Global exposure aggregation and shared cash reservation apply only to a separately registered shared_portfolio candidate, whose bounded joint actions need independent risk-oracle counterexamples.
+- **Falsifier / decision:** a candidate violates its registered account-mode risk budget, the 20% research DD guardrail, or flat settlement; stop admission for that candidate.
+- **Cap:** preserve existing registered exposure limits. Any shared-capital behavior is scoped to the separately preregistered shared_portfolio candidate; no risk-limit expansion or extra W20 arm.
 
 ### Stream D — RL clock, objective, and bounded learnability
 
@@ -181,7 +184,7 @@ Before adding a component, the owner inspects the current implementation and nea
 **W11 — Bind reward, terminal wealth, and zero-residual policy parity.**
 
 - **Owner / lease:** one RL-objective worker; `trade_rl/strategies/rl/allocation_objective_receipt.py`, `trade_rl/strategies/rl/allocation_model.py`, `trade_rl/strategies/rl/allocation_artifact.py`, and objective contracts.
-- **Entry:** W10 supplies the exact clock/context; W08 supplies cash and fixed-rule references.
+- **Entry:** W10 supplies the exact clock/context; W08 establishes software-level control parity only; economic controls require separately preregistered G4 receipts.
 - **Deliverable / exit evidence:** reward and terminal objective encode after-cost portfolio wealth with registered risk/settlement treatment; an all-zero residual policy reproduces the fixed base actor and artifact round-trips unchanged.
 - **Falsifier / decision:** reward ranking conflicts with net wealth, the residual changes the zero-residual action, or terminal costs are omitted; stop fit admission.
 - **Cap:** deterministic tests only; zero real fits, no hyperparameter search.
@@ -256,21 +259,21 @@ Before adding a component, the owner inspects the current implementation and nea
 
 ### Stream G — economic integration and later operations
 
-**W20 — Run the original controlled 48-arm development matrix.**
+**W20 — Run the original controlled 48-arm NONRL/CASH development matrix.**
 
-- **Owner / lease:** one economic-run coordinator with separate preparation, execution, and read-only review responsibilities; original 4 configurations × 2 symbols × 3 scenarios × 2 roles.
-- **Entry:** W01, W04-W09, W13-W19 (including W15 independent ledger closure), exact current-source review, G0-G3 approval, current-main software closure, and final plan/data/cost pins all pass. RL cards W10-W12 are not a prerequisite. The selected versioned native source must include the signed lot count and effective lot size needed by positive-lot fills. This card is not authorized by the roadmap.
-- **Deliverable / exit evidence:** all 48 planned cells have immutable start/finish/status, source/runtime/input pins, strict receipt read-back, independent ledger agreement, and terminal-flat/no-pending checks; summarize NONRL against CASH on the preregistered primary and guardrail metrics.
+- **Owner / lease:** one economic-run coordinator with separate preparation, execution, and read-only review responsibilities; the original roster is 4 configurations × 2 symbols × 3 scenarios × 2 roles.
+- **Entry:** W01, W04-W06, W08, W13-W19 (including W15 independent-ledger closure), plus only the W07/W09 checks that preserve the existing independent_symbol contract; exact current-source review, G0-G3 approval, current-main software closure, and final plan/data/cost pins all pass. shared_portfolio work and RL cards W10-W12 are not prerequisites. The selected versioned native source must include the signed lot count and effective lot size needed by positive-lot fills. W08 software parity is not an economic fixed-rule control. This card is not authorized by the roadmap.
+- **Deliverable / exit evidence:** all 48 planned cells have immutable start/finish/status, source/runtime/input pins, strict receipt read-back, independent ledger agreement, and terminal-flat/no-pending checks; report only the preregistered NONRL-versus-CASH metrics and guardrails. The immutable roster contains no fixed-rule arms and cannot establish fixed-rule superiority.
 - **Falsifier / decision:** any unattempted, incomplete, invalid, unbound, or inconsistent cell keeps the matrix incomplete. A failed run cannot be re-labeled as a profitable comparison.
-- **Cap:** the original 48 cells once, with original configs, horizons, symbols, roles, and BASEL0/COST2L0/BASEL2 profiles; no unregistered fit, extra repetition, data extension, or retry. Only exact Tier D technical retries may be proposed separately and may not overwrite the failed attempt.
+- **Cap:** the original 48 cells once, with original configs, horizons, symbols, roles, and BASEL0/COST2L0/BASEL2 profiles; no unregistered fit, extra repetition, data extension, fixed-rule arm, or retry. Only exact Tier D technical retries may be proposed separately and may not overwrite the failed attempt.
 
-**W21 — Decide the NONRL result under the frozen rule.**
+**W21 — Report the original scoped decision and separately gate broader adoption.**
 
-- **Owner / lease:** one P5 Study owner using the existing `trade_rl/evaluation/rl_allocation/continuation.py` and `continuous_walk_forward.py`; candidate-specific policy artifacts are admitted by their registered owner. Source changes are outside this card. A separate reviewer who did not implement or run the comparison reads the evidence.
-- **Entry:** W20 has complete G4 evidence; the exact preregistered analysis and chronological P5 fold/update recipe are frozen before outcome review. The finite fold count, model-fit budget, policy roster, capacity cases, and uncertainty/trial method must be stated; missing limits block the run and winner classification.
-- **Deliverable / exit evidence:** report terminal net wealth, drawdown, turnover, cost decomposition, capacity/capital sensitivity, stress failures, robustness, uncertainty, trial registry, and cash/fixed-rule comparisons. The P5 walk-forward/update evidence preserves continuous cash, positions, pending orders, peak-risk state, and execution state across chronological policy updates; freeze the retraining/deployment recipe before applying the registered decision rule. Produce WINNER, NO_WINNER, INVALID, or INCOMPLETE exactly as the controlled Study allows.
-- **Falsifier / decision:** any metric or scope requires a post-result choice, state resets or drifts across a handover, or cash/simple controls remain superior under the registered objective; return NO_WINNER or INVALID. Missing P5 evidence blocks WINNER classification.
-- **Cap:** one analysis of the frozen EvidenceSet and one preregistered P5 fold/update schedule within its declared fit and compute budget; no re-fit sweep, unregistered subgroup, or threshold adjustment.
+- **Owner / lease:** one W20 Study owner reports its original result with a result-blind reviewer. A separate owner may prepare a broader-adoption evidence packet using the existing trade_rl/evaluation/rl_allocation/continuation.py and continuous_walk_forward.py; candidate-specific policy artifacts remain with their registered owner. Source changes are outside this card.
+- **Entry:** for stage 1, W20 is complete and its original preregistration, analysis, roster, and decision rule are read back exactly as frozen before outcomes. Do not add a fixed-rule comparator, P5 recipe, or new criterion to the original Study after seeing results. Stage 2 requires a separate preregistration and finite G0-G3/evidence budget before any additional fit, replay, or control-study execution.
+- **Deliverable / exit evidence:** stage 1 reports only the W20 preregistered NONRL-versus-CASH decision and classifications the original Study permits; it makes no fixed-rule superiority or broader program-adoption claim. If that scope or its receipts cannot support a decision, report NOT ESTABLISHED, INVALID, or INCOMPLETE as appropriate. For stage 2 broader adoption, bind fixed-rule G4 control receipts to the exact source, runtime, inputs, and the same capital, window, costs, risk, and account mode, and provide P5 chronological updates that preserve continuous cash, positions, pending orders, peak-risk state, and execution state with a frozen update/deployment recipe. Missing either evidence set leaves broader adoption and fixed-rule superiority NOT ESTABLISHED.
+- **Falsifier / decision:** post-result criteria, a mismatch in capital/window/cost/risk/account mode, or state reset/drift blocks the broader-adoption decision; preserve any valid stage-1 result separately. The original 48-arm Study is never reranked or expanded to fill a missing broader-adoption control.
+- **Cap:** stage 1 is one analysis of the frozen original EvidenceSet. Stage 2 is not authorized here: any separate fixed-rule/P5 study needs its own preregistered scope, finite budget approval, and G0-G3 gates; no extra arms, retries, or data access are added to W20.
 
 **W22 — Test one mechanism-driven follow-up when results justify it.**
 
@@ -280,18 +283,18 @@ Before adding a component, the owner inspects the current implementation and nea
 - **Falsifier / decision:** no new causal mechanism, no finite budget, or reuse of a sealed/ambiguous scope; stop the line. A second factor requires a later separate decision.
 - **Cap:** at most three conditions and one attempt each in the first follow-up wave; no broad grid or change to capital, costs, risk, or execution.
 
-**W23 — Measure RL incremental value against the fixed controls.**
+**W23 — Measure RL incremental value against registered controls.**
 
-- **Owner / lease:** one RL research owner; distinct source lease for the RL protocol, training artifacts, and comparison contract under `trade_rl/evaluation/rl_allocation/` and `trade_rl/strategies/rl/`. Existing P5 continuation/fold/admission code and its tests are read-only dependencies; W10 owns no P5 files.
-- **Entry:** W10-W12 pass, G0-G3 specify an RL-specific question, W08 cash/simple controls are frozen, and an explicit compute/fit budget is approved. Freeze the chronological P5 fold/update recipe, fold count, policy roster, capacity cases, and uncertainty/trial method before outcome review. Positive NONRL P&L is not an entry condition.
+- **Owner / lease:** one RL research owner; distinct source lease for the RL protocol, training artifacts, and comparison contract under trade_rl/evaluation/rl_allocation/ and trade_rl/strategies/rl/. Existing P5 continuation/fold/admission code and its tests are read-only dependencies; W10 owns no P5 files.
+- **Entry:** W10-W12 pass, G0-G3 specify an RL-specific question, W08 software parity is frozen, and an explicit compute/fit budget is approved. Any fixed-rule economic control used for a broader adoption claim needs its own source/runtime/input-bound G4 receipts under the same capital, window, costs, risk, and account mode; interface parity alone is insufficient. Freeze the chronological P5 fold/update recipe, fold count, policy roster, capacity cases, and uncertainty/trial method before outcome review. Positive NONRL P&L is not an entry condition.
 - **Deliverable / exit evidence:** compare a preregistered RL formulation to its direct or zero-residual parity control and the same-capital NONRL/cash controls; residual and direct formulations both remain eligible through separate bounded comparisons. Include fixed seeds, objective, financial clock, after-cost terminal wealth, drawdown, stress, capacity sensitivity, uncertainty/trial accounting, and failed-fit accounting. P5 policy updates must preserve continuous cash, position, pending-order, peak-risk, and execution state across chronological folds; freeze the update/deployment recipe before any WINNER decision.
-- **Falsifier / decision:** no incremental net wealth, unstable result across the registered seeds, inability to learn delayed credit, state reset/drift across a P5 handover, or risk/terminal violation closes this candidate as NO_WINNER/INVALID. Missing P5 evidence blocks WINNER classification.
+- **Falsifier / decision:** no incremental net wealth, unstable result across the registered seeds, inability to learn delayed credit, state reset/drift across a P5 handover, or risk/terminal violation closes this candidate as NO_WINNER/INVALID. Missing P5 or required economic-control receipts blocks broader WINNER classification.
 - **Cap:** one formulation/recipe per comparison, at most three preregistered seeds, one training attempt per seed, no hyperparameter sweep. Direct and residual formulations require separate preregistrations/budgets. Increase a cap only through a fresh evidence-budget decision before outcomes are inspected.
 
 **W24 — Complete separate final evaluation, paper/shadow, and live-readiness gates.**
 
 - **Owner / lease:** separate final-test and paper-operations owners; `trade_rl/evaluation/final_test/` and `trade_rl/evaluation/paper/` each have distinct file leases and evidence roots.
-- **Entry:** a development WINNER is frozen only after its W21 or W23 P5 handover evidence passes, with accepted lineage and the update/deployment recipe pinned. Final data needs the preregistered unused window and one-shot authorization; paper/shadow needs its own venue-data, cost, operations, monitoring, and recovery contract.
+- **Entry:** before a program-level development WINNER is frozen, its registered W21/W23 decision must be joined with source/runtime/input-bound fixed-rule G4 receipts on the same capital, window, costs, risk, and account mode, plus passing P5 state-preserving handover evidence and a pinned update/deployment recipe. A W20 scoped NONRL/CASH decision alone is insufficient. Final data needs the preregistered unused window and one-shot authorization; paper/shadow needs its own venue-data, cost, operations, monitoring, and recovery contract.
 - **Deliverable / exit evidence:** final consumer uses only the authorized window once and applies the frozen recipe without tuning or replacing it from final outcomes. Paper/shadow records order-free decisions, venue cost/latency, capacity, monitoring, restart, reconciliation, and kill-switch evidence using the same declared state-handover contract. Report live eligibility as a separate decision.
 - **Falsifier / decision:** changed winner, data overlap, unverified venue assumptions, missing recovery evidence, or any unauthorized order stops the path and preserves the attempt.
 - **Cap:** one final evaluation authorization/consumption; paper/shadow has no live order and no real capital. Live order requires separate explicit human approval after all evidence is reviewed.
@@ -300,7 +303,7 @@ Before adding a component, the owner inspects the current implementation and nea
 
 Parallel implementation may continue while an economic gate is blocked if it stays within its card's source and data boundaries. No integration claim can bridge a missing card, and no card can grant another card's authority.
 
-The first economic decision point is the original 48-arm NONRL/CASH comparison. If its preregistered rule yields NO_WINNER, keep the result and decide whether W22 has a single falsifiable mechanism worth spending the next registered budget on. If no such mechanism exists, stop and preserve cash as the active control. If the result is invalid or incomplete, repair only the identified contract and retain the original attempt. Do not change capital, costs, risk, period, or controls to create a winner.
+The first economic decision point is the original 48-arm NONRL/CASH comparison under account_mode=independent_symbol. W20/W21 can decide only the original roster and preregistered rule; they cannot establish fixed-rule superiority or absorb new P5 criteria after outcomes. If that scoped rule yields NO_WINNER, preserve it and decide whether W22 has one falsifiable mechanism worth a new registered budget. If a scoped result is accepted but broader program adoption is considered, separately preregister matched fixed-rule G4 receipts and P5 state-preserving chronological updates before freezing a program WINNER. Missing receipts or P5 evidence leave broader adoption NOT ESTABLISHED; any control study requires its own finite budget and G0-G3 approval, with no added arms to W20. If the original result is invalid or incomplete, repair only the identified contract and retain the attempt. Do not change capital, costs, risk, period, or controls to create a winner.
 
 RL remains an optional incremental candidate. Its software and synthetic clock/learnability work can proceed alongside NONRL work. Real training consumes a separately preregistered finite budget and is judged against the same controls and financial objective. Neither forecast improvement nor algorithm complexity earns adoption without after-cost portfolio evidence.
 

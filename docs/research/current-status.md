@@ -3879,6 +3879,15 @@ The durable [development checkpoint](https://github.com/shuntatsu/trade_rl/relea
 and [current Issue #810 progress readback](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6357712193)
 are the portable source references.
 
+The original 48-role W20 matrix is NONRL/CASH only and uses the existing
+account_mode=independent_symbol semantics. shared_portfolio is a separate
+registered candidate. W21's decision is limited to the original preregistered
+scope; it does not establish fixed-rule superiority or broader program adoption.
+Those claims remain NOT ESTABLISHED until separately preregistered, matched
+fixed-rule G4 receipts and P5 state-preserving chronological update evidence are
+available. Any additional control study needs its own finite budget and
+G0-G3 approval; it cannot add arms to or retroactively change W20.
+
 A 48-role plan exists, but per-cell artifact bindings remain empty or
 unestablished and zero native arms are complete. Twelve configuration
 combinations do not establish twelve verified fitted artifacts. A fresh full

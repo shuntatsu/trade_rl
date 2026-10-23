@@ -63,6 +63,8 @@ interleaved（opt-in）
 
 PPOへ渡す主要constructor/policy設定もコードで明示します。learning rate、rollout長、batch/epoch、discount/GAE、clip、advantage normalization、entropy/value係数、gradient clip、gSDE/target-KLに加え、MlpPolicyのTanh、orthogonal init、FlattenExtractor、shared feature extractor、Adam epsを固定します。これはSB3 2.3.2で既に有効だった値を明文化するもので、performanceを見た調整ではありません。ただしSB3/PyTorch内部の学習実装そのものを複製しているわけではないため、依存versionは引き続きimplementation identityの一部です。
 
+CandidateSuiteでは、event-time window `timestamp < fit_cutoff` を維持し、選択fit symbolのDataset-declared `available_at` がPPOのinclusiveなtraining intervalとreward / terminal-settlement endpoint全体でcutoff以下かを、Ridge / LightGBM / PPOのどのfitよりも先に検証します。同時刻のavailabilityは許し、late rowを切り落として学習を続けずfail closedにします。これはdeclared cutoffを持つ `run_lean_candidate_suite` のpreflightです。generic `fit_ppo_strategy` へのcutoff追加や、runtime account-mark visibilityの保証ではありません。
+
 ## 学習stepの全体像
 
 ```text

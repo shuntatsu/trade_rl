@@ -35,11 +35,14 @@ metrics / comparison / robustness / immutable run artifact
 - `feature_available_time <= decision_time` を満たす。featureのinformation/availability timeはdecision timeを越えない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
+- CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
 - developmentやfinal futureをthreshold/model選択へ戻さない。
 - 15分barの行数を独立標本数と解釈しない。
 - 同calendar shockを共有する複数銘柄を完全独立標本と仮定しない。
 
 `fit_symbol_indices` はtraining rowの選択だけでなく、**選択featureが依存してよいsymbol universeの情報scope**でもある。content-verified Datasetで全symbolより狭いfit scopeを使う場合、cross-sectional rank / dispersionのように全universeへ依存するselected featureはrejectし、reference-relative / correlation / betaはそのreference symbolがfit scope内にある場合だけ許す。依存kindはfeature名のheuristicではなくDataset build identityのFeatureKindから復元する。source Dataset identityをネストして保持する正式transformでは元build configまで遡って同じ検査を行い、verified identityなのにdependency provenanceを復元できないstrict subsetはfail closedにする。full-symbol trainingは従来どおり許し、identity provenanceを持たないlegacy/synthetic Datasetの互換は維持するが、その経路だけをunseen-symbol isolationの強い証拠にはしない。
+
+このCandidateSuite preflightが検証するのはDatasetが宣言する `available_at` であり、過去のvenue arrivalやruntime account markの可視性を独立に証明しない。runtime price / account-mark visibilityは別の未完了契約として扱う。
 
 Dataset identityは内容にbindされ、canonical artifactはdeterministicでなければならない。publication先が既に存在する場合は上書きせずfailする。
 

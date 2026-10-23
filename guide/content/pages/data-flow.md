@@ -44,6 +44,8 @@ feature_available_time <= decision_time
 
 加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。
 
+PPOを含む候補群を学習する前に、学習対象の銘柄について、学習に使う価格の利用可能時刻が締切までとDatasetに記録されているかを確認します。報酬計算や最終決済で使う末尾の価格も対象です。遅れて届いた価格があれば、学習期間を短くして続けずに停止します。ここで確認するのはDatasetに記録された利用可能時刻であり、実際のvenue arrivalを独立に証明するものではありません。
+
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。
 
 ## 4. 同じ入力から同じDataset identityを作る

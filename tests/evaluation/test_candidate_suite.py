@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -135,6 +136,17 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         )
     )
 
+    available_at = np.broadcast_to(
+        dataset.timestamps[:, None], (dataset.n_bars, dataset.n_symbols)
+    ).copy()
+    available_at[53, 0] = config.fit_cutoff
+    available_at[10, 1] = config.fit_cutoff + np.timedelta64(1, "ns")
+    available_at[55, 0] = dataset.timestamps[55] + np.timedelta64(1, "h")
+    dataset = replace(
+        dataset,
+        available_at=available_at,
+        information_available=None,
+    )
     result = candidate_suite.run_lean_candidate_suite(
         dataset,
         config,
@@ -164,6 +176,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ppo_kwargs"]["stop_index"] == 53
     assert calls["ppo_kwargs"]["training_layout"] == "interleaved"
     assert calls["ppo_kwargs"]["rollout_steps_per_env"] == 512
     assert calls["ppo_kwargs"]["minimum_hold_bars"] == 168
@@ -189,6 +202,71 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         "risk": risk,
         "settle_terminal_position": True,
     }
+
+
+@pytest.mark.parametrize("late_index", (25, 53), ids=("interior", "endpoint"))
+def test_late_fit_symbol_price_fails_before_any_candidate_fit(
+    monkeypatch,
+    late_index: int,
+) -> None:
+    dataset = market()
+    cutoff = dataset.timestamps[53] + np.timedelta64(30, "m")
+    available_at = np.broadcast_to(
+        dataset.timestamps[:, None], (dataset.n_bars, dataset.n_symbols)
+    ).copy()
+    available_at[late_index, 0] = cutoff + np.timedelta64(1, "ns")
+    dataset = replace(
+        dataset,
+        available_at=available_at,
+        information_available=None,
+    )
+    config = candidate_suite.LeanCandidateConfig(
+        signal_index=0,
+        feature_indices=(0,),
+        fit_cutoff=cutoff,
+        rule_entry_threshold=0.10,
+        rule_exit_threshold=0.02,
+        forecast_entry_threshold=0.01,
+        forecast_exit_threshold=0.002,
+        ppo_total_timesteps=256,
+        fit_symbol_indices=(0,),
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_settle_terminal_position=True,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.1,
+            drawdown_start=0.1,
+            drawdown_stop=0.2,
+        )
+    )
+    fit_calls: list[str] = []
+
+    def fail_if_fitted(name: str):
+        def fail(*args, **kwargs):
+            fit_calls.append(name)
+            raise AssertionError(f"{name} fitting ran before availability validation")
+
+        return fail
+
+    monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fail_if_fitted("ridge"))
+    monkeypatch.setattr(
+        candidate_suite, "fit_lightgbm_forecast", fail_if_fitted("lightgbm")
+    )
+    monkeypatch.setattr(candidate_suite, "fit_ppo_strategy", fail_if_fitted("ppo"))
+
+    with pytest.raises(ValueError, match="PPO training.*availability.*fit_cutoff"):
+        candidate_suite.run_lean_candidate_suite(
+            dataset,
+            config,
+            start_index=54,
+            stop_index=59,
+            gross_budget=0.5,
+            risk=risk,
+        )
+
+    assert fit_calls == []
 
 
 def test_age_aware_suite_fails_closed_without_explicit_twenty_percent_risk() -> None:

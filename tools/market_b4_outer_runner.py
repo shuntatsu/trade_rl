@@ -749,6 +749,7 @@ def build_frozen_h_launch_plan(
                     "bytes": review_record_pin.byte_count,
                     "sha256": review_record_pin.sha256,
                 },
+                "dataset": authority["dataset"],
                 "native_source": {
                     "head_sha": static_inputs.source_pin.head_sha,
                     "snapshot_sha256": static_inputs.source_pin.snapshot_sha256,

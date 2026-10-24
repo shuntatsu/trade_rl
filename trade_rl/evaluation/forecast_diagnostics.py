@@ -299,4 +299,103 @@ def evaluate_simple_return_forecasts(
     )
 
 
-__all__ = ["SimpleReturnForecastDiagnostics", "evaluate_simple_return_forecasts"]
+def _zero_baseline_metrics(
+    records: list[dict[str, Any]],
+) -> dict[str, int | float | str | None]:
+    forecast = _metrics(records)
+    zero_records = [
+        {
+            "prediction": 0.0,
+            "realized": record["realized"],
+            "residual": -record["realized"],
+        }
+        for record in records
+    ]
+    baseline = _metrics(zero_records)
+    try:
+        forecast_sse = math.fsum(record["residual"] ** 2 for record in records)
+        zero_sse = math.fsum(record["realized"] ** 2 for record in records)
+        mae_improvement = baseline["mae"] - forecast["mae"]
+        skill = None if zero_sse == 0.0 else 1.0 - forecast_sse / zero_sse
+    except (OverflowError, ValueError) as error:
+        raise ValueError("forecast comparison arithmetic must be finite") from error
+    if not math.isfinite(mae_improvement) or (
+        skill is not None and not math.isfinite(skill)
+    ):
+        raise ValueError("forecast comparison arithmetic must be finite")
+    return {
+        "n": len(records),
+        "forecast_bias": forecast["bias"],
+        "forecast_mae": forecast["mae"],
+        "forecast_rmse": forecast["rmse"],
+        "zero_baseline_bias": baseline["bias"],
+        "zero_baseline_mae": baseline["mae"],
+        "zero_baseline_rmse": baseline["rmse"],
+        "paired_mae_improvement_vs_zero": mae_improvement,
+        "mse_skill_vs_zero": skill,
+        "mse_skill_state": (
+            "undefined_zero_baseline_sse" if skill is None else "defined"
+        ),
+    }
+
+
+def compare_simple_return_forecasts_to_zero(
+    dataset: MarketDataset,
+    stream: FrozenSimpleReturnStream,
+    *,
+    decision_indices: tuple[int, ...],
+    evaluation_as_of: np.datetime64,
+) -> SimpleReturnForecastDiagnostics:
+    """Compare admitted packet errors with a fixed zero-return reference.
+
+    The existing evaluator owns causal admission; this report reuses its exact
+    paired records and does not fit, predict, calibrate or estimate the baseline.
+    """
+    diagnostics = evaluate_simple_return_forecasts(
+        dataset,
+        stream,
+        decision_indices=decision_indices,
+        evaluation_as_of=evaluation_as_of,
+    )
+    admitted = diagnostics.payload()
+    records = admitted["records"]
+    grouped: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    for record in records:
+        key = (record["symbol"], record["vintage_digest"], record["horizon_seconds"])
+        grouped.setdefault(key, []).append(record)
+    payload = {
+        "schema": "simple_return_forecast_zero_baseline_comparison_v1",
+        "consistency_scope": admitted["consistency_scope"],
+        "calibration_state": admitted["calibration_state"],
+        "valuation_basis": admitted["valuation_basis"],
+        "dataset_id": admitted["dataset_id"],
+        "stream_digest": admitted["stream_digest"],
+        "forecast_diagnostics_digest": diagnostics.digest,
+        "source_projection_digest": admitted["source_projection_digest"],
+        "decision_indices": admitted["decision_indices"],
+        "evaluation_as_of": admitted["evaluation_as_of"],
+        "baseline": {
+            "baseline_id": "zero_simple_return_v1",
+            "expected_simple_return": 0.0,
+        },
+        "metrics": _zero_baseline_metrics(records),
+        "groups": [
+            {
+                "symbol": key[0],
+                "vintage_digest": key[1],
+                "horizon_seconds": key[2],
+                "metrics": _zero_baseline_metrics(group),
+            }
+            for key, group in sorted(grouped.items())
+        ],
+    }
+    return SimpleReturnForecastDiagnostics(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    )
+
+
+__all__ = [
+    "SimpleReturnForecastDiagnostics",
+    "compare_simple_return_forecasts_to_zero",
+    "evaluate_simple_return_forecasts",
+]

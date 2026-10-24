@@ -1398,6 +1398,12 @@ Packet-weighted bias, MAE and RMSE describe raw price forecasts, not portfolio
 wealth, costs or conditional risk. The immutable report binds selected observed
 sources, roster, cutoff and supplied stream identity. It neither fits nor predicts,
 authenticates historical fits/dataset provenance, nor promotes calibration state.
+The opt-in `compare_simple_return_forecasts_to_zero` reuses that evaluator's exact
+admitted records and adds paired zero-return MAE/RMSE, MAE improvement and MSE
+skill globally and by symbol/vintage/horizon. A zero baseline SSE produces an
+explicit undefined skill. Its versioned report binds the original diagnostic
+digest and baseline identity; neither report establishes forecast calibration,
+alpha or profitability.
 
 ## Scheduled raw-credit diagnostics
 

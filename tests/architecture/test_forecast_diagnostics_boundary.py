@@ -54,9 +54,12 @@ def test_forecast_diagnostics_public_surface_stays_in_its_own_module():
     module = importlib.import_module("trade_rl.evaluation.forecast_diagnostics")
     assert module.__all__ == [
         "SimpleReturnForecastDiagnostics",
+        "compare_simple_return_forecasts_to_zero",
         "evaluate_simple_return_forecasts",
     ]
     from trade_rl import evaluation, strategies
 
     assert not hasattr(evaluation, "evaluate_simple_return_forecasts")
+    assert not hasattr(evaluation, "compare_simple_return_forecasts_to_zero")
     assert not hasattr(strategies, "evaluate_simple_return_forecasts")
+    assert not hasattr(strategies, "compare_simple_return_forecasts_to_zero")

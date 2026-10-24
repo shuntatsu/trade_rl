@@ -156,6 +156,29 @@ def evaluate(dataset=None, stream=None, **kwargs):
     )
 
 
+def compare_to_zero(dataset=None, stream=None, **kwargs):
+    api = importlib.import_module("trade_rl.evaluation.forecast_diagnostics")
+    return api.compare_simple_return_forecasts_to_zero(
+        market() if dataset is None else dataset,
+        declared_stream() if stream is None else stream,
+        decision_indices=kwargs.get("decision_indices", (4, 5, 6)),
+        evaluation_as_of=kwargs.get("evaluation_as_of", time(7)),
+    )
+
+
+def _set_packet_predictions(
+    stream: FrozenSimpleReturnStream, predictions: tuple[float, ...]
+) -> None:
+    object.__setattr__(
+        stream,
+        "packets",
+        tuple(
+            replace(packet, expected_simple_return=prediction)
+            for packet, prediction in zip(stream.packets, predictions, strict=True)
+        ),
+    )
+
+
 def test_literal_residual_oracle_is_packet_weighted_and_does_not_predict(monkeypatch):
     stream = declared_stream()
     before = stream.payload()
@@ -491,3 +514,111 @@ def test_nonfinite_error_arithmetic_fails_closed(case):
         )
     with pytest.raises(ValueError, match="finite"):
         evaluate(dataset=dataset, stream=stream)
+
+
+def test_zero_baseline_comparison_is_paired_and_keeps_existing_report_bytes(
+    monkeypatch,
+):
+    stream = declared_stream()
+    _set_packet_predictions(stream, (0.1, -0.1, 0.0))
+    original = evaluate(stream=stream)
+    original_bytes = original._payload_json
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("diagnostics must not fit or predict")
+
+    monkeypatch.setattr(SimpleReturnRidgeModel, "predict_selected", forbidden)
+    monkeypatch.setattr(SimpleReturnRidgeModel, "predict", forbidden)
+    result = compare_to_zero(stream=stream)
+    payload = result.payload()
+    metrics = payload["metrics"]
+
+    assert payload["schema"] == "simple_return_forecast_zero_baseline_comparison_v1"
+    assert payload["baseline"] == {
+        "baseline_id": "zero_simple_return_v1",
+        "expected_simple_return": 0.0,
+    }
+    assert payload["forecast_diagnostics_digest"] == original.digest
+    assert payload["dataset_id"] == original.payload()["dataset_id"]
+    assert payload["stream_digest"] == original.payload()["stream_digest"]
+    assert payload["decision_indices"] == original.payload()["decision_indices"]
+    assert payload["evaluation_as_of"] == original.payload()["evaluation_as_of"]
+    assert metrics["n"] == 3
+    assert metrics["forecast_mae"] == pytest.approx(0.0, abs=1e-16)
+    assert metrics["forecast_rmse"] == pytest.approx(0.0, abs=1e-16)
+    assert metrics["zero_baseline_mae"] == pytest.approx(1 / 15)
+    assert metrics["zero_baseline_rmse"] == pytest.approx(math.sqrt(1 / 150))
+    assert metrics["paired_mae_improvement_vs_zero"] == pytest.approx(1 / 15)
+    assert metrics["mse_skill_vs_zero"] == pytest.approx(1.0)
+    assert metrics["mse_skill_state"] == "defined"
+    assert evaluate(stream=stream)._payload_json == original_bytes
+
+
+def test_zero_baseline_is_packet_weighted_and_handles_unequal_vintage_groups():
+    stream = declared_stream(prequential=True)
+    _set_packet_predictions(stream, (0.0, 0.0, 1.0))
+    payload = compare_to_zero(stream=stream).payload()
+    metrics = payload["metrics"]
+    groups = sorted(payload["groups"], key=lambda group: group["metrics"]["n"])
+    single_packet, two_packets = groups
+
+    assert metrics["zero_baseline_mae"] == pytest.approx(1 / 15)
+    assert metrics["zero_baseline_rmse"] == pytest.approx(math.sqrt(1 / 150))
+    assert metrics["forecast_mae"] == pytest.approx(0.4)
+    assert metrics["paired_mae_improvement_vs_zero"] == pytest.approx(-1 / 3)
+    assert metrics["mse_skill_vs_zero"] == pytest.approx(-50.0)
+    assert single_packet["metrics"]["n"] == 1
+    assert single_packet["metrics"]["mse_skill_vs_zero"] is None
+    assert single_packet["metrics"]["mse_skill_state"] == (
+        "undefined_zero_baseline_sse"
+    )
+    assert two_packets["metrics"]["n"] == 2
+    assert two_packets["metrics"]["zero_baseline_rmse"] == pytest.approx(0.1)
+    assert two_packets["metrics"]["mse_skill_vs_zero"] == 0.0
+    assert metrics["zero_baseline_rmse"] != pytest.approx(
+        sum(group["metrics"]["zero_baseline_rmse"] for group in groups) / 2
+    )
+
+
+def test_zero_baseline_skill_is_explicitly_undefined_for_zero_realized_returns():
+    dataset = market()
+    close = dataset.close.copy()
+    close[5:8, 0] = close[4, 0]
+    dataset = replace(dataset, close=close, open=close, high=close, low=close)
+
+    payload = compare_to_zero(dataset, declared_stream(dataset)).payload()
+
+    assert payload["metrics"]["zero_baseline_mae"] == 0.0
+    assert payload["metrics"]["zero_baseline_rmse"] == 0.0
+    assert payload["metrics"]["mse_skill_vs_zero"] is None
+    assert payload["metrics"]["mse_skill_state"] == "undefined_zero_baseline_sse"
+
+
+def test_zero_baseline_inherits_complete_packet_and_maturity_validation():
+    stream = declared_stream()
+    object.__setattr__(stream, "packets", stream.packets[1:])
+    with pytest.raises(ValueError, match="coverage"):
+        compare_to_zero(stream=stream)
+
+    with pytest.raises(ValueError, match="endpoint"):
+        compare_to_zero(evaluation_as_of=time(6))
+
+
+def test_zero_baseline_comparison_is_detached_and_rejects_skill_overflow():
+    result = compare_to_zero()
+    digest = result.digest
+    detached = result.payload()
+    detached["baseline"]["expected_simple_return"] = 0.5
+    detached["metrics"]["forecast_mae"] = 123.0
+    assert result.digest == digest
+    with pytest.raises(FrozenInstanceError):
+        result._payload_json = "{}"
+
+    dataset = market()
+    close = dataset.close.copy()
+    close[5, 0] = np.nextafter(close[4, 0], np.inf)
+    dataset = replace(dataset, close=close, open=close, high=close, low=close)
+    stream = declared_stream(dataset)
+    _set_packet_predictions(stream, (1e154, 0.0, 0.0))
+    with pytest.raises(ValueError, match="finite"):
+        compare_to_zero(dataset, stream, decision_indices=(4,))

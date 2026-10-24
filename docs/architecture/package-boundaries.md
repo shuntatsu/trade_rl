@@ -1469,14 +1469,18 @@ separate frozen-source clearance. None of these paths grants economic authority.
 
 ## Forecast diagnostic reader ownership
 
-`evaluation/forecast_diagnostics.py` exports only
-`SimpleReturnForecastDiagnostics` and `evaluate_simple_return_forecasts` from its
-own module. Tier-1 facades remain unchanged. It reads native Dataset and frozen
-simple-stream declarations and canonical content hashes, without importing RL,
-accounting, risk, execution or a forecast fitter. It never reconstructs a stream
-through its prediction-running constructor/reader. One immutable result returns
-detached payload copies with pooled and symbol/vintage/horizon error summaries;
-it is a supplied-source diagnostic, not a model or research authorization owner.
+`evaluation/forecast_diagnostics.py` exports
+`SimpleReturnForecastDiagnostics`, `evaluate_simple_return_forecasts` and the
+opt-in `compare_simple_return_forecasts_to_zero` from its own module. Tier-1
+facades remain unchanged. It reads native Dataset and frozen simple-stream
+declarations and canonical content hashes, without importing RL, accounting,
+risk, execution or a forecast fitter. It never reconstructs a stream through its
+prediction-running constructor/reader. The comparison calls the existing causal
+evaluator and derives packet-weighted forecast and fixed zero-return errors from
+its exact admitted records, globally and by symbol/vintage/horizon. It binds the
+original diagnostic digest and baseline identity in a separate versioned
+immutable report with detached payload copies; it is a supplied-source
+diagnostic, not a calibration, model or research authorization owner.
 
 ## Scheduled credit diagnostic ownership
 

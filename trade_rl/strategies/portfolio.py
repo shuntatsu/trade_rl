@@ -129,6 +129,9 @@ class PortfolioPendingOrderSnapshot:
     trigger_index: int | None
     expiry_index: int | None
     reduce_only: bool
+    limit_price: float | None = None
+    stop_price: float | None = None
+    submission_reference_price: float | None = None
 
     def __post_init__(self) -> None:
         if type(self.symbol_index) is not int or self.symbol_index < 0:
@@ -150,6 +153,33 @@ class PortfolioPendingOrderSnapshot:
             raise ValueError("order type, time in force and status must be non-empty")
         if type(self.reduce_only) is not bool:
             raise TypeError("reduce_only must be a boolean")
+        prices = (
+            ("limit_price", self.limit_price),
+            ("stop_price", self.stop_price),
+            ("submission_reference_price", self.submission_reference_price),
+        )
+        for name, value in prices:
+            if value is not None:
+                _require_finite_real(value, name=name)
+                if value <= 0.0:
+                    raise ValueError(f"{name} must be positive")
+        if all(value is None for _, value in prices):
+            return
+        if self.submission_reference_price is None:
+            raise ValueError(
+                "submission_reference_price is required for complete price context"
+            )
+        if self.order_type == "market":
+            if self.limit_price is not None or self.stop_price is not None:
+                raise ValueError("market orders may not define limit or stop prices")
+        elif self.order_type == "limit":
+            if self.limit_price is None or self.stop_price is not None:
+                raise ValueError("limit orders require only limit_price")
+        elif self.order_type == "stop_market":
+            if self.stop_price is None or self.limit_price is not None:
+                raise ValueError("stop-market orders require only stop_price")
+        else:
+            raise ValueError("price context requires a supported order type")
 
 
 @dataclass(frozen=True, slots=True)

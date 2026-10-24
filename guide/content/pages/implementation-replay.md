@@ -145,8 +145,11 @@ execution・accounting経路へ渡します。公開book viewはdetached clone�
 active-order tuple、risk config、decision windowからsnapshotを作り、evaluation replay
 はsource-owned builderへこれらの入力を渡します。strategyへexecutorやevaluation
 configを渡さず、snapshotにはcurrent-row feature・availability・staleness、accountと
-active-orderのprimitive factsだけをtupleとscalarでコピーします。future rowやopaque
-order IDはpolicy入力に含めません。
+active-orderのprimitive factsだけをtupleとscalarでコピーします。active orderの
+limit/stop/submission-reference priceもsource intentからコピーします。直接構築した
+legacy snapshotは3価格fieldをすべて`None`にできますが、価格情報としては不完全です。
+future rowやopaque order IDはpolicy入力に含めません。これは完全なMarkov状態を
+提供するものではなく、free/reserved cashも合成しません。
 
 policyは各symbolのtarget weightをすべて返します。明示的なexact-quantity HOLDも指定できますが、そのweightがhard-risk適用後も変わらない場合だけ既存数量を維持します。riskがtargetを縮小した場合は通常どおり実行され、latency-aware actor boundary後のterminal intervalはsessionのrisk-owned emergency flattenが処理します。observer/transition failure後はexecution stateが進んでいる可能性があるため、sessionを再試行できません。このsnapshotは観測したaccountとpending-order factsであり、free/reserved cashや完全なMarkov stateを合成しません。
 

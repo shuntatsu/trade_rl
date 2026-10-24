@@ -214,8 +214,13 @@ decision window; evaluation passes those source-owned inputs without giving the
 strategy an executor or evaluation config. The complete symbol-ordered numeric
 target vector is validated before a native transition can mutate execution
 state. The snapshot copies only the current `StrategyObservation` row,
-primitive account facts, active-order quantities/status/timing, and risk-limit
-scalars into tuples and immutable values; it does not include the
+primitive account facts, active-order quantities/status/timing and available
+order price context (`limit_price`, `stop_price`, and
+`submission_reference_price`), and risk-limit scalars into tuples and immutable
+values. Snapshots built through the current observation builder carry the
+source intent's price context; directly constructed legacy pending-order
+snapshots may leave all three price fields `None` and are explicitly incomplete
+for price-aware consumers. The snapshot does not include the
 `MarketDataset`, executor, risk or book objects, opaque order IDs, or future
 rows. Cash is reported as raw account
 cash, not as free or reserved cash, so this input is not a complete Markov account

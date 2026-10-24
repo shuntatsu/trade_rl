@@ -24,6 +24,11 @@ not read a ledger, connect a reward to PPO, change its legacy defaults, or
 produce training/replay evidence. The M34 screen classification and every
 existing economic criterion remain unchanged.
 
+The shared portfolio observation also carries source pending-order price
+facts for a later joint actor. This remains a partial observation: legacy
+snapshots may omit all price fields, and it does not add free/reserved cash,
+Gym state, joint PPO training, or profit evidence.
+
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)

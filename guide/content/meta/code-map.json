@@ -20,7 +20,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "1998fc14411530c654bb9f02be97a0f4d1f8f6a2b0739bdef74d5c9794caabff"
+      "sha256": "97449714e06f7fb1fcb91b2002f3626307cdf115d218a41df639246951ced5ee"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -103,7 +103,7 @@
       "kind": "method",
       "source_sha256": "392b81af511847f456aa6887d6550940e9df4074fa1112649635da055ebe00f3",
       "label_ja": "filled exposureを使うforecast intent utility",
-      "description_ja": "現在のsigned filled quantity・weight・forecastと任意のmatching cached targetからlogical PositionIntentを返します。simple switch-cost proxyを使う直接APIで、canonical replayや既存forecast adapterには未接続です。",
+      "description_ja": "現在のsigned filled quantity・weight・forecastと任意のmatching cached targetからlogical PositionIntentを返します。simple switch-cost proxyを使う直接APIに加え、budget付きobservationを受けたcost-aware Ridge / LightGBM adapterから利用されます。",
       "variables": [],
       "tests": [
         "tests/strategies/test_forecast_controller.py"
@@ -120,6 +120,19 @@
       "tests": [
         "tests/strategies/test_ridge_artifact.py",
         "tests/architecture/test_ridge_artifact_contract.py"
+      ]
+    },
+    {
+      "id": "ridge-artifact-shared-cash-comparison",
+      "symbol": "trade_rl.evaluation.runs.ridge_artifact_comparison.compare_ridge_artifact_shared_cash",
+      "kind": "function",
+      "source_sha256": "7fd6073002045f704e0b2c7cbd256ac41e2f1eb4c109ac74fc7a00f8dcc1828f",
+      "label_ja": "frozen Ridgeを使う4-arm共通資金比較",
+      "description_ja": "paired loaderが一回の検証で返すDatasetとcaller-bound Ridge artifactを使い、cash・legacy hysteresis・position-aware zero-cost・position-aware costを同じ既存shared-cash replay条件で比較します。返り値は使用した正確なconfigを保持し、fit、winner選択、result publicationは行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_ridge_artifact_comparison.py",
+        "tests/architecture/test_ridge_artifact_comparison_contract.py"
       ]
     },
     {

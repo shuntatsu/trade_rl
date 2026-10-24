@@ -246,19 +246,28 @@ def test_two_symbol_partial_fill_fees_reconcile_under_symbol_axis_reversal(
         event.processing_index for event in fills_by_symbol["BBB"]
     )
 
-    # $400 is bought and $400 sold; a 1% fee on $800 of raw fills is $8.
+    # Signed TRADE-notional cash flow is zero before fees; fees move cash by -$8.
+    # The fills buy and sell $400 each, so the 1% fee on $800 is $8.
     expected_cash = initial_cash - Fraction(8)
     assert signed_cash_flow == 0
     assert filled_notional == 800
     assert fee_total == 8
     assert expected_cash == 992
-    assert result.book.cash == pytest.approx(float(expected_cash))
-    assert result.book.portfolio_value == pytest.approx(float(expected_cash))
-    assert ledger.final_cash == pytest.approx(float(expected_cash))
-    assert ledger.final_portfolio_value == pytest.approx(float(expected_cash))
-    assert result.diagnostics.total_cost == pytest.approx(float(fee_total))
-    assert result.book.total_cost == pytest.approx(float(fee_total))
-    assert ledger.final_total_cost == pytest.approx(float(fee_total))
+    assert result.book.cash == pytest.approx(float(expected_cash), abs=1e-10, rel=0.0)
+    assert result.book.portfolio_value == pytest.approx(
+        float(expected_cash), abs=1e-10, rel=0.0
+    )
+    assert ledger.final_cash == pytest.approx(float(expected_cash), abs=1e-10, rel=0.0)
+    assert ledger.final_portfolio_value == pytest.approx(
+        float(expected_cash), abs=1e-10, rel=0.0
+    )
+    assert result.diagnostics.total_cost == pytest.approx(
+        float(fee_total), abs=1e-10, rel=0.0
+    )
+    assert result.book.total_cost == pytest.approx(float(fee_total), abs=1e-10, rel=0.0)
+    assert ledger.final_total_cost == pytest.approx(
+        float(fee_total), abs=1e-10, rel=0.0
+    )
     assert ledger.terminal_exact_quantities == ("0", "0")
     assert result.book.quantities == pytest.approx((0.0, 0.0))
     assert ledger.active_order_remainders == ()

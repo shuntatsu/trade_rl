@@ -126,6 +126,57 @@ def test_supervised_module_preserves_dataset_scope_exports() -> None:
     )
 
 
+def test_supervised_cutoff_validation_has_one_forecast_owner() -> None:
+    supervised_path = STRATEGIES / "forecasts" / "supervised.py"
+    tree = ast.parse(supervised_path.read_text(encoding="utf-8"))
+    definitions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    validator = next(
+        node for node in definitions if node.name == "_validated_fit_cutoff_ns"
+    )
+    assert validator is not None
+
+    training_set = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "CausalForecastTrainingSet"
+    )
+    builder = next(
+        node
+        for node in definitions
+        if node.name == "build_causal_forecast_training_set"
+    )
+    for owner in (training_set, builder):
+        calls_validator = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_validated_fit_cutoff_ns"
+            for node in ast.walk(owner)
+        )
+        assert calls_validator
+
+    for relative, fit_name in (
+        ("forecasts/ridge.py", "fit_ridge_forecast"),
+        ("forecasts/lightgbm.py", "fit_lightgbm_forecast"),
+    ):
+        fit_tree = ast.parse((STRATEGIES / relative).read_text(encoding="utf-8"))
+        fit_function = next(
+            node
+            for node in fit_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == fit_name
+        )
+        calls_shared_builder = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "build_causal_forecast_training_set"
+            for node in ast.walk(fit_function)
+        )
+        assert calls_shared_builder
+
+
 def test_strategy_families_do_not_depend_on_evaluation() -> None:
     for family in ("rules", "forecasts", "rl"):
         root = STRATEGIES / family

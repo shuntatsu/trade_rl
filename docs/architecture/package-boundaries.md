@@ -480,6 +480,7 @@ star importはliteral `__all__`、または明示的なpublic import re-export�
 - `trade_rl/**` から `tools/agent_repo` への依存は禁止する。
 - `tools/agent_repo` はproduction wheelへ入れない。`setuptools.packages.find.include = ["trade_rl*"]` を維持する。
 - source-derived index/reportはmemory/stdoutだけに保持し、generated catalog/reportをcurrent treeへcommitしない。
+- `source-packet` はfull commit SHAのGit objectだけを入力とし、changed HEAD fileは`git cat-file blob`のraw bytesから deterministic TARへ格納する。patchとpath inventoryはsource object databaseをalternate参照するtemporary bare repositoryで描画し、Git versionをmanifestへ記録する。inherited Git environmentとglobal/system configを除き、`GIT_NO_LAZY_FETCH=1`でmissing objectをfail closedにする。両diff queryは`--ignore-submodules=none`を明示し、色・algorithm・indent heuristic・context・path quotingを固定する。attributesはempty treeとrenderer-owned empty `info/attributes` / `core.attributesFile`を使いsystem attributesを無効にする。patch byte identityはmanifest記載のGit versionとこのpolicyの範囲で扱い、異なるGit version間のbyte identityは主張しない。patchはraw Git transportでありcheckout-normalized形式ではない。symlink・gitlink・unsafe path（`.git` componentおよびWindowsの`git~1` aliasを含む）、case-insensitive file/directory prefix collision among emitted HEAD files、mutable ref、既存output、registered worktree内outputは拒否する。削除済みbase pathは出力TARに含まれないためprefix判定に含めない。生成packetはsource transport onlyであり、review・test・economic evidenceのauthorityを持たない。
 - toolingのstatic analysisはruntime reachabilityの完全証明ではなく、source reviewとfinal full CIを置き換えない。
 - local `verify` は開発中の検査選択を支援するが、完了判定ではpermanent CIのfull gateへ収束する。
 

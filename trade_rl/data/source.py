@@ -178,10 +178,12 @@ class InMemoryMarketDataSource:
             raise KeyError(f"market source has no symbol {symbol}") from exc
 
 
-_ISO_SECONDS_FRACTION = re.compile(
-    r"[Tt ](?:\d{2}:\d{2}:\d{2}|\d{6})[.,](?P<fraction>\d+)"
-    r"(?=(?:Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?)?$)"
+_CLOCK_FRACTION = re.compile(
+    r"\d{2}(?:(?::\d{2}(?::\d{2})?)|(?:\d{2}(?:\d{2})?))?"
+    r"[.,](?P<fraction>\d+)\Z"
 )
+_ISO_OFFSET_SUFFIX = re.compile(r"[+-]\d{2}(?::?\d{2})?(?::?\d{2})?(?:[.,]\d+)?\Z")
+_OFFSET_FRACTION = re.compile(r"[.,](?P<fraction>\d+)\Z")
 
 
 def _datetime64_from_ns(timestamp_ns: int) -> np.datetime64:
@@ -199,27 +201,63 @@ def _parse_timestamp(value: str) -> np.datetime64:
     try:
         numeric = int(raw)
     except ValueError:
-        fraction_match = _ISO_SECONDS_FRACTION.search(raw)
-        if ("." in raw or "," in raw) and fraction_match is None:
-            raise ValueError(
-                "timestamp fractional precision is not losslessly representable"
-            )
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+        timestamp_text = raw[:-1] if raw.endswith("Z") else raw
+        if parsed.tzinfo is not None and not raw.endswith("Z"):
+            offset_match = _ISO_OFFSET_SUFFIX.search(timestamp_text)
+            if offset_match is None:
+                raise ValueError("timestamp timezone offset is not lossless")
+            offset_text = offset_match.group()
+            offset_fraction_match = _OFFSET_FRACTION.search(offset_text)
+            if offset_fraction_match is not None:
+                offset_fraction = offset_fraction_match.group("fraction")
+                if any(digit != "0" for digit in offset_fraction[6:]):
+                    raise ValueError(
+                        "timestamp fractional precision is not losslessly representable"
+                    )
+                expected_offset_microseconds = int(offset_fraction[:6].ljust(6, "0"))
+                offset = parsed.utcoffset()
+                if (
+                    offset is None
+                    or abs(offset).microseconds != expected_offset_microseconds
+                ):
+                    raise ValueError(
+                        "timestamp timezone offset fraction is not lossless"
+                    )
+            timestamp_text = timestamp_text[: offset_match.start()]
+
         fractional_ns = 0
-        if fraction_match is not None:
-            fraction = fraction_match.group("fraction")
-            if any(digit != "0" for digit in fraction[9:]):
+        for time_start in (9, 11):
+            if len(timestamp_text) <= time_start:
+                continue
+            fraction_match = _CLOCK_FRACTION.fullmatch(timestamp_text[time_start:])
+            if fraction_match is not None:
+                fraction = fraction_match.group("fraction")
+                if any(digit != "0" for digit in fraction[9:]):
+                    raise ValueError(
+                        "timestamp fractional precision is not losslessly representable"
+                    )
+                expected_microseconds = int(fraction[:6].ljust(6, "0"))
+                if parsed.microsecond != expected_microseconds:
+                    raise ValueError("timestamp fractional seconds are not lossless")
+                fractional_ns = int(fraction[:9].ljust(9, "0"))
+                break
+        else:
+            if any(
+                separator in timestamp_text[time_start:]
+                for time_start in (9, 11)
+                if len(timestamp_text) > time_start
+                for separator in (".", ",")
+            ):
                 raise ValueError(
                     "timestamp fractional precision is not losslessly representable"
                 )
-            expected_microseconds = int(fraction[:6].ljust(6, "0"))
-            if parsed.microsecond != expected_microseconds:
+            if parsed.microsecond != 0:
                 raise ValueError("timestamp fractional seconds are not lossless")
-            fractional_ns = int(fraction[:9].ljust(9, "0"))
-            parsed = parsed.replace(microsecond=0)
-        parsed = parsed.astimezone(timezone.utc)
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(microsecond=0).astimezone(timezone.utc)
         delta = parsed - datetime(1970, 1, 1, tzinfo=timezone.utc)
         timestamp_ns = (
             (delta.days * 86_400 + delta.seconds) * 1_000_000_000

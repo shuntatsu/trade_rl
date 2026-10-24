@@ -825,6 +825,8 @@ def run_shared_cash_replay(
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+    start_index = int(start_index)
+    stop_index = int(stop_index)
     if not math.isfinite(initial_capital) or initial_capital <= 0.0:
         raise ValueError("initial_capital must be finite and positive")
     if not isinstance(settle_terminal_position, bool):
@@ -1341,6 +1343,8 @@ def run_scripted_shared_cash_replay(
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+    start_index = int(start_index)
+    stop_index = int(stop_index)
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("settle_terminal_position must be boolean")
     if execution_cost is not None and not isinstance(

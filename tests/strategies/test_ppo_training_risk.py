@@ -1,4 +1,5 @@
 from dataclasses import replace
+from enum import IntEnum
 from typing import Any
 
 import numpy as np
@@ -131,6 +132,36 @@ def test_native_transition_is_shared_only_by_configured_risk_path(
     assert native_calls == [(0, (0.5,))]
     assert default.book.weights[0] == pytest.approx(0.5)
     assert explicit.book.weights[0] == pytest.approx(0.25)
+
+
+def test_configured_ppo_normalizes_integer_subclass_start_index() -> None:
+    class StartIndex(IntEnum):
+        FIRST = 0
+        STOP = 3
+
+    env = PPOTradingEnv(
+        _market(np.full((4, 1), 100.0)),
+        feature_indices=(0,),
+        start_index=StartIndex.FIRST,
+        stop_index=StartIndex.STOP,
+        gross_budget=0.5,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=None,
+        ),
+    )
+
+    assert type(env.start_index) is int
+    assert type(env.stop_index) is int
+    env.reset(seed=0)
+    _, reward, terminated, truncated, _ = env.step(2)
+
+    assert np.isfinite(reward)
+    assert terminated is False
+    assert truncated is False
+    assert env.index == 1
 
 
 @pytest.mark.parametrize("layout", ["sequential", "interleaved"])

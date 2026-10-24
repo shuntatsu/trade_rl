@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from enum import IntEnum
 from fractions import Fraction
 from typing import cast
 
@@ -188,6 +189,41 @@ def _risk(*, max_gross: float, max_turnover: float | None) -> PreTradeRisk:
 
 def test_shared_cash_replay_api_exists() -> None:
     assert callable(replay_module.run_shared_cash_replay)
+
+
+class _ReplayIndex(IntEnum):
+    FIRST = 0
+    STOP = 3
+
+
+@pytest.mark.parametrize("scripted", [False, True])
+def test_shared_replay_preserves_integer_subclass_start_indices(
+    scripted: bool,
+) -> None:
+    dataset = _market(np.full((4, 1), 100.0))
+    if scripted:
+        result = replay_module.run_scripted_shared_cash_replay(
+            dataset,
+            actions_by_symbol={"SYM0": (PositionIntent.FLAT,) * 3},
+            start_index=_ReplayIndex.FIRST,
+            stop_index=_ReplayIndex.STOP,
+            gross_budget=0.5,
+            capture_ledger_evidence=True,
+        )
+    else:
+        result = replay_module.run_shared_cash_replay(
+            dataset,
+            (FixedIntent(PositionIntent.FLAT),),
+            start_index=_ReplayIndex.FIRST,
+            stop_index=_ReplayIndex.STOP,
+            gross_budget=0.5,
+            capture_ledger_evidence=True,
+        )
+
+    assert len(result.decisions) == 3
+    assert result.ledger_evidence is not None
+    assert type(result.ledger_evidence.start_index) is int
+    assert type(result.ledger_evidence.stop_index) is int
 
 
 def test_scripted_hold_preserves_exact_lot_quantity_across_repeated_bars() -> None:

@@ -234,7 +234,7 @@
       "id": "env-execution-observer",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.__init__",
       "kind": "method",
-      "source_sha256": "dd1fae94bf7ef8f007393b38b84c4fbf576dff5d3d4cbb7af952f23b110bc231",
+      "source_sha256": "02dab6a016f7018b54939395f45ff7c392fe7dcc1b33f27196441335171f1f26",
       "label_ja": "PPO環境へ任意のexecution observerを渡す",
       "description_ja": "指定したobserverだけをMarketExecutorへ渡します。省略時はNoneで、通常のfitへ診断traceを接続しません。",
       "variables": [

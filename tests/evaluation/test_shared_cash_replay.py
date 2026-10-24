@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
+from typing import cast
 
 import numpy as np
 import pytest
@@ -412,6 +413,48 @@ def test_scripted_replay_rejects_invalid_future_action_before_execution(
             stop_index=3,
             gross_budget=0.5,
             execution_cost=ExecutionCostConfig.zero(),
+        )
+
+    assert execution_starts == []
+
+
+@pytest.mark.parametrize("invalid_cost", [False, 0])
+def test_scripted_replay_rejects_falsey_nonconfig_cost_before_execution(
+    invalid_cost: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution_starts: list[int] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_execution_start(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        execution_starts.append(start_index)
+        return original_execute_interval(
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+        )
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", record_execution_start)
+    with pytest.raises(
+        TypeError,
+        match="execution_cost must be an ExecutionCostConfig or None",
+    ):
+        replay_module.run_scripted_shared_cash_replay(
+            _market(np.full((5, 1), 100.0)),
+            actions_by_symbol={"SYM0": (PositionIntent.LONG, None, None)},
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            execution_cost=cast(ExecutionCostConfig, invalid_cost),
         )
 
     assert execution_starts == []

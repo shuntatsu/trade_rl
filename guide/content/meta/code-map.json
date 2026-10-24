@@ -190,7 +190,7 @@
       "id": "scripted-shared-cash-replay",
       "symbol": "trade_rl.evaluation.replay.run_scripted_shared_cash_replay",
       "kind": "function",
-      "source_sha256": "487bf8a13cffd8b7802777458c208e0dba81a223a6985e005b7a4c23bd295a48",
+      "source_sha256": "5475b8c4c23e95ebb680eb6f0bc77fbf3111f489108fe5a6bf15375327af8c65",
       "label_ja": "固定action sequenceによる共通資金replay",
       "description_ja": "事前検証したsymbolごとのaction sequenceを既存のshared risk・MarketExecutor・ledgerへ通します。Noneはpending targetを進め、HOLD_QUANTITYはriskがweightを変えない場合だけ実BookStateのexact quantityを保ってremainderをcancelします。strategy interfaceやledger schemaは変えません。",
       "variables": [

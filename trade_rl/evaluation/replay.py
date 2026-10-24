@@ -1351,9 +1351,13 @@ def run_scripted_shared_cash_replay(
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("settle_terminal_position must be boolean")
-    resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
-    if not isinstance(resolved_execution_cost, ExecutionCostConfig):
-        raise TypeError("execution_cost must be an ExecutionCostConfig")
+    if execution_cost is not None and not isinstance(
+        execution_cost, ExecutionCostConfig
+    ):
+        raise TypeError("execution_cost must be an ExecutionCostConfig or None")
+    resolved_execution_cost = (
+        ExecutionCostConfig.zero() if execution_cost is None else execution_cost
+    )
     agent_stop_index = _agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,

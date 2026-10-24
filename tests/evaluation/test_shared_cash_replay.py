@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -931,3 +932,181 @@ def test_portfolio_termination_stops_all_symbols() -> None:
     assert result.book.termination_reason is not None
     assert len(result.returns.values) < 5
     assert len(result.decisions) == len(result.returns.values)
+
+
+def test_shared_cash_partial_reversal_locks_actual_short_fill_and_cancels_remainder() -> (
+    None
+):
+    dataset = _market(
+        np.full((7, 1), 100.0),
+        volume=np.asarray(
+            [
+                [1_000_000.0],
+                [1_000_000.0],
+                [1_000_000.0],
+                [1_000_000.0],
+                [6.0],
+                [1_000_000.0],
+                [1_000_000.0],
+            ]
+        ),
+    )
+    strategy = SequenceIntent(
+        (
+            PositionIntent.LONG,
+            PositionIntent.LONG,
+            PositionIntent.LONG,
+            PositionIntent.SHORT,
+            PositionIntent.FLAT,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=6,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=3,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+
+    reversal = result.decisions[3]
+    reversed_quantity = reversal.position_quantity_after[0]
+    assert -5.0 < reversed_quantity < 0.0
+    assert reversal.position_age_bars_after == (1,)
+    assert any(
+        event.event_type == "partial_fill" and event.remaining_quantity != 0.0
+        for event in ledger.intervals[3].order_events
+    )
+
+    locked = result.decisions[4]
+    assert locked.position_quantity_before == pytest.approx((reversed_quantity,))
+    assert locked.intents == (PositionIntent.FLAT,)
+    assert locked.effective_intents == (PositionIntent.SHORT,)
+    assert locked.minimum_hold_suppressed == (True,)
+    assert locked.position_quantity_after == pytest.approx((reversed_quantity,))
+    assert any(
+        event.event_type == "cancelled"
+        and event.reason == "superseded"
+        and event.symbol_index == 0
+        for event in ledger.intervals[4].order_events
+    )
+    assert ledger.terminal_exact_quantities == ("0",)
+    assert ledger.active_order_remainders == ()
+
+
+def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() -> None:
+    dataset = _market(
+        np.full((6, 2), 100.0),
+        volume=np.asarray(
+            [
+                [1_000_000.0, 1_000_000.0],
+                [2.0, 1_000_000.0],
+                [1_000_000.0, 1_000_000.0],
+                [1_000_000.0, 1_000_000.0],
+                [1_000_000.0, 1_000_000.0],
+                [1_000_000.0, 1_000_000.0],
+            ]
+        ),
+    )
+    strategies = (
+        SequenceIntent(
+            (
+                PositionIntent.LONG,
+                PositionIntent.FLAT,
+                PositionIntent.FLAT,
+                PositionIntent.FLAT,
+            )
+        ),
+        SequenceIntent(
+            (
+                PositionIntent.FLAT,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+            )
+        ),
+    )
+
+    risk = _risk(max_gross=0.5, max_turnover=None)
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        strategies,
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        minimum_hold_bars=3,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+
+    partial_quantity = result.decisions[0].position_quantity_after[0]
+    assert 0.0 < partial_quantity < 5.0
+    locked = result.decisions[1]
+    assert locked.minimum_hold_suppressed == (True, False)
+    assert locked.position_quantity_before[0] == pytest.approx(partial_quantity)
+    assert "max_gross" in locked.risk_reasons
+    assert locked.target_weights == pytest.approx((1.0 / 7.0, 2.5 / 7.0))
+    assert sum(abs(weight) for weight in locked.target_weights) <= 0.5
+    locked_interval = ledger.intervals[1]
+    assert locked_interval.start_index == locked.index
+    assert locked_interval.next_index == locked.index + 1
+    actual_quantities = np.asarray(
+        [float(Fraction(value)) for value in locked_interval.exact_quantities_after],
+        dtype=np.float64,
+    )
+    np.testing.assert_allclose(
+        actual_quantities,
+        np.asarray(locked.position_quantity_after, dtype=np.float64),
+    )
+    mark_prices = dataset.close[locked_interval.next_index]
+    contract_multipliers = result.book.contract_multipliers
+    assert locked_interval.portfolio_value_after > 0.0
+    actual_gross_value = sum(
+        (
+            abs(Fraction(quantity))
+            * Fraction(str(mark_price))
+            * Fraction(str(contract_multiplier))
+            for quantity, mark_price, contract_multiplier in zip(
+                locked_interval.exact_quantities_after,
+                mark_prices,
+                contract_multipliers,
+                strict=True,
+            )
+        ),
+        Fraction(0),
+    )
+    actual_gross_fraction = actual_gross_value / Fraction(
+        str(locked_interval.portfolio_value_after)
+    )
+    # Match the existing risk contract's configured numerical tolerance.
+    risk_gross_limit = Fraction(str(risk.config.max_gross)) + Fraction(
+        str(risk.config.fail_closed_tolerance)
+    )
+    assert actual_gross_fraction <= risk_gross_limit, (
+        f"actual post-fill gross exposure {actual_gross_fraction} exceeds "
+        f"configured gross limit {risk_gross_limit}"
+    )
+    assert locked.position_quantity_after[0] < locked.position_quantity_before[0]
+    assert locked.position_quantity_after[1] > 0.0
+    assert any(
+        event.event_type == "cancelled"
+        and event.reason == "superseded"
+        and event.symbol_index == 0
+        for event in ledger.intervals[1].order_events
+    )
+    assert ledger.terminal_exact_quantities == ("0", "0")
+    assert ledger.active_order_remainders == ()

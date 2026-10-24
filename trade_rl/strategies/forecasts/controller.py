@@ -17,6 +17,10 @@ class ForecastIntentConfig:
     exit_threshold: float
 
     def __post_init__(self) -> None:
+        if isinstance(self.entry_threshold, bool):
+            raise ValueError("entry_threshold must not be a boolean")
+        if isinstance(self.exit_threshold, bool):
+            raise ValueError("exit_threshold must not be a boolean")
         if not math.isfinite(self.entry_threshold) or self.entry_threshold <= 0.0:
             raise ValueError("entry_threshold must be finite and positive")
         if not math.isfinite(self.exit_threshold) or self.exit_threshold < 0.0:

@@ -62,6 +62,8 @@ Replayは開始行と、約定またはterminal settlementが処理する各targ
 
 ここではまだfillも手数料も発生していません。**戦略の責務は経済判断であって、約定や会計ではありません。**
 
+Cost-aware設定のRidge / LightGBM adapterは、replayがper-symbol `intent_gross_budget`を渡すと、filled quantity/weightとoptionalなcached targetを使う`decide_for_position`を呼びます。same-intent holdはcached desired quantityを維持し、partial fillやpending residualもactual weightから評価します。utilityは`PositionIntent`だけを返し、fillや帳簿feeは作りません。通常のminimum-hold、hard-risk、execution、会計は共通の後段で処理されます。
+
 PPOに最低保有期間を設定した場合、まだ期間内の実保有数量を維持するよう、FLAT・反対方向などの自発的なintent変更を抑えます。未約定の目標残量も取り消し、partial fillを実保有状態へ反映します。これは約定やriskを飛ばす仕組みではありません。
 
 ## 3. 希望数量とproposalへ変換する

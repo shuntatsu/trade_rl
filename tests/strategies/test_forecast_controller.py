@@ -74,6 +74,146 @@ def test_cost_aware_controller_vetoes_unprofitable_exit() -> None:
     )
 
 
+def test_strategy_observation_validates_optional_intent_gross_budget() -> None:
+    def build_observation(
+        intent_gross_budget: float | None,
+        same_intent_target_weight: float | None = None,
+    ) -> StrategyObservation:
+        return StrategyObservation(
+            index=0,
+            timestamp=np.datetime64("2026-01-01T00:00:00", "ns"),
+            symbol="SYNTH",
+            features=np.asarray([0.0]),
+            feature_available=np.asarray([True]),
+            global_features=np.asarray([0.0]),
+            global_feature_available=np.asarray([True]),
+            current_intent=PositionIntent.FLAT,
+            current_weight=0.0,
+            intent_gross_budget=intent_gross_budget,
+            same_intent_target_weight=same_intent_target_weight,
+        )
+
+    assert build_observation(None).intent_gross_budget is None
+    assert build_observation(0.5).intent_gross_budget == 0.5
+    with pytest.raises(ValueError, match="intent_gross_budget"):
+        build_observation(0.0)
+    assert build_observation(0.5, 0.45).same_intent_target_weight == 0.45
+    with pytest.raises(ValueError, match="intent_gross_budget"):
+        build_observation(None, 0.45)
+    for invalid in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError, match="same_intent_target_weight"):
+            build_observation(0.5, invalid)
+
+
+def test_cost_aware_controller_compares_log_forecast_as_simple_return() -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.005, exit_threshold=0.001),
+        one_way_switch_cost=0.01,
+    )
+
+    assert (
+        model.decide(math.log1p(0.01), current=PositionIntent.FLAT)
+        is PositionIntent.FLAT
+    )
+    assert (
+        model.decide(math.log1p(0.010000000000005), current=PositionIntent.FLAT)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.01), current=PositionIntent.LONG)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.0101), current=PositionIntent.LONG)
+        is PositionIntent.SHORT
+    )
+
+
+def test_cost_aware_controller_prices_entry_and_reversal_by_intent_distance() -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=0.11,
+    )
+
+    assert (
+        model.decide(math.log1p(0.20), current=PositionIntent.FLAT)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.20), current=PositionIntent.FLAT)
+        is PositionIntent.SHORT
+    )
+    assert (
+        model.decide(math.log1p(-0.20), current=PositionIntent.LONG)
+        is PositionIntent.SHORT
+    )
+    assert (
+        model.decide(math.log1p(0.20), current=PositionIntent.SHORT)
+        is PositionIntent.LONG
+    )
+
+    exact_cost = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=0.20,
+    )
+    assert (
+        exact_cost.decide(math.log1p(0.20), current=PositionIntent.FLAT)
+        is PositionIntent.FLAT
+    )
+    assert (
+        exact_cost.decide(math.log1p(-0.20), current=PositionIntent.LONG)
+        is PositionIntent.LONG
+    )
+
+
+def test_cost_aware_controller_nonfinite_forecast_still_fails_closed() -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=1.0,
+    )
+    for value in (math.nan, math.inf, -math.inf):
+        assert model.decide(value, current=PositionIntent.LONG) is PositionIntent.FLAT
+
+
+@pytest.mark.parametrize("switch_cost", (-0.01, math.inf, math.nan, True))
+def test_cost_aware_controller_rejects_invalid_switch_cost(switch_cost: float) -> None:
+    with pytest.raises(ValueError, match="switch cost"):
+        CostAwareForecastIntentController(
+            ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+            one_way_switch_cost=switch_cost,
+        )
+
+
+@pytest.mark.parametrize(
+    ("entry", "exit_threshold"),
+    ((0.0, 0.0), (0.1, -0.01), (0.1, 0.1), (0.05, 0.10)),
+)
+def test_forecast_controller_rejects_invalid_hysteresis(
+    entry: float,
+    exit_threshold: float,
+) -> None:
+    with pytest.raises(ValueError):
+        ForecastIntentConfig(entry_threshold=entry, exit_threshold=exit_threshold)
+
+
+@pytest.mark.parametrize(
+    ("entry", "exit_threshold", "field_name"),
+    (
+        (True, 0.02, "entry_threshold"),
+        (False, 0.02, "entry_threshold"),
+        (0.10, False, "exit_threshold"),
+        (2.0, True, "exit_threshold"),
+    ),
+)
+def test_forecast_intent_config_rejects_boolean_thresholds(
+    entry: float,
+    exit_threshold: float,
+    field_name: str,
+) -> None:
+    with pytest.raises(ValueError, match=f"{field_name}.*boolean"):
+        ForecastIntentConfig(entry_threshold=entry, exit_threshold=exit_threshold)
+
+
 def test_cost_aware_controller_uses_filled_position_when_budget_is_known() -> None:
     model = CostAwareForecastIntentController(
         ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
@@ -437,125 +577,3 @@ def test_filled_position_decision_rejects_invalid_budget(
             current_position_quantity=0.0,
             gross_budget=gross_budget,
         )
-
-
-def test_strategy_observation_validates_optional_intent_gross_budget() -> None:
-    def build_observation(
-        intent_gross_budget: float | None,
-        same_intent_target_weight: float | None = None,
-    ) -> StrategyObservation:
-        return StrategyObservation(
-            index=0,
-            timestamp=np.datetime64("2026-01-01T00:00:00", "ns"),
-            symbol="SYNTH",
-            features=np.asarray([0.0]),
-            feature_available=np.asarray([True]),
-            global_features=np.asarray([0.0]),
-            global_feature_available=np.asarray([True]),
-            current_intent=PositionIntent.FLAT,
-            current_weight=0.0,
-            intent_gross_budget=intent_gross_budget,
-            same_intent_target_weight=same_intent_target_weight,
-        )
-
-    assert build_observation(None).intent_gross_budget is None
-    assert build_observation(0.5).intent_gross_budget == 0.5
-    with pytest.raises(ValueError, match="intent_gross_budget"):
-        build_observation(0.0)
-    assert build_observation(0.5, 0.45).same_intent_target_weight == 0.45
-    with pytest.raises(ValueError, match="intent_gross_budget"):
-        build_observation(None, 0.45)
-    for invalid in (math.nan, math.inf, -math.inf):
-        with pytest.raises(ValueError, match="same_intent_target_weight"):
-            build_observation(0.5, invalid)
-
-
-def test_cost_aware_controller_compares_log_forecast_as_simple_return() -> None:
-    model = CostAwareForecastIntentController(
-        ForecastIntentConfig(entry_threshold=0.005, exit_threshold=0.001),
-        one_way_switch_cost=0.01,
-    )
-
-    assert (
-        model.decide(math.log1p(0.01), current=PositionIntent.FLAT)
-        is PositionIntent.FLAT
-    )
-    assert (
-        model.decide(math.log1p(0.010000000000005), current=PositionIntent.FLAT)
-        is PositionIntent.LONG
-    )
-    assert (
-        model.decide(math.log1p(-0.01), current=PositionIntent.LONG)
-        is PositionIntent.LONG
-    )
-    assert (
-        model.decide(math.log1p(-0.0101), current=PositionIntent.LONG)
-        is PositionIntent.SHORT
-    )
-
-
-def test_cost_aware_controller_prices_entry_and_reversal_by_intent_distance() -> None:
-    model = CostAwareForecastIntentController(
-        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
-        one_way_switch_cost=0.11,
-    )
-
-    assert (
-        model.decide(math.log1p(0.20), current=PositionIntent.FLAT)
-        is PositionIntent.LONG
-    )
-    assert (
-        model.decide(math.log1p(-0.20), current=PositionIntent.FLAT)
-        is PositionIntent.SHORT
-    )
-    assert (
-        model.decide(math.log1p(-0.20), current=PositionIntent.LONG)
-        is PositionIntent.SHORT
-    )
-    assert (
-        model.decide(math.log1p(0.20), current=PositionIntent.SHORT)
-        is PositionIntent.LONG
-    )
-
-    exact_cost = CostAwareForecastIntentController(
-        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
-        one_way_switch_cost=0.20,
-    )
-    assert (
-        exact_cost.decide(math.log1p(0.20), current=PositionIntent.FLAT)
-        is PositionIntent.FLAT
-    )
-    assert (
-        exact_cost.decide(math.log1p(-0.20), current=PositionIntent.LONG)
-        is PositionIntent.LONG
-    )
-
-
-def test_cost_aware_controller_nonfinite_forecast_still_fails_closed() -> None:
-    model = CostAwareForecastIntentController(
-        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
-        one_way_switch_cost=1.0,
-    )
-    for value in (math.nan, math.inf, -math.inf):
-        assert model.decide(value, current=PositionIntent.LONG) is PositionIntent.FLAT
-
-
-@pytest.mark.parametrize("switch_cost", (-0.01, math.inf, math.nan, True))
-def test_cost_aware_controller_rejects_invalid_switch_cost(switch_cost: float) -> None:
-    with pytest.raises(ValueError, match="switch cost"):
-        CostAwareForecastIntentController(
-            ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
-            one_way_switch_cost=switch_cost,
-        )
-
-
-@pytest.mark.parametrize(
-    ("entry", "exit_threshold"),
-    ((0.0, 0.0), (0.1, -0.01), (0.1, 0.1), (0.05, 0.10)),
-)
-def test_forecast_controller_rejects_invalid_hysteresis(
-    entry: float,
-    exit_threshold: float,
-) -> None:
-    with pytest.raises(ValueError):
-        ForecastIntentConfig(entry_threshold=entry, exit_threshold=exit_threshold)

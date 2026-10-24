@@ -19,12 +19,17 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "0953829f1956aca4211381741ec903a21fa3d4658cb480a3897b52278aa78541"
+      "sha256": "c2bb8d704f95361b71dbc24ee5906f3ef04e8dcdb3291867806e7ba5df12d976"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Dependency direction",
       "sha256": "ed19ca112e9817a3cc66f233e947ec149e413ce4aba1f86040b91fad8f391fcf"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Strategy contract",
+      "sha256": "726bd0880617c800e7b5efa029c7110d7d308399f58cf4876b82aac590b17d05"
     }
   ],
   "code_references": [
@@ -76,6 +81,18 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "filled-position-forecast-intent-utility",
+      "symbol": "trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position",
+      "kind": "method",
+      "source_sha256": "392b81af511847f456aa6887d6550940e9df4074fa1112649635da055ebe00f3",
+      "label_ja": "filled exposureを使うforecast intent utility",
+      "description_ja": "現在のsigned filled quantity・weight・forecastと任意のmatching cached targetからlogical PositionIntentを返します。simple switch-cost proxyを使う直接APIで、canonical replayや既存forecast adapterには未接続です。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_forecast_controller.py"
       ]
     },
     {

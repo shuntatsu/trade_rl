@@ -19,12 +19,12 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "f00cf909c406e96f61a87493203980314919e753f234377ebf477c2822cf019f"
+      "sha256": "3fd004edac773a8bd31f9262ca3f448d724a04fa2dbded5f3f06f9177c8bf19e"
     },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "d6595ae88e4565b4802c9996d24b70b66820be21a69a0352e45a1405828b76fc"
+      "sha256": "726bd0880617c800e7b5efa029c7110d7d308399f58cf4876b82aac590b17d05"
     }
   ],
   "code_references": [

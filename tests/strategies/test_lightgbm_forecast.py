@@ -73,6 +73,7 @@ def market() -> MarketDataset:
 
 def observation(
     *,
+    timestamp: np.datetime64 | None = None,
     available: bool = True,
     current_intent: PositionIntent = PositionIntent.FLAT,
     current_weight: float = 0.0,
@@ -82,7 +83,11 @@ def observation(
 ) -> StrategyObservation:
     return StrategyObservation(
         index=10,
-        timestamp=np.datetime64("2026-01-01T10:00:00", "ns"),
+        timestamp=(
+            np.datetime64("2026-01-01T10:00:00", "ns")
+            if timestamp is None
+            else timestamp
+        ),
         symbol="BTCUSDT",
         features=np.asarray([10.0, 100.0]),
         feature_available=np.asarray([available, True]),
@@ -96,6 +101,19 @@ def observation(
         current_position_quantity=current_position_quantity,
         intent_gross_budget=intent_gross_budget,
         same_intent_target_weight=same_intent_target_weight,
+    )
+
+
+def forecast_model(
+    fit_cutoff: np.datetime64,
+    predictor: FakeRegressor | None = None,
+) -> LightGBMForecastModel:
+    return LightGBMForecastModel(
+        feature_indices=(0,),
+        predictor=FakeRegressor() if predictor is None else predictor,
+        horizon_hours=24,
+        n_samples=100,
+        fit_cutoff=fit_cutoff,
     )
 
 
@@ -165,6 +183,78 @@ def test_lightgbm_strategy_uses_shared_forecast_controller() -> None:
 
     assert strategy.decide(observation()) is PositionIntent.LONG
     assert strategy.decide(observation(available=False)) is PositionIntent.FLAT
+
+
+def test_lightgbm_strategy_rejects_future_fit_cutoff_before_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    predictor = FakeRegressor()
+    model = forecast_model(
+        np.datetime64("2026-01-01T10:00:00.000000001", "ns"),
+        predictor,
+    )
+    strategy = LightGBMForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    calls = 0
+
+    def track_prediction(features: np.ndarray) -> np.ndarray:
+        nonlocal calls
+        calls += 1
+        return np.asarray([0.20])
+
+    monkeypatch.setattr(predictor, "predict", track_prediction)
+
+    with pytest.raises(ValueError, match="fit_cutoff must not be later"):
+        strategy.decide(observation(available=False))
+
+    assert calls == 0
+
+
+def test_lightgbm_strategy_allows_observation_at_fit_cutoff() -> None:
+    cutoff = np.datetime64("2026-01-01T10:00:00", "ns")
+    strategy = LightGBMForecastStrategy(
+        forecast_model(cutoff),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+
+    assert strategy.decide(observation(timestamp=cutoff)) is PositionIntent.LONG
+
+
+def test_lightgbm_strategy_rejects_nat_observation_before_unavailable_fallback() -> (
+    None
+):
+    strategy = LightGBMForecastStrategy(
+        forecast_model(np.datetime64("2026-01-01T09:00:00", "ns")),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+
+    with pytest.raises(ValueError, match="observation timestamp must not be NaT"):
+        strategy.decide(
+            observation(
+                timestamp=np.datetime64("NaT", "ns"),
+                available=False,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "fit_cutoff",
+    (
+        np.datetime64("NaT", "ns"),
+        np.datetime64("1677-01-01T00:00:00", "s"),
+        np.datetime64("2026-01-01T00:00:00.000000000001", "ps"),
+    ),
+)
+def test_lightgbm_model_rejects_cutoffs_not_exactly_representable_in_nanoseconds(
+    fit_cutoff: np.datetime64,
+) -> None:
+    with pytest.raises(ValueError, match="fit_cutoff"):
+        forecast_model(fit_cutoff)
 
 
 def test_cost_aware_lightgbm_uses_filled_position_only_when_budget_is_present() -> None:

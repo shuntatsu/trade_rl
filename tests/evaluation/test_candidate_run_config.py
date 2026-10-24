@@ -67,12 +67,58 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.fit_symbol_names == ("BTCUSDT", "ETHUSDT")
     assert config.ppo_seed == 7
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
+    assert config.supervised_forecast_horizon_hours == 24
+    assert config.to_json_payload()["supervised_forecast_horizon_hours"] == 24
+
+
+def test_candidate_run_config_resolves_nondefault_forecast_horizon() -> None:
+    raw = raw_config()
+    raw["supervised_forecast_horizon_hours"] = 72
+
+    config = parse_candidate_run_config(raw)
+    spec = resolve_candidate_run_spec(
+        market(),
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=config,
+    )
+
+    assert config.supervised_forecast_horizon_hours == 72
+    assert spec.lean_config.supervised_forecast_horizon_hours == 72
+
+
+@pytest.mark.parametrize(
+    "value",
+    (True, 0, -1, 24.0, float("nan")),
+    ids=("bool", "zero", "negative", "float", "nan"),
+)
+def test_candidate_run_config_rejects_nonpositive_or_noninteger_forecast_horizon(
+    value: object,
+) -> None:
+    raw = raw_config()
+    raw["supervised_forecast_horizon_hours"] = value
+
+    with pytest.raises(
+        ValueError, match="supervised_forecast_horizon_hours.*positive integer"
+    ):
+        parse_candidate_run_config(raw)
+
+
+def test_candidate_run_config_rejects_unrepresentable_forecast_horizon() -> None:
+    raw = raw_config()
+    raw["supervised_forecast_horizon_hours"] = 2_562_048
+
+    with pytest.raises(
+        ValueError, match="supervised_forecast_horizon_hours.*representable"
+    ):
+        parse_candidate_run_config(raw)
 
 
 def test_candidate_run_config_binds_horizon_observation_and_terminal_semantics() -> (
     None
 ):
     required_fields = {
+        "supervised_forecast_horizon_hours",
         "ppo_minimum_hold_bars",
         "ppo_observation_schema",
         "ppo_settle_terminal_position",

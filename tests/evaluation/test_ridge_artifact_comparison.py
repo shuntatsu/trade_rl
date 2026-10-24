@@ -261,6 +261,10 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
     assert result.ridge_artifact_digest == ridge_digest
     assert result.binding == binding
     assert result.config is config
+    assert result.symbols == ("BTCUSDT", "ETHUSDT")
+    assert result.symbols == dataset.symbols
+    assert result.evaluation_start_ns == 1_767_232_800_000_000_000
+    assert result.evaluation_stop_ns == 1_767_249_000_000_000_000
     assert not dataset.regular_cadence
     assert dataset.elapsed_hours(config.start_index, 4) == pytest.approx(4.0)
     assert result.binding.horizon_hours == 2

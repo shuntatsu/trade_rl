@@ -126,7 +126,7 @@
       "id": "ridge-artifact-shared-cash-comparison",
       "symbol": "trade_rl.evaluation.runs.ridge_artifact_comparison.compare_ridge_artifact_shared_cash",
       "kind": "function",
-      "source_sha256": "ff683b5c0c79409bdc19b5b993252ed2a3bd34627074a7af42557f43bde2f067",
+      "source_sha256": "7fd6073002045f704e0b2c7cbd256ac41e2f1eb4c109ac74fc7a00f8dcc1828f",
       "label_ja": "frozen Ridgeを使う4-arm共通資金比較",
       "description_ja": "paired loaderが一回の検証で返すDatasetとcaller-bound Ridge artifactを使い、cash・legacy hysteresis・position-aware zero-cost・position-aware costを同じ既存shared-cash replay条件で比較します。返り値は使用した正確なconfigを保持し、fit、winner選択、result publicationは行いません。",
       "variables": [],

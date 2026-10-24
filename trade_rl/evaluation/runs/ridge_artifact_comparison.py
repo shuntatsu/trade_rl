@@ -116,10 +116,17 @@ class RidgeArtifactComparisonConfig:
 
 @dataclass(frozen=True, slots=True)
 class RidgeArtifactComparison:
-    """Verified identities and ordered ledger-backed comparison entries."""
+    """Verified inputs, requested Dataset scope, and ledger-backed entries.
+
+    The time fields identify the requested boundary rows, not proof that a
+    replay which terminates early completed the full range or settlement.
+    """
 
     dataset_artifact: PublishedDatasetArtifact
     dataset_id: str
+    symbols: tuple[str, ...]
+    evaluation_start_ns: int
+    evaluation_stop_ns: int
     ridge_artifact_digest: str
     binding: RidgeForecastArtifactBinding
     config: RidgeArtifactComparisonConfig
@@ -132,7 +139,7 @@ def _validate_loaded_inputs(
     model: RidgeForecastModel,
     binding: RidgeForecastArtifactBinding,
     config: RidgeArtifactComparisonConfig,
-) -> None:
+) -> tuple[int, int]:
     if type(dataset_artifact) is not PublishedDatasetArtifact:
         raise TypeError("paired dataset loader must return a PublishedDatasetArtifact")
     if type(dataset) is not MarketDataset:
@@ -168,8 +175,14 @@ def _validate_loaded_inputs(
         .astype("datetime64[ns]")
         .astype(np.int64)
     )
+    stop_ns = int(
+        np.asarray(dataset.timestamps[config.stop_index])
+        .astype("datetime64[ns]")
+        .astype(np.int64)
+    )
     if binding.fit_cutoff_ns > start_ns:
         raise ValueError("Ridge fit cutoff is after the Dataset decision start")
+    return start_ns, stop_ns
 
 
 def _ridge_factory(
@@ -214,7 +227,9 @@ def compare_ridge_artifact_shared_cash(
         expected_digest=expected_ridge_digest,
         expected_binding=expected_binding,
     )
-    _validate_loaded_inputs(dataset_artifact, dataset, model, expected_binding, config)
+    evaluation_start_ns, evaluation_stop_ns = _validate_loaded_inputs(
+        dataset_artifact, dataset, model, expected_binding, config
+    )
 
     factories: dict[str, Callable[[], SingleSymbolStrategy]] = {
         "cash": lambda: ConstantIntentStrategy(PositionIntent.FLAT),
@@ -251,6 +266,9 @@ def compare_ridge_artifact_shared_cash(
     return RidgeArtifactComparison(
         dataset_artifact=dataset_artifact,
         dataset_id=dataset.dataset_id,
+        symbols=tuple(dataset.symbols),
+        evaluation_start_ns=evaluation_start_ns,
+        evaluation_stop_ns=evaluation_stop_ns,
         ridge_artifact_digest=expected_ridge_digest,
         binding=expected_binding,
         config=config,

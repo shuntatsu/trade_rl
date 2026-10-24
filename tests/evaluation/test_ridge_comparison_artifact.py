@@ -35,6 +35,7 @@ from trade_rl.strategies.forecasts import (
 )
 
 _DIGEST_DOMAIN = b"trade_rl.ridge_shared_cash_comparison_artifact_v1\0"
+_DIGEST_DOMAIN_V2 = b"trade_rl.ridge_shared_cash_comparison_artifact_v2\0"
 
 
 def _dataset(*, cash_rate: np.ndarray | None = None) -> MarketDataset:
@@ -122,7 +123,11 @@ def _binding(
 
 
 def _comparison(
-    tmp_path: Path, *, market_order_profile=None, cash_rate: np.ndarray | None = None
+    tmp_path: Path,
+    *,
+    market_order_profile=None,
+    cash_rate: np.ndarray | None = None,
+    include_forecast_diagnostics: bool = False,
 ):
     dataset = _dataset(cash_rate=cash_rate)
     dataset_root = tmp_path / "dataset"
@@ -159,6 +164,7 @@ def _comparison(
         ),
         market_order_profile=market_order_profile,
         minimum_hold_bars=0,
+        include_forecast_diagnostics=include_forecast_diagnostics,
     )
     comparison = compare_ridge_artifact_shared_cash(
         dataset_root=dataset_root,
@@ -196,7 +202,12 @@ def _market_profile(dataset: MarketDataset):
 
 
 def _digest(raw: bytes) -> str:
-    return hashlib.sha256(_DIGEST_DOMAIN + raw).hexdigest()
+    domain = (
+        _DIGEST_DOMAIN_V2
+        if b'"schema_version":"ridge_shared_cash_comparison_v2"' in raw
+        else _DIGEST_DOMAIN
+    )
+    return hashlib.sha256(domain + raw).hexdigest()
 
 
 def _mutable_payload(loaded) -> dict[str, object]:
@@ -522,6 +533,155 @@ def test_publish_load_preserves_complete_four_arm_context_and_ledgers(
         payload["schema_version"] = "changed"
     with pytest.raises(TypeError):
         dataset["dataset_id"] = "changed"
+
+
+def test_opt_in_forecast_diagnostics_use_versioned_artifact_schema(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        include_forecast_diagnostics=True,
+    )
+    root = tmp_path / "comparison"
+
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    loaded = load_ridge_comparison_artifact(root, expected_digest=digest)
+
+    assert loaded.payload["schema_version"] == "ridge_shared_cash_comparison_v2"
+    assert loaded.payload["config"]["include_forecast_diagnostics"] is True
+    diagnostics = loaded.payload["forecast_diagnostics"]
+    assert diagnostics["horizon_hours"] == comparison.binding.horizon_hours
+    assert diagnostics["fit_cutoff_ns"] == comparison.binding.fit_cutoff_ns
+    assert diagnostics["evaluation_start_index"] == 2
+    assert diagnostics["decision_stop_index"] == 4
+    assert diagnostics["evaluation_stop_index"] == 5
+    assert diagnostics["scoring_as_of_ns"] == comparison.evaluation_stop_ns
+    assert diagnostics["candidate_count"] == 4
+    assert diagnostics["eligible_count"] == 0
+    assert diagnostics["pooled"]["pair_count"] == 0
+    assert diagnostics["pooled"]["mae"] is None
+    assert tuple(item["symbol"] for item in diagnostics["by_symbol"]) == (
+        "BTCUSDT",
+        "ETHUSDT",
+    )
+
+
+def test_v2_loader_rejects_resealed_forecast_scope_and_count_changes(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        include_forecast_diagnostics=True,
+    )
+    root = tmp_path / "comparison"
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    original = load_ridge_comparison_artifact(root, expected_digest=digest)
+
+    def remove_opt_in(payload: dict[str, object]) -> None:
+        cast(dict[str, object], payload["config"]).pop("include_forecast_diagnostics")
+
+    def change_scoring_as_of(payload: dict[str, object]) -> None:
+        diagnostics = cast(dict[str, object], payload["forecast_diagnostics"])
+        diagnostics["scoring_as_of_ns"] = cast(int, diagnostics["scoring_as_of_ns"]) + 1
+
+    def change_symbol_pair_count(payload: dict[str, object]) -> None:
+        diagnostics = cast(dict[str, object], payload["forecast_diagnostics"])
+        pooled = cast(dict[str, object], diagnostics["pooled"])
+        pooled["pair_count"] = 1
+
+    for mutate in (
+        remove_opt_in,
+        change_scoring_as_of,
+        change_symbol_pair_count,
+    ):
+        payload = _mutable_payload(original)
+        mutate(payload)
+        digest = _reseal(root, payload)
+        with pytest.raises((TypeError, ValueError), match="."):
+            load_ridge_comparison_artifact(root, expected_digest=digest)
+
+
+def test_v2_loader_rejects_resealed_symbol_candidate_redistribution(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        include_forecast_diagnostics=True,
+    )
+    root = tmp_path / "comparison"
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    original = load_ridge_comparison_artifact(root, expected_digest=digest)
+    payload = _mutable_payload(original)
+    diagnostics = cast(dict[str, object], payload["forecast_diagnostics"])
+    symbols = cast(list[dict[str, object]], diagnostics["by_symbol"])
+    for item, candidate_count in zip(symbols, (3, 1), strict=True):
+        item["candidate_count"] = candidate_count
+        exclusions = cast(list[list[object]], item["excluded_counts"])
+        for exclusion in exclusions:
+            if exclusion[0] == "target_not_mature_by_scoring_as_of":
+                exclusion[1] = candidate_count
+                break
+    digest = _reseal(root, payload)
+
+    with pytest.raises(ValueError, match="candidate.*scope|scope.*candidate"):
+        load_ridge_comparison_artifact(root, expected_digest=digest)
+
+
+def test_v2_loader_rejects_resealed_pooled_metrics_that_disagree_with_symbols(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        include_forecast_diagnostics=True,
+    )
+    root = tmp_path / "comparison"
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    original = load_ridge_comparison_artifact(root, expected_digest=digest)
+    payload = _mutable_payload(original)
+    diagnostics = cast(dict[str, object], payload["forecast_diagnostics"])
+    symbols = cast(list[dict[str, object]], diagnostics["by_symbol"])
+    symbol_metrics = (
+        (1.0, 1.0, 2.0, 2.0, 1.0, 0.75),
+        (3.0, 3.0, 4.0, 4.0, 1.0, 0.4375),
+    )
+    for item, values in zip(symbols, symbol_metrics, strict=True):
+        item["eligible_count"] = 1
+        exclusions = cast(list[list[object]], item["excluded_counts"])
+        for exclusion in exclusions:
+            if exclusion[0] == "target_not_mature_by_scoring_as_of":
+                exclusion[1] = 1
+                break
+        metrics = cast(dict[str, object], item["metrics"])
+        metrics["pair_count"] = 1
+        (
+            metrics["mae"],
+            metrics["rmse"],
+            metrics["zero_mae"],
+            metrics["zero_rmse"],
+            metrics["mae_improvement"],
+            metrics["mse_skill"],
+        ) = values
+    diagnostics["eligible_count"] = 2
+    exclusions = cast(list[list[object]], diagnostics["excluded_counts"])
+    for exclusion in exclusions:
+        if exclusion[0] == "target_not_mature_by_scoring_as_of":
+            exclusion[1] = 2
+            break
+    cast(dict[str, object], diagnostics["pooled"]).update(
+        {
+            "pair_count": 2,
+            "mae": 2.5,
+            "rmse": 2.5,
+            "zero_mae": 3.0,
+            "zero_rmse": 3.0,
+            "mae_improvement": 0.5,
+            "mse_skill": 0.3055555555555556,
+        }
+    )
+    digest = _reseal(root, payload)
+
+    with pytest.raises(ValueError, match="pooled.*symbol|symbol.*pooled"):
+        load_ridge_comparison_artifact(root, expected_digest=digest)
 
 
 @pytest.mark.parametrize(

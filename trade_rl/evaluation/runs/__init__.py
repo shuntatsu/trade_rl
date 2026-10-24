@@ -28,8 +28,11 @@ from trade_rl.evaluation.runs.config import (
 from trade_rl.evaluation.runs.execute import CandidateRunResult, execute_candidate_run
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.evaluation.runs.ridge_artifact_comparison import (
+    ForecastErrorMetrics,
+    ForecastSymbolDiagnostics,
     RidgeArtifactComparison,
     RidgeArtifactComparisonConfig,
+    RidgeForecastDiagnostics,
     compare_ridge_artifact_shared_cash,
 )
 from trade_rl.evaluation.runs.ridge_comparison_artifact import (
@@ -46,6 +49,8 @@ __all__ = [
     "CandidateRunArtifactIdentity",
     "CandidateRunConfig",
     "CandidateRunResult",
+    "ForecastErrorMetrics",
+    "ForecastSymbolDiagnostics",
     "LeanCandidateConfig",
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
@@ -54,6 +59,7 @@ __all__ = [
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
+    "RidgeForecastDiagnostics",
     "build_candidate_run_provenance",
     "compare_ridge_artifact_shared_cash",
     "execute_candidate_run",

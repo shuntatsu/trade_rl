@@ -12,6 +12,8 @@ RUNS_EXPORTS = {
     "CandidateRunArtifactIdentity",
     "CandidateRunConfig",
     "CandidateRunResult",
+    "ForecastErrorMetrics",
+    "ForecastSymbolDiagnostics",
     "LeanCandidateConfig",
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
@@ -20,6 +22,7 @@ RUNS_EXPORTS = {
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
+    "RidgeForecastDiagnostics",
     "build_candidate_run_provenance",
     "compare_ridge_artifact_shared_cash",
     "execute_candidate_run",
@@ -112,6 +115,15 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert (
         facade.RidgeArtifactComparisonConfig
         is ridge_artifact_comparison.RidgeArtifactComparisonConfig
+    )
+    assert facade.ForecastErrorMetrics is ridge_artifact_comparison.ForecastErrorMetrics
+    assert (
+        facade.ForecastSymbolDiagnostics
+        is ridge_artifact_comparison.ForecastSymbolDiagnostics
+    )
+    assert (
+        facade.RidgeForecastDiagnostics
+        is ridge_artifact_comparison.RidgeForecastDiagnostics
     )
     assert (
         facade.compare_ridge_artifact_shared_cash

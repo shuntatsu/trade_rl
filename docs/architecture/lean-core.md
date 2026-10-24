@@ -2104,6 +2104,11 @@ and reserve intervals. It compares complete effective policy dictionaries; indep
 derived canonical digests are a secondary consistency check, not a substitute for those
 values.
 
+The static source allowlist admits a second exact reviewed byte fingerprint for
+`tools/tier_d_nonrl/tier_d_native.py` alongside the existing fingerprint. This is only a
+static source candidate; it does not declare a protocol source profile or attest to
+runtime behavior.
+
 The runtime economic window covers all 6,527 actor hours. The 24- and 72-hour forecast
 horizons are separate inputs. These static bytes identify declared source and inputs;
 they do not attest to a runtime process, provider, or external venue. The boundary does

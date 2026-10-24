@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from fractions import Fraction
 from types import MappingProxyType
 
@@ -303,6 +303,39 @@ def _runner(
     )
 
 
+def _append_replacement_order(
+    runner: FrozenMarketReplay, parent: _OwnedOrder, offset: int
+) -> _OwnedOrder:
+    parent_intent = parent.intent
+    child_intent = ExpectedIntent.create(
+        dataset_id=parent_intent.dataset_id,
+        target_identity=parent_intent.target_identity,
+        execution_policy_digest=parent_intent.execution_policy_digest,
+        symbol_index=parent_intent.symbol_index,
+        requested_quantity=parent_intent.requested_quantity,
+        order_type=parent_intent.order_type,
+        time_in_force=parent_intent.time_in_force,
+        limit_price=parent_intent.limit_price,
+        stop_price=parent_intent.stop_price,
+        submit_index=parent_intent.submit_index + offset,
+        eligible_index=parent_intent.eligible_index + offset,
+        expiry_index=None,
+        submission_reference_price=parent_intent.submission_reference_price,
+        decision_equity=parent_intent.decision_equity,
+        replaced_order_id=parent_intent.order_id,
+    )
+    child = replace(
+        parent,
+        intent=child_intent,
+        status="cancelled",
+        terminal_reason="replaced",
+        last_processed_index=child_intent.eligible_index,
+    )
+    runner._terminal[child_intent.order_id] = child
+    runner._all_orders[child_intent.order_id] = child
+    return child
+
+
 def _alternate_account_scope(binding: FrozenMarketBinding) -> FrozenMarketBinding:
     document = binding.protocol_document
     configuration_id = f"{binding.configuration_id}_CACHE_SCOPE"
@@ -455,7 +488,7 @@ def test_projection_memo_does_not_hide_distinct_source_with_same_order_id() -> N
         )
 
 
-@pytest.mark.parametrize("invalidation", ["scope", "terminal_owner"])
+@pytest.mark.parametrize("invalidation", ["scope", "terminal_owner", "archive_owner"])
 def test_terminal_identity_memo_rebuilds_after_scope_or_owner_change(
     invalidation: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -483,12 +516,16 @@ def test_terminal_identity_memo_rebuilds_after_scope_or_owner_change(
 
     if invalidation == "scope":
         runner.binding = _alternate_account_scope(runner.binding)
-    else:
+    elif invalidation == "terminal_owner":
         changed = replace(
             original_source, evidence_version=original_source.evidence_version + 1
         )
         runner._terminal[terminal_order_id] = changed
         runner._all_orders[terminal_order_id] = changed
+    else:
+        runner._all_orders[terminal_order_id] = replace(
+            original_source, evidence_version=original_source.evidence_version + 1
+        )
 
     core_rebuilds = 0
     inside_core = False
@@ -526,6 +563,219 @@ def test_terminal_identity_memo_rebuilds_after_scope_or_owner_change(
 
     assert compared == 1
     assert core_rebuilds > 0
+
+
+def test_terminal_identity_memo_does_not_rescan_warmed_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+
+    warmed_ids = frozenset(runner._terminal_identity_memo.entries)
+    assert warmed_ids
+    original_check = replay_module._cacheable_terminal_projection
+    checked_warmed_ids: set[str] = set()
+
+    def observe_check(source, projection, predecessor):
+        if source.intent.order_id in warmed_ids:
+            checked_warmed_ids.add(source.intent.order_id)
+        return original_check(source, projection, predecessor)
+
+    monkeypatch.setattr(replay_module, "_cacheable_terminal_projection", observe_check)
+
+    original_core = replay_module._build_actor_identity_core
+    compared = 0
+
+    def compare_cached_identity(*args, **kwargs):
+        nonlocal compared
+        identity = original_core(*args, **kwargs)
+        reference_kwargs = {
+            key: value for key, value in kwargs.items() if key != "terminal_memo"
+        }
+        reference = decision_identity.build_actor_identity(*args, **reference_kwargs)
+        assert identity == reference
+        compared += 1
+        return identity
+
+    monkeypatch.setattr(
+        replay_module, "_build_actor_identity_core", compare_cached_identity
+    )
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+
+    assert checked_warmed_ids == set()
+    assert compared == 1
+
+
+def test_terminal_identity_memo_exposes_immutable_entries() -> None:
+    runner = _runner(0)
+    runner.advance(forecast_index=_forecast_index(through=64), role="NONRL")
+    runner.advance(forecast_index=_forecast_index(through=64), role="NONRL")
+    order_id, entry = next(iter(runner._terminal_identity_memo.entries.items()))
+
+    with pytest.raises(TypeError):
+        runner._terminal_identity_memo.entries[order_id] = entry
+    with pytest.raises(FrozenInstanceError):
+        entry.mapping_bytes = b"replacement"
+
+
+def test_terminal_identity_memo_rechecks_a_warmed_owner_in_its_transaction() -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    order_id, source = next(iter(runner._terminal.items()))
+    transaction = runner._terminal_identity_memo.transaction(
+        terminal=runner._terminal, all_orders=runner._all_orders
+    )
+
+    assert transaction.projection_for(order_id, source) is not None
+    changed_source = replace(source, evidence_version=source.evidence_version + 1)
+    runner._terminal[order_id] = changed_source
+    runner._all_orders[order_id] = changed_source
+
+    assert transaction.projection_for(order_id, changed_source) is None
+    assert not runner._terminal_identity_memo.entries
+
+
+def test_terminal_identity_memo_checks_replacement_chain_in_linear_work() -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    parent_id, parent_source = next(iter(runner._terminal.items()))
+    chain = [(parent_id, parent_source)]
+    for offset in range(1, 13):
+        child = _append_replacement_order(runner, chain[-1][1], offset)
+        chain.append((child.intent.order_id, child))
+
+    build_transaction = runner._terminal_identity_memo.transaction(
+        terminal=runner._terminal, all_orders=runner._all_orders
+    )
+    for _, source in chain[1:]:
+        runner._owned_projection(
+            source,
+            runner._active,
+            runner._terminal,
+            {},
+            build_transaction,
+        )
+    assert build_transaction.commit()
+
+    class CountingOrderMap(dict[str, _OwnedOrder]):
+        def __init__(self, values: dict[str, _OwnedOrder]) -> None:
+            super().__init__(values)
+            self.reads: dict[str, int] = {}
+
+        def get(self, key: str, default=None):
+            self.reads[key] = self.reads.get(key, 0) + 1
+            return super().get(key, default)
+
+    terminal = CountingOrderMap(runner._terminal)
+    all_orders = CountingOrderMap(runner._all_orders)
+    transaction = runner._terminal_identity_memo.transaction(
+        terminal=terminal, all_orders=all_orders
+    )
+    for order_id, source in reversed(chain):
+        assert transaction.projection_for(order_id, source) is not None
+
+    assert max(terminal.reads.values()) <= 4
+    assert max(all_orders.reads.values()) <= 4
+
+    changed_parent = replace(
+        parent_source, evidence_version=parent_source.evidence_version + 1
+    )
+    terminal[parent_id] = changed_parent
+    all_orders[parent_id] = changed_parent
+    leaf_id, leaf_source = chain[-1]
+    changed_transaction = runner._terminal_identity_memo.transaction(
+        terminal=terminal, all_orders=all_orders
+    )
+    assert changed_transaction.projection_for(leaf_id, leaf_source) is None
+    assert not runner._terminal_identity_memo.entries
+
+
+def test_terminal_identity_memo_rebuilds_when_an_ancestor_owner_changes() -> None:
+    runner = _runner(0)
+    forecast_index = _forecast_index(through=64)
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    runner.advance(forecast_index=forecast_index, role="NONRL")
+    parent_id, parent_source = next(iter(runner._terminal.items()))
+    assert parent_id in runner._terminal_identity_memo.entries
+
+    parent_intent = parent_source.intent
+    child_intent = ExpectedIntent.create(
+        dataset_id=parent_intent.dataset_id,
+        target_identity=parent_intent.target_identity,
+        execution_policy_digest=parent_intent.execution_policy_digest,
+        symbol_index=parent_intent.symbol_index,
+        requested_quantity=parent_intent.requested_quantity,
+        order_type=parent_intent.order_type,
+        time_in_force=parent_intent.time_in_force,
+        limit_price=parent_intent.limit_price,
+        stop_price=parent_intent.stop_price,
+        submit_index=parent_intent.submit_index + 1,
+        eligible_index=parent_intent.eligible_index + 1,
+        expiry_index=None,
+        submission_reference_price=parent_intent.submission_reference_price,
+        decision_equity=parent_intent.decision_equity,
+        replaced_order_id=parent_id,
+    )
+    child = replace(
+        parent_source,
+        intent=child_intent,
+        status="cancelled",
+        terminal_reason="replaced",
+        last_processed_index=child_intent.eligible_index,
+    )
+    runner._terminal[child_intent.order_id] = child
+    runner._all_orders[child_intent.order_id] = child
+    initial_transaction = runner._terminal_identity_memo.transaction(
+        terminal=runner._terminal, all_orders=runner._all_orders
+    )
+    initial_projection = runner._owned_projection(
+        child,
+        runner._active,
+        runner._terminal,
+        {},
+        initial_transaction,
+    )
+    assert initial_transaction.commit()
+    assert (
+        runner._terminal_identity_memo.entries[
+            child_intent.order_id
+        ].projection.intent.replaced_order
+        is runner._terminal_identity_memo.entries[parent_id].projection
+    )
+
+    changed_parent = replace(
+        parent_source, evidence_version=parent_source.evidence_version + 1
+    )
+    runner._all_orders[parent_id] = changed_parent
+    changed_transaction = runner._terminal_identity_memo.transaction(
+        terminal=runner._terminal, all_orders=runner._all_orders
+    )
+    rebuilt_projection = runner._owned_projection(
+        child,
+        runner._active,
+        runner._terminal,
+        {},
+        changed_transaction,
+    )
+    uncached_projection = runner._owned_projection(
+        child, runner._active, runner._terminal, {}
+    )
+
+    assert rebuilt_projection == uncached_projection
+    assert (
+        rebuilt_projection.intent.replaced_order
+        is not initial_projection.intent.replaced_order
+    )
+    assert (
+        rebuilt_projection.intent.replaced_order.evidence_version
+        == changed_parent.evidence_version
+    )
 
 
 def test_mutable_terminal_progress_alias_stays_live_in_replay_identity(

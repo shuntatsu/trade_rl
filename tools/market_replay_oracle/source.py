@@ -32,7 +32,10 @@ SUPPORTED_PROFILE_SOURCES: dict[str, frozenset[str]] = {
         {"9d679316cc4ffe614bdd8237271610c3168915f4b66993a16010b2fa812c6641"}
     ),
     "tools/tier_d_nonrl/tier_d_native.py": frozenset(
-        {"dcf6dacf2d82ecec6ef957d5df13006fa4df972cb96e3d2d2ae03042afa1658e"}
+        {
+            "dcf6dacf2d82ecec6ef957d5df13006fa4df972cb96e3d2d2ae03042afa1658e",
+            "a186a1721366d60e63c42854859b6f2da2779c2ad5e0815090fc56b4c80160a7",
+        }
     ),
     "trade_rl/simulation/execution.py": frozenset(
         {"6ce371ba1ab4d7221c214a0d722062d3d1e7791caf5da71704fecdd06f648d63"}

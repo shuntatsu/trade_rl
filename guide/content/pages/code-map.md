@@ -48,6 +48,7 @@ artifacts / evidence
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
+| portfolio policyへ渡すcurrent snapshotの組み立て | `trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot` |
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |

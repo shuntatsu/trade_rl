@@ -16,6 +16,7 @@
     "run_single_symbol_replay",
     "shared portfolio policy",
     "run_shared_portfolio_replay",
+    "build_portfolio_decision_snapshot",
     "PortfolioDecisionSnapshot",
     "PortfolioTargetProposal"
   ],
@@ -28,7 +29,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
+      "sha256": "d6e02e1a139cbcb4a219c1d2f50b64ace3310d014ef4b152ed6ed4cf79f4612f"
     }
   ],
   "code_references": [
@@ -105,6 +106,19 @@
       "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
       "label_ja": "現在時点のimmutable portfolio snapshot",
       "description_ja": "既存current-row StrategyObservationからfeature values/masksをtuple化し、accountとactive-order/risk factsをprimitive valuesで渡します。future rowsやopaque order IDは渡しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-builder",
+      "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "33bc19ae354baa6b9db6a44f3f198ffc5d01fb75401179c1cf4740fe135521a8",
+      "label_ja": "current portfolio snapshotを組み立てる",
+      "description_ja": "MarketDatasetのcurrent row、BookState、active-order tuple、risk config、decision windowから、future rowsやopaque order IDsを含まないimmutable snapshotを作ります。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",

@@ -205,10 +205,13 @@ one `PortfolioPolicy.decide_portfolio` with a detached `PortfolioDecisionSnapsho
 for each native decision row, then validates the complete symbol-ordered numeric
 target vector before the existing `execute_native_target_transition` applies the
 same `PreTradeRisk` and advances the same `MarketExecutor` and `BookState` loop.
-The snapshot copies only the current `StrategyObservation` row, primitive account
-facts, active-order quantities/status/timing, and risk-limit scalars into tuples
-and immutable values; it does not include the `MarketDataset`, executor, risk or
-book objects, opaque order IDs, or future rows. Cash is reported as raw account
+`strategies/portfolio_observation.py` builds the snapshot from the current
+`MarketDataset` row, `BookState`, active-order tuple, risk config, and decision
+window; evaluation passes these source-owned inputs without giving the strategy
+an executor or evaluation config. The snapshot copies the current `StrategyObservation`
+row, primitive account facts, active-order quantities/status/timing, and risk-limit
+scalars into tuples and immutable values; it does not include the `MarketDataset`,
+executor, risk or book objects, opaque order IDs, or future rows. Cash is reported as raw account
 cash, not as free or reserved cash, so this input is not a complete Markov account
 state. An explicit exact-quantity HOLD is accepted only when its target exactly
 matches the current book weight, and it survives only if hard risk leaves that

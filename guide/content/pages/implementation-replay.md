@@ -134,7 +134,7 @@ target_weight
 
 ## 同時portfolio policyのopt-in経路
 
-`run_shared_portfolio_replay`は、eligibleなnative barごとにpolicyを一度だけ呼び、全symbol順のnumeric target vectorを同じshared risk・execution・accounting loopへ渡します。snapshotのfeature、availability、stalenessは既存のcurrent-row observation経路から作り、account・active order・riskはtupleとscalarへコピーします。future rowやopaque order IDはpolicy入力に含めません。
+`run_shared_portfolio_replay`は、eligibleなnative barごとにpolicyを一度だけ呼び、全symbol順のnumeric target vectorを同じshared risk・execution・accounting loopへ渡します。`strategies/portfolio_observation.py`が現在行、`BookState`、active-order tuple、risk config、decision windowからsnapshotを作り、account・active order・risk factsをtupleとscalarへコピーします。evaluation replayはsource-owned builderを呼び、future rowやopaque order IDはpolicy入力に含めません。
 
 policyは各symbolのtarget weightをすべて返します。明示的なexact-quantity HOLDも指定できますが、そのweightがhard-risk適用後も変わらない場合だけ既存数量を維持します。riskがtargetを縮小した場合は通常どおり実行され、terminal settlementも既存replayが所有します。このsnapshotは観測したaccountとpending-order factsであり、free/reserved cashや完全なMarkov stateを合成しません。
 

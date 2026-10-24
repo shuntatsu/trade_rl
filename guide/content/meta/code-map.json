@@ -29,7 +29,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "ea91b30a7e908b30a4f4fe3bf6004c335dc07005616ad770d447a8a31a31c27f"
+      "sha256": "865fc4acd8cd37e63be8ea48ea438a569b499c7c429896e577e8ef01b40a16bb"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -39,7 +39,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
+      "sha256": "d6e02e1a139cbcb4a219c1d2f50b64ace3310d014ef4b152ed6ed4cf79f4612f"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -276,6 +276,19 @@
       "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
       "label_ja": "current-row portfolio actor snapshot",
       "description_ja": "current-row StrategyObservation dataとaccount・active-order・risk factsをimmutable tuple/scalarへコピーします。runtime object、opaque order IDs、future rows、合成free/reserved cashを含みません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-builder",
+      "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "33bc19ae354baa6b9db6a44f3f198ffc5d01fb75401179c1cf4740fe135521a8",
+      "label_ja": "current portfolio snapshot builder",
+      "description_ja": "Copies the current MarketDataset row, BookState, active orders, risk limits and decision window into the immutable portfolio observation contract.",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",

@@ -59,3 +59,53 @@ def test_portfolio_risk_fails_closed_on_non_finite_inputs() -> None:
             portfolio_value=100.0,
             market_notional=np.array([100.0]),
         )
+
+
+@pytest.mark.parametrize("diagonal", [-0.25, -1e-300])
+def test_portfolio_risk_rejects_negative_projected_covariance_variance(
+    diagonal: float,
+) -> None:
+    model = PortfolioRiskModel(PortfolioRiskConfig(volatility_target=0.10))
+
+    with pytest.raises(ValueError, match="negative portfolio variance"):
+        model.constrain(
+            np.array([0.5]),
+            portfolio_value=100.0,
+            market_notional=np.array([1000.0]),
+            covariance=np.array([[diagonal]]),
+        )
+
+
+def test_portfolio_risk_preserves_near_singular_psd_covariance() -> None:
+    target = np.array([0.5, -1.0])
+    covariance = np.array([[1.0, 0.5], [0.5, 0.25 + np.finfo(np.float64).eps / 2.0]])
+    model = PortfolioRiskModel(PortfolioRiskConfig(volatility_target=0.10))
+
+    result = model.constrain(
+        target,
+        portfolio_value=100.0,
+        market_notional=np.array([1000.0, 1000.0]),
+        covariance=covariance,
+    )
+
+    np.testing.assert_array_equal(result.weights, target)
+    assert 0.0 < result.portfolio_volatility < 1e-6
+    assert result.was_constrained is False
+
+
+def test_portfolio_risk_clamps_only_cancellation_scale_negative_variance() -> None:
+    covariance_factor = np.array([-0.11799648404111936, 0.3431629446879452])
+    covariance = np.outer(covariance_factor, covariance_factor)
+    target = np.array([-0.15421573575229858, -0.05302703827516377])
+    assert float(target @ covariance @ target) < 0.0
+
+    result = PortfolioRiskModel(PortfolioRiskConfig(volatility_target=0.10)).constrain(
+        target,
+        portfolio_value=100.0,
+        market_notional=np.array([1000.0, 1000.0]),
+        covariance=covariance,
+    )
+
+    np.testing.assert_array_equal(result.weights, target)
+    assert result.portfolio_volatility == 0.0
+    assert result.was_constrained is False

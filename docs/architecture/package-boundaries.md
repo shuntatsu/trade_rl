@@ -252,6 +252,8 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 `MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。`data/features/numerics.py` はcanonical Dataset identityへ入るfeature計算のportable scalar/reduction semanticsを所有し、`core.py`、`cross_asset.py`、`builder.py` が共有する。モデル学習、simulation P&L、汎用evaluationの数値計算まではこのauthorityへ含めない。現行 `MarketBuildConfig` は `market_build_v3` / `portable_feature_numerics_v1` をbuild identityへbindし、historical `market_build_v2` artifactのreader互換はartifact contractとして維持する。`data/build/economics.py` は build-level `ExecutionEconomicsProfile` の単一ownerであり、`MarketBuildConfig` のfeature/build semanticsとは分離する。profile省略時はlegacy economic behaviorを維持し、明示profileは既存economic-semantics経路を通してimmutable Dataset fields/content identityへbindする。
 
+`data/artifacts/codec.py` owns the verified Dataset reconstruction and manifest digest from one manifest read and its corresponding array bytes. `data/artifacts/publication.py` exposes `load_published_market_dataset_artifact` as an identity-first `(PublishedDatasetArtifact, MarketDataset)` pair, and `inspect_published_market_dataset_artifact` delegates to that owner. The existing `load_market_dataset_artifact` remains Dataset-only. The pair is bound to one verification pass; loading does not lock the directory or promise an OS-level atomic filesystem snapshot.
+
 ### `integrations`
 
 外部venue/providerを内部data contractへ変換するadapter層。Binanceはtransport、cache、Vision archive、metadata、dataset assemblyを分離する。strategy/evaluationを知らない。`BinancePublicTransport`の既定値はnetwork-enabledの既存互換を維持し、bootstrapだけがsource freeze後に`allow_network=False`を明示してcache-only化する。
@@ -529,6 +531,7 @@ Intentionally maintainedなpackage-level importは、内部private file移動よ
 
 ```python
 from trade_rl.data import MarketDataset
+from trade_rl.data import load_published_market_dataset_artifact
 from trade_rl.strategies import RidgeForecastStrategy
 from trade_rl.evaluation import UniversalStrategyComparison
 from trade_rl.evaluation.experiments import bootstrap_canonical_m2_study

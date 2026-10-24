@@ -8,6 +8,7 @@
     "code map",
     "責務",
     "MarketDataset",
+    "PublishedDatasetArtifact",
     "SingleSymbolStrategy",
     "PreTradeRisk",
     "MarketExecutor",
@@ -19,7 +20,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "c2bb8d704f95361b71dbc24ee5906f3ef04e8dcdb3291867806e7ba5df12d976"
+      "sha256": "ba9743accce4013c099656b5d72c24b738b19277c207e99463af9c02285387f3"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -69,6 +70,19 @@
       "variables": [],
       "tests": [
         "tests/data/test_market_artifact.py"
+      ]
+    },
+    {
+      "id": "verified-dataset-load-pair",
+      "symbol": "trade_rl.data.artifacts.publication.load_published_market_dataset_artifact",
+      "kind": "function",
+      "source_sha256": "0025561207885ca61fc8a7122057620556e53de13c47901691c128f62d2a34cb",
+      "label_ja": "検証済みDataset identityとデータの同時読み込み",
+      "description_ja": "一度の検証で結び付いたartifact identityとMarketDatasetをidentity-firstで返します。既存のDataset-only loaderはそのまま使えます。",
+      "variables": [],
+      "tests": [
+        "tests/data/test_market_artifact.py",
+        "tests/architecture/test_lean_data_layout.py"
       ]
     },
     {

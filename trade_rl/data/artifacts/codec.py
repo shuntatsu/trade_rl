@@ -168,8 +168,8 @@ def _string(value: object, *, field: str) -> str:
     return value
 
 
-def load_dataset_files(root: Path) -> MarketDataset:
-    """Load and verify one canonical market-dataset artifact directory."""
+def _load_dataset_files_with_digest(root: Path) -> tuple[MarketDataset, str]:
+    """Load one verified dataset and its digest from the same manifest read."""
 
     verify_exact_artifact_files(root)
     manifest_path = root / DATASET_MANIFEST_NAME
@@ -232,4 +232,11 @@ def load_dataset_files(root: Path) -> MarketDataset:
         raise ValueError(
             f"dataset artifact field contract mismatch: missing={missing}, extra={extra}"
         )
-    return MarketDataset(**kwargs)
+    return MarketDataset(**kwargs), artifact_digest
+
+
+def load_dataset_files(root: Path) -> MarketDataset:
+    """Load and verify one canonical market-dataset artifact directory."""
+
+    dataset, _ = _load_dataset_files_with_digest(root)
+    return dataset

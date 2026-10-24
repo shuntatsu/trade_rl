@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 import numpy as np
 import pytest
@@ -15,6 +17,7 @@ from trade_rl.data import (
     MarketDataset,
     publish_market_dataset_artifact,
 )
+from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.runs import (
     RidgeArtifactComparisonConfig,
     compare_ridge_artifact_shared_cash,
@@ -22,6 +25,7 @@ from trade_rl.evaluation.runs import (
     publish_ridge_comparison_artifact,
 )
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
+from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.forecasts import (
@@ -33,7 +37,7 @@ from trade_rl.strategies.forecasts import (
 _DIGEST_DOMAIN = b"trade_rl.ridge_shared_cash_comparison_artifact_v1\0"
 
 
-def _dataset() -> MarketDataset:
+def _dataset(*, cash_rate: np.ndarray | None = None) -> MarketDataset:
     offsets_minutes = np.asarray([0, 30, 120, 180, 360, 390], dtype=np.int64)
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
         offsets_minutes * np.timedelta64(1, "m")
@@ -65,6 +69,7 @@ def _dataset() -> MarketDataset:
         close=close,
         volume=np.full((6, 2), 100_000.0, dtype=np.float64),
         funding_rate=np.zeros((6, 2), dtype=np.float64),
+        cash_rate=cash_rate,
         tradable=np.ones((6, 2), dtype=np.bool_),
         feature_available=np.ones((6, 2, 2), dtype=np.bool_),
         feature_names=("momentum", "secondary"),
@@ -116,8 +121,10 @@ def _binding(
     )
 
 
-def _comparison(tmp_path: Path, *, market_order_profile=None):
-    dataset = _dataset()
+def _comparison(
+    tmp_path: Path, *, market_order_profile=None, cash_rate: np.ndarray | None = None
+):
+    dataset = _dataset(cash_rate=cash_rate)
     dataset_root = tmp_path / "dataset"
     dataset_artifact = publish_market_dataset_artifact(dataset_root, dataset)
     model = _model(dataset)
@@ -202,6 +209,201 @@ def _reseal(root: Path, payload: dict[str, object]) -> str:
     return _digest(raw)
 
 
+def _refresh_arm_metrics(arm: dict[str, object]) -> None:
+    returns = cast(dict[str, object], arm["returns"])
+    diagnostics = cast(dict[str, object], arm["diagnostics"])
+    elapsed_value = returns["elapsed_years"]
+    series = ReturnSeries(
+        values=tuple(float(value) for value in cast(list[object], returns["values"])),
+        kind=ReturnKind(cast(str, returns["kind"])),
+        periods_per_year=int(cast(int, returns["periods_per_year"])),
+        elapsed_years=(None if elapsed_value is None else float(elapsed_value)),
+    )
+    metrics = evaluate_performance(
+        series,
+        turnover_total=float(cast(float, diagnostics["turnover_total"])),
+        total_cost=float(cast(float, diagnostics["total_cost"])),
+        funding_pnl=float(cast(float, diagnostics["funding_pnl"])),
+        borrow_cost=float(cast(float, diagnostics["borrow_cost"])),
+        n_trades=int(cast(int, diagnostics["n_trades"])),
+        rebalance_events=int(cast(int, diagnostics["rebalance_events"])),
+        termination_count=len(cast(list[object], diagnostics["termination_reasons"])),
+    )
+    metrics_payload = asdict(metrics)
+    metrics_payload["return_kind"] = metrics.return_kind.value
+    arm["metrics"] = metrics_payload
+
+
+def _set_cash_arm_movements(
+    payload: dict[str, object],
+    movements: tuple[float, ...],
+    *,
+    record_as_cash_interest: bool,
+) -> None:
+    arm = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+    ledger = cast(dict[str, object], arm["ledger"])
+    intervals = cast(list[dict[str, object]], ledger["intervals"])
+    initial_capital = float(
+        cast(dict[str, object], payload["config"])["initial_capital"]
+    )
+    cash = initial_capital
+    peak = initial_capital
+    maximum_drawdown = 0.0
+    returns: list[float] = []
+    assert len(intervals) == len(movements)
+    for interval, movement in zip(intervals, movements, strict=True):
+        interval["cash_before"] = cash
+        interval["portfolio_value_before"] = cash
+        interval["max_drawdown_before"] = maximum_drawdown
+        interval["interval_cash_interest"] = (
+            movement if record_as_cash_interest else 0.0
+        )
+        next_cash = cash + movement
+        interval["cash_after"] = next_cash
+        interval["portfolio_value_after"] = next_cash
+        interval["interval_net_return"] = next_cash / cash - 1.0
+        peak = max(peak, next_cash)
+        maximum_drawdown = max(maximum_drawdown, 1.0 - next_cash / peak)
+        interval["max_drawdown_after"] = maximum_drawdown
+        returns.append(float(interval["interval_net_return"]))
+        cash = next_cash
+    ledger["final_cash"] = cash
+    ledger["final_portfolio_value"] = cash
+    ledger["final_max_drawdown"] = maximum_drawdown
+    cast(dict[str, object], arm["returns"])["values"] = returns
+    _refresh_arm_metrics(arm)
+
+
+def _semantic_mutations() -> tuple[tuple[str, Mutation], ...]:
+    def decision_step_returns(payload):
+        arm = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        cast(dict[str, object], arm["returns"])["kind"] = ReturnKind.DECISION_STEP.value
+        _refresh_arm_metrics(arm)
+
+    def elapsed_years_override(payload):
+        arm = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        cast(dict[str, object], arm["returns"])["elapsed_years"] = 1.0
+        _refresh_arm_metrics(arm)
+
+    def mismatched_periods_per_year(payload):
+        arm = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        cast(dict[str, object], arm["returns"])["periods_per_year"] = 365
+        _refresh_arm_metrics(arm)
+
+    def cash_gain_without_flow(payload):
+        _set_cash_arm_movements(
+            payload,
+            (25.0, 25.0, 25.0),
+            record_as_cash_interest=False,
+        )
+
+    def cash_arm_contains_order(payload):
+        arms = cast(list[object], payload["arms"])
+        cash = cast(dict[str, object], arms[0])
+        traded = cast(dict[str, object], arms[1])
+        cash_interval = cast(
+            dict[str, object],
+            cast(list[object], cast(dict[str, object], cash["ledger"])["intervals"])[0],
+        )
+        traded_interval = cast(
+            dict[str, object],
+            cast(list[object], cast(dict[str, object], traded["ledger"])["intervals"])[
+                0
+            ],
+        )
+        event = cast(list[object], traded_interval["order_events"])[0]
+        cash_interval["order_events"] = [json.loads(canonical_json_bytes(event))]
+
+    def cash_arm_requests_position(payload):
+        cash = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        decisions = cast(
+            list[object], cast(dict[str, object], cash["ledger"])["decisions"]
+        )
+        decision = cast(dict[str, object], decisions[0])
+        decision["intents"] = [1, 0]
+        decision["effective_intents"] = [1, 0]
+        decision["proposal_weights"] = [0.25, 0.0]
+        decision["target_weights"] = [0.25, 0.0]
+
+    def cash_arm_has_position(payload):
+        cash = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        ledger = cast(dict[str, object], cash["ledger"])
+        intervals = cast(list[object], ledger["intervals"])
+        first = cast(dict[str, object], intervals[0])
+        second = cast(dict[str, object], intervals[1])
+        terminal_interval = cast(dict[str, object], intervals[2])
+        first["exact_quantities_after"] = ["1", "0"]
+        second["exact_quantities_before"] = ["1", "0"]
+        second["exact_quantities_after"] = ["1", "0"]
+        terminal_interval["exact_quantities_before"] = ["1", "0"]
+        decisions = cast(list[object], ledger["decisions"])
+        first_decision = cast(dict[str, object], decisions[0])
+        second_decision = cast(dict[str, object], decisions[1])
+        first_decision["position_quantity_after"] = [1.0, 0.0]
+        second_decision["position_quantity_before"] = [1.0, 0.0]
+        second_decision["position_quantity_after"] = [1.0, 0.0]
+
+    def funding_event_not_joined_to_interval(payload):
+        arms = cast(list[object], payload["arms"])
+        arm = cast(dict[str, object], arms[1])
+        intervals = cast(
+            list[object], cast(dict[str, object], arm["ledger"])["intervals"]
+        )
+        interval = cast(dict[str, object], intervals[0])
+        event = cast(
+            dict[str, object], cast(list[object], interval["funding_events"])[0]
+        )
+        due = cast(list[bool], event["funding_due"])
+        quantities = cast(list[float], event["signed_quantities"])
+        marks = cast(list[float], event["mark_prices"])
+        multipliers = cast(list[float], event["contract_multipliers"])
+        rates = cast(list[float], event["funding_rates"])
+        symbol_index = next(
+            index
+            for index, (is_due, quantity) in enumerate(
+                zip(due, quantities, strict=True)
+            )
+            if is_due and quantity != 0.0
+        )
+        rates[symbol_index] = 0.001
+        amount = -math.fsum(
+            quantity * mark * multiplier * rate
+            for is_due, quantity, mark, multiplier, rate in zip(
+                due, quantities, marks, multipliers, rates, strict=True
+            )
+            if is_due
+        )
+        event["funding_rates"] = rates
+        event["funding_amount"] = amount
+        event["equity_after_funding"] = (
+            cast(float, event["equity_before_funding"]) + amount
+        )
+
+    def ledger_drawdown_below_interval_returns(payload):
+        arm = cast(dict[str, object], cast(list[object], payload["arms"])[1])
+        ledger = cast(dict[str, object], arm["ledger"])
+        for interval_value in cast(list[object], ledger["intervals"]):
+            interval = cast(dict[str, object], interval_value)
+            interval["max_drawdown_before"] = 0.0
+            interval["max_drawdown_after"] = 0.0
+        ledger["final_max_drawdown"] = 0.0
+
+    return (
+        ("non-producer return kind", decision_step_returns),
+        ("elapsed-years override", elapsed_years_override),
+        ("arm annualization mismatch", mismatched_periods_per_year),
+        ("flat cash gain without a recorded flow", cash_gain_without_flow),
+        ("cash arm order event", cash_arm_contains_order),
+        ("cash arm non-flat intent", cash_arm_requests_position),
+        ("cash arm non-flat quantity", cash_arm_has_position),
+        ("funding event not joined to interval", funding_event_not_joined_to_interval),
+        (
+            "ledger drawdown below return drawdown",
+            ledger_drawdown_below_interval_returns,
+        ),
+    )
+
+
 def test_publish_load_preserves_complete_four_arm_context_and_ledgers(
     tmp_path: Path,
 ) -> None:
@@ -262,6 +464,105 @@ def test_publish_load_preserves_complete_four_arm_context_and_ledgers(
         payload["schema_version"] = "changed"
     with pytest.raises(TypeError):
         dataset["dataset_id"] = "changed"
+
+
+@pytest.mark.parametrize(
+    ("case", "mutate"),
+    _semantic_mutations(),
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_loader_rejects_unbound_return_and_cash_accounting_mutations(
+    tmp_path: Path,
+    case: str,
+    mutate: Mutation,
+) -> None:
+    comparison, provenance = _comparison(tmp_path)
+    root = tmp_path / "comparison"
+    publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    loaded = load_ridge_comparison_artifact(
+        root,
+        expected_digest=_digest((root / "comparison.json").read_bytes()),
+    )
+    payload = _mutable_payload(loaded)
+    mutate(payload)
+    recomputed_digest = _reseal(root, payload)
+
+    with pytest.raises((TypeError, ValueError), match="."):
+        load_ridge_comparison_artifact(root, expected_digest=recomputed_digest)
+
+
+@pytest.mark.parametrize("annual_rate", (-0.05, 0.05))
+def test_signed_cash_interest_is_preserved_for_flat_cash_arm(
+    tmp_path: Path,
+    annual_rate: float,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        cash_rate=np.full((6,), annual_rate, dtype=np.float64),
+    )
+    root = tmp_path / "comparison"
+
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    loaded = load_ridge_comparison_artifact(root, expected_digest=digest)
+
+    cash_ledger = loaded.payload["arms"][0]["ledger"]
+    negative_interest = [
+        interval["interval_cash_interest"] for interval in cash_ledger["intervals"]
+    ]
+    assert negative_interest
+    assert all(amount * annual_rate > 0.0 for amount in negative_interest)
+
+
+def test_complete_losing_comparison_is_published_without_profit_filter(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(tmp_path)
+    root = tmp_path / "comparison"
+
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    loaded = load_ridge_comparison_artifact(root, expected_digest=digest)
+
+    arms = loaded.payload["arms"]
+    losing_names = tuple(
+        arm["name"] for arm in arms if arm["metrics"]["total_return"] < 0.0
+    )
+    assert losing_names
+    assert tuple(arm["name"] for arm in arms) == (
+        "cash",
+        "legacy_hysteresis",
+        "position_aware_zero_cost",
+        "position_aware_cost",
+    )
+
+
+@pytest.mark.parametrize("case", ("early termination", "nonflat terminal"))
+def test_publisher_rejects_incomplete_comparison_before_creating_destination(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    comparison, provenance = _comparison(tmp_path)
+    entry = comparison.entries[1]
+    ledger = entry.replay.ledger_evidence
+    assert ledger is not None
+    if case == "early termination":
+        invalid_ledger = replace(ledger, termination_reason="insolvent")
+    else:
+        invalid_ledger = replace(ledger, terminal_exact_quantities=("1", "0"))
+    invalid_replay = replace(entry.replay, ledger_evidence=invalid_ledger)
+    invalid_entry = replace(entry, replay=invalid_replay)
+    entries = list(comparison.entries)
+    entries[1] = invalid_entry
+    invalid_comparison = replace(comparison, entries=tuple(entries))
+    root = tmp_path / "incomplete-comparison"
+
+    with pytest.raises(ValueError, match="."):
+        publish_ridge_comparison_artifact(
+            root,
+            invalid_comparison,
+            provenance=provenance,
+        )
+
+    assert not root.exists()
 
 
 def test_profile_remains_a_descriptive_declaration_after_reload(tmp_path: Path) -> None:

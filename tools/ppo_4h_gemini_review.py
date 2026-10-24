@@ -14,13 +14,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 PACKET_SCHEMA = "ppo_4h_gemini_review_packet_v1"
-ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v1"
+ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v2"
 EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
 BASE_BRANCH = "main"
 GEMINI_PROVIDER = "google_gemini"
-REVIEW_PROTOCOL = "ppo_4h_gemini_semantic_review_v1"
+REVIEW_PROTOCOL = "ppo_4h_gemini_semantic_review_v2"
 REVIEW_JOB_NAME = "Trusted Gemini semantic review"
 PROVIDER_STEP_NAME = "Call Gemini reviewer"
+EVIDENCE_UPLOAD_STEP_NAME = "Upload immutable Gemini review evidence"
 REVIEW_REQUEST_MARKER = "<!-- ppo-4h-gemini-review-request-v1 -->"
 GEMINI_SYSTEM_INSTRUCTION = (
     "You are the independent result-blind G0-G2 reviewer for a development-only "
@@ -67,6 +68,10 @@ _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 _REVIEW_PACKET_ARTIFACT_RE = re.compile(
     r"^ppo-4h-review-packet-(?P<identity>[0-9a-f]{64})-"
     r"(?P<run>[1-9][0-9]*)-(?P<attempt>[1-9][0-9]*)$"
+)
+_REVIEW_RESULT_ARTIFACT_RE = re.compile(
+    r"^ppo-4h-gemini-review-(?P<run>[1-9][0-9]*)-"
+    r"(?P<attempt>[1-9][0-9]*)$"
 )
 _MAX_API_BYTES = 8 * 1024 * 1024
 _MAX_PACKET_BYTES = 4 * 1024 * 1024
@@ -157,17 +162,74 @@ def review_packet_artifact_name(
     return f"ppo-4h-review-packet-{identity}-{run}-{attempt}"
 
 
+def review_result_artifact_name(
+    *,
+    run_id: int,
+    run_attempt: int,
+) -> str:
+    run = _positive_int(run_id, field="reviewer run id")
+    attempt = _positive_int(run_attempt, field="reviewer run attempt")
+    return f"ppo-4h-gemini-review-{run}-{attempt}"
+
+
 def require_review_identity_retryable(
     identity_digest: str,
     *,
     current_run_id: int,
     current_run_attempt: int,
     artifacts: list[object],
+    result_artifacts: list[object],
     jobs_for_attempt: Callable[[int, int], list[object]],
 ) -> None:
     identity = _require_sha256(identity_digest, field="review identity digest")
     current_run = _positive_int(current_run_id, field="reviewer run id")
     current_attempt = _positive_int(current_run_attempt, field="reviewer run attempt")
+
+    terminal_attempts: set[tuple[int, int]] = set()
+    for artifact in result_artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        name = artifact.get("name")
+        if not isinstance(name, str):
+            continue
+        match = _REVIEW_RESULT_ARTIFACT_RE.fullmatch(name)
+        if match is None:
+            continue
+        run_id = int(match.group("run"))
+        attempt = int(match.group("attempt"))
+        workflow_run = artifact.get("workflow_run")
+        if (
+            not isinstance(workflow_run, dict)
+            or _positive_int(
+                workflow_run.get("id"), field="review result workflow run id"
+            )
+            != run_id
+        ):
+            raise ValueError("review result artifact identity is malformed")
+        if run_id != current_run:
+            raise ValueError("review result artifact belongs to another workflow run")
+        key = (run_id, attempt)
+        if key in terminal_attempts:
+            raise ValueError("review lineage contains duplicate terminal evidence")
+        terminal_attempts.add(key)
+        if artifact.get("expired") is not False:
+            raise ValueError(
+                "terminal Gemini review evidence is expired or has no expiry status"
+            )
+
+    if any(
+        attempt >= current_attempt
+        for run_id, attempt in terminal_attempts
+        if run_id == current_run
+    ):
+        raise ValueError("review result artifact attempt ordering is malformed")
+    if any(
+        attempt < current_attempt
+        for run_id, attempt in terminal_attempts
+        if run_id == current_run
+    ):
+        raise ValueError("terminal Gemini review already exists")
+
     seen: set[tuple[int, int]] = set()
     for artifact in artifacts:
         if not isinstance(artifact, dict):
@@ -178,9 +240,10 @@ def require_review_identity_retryable(
         match = _REVIEW_PACKET_ARTIFACT_RE.fullmatch(name)
         if match is None or match.group("identity") != identity:
             continue
-        if artifact.get("expired") is True:
+        if artifact.get("expired") is not False:
             raise ValueError(
-                "review identity history is expired; retry cannot be proven safe"
+                "review identity history is expired or has no expiry status; "
+                "retry cannot be proven safe"
             )
         run_id = int(match.group("run"))
         attempt = int(match.group("attempt"))
@@ -223,14 +286,29 @@ def require_review_identity_retryable(
             for step in steps
             if isinstance(step, dict) and step.get("name") == PROVIDER_STEP_NAME
         ]
-        if len(provider_steps) > 1:
-            raise ValueError("review lineage has duplicate provider steps")
-        if (
-            provider_steps
-            and provider_steps[0].get("status") == "completed"
-            and provider_steps[0].get("conclusion") == "success"
-        ):
-            raise ValueError("terminal Gemini review already exists")
+        upload_steps = [
+            step
+            for step in steps
+            if isinstance(step, dict) and step.get("name") == EVIDENCE_UPLOAD_STEP_NAME
+        ]
+        if len(provider_steps) > 1 or len(upload_steps) > 1:
+            raise ValueError("review lineage has duplicate provider/evidence steps")
+        if not provider_steps or provider_steps[0].get("status") != "completed":
+            continue
+        if not upload_steps or upload_steps[0].get("status") != "completed":
+            raise ValueError(
+                "review evidence upload state is ambiguous after provider execution"
+            )
+        if upload_steps[0].get("conclusion") != "success":
+            raise ValueError(
+                "review evidence upload failed after provider execution; "
+                "retry cannot be proven safe"
+            )
+        # With continue-on-error, GitHub reports the provider step conclusion as
+        # success for both a successful provider response and a failed command.
+        # A completed successful upload with no final review artifact is therefore
+        # the observable transport-failure state and is retryable.  A terminal
+        # response is identified by the immutable final reviewer artifact above.
 
 
 def _parse_request_body(body: object) -> tuple[str, str, str]:
@@ -1123,6 +1201,37 @@ def _review_packet_artifacts(
     raise ValueError("review artifact inventory exceeds page budget")
 
 
+def _review_result_artifacts(
+    repository: str,
+    run_id: int,
+    *,
+    token: str,
+) -> list[object]:
+    run = _positive_int(run_id, field="reviewer run id")
+    artifacts: list[object] = []
+    for page in range(1, _MAX_COMMENT_PAGES + 1):
+        payload = _github_api(
+            repository,
+            f"actions/runs/{run}/artifacts?per_page=100&page={page}",
+            token=token,
+        )
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("artifacts"), list
+        ):
+            raise ValueError("review result artifact inventory is malformed")
+        page_artifacts = payload["artifacts"]
+        artifacts.extend(
+            artifact
+            for artifact in page_artifacts
+            if isinstance(artifact, dict)
+            and isinstance(artifact.get("name"), str)
+            and artifact["name"].startswith("ppo-4h-gemini-review-")
+        )
+        if len(page_artifacts) < 100:
+            return artifacts
+    raise ValueError("review result artifact inventory exceeds page budget")
+
+
 def _jobs_for_review_attempt(
     repository: str,
     run_id: int,
@@ -1496,11 +1605,17 @@ def run(environment: dict[str, str] | None = None) -> int:
         actual_identity_digest,
         token=token,
     )
+    result_artifacts = _review_result_artifacts(
+        repository,
+        reviewer_run_id,
+        token=token,
+    )
     require_review_identity_retryable(
         actual_identity_digest,
         current_run_id=reviewer_run_id,
         current_run_attempt=reviewer_attempt,
         artifacts=lineage_artifacts,
+        result_artifacts=result_artifacts,
         jobs_for_attempt=lambda run_id, attempt: _jobs_for_review_attempt(
             repository,
             run_id,

@@ -532,7 +532,7 @@ def test_attestation_binds_trusted_jobs_request_and_raw_gemini_identity() -> Non
         parsed_review=parsed,
     )
 
-    assert record["schema"] == "ppo_4h_gemini_reviewer_run_v1"
+    assert record["schema"] == "ppo_4h_gemini_reviewer_run_v2"
     assert record["reviewer_provider"] == "google_gemini"
     assert record["reviewed_code_sha"] == REVIEWED_SHA
     assert record["trusted_workflow_sha"] == WORKFLOW_SHA

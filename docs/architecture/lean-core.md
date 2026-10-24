@@ -76,6 +76,8 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+`CostAwareForecastIntentController.decide_for_position` は、filled quantityまたはcurrent weightから現在の実保有側を取り、forecast提案・現保有側・FLATの候補をgross budgetとsimple-returnのone-way switch-cost proxyで比較する直接呼び出し用APIである。任意のcached target weightは、それと対応する`current_intent`候補にだけ使う。これは帳簿のfee計算、fill、risk制約を行わず、既存のRidge / LightGBM adapterやcanonical replayにもまだ接続されていない。返すのは`PositionIntent`だけで、replay・会計・研究比較の結果を意味しない。
+
 Split changes the units of both the filled book and the cached strategy proposal.
 PPO training, single-symbol replay, and shared-cash replay rebase the proposal by
 the processed split factor, including any unfilled entry remainder. A same-side

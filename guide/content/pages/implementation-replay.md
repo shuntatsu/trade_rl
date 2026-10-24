@@ -62,6 +62,8 @@ Replayは開始行と、約定またはterminal settlementが処理する各targ
 
 ここではまだfillも手数料も発生していません。**戦略の責務は経済判断であって、約定や会計ではありません。**
 
+Strategy packageにはfilled exposureとsimple switch-cost proxyを引数に取る直接呼び出し用forecast utilityもありますが、このcanonical replay経路では使われません。既存のRidge / LightGBM adapterはlogical `current_intent`を渡す従来の`decide`を呼び、execution・risk・fee ledgerは共通の後段で処理します。
+
 PPOに最低保有期間を設定した場合、まだ期間内の実保有数量を維持するよう、FLAT・反対方向などの自発的なintent変更を抑えます。未約定の目標残量も取り消し、partial fillを実保有状態へ反映します。これは約定やriskを飛ばす仕組みではありません。
 
 ## 3. 希望数量とproposalへ変換する

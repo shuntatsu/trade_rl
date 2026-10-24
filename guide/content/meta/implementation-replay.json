@@ -20,6 +20,11 @@
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
       "sha256": "3fd004edac773a8bd31f9262ca3f448d724a04fa2dbded5f3f06f9177c8bf19e"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Strategy contract",
+      "sha256": "617b8c408fa8adbf3736ff7aa7d88c411548253407fd98c26afe09cafeed9c9d"
     }
   ],
   "code_references": [

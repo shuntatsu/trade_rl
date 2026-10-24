@@ -4,7 +4,19 @@
 
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
+Issue #810の4方式比較に必要なソフトウェアは`main`に統合済みです。しかし、固定済み実データでのfit・12 armの損益計算はまだ行っておらず、利益や採用候補は決まっていません。
+
+## Issue #810：4方式比較の実装と実行前ゲート（2026-10-24）
+
+現在の[研究状態の正本](../../../docs/research/current-status.md)では、4方式比較と周辺ソフトウェアが正式レビュー・必須CIを通して`main`へ統合済みです。凍結したRidgeモデルと同じDatasetで、cash / legacy hysteresis / 保有量対応`c=0` / 保有量対応`c>0`を比較できます。各方式は独立した100,000 USDT口座を使い、その口座内でBTC/ETHが資金を共有します。判断用のcost proxyと、実際にledgerへ計上するfee・spread・funding・borrowは別です。
+
+[結果前に固定したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)は、1回のfit、3つのscenario、合計12 armを定めています。source・Dataset・公式市場データの入力整合と、人工データを使った外側の一連の実行・保存・再読込は確認しました。ただし、これらは**実データの比較結果ではありません**。fee/spread、funding mark、margin、capacityは歴史的実約定まで保証するものではなく、固定した研究仮定です。
+
+freshなG0〜G3独立レビューは、レビュー資料の伝送欠落によるcoverage不足もあり未完了です。source/runtimeの再確認と別の1回限りの実行許可が揃うまで、実データfit/replayを行いません。実行後には利益だけでなく、各armの費用・損失・ledger最大drawdown・未完了/失敗を残します。継続的な利益、winner、sealed/unused/final、liveは未証明です。
+
 ## Task 18 Datasetの準備状況と次のゲート
+
+以下のTask 18節は2026-10-14時点のtechnical attemptの記録です。後続R2も48 armを完走せず、1 arm `INTERRUPTED`・47 arm `UNATTEMPTED`のままであり、上記4方式screenの実行完了を示しません。
 
 Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了しました。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
 

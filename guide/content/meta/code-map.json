@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "d0f6038513e1177fa937df2c26d0da7b60fe9bae43bf357d5a352bc8d3b199f3"
+      "sha256": "78e554e3f14e6320da4822249272841a0fd70579a8899372894d9b81cbd539a7"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -58,9 +58,9 @@
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
       "kind": "class",
-      "source_sha256": "2f06d80682cbedce3bd09d30762989d50aa72525bf03eb6cc7428ace2a35a743",
+      "source_sha256": "d069cf57eb481ddbc6cc5634af1b2cb9fe9a59d7d3fb2ba5ef6bbce71626490f",
       "label_ja": "市場データの共通契約",
-      "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持します。",
+      "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持し、timestampsと明示available_atのns範囲・精度をlosslessに検証します。",
       "variables": [],
       "tests": [
         "tests/data/test_market_artifact.py"

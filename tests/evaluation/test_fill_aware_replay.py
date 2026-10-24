@@ -82,9 +82,16 @@ def _drifting_mark_dataset() -> MarketDataset:
     )
 
 
-def _flat_market_dataset() -> MarketDataset:
+def _flat_market_dataset(
+    forecast_values: tuple[float, ...] | None = None,
+) -> MarketDataset:
     close = np.full((6, 1), 100.0)
-    forecasts = np.zeros((6, 1, 1), dtype=np.float32)
+    values = np.zeros(6, dtype=np.float32)
+    if forecast_values is not None:
+        values = np.asarray(forecast_values, dtype=np.float32)
+        if values.shape != (6,):
+            raise ValueError("forecast_values must contain one value per bar")
+    forecasts = values.reshape(6, 1, 1)
     return MarketDataset(
         dataset_id="f" * 64,
         symbols=("SYNTH",),
@@ -137,6 +144,7 @@ def _run_replay(
     *,
     stop_index: int,
     minimum_hold_bars: int = 0,
+    max_abs_weight: float = 1.0,
     execution_cost: ExecutionCostConfig | None = None,
     capture_ledger_evidence: bool = False,
 ) -> object:
@@ -151,7 +159,7 @@ def _run_replay(
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=1.0,
-                max_abs_weight=1.0,
+                max_abs_weight=max_abs_weight,
                 max_turnover=None,
                 drawdown_start=1.0,
                 drawdown_stop=1.0,
@@ -194,6 +202,50 @@ def test_cost_aware_replay_preserves_fully_filled_cached_quantity_hold(
     assert result.book.quantities == pytest.approx((5.0,))
     assert result.book.fill_count == 1
     assert result.book.turnover_total == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("replay_kind", ("single", "shared"))
+def test_cost_aware_replay_prices_persistent_risk_cap_target(
+    replay_kind: str,
+) -> None:
+    strategy = _RecordingRidgeForecastStrategy()
+    forecasts = (
+        0.11,
+        math.log1p(-0.0095),
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+    )
+    result = _run_replay(
+        replay_kind,
+        _flat_market_dataset(forecasts),
+        strategy,
+        stop_index=3,
+        max_abs_weight=0.4,
+        capture_ledger_evidence=True,
+    )
+
+    held_observation = strategy.observations[1]
+    assert result.decisions[0].risk_reasons == ("max_abs_weight",)
+    assert held_observation.current_weight == pytest.approx(0.4)
+    assert held_observation.current_position_quantity == pytest.approx(4.0)
+    assert held_observation.same_intent_target_weight == pytest.approx(0.4)
+    if replay_kind == "single":
+        assert result.decisions[0].target_weight == pytest.approx(0.4)
+        assert result.decisions[1].intent is PositionIntent.LONG
+        assert result.decisions[1].target_weight == pytest.approx(0.4)
+        assert result.decisions[2].intent is PositionIntent.FLAT
+        assert result.book.quantities == pytest.approx((0.0,))
+        assert result.active_order_remainders == ()
+    else:
+        assert result.decisions[0].target_weights == pytest.approx((0.4,))
+        assert result.decisions[1].intents == (PositionIntent.LONG,)
+        assert result.decisions[1].target_weights == pytest.approx((0.4,))
+        assert result.decisions[2].intents == (PositionIntent.FLAT,)
+        assert result.book.quantities == pytest.approx((0.0,))
+        assert result.ledger_evidence is not None
+        assert result.ledger_evidence.active_order_remainders == ()
 
 
 @pytest.mark.parametrize("replay_kind", ("single", "shared"))

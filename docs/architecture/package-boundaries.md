@@ -295,6 +295,14 @@ risk use this owner. Those callers retain action mapping, cached target rebindin
 against the pre-execution book, split adjustment, and observer/evidence capture.
 The legacy PPO no-risk shortcut remains on its existing direct executor path,
 and this seam does not make per-symbol PPO a joint portfolio learner.
+`stateful/portfolio_session.py` owns an opt-in numeric shared-portfolio session:
+it retains the returned book, executor, risk controller, and native index across
+one-bar calls, while exposing only a detached book view. It delegates every step
+to `native_transition.py`, reserves latency-aware terminal intervals for its
+internal emergency flatten, and becomes unusable after a transition/observer
+failure that may have advanced execution state. It imports no strategies or
+evaluation code; the batch portfolio replay remains evaluation-owned and keeps
+decision and ledger evidence collection there.
 The shared-cash replay's explicit exact-quantity HOLD is carried through
 `targets/execution.py` to reconciliation, which accepts it only when its target
 weight exactly matches the current book weight; it cancels residual orders without

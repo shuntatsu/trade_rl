@@ -25,7 +25,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "37ca092987ef144f67aca0130c5e106b20936ab7ac6289206331eed6e15a56a2"
+      "sha256": "bfcf346c3f20e66930f5d77db10c617a0402fe247d05bdc111c58ac4660be1c6"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -35,7 +35,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
+      "sha256": "85e4dcb524647f719997cb415558548f78884066e64eb6bbdd2835a5a9801913"
     }
   ],
   "code_references": [
@@ -219,6 +219,20 @@
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-session",
+      "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
+      "kind": "class",
+      "source_sha256": "84e2eca5912f239501e55bbd2df416e73bc5f934d604ea324f412973692abbdd",
+      "label_ja": "native barごとにportfolio状態を継続",
+      "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_simulation_layout.py"
       ]
     },
     {

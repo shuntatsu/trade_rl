@@ -51,24 +51,18 @@ def _hold_symbols(
     return value
 
 
-def execute_native_target_transition(
+def _validate_native_target_request(
     executor: MarketExecutor,
     book: BookState,
     pretrade_risk: PreTradeRisk,
     target_weights: object,
     *,
     start_index: int,
-    hold_current_quantity_symbols: tuple[int, ...] = (),
-    emergency_flatten_mask: object | None = None,
-    reduce_only_mask: object | None = None,
-) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
-    """Apply hard risk and execute exactly one native interval.
-
-    Strategy and replay callers own action mapping and policy state. This
-    transition accepts only numeric portfolio targets, applies risk against the
-    pre-execution book, and advances the canonical MarketExecutor once. Exact
-    quantity holds survive only when risk leaves their proposed weights intact.
-    """
+    hold_current_quantity_symbols: tuple[int, ...],
+    emergency_flatten_mask: object | None,
+    reduce_only_mask: object | None,
+) -> tuple[np.ndarray, tuple[int, ...], np.ndarray | None, np.ndarray | None]:
+    """Validate one transition request without mutating execution state."""
     if not isinstance(executor, MarketExecutor):
         raise TypeError("executor must be a MarketExecutor")
     if not isinstance(book, BookState):
@@ -105,6 +99,56 @@ def execute_native_target_transition(
         field_name="reduce_only_mask",
         n_symbols=n_symbols,
     )
+    return proposed_weights, hold_symbols, emergency_mask, reduce_mask
+
+
+def validate_risk_execution_compatibility(
+    pretrade_risk: PreTradeRisk, executor: MarketExecutor
+) -> None:
+    """Reject risk exposure limits that exceed the executor's leverage bound."""
+    if not isinstance(pretrade_risk, PreTradeRisk):
+        raise TypeError("pretrade_risk must be a PreTradeRisk")
+    if not isinstance(executor, MarketExecutor):
+        raise TypeError("executor must be a MarketExecutor")
+    execution_limit = float(executor.cost.max_leverage)
+    if (
+        pretrade_risk.config.max_gross > execution_limit
+        or pretrade_risk.config.max_abs_weight > execution_limit
+    ):
+        raise ValueError("risk exposure limits must not exceed execution max_leverage")
+
+
+def execute_native_target_transition(
+    executor: MarketExecutor,
+    book: BookState,
+    pretrade_risk: PreTradeRisk,
+    target_weights: object,
+    *,
+    start_index: int,
+    hold_current_quantity_symbols: tuple[int, ...] = (),
+    emergency_flatten_mask: object | None = None,
+    reduce_only_mask: object | None = None,
+) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
+    """Apply hard risk and execute exactly one native interval.
+
+    Strategy and replay callers own action mapping and policy state. This
+    transition accepts only numeric portfolio targets, applies risk against the
+    pre-execution book, and advances the canonical MarketExecutor once. Exact
+    quantity holds survive only when risk leaves their proposed weights intact.
+    """
+    proposed_weights, hold_symbols, emergency_mask, reduce_mask = (
+        _validate_native_target_request(
+            executor,
+            book,
+            pretrade_risk,
+            target_weights,
+            start_index=start_index,
+            hold_current_quantity_symbols=hold_current_quantity_symbols,
+            emergency_flatten_mask=emergency_flatten_mask,
+            reduce_only_mask=reduce_only_mask,
+        )
+    )
+    current_weights = np.asarray(book.weights, dtype=np.float64)
 
     risk_target = pretrade_risk.constrain(
         proposed_weights,
@@ -138,4 +182,7 @@ def execute_native_target_transition(
     return risk_target, execution, effective_holds
 
 
-__all__ = ["execute_native_target_transition"]
+__all__ = [
+    "execute_native_target_transition",
+    "validate_risk_execution_compatibility",
+]

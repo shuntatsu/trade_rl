@@ -28,7 +28,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
+      "sha256": "85e4dcb524647f719997cb415558548f78884066e64eb6bbdd2835a5a9801913"
     }
   ],
   "code_references": [
@@ -86,7 +86,7 @@
       "kind": "function",
       "source_sha256": "299aaa0c03bf75419cc96bdd02c578c64a497a6a4575b815d708617adaf647a2",
       "label_ja": "全銘柄portfolio policyを実行",
-      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorを既存のshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenは既存replayが所有します。",
+      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorをsimulation-owned sessionのshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenはsessionが所有します。",
       "variables": [
         {
           "name": "policy",
@@ -157,6 +157,19 @@
       "variables": [],
       "tests": [
         "tests/simulation/test_execution_v2.py"
+      ]
+    },
+    {
+      "id": "portfolio-session-owner",
+      "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
+      "kind": "class",
+      "source_sha256": "84e2eca5912f239501e55bbd2df416e73bc5f934d604ea324f412973692abbdd",
+      "label_ja": "数値portfolio sessionを継続",
+      "description_ja": "同じBookState・MarketExecutor・native indexを一native-barごとに引き継ぎます。book viewはcloneで、latency-aware actor boundary後のterminal flattenをsessionが予約し、transition failure後の再試行を拒否します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
+        "tests/evaluation/test_shared_portfolio_replay.py"
       ]
     }
   ]

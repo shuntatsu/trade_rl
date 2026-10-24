@@ -27,9 +27,13 @@ from trade_rl.simulation import (
 )
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
-from trade_rl.simulation.native_transition import execute_native_target_transition
-from trade_rl.simulation.orders.model import OrderEvent
+from trade_rl.simulation.native_transition import (
+    execute_native_target_transition,
+    validate_risk_execution_compatibility,
+)
+from trade_rl.simulation.orders.model import OrderEvent, PendingOrder
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
+from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.portfolio import (
     PortfolioAccountSnapshot,
@@ -451,12 +455,7 @@ def _validate_risk_execution_compatibility(
     risk: PreTradeRisk,
     executor: MarketExecutor,
 ) -> None:
-    execution_limit = float(executor.cost.max_leverage)
-    if (
-        risk.config.max_gross > execution_limit
-        or risk.config.max_abs_weight > execution_limit
-    ):
-        raise ValueError("risk exposure limits must not exceed execution max_leverage")
+    validate_risk_execution_compatibility(risk, executor)
 
 
 def _protective_exit_pending(strategy: SingleSymbolStrategy) -> bool:
@@ -507,7 +506,7 @@ def _portfolio_decision_snapshot(
     index: int,
     agent_stop_index: int,
     book: BookState,
-    executor: MarketExecutor,
+    active_orders: tuple[PendingOrder, ...],
     risk: PreTradeRisk,
 ) -> PortfolioDecisionSnapshot:
     """Copy one causal row and current account state into immutable primitives."""
@@ -563,7 +562,7 @@ def _portfolio_decision_snapshot(
         insolvent=bool(book.insolvent),
         termination_reason=termination_reason,
     )
-    active_orders = tuple(
+    order_snapshots = tuple(
         PortfolioPendingOrderSnapshot(
             symbol_index=int(order.intent.symbol_index),
             order_type=order.intent.order_type.value,
@@ -588,7 +587,7 @@ def _portfolio_decision_snapshot(
             ),
             reduce_only=bool(order.intent.reduce_only),
         )
-        for order in executor.compatibility_order_book.active_orders
+        for order in active_orders
     )
     timestamp_ns = int(
         observations[0].timestamp.astype("datetime64[ns]").astype(np.int64)
@@ -618,7 +617,7 @@ def _portfolio_decision_snapshot(
             bool(value) for value in observations[0].global_feature_available
         ),
         account=account,
-        active_orders=active_orders,
+        active_orders=order_snapshots,
         risk=PortfolioRiskLimits(
             max_gross=float(config.max_gross),
             max_abs_weight=float(config.max_abs_weight),
@@ -1094,13 +1093,6 @@ def _run_shared_cash_replay_core(
         row_index=start_index,
         selected_symbol_indices=roster_symbol_indices,
     )
-    initial_prices = dataset.resolved_array("mark_price")[start_index]
-    book = BookState.zero(
-        dataset.n_symbols,
-        initial_capital,
-        initial_prices,
-        contract_multipliers=dataset.contract_multipliers,
-    )
     executed_entry_prices = _ExecutedEntryPrices(dataset.n_symbols)
     execution_observation: StatefulExecutionObservation | None = None
     execution_observation_count = 0
@@ -1112,16 +1104,44 @@ def _run_shared_cash_replay_core(
         execution_observation = observation
         execution_observation_count += 1
 
-    executor = MarketExecutor(
-        dataset,
-        resolved_execution_cost,
-        market_order_profile=market_order_profile,
-        execution_observer=retain_latest_execution_observation,
-    )
-    risk_controller = risk or PreTradeRisk.default_for_execution(
-        max_leverage=executor.cost.max_leverage
-    )
-    _validate_risk_execution_compatibility(risk_controller, executor)
+    portfolio_session: SharedPortfolioSession | None = None
+    executor: MarketExecutor | None = None
+    if portfolio_mode:
+        portfolio_session = SharedPortfolioSession(
+            dataset,
+            start_index=start_index,
+            stop_index=stop_index,
+            initial_capital=initial_capital,
+            execution_cost=execution_cost,
+            risk=risk,
+            market_order_profile=market_order_profile,
+            settle_terminal_position=settle_terminal_position,
+            execution_observer=retain_latest_execution_observation,
+        )
+        if portfolio_session.agent_stop_index != agent_stop_index:
+            raise RuntimeError("portfolio session agent stop differs from replay")
+        book = portfolio_session.book
+        risk_controller = portfolio_session.risk_controller
+        execution_policy_digest = portfolio_session.execution_policy_digest
+    else:
+        initial_prices = dataset.resolved_array("mark_price")[start_index]
+        book = BookState.zero(
+            dataset.n_symbols,
+            initial_capital,
+            initial_prices,
+            contract_multipliers=dataset.contract_multipliers,
+        )
+        executor = MarketExecutor(
+            dataset,
+            resolved_execution_cost,
+            market_order_profile=market_order_profile,
+            execution_observer=retain_latest_execution_observation,
+        )
+        risk_controller = risk or PreTradeRisk.default_for_execution(
+            max_leverage=executor.cost.max_leverage
+        )
+        _validate_risk_execution_compatibility(risk_controller, executor)
+        execution_policy_digest = executor.execution_policy_digest
     current_intents = [PositionIntent.FLAT for _ in range(dataset.n_symbols)]
     position_age_bars = [0 for _ in range(dataset.n_symbols)]
     minimum_hold_locked = [False for _ in range(dataset.n_symbols)]
@@ -1158,15 +1178,29 @@ def _run_shared_cash_replay_core(
         borrow_cost_before = float(book.borrow_cost)
         turnover_total_before = float(book.turnover_total)
         max_drawdown_before = float(book.max_drawdown)
-        risk_target, execution, effective_holds = execute_native_target_transition(
-            executor,
-            book,
-            risk_controller,
-            proposal_weights,
-            start_index=interval_index,
-            hold_current_quantity_symbols=hold_current_quantity_symbols,
-            emergency_flatten_mask=emergency_flatten_mask,
-        )
+        if portfolio_session is not None:
+            if interval_index != portfolio_session.current_index:
+                raise RuntimeError("portfolio session index differs from replay")
+            if emergency_flatten_mask is None:
+                risk_target, execution, effective_holds = portfolio_session.advance(
+                    proposal_weights,
+                    hold_current_quantity_symbols=hold_current_quantity_symbols,
+                )
+            else:
+                risk_target, execution, effective_holds = (
+                    portfolio_session.settle_next_interval()
+                )
+        else:
+            assert executor is not None
+            risk_target, execution, effective_holds = execute_native_target_transition(
+                executor,
+                book,
+                risk_controller,
+                proposal_weights,
+                start_index=interval_index,
+                hold_current_quantity_symbols=hold_current_quantity_symbols,
+                emergency_flatten_mask=emergency_flatten_mask,
+            )
         if execution.next_index <= interval_index:
             raise RuntimeError("execution did not advance replay index")
         if (
@@ -1239,12 +1273,13 @@ def _run_shared_cash_replay_core(
         )
         if portfolio_mode:
             assert _portfolio_policy is not None
+            assert portfolio_session is not None
             snapshot = _portfolio_decision_snapshot(
                 dataset,
                 index=index,
                 agent_stop_index=agent_stop_index,
-                book=book,
-                executor=executor,
+                book=portfolio_session.book,
+                active_orders=portfolio_session.active_orders,
                 risk=risk_controller,
             )
             proposal = _portfolio_policy.decide_portfolio(snapshot)
@@ -1552,7 +1587,7 @@ def _run_shared_cash_replay_core(
         )
         ledger_evidence = SharedCashReplayLedgerEvidence(
             dataset_id=dataset.dataset_id,
-            execution_policy_digest=executor.execution_policy_digest,
+            execution_policy_digest=execution_policy_digest,
             start_index=start_index,
             stop_index=stop_index,
             intervals=tuple(ledger_intervals),

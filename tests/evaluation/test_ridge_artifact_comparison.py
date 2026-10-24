@@ -44,6 +44,22 @@ def test_mean_absolute_avoids_overflow_before_finite_average() -> None:
     assert api._mean_absolute((1e308, 1e308)) == 1e308
 
 
+def test_mse_skill_is_defined_for_constant_nonzero_targets() -> None:
+    api = _comparison_api()
+
+    metrics = api._error_metrics((0.0, 0.0), (0.1, 0.1))
+
+    assert metrics.zero_rmse == pytest.approx(0.1)
+    assert metrics.mse_skill == pytest.approx(0.0)
+
+
+def test_mse_skill_validation_names_zero_forecast_error() -> None:
+    api = _comparison_api()
+
+    with pytest.raises(ValueError, match="zero-forecast squared error is zero"):
+        api.ForecastErrorMetrics(1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
 def _dataset() -> MarketDataset:
     offsets_minutes = np.asarray([0, 30, 120, 180, 360, 390], dtype=np.int64)
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (

@@ -213,7 +213,9 @@ class ForecastErrorMetrics:
         zero_rmse = cast(float, values["zero_rmse"])
         skill = values["mse_skill"]
         if (zero_rmse == 0.0) != (skill is None):
-            raise ValueError("mse_skill is undefined exactly for a zero baseline")
+            raise ValueError(
+                "mse_skill is undefined exactly when zero-forecast squared error is zero"
+            )
         expected_improvement = cast(float, values["zero_mae"]) - cast(
             float, values["mae"]
         )

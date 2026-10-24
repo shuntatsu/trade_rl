@@ -1401,6 +1401,21 @@ def _validate_arm(
     diagnostics = _validate_diagnostics(arm["diagnostics"])
     if diagnostics.termination_reasons:
         raise ValueError("complete comparison cannot contain termination diagnostics")
+    if cash_arm:
+        closed = diagnostics.closed_trades
+        if (
+            diagnostics.n_trades != 0
+            or diagnostics.rebalance_events != 0
+            or closed.closed_trades != 0
+            or closed.winning_trades != 0
+            or closed.losing_trades != 0
+            or closed.breakeven_trades != 0
+            or closed.open_positions != 0
+            or closed.net_realized_pnl != 0.0
+            or closed.gross_profit != 0.0
+            or closed.gross_loss != 0.0
+        ):
+            raise ValueError("cash arm diagnostics cannot report trading activity")
     metrics = _object(
         arm["metrics"],
         field="metrics",

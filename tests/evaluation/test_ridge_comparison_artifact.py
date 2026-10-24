@@ -343,6 +343,56 @@ def _semantic_mutations() -> tuple[tuple[str, Mutation], ...]:
         second_decision["position_quantity_before"] = [1.0, 0.0]
         second_decision["position_quantity_after"] = [1.0, 0.0]
 
+    def cash_arm_claims_trades(payload):
+        cash = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        diagnostics = cast(dict[str, object], cash["diagnostics"])
+        diagnostics["n_trades"] = 1
+        _refresh_arm_metrics(cash)
+
+    def cash_arm_claims_rebalance(payload):
+        cash = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        diagnostics = cast(dict[str, object], cash["diagnostics"])
+        diagnostics["rebalance_events"] = 1
+        _refresh_arm_metrics(cash)
+
+    def cash_arm_claims_open_position(payload):
+        cash = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        diagnostics = cast(dict[str, object], cash["diagnostics"])
+        cast(dict[str, object], diagnostics["closed_trades"])["open_positions"] = 1
+        _refresh_arm_metrics(cash)
+
+    def cash_arm_claims_closed_trade(payload, *, realized_pnl: float):
+        cash = cast(dict[str, object], cast(list[object], payload["arms"])[0])
+        diagnostics = cast(dict[str, object], cash["diagnostics"])
+        closed = cast(dict[str, object], diagnostics["closed_trades"])
+        is_win = realized_pnl > 0.0
+        closed.update(
+            {
+                "average_realized_pnl": realized_pnl,
+                "breakeven_trades": 0,
+                "closed_trades": 1,
+                "gross_loss": max(-realized_pnl, 0.0),
+                "gross_profit": max(realized_pnl, 0.0),
+                "losing_trades": int(not is_win),
+                "net_realized_pnl": realized_pnl,
+                "open_positions": 0,
+                "profit_factor": (
+                    max(realized_pnl, 0.0) / max(-realized_pnl, 0.0)
+                    if realized_pnl < 0.0
+                    else None
+                ),
+                "win_rate": float(is_win),
+                "winning_trades": int(is_win),
+            }
+        )
+        _refresh_arm_metrics(cash)
+
+    def cash_arm_claims_winning_trade(payload):
+        cash_arm_claims_closed_trade(payload, realized_pnl=1.0)
+
+    def cash_arm_claims_losing_trade(payload):
+        cash_arm_claims_closed_trade(payload, realized_pnl=-1.0)
+
     def funding_event_not_joined_to_interval(payload):
         arms = cast(list[object], payload["arms"])
         arm = cast(dict[str, object], arms[1])
@@ -396,6 +446,14 @@ def _semantic_mutations() -> tuple[tuple[str, Mutation], ...]:
         ("cash arm order event", cash_arm_contains_order),
         ("cash arm non-flat intent", cash_arm_requests_position),
         ("cash arm non-flat quantity", cash_arm_has_position),
+        ("cash arm trade diagnostic with recomputed metric", cash_arm_claims_trades),
+        (
+            "cash arm rebalance diagnostic with recomputed metric",
+            cash_arm_claims_rebalance,
+        ),
+        ("cash arm open position diagnostic", cash_arm_claims_open_position),
+        ("cash arm winning trade diagnostics", cash_arm_claims_winning_trade),
+        ("cash arm losing trade diagnostics", cash_arm_claims_losing_trade),
         ("funding event not joined to interval", funding_event_not_joined_to_interval),
         (
             "ledger drawdown below return drawdown",

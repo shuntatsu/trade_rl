@@ -40,7 +40,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
+      "sha256": "27e56770926b0328ff31b6186af70c08f9751b215fb59a2548615ad1ec633f0d"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -295,6 +295,42 @@
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-transform",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
+      "kind": "class",
+      "source_sha256": "afdb116748556c5a2b97db52505b2728857cdc14435e929fcf520bed99481ed3",
+      "label_ja": "fit範囲と環境へbindする観測変換",
+      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-transform-fit",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.fit_portfolio_observation_transform",
+      "kind": "function",
+      "source_sha256": "d14863b31c6d0e81eeed92b846abc8823e7d29ef139fb6893d5dc6250c21ed4d",
+      "label_ja": "actor-fit範囲だけで観測統計を固定",
+      "description_ja": "local/global feature statisticsと銘柄別mark referenceをactor-fit rowsから作り、Dataset・clock・objective・risk・execution contextへbindします。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py"
+      ]
+    },
+    {
+      "id": "portfolio-gym-observation-wrapper",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioGymObservationWrapper",
+      "kind": "class",
+      "source_sha256": "53859fe624aeff09deaff29407a9b6ff1040c3533b1a9a211ef68d7e5a35ea2c",
+      "label_ja": "native Gym transitionを保つ変換wrapper",
+      "description_ja": "観測だけを変換し、action・reward・termination・infoを保ちます。変換失敗後にnative stepが進んだ可能性があればresetまで再stepを拒否します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py"
       ]
     },
     {

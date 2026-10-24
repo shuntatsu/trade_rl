@@ -237,6 +237,19 @@ numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.
 
+`strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
+Gym Dict. Its versioned payload binds the raw/transformed layouts and
+Dataset/objective/clock/risk/execution context. Local features use the existing
+PPO normalizer; global features and per-symbol geometric mark-price references
+are fitted only on `[start_index, agent_stop_index)`. Availability masks remain
+explicit, account and active-order notionals use fixed initial capital, and UTC
+nanoseconds are differenced before conversion to floating point. The wrapper
+preserves native rewards and termination facts, uses absorbing padding after
+termination, and records then poisons itself if transformation fails after a
+raw step may have advanced. This does not make observations a complete account
+state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
+or change legacy PPO behavior.
+
 `run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
 sequences. It validates every symbol schedule before execution. `None` means no
 new actor decision and keeps the cached target and pending order progressing;

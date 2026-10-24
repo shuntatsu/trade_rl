@@ -50,6 +50,7 @@ artifacts / evidence
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
+| joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
 | portfolio policyへ渡すcurrent snapshotの組み立て | `trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot` |
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |

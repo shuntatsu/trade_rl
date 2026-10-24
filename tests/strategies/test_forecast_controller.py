@@ -159,3 +159,21 @@ def test_forecast_controller_rejects_invalid_hysteresis(
 ) -> None:
     with pytest.raises(ValueError):
         ForecastIntentConfig(entry_threshold=entry, exit_threshold=exit_threshold)
+
+
+@pytest.mark.parametrize(
+    ("entry", "exit_threshold", "field_name"),
+    (
+        (True, 0.02, "entry_threshold"),
+        (False, 0.02, "entry_threshold"),
+        (0.10, False, "exit_threshold"),
+        (2.0, True, "exit_threshold"),
+    ),
+)
+def test_forecast_intent_config_rejects_boolean_thresholds(
+    entry: float,
+    exit_threshold: float,
+    field_name: str,
+) -> None:
+    with pytest.raises(ValueError, match=f"{field_name}.*boolean"):
+        ForecastIntentConfig(entry_threshold=entry, exit_threshold=exit_threshold)

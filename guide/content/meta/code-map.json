@@ -188,7 +188,7 @@
       "id": "financial-clock-contract",
       "symbol": "trade_rl.simulation.objectives.clock.FinancialClockContract",
       "kind": "class",
-      "source_sha256": "ea21c9c7ed64e988a8a6f9ae400ce59f12c717df26b2872e731d8da52044cf7d",
+      "source_sha256": "a03f793f1f6919ad45927b7cd4b9f0faff90382995b717b1a953700d5149121c",
       "label_ja": "regular decision / execution / reward clock",
       "description_ja": "秒単位intervalの整合、finite horizonとgamma/GAEの範囲、reward schemaを宣言します。terminal-profit alignmentは実環境のparityを証明しません。",
       "variables": [],

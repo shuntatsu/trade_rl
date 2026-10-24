@@ -88,6 +88,8 @@ proposal_weight
 
 minimum-holdによる抑制の後にもhard riskを適用するため、drawdown stopやemergency flattenは保有期間中でも縮小・全決済できます。保有期間は決められた日数まで必ず持つ保証ではありません。
 
+明示されたshared-cash terminal settlementでは、strategy roster内の実保有だけをterminal `emergency_flatten_mask`へ渡し、通常の`max_turnover`で最後のclose requestを縮小しません。通常のstrategy decisionsは引き続き同じturnover上限に従います。closeは設定済みのrisk・execution経路を通り、venue rule、liquidity、fill capacity、cost、pending orderの扱いもそのままです。容量や制約が足りなければ残数量・注文残を保持し、exact-flat validationは失敗します。
+
 ```text
 proposal_weight
       ↓

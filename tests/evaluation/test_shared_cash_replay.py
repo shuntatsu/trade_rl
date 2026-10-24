@@ -215,6 +215,165 @@ def test_shared_cash_replay_settles_every_symbol_before_the_exclusive_close() ->
     assert len(result.ledger_evidence.intervals) == len(result.returns.values)
 
 
+@pytest.mark.parametrize(
+    ("intents", "drifted_prices"),
+    [
+        pytest.param(
+            (PositionIntent.LONG, PositionIntent.LONG),
+            (120.0, 240.0),
+            id="long-long-drift",
+        ),
+        pytest.param(
+            (PositionIntent.SHORT, PositionIntent.SHORT),
+            (120.0, 240.0),
+            id="short-short-drift",
+        ),
+        pytest.param(
+            (PositionIntent.LONG, PositionIntent.SHORT),
+            (90.0, 220.0),
+            id="mixed-side-drift",
+        ),
+    ],
+)
+def test_shared_cash_terminal_settlement_flattens_past_turnover_cap(
+    intents: tuple[PositionIntent, PositionIntent],
+    drifted_prices: tuple[float, float],
+) -> None:
+    close = np.tile(np.asarray([[100.0, 200.0]]), (6, 1))
+    close[4:, :] = drifted_prices
+    dataset = _market(close)
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.4,
+            max_abs_weight=0.2,
+            max_turnover=0.4,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+    execution_cost = ExecutionCostConfig(
+        fee_rate=0.001,
+        spread_rate=0.0,
+        impact_rate=0.0,
+        max_participation_rate=1.0,
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        tuple(FixedIntent(intent) for intent in intents),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.2,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk=risk,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    terminal_interval = ledger.intervals[-1]
+    terminal_weights = (
+        np.asarray(
+            [
+                float(Fraction(quantity)) * price
+                for quantity, price in zip(
+                    terminal_interval.exact_quantities_before,
+                    drifted_prices,
+                    strict=True,
+                )
+            ]
+        )
+        / terminal_interval.portfolio_value_before
+    )
+    assert float(np.abs(terminal_weights).sum()) > risk.config.max_turnover
+    assert ledger.terminal_exact_quantities == ("0", "0")
+    assert ledger.active_order_remainders == ()
+    assert result.book.total_cost > 0.0
+    assert ledger.final_total_cost == pytest.approx(result.book.total_cost)
+    assert ledger.final_turnover_total == pytest.approx(result.book.turnover_total)
+
+
+def test_shared_cash_without_terminal_settlement_keeps_ordinary_turnover_cap() -> None:
+    close = np.tile(np.asarray([[100.0, 200.0]]), (6, 1))
+    close[4:, :] = (120.0, 240.0)
+    strategies = tuple(
+        SequenceIntent(
+            (
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.FLAT,
+            )
+        )
+        for _ in range(2)
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        _market(close),
+        strategies,
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.2,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=1.0,
+                max_abs_weight=0.5,
+                max_turnover=0.01,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=False,
+    )
+
+    last_decision = result.decisions[-1]
+    assert last_decision.index == 4
+    assert "max_turnover" in last_decision.risk_reasons
+    assert "emergency_flatten" not in last_decision.risk_reasons
+
+
+def test_shared_cash_terminal_settlement_preserves_residual_when_capacity_is_zero() -> (
+    None
+):
+    close = np.tile(np.asarray([[100.0, 200.0]]), (6, 1))
+    close[4:, :] = (120.0, 240.0)
+    volume = np.full((6, 2), 1_000_000.0)
+    volume[5, :] = 0.0
+    dataset = _market(close, volume=volume)
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.4,
+            max_abs_weight=0.2,
+            max_turnover=0.4,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG), FixedIntent(PositionIntent.LONG)),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.2,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert any(Fraction(quantity) != 0 for quantity in ledger.terminal_exact_quantities)
+    assert ledger.active_order_remainders
+
+
 def test_shared_cash_replay_enforces_minimum_hold_from_actual_shared_fills() -> None:
     dataset = _market(np.full((6, 1), 100.0))
     strategy = SequenceIntent(

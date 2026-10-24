@@ -51,6 +51,30 @@ from trade_rl.strategies.rules.mean_reversion import (
 from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
 
 
+def _normalized_fit_cutoff(value: np.datetime64 | str | int) -> np.datetime64:
+    if not isinstance(value, np.datetime64):
+        # Keep the pre-existing convenience conversion for non-typed callers.
+        # Canonical raw ISO RunConfig values are validated before reaching here.
+        return np.datetime64(value, "ns")
+
+    if np.isnat(value):
+        raise ValueError("fit_cutoff must not be NaT")
+    if np.datetime_data(value.dtype)[0] == "generic":
+        raise ValueError("fit_cutoff must have a datetime unit")
+    try:
+        normalized = value.astype("datetime64[ns]")
+        round_trip = normalized.astype(value.dtype)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            "fit_cutoff must be losslessly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(normalized) or round_trip != value:
+        raise ValueError(
+            "fit_cutoff must be losslessly representable as datetime64[ns]"
+        )
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class LeanCandidateConfig:
     """Only the pre-registered degrees of freedom for the initial M2 suite."""
@@ -164,9 +188,10 @@ class LeanCandidateConfig:
             self.supervised_forecast_horizon_hours,
             field="supervised_forecast_horizon_hours",
         )
+        fit_cutoff = _normalized_fit_cutoff(self.fit_cutoff)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
-        object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "fit_cutoff", fit_cutoff)
         object.__setattr__(
             self,
             "supervised_forecast_horizon_hours",

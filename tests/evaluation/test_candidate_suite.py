@@ -83,6 +83,91 @@ def market(*, bar_hours: int = 1, n_bars: int = 60) -> MarketDataset:
     )
 
 
+def _candidate_config(
+    *,
+    fit_cutoff: np.datetime64,
+) -> candidate_suite.LeanCandidateConfig:
+    return candidate_suite.LeanCandidateConfig(
+        signal_index=0,
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+        fit_cutoff=fit_cutoff,
+        rule_entry_threshold=0.10,
+        rule_exit_threshold=0.02,
+        forecast_entry_threshold=0.01,
+        forecast_exit_threshold=0.002,
+        ppo_total_timesteps=256,
+    )
+
+
+@pytest.mark.parametrize(
+    ("fit_cutoff", "error"),
+    (
+        pytest.param(
+            np.datetime64("1677-01-01", "s"),
+            "losslessly representable",
+            id="coarse-unit-wrap",
+        ),
+        pytest.param(np.datetime64("NaT", "s"), "must not be NaT", id="typed-nat"),
+        pytest.param(
+            np.datetime64("1970-01-01T00:00:00.000000000001", "ps"),
+            "losslessly representable",
+            id="subnanosecond-fraction",
+        ),
+    ),
+)
+def test_lean_candidate_config_rejects_lossy_typed_fit_cutoff(
+    fit_cutoff: np.datetime64,
+    error: str,
+) -> None:
+    if not np.isnat(fit_cutoff) and fit_cutoff.dtype == np.dtype("datetime64[s]"):
+        assert fit_cutoff.astype("datetime64[ns]") == np.datetime64(
+            "2261-07-22T23:34:33.709551616", "ns"
+        )
+
+    with pytest.raises(ValueError, match=f"fit_cutoff.*{error}"):
+        _candidate_config(fit_cutoff=fit_cutoff)
+
+
+@pytest.mark.parametrize(
+    ("fit_cutoff", "expected"),
+    (
+        pytest.param(
+            np.datetime64("2026-01-01T04", "h"),
+            "2026-01-01T04:00:00.000000000",
+            id="coarse-unit",
+        ),
+        pytest.param(
+            np.datetime64("2026-01-01T04", "2h"),
+            "2026-01-01T04:00:00.000000000",
+            id="multiplier-unit",
+        ),
+        pytest.param(
+            np.datetime64("1970-01-01T00:00:00.123456789000", "ps"),
+            "1970-01-01T00:00:00.123456789",
+            id="exact-fine-unit",
+        ),
+        pytest.param(
+            np.datetime64("1677-09-21T00:12:43.145224193", "ns"),
+            "1677-09-21T00:12:43.145224193",
+            id="minimum-nanosecond",
+        ),
+        pytest.param(
+            np.datetime64("2262-04-11T23:47:16.854775807", "ns"),
+            "2262-04-11T23:47:16.854775807",
+            id="maximum-nanosecond",
+        ),
+    ),
+)
+def test_lean_candidate_config_preserves_lossless_typed_fit_cutoff(
+    fit_cutoff: np.datetime64,
+    expected: str,
+) -> None:
+    assert _candidate_config(fit_cutoff=fit_cutoff).fit_cutoff == np.datetime64(
+        expected, "ns"
+    )
+
+
 @pytest.mark.parametrize("horizon_hours", (24, 72))
 def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch,

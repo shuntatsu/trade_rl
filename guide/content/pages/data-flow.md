@@ -42,7 +42,7 @@ source URL、SHA-256、size、取引所metadata等を保存し、再取得時に
 feature_available_time <= decision_time
 ```
 
-加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。
+加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。Dataset境界ではtimestampsと明示available_atをns時計で検証し、範囲外へのwrap、sub-nanosecond精度の切り捨て、NaTを拒否します。有効なcoarser-unit timestampsの入力表現は維持し、available_atはnsへ正規化します。
 
 PPOを含む候補群を学習する前に、学習対象の銘柄について、学習に使う価格の利用可能時刻が締切までとDatasetに記録されているかを確認します。報酬計算や最終決済で使う末尾の価格も対象です。遅れて届いた価格があれば、学習期間を短くして続けずに停止します。ここで確認するのはDatasetに記録された利用可能時刻であり、実際のvenue arrivalを独立に証明するものではありません。
 

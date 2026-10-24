@@ -7,7 +7,10 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.evaluation.replay import (
+    run_scripted_shared_cash_replay,
+    run_shared_cash_replay,
+)
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.strategies.position_intent import PositionIntent
@@ -91,6 +94,58 @@ def _two_symbol_constant_price_market(
         taker_fee_rate=zero_rates.copy(),
         spread_rate=zero_rates.copy(),
         contract_multipliers=np.ones(2, dtype=np.float64),
+    )
+
+
+def _delayed_two_symbol_split_market() -> MarketDataset:
+    n_bars = 8
+    close = np.tile(np.asarray([[100.0, 200.0]], dtype=np.float64), (n_bars, 1))
+    close[4:, 0] = 50.0
+    open_prices = np.vstack((close[0], close[:-1]))
+    open_prices[4:, 0] = 50.0
+    volume = np.full((n_bars, 2), 1_000_000.0, dtype=np.float64)
+    volume[1:6] = (
+        (2.0, 1.0),
+        (1.0, 0.25),
+        (0.5, 0.25),
+        (1_000_000.0, 0.25),
+        (1_000_000.0, 0.25),
+    )
+    funding_rate = np.zeros((n_bars, 2), dtype=np.float64)
+    funding_rate[3] = (0.02, 0.005)
+    funding_due = np.zeros((n_bars, 2), dtype=np.bool_)
+    funding_due[3] = True
+    borrow_rate = np.zeros((n_bars, 2), dtype=np.float64)
+    borrow_rate[:, 1] = 0.365
+    split_factor = np.ones((n_bars, 2), dtype=np.float64)
+    split_factor[4, 0] = 2.0
+    zero_rates = np.zeros((n_bars, 2), dtype=np.float64)
+    return MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("AAA", "BBB"),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((n_bars, 2, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=open_prices,
+        high=np.maximum(open_prices, close),
+        low=np.minimum(open_prices, close),
+        close=close,
+        volume=volume,
+        funding_rate=funding_rate,
+        funding_due=funding_due,
+        borrow_rate=borrow_rate,
+        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+        feature_names=("literal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        fee_rate=zero_rates.copy(),
+        maker_fee_rate=zero_rates.copy(),
+        taker_fee_rate=zero_rates.copy(),
+        spread_rate=zero_rates.copy(),
+        contract_multipliers=np.ones(2, dtype=np.float64),
+        split_factor=split_factor,
     )
 
 
@@ -481,4 +536,258 @@ def test_shared_cash_partial_fills_reconcile_fees_funding_and_short_borrow() -> 
     )
     assert ledger.terminal_exact_quantities == ("0", "0")
     assert result.book.quantities == pytest.approx((0.0, 0.0), abs=1e-10, rel=0.0)
+    assert ledger.active_order_remainders == ()
+
+
+def test_delayed_two_symbol_raw_events_reconcile_accounting_across_split() -> None:
+    initial_cash = Fraction(1_000)
+    fee_rate = Fraction(1, 100)
+    annual_borrow_rate = Fraction(365, 1_000)
+    hourly_year_fraction = Fraction(1, 8_760)
+    result = run_scripted_shared_cash_replay(
+        _delayed_two_symbol_split_market(),
+        actions_by_symbol={
+            "AAA": (PositionIntent.LONG, None, None, None, None),
+            "BBB": (PositionIntent.SHORT, None, None, None, None),
+        },
+        start_index=0,
+        stop_index=7,
+        gross_budget=0.2,
+        initial_capital=float(initial_cash),
+        execution_cost=ExecutionCostConfig(
+            fee_rate=float(fee_rate),
+            maker_fee_rate=0.0,
+            taker_fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=0.5,
+            slippage_std=0.0,
+            max_leverage=1.0,
+            maintenance_margin_rate=0.0,
+            borrow_rate_multiplier=1.0,
+            order_latency_bars=1,
+            allow_short=True,
+        ),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert tuple(interval.next_index for interval in ledger.intervals) == tuple(
+        range(1, 8)
+    )
+
+    fills_by_symbol: dict[str, list[OrderEvent]] = {"AAA": [], "BBB": []}
+    for interval in ledger.intervals:
+        for event in interval.order_events:
+            if event.filled_quantity != 0.0:
+                fills_by_symbol[("AAA", "BBB")[event.symbol_index]].append(event)
+
+    expected_fills = {
+        "AAA": (
+            Fraction(1),
+            Fraction(1, 2),
+            Fraction(1, 4),
+            Fraction(1, 2),
+            Fraction(-4),
+        ),
+        "BBB": (
+            Fraction(-1, 2),
+            Fraction(-1, 8),
+            Fraction(-1, 8),
+            Fraction(-1, 8),
+            Fraction(-1, 8),
+            Fraction(1),
+        ),
+    }
+    initial_order_ids: dict[str, str] = {}
+    for symbol, events in fills_by_symbol.items():
+        assert (
+            tuple(Fraction(str(event.filled_quantity)) for event in events)
+            == expected_fills[symbol]
+        )
+        initial_order_ids[symbol] = events[0].order_id
+
+    aaa_fills = fills_by_symbol["AAA"]
+    assert tuple(event.processing_index for event in aaa_fills) == (1, 2, 3, 5, 6)
+    assert tuple(event.event_type for event in aaa_fills) == (
+        "partial_fill",
+        "partial_fill",
+        "partial_fill",
+        "filled",
+        "filled",
+    )
+    assert (
+        tuple(event.order_id for event in aaa_fills[:3])
+        == (initial_order_ids["AAA"],) * 3
+    )
+    assert Fraction(str(aaa_fills[2].remaining_quantity)) == Fraction(1, 4)
+    assert aaa_fills[3].order_id != initial_order_ids["AAA"]
+    assert aaa_fills[4].order_id != aaa_fills[3].order_id
+    assert tuple(event.processing_index for event in fills_by_symbol["BBB"]) == (
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    )
+    assert tuple(event.event_type for event in fills_by_symbol["BBB"]) == (
+        "partial_fill",
+        "partial_fill",
+        "partial_fill",
+        "partial_fill",
+        "filled",
+        "filled",
+    )
+    assert (
+        tuple(event.order_id for event in fills_by_symbol["BBB"][:5])
+        == (initial_order_ids["BBB"],) * 5
+    )
+    assert fills_by_symbol["BBB"][5].order_id != initial_order_ids["BBB"]
+    assert Fraction(str(fills_by_symbol["BBB"][2].remaining_quantity)) == Fraction(
+        -1, 4
+    )
+
+    split_cancellations = tuple(
+        event
+        for interval in ledger.intervals
+        for event in interval.order_events
+        if event.event_type == "cancelled"
+        and event.reason == "split_adjustment_required"
+    )
+    assert len(split_cancellations) == 1
+    assert split_cancellations[0].processing_index == 4
+    assert split_cancellations[0].symbol_index == 0
+    assert split_cancellations[0].order_id == initial_order_ids["AAA"]
+    assert Fraction(str(split_cancellations[0].remaining_quantity)) == Fraction(1, 4)
+    assert not any(
+        event.event_type == "cancelled" and event.order_id == initial_order_ids["BBB"]
+        for interval in ledger.intervals
+        for event in interval.order_events
+    )
+
+    split_interval = ledger.intervals[3]
+    assert split_interval.exact_quantities_before == ("7/4", "-3/4")
+    assert split_interval.exact_quantities_after == ("7/2", "-7/8")
+    surviving_bbb_fill = next(
+        event
+        for event in split_interval.order_events
+        if event.symbol_index == 1 and event.filled_quantity != 0.0
+    )
+    assert surviving_bbb_fill.order_id == initial_order_ids["BBB"]
+    assert Fraction(str(surviving_bbb_fill.filled_quantity)) == Fraction(-1, 8)
+    assert Fraction(str(surviving_bbb_fill.remaining_quantity)) == Fraction(-1, 8)
+    post_split_interval = ledger.intervals[4]
+    assert post_split_interval.exact_quantities_before == ("7/2", "-7/8")
+    assert post_split_interval.exact_quantities_after == ("4", "-1")
+    rebound_submissions = tuple(
+        event
+        for event in post_split_interval.order_events
+        if event.symbol_index == 0
+        and event.event_type == "submitted"
+        and event.processing_index == 4
+    )
+    assert len(rebound_submissions) == 1
+    assert rebound_submissions[0].order_id == aaa_fills[3].order_id
+    assert Fraction(str(rebound_submissions[0].remaining_quantity)) == Fraction(1, 2)
+    assert fills_by_symbol["BBB"][4].order_id == initial_order_ids["BBB"]
+    assert Fraction(str(fills_by_symbol["BBB"][4].remaining_quantity)) == 0
+
+    # Reconstruct each row from only raw fill events and literal fixture facts.
+    # The split changes AAA's units at row 4; it does not change cash.
+    quantities = [Fraction(0), Fraction(0)]
+    expected_cash = initial_cash
+    expected_fee_total = Fraction(0)
+    expected_funding_total = Fraction(0)
+    expected_borrow_total = Fraction(0)
+    filled_notional_total = Fraction(0)
+    signed_trade_cash_total = Fraction(0)
+    expected_borrow_by_index: dict[int, Fraction] = {}
+    for interval in ledger.intervals:
+        processing_index = interval.next_index
+        if processing_index == 4:
+            quantities[0] *= 2
+
+        interval_cash_flow = Fraction(0)
+        interval_fee = Fraction(0)
+        for event in interval.order_events:
+            if event.filled_quantity == 0.0:
+                continue
+            quantity = Fraction(str(event.filled_quantity))
+            assert event.execution_price is not None
+            price = Fraction(str(event.execution_price))
+            notional = abs(quantity) * price
+            assert Fraction(str(event.filled_notional)) == notional
+            interval_cash_flow -= quantity * price
+            interval_fee += notional * fee_rate
+            filled_notional_total += notional
+            quantities[event.symbol_index] += quantity
+
+        funding = Fraction(0)
+        if processing_index == 3:
+            # Literal row-3 financing: +7/4 AAA at $100 pays 2%; -3/4 BBB
+            # at $200 receives 0.5%.
+            funding = -(
+                quantities[0] * 100 * Fraction(1, 50)
+                + quantities[1] * 200 * Fraction(1, 200)
+            )
+        short_notional = max(-quantities[1], Fraction(0)) * 200
+        borrow = short_notional * annual_borrow_rate * hourly_year_fraction
+        expected_borrow_by_index[processing_index] = borrow
+
+        signed_trade_cash_total += interval_cash_flow
+        expected_cash += interval_cash_flow - interval_fee + funding - borrow
+        expected_fee_total += interval_fee
+        expected_funding_total += funding
+        expected_borrow_total += borrow
+
+        marks = (50 if processing_index >= 4 else 100, 200)
+        expected_equity = expected_cash + sum(
+            quantity * mark for quantity, mark in zip(quantities, marks, strict=True)
+        )
+        assert tuple(
+            Fraction(value) for value in interval.exact_quantities_after
+        ) == tuple(quantities)
+        assert interval.cash_after == pytest.approx(
+            float(expected_cash), abs=1e-10, rel=0.0
+        )
+        assert interval.portfolio_value_after == pytest.approx(
+            float(expected_equity), abs=1e-10, rel=0.0
+        )
+        assert interval.interval_cost == pytest.approx(
+            float(interval_fee), abs=1e-10, rel=0.0
+        )
+        assert interval.interval_funding == pytest.approx(
+            float(funding), abs=1e-10, rel=0.0
+        )
+        assert interval.interval_borrow_cost == pytest.approx(
+            float(borrow), abs=1e-10, rel=0.0
+        )
+
+    assert signed_trade_cash_total == 0
+    assert filled_notional_total == 800
+    assert expected_fee_total == 8
+    assert expected_funding_total == Fraction(-11, 4)
+    assert expected_borrow_total == Fraction(1, 32)
+    assert expected_borrow_by_index == {
+        1: Fraction(73, 17_520),
+        2: Fraction(73, 14_016),
+        3: Fraction(1, 160),
+        4: Fraction(511, 70_080),
+        5: Fraction(73, 8_760),
+        6: Fraction(0),
+        7: Fraction(0),
+    }
+    assert expected_cash == Fraction(31_655, 32)
+    assert float(expected_cash) == pytest.approx(ledger.final_cash, abs=1e-10, rel=0.0)
+    assert expected_cash == pytest.approx(result.book.cash, abs=1e-10, rel=0.0)
+    assert expected_cash == pytest.approx(
+        ledger.final_portfolio_value, abs=1e-10, rel=0.0
+    )
+    assert expected_fee_total == pytest.approx(ledger.final_total_cost, abs=1e-10)
+    assert expected_funding_total == pytest.approx(ledger.final_funding_pnl, abs=1e-10)
+    assert expected_borrow_total == pytest.approx(ledger.final_borrow_cost, abs=1e-10)
+    assert ledger.terminal_exact_quantities == ("0", "0")
     assert ledger.active_order_remainders == ()

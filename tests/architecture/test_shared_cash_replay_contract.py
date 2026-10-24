@@ -81,9 +81,11 @@ def test_cost_aware_forecast_contract_receives_optional_fill_budget() -> None:
     assert "intent_gross_budget=gross_budget" in getsource(
         replay_module.run_single_symbol_replay
     )
-    assert "intent_gross_budget=gross_budget" in getsource(
-        replay_module.run_shared_cash_replay
-    )
+    shared_replay_entrypoint = getsource(replay_module.run_shared_cash_replay)
+    shared_replay_core = getsource(replay_module._run_shared_cash_replay_core)
+    assert "gross_budget=gross_budget" in shared_replay_entrypoint
+    assert "resolved_gross_budget = gross_budget" in shared_replay_core
+    assert "intent_gross_budget=resolved_gross_budget" in shared_replay_core
     assert "current_position_quantity" in controller_decide
     assert "current_weight" in controller_decide
     assert "same_intent_target_weight" in controller_decide

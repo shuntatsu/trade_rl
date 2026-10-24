@@ -15,6 +15,8 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34の固定screenを1回実行した。12行すべての計算は完了したが、latency-2でcost-proxy armのreturnがposition-aware cost=0 armを下回り、screen全体は FAILED_SCREEN となった。詳細な結果・前提・限界は下のIssue #810 screen節に記録する。これは勝者や継続的な利益を示さず、元の48-cell gate、unused/final評価、PPO/RLまたはlive適格性を完了させない。
 
+追加した`run_shared_portfolio_replay`は、明示的に呼び出す一native-bar単位の数値portfolio policy seamであり、既存のshared-cash risk・execution・accounting経路を使う。M34 screenでは使っておらず、M34の結果・比較条件・legacy strategy defaultsを変更しない。これ自体はfit、実データreplay、選択、利益の証拠ではなく、PPOのjoint-portfolio学習を実装するものでもない。
+
 P0 software declarations now identify fixed-initial-capital net-profit,
 account mode, finite financial clock, and exact evaluation-window binding in
 `trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do

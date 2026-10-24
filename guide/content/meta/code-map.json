@@ -18,6 +18,9 @@
     "MarketExecutor",
     "run_single_symbol_replay",
     "run_scripted_shared_cash_replay",
+    "run_shared_portfolio_replay",
+    "PortfolioDecisionSnapshot",
+    "PortfolioTargetProposal",
     "ScriptedReplayAction",
     "ownership",
     "dependency"
@@ -26,7 +29,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "5ce4f6590ea55f86451340f56a5870b75785cecd1d66a61f432ec8a4da29056f"
+      "sha256": "ea91b30a7e908b30a4f4fe3bf6004c335dc07005616ad770d447a8a31a31c27f"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -36,7 +39,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "3f13b41f789a18440b04f6ea7cd3c25cf6509c16ae6656e2043366a5db9e26f0"
+      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -251,6 +254,44 @@
       "tests": [
         "tests/evaluation/test_shared_cash_replay.py",
         "tests/architecture/test_shared_cash_replay_contract.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-policy-replay",
+      "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "299aaa0c03bf75419cc96bdd02c578c64a497a6a4575b815d708617adaf647a2",
+      "label_ja": "全銘柄portfolio policyの共通replay",
+      "description_ja": "1 native barごとにdetached snapshotを一つ渡し、全symbol順のnumeric targetを既存のshared PreTradeRisk・MarketExecutor・BookState loopへ通します。numeric actionには別ledger schemaを使い、legacy intent resultは変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-decision-snapshot",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioDecisionSnapshot",
+      "kind": "class",
+      "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
+      "label_ja": "current-row portfolio actor snapshot",
+      "description_ja": "current-row StrategyObservation dataとaccount・active-order・risk factsをimmutable tuple/scalarへコピーします。runtime object、opaque order IDs、future rows、合成free/reserved cashを含みません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-target-proposal",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioTargetProposal",
+      "kind": "class",
+      "source_sha256": "e1e7594bb1c95d150912fb85c0c373c3c4ce2db1eb66eb796f2077c8cbc63b56",
+      "label_ja": "全銘柄のnumeric target proposal",
+      "description_ja": "全symbol順のfinite target weight vectorと明示exact-quantity HOLD indexesを表します。HOLDはcurrent book weightと一致し、Risk後も不変な場合だけ有効です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py"
       ]
     },
     {

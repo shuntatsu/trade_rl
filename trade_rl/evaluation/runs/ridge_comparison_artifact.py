@@ -920,6 +920,7 @@ def _validate_interval(
         if not 0 <= cast(float, capacity["participation_limit"]) <= 1:
             raise ValueError("capacity participation limit is invalid")
     funding = _sequence(interval["funding_events"], field="interval.funding_events")
+    funding_amounts: list[float] = []
     for funding_value in funding:
         boundary = FundingBoundaryEvidence.from_mapping(
             _object(funding_value, field="funding event")
@@ -930,6 +931,12 @@ def _validate_interval(
             or not start_ns <= boundary.timestamp_ns <= stop_ns
         ):
             raise ValueError("funding boundary is outside comparison scope")
+        funding_amounts.append(boundary.funding_amount)
+    _close(
+        cast(float, interval["interval_funding"]),
+        math.fsum(funding_amounts),
+        field="interval funding/event sum",
+    )
     return interval, before_q, after_q
 
 
@@ -945,6 +952,7 @@ def _validate_ledger(
     initial_capital: float,
     expected_policy_digest: str,
     expected_decision_count: int,
+    cash_arm: bool,
 ) -> tuple[dict[str, object], tuple[float, ...]]:
     ledger = _object(
         value,
@@ -1092,6 +1100,36 @@ def _validate_ledger(
                     float(exact),
                     field="decision post-execution quantity",
                 )
+            if cash_arm:
+                for field in ("intents", "effective_intents"):
+                    values = _sequence(decision[field], field=f"cash decision.{field}")
+                    if any(
+                        _integer(item, field=f"cash decision.{field}[]")
+                        != PositionIntent.FLAT.value
+                        for item in values
+                    ):
+                        raise ValueError("cash arm decisions must remain FLAT")
+                for field in (
+                    "changed_intents",
+                    "minimum_hold_suppressed",
+                    "minimum_hold_unlocked",
+                ):
+                    if any(_sequence(decision[field], field=f"cash decision.{field}")):
+                        raise ValueError("cash arm cannot change or suppress intents")
+                for field in (
+                    "position_age_bars_before",
+                    "position_age_bars_after",
+                    "position_quantity_before",
+                    "position_quantity_after",
+                    "proposal_weights",
+                    "target_weights",
+                ):
+                    values = _sequence(decision[field], field=f"cash decision.{field}")
+                    if any(
+                        _number(item, field=f"cash decision.{field}[]") != 0.0
+                        for item in values
+                    ):
+                        raise ValueError("cash arm decisions must remain uninvested")
         _close(
             cast(float, interval["portfolio_value_after"])
             / cast(float, interval["portfolio_value_before"])
@@ -1100,6 +1138,84 @@ def _validate_ledger(
             field="interval return/equity",
         )
         returned.append(cast(float, interval["interval_net_return"]))
+        order_events = _sequence(
+            interval["order_events"], field="interval.order_events"
+        )
+        capacity_events = _sequence(
+            interval["capacity_events"], field="interval.capacity_events"
+        )
+        if (
+            before_q == zeroes
+            and after_q == zeroes
+            and not order_events
+            and not capacity_events
+        ):
+            for field in ("interval_cost", "interval_funding", "interval_borrow_cost"):
+                _close(
+                    cast(float, interval[field]),
+                    0.0,
+                    field=f"flat interval {field}",
+                )
+            _close(
+                cast(float, interval["turnover_total_after"]),
+                cast(float, interval["turnover_total_before"]),
+                field="flat interval turnover",
+            )
+            expected_cash_change = math.fsum(
+                (
+                    cast(float, interval["interval_cash_interest"]),
+                    cast(float, interval["interval_dividend"]),
+                )
+            )
+            _close(
+                cast(float, interval["cash_after"])
+                - cast(float, interval["cash_before"]),
+                expected_cash_change,
+                field="flat interval cash flow",
+            )
+            _close(
+                cast(float, interval["portfolio_value_after"])
+                - cast(float, interval["portfolio_value_before"]),
+                expected_cash_change,
+                field="flat interval equity flow",
+            )
+            _close(
+                cast(float, interval["cash_before"]),
+                cast(float, interval["portfolio_value_before"]),
+                field="flat interval starting cash/equity",
+            )
+            _close(
+                cast(float, interval["cash_after"]),
+                cast(float, interval["portfolio_value_after"]),
+                field="flat interval ending cash/equity",
+            )
+        if cash_arm:
+            if before_q != zeroes or after_q != zeroes:
+                raise ValueError("cash arm must remain flat")
+            if order_events or capacity_events:
+                raise ValueError("cash arm cannot contain trading events")
+            for field in (
+                "interval_cost",
+                "interval_funding",
+                "interval_borrow_cost",
+                "interval_dividend",
+                "turnover_total_before",
+                "turnover_total_after",
+            ):
+                _close(
+                    cast(float, interval[field]),
+                    0.0,
+                    field=f"cash arm {field}",
+                )
+            for funding_value in _sequence(
+                interval["funding_events"], field="cash arm funding events"
+            ):
+                boundary = FundingBoundaryEvidence.from_mapping(
+                    _object(funding_value, field="cash arm funding event")
+                )
+                if any(quantity != 0.0 for quantity in boundary.signed_quantities):
+                    raise ValueError("cash arm funding events cannot carry positions")
+                _close(boundary.funding_amount, 0.0, field="cash arm funding")
         previous = interval
     terminal = _validate_fraction_vector(
         ledger["terminal_exact_quantities"],
@@ -1113,6 +1229,8 @@ def _validate_ledger(
     terminal_orders = _sequence(
         ledger["terminal_order_reasons"], field="terminal_order_reasons"
     )
+    if cash_arm and terminal_orders:
+        raise ValueError("cash arm cannot have terminal order events")
     for item in terminal_orders:
         pair = _sequence(item, field="terminal order reason")
         if len(pair) != 2:
@@ -1230,7 +1348,8 @@ def _validate_arm(
     initial_capital: float,
     execution_digest: str,
     decision_count: int,
-) -> tuple[str, dict[str, object]]:
+    cash_arm: bool,
+) -> int:
     arm = _object(
         value,
         field="comparison arm",
@@ -1249,6 +1368,7 @@ def _validate_arm(
         initial_capital=initial_capital,
         expected_policy_digest=execution_digest,
         expected_decision_count=decision_count,
+        cash_arm=cash_arm,
     )
     return_map = _object(
         arm["returns"],
@@ -1259,6 +1379,8 @@ def _validate_arm(
         kind = ReturnKind(_string(return_map["kind"], field="returns.kind"))
     except ValueError as error:
         raise ValueError("unsupported return kind") from error
+    if kind is not ReturnKind.BASE_BAR:
+        raise ValueError("shared-cash Ridge comparison returns must be BASE_BAR")
     periods = _integer(
         return_map["periods_per_year"], field="periods_per_year", minimum=1
     )
@@ -1267,6 +1389,8 @@ def _validate_arm(
         if return_map["elapsed_years"] is None
         else _number(return_map["elapsed_years"], field="elapsed_years")
     )
+    if elapsed is not None:
+        raise ValueError("shared-cash Ridge comparison has no elapsed-years override")
     values_raw = _sequence(return_map["values"], field="return values")
     values = tuple(_number(item, field="return value") for item in values_raw)
     returns = ReturnSeries(values, kind, periods, elapsed)
@@ -1277,6 +1401,21 @@ def _validate_arm(
     diagnostics = _validate_diagnostics(arm["diagnostics"])
     if diagnostics.termination_reasons:
         raise ValueError("complete comparison cannot contain termination diagnostics")
+    if cash_arm:
+        closed = diagnostics.closed_trades
+        if (
+            diagnostics.n_trades != 0
+            or diagnostics.rebalance_events != 0
+            or closed.closed_trades != 0
+            or closed.winning_trades != 0
+            or closed.losing_trades != 0
+            or closed.breakeven_trades != 0
+            or closed.open_positions != 0
+            or closed.net_realized_pnl != 0.0
+            or closed.gross_profit != 0.0
+            or closed.gross_loss != 0.0
+        ):
+            raise ValueError("cash arm diagnostics cannot report trading activity")
     metrics = _object(
         arm["metrics"],
         field="metrics",
@@ -1323,12 +1462,18 @@ def _validate_arm(
         cast(float, ledger["final_portfolio_value"]) / initial_capital - 1.0,
         field="terminal return/equity",
     )
-    _close(
-        cast(float, _object(arm["metrics"], field="metrics")["max_drawdown"]),
-        cast(float, ledger["final_max_drawdown"]),
-        field="terminal drawdown",
+    interval_end_drawdown = cast(
+        float, _object(arm["metrics"], field="metrics")["max_drawdown"]
     )
-    return expected_name, arm
+    intrainterval_drawdown = cast(float, ledger["final_max_drawdown"])
+    if interval_end_drawdown > intrainterval_drawdown and not math.isclose(
+        interval_end_drawdown,
+        intrainterval_drawdown,
+        rel_tol=1e-12,
+        abs_tol=1e-9,
+    ):
+        raise ValueError("ledger drawdown is below interval-end return drawdown")
+    return periods
 
 
 def _validate_payload(value: object) -> dict[str, object]:
@@ -1368,8 +1513,9 @@ def _validate_payload(value: object) -> dict[str, object]:
     arms = _sequence(payload["arms"], field="arms")
     if len(arms) != len(_ARM_NAMES):
         raise ValueError("comparison must contain exactly four arms")
+    common_periods_per_year: int | None = None
     for name, arm in zip(_ARM_NAMES, arms, strict=True):
-        _validate_arm(
+        periods_per_year = _validate_arm(
             arm,
             expected_name=name,
             dataset_id=dataset_id,
@@ -1381,7 +1527,12 @@ def _validate_payload(value: object) -> dict[str, object]:
             initial_capital=cast(float, config["initial_capital"]),
             execution_digest=execution_digest,
             decision_count=decision_count,
+            cash_arm=name == "cash",
         )
+        if common_periods_per_year is None:
+            common_periods_per_year = periods_per_year
+        elif periods_per_year != common_periods_per_year:
+            raise ValueError("comparison arms must share periods_per_year")
     _validate_provenance(payload["provenance"])
     return payload
 

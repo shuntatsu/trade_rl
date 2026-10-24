@@ -20,7 +20,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "97449714e06f7fb1fcb91b2002f3626307cdf115d218a41df639246951ced5ee"
+      "sha256": "bc9f66e167731d53b347796ef571cac69bd666450dd28c8756c77b5bbe553979"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -133,6 +133,19 @@
       "tests": [
         "tests/evaluation/test_ridge_artifact_comparison.py",
         "tests/architecture/test_ridge_artifact_comparison_contract.py"
+      ]
+    },
+    {
+      "id": "ridge-comparison-result-artifact",
+      "symbol": "trade_rl.evaluation.runs.ridge_comparison_artifact.publish_ridge_comparison_artifact",
+      "kind": "function",
+      "source_sha256": "800b13353b07aa58c4a8e3dcb622ffaef14274ce56ebe977df8df8e0df93e91f",
+      "label_ja": "4-arm比較結果のwrite-once保存",
+      "description_ja": "完全な4-arm returns・metrics・ledger・config・Dataset/model宣言を一つの外部digest付きJSONへ保存します。strict loaderはfull ledgerと終端状態を検証しますが、provenanceを採取したりfitや研究結果を証明したりはしません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_ridge_comparison_artifact.py",
+        "tests/architecture/test_ridge_comparison_artifact_contract.py"
       ]
     },
     {

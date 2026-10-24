@@ -433,6 +433,8 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 
 `evaluation/runs/ridge_artifact_comparison.py` は、同じ仕組みを使う限定的なfilesystem比較入口である。公開済みDatasetのpaired loaderと、呼出し側が期待digest・typed bindingを渡したfrozen Ridge artifactを一度ずつ読み、Dataset identity / schema / artifact digest / ordered feature names、Ridgeのselected featuresとfit-symbol mapping、decision開始時刻に対するfit cutoffをreplay前に照合する。`cash`、`legacy_hysteresis`、`position_aware_zero_cost`、`position_aware_cost` の4 armへ同じ明示的なcapital・risk・execution・range設定を渡し、既存shared-cash replayのterminal settlementとledger evidenceを返す。返り値は使用した正確なvalidated configを保持する。legacyからzero-costへの差はcontroller semanticsも含むbundleで、zero-costから正costへの差がposition-aware経路上のcost proxyを変える。proxyはexecution feeを帳簿へ加算せず、既存ledgerがexecution economicsを一度だけ計上する。このAPIはmodelをfitせず、winnerを選ばず、result artifactをpublishしない。artifact bindingは宣言されたfit contextを固定するもので、過去のfit手順を独立証明するものではない。
 
+`evaluation/runs/ridge_comparison_artifact.py` は、その返り値を一つのcanonical `comparison.json` へwrite-onceで保存し、外部digest必須のloaderで完全な4 arm・ledger・config・Dataset/model境界・caller-supplied provenanceを検証する。profileは保存された宣言データとして扱い、verifiedな実行profileを復元しない。publisherは渡されたprovenanceを検証するだけで、replay前後のsource/runtime採取やfitの独立証明は行わない。これは保存・再読込のsoftware capabilityであり、Study protocol、比較結果の採否、G0-G3やprofitability evidenceを追加しない。
+
 ### Trading-bot tuning and holdout reporting
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。

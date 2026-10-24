@@ -13,6 +13,7 @@ RUNS_EXPORTS = {
     "CandidateRunConfig",
     "CandidateRunResult",
     "LeanCandidateConfig",
+    "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
     "ResolvedCandidateRunSpec",
@@ -23,8 +24,10 @@ RUNS_EXPORTS = {
     "execute_candidate_run",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
+    "load_ridge_comparison_artifact",
     "parse_candidate_run_config",
     "publish_candidate_run",
+    "publish_ridge_comparison_artifact",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
     "supports_shared_cash_result_schema",
@@ -91,6 +94,7 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
         execute,
         provenance,
         ridge_artifact_comparison,
+        ridge_comparison_artifact,
     )
 
     assert set(facade.__all__) == RUNS_EXPORTS
@@ -106,6 +110,18 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert (
         facade.compare_ridge_artifact_shared_cash
         is ridge_artifact_comparison.compare_ridge_artifact_shared_cash
+    )
+    assert (
+        facade.LoadedRidgeComparisonArtifact
+        is ridge_comparison_artifact.LoadedRidgeComparisonArtifact
+    )
+    assert (
+        facade.load_ridge_comparison_artifact
+        is ridge_comparison_artifact.load_ridge_comparison_artifact
+    )
+    assert (
+        facade.publish_ridge_comparison_artifact
+        is ridge_comparison_artifact.publish_ridge_comparison_artifact
     )
     assert facade.ResolvedCandidateRunSpec is config.ResolvedCandidateRunSpec
     assert facade.parse_candidate_run_config is config.parse_candidate_run_config

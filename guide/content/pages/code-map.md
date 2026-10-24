@@ -47,6 +47,7 @@ artifacts / evidence
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | filled exposureを使うforecast intent utility | `trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position` |
+| Ridge forecast modelのimmutable artifact | `trade_rl.strategies.forecasts.ridge_artifact.publish_ridge_forecast_artifact` |
 | 保有期間Studyの固定protocol・risk条件 | `trade_rl.evaluation.experiments.contracts.study.StudyPlan` |
 | 独立口座v1の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_holding_metrics` |
 | 共通資金v2の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics` |
@@ -56,6 +57,8 @@ artifacts / evidence
 共通資金の比較はstrategy armごとに全symbolを一つのaccountでreplayします。armとsymbolごとにfresh strategy adapterを使い、既存replayのcost・funding・borrow・turnover diagnosticsからmetricsを作ります。これはmodel fittingやwinner selectionを行うAPIではありません。
 
 `decide_for_position` はStrategy packageのutilityで、直接呼び出しに加えて、cost-aware設定かつbudget付きobservationを受け取るRidge / LightGBM adapterから使われます。filled quantity/weight、forecast、同じlogical intentのoptionalなcached targetから`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、canonical replayはその後に既存のhold制約、risk、execution、会計を適用します。
+
+Ridge artifactは既存のfrozen model parametersと宣言されたfit contextを一つのcanonical JSONへ保存します。load時にはartifact digestと呼出し元が期待するbindingを検証します。これはfitの独立証明や評価結果ではなく、既存の`RidgeForecastStrategy`へ渡せるmodelを安全に保存・復元する契約です。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 

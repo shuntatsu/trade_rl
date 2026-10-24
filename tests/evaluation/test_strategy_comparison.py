@@ -280,9 +280,6 @@ def test_shared_cash_forecast_controllers_execute_through_real_replay() -> None:
     assert any(
         any(decision.minimum_hold_suppressed) for decision in naive.replay.decisions
     )
-    assert any(
-        any(decision.minimum_hold_suppressed) for decision in naive.replay.decisions
-    )
     for entry in (cost_aware, cash):
         assert filled_event_count(entry) == 0
         assert entry.metrics.n_trades == 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -105,6 +106,30 @@ def _flat_market_dataset() -> MarketDataset:
     )
 
 
+def _partial_fill_market_dataset() -> MarketDataset:
+    close = np.full((3, 1), 100.0)
+    forecasts = np.asarray([0.11, math.log1p(-0.005), math.log1p(-0.005)])
+    return MarketDataset(
+        dataset_id="7" * 64,
+        symbols=("SYNTH",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=forecasts.astype(np.float32).reshape(-1, 1, 1),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((close.shape[0], 1), 100.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("literal_forecast",),
+        global_feature_names=("constant",),
+        periods_per_year=8_760,
+    )
+
+
 def _run_replay(
     replay_kind: str,
     dataset: MarketDataset,
@@ -112,13 +137,15 @@ def _run_replay(
     *,
     stop_index: int,
     minimum_hold_bars: int = 0,
+    execution_cost: ExecutionCostConfig | None = None,
+    capture_ledger_evidence: bool = False,
 ) -> object:
     kwargs = dict(
         start_index=0,
         stop_index=stop_index,
         gross_budget=0.5,
         initial_capital=1_000.0,
-        execution_cost=ExecutionCostConfig.zero(),
+        execution_cost=execution_cost or ExecutionCostConfig.zero(),
         minimum_hold_bars=minimum_hold_bars,
         settle_terminal_position=False,
         risk=PreTradeRisk(
@@ -133,7 +160,12 @@ def _run_replay(
     )
     if replay_kind == "single":
         return evaluation.run_single_symbol_replay(dataset, strategy, **kwargs)
-    return replay_module.run_shared_cash_replay(dataset, (strategy,), **kwargs)
+    return replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        capture_ledger_evidence=capture_ledger_evidence,
+        **kwargs,
+    )
 
 
 @pytest.mark.parametrize("replay_kind", ("single", "shared"))
@@ -162,6 +194,69 @@ def test_cost_aware_replay_preserves_fully_filled_cached_quantity_hold(
     assert result.book.quantities == pytest.approx((5.0,))
     assert result.book.fill_count == 1
     assert result.book.turnover_total == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("replay_kind", ("single", "shared"))
+def test_partial_fill_residual_is_cancelled_when_cached_target_loses_to_flat(
+    replay_kind: str,
+) -> None:
+    strategy = _RecordingRidgeForecastStrategy()
+    dataset = _partial_fill_market_dataset()
+    execution_cost = replace(
+        ExecutionCostConfig.zero(),
+        max_participation_rate=0.01,
+    )
+    result = _run_replay(
+        replay_kind,
+        dataset,
+        strategy,
+        stop_index=2,
+        execution_cost=execution_cost,
+        capture_ledger_evidence=True,
+    )
+
+    partial_observation = strategy.observations[1]
+    assert partial_observation.current_weight == pytest.approx(0.1)
+    assert partial_observation.current_position_quantity == pytest.approx(1.0)
+    assert partial_observation.same_intent_target_weight == pytest.approx(0.5)
+    if replay_kind == "single":
+        assert result.decisions[0].target_weight == pytest.approx(0.5)
+        assert result.decisions[0].position_quantity_after == pytest.approx(1.0)
+        assert result.decisions[1].intent is PositionIntent.FLAT
+        assert result.decisions[1].position_quantity_before == pytest.approx(1.0)
+        assert result.decisions[1].position_quantity_after == pytest.approx(0.0)
+        assert result.terminal_order_reasons
+        assert "superseded" in {reason for _, reason in result.terminal_order_reasons}
+    else:
+        assert result.decisions[1].intents == (PositionIntent.FLAT,)
+        assert result.ledger_evidence is not None
+        first_fill = next(
+            event
+            for event in result.ledger_evidence.intervals[0].order_events
+            if event.event_type == "partial_fill"
+        )
+        assert first_fill.requested_quantity == pytest.approx(5.0)
+        assert first_fill.filled_quantity == pytest.approx(1.0)
+        assert first_fill.remaining_quantity == pytest.approx(4.0)
+        cancelled = (
+            event
+            for event in result.ledger_evidence.intervals[1].order_events
+            if event.event_type == "cancelled"
+        )
+        assert any(event.reason == "superseded" for event in cancelled)
+        sell = next(
+            event
+            for event in result.ledger_evidence.intervals[1].order_events
+            if event.event_type == "filled"
+        )
+        assert sell.filled_quantity == pytest.approx(-1.0)
+        assert result.ledger_evidence.active_order_remainders == ()
+
+    assert result.book.fill_count == 2
+    assert result.book.turnover_total == pytest.approx(0.2)
+    assert result.book.quantities == pytest.approx((0.0,))
+    if replay_kind == "single":
+        assert result.active_order_remainders == ()
 
 
 @pytest.mark.parametrize("replay_kind", ("single", "shared"))

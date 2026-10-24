@@ -337,21 +337,15 @@ def test_ridge_artifact_binding_rejects_invalid_declared_context(
 
 def test_ridge_artifact_rejects_nat_model_cutoff(tmp_path: Path) -> None:
     model = _model()
-    invalid = RidgeForecastModel(
-        feature_indices=model.feature_indices,
-        feature_mean=model.feature_mean,
-        feature_scale=model.feature_scale,
-        coefficients=model.coefficients,
-        intercept=model.intercept,
-        horizon_hours=model.horizon_hours,
-        alpha=model.alpha,
-        n_samples=model.n_samples,
-        fit_cutoff=np.datetime64("NaT", "ns"),
-    )
     binding = _binding(model)
+    # Simulate corrupted in-memory state without weakening the model constructor.
+    object.__setattr__(model, "fit_cutoff", np.datetime64("NaT", "ns"))
+    destination = tmp_path / "invalid-cutoff"
 
     with pytest.raises(ValueError, match="fit cutoff"):
-        publish_ridge_forecast_artifact(tmp_path / "invalid", invalid, binding)
+        publish_ridge_forecast_artifact(destination, model, binding)
+    assert not destination.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_ridge_artifact_rejects_model_binding_mismatch_before_publication(

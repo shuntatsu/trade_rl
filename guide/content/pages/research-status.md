@@ -18,7 +18,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 以下のTask 18節は2026-10-14時点のtechnical attemptの記録です。後続R2も48 armを完走せず、1 arm `INTERRUPTED`・47 arm `UNATTEMPTED`のままであり、上記4方式screenの実行完了を示しません。
 
-Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitを完了しました。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
+Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageで12 fitが計画されていましたが、保持されたprovenanceから完了は確認できません。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
 
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みですが、歴史的な市場実績へのcalibrationは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではありません。
 

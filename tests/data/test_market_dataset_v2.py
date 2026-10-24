@@ -44,6 +44,50 @@ def test_continuous_market_requires_regular_cadence() -> None:
         MarketDataset(**values)
 
 
+def test_market_dataset_uses_exact_timestamp_order_at_nanosecond_extremes() -> None:
+    limits = np.iinfo(np.int64)
+    ascending = np.array([limits.min + 1, 0, limits.max], dtype=np.int64).astype(
+        "datetime64[ns]"
+    )
+    descending = np.array([limits.max, limits.min + 1, 0], dtype=np.int64).astype(
+        "datetime64[ns]"
+    )
+
+    ascending_values = kwargs(n_bars=3, n_symbols=1)
+    ascending_values.update(
+        timestamps=ascending,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+    market = MarketDataset(**ascending_values)
+    np.testing.assert_array_equal(market._timestamp_ns, ascending.astype(np.int64))
+
+    descending_values = {
+        **ascending_values,
+        "timestamps": descending,
+    }
+    with pytest.raises(ValueError, match="strictly increasing"):
+        MarketDataset(**descending_values)
+
+
+def test_market_dataset_rejects_overflowed_adjacent_timestamp_interval() -> None:
+    limits = np.iinfo(np.int64)
+    timestamps = np.array([limits.min + 1, 1, 2], dtype=np.int64).astype(
+        "datetime64[ns]"
+    )
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        timestamps=timestamps,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+
+    with pytest.raises(ValueError, match="representable as positive nanoseconds"):
+        MarketDataset(**values)
+
+
 def test_session_calendar_accepts_gaps_and_uses_wall_clock_helpers() -> None:
     values = kwargs()
     timestamps = np.asarray(values["timestamps"]).copy()

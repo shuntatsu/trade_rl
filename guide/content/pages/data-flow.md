@@ -34,6 +34,8 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 source URL、SHA-256、size、取引所metadata等を保存し、再取得時にも同じ入力だったか照合できる状態にします。
 
+CSVのevent timeと `available_at` は、ISO fractionをnanosecondまで保って読み込みます。integer epochは既存の秒/millisecond判定を整数演算で適用し、範囲外やnanosecond未満の精度を失う値は拒否します。1ns遅れたavailabilityも同時刻へ丸めず、後段の特徴量生成まで遅れとして保ちます。
+
 ## 3. 未来情報を混ぜずに特徴量を作る
 
 基本条件は次です。

@@ -9,14 +9,20 @@ import trade_rl.evaluation as evaluation
 import trade_rl.evaluation.comparison.strategies as comparison_strategies
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
+    SharedCashStrategyComparisonEntry,
     UniversalStrategyComparison,
     compare_strategies,
     compare_strategies_by_symbol,
     compare_strategy_factories_by_symbol,
 )
 from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -91,6 +97,211 @@ def charged_two_symbol_market() -> MarketDataset:
         funding_due=np.ones((4, 2), dtype=np.bool_),
         borrow_rate=np.full((4, 2), 0.25),
     )
+
+
+def flat_forecast_market(forecasts: tuple[float, ...]) -> MarketDataset:
+    n_bars = len(forecasts)
+    close = np.full((n_bars, 2), 100.0)
+    signal = np.asarray(forecasts, dtype=np.float32)[:, None, None]
+    features = np.repeat(signal, 2, axis=1)
+    return MarketDataset(
+        dataset_id="b" * 64,
+        symbols=("BTCUSDT", "ETHUSDT"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=features,
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((n_bars, 2), 1_000_000.0),
+        funding_rate=np.zeros((n_bars, 2)),
+        funding_due=np.zeros((n_bars, 2), dtype=np.bool_),
+        borrow_rate=np.zeros((n_bars, 2)),
+        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+        feature_names=("literal_forecast",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+
+
+def compare_flat_forecast_arms(
+    forecasts: tuple[float, ...],
+) -> tuple[SharedCashStrategyComparisonEntry, ...]:
+    """Use production forecast adapters with a hand-constructed identity model."""
+    dataset = flat_forecast_market(forecasts)
+    model = RidgeForecastModel(
+        feature_indices=(0,),
+        feature_mean=np.asarray([0.0]),
+        feature_scale=np.asarray([1.0]),
+        coefficients=np.asarray([1.0]),
+        intercept=0.0,
+        horizon_hours=1,
+        alpha=1.0,
+        n_samples=1,
+        fit_cutoff=dataset.timestamps[0],
+    )
+    execution_cost = ExecutionCostConfig(
+        fee_rate=0.001,
+        maker_fee_rate=0.0,
+        taker_fee_rate=0.0,
+        spread_rate=0.0,
+        impact_rate=0.0,
+        max_participation_rate=1.0,
+        slippage_std=0.0,
+        random_seed=0,
+        borrow_rate_multiplier=0.0,
+        max_leverage=1.0,
+        order_latency_bars=1,
+        order_type="market",
+        processing_bar_volume_capacity=True,
+        partial_fill_carry=True,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.2,
+            max_abs_weight=0.1,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+    def naive_factory() -> RidgeForecastStrategy:
+        return RidgeForecastStrategy(
+            model,
+            entry_threshold=0.0005,
+            exit_threshold=0.0001,
+        )
+
+    def cost_aware_factory() -> RidgeForecastStrategy:
+        return RidgeForecastStrategy(
+            model,
+            entry_threshold=0.0005,
+            exit_threshold=0.0001,
+            one_way_switch_cost=0.0015,
+        )
+
+    def cash_factory() -> ConstantIntentStrategy:
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    return evaluation.compare_shared_cash_strategy_factories(
+        dataset,
+        {
+            "naive": naive_factory,
+            "cost_aware": cost_aware_factory,
+            "cash": cash_factory,
+        },
+        start_index=0,
+        stop_index=len(forecasts) - 1,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk=risk,
+        market_order_profile=None,
+        minimum_hold_bars=(2, 2),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+
+def assert_flat_forecast_ledger_reconciles(
+    entry: SharedCashStrategyComparisonEntry,
+) -> None:
+    replay = entry.replay
+    ledger = replay.ledger_evidence
+    assert ledger is not None
+    assert ledger.intervals[0].cash_before == pytest.approx(1_000.0)
+    assert ledger.intervals[0].portfolio_value_before == pytest.approx(1_000.0)
+    assert ledger.final_cash == pytest.approx(1_000.0 - ledger.final_total_cost)
+    assert ledger.final_portfolio_value == pytest.approx(ledger.final_cash)
+    assert ledger.final_funding_pnl == pytest.approx(0.0)
+    assert ledger.final_borrow_cost == pytest.approx(0.0)
+    assert ledger.terminal_exact_quantities == ("0", "0")
+    assert ledger.active_order_remainders == ()
+    assert entry.metrics.total_cost == pytest.approx(ledger.final_total_cost)
+    assert entry.metrics.funding_pnl == pytest.approx(0.0)
+    assert entry.metrics.borrow_cost == pytest.approx(0.0)
+
+
+def filled_event_count(entry: SharedCashStrategyComparisonEntry) -> int:
+    ledger = entry.replay.ledger_evidence
+    assert ledger is not None
+    return sum(
+        abs(event.filled_quantity) > 0.0
+        for interval in ledger.intervals
+        for event in interval.order_events
+    )
+
+
+def test_shared_cash_forecast_controllers_execute_through_real_replay() -> None:
+    forecasts = (
+        0.0,
+        0.001,
+        -0.001,
+        0.001,
+        -0.001,
+        0.001,
+        -0.001,
+        0.001,
+        -0.001,
+        0.001,
+    )
+
+    naive, cost_aware, cash = compare_flat_forecast_arms(forecasts)
+
+    assert tuple(entry.name for entry in (naive, cost_aware, cash)) == (
+        "naive",
+        "cost_aware",
+        "cash",
+    )
+    naive_ledger = naive.replay.ledger_evidence
+    cost_aware_ledger = cost_aware.replay.ledger_evidence
+    cash_ledger = cash.replay.ledger_evidence
+    assert naive_ledger is not None
+    assert cost_aware_ledger is not None
+    assert cash_ledger is not None
+    assert naive_ledger.execution_policy_digest == (
+        cost_aware_ledger.execution_policy_digest
+    )
+    assert cash_ledger.execution_policy_digest == naive_ledger.execution_policy_digest
+    assert {
+        (ledger.start_index, ledger.stop_index)
+        for ledger in (naive_ledger, cost_aware_ledger, cash_ledger)
+    } == {(0, len(forecasts) - 1)}
+    for entry in (naive, cost_aware, cash):
+        assert_flat_forecast_ledger_reconciles(entry)
+
+    assert filled_event_count(naive) > 0
+    assert naive.metrics.total_cost > 0.0
+    assert naive.metrics.turnover_total > 0.0
+    assert any(
+        any(decision.minimum_hold_suppressed) for decision in naive.replay.decisions
+    )
+    assert any(
+        any(decision.minimum_hold_suppressed) for decision in naive.replay.decisions
+    )
+    for entry in (cost_aware, cash):
+        assert filled_event_count(entry) == 0
+        assert entry.metrics.n_trades == 0
+        assert entry.metrics.total_cost == pytest.approx(0.0)
+        assert entry.metrics.turnover_total == pytest.approx(0.0)
+
+
+def test_cost_aware_shared_cash_forecast_enters_above_its_switch_hurdle() -> None:
+    cost_aware = compare_flat_forecast_arms((0.01,) * 10)[1]
+
+    assert any(
+        PositionIntent.LONG in decision.intents
+        for decision in cost_aware.replay.decisions
+    )
+    assert filled_event_count(cost_aware) > 0
+    assert cost_aware.metrics.n_trades > 0
+    assert cost_aware.metrics.total_cost > 0.0
+    assert cost_aware.metrics.turnover_total > 0.0
+    assert_flat_forecast_ledger_reconciles(cost_aware)
 
 
 def test_strategies_share_one_replay_and_metric_contract() -> None:

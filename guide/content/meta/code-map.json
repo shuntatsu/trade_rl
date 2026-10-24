@@ -139,9 +139,9 @@
       "id": "ridge-comparison-result-artifact",
       "symbol": "trade_rl.evaluation.runs.ridge_comparison_artifact.publish_ridge_comparison_artifact",
       "kind": "function",
-      "source_sha256": "725edbb9776bdcc3e0ce74e1952374a9d7a8f556e7a00b3fcf2ab0773e307e9e",
+      "source_sha256": "ff2f7d383ddb87e8b95d3ad2b5ada35bb9b7cc1e4698ae4595b40cf218562416",
       "label_ja": "4-arm比較結果のwrite-once保存",
-      "description_ja": "完全な4-arm returns・metrics・ledger・config・Dataset/model宣言を一つの外部digest付きJSONへ保存します。strict loaderはBASE_BAR/common annualization、flat cash flow、funding join、cash arm、interval-endとintrainterval drawdownの関係を検証します。全fill-to-cash再構築、provenanceの採取、fitや研究結果の証明はしません。",
+      "description_ja": "完全な4-arm returns・metrics・ledger・config・Dataset/model宣言を一つの外部digest付きJSONへ保存します。strict loaderはBASE_BAR/common annualization、flat cash flow、funding join、FLAT cash armのゼロtrading diagnostics、interval-endとintrainterval drawdownの関係を検証します。全fill-to-cash再構築、provenanceの採取、fitや研究結果の証明はしません。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_ridge_comparison_artifact.py",

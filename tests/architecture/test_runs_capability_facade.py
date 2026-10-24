@@ -40,6 +40,7 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.execute",
     "trade_rl.evaluation.runs.provenance",
     "trade_rl.evaluation.runs.ridge_artifact_comparison",
+    "trade_rl.evaluation.runs.ridge_comparison_artifact",
 )
 
 EVALUATION_EXPORTS = {

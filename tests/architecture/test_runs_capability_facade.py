@@ -16,6 +16,7 @@ RUNS_EXPORTS = {
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
+    "PublishedRidgeComparisonAttempt",
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
@@ -30,6 +31,7 @@ RUNS_EXPORTS = {
     "publish_ridge_comparison_artifact",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "run_ridge_comparison_attempt",
     "supports_shared_cash_result_schema",
 }
 
@@ -40,6 +42,7 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.execute",
     "trade_rl.evaluation.runs.provenance",
     "trade_rl.evaluation.runs.ridge_artifact_comparison",
+    "trade_rl.evaluation.runs.ridge_comparison_attempt",
 )
 
 EVALUATION_EXPORTS = {
@@ -96,6 +99,7 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
         provenance,
         ridge_artifact_comparison,
         ridge_comparison_artifact,
+        ridge_comparison_attempt,
     )
 
     assert set(facade.__all__) == RUNS_EXPORTS
@@ -134,6 +138,14 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert facade.CandidateRunArtifactIdentity is artifact.CandidateRunArtifactIdentity
     assert facade.LoadedCandidateRun is artifact.LoadedCandidateRun
     assert facade.PublishedCandidateRun is artifact.PublishedCandidateRun
+    assert (
+        facade.PublishedRidgeComparisonAttempt
+        is ridge_comparison_attempt.PublishedRidgeComparisonAttempt
+    )
+    assert (
+        facade.run_ridge_comparison_attempt
+        is ridge_comparison_attempt.run_ridge_comparison_attempt
+    )
     assert (
         facade.inspect_candidate_run_artifact is artifact.inspect_candidate_run_artifact
     )

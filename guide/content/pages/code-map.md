@@ -51,6 +51,7 @@ artifacts / evidence
 | Ridge forecast modelのimmutable artifact | `trade_rl.strategies.forecasts.ridge_artifact.publish_ridge_forecast_artifact` |
 | frozen Ridgeを使う4-arm shared-cash比較 | `trade_rl.evaluation.runs.compare_ridge_artifact_shared_cash` |
 | 4-arm比較結果のwrite-once保存とstrict reload | `trade_rl.evaluation.runs.publish_ridge_comparison_artifact` / `load_ridge_comparison_artifact` |
+| 4-arm比較を予約・provenance採取・失敗保持する | `trade_rl.evaluation.runs.run_ridge_comparison_attempt` |
 | 保有期間Studyの固定protocol・risk条件 | `trade_rl.evaluation.experiments.contracts.study.StudyPlan` |
 | 独立口座v1の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_holding_metrics` |
 | 共通資金v2の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics` |
@@ -66,6 +67,8 @@ Ridge artifactは既存のfrozen model parametersと宣言されたfit context�
 `compare_ridge_artifact_shared_cash` はpaired loaderが一回の検証で返すpublished Datasetとcaller-bound Ridge artifactを使い、cash・legacy hysteresis・position-aware zero-cost・position-aware costの4 armを同じexplicit replay条件で実行します。各armは独立したshared-cash bookを持ち、terminal settlementとledger evidenceは既存replayが担当します。返り値は使用した正確なconfigを保持します。このAPIはfit、winner選択、結果artifactのpublicationを行わず、宣言されたbindingを過去のfit手順の独立証明として扱いません。
 
 `publish_ridge_comparison_artifact` はその完全な4-arm返り値を一つのcanonical JSONへwrite-once保存します。必須の外部digestを使うloaderは、full ledger、returns、metrics、config、ordered symbol、Dataset/model境界、caller-supplied provenanceを検証してdeep read-only payloadを返します。保存profileは宣言データのままで、replay前後のsource/runtime採取やfit証明を追加しません。このstorage capabilityだけではStudy protocol、winner選択、研究結果、profitabilityを示しません。
+
+`run_ridge_comparison_attempt` は新しいattempt rootを入力読込前に予約し、exact config/binding/pathとcaller context digestを記録します。既存provenance ownerを比較前後に呼び、変化がない場合だけ比較を一度実行して結果をpublish・strict reloadし、最後にcompletionを記録します。失敗も記録し、比較が返した後なら各armのledger mappingをpartial evidenceとして残します。これはlocal software attempt boundaryであり、global retry budget、approval、fit、研究結果を追加しません。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 

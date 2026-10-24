@@ -435,6 +435,8 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 
 `evaluation/runs/ridge_comparison_artifact.py` は、その返り値を一つのcanonical `comparison.json` へwrite-onceで保存し、外部digest必須のloaderで完全な4 arm・ledger・config・Dataset/model境界・caller-supplied provenanceを検証する。profileは保存された宣言データとして扱い、verifiedな実行profileを復元しない。publisherは渡されたprovenanceを検証するだけで、replay前後のsource/runtime採取やfitの独立証明は行わない。これは保存・再読込のsoftware capabilityであり、Study protocol、比較結果の採否、G0-G3やprofitability evidenceを追加しない。
 
+`evaluation/runs/ridge_comparison_attempt.py` は上記比較を一回のwrite-once attemptとして実行する薄いfilesystem wrapperである。typed入力とcallerが宣言するresearch-context digestを検証した後、attempt rootを排他予約し、supplied path・binding・configの開始記録を残す。既存provenance ownerを比較の前後で呼び、実際のimplementation/runtime/contextが変化しない場合だけ既存result publisherを一度呼び、strict loaderで再読込してからcompletionを記録する。失敗時はfailure recordを残し、比較が返った後のpublication失敗では利用可能なarm ledger mappingsをpartial evidenceとして保存する。比較呼出しが返る前の内部partial ledgerはpublic APIから取得できない。root単位のwrite-onceはlocal attempt reservationであり、global retry budgetではない。context digestはcaller declarationで、approvalやauthorizationの証明ではない。このsoftware boundaryはfit・data retrieval・winner selection・research approvalを行わない。
+
 ### Trading-bot tuning and holdout reporting
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。

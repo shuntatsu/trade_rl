@@ -4,6 +4,7 @@ import math
 from fractions import Fraction
 from sys import float_info
 
+import numpy as np
 import pytest
 
 from trade_rl.strategies.forecasts.controller import (
@@ -11,6 +12,7 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentConfig,
     ForecastIntentController,
 )
+from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -70,6 +72,37 @@ def test_cost_aware_controller_vetoes_unprofitable_exit() -> None:
         model.decide(math.log1p(0.005), current=PositionIntent.SHORT)
         is PositionIntent.SHORT
     )
+
+
+def test_strategy_observation_validates_optional_intent_gross_budget() -> None:
+    def build_observation(
+        intent_gross_budget: float | None,
+        same_intent_target_weight: float | None = None,
+    ) -> StrategyObservation:
+        return StrategyObservation(
+            index=0,
+            timestamp=np.datetime64("2026-01-01T00:00:00", "ns"),
+            symbol="SYNTH",
+            features=np.asarray([0.0]),
+            feature_available=np.asarray([True]),
+            global_features=np.asarray([0.0]),
+            global_feature_available=np.asarray([True]),
+            current_intent=PositionIntent.FLAT,
+            current_weight=0.0,
+            intent_gross_budget=intent_gross_budget,
+            same_intent_target_weight=same_intent_target_weight,
+        )
+
+    assert build_observation(None).intent_gross_budget is None
+    assert build_observation(0.5).intent_gross_budget == 0.5
+    with pytest.raises(ValueError, match="intent_gross_budget"):
+        build_observation(0.0)
+    assert build_observation(0.5, 0.45).same_intent_target_weight == 0.45
+    with pytest.raises(ValueError, match="intent_gross_budget"):
+        build_observation(None, 0.45)
+    for invalid in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError, match="same_intent_target_weight"):
+            build_observation(0.5, invalid)
 
 
 def test_cost_aware_controller_compares_log_forecast_as_simple_return() -> None:

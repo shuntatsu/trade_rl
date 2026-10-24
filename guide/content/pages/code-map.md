@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | integrations | provider固有レスポンスを内部source evidenceへ変換 | 売買判断 |
 | data | causalな`MarketDataset`、availability、staleness、dataset identity | strategy固有の意思決定 |
-| strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsとlosslessなfit cutoffを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
+| strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsとlosslessなfit cutoffを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。cost-aware forecastはReplayのbudget・actual weight・filled sideを使って離散targetを選び、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
 | simulation | fill、cost、funding、borrow、margin、`BookState` | winner判断 |
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
@@ -55,7 +55,7 @@ artifacts / evidence
 
 共通資金の比較はstrategy armごとに全symbolを一つのaccountでreplayします。armとsymbolごとにfresh strategy adapterを使い、既存replayのcost・funding・borrow・turnover diagnosticsからmetricsを作ります。これはmodel fittingやwinner selectionを行うAPIではありません。
 
-`decide_for_position` はStrategy packageの直接呼び出し用utilityです。現在のsigned filled quantity、weight、forecast、optionalな同じlogical intentのcached targetを使って`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、このAPIはcanonical replayや既存forecast adapterへまだ配線されていません。
+`decide_for_position` はStrategy packageのutilityで、直接呼び出しに加えて、cost-aware設定かつbudget付きobservationを受け取るRidge / LightGBM adapterから使われます。filled quantity/weight、forecast、同じlogical intentのoptionalなcached targetから`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、canonical replayはその後に既存のhold制約、risk、execution、会計を適用します。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 

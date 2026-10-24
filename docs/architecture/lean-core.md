@@ -76,7 +76,9 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
-`CostAwareForecastIntentController.decide_for_position` は、filled quantityまたはcurrent weightから現在の実保有側を取り、forecast提案・現保有側・FLATの候補をgross budgetとsimple-returnのone-way switch-cost proxyで比較する直接呼び出し用APIである。任意のcached target weightは、それと対応する`current_intent`候補にだけ使う。これは帳簿のfee計算、fill、risk制約を行わず、既存のRidge / LightGBM adapterやcanonical replayにもまだ接続されていない。返すのは`PositionIntent`だけで、replay・会計・研究比較の結果を意味しない。
+Canonical replayは各`StrategyObservation`へoptionalな`intent_gross_budget`と`same_intent_target_weight`を渡す。後者はbudgetがある場合だけ有効で、cached desired quantityを現在のmark/equityで表したweightである。`one_way_switch_cost`を設定したRidge / LightGBM adapterは、budgetがある場合に`CostAwareForecastIntentController.decide_for_position`を呼び、signed filled quantity（quantityが`None`ならcurrent weight）の符号からactual sideを求める。candidateは`[actual side, actual sideからのbaseline hysteresis proposal, FLAT]`の重複を除いた順序で比べる。candidateのtarget exposure `a`は通常`intent * budget`だが、candidateがlogical `current_intent`と一致しhintがある場合はcached weightを使う。従ってsame-intent holdは価格変動後の旧targetへ不要な再約定を要求せず、partial fillやpending residualは`current_weight`からcached targetまでのturnoverとして残る。direct callerも同じmethodを使えるが、返すのは`PositionIntent`だけで、fillや会計は行わない。
+
+各target exposure `a`のutilityは`U(a) = a*expm1(f) - c*abs(a - w)`で、`f`はlog forecast、`w`はactual weight、`c`はone-way costである。選択はutilityが厳密に高い場合だけ置き換えるため、tieは先のcandidateを維持する。minimum-hold中およびunlock decisionではhintを渡さず、既存constraintがquantity holdとnominal target resetを制御する。pairwise比較はtarget間のturnover傾斜をboundedな相対値として求め、`log1p`と比較する。`1 + c*k`がfloat精度で0へ潰れる境界だけexact binary-rational fallbackを使い、正のgapを保持する。相対値は比較のためだけに使い、actual weightやcached targetをclipしない。任意の部分数量を連続最適化するものではなく、選択後には通常のhard-risk projectionとexecutionが適用される。`intent_gross_budget=None`の直接callerは従来のintent-based controller経路を保つ。
 
 Split changes the units of both the filled book and the cached strategy proposal.
 PPO training, single-symbol replay, and shared-cash replay rebase the proposal by

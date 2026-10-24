@@ -50,7 +50,7 @@ BookState
 
 ## 1. 観測を作る
 
-現在バーのfeature、availability、staleness、global feature情報に、**現在の売買意図と現在ウェイト**を加えて`StrategyObservation`を作ります。PPO Observation v3では、さらに実際の約定数量から数えた`position_age_bars`を渡します。最後のactionではなくfillが年齢の起点です。
+現在バーのfeature、availability、staleness、global feature情報に、**現在の売買意図・現在ウェイト・実約定数量・銘柄ごとのgross budget**を加えて`StrategyObservation`を作ります。budgetはcanonical replayでは常に渡し、直接構築する従来callerでは省略できます。cached desired quantityを現在のmark/equityでweightにした`same_intent_target_weight`もoptionalで渡します。Cost-aware forecast adapterはbudgetがある場合、signed filled positionからactual sideを決め、actual side・そこからのbaseline hysteresis proposal・FLATを比較します。候補がlogical current intentと一致するときだけcached targetを使い、それ以外は`-budget` / `0` / `+budget`です。actual weightからcached targetまでのpartial-fill residualはcostに残り、same-intentのquantity holdは価格driftだけを理由に再約定しません。minimum-hold中とunlock decisionはhintを省き、既存のquantity overrideとnominal target resetを使います。これは離散intent候補のproxyで、risk projection前にpartial quantityを連続最適化するものではありません。PPO Observation v3ではさらに実際の約定数量から数えた`position_age_bars`を渡します。最後のactionではなくfillが年齢の起点です。
 
 未来のバーを見てから観測を作ることはありません。判断に入る情報は現在時点までに利用可能なものに限定します。
 
@@ -62,7 +62,7 @@ Replayは開始行と、約定またはterminal settlementが処理する各targ
 
 ここではまだfillも手数料も発生していません。**戦略の責務は経済判断であって、約定や会計ではありません。**
 
-Strategy packageにはfilled exposureとsimple switch-cost proxyを引数に取る直接呼び出し用forecast utilityもありますが、このcanonical replay経路では使われません。既存のRidge / LightGBM adapterはlogical `current_intent`を渡す従来の`decide`を呼び、execution・risk・fee ledgerは共通の後段で処理します。
+Cost-aware設定のRidge / LightGBM adapterは、replayがper-symbol `intent_gross_budget`を渡すと、filled quantity/weightとoptionalなcached targetを使う`decide_for_position`を呼びます。same-intent holdはcached desired quantityを維持し、partial fillやpending residualもactual weightから評価します。utilityは`PositionIntent`だけを返し、fillや帳簿feeは作りません。通常のminimum-hold、hard-risk、execution、会計は共通の後段で処理されます。
 
 PPOに最低保有期間を設定した場合、まだ期間内の実保有数量を維持するよう、FLAT・反対方向などの自発的なintent変更を抑えます。未約定の目標残量も取り消し、partial fillを実保有状態へ反映します。これは約定やriskを飛ばす仕組みではありません。
 

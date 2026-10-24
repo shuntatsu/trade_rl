@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-24 (JST)
+更新基準: 2026-10-25 (JST)
 
 ## 結論
 
@@ -14,6 +14,13 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34の固定screenを1回実行した。12行すべての計算は完了したが、latency-2でcost-proxy armのreturnがposition-aware cost=0 armを下回り、screen全体は FAILED_SCREEN となった。詳細な結果・前提・限界は下のIssue #810 screen節に記録する。これは勝者や継続的な利益を示さず、元の48-cell gate、unused/final評価、PPO/RLまたはlive適格性を完了させない。
+
+P0 software declarations now identify fixed-initial-capital net-profit,
+account mode, finite financial clock, and exact evaluation-window binding in
+`trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do
+not read a ledger, connect a reward to PPO, change its legacy defaults, or
+produce training/replay evidence. The M34 screen classification and every
+existing economic criterion remain unchanged.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 

@@ -26,6 +26,34 @@ independent per-symbol replay
 metrics / comparison / robustness / immutable run artifact
 ```
 
+## Financial objective declarations
+
+`trade_rl.simulation.objectives` は、新しいfinite-horizon Study用のpure contractを
+宣言する。`CapitalContract` は銘柄別の独立accountなら各bookの初期equityを、shared
+portfolioなら一つのbookの初期equityを保持し、分母を初期capitalの合計へ固定する。
+`ObjectiveContract` の `net_profit_objective_v1` は、callerが渡すterminal after-cost
+equityとnet external cash flowから、一回のrealized endpointを
+`(Σ terminal equity − Σ initial equity − Σ net external flow) / Σ initial equity`
+として表す。depositは正、withdrawalは負で、external flowはprofitに数えない。
+`net_equity_increment` は同じfixed capitalを使うinterval incrementであり、ledgerの
+equityやcostを再計算しない。従って、after-cost valuesの供給元と端末処理は既存の
+accounting/replay ownerに残る。canonical ID `expected_terminal_net_profit_v1` は
+objective identityであり、この宣言が期待値を推定したり利益を保証したりはしない。
+
+`ObjectiveContract` はaware UTCへ正規化した `[evaluation_start,
+evaluation_stop_exclusive)`、`settled` / `marked_continuation` endpoint、economics・risk・
+deployment recipe digests、最大drawdownの宣言をidentityへ含める。`FinancialClockContract`
+は正のinteger秒単位のdecision/execution/reward intervalとfinite horizon、gamma、
+GAE lambda、reward schemaを検証し、discountを経過時間から計算する。
+`BoundObjectiveClock` は評価期間のelapsed secondsが宣言horizonと完全一致する場合だけ
+両contractを結ぶ。`terminal_profit_aligned` は `equity_delta_v1` と `gamma == 1.0`
+の代数的条件だけを示し、実環境でのreward parityを証明しない。
+
+これらはopt-in declarationsであり、現行PPO/replayに結線されていない。generic PPOの
+従来reward `log1p(interval_net_return)`、`gamma=0.99`、
+`settle_terminal_position=False` の既定は変わらない。新しいtraining objective、Study
+authorization、financial ledger、winner ruleを加えない。
+
 ## Data contract
 
 `MarketDataset` はpoint-in-timeで観測可能な情報だけをdecisionへ渡す。

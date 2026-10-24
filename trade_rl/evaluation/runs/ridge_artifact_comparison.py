@@ -46,6 +46,53 @@ def _finite_float(value: object, *, field: str) -> float:
     return result
 
 
+def _validate_nested_numeric_booleans(
+    execution_cost: ExecutionCostConfig,
+    risk: PreTradeRiskConfig,
+) -> None:
+    execution_numeric_fields = (
+        "fee_rate",
+        "maker_fee_rate",
+        "taker_fee_rate",
+        "spread_rate",
+        "impact_rate",
+        "multiplier",
+        "max_participation_rate",
+        "slippage_std",
+        "tail_slippage_probability",
+        "tail_slippage_multiplier",
+        "minimum_notional",
+        "lot_size",
+        "tick_size",
+        "borrow_rate_multiplier",
+        "max_leverage",
+        "maintenance_margin_rate",
+        "collateral_haircut",
+        "limit_offset_rate",
+    )
+    risk_numeric_fields = (
+        "max_gross",
+        "max_abs_weight",
+        "max_turnover",
+        "drawdown_start",
+        "drawdown_stop",
+        "fail_closed_tolerance",
+    )
+
+    for field_name in execution_numeric_fields:
+        if isinstance(getattr(execution_cost, field_name), (bool, np.bool_)):
+            raise ValueError(f"execution_cost.{field_name} must not be boolean")
+    for index, value in enumerate(execution_cost.trigger_volume_fractions):
+        if isinstance(value, (bool, np.bool_)):
+            raise ValueError(
+                f"execution_cost.trigger_volume_fractions[{index}] must not be boolean"
+            )
+    for field_name in risk_numeric_fields:
+        value = getattr(risk, field_name)
+        if value is not None and isinstance(value, (bool, np.bool_)):
+            raise ValueError(f"risk.{field_name} must not be boolean")
+
+
 @dataclass(frozen=True, slots=True)
 class RidgeArtifactComparisonConfig:
     """Explicit common replay settings and forecast-controller factors."""
@@ -102,6 +149,7 @@ class RidgeArtifactComparisonConfig:
             raise TypeError("execution_cost must be an ExecutionCostConfig")
         if type(self.risk) is not PreTradeRiskConfig:
             raise TypeError("risk must be a PreTradeRiskConfig")
+        _validate_nested_numeric_booleans(self.execution_cost, self.risk)
         if self.market_order_profile is not None and not isinstance(
             self.market_order_profile, MarketOrderProfile
         ):

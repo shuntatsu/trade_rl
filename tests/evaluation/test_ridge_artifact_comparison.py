@@ -20,6 +20,10 @@ from trade_rl.strategies.forecasts import (
     RidgeForecastModel,
     publish_ridge_forecast_artifact,
 )
+from trade_rl.strategies.forecasts.controller import (
+    CostAwareForecastIntentController,
+    ForecastIntentController,
+)
 
 
 def _comparison_api():
@@ -237,6 +241,23 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
     assert len(adapters) == dataset.n_symbols * 3
     assert len({id(adapter) for adapter in adapters}) == len(adapters)
     assert all(adapter.model is model_loads[0] for adapter in adapters)
+    legacy_adapters = adapters[: dataset.n_symbols]
+    zero_cost_adapters = adapters[dataset.n_symbols : 2 * dataset.n_symbols]
+    positive_cost_adapters = adapters[2 * dataset.n_symbols :]
+    assert all(
+        type(adapter.controller) is ForecastIntentController
+        for adapter in legacy_adapters
+    )
+    assert all(
+        type(adapter.controller) is CostAwareForecastIntentController
+        and adapter.controller.one_way_switch_cost == 0.0
+        for adapter in zero_cost_adapters
+    )
+    assert all(
+        type(adapter.controller) is CostAwareForecastIntentController
+        and adapter.controller.one_way_switch_cost == config.one_way_switch_cost
+        for adapter in positive_cost_adapters
+    )
     assert len(comparator_calls) == 1
     called_dataset, called_arms, kwargs = comparator_calls[0]
     assert called_dataset.dataset_id == dataset.dataset_id
@@ -398,3 +419,52 @@ def test_comparison_config_rejects_boolean_and_invalid_numeric_values(
     api = _comparison_api()
     with pytest.raises((TypeError, ValueError)):
         _config(api, **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("owner", "field", "value"),
+    [
+        ("execution", "fee_rate", True),
+        ("execution", "fee_rate", np.bool_(True)),
+        ("execution", "trigger_volume_fractions", (1.0, True, 0.25, 0.0)),
+        (
+            "execution",
+            "trigger_volume_fractions",
+            (1.0, np.bool_(True), 0.25, 0.0),
+        ),
+        ("risk", "max_gross", True),
+        ("risk", "max_gross", np.bool_(True)),
+        ("risk", "max_turnover", False),
+        ("risk", "max_turnover", np.bool_(False)),
+    ],
+)
+def test_comparison_config_rejects_nested_boolean_numeric_values(
+    owner: str,
+    field: str,
+    value: object,
+) -> None:
+    api = _comparison_api()
+    execution_cost = ExecutionCostConfig()
+    risk = PreTradeRiskConfig()
+    if owner == "execution":
+        execution_cost = replace(execution_cost, **{field: value})
+    else:
+        risk = replace(risk, **{field: value})
+
+    with pytest.raises(ValueError, match="boolean"):
+        _config(api, execution_cost=execution_cost, risk=risk)
+
+
+def test_comparison_config_preserves_nested_boolean_policy_flags() -> None:
+    api = _comparison_api()
+    execution_cost = ExecutionCostConfig(
+        allow_short=False,
+        partial_fill_carry=False,
+        processing_bar_volume_capacity=False,
+    )
+    risk = PreTradeRiskConfig(emergency_turnover_override=False)
+
+    config = _config(api, execution_cost=execution_cost, risk=risk)
+
+    assert config.execution_cost is execution_cost
+    assert config.risk is risk

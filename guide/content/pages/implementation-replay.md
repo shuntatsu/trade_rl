@@ -54,6 +54,8 @@ BookState
 
 未来のバーを見てから観測を作ることはありません。判断に入る情報は現在時点までに利用可能なものに限定します。
 
+Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否します。同時刻は許します。このas-of floorはmodelの生成・配布時刻や過去のvintage availabilityを証明せず、`StrategyObservation`構築前に既にwrapされたtimestampも復元しません。
+
 Replayは開始行と、約定またはterminal settlementが処理する各target行について、raw rowの `available_at` がその行のtimestampより後なら、その行を帳簿・risk・strategy・executionへ渡す前に停止します。single-symbolでは選択銘柄と実保有銘柄、shared-cashでは全strategy rosterが対象です。直接`MarketExecutor.execute_interval`も、有効targetのnonzero weightと帳簿のnonzero exact holdingを対象にdecision rowを同じ時計で確認し、遅着ならvaluation・reconciliation前に停止します。flat accountのzero targetでpending orderだけをcancelする場合は許します。未選択flat銘柄と処理しないtailは対象外で、`information_available=False`だけでは拒否しません。判定は前のdecision時刻ではなくtarget行自身のtimestampと比べます。明示`mark_price`・外部帳簿markの独立availability、明示`OrderIntent`実行、直接close liquidation、venue arrivalまで保証するものではありません。
 
 ## 2. 戦略がintentを返す
@@ -134,7 +136,17 @@ target_weight
 
 ## 同時portfolio policyのopt-in経路
 
-`run_shared_portfolio_replay`は、simulation-ownedなincremental sessionをbatchで呼び出し、eligibleなnative barごとにpolicyを一度だけ呼びます。sessionは同じ`MarketExecutor`・実際に返された`BookState`・native indexを次の呼び出しへ引き継ぎ、各numeric targetを共通risk・execution・accounting経路へ渡します。公開book viewはdetached cloneです。snapshotのfeature、availability、stalenessは既存のcurrent-row observation経路から作り、account・active order・riskはtupleとscalarへコピーします。future rowやopaque order IDはpolicy入力に含めません。
+`run_shared_portfolio_replay`はsimulation-ownedな
+`SharedPortfolioSession`を呼び出すopt-in batch consumerです。eligibleなnative
+barごとにpolicyを一度だけ呼びます。sessionは同じ`MarketExecutor`・実際に返された
+`BookState`・native indexを次の呼び出しへ引き継ぎ、各numeric targetを共通risk・
+execution・accounting経路へ渡します。公開book viewはdetached cloneです。
+`strategies/portfolio_observation.py`が現在の`MarketDataset` row、`BookState`、
+active-order tuple、risk config、decision windowからsnapshotを作り、evaluation replay
+はsource-owned builderへこれらの入力を渡します。strategyへexecutorやevaluation
+configを渡さず、snapshotにはcurrent-row feature・availability・staleness、accountと
+active-orderのprimitive factsだけをtupleとscalarでコピーします。future rowやopaque
+order IDはpolicy入力に含めません。
 
 policyは各symbolのtarget weightをすべて返します。明示的なexact-quantity HOLDも指定できますが、そのweightがhard-risk適用後も変わらない場合だけ既存数量を維持します。riskがtargetを縮小した場合は通常どおり実行され、latency-aware actor boundary後のterminal intervalはsessionのrisk-owned emergency flattenが処理します。observer/transition failure後はexecution stateが進んでいる可能性があるため、sessionを再試行できません。このsnapshotは観測したaccountとpending-order factsであり、free/reserved cashや完全なMarkov stateを合成しません。
 

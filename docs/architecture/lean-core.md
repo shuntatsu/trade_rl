@@ -26,6 +26,34 @@ independent per-symbol replay
 metrics / comparison / robustness / immutable run artifact
 ```
 
+## Financial objective declarations
+
+`trade_rl.simulation.objectives` は、新しいfinite-horizon Study用のpure contractを
+宣言する。`CapitalContract` は銘柄別の独立accountなら各bookの初期equityを、shared
+portfolioなら一つのbookの初期equityを保持し、分母を初期capitalの合計へ固定する。
+`ObjectiveContract` の `net_profit_objective_v1` は、callerが渡すterminal after-cost
+equityとnet external cash flowから、一回のrealized endpointを
+`(Σ terminal equity − Σ initial equity − Σ net external flow) / Σ initial equity`
+として表す。depositは正、withdrawalは負で、external flowはprofitに数えない。
+`net_equity_increment` は同じfixed capitalを使うinterval incrementであり、ledgerの
+equityやcostを再計算しない。従って、after-cost valuesの供給元と端末処理は既存の
+accounting/replay ownerに残る。canonical ID `expected_terminal_net_profit_v1` は
+objective identityであり、この宣言が期待値を推定したり利益を保証したりはしない。
+
+`ObjectiveContract` はaware UTCへ正規化した `[evaluation_start,
+evaluation_stop_exclusive)`、`settled` / `marked_continuation` endpoint、economics・risk・
+deployment recipe digests、最大drawdownの宣言をidentityへ含める。`FinancialClockContract`
+は正のinteger秒単位のdecision/execution/reward intervalとfinite horizon、gamma、
+GAE lambda、reward schemaを検証し、discountを経過時間から計算する。
+`BoundObjectiveClock` は評価期間のelapsed secondsが宣言horizonと完全一致する場合だけ
+両contractを結ぶ。`terminal_profit_aligned` は `equity_delta_v1` と `gamma == 1.0`
+の代数的条件だけを示し、実環境でのreward parityを証明しない。
+
+これらはopt-in declarationsであり、現行PPO/replayに結線されていない。generic PPOの
+従来reward `log1p(interval_net_return)`、`gamma=0.99`、
+`settle_terminal_position=False` の既定は変わらない。新しいtraining objective、Study
+authorization、financial ledger、winner ruleを加えない。
+
 ## Data contract
 
 `MarketDataset` はpoint-in-timeで観測可能な情報だけをdecisionへ渡す。
@@ -39,6 +67,7 @@ metrics / comparison / robustness / immutable run artifact
 - `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` は元unitへのexact round-tripを要求するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
 - forecast training builderへ渡す`fit_cutoff`は、`datetime64[ns]`へ値を失わず変換できなければならない。`NaT`、signed-nanosecond範囲外、nanosecond未満の端数はtraining scopeやlabel rowを調べる前に拒否し、exactに変換できるcoarser / multiplier unitは受け入れる。
+- Ridge / LightGBM model constructorも同じlossless cutoff normalizerを使う。両strategy adapterは、保存済みobservation timestampが`NaT`の場合と`fit_cutoff > observation.timestamp`の場合に、feature fallbackやpredictionより前に拒否し、同時刻は許す。これはmodelの宣言fit cutoffに対するas-of floorであり、modelの生成・配布時刻、vintage、decision時点での実運用可能性を証明しない。`StrategyObservation`構築前のtimestamp変換で既にwrapされた入力時刻も復元できない。
 - `LeanCandidateConfig`のtyped `fit_cutoff`も、nsへの正規化前に元unitとのexact round-tripを要求する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
@@ -172,19 +201,23 @@ This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
 
-`run_shared_portfolio_replay` is a separate opt-in batch consumer over the
-simulation-owned `SharedPortfolioSession`. The session retains the exact
-returned `BookState` and one `MarketExecutor` across calls, advances its native
-index once per target, and uses the existing `execute_native_target_transition`
-for hard risk and execution. Its public account view is a detached clone; the
-batch consumer builds one `PortfolioPolicy.decide_portfolio` input per native
-decision row and keeps evidence collection in evaluation. The complete
-symbol-ordered numeric target vector is validated before a native transition
-can mutate execution state.
-The snapshot copies only the current `StrategyObservation` row, primitive account
-facts, active-order quantities/status/timing, and risk-limit scalars into tuples
-and immutable values; it does not include the `MarketDataset`, executor, risk or
-book objects, opaque order IDs, or future rows. Cash is reported as raw account
+`run_shared_portfolio_replay` is the opt-in batch consumer over the
+simulation-owned `SharedPortfolioSession`. It invokes one
+`PortfolioPolicy.decide_portfolio` for each eligible native decision row. The
+session retains the exact returned `BookState` and one `MarketExecutor` across
+calls, advances its native index once per target, and uses the existing
+`execute_native_target_transition` for hard risk and execution. Its public
+account view is a detached clone, and evidence collection remains in evaluation.
+`strategies/portfolio_observation.py` builds the detached snapshot from the
+current `MarketDataset` row, `BookState`, active-order tuple, risk config, and
+decision window; evaluation passes those source-owned inputs without giving the
+strategy an executor or evaluation config. The complete symbol-ordered numeric
+target vector is validated before a native transition can mutate execution
+state. The snapshot copies only the current `StrategyObservation` row,
+primitive account facts, active-order quantities/status/timing, and risk-limit
+scalars into tuples and immutable values; it does not include the
+`MarketDataset`, executor, risk or book objects, opaque order IDs, or future
+rows. Cash is reported as raw account
 cash, not as free or reserved cash, so this input is not a complete Markov account
 state. An explicit exact-quantity HOLD is accepted only when its target exactly
 matches the current book weight, and it survives only if hard risk leaves that

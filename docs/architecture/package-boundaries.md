@@ -52,6 +52,7 @@ trade_rl/
 │   └── emergency.py
 ├── simulation/
 │   ├── accounting.py
+│   ├── objectives/{__init__.py,contract.py,clock.py,binding.py}
 │   ├── execution.py
 │   ├── native_transition.py
 │   ├── bar_path.py
@@ -68,6 +69,7 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── portfolio.py
+│   ├── portfolio_observation.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
@@ -268,6 +270,13 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。`PortfolioRi
 
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
+`objectives/` は新規Study向けのpureな `CapitalContract`、`ObjectiveContract`、
+`FinancialClockContract`、`BoundObjectiveClock` と固定資本の
+`net_equity_increment` を所有する。値を受け取ってobjective identityを宣言するだけで、
+ledger、replay、selection、study executionを実装しない。入力のequityは既存の
+after-cost accounting ownerが供給する。objective subpackageはsimulation root facadeへ
+再exportせず、validationとartifact identity hashing、および自身の契約型だけを使う。
+
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
 event evidence; `orders/admission.py` rejects requests beyond exact inventory.
 `liquidity.py` takes an explicit exact initial position for reduce-only requests
@@ -318,7 +327,7 @@ the order reference. With no held quantities, it resolves current dataset marks
 before entry sizing so default initial book marks are harmless. The accounting
 and execution owners remain unchanged.
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `forecasts/controller.py` exposes `CostAwareForecastIntentController.decide_for_position` for direct calls and the cost-aware Ridge / LightGBM adapter path. Adapters call it only when `one_way_switch_cost` is configured and the observation includes `intent_gross_budget`; other observations keep the intent-only controller call. The controller stays independent of execution, risk and replay. Canonical replay supplies filled quantity/weight and an optional matching cached target, then applies its existing minimum-hold, hard-risk, execution and accounting stages.
 
@@ -511,6 +520,10 @@ trade_rl -X-> tools/agent_repo
 ```
 
 `evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。strategy family間で共有するdataset-bound selectionはroot `strategies/dataset_scope.py` を経由し、RLからforecast内部へ依存させない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
+
+`simulation/objectives` はdeclaration-onlyのlower-layer packageであり、
+`trade_rl._validation`、`trade_rl.artifacts.hashing` と自身の型だけへ依存する。
+これはcurrent PPO/replayがobjective contractを消費することを意味しない。
 
 ### Static import ownership gate
 

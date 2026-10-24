@@ -38,6 +38,7 @@ EXPECTED_PACKAGE_FILES = {
         "runtime_performance.py",
         "runtime_performance_io.py",
     },
+    "objectives": {"__init__.py", "binding.py", "clock.py", "contract.py"},
 }
 
 RETIRED_FLAT_FILES = {

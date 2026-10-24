@@ -101,6 +101,54 @@ def test_strategies_do_not_depend_on_evaluation() -> None:
     assert _offenders(PACKAGE / "strategies", ("trade_rl.evaluation",)) == []
 
 
+def test_portfolio_observation_builder_is_strategy_owned_and_reused() -> None:
+    builder = PACKAGE / "strategies" / "portfolio_observation.py"
+    assert builder.is_file()
+    assert not any(
+        within_module(imported, "trade_rl.evaluation")
+        for imported in collect_trade_rl_imports(builder)
+    )
+    builder_tree = ast.parse(builder.read_text(encoding="utf-8"))
+    builder_function = next(
+        node
+        for node in ast.walk(builder_tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "build_portfolio_decision_snapshot"
+    )
+    parameters = {
+        argument.arg
+        for argument in (*builder_function.args.args, *builder_function.args.kwonlyargs)
+    }
+    assert {
+        "dataset",
+        "index",
+        "agent_stop_index",
+        "book",
+        "active_orders",
+        "risk_config",
+    } <= parameters
+    assert not {"executor", "risk"} & parameters
+
+    replay = (PACKAGE / "evaluation" / "replay.py").read_text(encoding="utf-8")
+    tree = ast.parse(replay)
+    imported_builder = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "trade_rl.strategies.portfolio_observation"
+        and any(
+            alias.name == "build_portfolio_decision_snapshot" for alias in node.names
+        )
+        for node in ast.walk(tree)
+    )
+    called_builder = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "build_portfolio_decision_snapshot"
+        for node in ast.walk(tree)
+    )
+    assert imported_builder
+    assert called_builder
+
+
 def test_portfolio_policy_contract_is_detached_from_runtime_owners() -> None:
     path = PACKAGE / "strategies" / "portfolio.py"
     forbidden = (

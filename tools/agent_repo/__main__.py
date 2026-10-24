@@ -34,6 +34,7 @@ from tools.agent_repo.eval_suite import (
 from tools.agent_repo.git_state import read_git_state
 from tools.agent_repo.semantic_diff import semantic_diff
 from tools.agent_repo.source_index import SourceIndex
+from tools.agent_repo.source_packet import create_source_packet
 from tools.agent_repo.verification import plan_verification
 
 
@@ -59,6 +60,11 @@ def _parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser("verify")
     verify.add_argument("--base", dest="base_ref", required=True)
+
+    source_packet = subparsers.add_parser("source-packet")
+    source_packet.add_argument("--base", required=True)
+    source_packet.add_argument("--head", required=True)
+    source_packet.add_argument("--output", type=Path, required=True)
 
     subparsers.add_parser("eval-list")
     eval_show = subparsers.add_parser("eval-show")
@@ -215,6 +221,13 @@ def _dispatch(args: argparse.Namespace, repository: Path) -> object:
                 for step in plan_verification(repository, base_ref=str(args.base_ref))
             ]
         }
+    if command == "source-packet":
+        return create_source_packet(
+            repository,
+            base=str(args.base),
+            head=str(args.head),
+            output=Path(args.output),
+        )
     if command == "eval-list":
         suite = load_eval_suite(DEFAULT_SUITE)
         return {

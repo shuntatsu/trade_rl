@@ -1117,6 +1117,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 
 - `feature_available_time <= decision_time` を守る。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。この確認は宣言時刻に対するもので、過去のvenue availabilityを独立に証明しない。
+- Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否する。同時刻は許す。この境界はstored timestampと宣言fit cutoffだけを比較し、model-ready時刻や過去のmodel vintageを証明しない。`StrategyObservation`構築時に既にwrapされた入力時刻も検出しない。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
 - fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。

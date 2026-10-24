@@ -303,7 +303,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
-- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`のtyped `fit_cutoff`も正規化前にlosslessな元unit round-tripを検証する。PPO・risk・execution設定はforecast horizonに依存しない。
+- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`は4つのthresholdでbuilt-in `bool`を拒否し、typed `fit_cutoff`も正規化前にlosslessな元unit round-tripを検証する。PPO・risk・execution設定はforecast horizonに依存しない。
 - `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` は元unitへのexact round-tripを要求する。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。

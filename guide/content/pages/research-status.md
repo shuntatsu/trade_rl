@@ -12,7 +12,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 各armは独立した100,000 USDT口座を持ち、BTC/ETHは口座内で資金を共有します。Datasetのfee_rate 5 bpとspread_rate 2 bpを使い、追加execution overlayは0です。10 bp/weight-turnoverのdecision proxyはledger feeと別で、execution costやfundingを二重計上しません。fundingは完成barのrow-close proxy、marginと市場filterは固定した研究仮定です。
 
-入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。この結果をretuneや再実行には使いません。
+入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。このscreenは再実行・retuneせず、固定結果として保持します。次の検証は別protocolと結果前のreviewで条件を固定します。
 
 ## Task 18 Datasetの準備状況と次のゲート
 

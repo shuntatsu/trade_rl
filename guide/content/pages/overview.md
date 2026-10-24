@@ -17,7 +17,7 @@ hard riskで実行可能な目標へ制約
         ↓
 MarketExecutor + BookStateで約定・会計
         ↓
-銘柄ごと／方式ごとのshared-cashリプレイ
+銘柄別の独立口座リプレイ／対応方式の共有資金リプレイ
         ↓
 metrics / comparison / robustness / immutable evidence
 ```

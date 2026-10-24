@@ -208,9 +208,13 @@ class MarketDataset:
         n_symbols = len(symbols)
         if n_bars < 3:
             raise ValueError("market dataset requires at least three bars")
+        if np.any(timestamp_ns[1:] <= timestamp_ns[:-1]):
+            raise ValueError("timestamps must be strictly increasing")
         deltas = np.diff(timestamp_ns)
         if np.any(deltas <= 0):
-            raise ValueError("timestamps must be strictly increasing")
+            raise ValueError(
+                "timestamp intervals must be representable as positive nanoseconds"
+            )
 
         bar_duration_ns: int | None
         if calendar_kind is MarketCalendarKind.CONTINUOUS:

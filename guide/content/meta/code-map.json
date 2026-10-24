@@ -26,7 +26,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "f3f2f333c910cd263e0f9434b1bb17de1fb815b9e22d2126c14c194d027ceaf2"
+      "sha256": "5ce4f6590ea55f86451340f56a5870b75785cecd1d66a61f432ec8a4da29056f"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -36,7 +36,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "b16fcebd5dcc6d52c8316ff4ac59b59e236edaaa127d9f0b433bc192af93ac30"
+      "sha256": "3f13b41f789a18440b04f6ea7cd3c25cf6509c16ae6656e2043366a5db9e26f0"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -238,7 +238,7 @@
       "id": "scripted-shared-cash-replay",
       "symbol": "trade_rl.evaluation.replay.run_scripted_shared_cash_replay",
       "kind": "function",
-      "source_sha256": "5475b8c4c23e95ebb680eb6f0bc77fbf3111f489108fe5a6bf15375327af8c65",
+      "source_sha256": "45b7b3659b412395cf73672b98b4f16ef8b5db42a2d001c72d1edaac5a918d5d",
       "label_ja": "固定action sequenceによる共通資金replay",
       "description_ja": "事前検証したsymbolごとのaction sequenceを既存のshared risk・MarketExecutor・ledgerへ通します。Noneはpending targetを進め、HOLD_QUANTITYはriskがweightを変えない場合だけ実BookStateのexact quantityを保ってremainderをcancelします。strategy interfaceやledger schemaは変えません。",
       "variables": [

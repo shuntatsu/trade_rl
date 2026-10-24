@@ -121,6 +121,17 @@ def test_simulation_does_not_depend_on_strategy_or_evaluation() -> None:
     assert _offenders(PACKAGE / "simulation", forbidden) == []
 
 
+def test_native_target_transition_stays_in_simulation_without_facade_export() -> None:
+    path = PACKAGE / "simulation" / "native_transition.py"
+    imports = collect_trade_rl_imports(path)
+    assert "trade_rl.risk.pretrade" in imports
+    assert "trade_rl.simulation.accounting" in imports
+    assert "trade_rl.simulation.execution" in imports
+    assert _offenders(path.parent, ("trade_rl.strategies", "trade_rl.evaluation")) == []
+    facade = (PACKAGE / "simulation" / "__init__.py").read_text(encoding="utf-8")
+    assert "execute_native_target_transition" not in facade
+
+
 def test_candidate_runs_do_not_depend_on_controlled_experiments() -> None:
     assert (
         _offenders(

@@ -7,9 +7,12 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.native_transition import execute_native_target_transition
+from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 
 
 def market(**overrides: object) -> MarketDataset:
@@ -111,6 +114,206 @@ def test_next_open_execution_uses_processing_bar_volume() -> None:
     )
     assert result.filled_turnover == pytest.approx(1.0)
     assert result.unfilled_turnover == pytest.approx(0.0)
+
+
+def test_native_transition_applies_risk_then_executes_one_native_bar() -> None:
+    dataset = market()
+    book = BookState.zero(1, 1_000.0, dataset.close[0])
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+    risk_target, execution, effective_holds = execute_native_target_transition(
+        executor,
+        book,
+        risk,
+        np.array([1.0]),
+        start_index=0,
+    )
+
+    np.testing.assert_array_equal(risk_target.proposal_weights, [1.0])
+    np.testing.assert_array_equal(risk_target.weights, [0.5])
+    assert effective_holds == ()
+    assert execution.next_index == 1
+    assert execution.bars_advanced == 1
+    assert execution.book.exact_quantities == (Fraction(5),)
+    assert book.exact_quantities == (Fraction(0),)
+
+
+def test_native_transition_hold_cancels_partial_remainder_without_resizing() -> None:
+    volume = np.full((5, 1), 1_000_000.0)
+    volume[1, 0] = 1.0
+    dataset = market(volume=volume)
+    execution_cost = replace(
+        ExecutionCostConfig.zero(),
+        order_latency_bars=1,
+        lot_size=0.1,
+    )
+    observations: list[StatefulExecutionObservation] = []
+    executor = MarketExecutor(
+        dataset,
+        execution_cost,
+        execution_observer=observations.append,
+    )
+    risk = PreTradeRisk.default_for_execution(max_leverage=1.0)
+    book = BookState.zero(1, 1_000.0, dataset.close[0])
+
+    first_risk, first, first_holds = execute_native_target_transition(
+        executor,
+        book,
+        risk,
+        np.array([0.5]),
+        start_index=0,
+    )
+    assert first_holds == ()
+    assert first_risk.weights[0] == pytest.approx(0.5)
+    assert first.book.exact_quantities == (Fraction(1),)
+    assert any(
+        event.event_type == "partial_fill" for event in observations[-1].order_events
+    )
+    assert observations[-1].active_order_remainders
+    exact_quantity = first.book.exact_quantities
+
+    proposal = np.asarray(first.book.weights, dtype=np.float64)
+    hold_risk, held, effective_holds = execute_native_target_transition(
+        executor,
+        first.book,
+        risk,
+        proposal,
+        start_index=1,
+        hold_current_quantity_symbols=(0,),
+    )
+
+    assert effective_holds == (0,)
+    np.testing.assert_array_equal(hold_risk.weights, proposal)
+    assert held.book.exact_quantities == exact_quantity
+    assert not observations[-1].active_order_remainders
+    assert any(
+        event.event_type == "cancelled" for event in observations[-1].order_events
+    )
+    assert not any(
+        event.event_type == "submitted" for event in observations[-1].order_events
+    )
+
+
+def test_native_transition_rejects_invalid_hold_before_execution() -> None:
+    dataset = market()
+    observations: list[StatefulExecutionObservation] = []
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero(),
+        execution_observer=observations.append,
+    )
+    risk = PreTradeRisk.default_for_execution(max_leverage=1.0)
+    book = BookState.zero(1, 1_000.0, dataset.close[0])
+
+    with pytest.raises(ValueError, match="must equal the current book weight"):
+        execute_native_target_transition(
+            executor,
+            book,
+            risk,
+            np.array([0.5]),
+            start_index=0,
+            hold_current_quantity_symbols=(0,),
+        )
+
+    assert observations == []
+    assert book.exact_quantities == (Fraction(0),)
+
+
+def test_native_transition_rejects_nonfinite_target_without_account_mutation() -> None:
+    dataset = market()
+    observations: list[StatefulExecutionObservation] = []
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero(),
+        execution_observer=observations.append,
+    )
+    risk = PreTradeRisk.default_for_execution(max_leverage=1.0)
+    book = BookState.zero(1, 1_000.0, dataset.close[0])
+    exact_quantities_before = book.exact_quantities
+    cash_before = book.cash
+
+    with pytest.raises(ValueError, match="target weights must be finite"):
+        execute_native_target_transition(
+            executor,
+            book,
+            risk,
+            np.array([np.nan]),
+            start_index=0,
+        )
+
+    assert observations == []
+    assert book.exact_quantities == exact_quantities_before
+    assert book.cash == cash_before
+
+
+def test_native_transition_rejects_terminal_book_before_risk_or_execution() -> None:
+    dataset = market()
+    observations: list[StatefulExecutionObservation] = []
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero(),
+        execution_observer=observations.append,
+    )
+    risk = PreTradeRisk.default_for_execution(max_leverage=1.0)
+    book = replace(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        termination_reason="drawdown_stop",
+    )
+
+    with pytest.raises(RuntimeError, match="terminal book"):
+        execute_native_target_transition(
+            executor,
+            book,
+            risk,
+            np.array([0.0]),
+            start_index=0,
+        )
+
+    assert observations == []
+    assert book.exact_quantities == (Fraction(0),)
+
+
+def test_native_transition_risk_shrink_overrides_exact_quantity_hold() -> None:
+    dataset = market()
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.1,
+            max_abs_weight=0.1,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+    book = BookState(
+        quantities=np.array([5.0]),
+        cash=500.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+    )
+
+    risk_target, execution, effective_holds = execute_native_target_transition(
+        executor,
+        book,
+        risk,
+        np.asarray(book.weights, dtype=np.float64),
+        start_index=0,
+        hold_current_quantity_symbols=(0,),
+    )
+
+    np.testing.assert_array_equal(risk_target.weights, [0.1])
+    assert effective_holds == ()
+    assert execution.book.exact_quantities == (Fraction(1),)
+    assert book.exact_quantities == (Fraction(5),)
 
 
 def test_causal_capacity_uses_previous_completed_bar_volume() -> None:

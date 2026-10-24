@@ -98,3 +98,19 @@ def test_config_rejects_invalid_hysteresis(
             entry_threshold=entry_threshold,
             exit_threshold=exit_threshold,
         )
+
+
+@pytest.mark.parametrize(
+    ("entry_threshold", "exit_threshold"),
+    ((True, 0.02), (False, 0.02), (2.0, True), (0.10, False)),
+)
+def test_config_rejects_boolean_thresholds(
+    entry_threshold: float,
+    exit_threshold: float,
+) -> None:
+    with pytest.raises(ValueError, match="threshold.*boolean"):
+        TrendIntentConfig(
+            signal_index=0,
+            entry_threshold=entry_threshold,
+            exit_threshold=exit_threshold,
+        )

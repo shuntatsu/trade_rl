@@ -386,6 +386,7 @@ def test_execution_gross_position_return_is_invariant_across_split() -> None:
 
     pre_split_return = strategy.observations[2].gross_position_return
     post_split_return = strategy.observations[3].gross_position_return
+    assert strategy.observations[0].intent_gross_budget == 0.02
     assert pre_split_return == pytest.approx(0.0)
     assert post_split_return is not None
     assert post_split_return == pytest.approx(pre_split_return)

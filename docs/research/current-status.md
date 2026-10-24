@@ -1039,6 +1039,8 @@ Universal model/policyにsymbol ID、symbol-specific embedding、symbol-specific
 
 Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbolの総sample weightを等しくする。Ridgeはweighted statistics/normal equationを使い、LightGBMは同じweightを`sample_weight`へ渡す。
 
+The opt-in actual-fill path for cost-aware forecasts uses per-symbol budget, actual signed quantity, actual weight, and—when replay can preserve a cached target—the logical same-intent target weight. Candidate order remains actual side, baseline hysteresis proposal from that side, then FLAT. Candidate exposure is nominal `-budget` / zero / `+budget`, except the candidate matching the logical current intent may use its cached target weight; utility charges turnover from actual weight, so a quantity-preserving hold avoids a fictitious rebalance while partial-fill residuals remain costed. Minimum-hold lock and unlock decisions omit the hint and preserve existing quantity-override/reset behavior. This is a discrete intent proxy, not a continuous target optimizer; selected targets still pass through existing hard-risk projection and execution. The software contract and synthetic pending-order/quantity-hold regressions do not rerun or relabel prior research evidence, change baseline defaults or executor policy, introduce an economic result, or establish profitability; earlier research conclusions remain in force.
+
 ### PPO
 
 #### Candidate-suite raw-price availability preflight

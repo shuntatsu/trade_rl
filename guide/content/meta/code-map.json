@@ -20,7 +20,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "ba9743accce4013c099656b5d72c24b738b19277c207e99463af9c02285387f3"
+      "sha256": "1998fc14411530c654bb9f02be97a0f4d1f8f6a2b0739bdef74d5c9794caabff"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -155,6 +155,19 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_strategy_comparison.py"
+      ]
+    },
+    {
+      "id": "ridge-model-artifact-publication",
+      "symbol": "trade_rl.strategies.forecasts.ridge_artifact.publish_ridge_forecast_artifact",
+      "kind": "function",
+      "source_sha256": "cb445632d0a924dcad33603e9659bb90f27396eef41808b1aad7910d914fa2d1",
+      "label_ja": "Ridge modelのimmutable artifact保存",
+      "description_ja": "既存のfrozen Ridge modelとdeclared fit contextをcanonical JSONへwrite-onceで保存し、external digestとcaller bindingを必須とするloaderで復元します。fitの独立証明やevaluationは行いません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_ridge_artifact.py",
+        "tests/architecture/test_ridge_artifact_contract.py"
       ]
     }
   ]

@@ -13,6 +13,8 @@
     "PreTradeRisk",
     "MarketExecutor",
     "run_single_symbol_replay",
+    "run_scripted_shared_cash_replay",
+    "ScriptedReplayAction",
     "ownership",
     "dependency"
   ],
@@ -20,7 +22,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "155328c74411779662b9b1aee340309a44a87a41696583ec858353357f6ebe35"
+      "sha256": "62effed6b8ba6894c95fbcbe5142daf2fd6f21d45cb07b318dec841ba7cff22d"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -30,7 +32,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "76ce783b68136beabf6ce93c43a1cfad22da0e2d50a31cfc8de91e28ca6f3a17"
+      "sha256": "b16fcebd5dcc6d52c8316ff4ac59b59e236edaaa127d9f0b433bc192af93ac30"
     }
   ],
   "code_references": [
@@ -164,7 +166,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "57d6654a033a6e07af3d1ceb4f998487c943fb9de6b141a2636b0a07d71c9ce6",
+      "source_sha256": "a68b3cce93f766b152917f9bbec1e9b855e99c0b82c68a58bf966127674b2b51",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
@@ -182,6 +184,25 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "scripted-shared-cash-replay",
+      "symbol": "trade_rl.evaluation.replay.run_scripted_shared_cash_replay",
+      "kind": "function",
+      "source_sha256": "487bf8a13cffd8b7802777458c208e0dba81a223a6985e005b7a4c23bd295a48",
+      "label_ja": "固定action sequenceによる共通資金replay",
+      "description_ja": "事前検証したsymbolごとのaction sequenceを既存のshared risk・MarketExecutor・ledgerへ通します。Noneはpending targetを進め、HOLD_QUANTITYはriskがweightを変えない場合だけ実BookStateのexact quantityを保ってremainderをcancelします。strategy interfaceやledger schemaは変えません。",
+      "variables": [
+        {
+          "name": "actions_by_symbol",
+          "label_ja": "銘柄ごとの固定action sequence",
+          "description_ja": "各strategy symbolについて、intervalごとのPositionIntent・HOLD_QUANTITY・Noneを並べた事前検証済みsequenceです。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_shared_cash_replay.py",
+        "tests/architecture/test_shared_cash_replay_contract.py"
       ]
     },
     {

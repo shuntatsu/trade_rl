@@ -188,6 +188,255 @@ def test_shared_cash_replay_api_exists() -> None:
     assert callable(replay_module.run_shared_cash_replay)
 
 
+def test_scripted_hold_preserves_exact_lot_quantity_across_repeated_bars() -> None:
+    price = 459.4451860856874
+    dataset = _market(
+        np.asarray([[price], [price], [price * 1.1], [price * 0.9], [price * 1.2]]),
+        volume=1e18,
+    )
+    hold = replay_module.ScriptedReplayAction.HOLD_QUANTITY
+
+    result = replay_module.run_scripted_shared_cash_replay(
+        dataset,
+        actions_by_symbol={
+            "SYM0": (
+                PositionIntent.LONG,
+                hold,
+                hold,
+                None,
+            )
+        },
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.28465406229772494,
+        initial_capital=12_644_598_901.709024,
+        execution_cost=ExecutionCostConfig(
+            fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=1.0,
+            lot_size=1e-12,
+            max_leverage=1.0,
+        ),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    after_entry = ledger.intervals[0].exact_quantities_after
+    assert after_entry == ("1958523319267917/250000000",)
+    assert ledger.intervals[1].exact_quantities_after == after_entry
+    assert ledger.intervals[2].exact_quantities_after == after_entry
+    assert ledger.intervals[1].order_events == ()
+    assert ledger.intervals[2].order_events == ()
+    assert ledger.final_total_cost == 0.0
+
+
+def test_scripted_hold_cancels_unfilled_order_from_actual_flat_position() -> None:
+    volume = np.full((5, 1), 1_000_000.0)
+    volume[1, 0] = 0.0
+    result = replay_module.run_scripted_shared_cash_replay(
+        _market(np.full((5, 1), 100.0), volume=volume),
+        actions_by_symbol={
+            "SYM0": (
+                PositionIntent.LONG,
+                replay_module.ScriptedReplayAction.HOLD_QUANTITY,
+                None,
+            )
+        },
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            order_latency_bars=1,
+        ),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    hold = ledger.decisions[1]
+    assert hold.intents == (PositionIntent.FLAT,)
+    assert hold.effective_intents == (PositionIntent.FLAT,)
+    assert hold.position_quantity_before == (0.0,)
+    hold_events = ledger.intervals[1].order_events
+    assert any(
+        event.event_type == "cancelled" and event.reason == "superseded"
+        for event in hold_events
+    )
+    assert ledger.terminal_exact_quantities == ("0",)
+    assert ledger.active_order_remainders == ()
+
+
+def test_scripted_hold_cancels_partial_remainder_and_keeps_exact_fill() -> None:
+    volume = np.full((5, 1), 1_000_000.0)
+    volume[1, 0] = 1.0
+    result = replay_module.run_scripted_shared_cash_replay(
+        _market(np.full((5, 1), 100.0), volume=volume),
+        actions_by_symbol={
+            "SYM0": (
+                PositionIntent.LONG,
+                replay_module.ScriptedReplayAction.HOLD_QUANTITY,
+                None,
+            )
+        },
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            lot_size=0.1,
+        ),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    partial_quantity = ledger.intervals[0].exact_quantities_after
+    assert partial_quantity == ("1",)
+    hold_events = ledger.intervals[1].order_events
+    assert any(
+        event.event_type == "cancelled" and event.reason == "superseded"
+        for event in hold_events
+    )
+    assert ledger.intervals[1].exact_quantities_after == partial_quantity
+    assert ledger.intervals[2].exact_quantities_after == partial_quantity
+    assert ledger.active_order_remainders == ()
+
+
+def test_scripted_none_preserves_pending_target_and_native_fill_progression() -> None:
+    volume = np.full((5, 1), 1_000_000.0)
+    volume[1:3, 0] = 1.0
+    result = replay_module.run_scripted_shared_cash_replay(
+        _market(np.full((5, 1), 100.0), volume=volume),
+        actions_by_symbol={
+            "SYM0": (PositionIntent.LONG, None, None),
+        },
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            lot_size=0.1,
+        ),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert ledger.intervals[0].exact_quantities_after == ("1",)
+    assert ledger.intervals[1].exact_quantities_after == ("2",)
+    assert not any(
+        event.event_type == "cancelled" for event in ledger.intervals[1].order_events
+    )
+    first_order_id = next(
+        event.order_id
+        for event in ledger.intervals[0].order_events
+        if event.event_type == "submitted"
+    )
+    assert all(
+        event.order_id == first_order_id for event in ledger.intervals[1].order_events
+    )
+
+
+def test_scripted_hold_is_still_constrained_by_drawdown_risk() -> None:
+    result = replay_module.run_scripted_shared_cash_replay(
+        _market(np.asarray([[100.0], [100.0], [70.0], [70.0], [70.0]])),
+        actions_by_symbol={
+            "SYM0": (
+                PositionIntent.LONG,
+                None,
+                replay_module.ScriptedReplayAction.HOLD_QUANTITY,
+                None,
+            )
+        },
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=1.0,
+                max_abs_weight=1.0,
+                max_turnover=None,
+                drawdown_start=0.01,
+                drawdown_stop=0.02,
+            )
+        ),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert "drawdown_deleveraging" in ledger.decisions[2].risk_reasons
+    assert ledger.intervals[2].exact_quantities_after == ("0",)
+    assert ledger.active_order_remainders == ()
+
+
+def test_scripted_replay_rejects_invalid_future_action_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution_starts: list[int] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_execution_start(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        execution_starts.append(start_index)
+        return original_execute_interval(
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+        )
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", record_execution_start)
+    with pytest.raises(ValueError, match="unsupported scripted action"):
+        replay_module.run_scripted_shared_cash_replay(
+            _market(np.full((5, 1), 100.0)),
+            actions_by_symbol={
+                "SYM0": (PositionIntent.LONG, None, object()),
+            },
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            execution_cost=ExecutionCostConfig.zero(),
+        )
+
+    assert execution_starts == []
+
+
+def test_scripted_small_position_action_remains_a_real_retarget() -> None:
+    result = replay_module.run_scripted_shared_cash_replay(
+        _market(np.full((4, 1), 100.0), volume=1_000_000.0),
+        actions_by_symbol={
+            "SYM0": (PositionIntent.LONG, PositionIntent.FLAT),
+        },
+        start_index=0,
+        stop_index=2,
+        gross_budget=1e-8,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert ledger.intervals[0].exact_quantities_after != ("0",)
+    assert ledger.intervals[1].exact_quantities_after == ("0",)
+
+
 def test_shared_cash_replay_settles_every_symbol_before_the_exclusive_close() -> None:
     dataset = _market(np.full((6, 2), [100.0, 200.0]))
     result = replay_module.run_shared_cash_replay(

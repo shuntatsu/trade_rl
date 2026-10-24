@@ -1016,6 +1016,7 @@ class MarketExecutor:
         *,
         start_index: int,
         bars: int,
+        hold_current_quantity_symbols: tuple[int, ...] = (),
     ) -> tuple[ExecutionResult, StatefulExecutionResult]:
         state = (
             self._compatibility_order_book
@@ -1032,15 +1033,27 @@ class MarketExecutor:
                 "target": tuple(float(value) for value in target_vector),
             }
         )
-        stateful = execute_target_statefully(
-            self,
-            book,
-            state,
-            target_vector,
-            start_index=start_index,
-            bars=bars,
-            target_identity=target_identity,
-        )
+        if hold_current_quantity_symbols:
+            stateful = execute_target_statefully(
+                self,
+                book,
+                state,
+                target_vector,
+                start_index=start_index,
+                bars=bars,
+                target_identity=target_identity,
+                hold_current_quantity_symbols=hold_current_quantity_symbols,
+            )
+        else:
+            stateful = execute_target_statefully(
+                self,
+                book,
+                state,
+                target_vector,
+                start_index=start_index,
+                bars=bars,
+                target_identity=target_identity,
+            )
         self._compatibility_order_book = stateful.order_book
         self._compatibility_last_book = stateful.book
 
@@ -1090,12 +1103,14 @@ class MarketExecutor:
         *,
         start_index: int,
         bars: int,
+        hold_current_quantity_symbols: tuple[int, ...] = (),
     ) -> ExecutionResult:
         compatibility, stateful = self._execute_interval_with_stateful_evidence(
             book,
             target,
             start_index=start_index,
             bars=bars,
+            hold_current_quantity_symbols=hold_current_quantity_symbols,
         )
         if self._execution_observer is not None:
             self._execution_observer(StatefulExecutionObservation.from_result(stateful))

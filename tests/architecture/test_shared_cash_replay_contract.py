@@ -4,16 +4,22 @@ from dataclasses import fields
 from inspect import getsource, signature
 from pathlib import Path
 
+import trade_rl.evaluation as evaluation
 from trade_rl.evaluation import replay as replay_module
 from trade_rl.evaluation.replay import (
+    ScriptedReplayAction,
     SharedCashReplayDecision,
     SharedCashReplayLedgerEvidence,
+    run_scripted_shared_cash_replay,
     run_shared_cash_replay,
 )
+from trade_rl.simulation.execution import MarketExecutor
+from trade_rl.simulation.orders.reconciliation import reconcile_target
+from trade_rl.simulation.targets.execution import execute_target_statefully
 from trade_rl.strategies.forecasts.controller import CostAwareForecastIntentController
 from trade_rl.strategies.forecasts.lightgbm import LightGBMForecastStrategy
 from trade_rl.strategies.forecasts.ridge import RidgeForecastStrategy
-from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_duration import constrain_intent_for_minimum_hold
 from trade_rl.strategies.rules.adaptive import RegimeAdaptiveStrategy
 
@@ -29,6 +35,25 @@ def test_shared_cash_replay_binds_age_and_terminal_settlement_inputs() -> None:
     assert "position_age_bars_after" in decision_fields
     assert "minimum_hold_suppressed" in decision_fields
     assert "decisions" in ledger_fields
+
+
+def test_scripted_exact_hold_stays_inside_shared_execution_owners() -> None:
+    assert (
+        run_scripted_shared_cash_replay is replay_module.run_scripted_shared_cash_replay
+    )
+    assert "ScriptedReplayAction" not in evaluation.__all__
+    assert "run_scripted_shared_cash_replay" not in evaluation.__all__
+    assert ScriptedReplayAction.HOLD_QUANTITY.value == "hold_quantity"
+    assert "actions_by_symbol" in signature(run_scripted_shared_cash_replay).parameters
+    for owner in (
+        MarketExecutor.execute_interval,
+        execute_target_statefully,
+        reconcile_target,
+    ):
+        assert "hold_current_quantity_symbols" in signature(owner).parameters
+
+    strategy_decide = signature(SingleSymbolStrategy.decide)
+    assert tuple(strategy_decide.parameters) == ("self", "observation")
 
 
 def test_adaptive_exit_contract_uses_execution_return_and_can_bypass_hold() -> None:

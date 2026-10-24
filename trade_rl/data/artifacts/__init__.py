@@ -13,6 +13,7 @@ from trade_rl.data.artifacts.publication import (
     PublishedDatasetArtifact,
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
+    load_published_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
 
@@ -25,6 +26,7 @@ __all__ = [
     "inspect_published_market_dataset_artifact",
     "load_dataset_files",
     "load_market_dataset_artifact",
+    "load_published_market_dataset_artifact",
     "publish_market_dataset_artifact",
     "verify_exact_artifact_files",
     "write_market_dataset_files",

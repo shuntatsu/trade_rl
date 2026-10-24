@@ -24,6 +24,21 @@ def test_data_lifecycle_packages_exist() -> None:
         assert (DATA / relative).is_file(), relative
 
 
+def test_verified_dataset_identity_pair_is_public_through_data_facades() -> None:
+    import trade_rl.data as data
+    import trade_rl.data.artifacts as artifacts
+    from trade_rl.data.artifacts.publication import (
+        load_published_market_dataset_artifact,
+    )
+
+    assert artifacts.load_published_market_dataset_artifact is (
+        load_published_market_dataset_artifact
+    )
+    assert data.load_published_market_dataset_artifact is (
+        load_published_market_dataset_artifact
+    )
+
+
 def test_source_build_package_is_explicitly_unignored() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "!trade_rl/data/build/" in gitignore

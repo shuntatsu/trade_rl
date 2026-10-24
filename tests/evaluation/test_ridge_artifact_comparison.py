@@ -239,7 +239,7 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
     assert all(adapter.model is model_loads[0] for adapter in adapters)
     assert len(comparator_calls) == 1
     called_dataset, called_arms, kwargs = comparator_calls[0]
-    assert called_dataset is dataset
+    assert called_dataset.dataset_id == dataset.dataset_id
     assert called_arms == arm_names
     risk = kwargs.pop("risk")
     assert type(risk) is PreTradeRisk
@@ -288,7 +288,7 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
         ("feature_names", ("secondary", "momentum")),
         ("feature_indices", (0,)),
         ("fit_symbol_indices", (0, 1)),
-        ("fit_symbol_names", ("ETHUSDT", "BTCUSDT")),
+        ("fit_symbol_names", ("BTCUSDT", "ETHUSDT")),
     ],
 )
 def test_binding_mismatch_fails_before_comparator(

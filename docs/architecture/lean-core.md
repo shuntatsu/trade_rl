@@ -472,6 +472,16 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
 
+## Verified Dataset artifact pair
+
+`load_published_market_dataset_artifact` returns
+`(PublishedDatasetArtifact, MarketDataset)` in identity-first order from one
+verified manifest parse and its matching array payload. The inspector delegates
+to this pair loader; the existing dataset-only loader keeps returning
+`MarketDataset`. The pair represents one loader verification pass and does not
+lock the directory or promise an operating-system-level atomic filesystem
+snapshot.
+
 ## Separate directional development composition
 
 `data.features.price_channels` appends prior-window high/low boundaries relative

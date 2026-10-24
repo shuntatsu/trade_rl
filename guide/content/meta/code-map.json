@@ -29,7 +29,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "9c5cf0e25e3b171bda4a1c6985828a4d25a2b3dde7065c256e248d6875824618"
+      "sha256": "2a19231782e1026558e56efe07dfc1a554283a30dc88067eac2b9708a057ec81"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -39,7 +39,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "248b505e3e727d4c184521995ed821c7bf7f501083fc285e0565523a3fef5b86"
+      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -289,10 +289,11 @@
       "kind": "class",
       "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
       "label_ja": "current-row portfolio actor snapshot",
-      "description_ja": "current-row StrategyObservation dataとaccount・active-order・risk factsをimmutable tuple/scalarへコピーします。runtime object、opaque order IDs、future rows、合成free/reserved cashを含みません。",
+      "description_ja": "current-row StrategyObservation data、account・risk facts、active-orderの数量・状態・時刻とsource intentの価格factsをimmutable tuple/scalarへコピーします。3価格fieldすべてNoneのlegacy snapshotは価格contextとして不完全です。runtime object、opaque order IDs、future rows、合成free/reserved cashを含みません。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/strategies/test_portfolio_observation.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },
@@ -300,12 +301,13 @@
       "id": "portfolio-observation-builder",
       "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
       "kind": "function",
-      "source_sha256": "33bc19ae354baa6b9db6a44f3f198ffc5d01fb75401179c1cf4740fe135521a8",
+      "source_sha256": "a4c293223b93bbe269699a5f832d8e7cfc8bbde529b1a9ffe5b0075f8cdaf5cd",
       "label_ja": "current portfolio snapshot builder",
-      "description_ja": "Copies the current MarketDataset row, BookState, active orders, risk limits and decision window into the immutable portfolio observation contract.",
+      "description_ja": "Copies the current MarketDataset row, BookState, active-order quantities/status/timing and source intent price facts, risk limits and decision window into the immutable portfolio observation contract.",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/strategies/test_portfolio_observation.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

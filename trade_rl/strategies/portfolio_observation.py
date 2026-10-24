@@ -117,6 +117,9 @@ def build_portfolio_decision_snapshot(
                 else int(order.intent.expiry_index)
             ),
             reduce_only=bool(order.intent.reduce_only),
+            limit_price=order.intent.limit_price,
+            stop_price=order.intent.stop_price,
+            submission_reference_price=order.intent.submission_reference_price,
         )
         for order in active_orders
     )

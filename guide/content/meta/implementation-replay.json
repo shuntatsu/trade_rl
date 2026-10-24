@@ -29,7 +29,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "248b505e3e727d4c184521995ed821c7bf7f501083fc285e0565523a3fef5b86"
+      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
     }
   ],
   "code_references": [
@@ -116,7 +116,7 @@
       "id": "portfolio-observation-builder",
       "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
       "kind": "function",
-      "source_sha256": "33bc19ae354baa6b9db6a44f3f198ffc5d01fb75401179c1cf4740fe135521a8",
+      "source_sha256": "a4c293223b93bbe269699a5f832d8e7cfc8bbde529b1a9ffe5b0075f8cdaf5cd",
       "label_ja": "current portfolio snapshotを組み立てる",
       "description_ja": "MarketDatasetのcurrent row、BookState、active-order tuple、risk config、decision windowから、future rowsやopaque order IDsを含まないimmutable snapshotを作ります。",
       "variables": [],

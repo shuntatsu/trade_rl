@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "38d250a172314c4b2f017c936d6368e633252feac793780295a31776f708d46f"
+      "sha256": "84c59e644f78ee3434f766805e06be61b3fc245f81a3dc727f5e62ed5af2e789"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -58,7 +58,7 @@
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
       "kind": "class",
-      "source_sha256": "d069cf57eb481ddbc6cc5634af1b2cb9fe9a59d7d3fb2ba5ef6bbce71626490f",
+      "source_sha256": "161011c39211d6cc7d0991369e1a07dcf1065ee68f79a3c868ac925fef3c7399",
       "label_ja": "市場データの共通契約",
       "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持し、timestampsと明示available_atのns範囲・精度をlosslessに検証します。",
       "variables": [],
@@ -112,6 +112,18 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "shared-cash-strategy-factory-comparison",
+      "symbol": "trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories",
+      "kind": "function",
+      "source_sha256": "4255a71a6c079ce6c1032d17a1f874397b7e7f7ec023742286518cc948f70e22",
+      "label_ja": "共通資金でstrategy factoryを比較する",
+      "description_ja": "各armが全symbolを一つのshared-cash replayで比較し、既存replayのreturnsとexecution diagnosticsからmetricsを作ります。fittingやwinner selectionは行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_strategy_comparison.py"
       ]
     }
   ]

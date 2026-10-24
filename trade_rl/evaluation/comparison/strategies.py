@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.replay import (
     SharedCashReplayResult,
     SingleSymbolReplayResult,
+    run_shared_cash_replay,
     run_single_symbol_replay,
 )
 from trade_rl.risk import PreTradeRisk
@@ -228,6 +230,95 @@ def compare_strategy_factories_by_symbol(
     return UniversalStrategyComparison(by_symbol=tuple(by_symbol))
 
 
+def compare_shared_cash_strategy_factories(
+    dataset: MarketDataset,
+    strategy_factories: Mapping[str, Callable[[], SingleSymbolStrategy]],
+    *,
+    start_index: int,
+    stop_index: int,
+    gross_budget: float,
+    initial_capital: float = 100_000.0,
+    execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
+    minimum_hold_bars: int | Sequence[int] | None = None,
+    settle_terminal_position: bool = False,
+    capture_ledger_evidence: bool = False,
+) -> tuple[SharedCashStrategyComparisonEntry, ...]:
+    """Compare strategy factories on one shared account per strategy arm.
+
+    Every arm receives a fresh strategy adapter for each dataset symbol. Frozen
+    model objects may still be shared by the factories, but adapter instances
+    must be distinct across all arms and symbols. All adapters are created and
+    checked before any arm is replayed.
+    """
+
+    if not isinstance(strategy_factories, Mapping):
+        raise TypeError("strategy factories must be a mapping")
+    factory_items = tuple(strategy_factories.items())
+    if not factory_items:
+        raise ValueError("at least one strategy factory is required")
+    for name, factory in factory_items:
+        if not isinstance(name, str) or not name:
+            raise ValueError("strategy factory name must be non-empty")
+        if not callable(factory):
+            raise TypeError("strategy factory must be callable")
+
+    strategies_by_arm: list[tuple[str, tuple[SingleSymbolStrategy, ...]]] = []
+    produced: list[SingleSymbolStrategy] = []
+    for name, factory in factory_items:
+        strategies: list[SingleSymbolStrategy] = []
+        for _ in dataset.symbols:
+            strategy = factory()
+            if not callable(getattr(strategy, "decide", None)):
+                raise TypeError("strategy factory must return a SingleSymbolStrategy")
+            if any(strategy is previous for previous in produced):
+                raise ValueError(
+                    "strategy factories must return a distinct strategy instance "
+                    "for every arm and symbol"
+                )
+            produced.append(strategy)
+            strategies.append(strategy)
+        strategies_by_arm.append((name, tuple(strategies)))
+
+    entries: list[SharedCashStrategyComparisonEntry] = []
+    for name, arm_strategies in strategies_by_arm:
+        replay = run_shared_cash_replay(
+            dataset,
+            arm_strategies,
+            start_index=start_index,
+            stop_index=stop_index,
+            gross_budget=gross_budget,
+            initial_capital=initial_capital,
+            execution_cost=execution_cost,
+            risk=risk,
+            market_order_profile=market_order_profile,
+            minimum_hold_bars=minimum_hold_bars,
+            settle_terminal_position=settle_terminal_position,
+            capture_ledger_evidence=capture_ledger_evidence,
+        )
+        diagnostics = replay.diagnostics
+        metrics = evaluate_performance(
+            replay.returns,
+            turnover_total=diagnostics.turnover_total,
+            total_cost=diagnostics.total_cost,
+            funding_pnl=diagnostics.funding_pnl,
+            borrow_cost=diagnostics.borrow_cost,
+            n_trades=diagnostics.n_trades,
+            rebalance_events=diagnostics.rebalance_events,
+            termination_count=diagnostics.termination_count,
+        )
+        entries.append(
+            SharedCashStrategyComparisonEntry(
+                name=name,
+                replay=replay,
+                metrics=metrics,
+            )
+        )
+
+    return tuple(entries)
+
+
 __all__ = [
     "SharedCashStrategyComparisonEntry",
     "StrategyComparison",
@@ -237,4 +328,5 @@ __all__ = [
     "compare_strategies",
     "compare_strategies_by_symbol",
     "compare_strategy_factories_by_symbol",
+    "compare_shared_cash_strategy_factories",
 ]

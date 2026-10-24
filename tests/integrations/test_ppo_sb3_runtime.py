@@ -910,6 +910,90 @@ def test_real_raw_ppo_roundtrips_schema_bound_inference_bundle(
     assert loaded.policy.device.type == "cpu"
 
 
+def test_untrained_real_sb3_v3_bundle_roundtrip_preserves_policy_and_contract(
+    tmp_path: Path,
+) -> None:
+    sb3 = pytest.importorskip("stable_baselines3")
+    from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
+
+    dataset = pooled_market()
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        minimum_hold_bars=4,
+    )
+    policy = sb3.PPO(
+        "MlpPolicy",
+        env,
+        n_steps=2,
+        batch_size=2,
+        n_epochs=1,
+        policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
+        seed=1729,
+        device="cpu",
+        verbose=0,
+    )
+    # Construction creates seeded weights; this serialization test does not train.
+    strategy = PPOIntentStrategy(
+        policy,
+        feature_indices=(0,),
+        feature_names=(dataset.feature_names[0],),
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        minimum_hold_bars=4,
+    )
+    root = tmp_path / "untrained-v3-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    assert manifest["schema"] == "ppo_inference_bundle_v2"
+    assert manifest["observation"]["schema_version"] == PPO_OBSERVATION_SCHEMA_V3
+    assert manifest["feature_indices"] == [0]
+    assert manifest["feature_names"] == [dataset.feature_names[0]]
+    assert manifest["minimum_hold_bars"] == 4
+    assert loaded.feature_indices == (0,)
+    assert loaded.feature_names == (dataset.feature_names[0],)
+    assert loaded.observation_schema == PPO_OBSERVATION_SCHEMA_V3
+    assert loaded.minimum_hold_bars == 4
+    assert loaded.feature_normalizer is None
+    assert loaded.policy.get_env() is None
+
+    initial_weights = {
+        name: tensor.detach().cpu().numpy().copy()
+        for name, tensor in policy.policy.state_dict().items()
+    }
+    loaded_weights = loaded.policy.policy.state_dict()
+    assert initial_weights.keys() == loaded_weights.keys()
+    for name, expected in initial_weights.items():
+        np.testing.assert_array_equal(
+            loaded_weights[name].detach().cpu().numpy(), expected
+        )
+
+    observations = np.asarray(
+        (
+            (0.25, 1.0, 0.0, -1.0, 0.25, 0.0),
+            (-0.75, 1.0, 1.0, 1.0, 0.75, 0.5),
+        ),
+        dtype=np.float32,
+    )
+    original_actions, _ = policy.predict(observations, deterministic=True)
+    loaded_actions, _ = loaded.policy.predict(observations, deterministic=True)
+    np.testing.assert_array_equal(loaded_actions, original_actions)
+    env.close()
+
+
 def test_real_normalized_ppo_roundtrips_schema_bound_inference_bundle(
     tmp_path: Path,
 ) -> None:

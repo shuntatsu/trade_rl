@@ -14,6 +14,7 @@ EXPECTED_ROOT_FILES = {
     "bar_path.py",
     "execution.py",
     "liquidity.py",
+    "native_transition.py",
     "quantities.py",
     "depth.py",
 }

@@ -16,6 +16,7 @@ from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.native_transition import execute_native_target_transition
 from trade_rl.strategies.dataset_scope import (
     validated_symbol_indices,
     validated_training_scope,
@@ -467,18 +468,14 @@ class PPOTradingEnv(gym.Env):
             )
             quantity_before = float(self.book.quantities[symbol_index])
             proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-            constrained = self.risk.constrain(
+            constrained, execution, _ = execute_native_target_transition(
+                self.executor,
+                self.book,
+                self.risk,
                 proposal_weights,
-                current=self.book.weights,
-                drawdown=self.book.max_drawdown,
+                start_index=self.index,
             )
             settlement_risk_reasons.extend(constrained.reasons)
-            execution = self.executor.execute_interval(
-                self.book,
-                constrained.weights,
-                start_index=self.index,
-                bars=1,
-            )
             if execution.next_index <= self.index:
                 raise RuntimeError(
                     "terminal settlement did not advance PPO environment"
@@ -585,35 +582,44 @@ class PPOTradingEnv(gym.Env):
             target_weights = proposal_weights
             was_constrained = False
             risk_reasons: tuple[str, ...] = ()
+            use_native_transition = False
         else:
-            constrained = self.risk.constrain(
-                proposal_weights,
-                current=self.book.weights,
-                drawdown=drawdown,
-            )
-            target_weights = constrained.weights
-            was_constrained = constrained.was_constrained
-            risk_reasons = constrained.reasons
-            target_weight = float(target_weights[symbol_index])
-            if should_rebind_strategy_proposal(constrained):
-                self.desired_quantity = _desired_quantity_from_weight(
-                    self.book,
-                    target_weight,
-                    symbol_index=symbol_index,
-                )
-        target_weight = float(target_weights[symbol_index])
+            target_weights = proposal_weights
+            was_constrained = False
+            risk_reasons = ()
+            use_native_transition = True
 
         # The environment owns this history; avoid copying its full prefix into
         # the transactional execution clone on every one-bar training step.
         return_history = self.book.returns_history
         self.book.returns_history = []
         try:
-            execution = self.executor.execute_interval(
-                self.book,
-                target_weights,
-                start_index=self.index,
-                bars=1,
-            )
+            if use_native_transition:
+                constrained, execution, _ = execute_native_target_transition(
+                    self.executor,
+                    self.book,
+                    self.risk,
+                    proposal_weights,
+                    start_index=self.index,
+                )
+                target_weights = constrained.weights
+                was_constrained = constrained.was_constrained
+                risk_reasons = constrained.reasons
+                target_weight = float(target_weights[symbol_index])
+                if should_rebind_strategy_proposal(constrained):
+                    self.desired_quantity = _desired_quantity_from_weight(
+                        self.book,
+                        target_weight,
+                        symbol_index=symbol_index,
+                    )
+            else:
+                execution = self.executor.execute_interval(
+                    self.book,
+                    target_weights,
+                    start_index=self.index,
+                    bars=1,
+                )
+                target_weight = float(target_weights[symbol_index])
             if execution.next_index <= self.index:
                 raise RuntimeError("execution did not advance PPO environment index")
         except BaseException:

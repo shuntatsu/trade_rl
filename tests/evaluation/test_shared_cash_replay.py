@@ -16,6 +16,7 @@ from trade_rl.simulation import (
     ExecutionResult,
     MarketExecutor,
 )
+from trade_rl.simulation.native_transition import execute_native_target_transition
 from trade_rl.simulation.orders.model import OrderEvent, OrderStatus
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -1453,7 +1454,9 @@ def test_shared_cash_partial_reversal_locks_actual_short_fill_and_cancels_remain
     assert ledger.active_order_remainders == ()
 
 
-def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() -> None:
+def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset = _market(
         np.full((6, 2), 100.0),
         volume=np.asarray(
@@ -1487,6 +1490,35 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() 
     )
 
     risk = _risk(max_gross=0.5, max_turnover=None)
+    native_transitions: list[tuple[tuple[float, ...], int]] = []
+
+    def observe_native_transition(
+        executor: MarketExecutor,
+        book: BookState,
+        pretrade_risk: PreTradeRisk,
+        target_weights: object,
+        *,
+        start_index: int,
+        **kwargs: object,
+    ) -> tuple[object, ExecutionResult, tuple[int, ...]]:
+        native_transitions.append(
+            (tuple(float(value) for value in target_weights), start_index)
+        )
+        return execute_native_target_transition(
+            executor,
+            book,
+            pretrade_risk,
+            target_weights,
+            start_index=start_index,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        replay_module,
+        "execute_native_target_transition",
+        observe_native_transition,
+        raising=False,
+    )
     result = replay_module.run_shared_cash_replay(
         dataset,
         strategies,
@@ -1503,6 +1535,17 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() 
 
     ledger = result.ledger_evidence
     assert ledger is not None
+    assert [index for _, index in native_transitions] == [0, 1, 2, 3, 4]
+    np.testing.assert_allclose(
+        [weights for weights, _ in native_transitions],
+        [
+            (0.5, 0.0),
+            (0.2, 0.5),
+            (1.0 / 7.0, 2.5 / 7.0),
+            (0.0, 2.5 / 7.0),
+            (0.0, 0.0),
+        ],
+    )
 
     partial_quantity = result.decisions[0].position_quantity_after[0]
     assert 0.0 < partial_quantity < 5.0
@@ -1561,3 +1604,86 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() 
     )
     assert ledger.terminal_exact_quantities == ("0", "0")
     assert ledger.active_order_remainders == ()
+    assert tuple(interval.exact_quantities_after for interval in ledger.intervals) == (
+        ("2", "0"),
+        (
+            "892857142857143/625000000000000",
+            "8928571428571429/2500000000000000",
+        ),
+        (
+            "892857142857143/625000000000000",
+            "8928571428571429/2500000000000000",
+        ),
+        ("0", "8928571428571429/2500000000000000"),
+        ("0", "0"),
+    )
+    assert tuple(
+        tuple((event.event_type, event.symbol_index) for event in interval.order_events)
+        for interval in ledger.intervals
+    ) == (
+        (("submitted", 0), ("eligible", 0), ("partial_fill", 0)),
+        (
+            ("cancelled", 0),
+            ("submitted", 0),
+            ("submitted", 1),
+            ("eligible", 1),
+            ("eligible", 0),
+            ("filled", 0),
+            ("filled", 1),
+        ),
+        (),
+        (("submitted", 0), ("eligible", 0), ("filled", 0)),
+        (("submitted", 1), ("eligible", 1), ("filled", 1)),
+    )
+
+
+def test_shared_cash_risk_rebind_uses_pre_execution_book_then_applies_split() -> None:
+    dataset = _market(
+        np.asarray(
+            [
+                [100.0, 100.0],
+                [100.0, 100.0],
+                [50.0, 100.0],
+                [50.0, 100.0],
+                [50.0, 100.0],
+            ]
+        ),
+        split_factors=np.asarray(
+            [[1.0, 1.0], [1.0, 1.0], [2.0, 1.0], [1.0, 1.0], [1.0, 1.0]]
+        ),
+    )
+    strategies = (
+        SequenceIntent((PositionIntent.LONG,) * 4),
+        SequenceIntent(
+            (
+                PositionIntent.FLAT,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+            )
+        ),
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        strategies,
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=_risk(max_gross=0.5, max_turnover=None),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    constrained = result.decisions[1]
+    assert constrained.proposal_weights == pytest.approx((0.5, 0.5))
+    assert constrained.target_weights == pytest.approx((0.25, 0.25))
+    assert ledger.intervals[1].exact_quantities_before == ("5", "0")
+    assert ledger.intervals[1].exact_quantities_after == ("10", "5/2")
+    next_decision = result.decisions[2]
+    assert next_decision.proposal_weights == pytest.approx((0.25, 0.25))
+    assert next_decision.position_quantity_before == pytest.approx((10.0, 2.5))
+    assert next_decision.position_quantity_after == pytest.approx((5.0, 2.5))

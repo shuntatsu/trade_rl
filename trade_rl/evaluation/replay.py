@@ -14,7 +14,10 @@ from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRisk
-from trade_rl.risk.pretrade import should_rebind_strategy_proposal
+from trade_rl.risk.pretrade import (
+    RiskConstrainedTarget,
+    should_rebind_strategy_proposal,
+)
 from trade_rl.simulation import (
     BookState,
     EconomicTerminationReason,
@@ -24,6 +27,7 @@ from trade_rl.simulation import (
 )
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
+from trade_rl.simulation.native_transition import execute_native_target_transition
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
@@ -910,11 +914,12 @@ def run_shared_cash_replay(
     index = start_index
 
     def execute_and_record(
-        target_weights: np.ndarray,
+        proposal_weights: np.ndarray,
         *,
         interval_index: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-    ) -> ExecutionResult:
+        emergency_flatten_mask: np.ndarray | None = None,
+    ) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
         nonlocal active_order_remainders, book, terminal_order_reasons
         _require_available_marks_at_row(
             dataset,
@@ -931,21 +936,15 @@ def run_shared_cash_replay(
         borrow_cost_before = float(book.borrow_cost)
         turnover_total_before = float(book.turnover_total)
         max_drawdown_before = float(book.max_drawdown)
-        if hold_current_quantity_symbols:
-            execution = executor.execute_interval(
-                book,
-                target_weights,
-                start_index=interval_index,
-                bars=1,
-                hold_current_quantity_symbols=hold_current_quantity_symbols,
-            )
-        else:
-            execution = executor.execute_interval(
-                book,
-                target_weights,
-                start_index=interval_index,
-                bars=1,
-            )
+        risk_target, execution, effective_holds = execute_native_target_transition(
+            executor,
+            book,
+            risk_controller,
+            proposal_weights,
+            start_index=interval_index,
+            hold_current_quantity_symbols=hold_current_quantity_symbols,
+            emergency_flatten_mask=emergency_flatten_mask,
+        )
         if execution.next_index <= interval_index:
             raise RuntimeError("execution did not advance replay index")
         if (
@@ -1007,7 +1006,7 @@ def run_shared_cash_replay(
             terminal_order_reasons = stateful_evidence.terminal_order_reasons
         book = execution.book
         returns.append(execution.interval_net_return)
-        return execution
+        return risk_target, execution, effective_holds
 
     while index < agent_stop_index:
         _require_available_marks_at_row(
@@ -1137,16 +1136,24 @@ def run_shared_cash_replay(
             ],
             dtype=np.float64,
         )
-        constrained = risk_controller.constrain(
-            proposal_weights,
-            current=book.weights,
-            drawdown=book.max_drawdown,
+        exact_hold_symbols = tuple(
+            symbol_index
+            for symbol_index, hold_active in enumerate(exact_hold_active)
+            if hold_active
         )
+        decision_index = index
+        pre_execution_book = book
+        constrained, execution, effective_hold_symbols = execute_and_record(
+            proposal_weights,
+            interval_index=decision_index,
+            hold_current_quantity_symbols=exact_hold_symbols,
+        )
+        split_factors = dataset.resolved_array("split_factor")[execution.next_index]
         if should_rebind_strategy_proposal(constrained):
-            desired_quantities = np.asarray(
+            desired_quantities[:] = np.asarray(
                 [
                     _desired_quantity_from_weight(
-                        book,
+                        pre_execution_book,
                         float(constrained.weights[symbol_index]),
                         symbol_index=symbol_index,
                     )
@@ -1154,27 +1161,17 @@ def run_shared_cash_replay(
                 ],
                 dtype=np.float64,
             )
-
-        exact_hold_symbols: list[int] = []
+            desired_quantities[:] *= split_factors
+        effective_hold_set = set(effective_hold_symbols)
         for symbol_index, hold_active in enumerate(exact_hold_active):
-            if not hold_active:
-                continue
-            if constrained.weights[symbol_index] == proposal_weights[symbol_index]:
-                exact_hold_symbols.append(symbol_index)
+            if not hold_active or symbol_index in effective_hold_set:
                 continue
             exact_hold_active[symbol_index] = False
             desired_quantities[symbol_index] = _desired_quantity_from_weight(
-                book,
+                pre_execution_book,
                 float(constrained.weights[symbol_index]),
                 symbol_index=symbol_index,
-            )
-
-        decision_index = index
-        execution = execute_and_record(
-            constrained.weights,
-            interval_index=decision_index,
-            hold_current_quantity_symbols=tuple(exact_hold_symbols),
-        )
+            ) * float(split_factors[symbol_index])
         for symbol_index in range(dataset.n_symbols):
             position_age_bars[symbol_index] = next_position_age_bars(
                 position_age_bars[symbol_index],
@@ -1226,15 +1223,10 @@ def run_shared_cash_replay(
             emergency_flatten_mask[list(roster_symbol_indices)] = (
                 book.quantities[list(roster_symbol_indices)] != 0.0
             )
-            constrained = risk_controller.constrain(
+            _, execution, _ = execute_and_record(
                 flat_proposal,
-                current=book.weights,
-                drawdown=book.max_drawdown,
-                emergency_flatten_mask=emergency_flatten_mask,
-            )
-            execution = execute_and_record(
-                constrained.weights,
                 interval_index=index,
+                emergency_flatten_mask=emergency_flatten_mask,
             )
             for symbol_index in range(dataset.n_symbols):
                 position_age_bars[symbol_index] = next_position_age_bars(

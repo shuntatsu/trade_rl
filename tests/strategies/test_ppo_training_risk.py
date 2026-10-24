@@ -13,6 +13,8 @@ from tests.strategies.test_ppo_interleaved_training import (
 )
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation.native_transition import execute_native_target_transition
+from trade_rl.strategies.rl import ppo as ppo_module
 from trade_rl.strategies.rl.ppo import PPOTradingEnv, fit_ppo_strategy
 
 
@@ -65,6 +67,70 @@ def test_omitted_risk_and_explicit_none_have_identical_legacy_paths() -> None:
             np.testing.assert_array_equal(
                 default.book.quantities, explicit.book.quantities
             )
+
+
+def test_native_transition_is_shared_only_by_configured_risk_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market(np.full((4, 1), 100.0))
+    default = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    explicit = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=PreTradeRiskConfig(
+            max_gross=0.25,
+            max_abs_weight=0.25,
+            max_turnover=None,
+        ),
+    )
+    native_calls: list[tuple[int, tuple[float, ...]]] = []
+
+    def observe_native_transition(
+        executor: object,
+        book: object,
+        pretrade_risk: object,
+        target_weights: object,
+        *,
+        start_index: int,
+        **kwargs: object,
+    ) -> tuple[object, object, tuple[int, ...]]:
+        native_calls.append(
+            (start_index, tuple(float(value) for value in target_weights))
+        )
+        return execute_native_target_transition(
+            executor,
+            book,
+            pretrade_risk,
+            target_weights,
+            start_index=start_index,
+            **kwargs,
+        )  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        ppo_module,
+        "execute_native_target_transition",
+        observe_native_transition,
+        raising=False,
+    )
+    default.reset(seed=7)
+    explicit.reset(seed=7)
+    default.step(2)
+    explicit.step(2)
+
+    assert native_calls == [(0, (0.5,))]
+    assert default.book.weights[0] == pytest.approx(0.5)
+    assert explicit.book.weights[0] == pytest.approx(0.25)
 
 
 @pytest.mark.parametrize("layout", ["sequential", "interleaved"])

@@ -1,5 +1,7 @@
 # Trade RL documentation
 
+Active non-LLM trading research (Issue #810): [current four-arm screen and remaining gates](research/current-status.md). The M34 screen completed as FAILED_SCREEN; it did not establish a profitable winner.
+
 Active prospective carry work: [design](specs/funding-carry-paper.md) and
 [plan](plans/funding-carry-paper.md).
 

@@ -17,13 +17,22 @@
     "final authorization",
     "Task 18",
     "NONRL 48",
-    "fee-only learnability"
+    "fee-only learnability",
+    "four-arm comparison",
+    "FAILED_SCREEN",
+    "12 arms",
+    "frozen Ridge"
   ],
   "source_sections": [
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
+      "sha256": "782b2ca9c0ac012e8c7367ae67e601542d2b159aa4642b7190ab6abcc4ec585c"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)",
+      "sha256": "d819638b6682fef5ba8ca3f0f94e0b77566a8d619e2609b5c0dd00350921d85f"
     },
     {
       "path": "docs/research/current-status.md",
@@ -43,7 +52,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "c25e040fe793c8d7c9d388f3d77dfa9cebf5b32dccd65159cf92f8d24629dfc9"
+      "sha256": "e1c0c394450a67fceac740a611e1d911d997204af9d3dccb88aaed9882e15559"
     }
   ],
   "code_references": []

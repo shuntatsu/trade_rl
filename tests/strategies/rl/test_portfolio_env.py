@@ -119,12 +119,13 @@ def _bound_clock(
     *,
     start_index: int = 0,
     stop_index: int = 5,
+    initial_capital: float = 1_000.0,
     gamma: float = 1.0,
     reward_schema: str = "equity_delta_v1",
     max_drawdown: float = 0.20,
 ) -> BoundObjectiveClock:
     objective = ObjectiveContract(
-        capital=CapitalContract("shared_portfolio", "USDT", (1_000.0,)),
+        capital=CapitalContract("shared_portfolio", "USDT", (initial_capital,)),
         evaluation_start=_START + timedelta(hours=start_index),
         evaluation_stop_exclusive=_START + timedelta(hours=stop_index),
         terminal_valuation="settled",
@@ -529,7 +530,9 @@ def test_opt_in_portfolio_transform_fits_only_actor_rows_and_round_trips() -> No
     env = _env(_dataset(symbols=("AAA", "BBB")))
     transform = fit_portfolio_observation_transform(env)
     payload = transform.to_payload()
-    restored = PortfolioObservationTransform.from_payload(payload)
+    restored = PortfolioObservationTransform.from_payload(
+        payload, expected_digest=transform.digest
+    )
     observation, _ = env.reset()
 
     transformed = restored.transform_observation(observation)
@@ -658,6 +661,7 @@ def test_portfolio_transform_keeps_unavailable_values_zero_and_masks_visible() -
 def test_portfolio_transform_rejects_tampered_schema_context_and_raw_dtype() -> None:
     from copy import deepcopy
 
+    from trade_rl.artifacts.hashing import content_digest
     from trade_rl.strategies.rl.portfolio_transform import (
         PortfolioObservationTransform,
         fit_portfolio_observation_transform,
@@ -669,15 +673,21 @@ def test_portfolio_transform_rejects_tampered_schema_context_and_raw_dtype() -> 
     extra = deepcopy(payload)
     extra["unexpected"] = True
     with pytest.raises(ValueError, match="missing or extra fields"):
-        PortfolioObservationTransform.from_payload(extra)
+        PortfolioObservationTransform.from_payload(
+            extra, expected_digest=transform.digest
+        )
     wrong_layout = deepcopy(payload)
     wrong_layout["output_layout"]["account"][0] = "unbound-field"  # type: ignore[index]
     with pytest.raises(ValueError, match="schema or field layout"):
-        PortfolioObservationTransform.from_payload(wrong_layout)
+        PortfolioObservationTransform.from_payload(
+            wrong_layout, expected_digest=content_digest(wrong_layout)
+        )
     boolean_layout = deepcopy(payload)
     boolean_layout["output_layout"]["order_type_codes"]["market"] = True  # type: ignore[index]
     with pytest.raises(ValueError, match="schema or field layout"):
-        PortfolioObservationTransform.from_payload(boolean_layout)
+        PortfolioObservationTransform.from_payload(
+            boolean_layout, expected_digest=content_digest(boolean_layout)
+        )
 
     other_env = _env(_dataset(), risk_config=_risk(drawdown_start=0.1))
     with pytest.raises(ValueError, match="context differs"):
@@ -692,6 +702,35 @@ def test_portfolio_transform_rejects_tampered_schema_context_and_raw_dtype() -> 
     overflow_observation["account"][0, 0] = 1e308
     with pytest.raises(ValueError, match="exceeds finite float32 range"):
         transform.transform_observation(overflow_observation)
+
+
+def test_portfolio_transform_payload_digest_binds_fit_statistics() -> None:
+    from copy import deepcopy
+
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationTransform,
+        fit_portfolio_observation_transform,
+    )
+
+    transform = fit_portfolio_observation_transform(_env(_dataset()))
+    payload = transform.to_payload()
+    trusted_digest = transform.digest
+    tampered_statistics = deepcopy(payload)
+    tampered_statistics["global_mean"][0] += 0.25  # type: ignore[index]
+    with pytest.raises(ValueError, match="payload digest differs"):
+        PortfolioObservationTransform.from_payload(
+            tampered_statistics, expected_digest=trusted_digest
+        )
+    with pytest.raises(ValueError, match="payload digest differs"):
+        PortfolioObservationTransform.from_payload(payload, expected_digest="0" * 64)
+
+    invalid_scale = deepcopy(payload)
+    invalid_scale["global_scale"][0] = 0.0  # type: ignore[index]
+    with pytest.raises(ValueError, match="global scales must be positive"):
+        PortfolioObservationTransform.from_payload(
+            invalid_scale, expected_digest=content_digest(invalid_scale)
+        )
 
 
 def test_portfolio_transform_preserves_terminal_padding_and_active_order_facts() -> (
@@ -777,6 +816,70 @@ def test_portfolio_transform_marks_pending_notional_at_current_mark() -> None:
 
     assert orders[0, 16] == pytest.approx(0.2)
     assert orders[0, 32] == pytest.approx(math.log(0.5))
+
+
+def test_portfolio_transform_preserves_maintenance_margin_rate() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    cost = replace(ExecutionCostConfig.zero(), maintenance_margin_rate=0.25)
+    env = _env(
+        _dataset(),
+        bound=_bound_clock(initial_capital=0.5),
+        execution_cost=cost,
+    )
+    transform = fit_portfolio_observation_transform(env)
+    env.reset()
+    raw, _, _, _, _ = env.step(np.asarray([ACTION_LONG], dtype=np.int64))
+
+    normalized = transform.transform_observation(raw)
+
+    assert raw["portfolio"][9] == pytest.approx(0.25)
+    assert normalized["portfolio"][9] == pytest.approx(0.25)
+    assert transform.to_payload()["output_layout"]["portfolio"][9] == (
+        "maintenance_margin_rate"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "index", "value", "presence_index", "message"),
+    (
+        ("risk", 3, 0.5, None, "risk flags must be binary"),
+        ("risk", 6, 0.5, None, "risk flags must be binary"),
+        ("risk", 2, 0.25, None, "max_turnover presence"),
+        ("active_orders", 7, 0.5, None, "order indices must be integers"),
+        ("active_orders", 8, 1.5, None, "order indices must be integers"),
+        ("active_orders", 10, 1.5, 9, "order indices must be integers"),
+        ("active_orders", 12, 1.5, 11, "order indices must be integers"),
+        ("active_orders", 14, 1.5, 13, "order indices must be integers"),
+    ),
+)
+def test_portfolio_transform_rejects_noncanonical_risk_and_order_fields(
+    field: str,
+    index: int,
+    value: float,
+    presence_index: int | None,
+    message: str,
+) -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    raw, _ = env.reset()
+    if field == "active_orders":
+        raw["active_orders"] = env._encode_active_orders((_pending_order_snapshot(),))
+        row = raw["active_orders"][0]
+        if presence_index is not None:
+            row[presence_index] = 1.0
+        row[index] = value
+    else:
+        raw["risk"][index] = value
+
+    with pytest.raises(ValueError, match=message):
+        transform.transform_observation(raw)
 
 
 def test_portfolio_gym_wrapper_preserves_native_step_and_reward() -> None:

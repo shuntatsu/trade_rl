@@ -47,9 +47,12 @@ joint Gym Dict. Local feature statistics reuse the existing PPO normalizer;
 global feature statistics and per-symbol geometric mark-price references use
 only actor-fit rows `[start_index, agent_stop_index)`. The serialized payload
 binds the source Dataset, symbol and feature ordering, objective/clock window,
-risk and execution context, and fitted statistics. Availability masks and
-terminal state stay explicit; account and active-order notionals use fixed
-initial capital, and UTC nanoseconds are subtracted before floating conversion.
+risk and execution context, and fitted statistics; loading requires a trusted
+out-of-band canonical payload digest, which detects metadata mutation but is
+not a signature or proof of fit provenance. Availability masks and terminal
+state stay explicit; account and active-order notionals use fixed initial
+capital, while maintenance-margin remains a dimensionless rate. UTC nanoseconds
+are subtracted before floating conversion.
 The wrapper preserves native transition rewards and terminal facts, and becomes
 unusable after a transform failure that may follow a consumed native step until
 a fresh reset succeeds. This opt-in preprocessing does not synthesize

@@ -242,11 +242,15 @@ Gym Dict. Its versioned payload binds the raw/transformed layouts and
 Dataset/objective/clock/risk/execution context. Local features use the existing
 PPO normalizer; global features and per-symbol geometric mark-price references
 are fitted only on `[start_index, agent_stop_index)`. Availability masks remain
-explicit, account and active-order notionals use fixed initial capital, and UTC
-nanoseconds are differenced before conversion to floating point. The wrapper
-preserves native rewards and termination facts, uses absorbing padding after
-termination, and records then poisons itself if transformation fails after a
-raw step may have advanced. This does not make observations a complete account
+explicit, account and active-order notionals use fixed initial capital, while
+the dimensionless maintenance-margin rate remains a rate. UTC nanoseconds are
+differenced before conversion to floating point. Loading serialized transform
+parameters requires an independently retained expected digest; this detects
+payload changes but does not prove authorship or fit provenance. Raw validation
+also checks risk flags and order-index fields against their declared types. The
+wrapper preserves native rewards and termination facts, uses absorbing padding
+after termination, and records then poisons itself if transformation fails after
+a raw step may have advanced. This does not make observations a complete account
 state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
 or change legacy PPO behavior.
 

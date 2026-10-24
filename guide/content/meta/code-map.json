@@ -40,7 +40,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "27e56770926b0328ff31b6186af70c08f9751b215fb59a2548615ad1ec633f0d"
+      "sha256": "ee1b4c635c408a8729c9d7cc2b3f2781e73fd21bc894d2aa42e483d25bdf4035"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -301,7 +301,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "afdb116748556c5a2b97db52505b2728857cdc14435e929fcf520bed99481ed3",
+      "source_sha256": "cca0d6fb875a921bc6263ea0c2c995c2d8c15888e3b6be261006aef166e031cd",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],

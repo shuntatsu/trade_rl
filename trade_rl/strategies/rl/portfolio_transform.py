@@ -87,7 +87,7 @@ _PORTFOLIO_OUTPUT_FIELDS = (
     "funding_pnl_over_initial_capital",
     "borrow_cost_over_initial_capital",
     "margin_used_over_initial_capital",
-    "maintenance_margin_over_initial_capital",
+    "maintenance_margin_rate",
     "maintenance_requirement_over_initial_capital",
     "margin_deficit_over_initial_capital",
     "insolvent",
@@ -426,6 +426,12 @@ class PortfolioObservationTransform:
             )
         )
 
+    @property
+    def digest(self) -> str:
+        """Bind the canonical serialized preprocessing parameters."""
+
+        return content_digest(self.to_payload())
+
     def to_payload(self) -> dict[str, object]:
         return {
             "schema": PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA,
@@ -459,7 +465,9 @@ class PortfolioObservationTransform:
         }
 
     @classmethod
-    def from_payload(cls, value: object) -> PortfolioObservationTransform:
+    def from_payload(
+        cls, value: object, *, expected_digest: str
+    ) -> PortfolioObservationTransform:
         keys = {
             "schema",
             "input_schema",
@@ -492,6 +500,13 @@ class PortfolioObservationTransform:
         }
         if not isinstance(value, dict) or set(value) != keys:
             raise ValueError("transform payload has missing or extra fields")
+        require_sha256(expected_digest, field="expected_digest")
+        try:
+            payload_digest = content_digest(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("transform payload is not canonical JSON") from error
+        if payload_digest != expected_digest:
+            raise ValueError("transform payload digest differs from expected_digest")
         if (
             value["schema"] != PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA
             or value["input_schema"] != PORTFOLIO_GYM_OBSERVATION_SCHEMA
@@ -696,6 +711,11 @@ class PortfolioObservationTransform:
         account = checked["account"]
         if np.any(account[:, 2] <= 0.0) or np.any(account[:, 3] <= 0.0):
             raise ValueError("account mark prices and multipliers must be positive")
+        risk = checked["risk"]
+        if any(risk[index] not in (0.0, 1.0) for index in (3, 6)):
+            raise ValueError("risk flags must be binary")
+        if risk[3] == 0.0 and risk[2] != 0.0:
+            raise ValueError("max_turnover presence does not match its value")
         portfolio = checked["portfolio"]
         if portfolio[12] not in (0.0, 1.0):
             raise ValueError("insolvency flag must be binary")
@@ -754,6 +774,19 @@ class PortfolioObservationTransform:
                 raise ValueError("limit price must be positive")
             if row[17] == 1.0 and row[18] <= 0.0:
                 raise ValueError("stop price must be positive")
+            index_fields = [(7, True), (8, True)]
+            index_fields.extend(
+                (
+                    (10, row[9] == 1.0),
+                    (12, row[11] == 1.0),
+                    (14, row[13] == 1.0),
+                )
+            )
+            if any(
+                present and row[index] != math.floor(row[index])
+                for index, present in index_fields
+            ):
+                raise ValueError("order indices must be integers")
 
     def _transform_account(self, raw: np.ndarray) -> np.ndarray:
         output = np.zeros((len(self.symbols), len(_ACCOUNT_OUTPUT_FIELDS)))
@@ -775,11 +808,12 @@ class PortfolioObservationTransform:
     def _transform_portfolio(self, raw: np.ndarray) -> np.ndarray:
         capital = self.initial_capital
         output = np.empty(len(_PORTFOLIO_OUTPUT_FIELDS), dtype=np.float64)
-        currency_indexes = (0, 1, 2, 5, 6, 7, 8, 9, 10, 11)
+        currency_indexes = (0, 1, 2, 5, 6, 7, 8, 10, 11)
         for index in currency_indexes:
             output[index] = float(raw[index]) / capital
         output[3] = raw[3]
         output[4] = raw[4]
+        output[9] = raw[9]
         output[12] = raw[12]
         reason_index = int(raw[13])
         output[13:] = 0.0

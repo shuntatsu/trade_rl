@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import importlib
 import math
+from collections.abc import Callable
 from functools import partial
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import gymnasium as gym
 import numpy as np
@@ -52,6 +53,9 @@ from trade_rl.strategies.rl.ppo_training import (
     validated_interleaved_rollout_steps,
     validated_training_layout,
 )
+
+if TYPE_CHECKING:
+    from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 
 _PPO_LEARNING_RATE = 3e-4
 _PPO_DEFAULT_N_STEPS = PPO_DEFAULT_N_STEPS
@@ -184,6 +188,8 @@ class PPOTradingEnv(gym.Env):
         execution_cost: ExecutionCostConfig | None = None,
         risk_config: PreTradeRiskConfig | None = None,
         feature_normalizer: PPOFeatureNormalizer | None = None,
+        execution_observer: Callable[[StatefulExecutionObservation], None]
+        | None = None,
         settle_terminal_position: bool = False,
         minimum_hold_bars: int = 0,
         observation_schema: str = PPO_OBSERVATION_SCHEMA,
@@ -265,6 +271,7 @@ class PPOTradingEnv(gym.Env):
                 self.agent_stop_index,
             )
         self.feature_normalizer = feature_normalizer
+        self.execution_observer = execution_observer
         if risk_config is not None and (
             risk_config.max_gross > self.execution_cost.max_leverage
             or risk_config.max_abs_weight > self.execution_cost.max_leverage
@@ -289,7 +296,11 @@ class PPOTradingEnv(gym.Env):
         self.active_symbol_index = -1
         self._active_symbol_offset = -1
         self._execution_seed_stream: np.random.Generator | None = None
-        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor = MarketExecutor(
+            self.dataset,
+            self.execution_cost,
+            execution_observer=self.execution_observer,
+        )
         self.risk = (
             PreTradeRisk.default_for_execution(
                 max_leverage=self.executor.cost.max_leverage
@@ -393,7 +404,11 @@ class PPOTradingEnv(gym.Env):
             execution_seed = int(
                 self._execution_seed_stream.integers(0, np.iinfo(np.int64).max)
             )
-        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor = MarketExecutor(
+            self.dataset,
+            self.execution_cost,
+            execution_observer=self.execution_observer,
+        )
         self.executor.reset_random_state(execution_seed)
         self.risk = (
             PreTradeRisk.default_for_execution(

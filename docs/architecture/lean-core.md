@@ -424,6 +424,8 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 
 共通のwalk-forward OOS stitching API (`stitch_oos`) は、明示されたfold `elapsed_years` を合計し、durationがないfoldは `len(values) / periods_per_year` のdefault clockを加える。独立fold間のgapは別に記録し、returnやdurationを補わない。全foldがdefault clockなら stitched `elapsed_years` は未設定のまま保つ。
 
+`compare_shared_cash_strategy_factories` は、順序付きの各strategy armを一つのshared-cash accountで全Dataset銘柄に適用する比較APIである。armごとに各symbol用のfresh strategy adapterを作り、frozen model objectの共有は許すが、adapter instanceはarm間・symbol間で共有しない。全adapterの検証後、armごとに同じDataset、range、capital、gross budget、execution cost、risk、market-order profile、minimum hold、terminal settlement設定で既存shared-cash replayを一度実行し、各replayのreturnsとexecution diagnosticsからmetricsを作る。gross budgetは既存replayどおりsymbolごとのintent sizingへ適用され、その後portfolio hard-risk projectionを受ける。shared initial capitalはarmごとに一口座であり、銘柄数倍にはしない。fitting、ranking、selectionは行わない。
+
 ### Trading-bot tuning and holdout reporting
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。
@@ -459,6 +461,7 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 - Candidate Runはresolved result `summary.json`、raw interval return `returns.npz`、implementation/runtime/research-context evidence `provenance.json` の3ファイルを一体としてpublishする。
 - Candidate Runは実行前後でimplementation/runtime provenanceが一致する場合だけpublishする。実行中にsource/runtime provenanceが変化したRunを正当なevidenceとして残さない。
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。
+- Opt-in conditional PPO software diagnosticのcompleted resultは `ppo_conditional_diagnostic_result_v2` / `evidence_contract_version=2` を使う。fit済みpolicyを既存の `ppo_inference_bundle_v2` 形式で一度保存した後、manifest digestと完全なfeed feature schemaを指定して既存loaderで再読込し、observation schema等がfit契約と一致するpolicyだけをheld-out deterministic実行に使う。pre-action observation、action、step info、各step後のBookState、callback時点でcopyしたstateful execution evidenceは実行順を保つtraceとして保存する。evidence manifestはprotocol/source/recipe/runtime/held-out Dataset identityと、再読込・hash確認したbundleおよびtraceのdigest/raw SHA-256/sizeへbindする。`result.json` のpublish直前にもbundle manifest/policy、trace、evidence manifestのbytes・digest・SHA-256・sizeを再照合し、各artifactが同じreadbackのままの場合だけpublishする。失敗時はphase・fit回数・残存artifactのhashをfailure sidecarへ記録して再fitしない。旧completed resultは変更・backfillせず、policy bytesやtraceが保存されていない過去fitからは復元できない。このsynthetic software diagnostic evidenceはlearnability、G0-G3、economic performance、production/live authorityを与えない。PPO環境のexecution observerは省略時 `None` であり、通常のfitへ自動接続しない。
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
 

@@ -53,7 +53,13 @@ class FinancialClockContract:
     def discount_after(self, seconds: int) -> float:
         if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 0:
             raise ValueError("seconds must be a non-negative integer")
-        return self.gamma ** (seconds / self.decision_interval_seconds)
+        if self.gamma == 1.0:
+            return 1.0
+        try:
+            elapsed_decisions = seconds / self.decision_interval_seconds
+        except OverflowError:
+            return 0.0
+        return self.gamma**elapsed_decisions
 
     @property
     def terminal_profit_aligned(self) -> bool:

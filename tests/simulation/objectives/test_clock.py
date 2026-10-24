@@ -45,6 +45,32 @@ def test_discount_is_bound_to_elapsed_time_and_terminal_alignment_is_declared() 
     ).terminal_profit_aligned
 
 
+@pytest.mark.parametrize("gamma", [1.0, 0.99])
+def test_discount_handles_huge_elapsed_seconds_without_rejecting_valid_input(
+    gamma: float,
+) -> None:
+    huge_seconds = 10**400
+    clock = _clock(gamma=gamma)
+
+    expected = 1.0 if gamma == 1.0 else 0.0
+    assert clock.discount_after(huge_seconds) == expected
+
+
+def test_discount_preserves_finite_ratio_for_huge_elapsed_and_decision_intervals() -> (
+    None
+):
+    huge_seconds = 10**400
+    clock = _clock(
+        decision_interval_seconds=huge_seconds,
+        execution_interval_seconds=huge_seconds,
+        reward_interval_seconds=huge_seconds,
+        economic_horizon_seconds=huge_seconds,
+        gamma=0.99,
+    )
+
+    assert clock.discount_after(huge_seconds) == pytest.approx(0.99)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

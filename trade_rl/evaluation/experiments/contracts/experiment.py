@@ -62,6 +62,11 @@ class ExperimentDefinition:
         )
         if not isinstance(self.candidate_config, ResolvedRunConfig):
             raise ContractViolationError("candidate_config must be a ResolvedRunConfig")
+        if self.candidate_config.supervised_forecast_horizon_hours != 24:
+            raise ContractViolationError(
+                "canonical Study Experiment requires the 24-hour "
+                "supervised forecast horizon"
+            )
         schema_version = contract_text(self.schema_version, field="schema_version")
 
         object.__setattr__(self, "study_digest", study_digest)

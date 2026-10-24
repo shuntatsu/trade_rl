@@ -33,6 +33,7 @@ from trade_rl.evaluation.runs import (
     load_candidate_run_artifact,
     publish_candidate_run,
     resolve_candidate_run_spec,
+    supports_shared_cash_result_schema,
 )
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
@@ -44,6 +45,8 @@ _RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA = {
     "lean_candidate_result_v5": "resolved_run_config_v5",
     "lean_candidate_result_v6": "resolved_run_config_v5",
     "lean_candidate_result_v7": "resolved_run_config_v5",
+    "lean_candidate_result_v8": "resolved_run_config_v6",
+    "lean_candidate_result_v9": "resolved_run_config_v6",
 }
 _RUN_RESULT_SCHEMA_VERSION = {
     "lean_candidate_result_v1": 1,
@@ -53,6 +56,8 @@ _RUN_RESULT_SCHEMA_VERSION = {
     "lean_candidate_result_v5": 5,
     "lean_candidate_result_v6": 6,
     "lean_candidate_result_v7": 7,
+    "lean_candidate_result_v8": 8,
+    "lean_candidate_result_v9": 9,
 }
 _VERSIONED_RUN_CONFIG_FIELDS = {
     2: {"summary": frozenset({"ppo_observation"})},
@@ -93,7 +98,7 @@ _VERSIONED_RUN_CONFIG_FIELDS = {
         ),
     },
     6: {"evaluation": frozenset({"expected_periods"})},
-    7: {"summary": frozenset({"shared_cash_ppo"})},
+    8: {"candidate_config": frozenset({"supervised_forecast_horizon_hours"})},
 }
 
 
@@ -312,6 +317,12 @@ def _reject_fields_newer_than_result_schema(
     *,
     result_schema: str,
 ) -> None:
+    if "shared_cash_ppo" in summary and not supports_shared_cash_result_schema(
+        result_schema
+    ):
+        raise ArtifactIntegrityError(
+            "EvidenceSet shared-cash fields exceed the declared result schema"
+        )
     version = _RUN_RESULT_SCHEMA_VERSION[result_schema]
     mappings: dict[str, list[Mapping[str, object]]] = {"summary": [summary]}
     for location in ("candidate_config", "evaluation"):
@@ -363,7 +374,11 @@ def _config_identity_matches(
         ) from error
 
 
-def _run_semantic_config(run: LoadedCandidateRun) -> dict[str, object]:
+def _run_semantic_config(
+    run: LoadedCandidateRun,
+    *,
+    schema_version: str | None = None,
+) -> dict[str, object]:
     """Project the persisted Run configuration into the Study config schema."""
 
     summary = run.summary
@@ -375,6 +390,23 @@ def _run_semantic_config(run: LoadedCandidateRun) -> dict[str, object]:
     config_schema = _RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA.get(cast(str, result_schema))
     if config_schema is None:
         raise ArtifactIntegrityError("EvidenceSet Run config schema is unsupported")
+    if schema_version is not None and schema_version != config_schema:
+        if (
+            result_schema
+            not in {"lean_candidate_result_v8", "lean_candidate_result_v9"}
+            or schema_version != "resolved_run_config_v5"
+            or config_schema != "resolved_run_config_v6"
+        ):
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run config schema differs from the frozen Study"
+            )
+        horizon = candidate_config.get("supervised_forecast_horizon_hours")
+        if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon != 24:
+            raise ArtifactIntegrityError(
+                "legacy Study compatibility requires the 24-hour "
+                "supervised forecast horizon"
+            )
+        config_schema = schema_version
     _reject_fields_newer_than_result_schema(
         summary,
         result_schema=cast(str, result_schema),
@@ -436,6 +468,7 @@ def _run_semantic_config(run: LoadedCandidateRun) -> dict[str, object]:
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         for name in ("ppo_training_layout", "ppo_rollout_steps_per_env"):
             if name not in candidate_config:
@@ -447,6 +480,7 @@ def _run_semantic_config(run: LoadedCandidateRun) -> dict[str, object]:
     if config_schema in {
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         for name in ("ppo_minimum_hold_bars", "ppo_settle_terminal_position"):
             if name not in candidate_config:
@@ -455,12 +489,19 @@ def _run_semantic_config(run: LoadedCandidateRun) -> dict[str, object]:
                 )
             resolved[name] = candidate_config[name]
 
-    if config_schema == "resolved_run_config_v5":
+    if config_schema in {"resolved_run_config_v5", "resolved_run_config_v6"}:
         if "pretrade_risk_config" not in candidate_config:
             raise ArtifactIntegrityError(
                 "EvidenceSet Run config is missing pretrade_risk_config"
             )
         resolved["pretrade_risk_config"] = candidate_config["pretrade_risk_config"]
+    if config_schema == "resolved_run_config_v6":
+        horizon = candidate_config.get("supervised_forecast_horizon_hours")
+        if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run supervised forecast horizon is malformed"
+            )
+        resolved["supervised_forecast_horizon_hours"] = horizon
     return resolved
 
 
@@ -483,7 +524,14 @@ def _verify_run_binding(
     expected_plan: StudyPlan | None = None,
 ) -> tuple[str, str, str]:
     if not _config_identity_matches(
-        _run_semantic_config(run),
+        _run_semantic_config(
+            run,
+            schema_version=(
+                None
+                if expected_plan is None
+                else expected_plan.baseline_config.schema_version
+            ),
+        ),
         semantic_config,
     ):
         raise ArtifactIntegrityError("EvidenceSet Run resolved config mismatch")
@@ -560,7 +608,10 @@ def execute_evidence_set(
                 config=seed_config,
                 execution_overlay=plan.baseline_config.execution_overlay,
             )
-            resolved = ResolvedRunConfig.from_candidate_spec(spec)
+            resolved = ResolvedRunConfig.from_candidate_spec(
+                spec,
+                schema_version=plan.baseline_config.schema_version,
+            )
             _check_study_fixed_config(plan, resolved)
             if normalized_contract is None:
                 normalized_contract = resolved
@@ -603,7 +654,10 @@ def execute_evidence_set(
             publish_candidate_run(run_root, result, after)
             loaded = load_candidate_run_artifact(run_root)
             if not _config_identity_matches(
-                _run_semantic_config(loaded),
+                _run_semantic_config(
+                    loaded,
+                    schema_version=plan.baseline_config.schema_version,
+                ),
                 _without_seed(resolved),
             ):
                 raise ArtifactIntegrityError("EvidenceSet Run resolved config mismatch")

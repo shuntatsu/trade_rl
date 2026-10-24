@@ -24,6 +24,7 @@ RUNS_EXPORTS = {
     "publish_candidate_run",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "supports_shared_cash_result_schema",
 }
 
 FORBIDDEN_OWNER_MODULES = (
@@ -104,11 +105,24 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert facade.load_candidate_run_artifact is artifact.load_candidate_run_artifact
     assert facade.publish_candidate_run is artifact.publish_candidate_run
     assert (
+        facade.supports_shared_cash_result_schema
+        is artifact.supports_shared_cash_result_schema
+    )
+    assert (
         facade.build_candidate_run_provenance
         is provenance.build_candidate_run_provenance
     )
     assert not hasattr(facade, "load_candidate_run_config")
     assert not hasattr(facade, "PROVENANCE_SCHEMA")
+
+
+def test_run_schema_capability_is_available_through_public_facade() -> None:
+    from trade_rl.evaluation.runs import supports_shared_cash_result_schema
+
+    assert supports_shared_cash_result_schema("lean_candidate_result_v7")
+    assert not supports_shared_cash_result_schema("lean_candidate_result_v8")
+    assert supports_shared_cash_result_schema("lean_candidate_result_v9")
+    assert not supports_shared_cash_result_schema(None)
 
 
 def test_production_outside_runs_imports_run_core_through_facade() -> None:

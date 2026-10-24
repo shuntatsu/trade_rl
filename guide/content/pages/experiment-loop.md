@@ -36,6 +36,8 @@ unused/final/sealed、既消費と未使用が混ざるscope、または消費�
 
 Studyは、Dataset、baseline config、PPO seed方針、変更を許すControlled Factor、実験budgetなどの研究authorityを固定します。
 
+現行のcanonical StudyではRidge / LightGBMの予測期間も24時間に固定されます。Run Coreでsigned `datetime64[ns]`に収まる別の正の時間数（最大2,562,047時間）を指定できるようになっても、それだけではStudyの比較factorや24時間対72時間の研究設計にはなりません。
+
 final evaluationへ進める一般の新規Studyでは、execution economics、unused window、`StudyResearchContext`をbootstrap config v4へ事前登録し、context-bound StudyPlan v3へ固定します。PPO保有期間protocolはbootstrap config v5とStudyPlan v5を使い、protocolと明示baseline/riskも同じ事前登録へbindします。historical StudyPlan v1/v2へ後からfinal windowやcontextを追加することはしません。final startはdevelopment Datasetに含まれる最後のtimestampと申告済みconsumed-evidence scopeの両方より後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
 
 後続Experimentが勝手に別Datasetや別execution条件へ移動できないようにします。

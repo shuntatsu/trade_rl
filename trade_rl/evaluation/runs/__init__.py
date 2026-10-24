@@ -7,6 +7,7 @@ from trade_rl.evaluation.runs.artifact import (
     inspect_candidate_run_artifact,
     load_candidate_run_artifact,
     publish_candidate_run,
+    supports_shared_cash_result_schema,
 )
 from trade_rl.evaluation.runs.candidate_suite import (
     LeanCandidateConfig,
@@ -43,4 +44,5 @@ __all__ = [
     "publish_candidate_run",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "supports_shared_cash_result_schema",
 ]

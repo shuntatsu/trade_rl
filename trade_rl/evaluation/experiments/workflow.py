@@ -204,6 +204,10 @@ def create_study(
 ) -> StudySnapshot:
     """Create one immutable Study plan without executing development evidence."""
 
+    if baseline_config.supervised_forecast_horizon_hours != 24:
+        raise ContractViolationError(
+            "canonical Study requires the 24-hour supervised forecast horizon"
+        )
     store = StudyStore(root)
     with store.mutation_lock():
         names = {entry.name for entry in store.root.iterdir()}
@@ -359,6 +363,11 @@ def define_experiment(
     with store.mutation_lock():
         state = _reconstruct(store)
         _assert_mutable(state)
+        if candidate_config.supervised_forecast_horizon_hours != 24:
+            raise ContractViolationError(
+                "canonical Study Experiment requires the 24-hour "
+                "supervised forecast horizon"
+            )
         if state.baseline is None:
             raise InvalidExperimentStateError(
                 "baseline must exist before Experiment definition"
@@ -396,7 +405,10 @@ def define_experiment(
             config=candidate_config,
             execution_overlay=state.plan.baseline_config.execution_overlay,
         )
-        resolved = ResolvedRunConfig.from_candidate_spec(spec)
+        resolved = ResolvedRunConfig.from_candidate_spec(
+            spec,
+            schema_version=state.plan.baseline_config.schema_version,
+        )
         _validate_fixed_fields(state.plan, resolved)
         baseline_evidence, _ = _find_evidence(state, baseline_evidence_digest)
         validate_candidate_config_delta(

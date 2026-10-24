@@ -27,7 +27,11 @@ from trade_rl.evaluation.experiments.contracts.study import (
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 from trade_rl.risk import PreTradeRiskConfig
-from trade_rl.strategies.rl.ppo import PPO_OBSERVATION_SCHEMA_V3
+from trade_rl.strategies.rl.ppo import (
+    PPO_GLOBAL_FEATURE_NAMES,
+    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+)
 
 
 def resolved_config(*, ppo_seed: int = 2) -> ResolvedRunConfig:
@@ -79,6 +83,44 @@ def test_resolved_run_config_is_frozen_and_digest_stable() -> None:
     assert config.to_payload()["feature_names"] == ["signal", "volatility"]
     with pytest.raises(FrozenInstanceError):
         config.ppo_seed = 99  # type: ignore[misc]
+
+
+def test_study_plan_rejects_nondefault_supervised_forecast_horizon() -> None:
+    baseline = replace(
+        resolved_config(),
+        schema_version="resolved_run_config_v6",
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
+        ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
+        supervised_forecast_horizon_hours=72,
+    )
+
+    with pytest.raises(
+        ContractViolationError, match="24-hour supervised forecast horizon"
+    ):
+        study_plan(baseline_config=baseline)
+
+
+def test_experiment_definition_rejects_nondefault_supervised_forecast_horizon() -> None:
+    candidate = replace(
+        resolved_config(),
+        schema_version="resolved_run_config_v6",
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
+        ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
+        supervised_forecast_horizon_hours=72,
+    )
+
+    with pytest.raises(
+        ContractViolationError, match="24-hour supervised forecast horizon"
+    ):
+        ExperimentDefinition(
+            study_digest="a" * 64,
+            sequence=1,
+            hypothesis="Compare only a previously approved fixed horizon.",
+            baseline_evidence_digest="b" * 64,
+            factor=ControlledFactor.FEATURE_SET,
+            candidate_requested_config_digest="c" * 64,
+            candidate_config=candidate,
+        )
 
 
 @pytest.mark.parametrize(

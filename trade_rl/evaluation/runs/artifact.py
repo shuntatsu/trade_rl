@@ -28,6 +28,9 @@ from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.forecasts.supervised import (
+    MAX_SUPERVISED_FORECAST_HORIZON_HOURS,
+)
 from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMA_V3,
     ppo_observation_contract_payload,
@@ -41,6 +44,19 @@ _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
 _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
+_RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
+_RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
+_SHARED_CASH_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9})
+
+
+def supports_shared_cash_result_schema(result_schema: object) -> bool:
+    """Return whether a candidate result schema carries shared-cash evidence."""
+
+    return (
+        isinstance(result_schema, str) and result_schema in _SHARED_CASH_RESULT_SCHEMAS
+    )
+
+
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -50,6 +66,8 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+        _RESULT_SCHEMA_V9,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -102,7 +120,12 @@ class LoadedCandidateRun:
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
-        if schema not in {_RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+        if schema not in {
+            _RESULT_SCHEMA_V6,
+            _RESULT_SCHEMA_V7,
+            _RESULT_SCHEMA_V8,
+            _RESULT_SCHEMA_V9,
+        }:
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")
@@ -144,7 +167,7 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
-        if schema == _RESULT_SCHEMA_V7:
+        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9}:
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
                 return False
@@ -295,9 +318,9 @@ def _result_payload(
 
     summary: dict[str, object] = {
         "schema_version": (
-            _RESULT_SCHEMA_V7
+            _RESULT_SCHEMA_V9
             if result.comparison.shared_cash_ppo is not None
-            else _RESULT_SCHEMA_V6
+            else _RESULT_SCHEMA_V8
         ),
         "ppo_observation": ppo_observation_contract_payload(
             config.ppo_observation_schema
@@ -335,6 +358,9 @@ def _result_payload(
             "ppo_training_timesteps": result.ppo_training_timesteps,
             "ppo_training_minimum_hold_suppressed_count": (
                 result.ppo_training_minimum_hold_suppressed_count
+            ),
+            "supervised_forecast_horizon_hours": (
+                lean_config.supervised_forecast_horizon_hours
             ),
         },
         "evaluation": {
@@ -540,6 +566,11 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
             if not isinstance(key, str) or not key:
                 raise ValueError("candidate summary return_key must be non-empty")
             keys.append(key)
+    if "shared_cash_ppo" in summary:
+        _validate_shared_cash_result_schema(
+            summary,
+            result_schema=summary.get("schema_version"),
+        )
     shared_cash_ppo = summary.get("shared_cash_ppo")
     if shared_cash_ppo is not None:
         if not isinstance(shared_cash_ppo, dict):
@@ -551,6 +582,20 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
     if len(keys) != len(set(keys)):
         raise ValueError("candidate summary return keys must be unique")
     return frozenset(keys)
+
+
+def _validate_shared_cash_result_schema(
+    summary: Mapping[str, object],
+    *,
+    result_schema: object,
+) -> None:
+    if "shared_cash_ppo" in summary and not supports_shared_cash_result_schema(
+        result_schema
+    ):
+        raise ValueError(
+            "candidate shared-cash PPO evidence is unsupported by result schema: "
+            f"{result_schema}"
+        )
 
 
 def _validate_ppo_training_evidence(
@@ -604,6 +649,8 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+        _RESULT_SCHEMA_V9,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -635,6 +682,15 @@ def _validate_ppo_training_evidence(
             raise ValueError(
                 "candidate PPO duration requires the age-aware observation"
             )
+        if result_schema in {_RESULT_SCHEMA_V8, _RESULT_SCHEMA_V9}:
+            horizon = candidate_config.get("supervised_forecast_horizon_hours")
+            if (
+                isinstance(horizon, bool)
+                or not isinstance(horizon, int)
+                or horizon <= 0
+                or horizon > MAX_SUPERVISED_FORECAST_HORIZON_HOURS
+            ):
+                raise ValueError("candidate supervised forecast horizon is malformed")
         evaluation = summary.get("evaluation")
         if not isinstance(evaluation, Mapping):
             raise ValueError("candidate evaluation config is malformed")
@@ -647,7 +703,13 @@ def _validate_ppo_training_evidence(
             observation_schema
         ):
             raise ValueError("candidate PPO observation contract mismatch")
-    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+    if result_schema in {
+        _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+        _RESULT_SCHEMA_V9,
+    }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
         risk_config = candidate_config["pretrade_risk_config"]
@@ -1112,6 +1174,15 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
         raise ValueError("candidate shared-cash exact terminal quantities are nonzero")
 
 
+def _validate_v8_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_shared_cash_result_schema(summary, result_schema=_RESULT_SCHEMA_V8)
+    _validate_v6_replay_evidence(summary)
+
+
+def _validate_v9_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_v7_replay_evidence(summary)
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -1282,6 +1353,12 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v7_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V8:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v8_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V9:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v9_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -1294,6 +1371,10 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V6:
         _validate_v6_return_coverage(summary, returns)
     if result_schema == _RESULT_SCHEMA_V7:
+        _validate_v7_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V8:
+        _validate_v6_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V9:
         _validate_v7_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,
@@ -1350,4 +1431,5 @@ __all__ = [
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
     "publish_candidate_run",
+    "supports_shared_cash_result_schema",
 ]

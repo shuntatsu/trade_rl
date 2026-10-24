@@ -10,11 +10,10 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
 
-def market(*, future_multiplier: float = 1.0) -> MarketDataset:
-    n_bars = 12
+def market(*, future_multiplier: float = 1.0, n_bars: int = 12) -> MarketDataset:
     phase = np.arange(n_bars, dtype=np.float64)
     close = (100.0 * np.exp(0.01 * phase)).reshape(-1, 1)
-    close[8:, 0] *= future_multiplier
+    close[min(8, n_bars) :, 0] *= future_multiplier
     features = np.stack((phase, phase**2), axis=-1).reshape(n_bars, 1, 2)
     return MarketDataset(
         dataset_id="6" * 64,
@@ -99,6 +98,78 @@ def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     assert baseline.labels.flags.writeable is False
     assert baseline.label_end_times.flags.writeable is False
     assert baseline.sample_weights.flags.writeable is False
+
+
+def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff() -> (
+    None
+):
+    dataset = market(n_bars=80)
+    cutoff = dataset.timestamps[74]
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0,),
+        fit_cutoff=cutoff,
+        horizon_hours=72,
+    )
+
+    np.testing.assert_array_equal(training.features[:, 0], np.asarray([0.0, 1.0]))
+    np.testing.assert_array_equal(
+        training.label_end_times,
+        dataset.timestamps[[72, 73]],
+    )
+    assert np.all(training.label_end_times < cutoff)
+    np.testing.assert_allclose(
+        training.labels,
+        np.log(dataset.close[[72, 73], 0] / dataset.close[[0, 1], 0]),
+    )
+
+
+def test_training_builder_rejects_horizon_that_wraps_to_one_hour() -> None:
+    with pytest.raises(ValueError, match="representable.*nanosecond"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T05:00:00", "ns"),
+            horizon_hours=2**51 + 1,
+        )
+
+
+def test_training_builder_rejects_horizon_just_over_int64_nanosecond_limit() -> None:
+    max_safe_hours = ((2**63) - 1) // 3_600_000_000_000
+
+    with pytest.raises(ValueError, match="representable.*nanosecond"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T05:00:00", "ns"),
+            horizon_hours=max_safe_hours + 1,
+        )
+
+
+def test_training_builder_accepts_exact_maximum_horizon_without_fitting_rows() -> None:
+    max_safe_hours = ((2**63) - 1) // 3_600_000_000_000
+
+    with pytest.raises(ValueError, match="at least two eligible training rows"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T05:00:00", "ns"),
+            horizon_hours=max_safe_hours,
+        )
+
+
+def test_training_set_rejects_unrepresentable_horizon_metadata() -> None:
+    max_safe_hours = ((2**63) - 1) // 3_600_000_000_000
+    training = build_causal_forecast_training_set(
+        market(),
+        feature_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    with pytest.raises(ValueError, match="representable.*nanosecond"):
+        replace(training, horizon_hours=max_safe_hours + 1)
 
 
 @pytest.mark.parametrize(

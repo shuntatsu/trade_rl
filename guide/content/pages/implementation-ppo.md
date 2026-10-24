@@ -178,3 +178,5 @@ reward = log1p(interval_net_return)
 ## まだ保証していないこと
 
 Observation contractがcausalであることと、PPOが儲かることは別です。現行研究はPPO superiorityやproduction profitabilityを証明していません。
+
+Opt-in conditional PPO software diagnosticは、fit後のpolicyを既存の `ppo_inference_bundle_v1` として保存して読み直し、held-outのdeterministic実行を記録します。execution observerは環境constructorで渡す任意callbackで、通常のPPO fitでは `None` のままです。診断時はpre-action observation、action、step info、各step後のBookState、execution eventを実行順のtraceへ保存し、policy bundleとtraceのidentityを再確認します。これはsoftware evidenceの整合性を示すもので、learnability、実データの収益性、G0-G3を示しません。過去fitに保存されていないpolicy bytesやtraceを後から復元する機能でもありません。

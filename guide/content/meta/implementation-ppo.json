@@ -33,6 +33,11 @@
       "path": "docs/research/current-status.md",
       "heading": "PPO",
       "sha256": "9499883e61c9115abf73def2a69a1d27fa77f118eedc68e6a89076b99a14d64c"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Artifact and evidence rules",
+      "sha256": "76bd7271a50242da1608b3ff38be46b67f4ede35e9c091ad0191a21c6146c9d0"
     }
   ],
   "code_references": [
@@ -223,6 +228,25 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "env-execution-observer",
+      "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.__init__",
+      "kind": "method",
+      "source_sha256": "dd1fae94bf7ef8f007393b38b84c4fbf576dff5d3d4cbb7af952f23b110bc231",
+      "label_ja": "PPO環境へ任意のexecution observerを渡す",
+      "description_ja": "指定したobserverだけをMarketExecutorへ渡します。省略時はNoneで、通常のfitへ診断traceを接続しません。",
+      "variables": [
+        {
+          "name": "execution_observer",
+          "label_ja": "任意の実行観測callback",
+          "description_ja": "指定した場合だけexecution observationを呼び出し元へ通知します。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_ppo_execution_observer.py",
+        "tests/tools/test_ppo_conditional_diagnostic.py"
       ]
     }
   ]

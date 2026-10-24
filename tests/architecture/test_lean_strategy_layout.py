@@ -158,11 +158,33 @@ def test_supervised_cutoff_validation_has_one_forecast_owner() -> None:
         )
         assert calls_validator
 
-    for relative, fit_name in (
-        ("forecasts/ridge.py", "fit_ridge_forecast"),
-        ("forecasts/lightgbm.py", "fit_lightgbm_forecast"),
+    for relative, model_name, fit_name in (
+        ("forecasts/ridge.py", "RidgeForecastModel", "fit_ridge_forecast"),
+        (
+            "forecasts/lightgbm.py",
+            "LightGBMForecastModel",
+            "fit_lightgbm_forecast",
+        ),
     ):
         fit_tree = ast.parse((STRATEGIES / relative).read_text(encoding="utf-8"))
+        model_class = next(
+            node
+            for node in fit_tree.body
+            if isinstance(node, ast.ClassDef) and node.name == model_name
+        )
+        model_post_init = next(
+            node
+            for node in model_class.body
+            if isinstance(node, ast.FunctionDef) and node.name == "__post_init__"
+        )
+        uses_shared_cutoff_validator = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_validated_fit_cutoff_ns"
+            for node in ast.walk(model_post_init)
+        )
+        assert uses_shared_cutoff_validator
+
         fit_function = next(
             node
             for node in fit_tree.body

@@ -304,7 +304,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。PPO・risk・execution設定はこの値に依存しない。
-- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証してdataset-resolved specへbindする。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` は元unitへのexact round-tripを要求する。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持つresult schemaとしてv7/v9だけを許可する。新規Runは正のforecast horizonを`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`（shared-cash）へbindする。v9はv7の追加portfolio return seriesとsettlement / ledger evidenceを維持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。旧result schemasは不変のまま読み込む。

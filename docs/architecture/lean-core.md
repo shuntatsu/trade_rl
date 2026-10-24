@@ -35,6 +35,7 @@ metrics / comparison / robustness / immutable run artifact
 - `feature_available_time <= decision_time` を満たす。featureのinformation/availability timeはdecision timeを越えない。
 - `MarketDataset.periods_per_year` はannualization clockを表すpositive integerであり、booleanやfractional/non-finite frequencyは拒否する。
 - `timestamps` と明示された `available_at` は、計算に使う `datetime64[ns]` へlosslessに変換できる値だけを受け入れる。nanosecond範囲外へのunit変換によるwrapと、sub-nanosecond精度の切り捨ては拒否する。NaTも拒否し、有効なcoarser-unit timestampの表現は維持する。
+- `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` は元unitへのexact round-tripを要求するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。

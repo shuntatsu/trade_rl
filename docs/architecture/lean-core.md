@@ -155,10 +155,17 @@ common duration or an ordered per-symbol vector; age advances from actual signed
 fills, the locked target is rebound to the exact filled quantity, and risk
 projection still runs afterward. Optional terminal settlement reserves the
 latency-aware close interval and sends a portfolio-wide flat target through the
-same risk and execution path. Any residual quantity or active order remains
-visible at the end. Duration/settlement runs emit shared-cash ledger schema v2,
-including requested/effective intents, per-symbol ages and quantities, and
-suppression/unlock evidence; calls without those options retain v1 ledger shape.
+same risk and execution path. In this explicit terminal-only step, an
+`emergency_flatten_mask` covers nonzero holdings in the selected strategy
+roster, so ordinary `max_turnover` does not scale down the requested close;
+ordinary strategy decisions continue to obey that turnover bound. The target
+still passes through the configured hard-risk and execution stages. Venue
+rules, available liquidity, fill capacity, fees and pending-order handling are
+unchanged: if they prevent a full close, the actual residual quantity or active
+order remains visible and exact-flat validation still fails. Duration/settlement
+runs emit shared-cash ledger schema v2, including requested/effective intents,
+per-symbol ages and quantities, and suppression/unlock evidence; calls without
+those options retain v1 ledger shape.
 This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.

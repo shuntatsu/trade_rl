@@ -1128,10 +1128,15 @@ def run_shared_cash_replay(
                 held_quantities=book.quantities,
             )
             quantities_before = tuple(float(value) for value in book.quantities)
+            emergency_flatten_mask = np.zeros(dataset.n_symbols, dtype=np.bool_)
+            emergency_flatten_mask[list(roster_symbol_indices)] = (
+                book.quantities[list(roster_symbol_indices)] != 0.0
+            )
             constrained = risk_controller.constrain(
                 flat_proposal,
                 current=book.weights,
                 drawdown=book.max_drawdown,
+                emergency_flatten_mask=emergency_flatten_mask,
             )
             execution = execute_and_record(
                 constrained.weights,

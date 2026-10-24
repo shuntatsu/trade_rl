@@ -23,6 +23,25 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
 
+### Declarative financial objective and clock
+
+`trade_rl.simulation.objectives` declares the P0 financial objective without wiring it
+into current training or replay. Its canonical endpoint is one realized
+after-cost terminal-equity delta, net of explicitly declared external cash
+flows and divided by fixed total initial capital. Independent books contribute
+their capital and terminal values to the same capital-weighted sum; a shared
+portfolio has exactly one declared capital book. The scalar helper consumes
+caller-supplied values and does not create another accounting authority.
+
+The objective interval is UTC-normalized and half-open. A bound clock requires
+its exact elapsed duration to equal the declared finite horizon; decision,
+execution and reward intervals must align, and gamma / GAE values must be
+finite and in range. `terminal_profit_aligned` is only an algebraic declaration
+for equity-delta rewards with gamma one. None of these declarations verifies
+that a PPO environment uses them, changes the historical PPO defaults, or
+authorizes a Study. Any future reward/runtime integration remains a separate
+mechanism change with its own result-blind oracle.
+
 ## G0: Research Question Validity
 
 研究を実行する前に、最低限次のResearch Question Contractを明示する。

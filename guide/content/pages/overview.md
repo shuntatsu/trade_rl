@@ -17,7 +17,7 @@ hard riskで実行可能な目標へ制約
         ↓
 MarketExecutor + BookStateで約定・会計
         ↓
-銘柄ごとの独立リプレイ
+銘柄ごと／方式ごとのshared-cashリプレイ
         ↓
 metrics / comparison / robustness / immutable evidence
 ```
@@ -29,6 +29,7 @@ metrics / comparison / robustness / immutable evidence
 | 区分 | 現在の状態 |
 | --- | --- |
 | 検証済み | `market_build_v3` と `portable_feature_numerics_v1` を固定した実データDataset、PPO Observation v2、共通execution/accounting、結果前の事前登録からartifact後の独立検証までの研究経路 |
+| 実装済み・実データ結果は未取得 | Issue #810のRidge凍結4方式比較、厳密な結果の保存・再読込、durable attemptとterminal flatten。固定した実データの1 fit / 3 scenario / 12 armはG0〜G3審査・実行許可待ち |
 | 観測したが不十分 | Portable Controlled Experiment 0001ではmean-reversionがbaseline比で5 / 5銘柄改善しturnoverも低下したが、candidate total returnが正だったのは1 / 5銘柄 |
 | 正式判断 | Experiment 0001は事前登録したruleに従い **KEEP_BASELINE** |
 | 未証明 | 継続的なprofitability、winner strategy、unused future dataでの勝利、Production/live order authorization |

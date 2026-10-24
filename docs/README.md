@@ -1,5 +1,9 @@
 # Trade RL documentation
 
+Active non-LLM trading research (Issue #810): [verified software and pending
+real-data gates](research/current-status.md). Four-arm comparison software is
+integrated; after-cost economic results and winner remain unestablished.
+
 Active prospective carry work: [design](specs/funding-carry-paper.md) and
 [plan](plans/funding-carry-paper.md).
 

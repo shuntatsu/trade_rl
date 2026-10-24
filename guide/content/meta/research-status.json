@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18 loader確認、12 fit後に停止したNONRL準備、未実行の48-cell比較とP&L、研究上の未証明事項を表示します。",
+  "summary": "Issue #810の4方式比較ソフトウェア、固定済み1 fit/3 scenario/12 arm、未完了のG0–G3・実データ利益検証、および過去のTask 18とKEEP_BASELINEを説明します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -17,13 +17,17 @@
     "final authorization",
     "Task 18",
     "NONRL 48",
-    "fee-only learnability"
+    "fee-only learnability",
+    "four-arm comparison",
+    "G0-G3",
+    "12 arms",
+    "frozen Ridge"
   ],
   "source_sections": [
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
+      "sha256": "78ff0b940481ecbb419b1dc4283e1bac63b12aa1580415fc621d0061ffda14fc"
     },
     {
       "path": "docs/research/current-status.md",
@@ -44,6 +48,11 @@
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
       "sha256": "e4b84f56af9158eba03fc7f681bfaa890bd5f2752df24ef3cd4e47e7227b039f"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: frozen four-arm software and development execution gate (2026-10-24)",
+      "sha256": "667cd80e8b59ddd3b137d5fb6a4f38fcbf87c0a9e7e5e04e80f90cb8d7fd308c"
     }
   ],
   "code_references": []

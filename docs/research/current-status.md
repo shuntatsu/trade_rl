@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-14 (JST)
+更新基準: 2026-10-24 (JST)
 
 ## 結論
 
@@ -13,7 +13,25 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - Production/live order routingは未認可。
 - PPOやforecastがruleを上回るという結論はない。
 
+Issue #810では4方式のshared-cash比較・厳密なresult保存・one-shot attemptの**ソフトウェア境界をcurrent `main`へ統合済み**である。ただし固定した実データ条件でのfit/replay、手数料後return、winner、未使用期間での再現性はまだ得ていない。次の実データscreenはfreshなG0–G3審査と別の実行許可が揃うまで開始しない。
+
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Issue #810: frozen four-arm software and development execution gate (2026-10-24)
+
+この節は[Issue #810の現行チェックポイント](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6380032808)と[結果を見る前に固定した完全プロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)を要約する。Git treeにないattempt / independent-review / leaseの最新状態はIssueを正本とし、古いsoftware Greenやhistorical receiptを現在の実行許可へ自動昇格しない。
+
+**実装済みの範囲。** 2026-10-24時点でcurrent `main`へ正式レビューと同一HEADの必須CIを経て統合したソフトウェアでは、同時検証する公開Dataset loader、外部digest・bindingで固定したRidgeモデル、4方式のshared-cash比較、完全なcanonical結果のwrite-once保存とstrict再読込、before/after provenanceを伴うdurable attempt、terminal risk flattenの回帰修正が揃う。API / accountingの恒久契約は[`lean-core`](../architecture/lean-core.md)と[`package-boundaries`](../architecture/package-boundaries.md)に置く。これらのsoftware統合は新しい実データP&Lを生まない。
+
+**比較の固定条件。** 4 armは `cash` / `legacy_hysteresis` / `position_aware_zero_cost` (`c=0`) / `position_aware_cost` (`c>0`) である。1つの凍結Ridge予測を使い、armごとに独立した初期資金100,000 USDTの口座を用意し、口座内ではBTC/ETHの2銘柄が資金を共有する。arm間で口座を共有しない。legacy対`c=0`はcontrollerの判断規則も変わる複合差分であり、`c=0`対`c>0`だけがposition-aware経路上の判断用cost proxyの差である。proxyをexecutionのfee/spread/funding/borrowへ二重加算しない。RLのfit・inferenceはこの4 armの比較に含めない。
+
+[固定プロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)はSHA-256 `65d37c8329568a511a4515cd13c98827aba734e7eab93a005672525d123e323d`、外部driver v3はSHA-256 `12f7f2dbaf7ed4994e71adb6cd4b9241b30c7b38407daa28e4ba1726fe3cdb2d`。同じfit一度、base / execution-cost stress / 2-bar latencyの3 scenario、計12 armを事前固定する。これは2024年3月の既知historical development windowに限る**記述的screen**であり、消費履歴の完全な閉鎖が未確定な入力はTier Uとして保持し、unused / final / Tier Dと扱わない。fee / spread / margin / venue制約は歴史的実約定の証明ではなく固定した研究仮定で、fundingは完成したnative barのrateに対応するrow-close-mark proxyであり、取引所のevent-mark cashflowとの一致は未証明である。
+
+**得られた証拠と限界。** 入力だけの照合ではpaired Datasetのidentity、2,184 hourly closes、causal 24-bar feature、公式OHLC/quote-volumeとの差分0、公式fundingの完成bar mapping各銘柄273 eventsを確認した。独立したsynthetic-only検証では外側のlease / `_execute`を通して1 fit・3 child attempt・12 ledgerのstrict再読込・全arm終端FLATを確認し、根元のclosureも別のread-only checkerで確認した。初回post-run harnessのtuple/list型比較の失敗は履歴として残し、実行本体のsynthetic completionと混同しない。これらは**実データの12 armを実行した証拠ではない**。
+
+**未解除ゲート。** fresh result-blind G0–G3 source / input / semantic reviewは未完了であり、長いreview packetがprovider内でtruncationされた事実と不完全レビュー報告を保持する。完全なsource/test/input coverage、machine checks、freshな`main` / runtime確認、別途のexact-script one-attempt leaseが揃うまでは実データfit / replayを開始しない。成立した場合のみ事前固定の1回のscreenを実行し、COMPLETE / FAILED / PARTIALの全証拠を保存し、12 armの手数料後return・費用・ledger最大DD・cash / `c=0`対照を公開する。結果を見た後のparameter / window再選定や自動再試行はしない。
+
+**未確立の結論。** 実データの手数料後利益・winner・将来の持続利益、以前のNONRL 48-cell完走（R2は1 arm `INTERRUPTED`、47 arm `UNATTEMPTED`）、未統合のB4累積変更全体の受入、sealed / unused / final / live適格性、90日carry validationはいずれも未確立である。過去のportable Experiment 0001の`KEEP_BASELINE`を変更しない。
 
 ## Generic software PR review policy (2026-10-14)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -1033,6 +1034,7 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() 
         ),
     )
 
+    risk = _risk(max_gross=0.5, max_turnover=None)
     result = replay_module.run_shared_cash_replay(
         dataset,
         strategies,
@@ -1041,7 +1043,7 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() 
         gross_budget=0.5,
         initial_capital=1_000.0,
         execution_cost=ExecutionCostConfig.zero(),
-        risk=_risk(max_gross=0.5, max_turnover=None),
+        risk=risk,
         minimum_hold_bars=3,
         settle_terminal_position=True,
         capture_ledger_evidence=True,
@@ -1058,6 +1060,45 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk() 
     assert "max_gross" in locked.risk_reasons
     assert locked.target_weights == pytest.approx((1.0 / 7.0, 2.5 / 7.0))
     assert sum(abs(weight) for weight in locked.target_weights) <= 0.5
+    locked_interval = ledger.intervals[1]
+    assert locked_interval.start_index == locked.index
+    assert locked_interval.next_index == locked.index + 1
+    actual_quantities = np.asarray(
+        [float(Fraction(value)) for value in locked_interval.exact_quantities_after],
+        dtype=np.float64,
+    )
+    np.testing.assert_allclose(
+        actual_quantities,
+        np.asarray(locked.position_quantity_after, dtype=np.float64),
+    )
+    mark_prices = dataset.close[locked_interval.next_index]
+    contract_multipliers = result.book.contract_multipliers
+    assert locked_interval.portfolio_value_after > 0.0
+    actual_gross_value = sum(
+        (
+            abs(Fraction(quantity))
+            * Fraction(str(mark_price))
+            * Fraction(str(contract_multiplier))
+            for quantity, mark_price, contract_multiplier in zip(
+                locked_interval.exact_quantities_after,
+                mark_prices,
+                contract_multipliers,
+                strict=True,
+            )
+        ),
+        Fraction(0),
+    )
+    actual_gross_fraction = actual_gross_value / Fraction(
+        str(locked_interval.portfolio_value_after)
+    )
+    # Match the existing risk contract's configured numerical tolerance.
+    risk_gross_limit = Fraction(str(risk.config.max_gross)) + Fraction(
+        str(risk.config.fail_closed_tolerance)
+    )
+    assert actual_gross_fraction <= risk_gross_limit, (
+        f"actual post-fill gross exposure {actual_gross_fraction} exceeds "
+        f"configured gross limit {risk_gross_limit}"
+    )
     assert locked.position_quantity_after[0] < locked.position_quantity_before[0]
     assert locked.position_quantity_after[1] > 0.0
     assert any(

@@ -138,7 +138,15 @@ def test_fitted_scaler_and_model_arrays_are_read_only() -> None:
             values.setflags(write=True)
 
 
-def observation(value: float, *, available: bool = True) -> StrategyObservation:
+def observation(
+    value: float,
+    *,
+    available: bool = True,
+    current_intent: PositionIntent = PositionIntent.FLAT,
+    current_weight: float = 0.0,
+    current_position_quantity: float | None = None,
+    intent_gross_budget: float | None = None,
+) -> StrategyObservation:
     return StrategyObservation(
         index=10,
         timestamp=np.datetime64("2026-01-01T10:00:00", "ns"),
@@ -150,8 +158,10 @@ def observation(value: float, *, available: bool = True) -> StrategyObservation:
         ),
         global_features=np.asarray([0.0]),
         global_feature_available=np.asarray([True]),
-        current_intent=PositionIntent.FLAT,
-        current_weight=0.0,
+        current_intent=current_intent,
+        current_weight=current_weight,
+        current_position_quantity=current_position_quantity,
+        intent_gross_budget=intent_gross_budget,
     )
 
 
@@ -179,6 +189,69 @@ def test_ridge_strategy_uses_shared_forecast_controller_and_fails_closed() -> No
     assert strategy.decide(observation(0.20)) is PositionIntent.LONG
     assert strategy.decide(observation(-0.20)) is PositionIntent.SHORT
     assert strategy.decide(observation(0.20, available=False)) is PositionIntent.FLAT
+
+
+def test_cost_aware_ridge_uses_filled_position_only_when_budget_is_present() -> None:
+    weak_positive_forecast = float(np.log1p(0.005))
+    model = RidgeForecastModel(
+        feature_indices=(0,),
+        feature_mean=np.asarray([0.0]),
+        feature_scale=np.asarray([1.0]),
+        coefficients=np.asarray([1.0]),
+        intercept=0.0,
+        horizon_hours=24,
+        alpha=1.0,
+        n_samples=100,
+        fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+    )
+    strategy = RidgeForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.01,
+    )
+
+    assert (
+        strategy.decide(
+            observation(
+                weak_positive_forecast,
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+                intent_gross_budget=0.5,
+            )
+        )
+        is PositionIntent.FLAT
+    )
+    assert (
+        strategy.decide(
+            observation(
+                weak_positive_forecast,
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+            )
+        )
+        is PositionIntent.LONG
+    )
+
+    baseline = RidgeForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    assert (
+        baseline.decide(
+            observation(
+                0.05,
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+                intent_gross_budget=0.5,
+            )
+        )
+        is PositionIntent.LONG
+    )
 
 
 def test_training_set_arrays_are_deeply_immutable() -> None:

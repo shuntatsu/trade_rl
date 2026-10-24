@@ -37,6 +37,7 @@ class StrategyObservation:
     position_age_bars: int = 0
     gross_position_return: float | None = None
     current_position_quantity: float | None = None
+    intent_gross_budget: float | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -67,6 +68,13 @@ class StrategyObservation:
             self.current_position_quantity
         ):
             raise ValueError("current_position_quantity must be finite when present")
+        if self.intent_gross_budget is not None and (
+            not math.isfinite(self.intent_gross_budget)
+            or not 0.0 < self.intent_gross_budget <= 1.0
+        ):
+            raise ValueError(
+                "intent_gross_budget must be finite and within (0, 1] when present"
+            )
 
         features = _readonly_vector(self.features, field="features")
         feature_available = (

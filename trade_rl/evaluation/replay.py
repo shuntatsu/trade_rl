@@ -366,6 +366,7 @@ def _observation(
     symbol_index: int,
     book: BookState,
     current_intent: PositionIntent,
+    intent_gross_budget: float,
     position_age_bars: int = 0,
     gross_position_return: float | None = None,
 ) -> StrategyObservation:
@@ -385,6 +386,7 @@ def _observation(
         current_intent=current_intent,
         current_weight=float(book.weights[symbol_index]),
         current_position_quantity=float(book.quantities[symbol_index]),
+        intent_gross_budget=intent_gross_budget,
         position_age_bars=position_age_bars,
         gross_position_return=gross_position_return,
     )
@@ -525,6 +527,7 @@ def run_single_symbol_replay(
             symbol_index=symbol_index,
             book=book,
             current_intent=current_intent,
+            intent_gross_budget=gross_budget,
             position_age_bars=position_age_bars,
             gross_position_return=executed_entry_prices.mark_gross_return(
                 symbol_index,
@@ -960,6 +963,7 @@ def run_shared_cash_replay(
                 symbol_index=symbol_index,
                 book=book,
                 current_intent=current_intents[symbol_index],
+                intent_gross_budget=gross_budget,
                 position_age_bars=position_age_bars[symbol_index],
                 gross_position_return=executed_entry_prices.mark_gross_return(
                     symbol_index,

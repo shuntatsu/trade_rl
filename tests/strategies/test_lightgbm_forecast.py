@@ -71,7 +71,14 @@ def market() -> MarketDataset:
     )
 
 
-def observation(*, available: bool = True) -> StrategyObservation:
+def observation(
+    *,
+    available: bool = True,
+    current_intent: PositionIntent = PositionIntent.FLAT,
+    current_weight: float = 0.0,
+    current_position_quantity: float | None = None,
+    intent_gross_budget: float | None = None,
+) -> StrategyObservation:
     return StrategyObservation(
         index=10,
         timestamp=np.datetime64("2026-01-01T10:00:00", "ns"),
@@ -83,8 +90,10 @@ def observation(*, available: bool = True) -> StrategyObservation:
         ),
         global_features=np.asarray([0.0]),
         global_feature_available=np.asarray([True]),
-        current_intent=PositionIntent.FLAT,
-        current_weight=0.0,
+        current_intent=current_intent,
+        current_weight=current_weight,
+        current_position_quantity=current_position_quantity,
+        intent_gross_budget=intent_gross_budget,
     )
 
 
@@ -154,3 +163,73 @@ def test_lightgbm_strategy_uses_shared_forecast_controller() -> None:
 
     assert strategy.decide(observation()) is PositionIntent.LONG
     assert strategy.decide(observation(available=False)) is PositionIntent.FLAT
+
+
+def test_cost_aware_lightgbm_uses_filled_position_only_when_budget_is_present() -> None:
+    weak_positive_forecast = float(np.log1p(0.005))
+
+    class WeakRegressor:
+        def __init__(self, forecast: float) -> None:
+            self.forecast = forecast
+
+        def predict(self, features: np.ndarray) -> np.ndarray:
+            return np.full(np.asarray(features).shape[0], self.forecast)
+
+    model = LightGBMForecastModel(
+        feature_indices=(0,),
+        predictor=WeakRegressor(weak_positive_forecast),
+        horizon_hours=24,
+        n_samples=100,
+        fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+    )
+    strategy = LightGBMForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.01,
+    )
+
+    assert (
+        strategy.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+                intent_gross_budget=0.5,
+            )
+        )
+        is PositionIntent.FLAT
+    )
+    assert (
+        strategy.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+            )
+        )
+        is PositionIntent.LONG
+    )
+
+    baseline = LightGBMForecastStrategy(
+        LightGBMForecastModel(
+            feature_indices=(0,),
+            predictor=WeakRegressor(0.05),
+            horizon_hours=24,
+            n_samples=100,
+            fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+        ),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    assert (
+        baseline.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+                intent_gross_budget=0.5,
+            )
+        )
+        is PositionIntent.LONG
+    )

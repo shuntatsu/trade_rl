@@ -1039,6 +1039,8 @@ Universal model/policyにsymbol ID、symbol-specific embedding、symbol-specific
 
 Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbolの総sample weightを等しくする。Ridgeはweighted statistics/normal equationを使い、LightGBMは同じweightを`sample_weight`へ渡す。
 
+This change adds an opt-in actual-fill path for cost-aware forecasts: canonical replay supplies per-symbol gross budget, actual signed quantity, and actual weight; the controller compares only the actual-side, hysteresis-proposed, and flat targets at `-budget`, `+budget`, or zero, then lets the existing hard-risk projection constrain the selected target. This discrete proxy accounts for partial-fill turnover without optimizing arbitrary partial targets. The software contract and synthetic pending-order regression do not rerun or relabel prior research evidence, change baseline defaults or execution rules, introduce a new economic result, or establish profitability; earlier research conclusions remain in force.
+
 ### PPO
 
 #### Candidate-suite raw-price availability preflight

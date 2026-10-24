@@ -4,11 +4,15 @@ from dataclasses import fields
 from inspect import getsource, signature
 from pathlib import Path
 
+from trade_rl.evaluation import replay as replay_module
 from trade_rl.evaluation.replay import (
     SharedCashReplayDecision,
     SharedCashReplayLedgerEvidence,
     run_shared_cash_replay,
 )
+from trade_rl.strategies.forecasts.controller import CostAwareForecastIntentController
+from trade_rl.strategies.forecasts.lightgbm import LightGBMForecastStrategy
+from trade_rl.strategies.forecasts.ridge import RidgeForecastStrategy
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_duration import constrain_intent_for_minimum_hold
 from trade_rl.strategies.rules.adaptive import RegimeAdaptiveStrategy
@@ -36,6 +40,28 @@ def test_adaptive_exit_contract_uses_execution_return_and_can_bypass_hold() -> N
     assert "current_position_quantity" in observation_fields
     assert "allow_protective_exit" in hold_parameters
     assert "observation.current_position_quantity" in adaptive_decide
+
+
+def test_cost_aware_forecast_contract_receives_optional_fill_budget() -> None:
+    observation_fields = {field.name: field for field in fields(StrategyObservation)}
+    observation_builder_parameters = signature(replay_module._observation).parameters
+    controller_decide = getsource(CostAwareForecastIntentController.decide_for_position)
+
+    budget_field = observation_fields["intent_gross_budget"]
+    assert budget_field.default is None
+    assert "intent_gross_budget" in observation_builder_parameters
+    assert "intent_gross_budget=gross_budget" in getsource(
+        replay_module.run_single_symbol_replay
+    )
+    assert "intent_gross_budget=gross_budget" in getsource(
+        replay_module.run_shared_cash_replay
+    )
+    assert "current_position_quantity" in controller_decide
+    assert "current_weight" in controller_decide
+    for strategy_type in (RidgeForecastStrategy, LightGBMForecastStrategy):
+        strategy_decide = getsource(strategy_type.decide)
+        assert "observation.intent_gross_budget is not None" in strategy_decide
+        assert "decide_for_position" in strategy_decide
 
 
 def test_adaptive_exit_fill_state_invariant_is_documented_with_oracle() -> None:

@@ -74,6 +74,8 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+Canonical replayは各`StrategyObservation`へoptionalな`intent_gross_budget`も渡す。Cost-aware forecast controllerは、この値がある場合に限り、直近のlogical `current_intent`ではなくsigned filled quantity（quantityが`None`ならcurrent weight）から得た実保有側を使い、候補targetをsimple-return forecastとone-way cost proxyで比較する。log forecastを`f`、gross budgetを`g`、実weightを`w`、one-way costを`c`、離散targetの符号を`i ∈ {-1, 0, +1}`とすると、utilityは`U(i) = i*g*expm1(f) - c*abs(i*g - w)`である。候補は`[実保有側, その側をcurrentとして計算したbaseline hysteresis proposal, FLAT]`の重複を除いた順序で比較し、utilityが厳密に高い場合だけ選択を置き換えるため、tieは先の候補を維持する。targetは`-g`、0、`+g`だけであり、partial fillの実weightはturnover costへ反映するが、任意の部分数量を連続最適化するものではない。実装のpairwise比較では`w/g`を`[-1, 1]`へboundedにし、`±g` / 0のturnover差から共通cost項を取り除いて`log1p`閾値とforecastを比較する。この相対値は比較を安定させるためだけで、実holdingの`w`をclipしない。`intent_gross_budget=None`の直接callerは既存のintent-based controller経路を保ち、選ばれた離散targetには引き続き通常のhard-risk projectionが適用される。
+
 Split changes the units of both the filled book and the cached strategy proposal.
 PPO training, single-symbol replay, and shared-cash replay rebase the proposal by
 the processed split factor, including any unfilled entry remainder. A same-side

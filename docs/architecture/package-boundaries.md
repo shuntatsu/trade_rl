@@ -297,6 +297,8 @@ small strategy interfaceとlogical intent、controls、rule、forecast、teacher
 
 `StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
 
+`StrategyObservation.intent_gross_budget` はcanonical single-symbol/shared-cash replayが渡すoptionalなper-symbol target budgetで、direct caller向けのdefaultは`None`である。cost-aware forecast adapterはbudgetがある時だけ、signed `current_position_quantity`（`None`なら`current_weight`）の符号とactual weightを使い、`U(i) = i*g*expm1(f) - c*abs(i*g - w)`の離散utilityを比較する。target候補は重複を除いた`[actual-side, actual-sideからのbaseline hysteresis proposal, FLAT]`で、厳密な改善時だけ置換するため同値なら先の候補を保つ。pairwise比較のbounded `w/g`は`-g` / 0 / `+g`のturnover差から共通cost項を除くための相対値であり、実weightやactual holdingをclipしない。partial quantityはturnover評価に反映するが連続targetへ最適化せず、選択後のhard riskとexecutionを置き換えない。
+
 ### `evaluation`
 
 lower layerを利用してReplay・metrics・gate・comparison・robustness・concrete runを構成する。

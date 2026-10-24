@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import ClassVar, cast
 
@@ -41,6 +43,14 @@ _SUPPORTED_EXECUTION_OVERLAYS = frozenset(
         CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
     }
 )
+_ISO_YEAR_OR_MONTH = re.compile(r"\d{4}(?:-\d{2})?\Z")
+_ISO_SECOND_FRACTION = re.compile(
+    r"[Tt ]\d{2}:\d{2}:\d{2}[.,](?P<fraction>\d+)"
+    r"(?:[zZ]|[+-]\d{2}(?::?\d{2})?)?\Z"
+)
+_ANY_SECOND_FRACTION = re.compile(r".\d{2}:\d{2}:\d{2}[.,]\d+")
+_MIN_DATETIME64_NS = -(1 << 63) + 1  # The int64 minimum is reserved for NaT.
+_MAX_DATETIME64_NS = (1 << 63) - 1
 
 
 def _validated_execution_overlay(value: object) -> str:
@@ -295,12 +305,92 @@ def _normalized_timestamp(
     *,
     field: str,
 ) -> np.datetime64:
-    try:
-        resolved = np.datetime64(value, "ns")
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field} must be an ISO datetime") from error
-    if np.isnat(resolved):
+    if not isinstance(value, str):
+        return _normalized_datetime64(value, field=field)
+    if value.casefold() == "nat":
         raise ValueError(f"{field} must not be NaT")
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        # NumPy accepts year-only and year-month ISO values that
+        # datetime.fromisoformat does not. Keep those coarse forms while
+        # validating the conversion against their original unit below.
+        if _ISO_YEAR_OR_MONTH.fullmatch(value) is None:
+            raise ValueError(f"{field} must be an ISO datetime") from error
+        try:
+            coarse_timestamp = np.datetime64(value)
+        except (TypeError, ValueError, OverflowError) as conversion_error:
+            raise ValueError(f"{field} must be an ISO datetime") from conversion_error
+        return _normalized_datetime64(coarse_timestamp, field=field)
+
+    # Keep NumPy's original RunConfig ISO syntax admission, but discard its
+    # converted value because that cast can wrap or truncate precision.
+    try:
+        np.datetime64(value, "ns")
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{field} must be an ISO datetime") from error
+
+    fraction_match = _ISO_SECOND_FRACTION.search(value)
+    if fraction_match is None:
+        if parsed.microsecond != 0 or _ANY_SECOND_FRACTION.search(value):
+            raise ValueError(
+                f"{field} must be losslessly representable as datetime64[ns]"
+            )
+        fractional_ns = 0
+    else:
+        fraction = fraction_match.group("fraction")
+        if any(digit != "0" for digit in fraction[9:]):
+            raise ValueError(
+                f"{field} must be losslessly representable as datetime64[ns]"
+            )
+        expected_microseconds = int(fraction[:6].ljust(6, "0"))
+        if parsed.microsecond != expected_microseconds:
+            raise ValueError(
+                f"{field} must be losslessly representable as datetime64[ns]"
+            )
+        fractional_ns = int(fraction[:9].ljust(9, "0"))
+
+    # datetime.fromisoformat validates the original calendar before narrowing.
+    # Compute with Python integers so an out-of-range instant cannot wrap into a
+    # different, apparently valid datetime64[ns] value.
+    wall_time = parsed.replace(tzinfo=None, microsecond=0)
+    elapsed = wall_time - datetime(1970, 1, 1)
+    timestamp_ns = (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000
+    timestamp_ns += fractional_ns
+    offset = parsed.utcoffset()
+    if offset is not None:
+        offset_ns = (offset.days * 86_400 + offset.seconds) * 1_000_000_000
+        timestamp_ns -= offset_ns + offset.microseconds * 1_000
+
+    if not _MIN_DATETIME64_NS <= timestamp_ns <= _MAX_DATETIME64_NS:
+        raise ValueError(f"{field} must be losslessly representable as datetime64[ns]")
+    return np.datetime64(timestamp_ns, "ns")
+
+
+def _normalized_datetime64(
+    value: np.datetime64,
+    *,
+    field: str,
+) -> np.datetime64:
+    try:
+        source = np.datetime64(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{field} must be an ISO datetime") from error
+    if np.isnat(source):
+        raise ValueError(f"{field} must not be NaT")
+    if np.datetime_data(source.dtype)[0] == "generic":
+        raise ValueError(f"{field} must be an ISO datetime")
+
+    try:
+        resolved = source.astype("datetime64[ns]")
+        round_trip = resolved.astype(source.dtype)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            f"{field} must be losslessly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(resolved) or round_trip != source:
+        raise ValueError(f"{field} must be losslessly representable as datetime64[ns]")
     return resolved
 
 

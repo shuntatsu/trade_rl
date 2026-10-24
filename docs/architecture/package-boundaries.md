@@ -304,7 +304,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`のtyped `fit_cutoff`も正規化前にlosslessな元unit round-tripを検証する。PPO・risk・execution設定はforecast horizonに依存しない。
-- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証してdataset-resolved specへbindする。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` は元unitへのexact round-tripを要求する。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持つresult schemaとしてv7/v9だけを許可する。新規Runは正のforecast horizonを`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`（shared-cash）へbindする。v9はv7の追加portfolio return seriesとsettlement / ledger evidenceを維持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。旧result schemasは不変のまま読み込む。
@@ -480,6 +480,7 @@ star importはliteral `__all__`、または明示的なpublic import re-export�
 - `trade_rl/**` から `tools/agent_repo` への依存は禁止する。
 - `tools/agent_repo` はproduction wheelへ入れない。`setuptools.packages.find.include = ["trade_rl*"]` を維持する。
 - source-derived index/reportはmemory/stdoutだけに保持し、generated catalog/reportをcurrent treeへcommitしない。
+- `source-packet` はfull commit SHAのGit objectだけを入力とし、changed HEAD fileは`git cat-file blob`のraw bytesから deterministic TARへ格納する。patchとpath inventoryはsource object databaseをalternate参照するtemporary bare repositoryで描画し、Git versionをmanifestへ記録する。inherited Git environmentとglobal/system configを除き、`GIT_NO_LAZY_FETCH=1`でmissing objectをfail closedにする。両diff queryは`--ignore-submodules=none`を明示し、色・algorithm・indent heuristic・context・path quotingを固定する。attributesはempty treeとrenderer-owned empty `info/attributes` / `core.attributesFile`を使いsystem attributesを無効にする。patch byte identityはmanifest記載のGit versionとこのpolicyの範囲で扱い、異なるGit version間のbyte identityは主張しない。patchはraw Git transportでありcheckout-normalized形式ではない。symlink・gitlink・unsafe path（`.git` componentおよびWindowsの`git~1` aliasを含む）、case-insensitive file/directory prefix collision among emitted HEAD files、mutable ref、既存output、registered worktree内outputは拒否する。削除済みbase pathは出力TARに含まれないためprefix判定に含めない。生成packetはsource transport onlyであり、review・test・economic evidenceのauthorityを持たない。
 - toolingのstatic analysisはruntime reachabilityの完全証明ではなく、source reviewとfinal full CIを置き換えない。
 - local `verify` は開発中の検査選択を支援するが、完了判定ではpermanent CIのfull gateへ収束する。
 

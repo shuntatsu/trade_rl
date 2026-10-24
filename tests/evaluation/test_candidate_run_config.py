@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
+from datetime import datetime, timedelta
 
 import numpy as np
 import pytest
@@ -59,6 +61,13 @@ def market(*, bar_hours: int = 1) -> MarketDataset:
     )
 
 
+def _nanosecond_wrap_alias(timestamp: str) -> str:
+    wrapped_ns = int(np.datetime64(timestamp, "ns").astype(np.int64)) - (1 << 64)
+    seconds, nanoseconds = divmod(wrapped_ns, 1_000_000_000)
+    wall_time = datetime(1970, 1, 1) + timedelta(seconds=seconds)
+    return f"{wall_time:%Y-%m-%dT%H:%M:%S}.{nanoseconds:09d}"
+
+
 def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     config = parse_candidate_run_config(raw_config())
 
@@ -69,6 +78,225 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
     assert config.supervised_forecast_horizon_hours == 24
     assert config.to_json_payload()["supervised_forecast_horizon_hours"] == 24
+
+
+@pytest.mark.parametrize(
+    ("field", "timestamp"),
+    (
+        ("fit_cutoff", "2026-01-01T04:00:00"),
+        ("evaluation_start", "2026-01-01T04:00:00"),
+        ("evaluation_stop_exclusive", "2026-01-01T07:00:00"),
+    ),
+)
+def test_candidate_run_rejects_original_iso_time_that_wraps_into_dataset(
+    field: str,
+    timestamp: str,
+) -> None:
+    ancient_alias = _nanosecond_wrap_alias(timestamp)
+    assert np.datetime64(ancient_alias, "ns") == np.datetime64(timestamp, "ns")
+
+    raw = raw_config()
+    raw[field] = ancient_alias
+    with pytest.raises(ValueError, match=f"{field}.*losslessly representable"):
+        resolve_candidate_run_spec(
+            market(),
+            dataset_artifact_schema="market_dataset_artifact_v3",
+            dataset_artifact_digest="d" * 64,
+            config=parse_candidate_run_config(raw),
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive"),
+)
+def test_candidate_run_rejects_nonzero_fraction_beyond_nanoseconds(field: str) -> None:
+    raw = raw_config()
+    raw[field] = "2026-01-01T04:00:00.0000000001"
+    assert np.datetime64(raw[field], "ns") == np.datetime64("2026-01-01T04:00:00", "ns")
+
+    with pytest.raises(ValueError, match=f"{field}.*losslessly representable"):
+        parse_candidate_run_config(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "timestamp"),
+    tuple(
+        (field, timestamp)
+        for field in ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive")
+        for timestamp in (
+            "2024-01-01T04:00.0000000001",
+            "2024-01-01T04:00:00+00:00.0000000001",
+        )
+    ),
+)
+def test_candidate_run_rejects_nonstandard_fractional_iso_components(
+    field: str,
+    timestamp: str,
+) -> None:
+    with pytest.raises(ValueError, match=f"{field} must be an ISO datetime"):
+        parse_candidate_run_config({**raw_config(), field: timestamp})
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive"),
+)
+def test_candidate_run_rejects_coarse_typed_timestamp_that_wraps(field: str) -> None:
+    value = np.datetime64("1439-07-22T23:34:33", "s")
+    wrapped = value.astype("datetime64[ns]")
+    assert not np.isnat(wrapped)
+
+    config = parse_candidate_run_config(raw_config())
+    with pytest.raises(ValueError, match=f"{field}.*losslessly representable"):
+        replace(config, **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "timestamp"),
+    (
+        ("fit_cutoff", "1677-09-21T00:12:43.145224193"),
+        ("evaluation_start", "2262-04-11T23:47:16.854775807"),
+        ("evaluation_stop_exclusive", "1677-09-21T00:12:43.145224193"),
+    ),
+)
+def test_candidate_run_accepts_nanosecond_range_endpoints(
+    field: str,
+    timestamp: str,
+) -> None:
+    raw = raw_config()
+    raw[field] = timestamp
+
+    config = parse_candidate_run_config(raw)
+
+    assert getattr(config, field) == np.datetime64(timestamp, "ns")
+
+
+def test_candidate_run_accepts_exact_fine_precision_and_coarse_typed_timestamps() -> (
+    None
+):
+    raw = raw_config()
+    raw["fit_cutoff"] = "2026-01-01T04:00:00.1234567890"
+    config = parse_candidate_run_config(raw)
+    assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00.123456789", "ns")
+
+    coarse = replace(
+        config,
+        fit_cutoff=np.datetime64("2026-01-01T04", "h"),
+    )
+    assert coarse.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
+
+    exact_picoseconds = replace(
+        config,
+        fit_cutoff=np.datetime64("1969-12-31T23:59:59.999999999000", "ps"),
+    )
+    assert exact_picoseconds.fit_cutoff == np.datetime64(
+        "1969-12-31T23:59:59.999999999", "ns"
+    )
+
+
+@pytest.mark.parametrize("timestamp", ("2026", "2026-01", "2026-01-01"))
+def test_candidate_run_preserves_coarse_iso_calendar_inputs(timestamp: str) -> None:
+    raw = raw_config()
+    raw["fit_cutoff"] = timestamp
+
+    config = parse_candidate_run_config(raw)
+
+    assert config.fit_cutoff == np.datetime64("2026-01-01T00:00:00", "ns")
+
+
+@pytest.mark.parametrize("timestamp", ("1439", "1439-07"))
+def test_candidate_run_rejects_out_of_range_coarse_iso_calendar_inputs(
+    timestamp: str,
+) -> None:
+    raw = raw_config()
+    raw["fit_cutoff"] = timestamp
+
+    with pytest.raises(ValueError, match="fit_cutoff.*losslessly representable"):
+        parse_candidate_run_config(raw)
+
+
+def test_candidate_run_preserves_negative_epoch_nanosecond_timestamp() -> None:
+    raw = raw_config()
+    raw["fit_cutoff"] = "1969-12-31T23:59:59.999999999"
+
+    config = parse_candidate_run_config(raw)
+
+    assert config.fit_cutoff == np.datetime64("1969-12-31T23:59:59.999999999", "ns")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive"),
+)
+def test_candidate_run_rejects_nonzero_subnanosecond_typed_timestamp(
+    field: str,
+) -> None:
+    config = parse_candidate_run_config(raw_config())
+    value = np.datetime64("1969-12-31T23:59:59.999999999001", "ps")
+
+    with pytest.raises(ValueError, match=f"{field}.*losslessly representable"):
+        replace(config, **{field: value})
+
+
+@pytest.mark.parametrize("offset", ("+01", "+01:00"))
+def test_candidate_run_keeps_timezone_equivalent_semantic_identity(offset: str) -> None:
+    base = parse_candidate_run_config(raw_config())
+    raw = raw_config()
+    raw["fit_cutoff"] = f"2026-01-01T05:00:00{offset}"
+    raw["evaluation_start"] = f"2026-01-01T05:00:00{offset}"
+    raw["evaluation_stop_exclusive"] = f"2026-01-01T08:00:00{offset}"
+
+    config = parse_candidate_run_config(raw)
+    spec = resolve_candidate_run_spec(
+        market(),
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=config,
+    )
+    base_spec = resolve_candidate_run_spec(
+        market(),
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=base,
+    )
+
+    assert config == base
+    assert config.to_json_payload() == base.to_json_payload()
+    assert spec == base_spec
+    assert spec.evaluation_start_index == 4
+    assert spec.evaluation_stop_index == 7
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive"),
+)
+def test_candidate_run_rejects_nat_for_every_configured_timestamp(field: str) -> None:
+    raw = raw_config()
+    raw[field] = "NaT"
+
+    with pytest.raises(ValueError, match=f"{field} must not be NaT"):
+        parse_candidate_run_config(raw)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (np.datetime64("NaT"), np.datetime64("NaT", "ns")),
+    ids=("generic-nat", "nanosecond-nat"),
+)
+@pytest.mark.parametrize(
+    "field",
+    ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive"),
+)
+def test_candidate_run_rejects_typed_nat(
+    field: str,
+    value: np.datetime64,
+) -> None:
+    config = parse_candidate_run_config(raw_config())
+
+    with pytest.raises(ValueError, match=f"{field} must not be NaT"):
+        replace(config, **{field: value})
 
 
 def test_candidate_run_config_resolves_nondefault_forecast_horizon() -> None:

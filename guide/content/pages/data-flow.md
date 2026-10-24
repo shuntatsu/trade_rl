@@ -42,7 +42,7 @@ source URL、SHA-256、size、取引所metadata等を保存し、再取得時に
 feature_available_time <= decision_time
 ```
 
-加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。forecast training builderはcutoffを`datetime64[ns]`へ値を失わず変換できる場合だけ受け入れ、`NaT`、範囲外、nanosecond未満の端数はscopeやlabel rowを調べる前に停止します。Dataset境界ではtimestampsと明示available_atをnsへ値を失わず変換できる入力だけ受け入れます。範囲外へのwrap、nanosecond未満の端数の切り捨て、NaTを拒否し、有効なcoarser-unit timestampの入力表現は維持し、available_atはnsへ正規化します。
+加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。forecast training builderはcutoffを`datetime64[ns]`へ値を失わず変換できる場合だけ受け入れ、`NaT`、範囲外、nanosecond未満の端数はscopeやlabel rowを調べる前に停止します。Dataset境界ではtimestampsと明示available_atをns時計で検証し、範囲外へのwrap、nanosecond未満の端数の切り捨て、NaTを拒否します。有効なcoarser-unit timestampsの入力表現は維持し、available_atはnsへ正規化します。Candidate Runの`fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive`も、元ISO値のcalendar/range/precisionを確認してからnsへ正規化し、範囲外のwrapとnon-zero sub-nanosecond桁を拒否します。timezone offsetのUTC等価化は維持します。入力前に既にwrapされた`datetime64[ns]`値の元時刻は復元できません。
 
 `LeanCandidateConfig`を直接構築するときのtyped `fit_cutoff`も、ns正規化前に元unitとのexact round-tripを検証します。範囲外、`NaT`、nanosecond未満の端数を拒否します。入力前に既にwrapされた`datetime64[ns]`から元時刻を復元することはできません。
 

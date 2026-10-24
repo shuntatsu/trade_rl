@@ -148,6 +148,8 @@ class RidgeForecastStrategy:
                 current_weight=observation.current_weight,
                 current_position_quantity=observation.current_position_quantity,
                 gross_budget=observation.intent_gross_budget,
+                current_intent=observation.current_intent,
+                same_intent_target_weight=observation.same_intent_target_weight,
             )
         return self.controller.decide(forecast, current=observation.current_intent)
 

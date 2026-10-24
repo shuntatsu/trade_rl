@@ -48,8 +48,11 @@ def test_cost_aware_forecast_contract_receives_optional_fill_budget() -> None:
     controller_decide = getsource(CostAwareForecastIntentController.decide_for_position)
 
     budget_field = observation_fields["intent_gross_budget"]
+    cached_target_field = observation_fields["same_intent_target_weight"]
     assert budget_field.default is None
+    assert cached_target_field.default is None
     assert "intent_gross_budget" in observation_builder_parameters
+    assert "same_intent_target_weight" in observation_builder_parameters
     assert "intent_gross_budget=gross_budget" in getsource(
         replay_module.run_single_symbol_replay
     )
@@ -58,9 +61,12 @@ def test_cost_aware_forecast_contract_receives_optional_fill_budget() -> None:
     )
     assert "current_position_quantity" in controller_decide
     assert "current_weight" in controller_decide
+    assert "same_intent_target_weight" in controller_decide
+    assert "current_intent" in controller_decide
     for strategy_type in (RidgeForecastStrategy, LightGBMForecastStrategy):
         strategy_decide = getsource(strategy_type.decide)
         assert "observation.intent_gross_budget is not None" in strategy_decide
+        assert "observation.same_intent_target_weight" in strategy_decide
         assert "decide_for_position" in strategy_decide
 
 

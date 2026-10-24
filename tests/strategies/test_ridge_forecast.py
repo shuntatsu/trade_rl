@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -146,6 +148,7 @@ def observation(
     current_weight: float = 0.0,
     current_position_quantity: float | None = None,
     intent_gross_budget: float | None = None,
+    same_intent_target_weight: float | None = None,
 ) -> StrategyObservation:
     return StrategyObservation(
         index=10,
@@ -162,6 +165,7 @@ def observation(
         current_weight=current_weight,
         current_position_quantity=current_position_quantity,
         intent_gross_budget=intent_gross_budget,
+        same_intent_target_weight=same_intent_target_weight,
     )
 
 
@@ -230,6 +234,21 @@ def test_cost_aware_ridge_uses_filled_position_only_when_budget_is_present() -> 
                 current_intent=PositionIntent.LONG,
                 current_weight=0.0,
                 current_position_quantity=0.0,
+            )
+        )
+        is PositionIntent.LONG
+    )
+
+    same_intent_hold = math.log1p(-0.0095)
+    assert (
+        strategy.decide(
+            observation(
+                same_intent_hold,
+                current_intent=PositionIntent.LONG,
+                current_weight=0.45,
+                current_position_quantity=5.0,
+                intent_gross_budget=0.5,
+                same_intent_target_weight=0.45,
             )
         )
         is PositionIntent.LONG

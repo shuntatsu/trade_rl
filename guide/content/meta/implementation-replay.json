@@ -24,7 +24,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "ed90b0b098251956c6030ebd25636e35d6113c5232b28777cc1aecfde3d13aa9"
+      "sha256": "d6595ae88e4565b4802c9996d24b70b66820be21a69a0352e45a1405828b76fc"
     }
   ],
   "code_references": [
@@ -32,7 +32,7 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "93695c2596ba7a975c9128039d3f718110a8a54e37d01ceb1749ea6a24b9625c",
+      "source_sha256": "c919eb406161451d35a69c269559c023d11c13767d043cda1b6a75d9e2572834",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで実約定数量と銘柄ごとのgross budgetを含む観測を作り、戦略意図から希望数量を計算します。最小保有中の抑制後もhard riskとterminal settlementを通し、約定・帳簿・区間収益・抑制イベントを更新します。",
       "variables": [
@@ -80,7 +80,7 @@
       "id": "replay-observation",
       "symbol": "trade_rl.evaluation.replay._observation",
       "kind": "function",
-      "source_sha256": "e381d1264d36f6fc1a4a87efc7dc6a1a61387d5fdf835d0ac123df56d7a44515",
+      "source_sha256": "f3dd6290c38d74451da6845fd3e57480bd6339ac7806fb6f41b5509b4b70261a",
       "label_ja": "その時点の観測を組み立てる",
       "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図・ウェイト・実約定数量・銘柄ごとのgross budget・保有年齢を加えてStrategyObservationを作ります。intentは直近目標、quantityは実保有状態を表します。",
       "variables": [],

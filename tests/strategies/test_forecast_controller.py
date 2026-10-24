@@ -92,6 +92,147 @@ def test_cost_aware_controller_uses_filled_position_when_budget_is_known() -> No
 
 
 @pytest.mark.parametrize(
+    (
+        "current_weight",
+        "quantity",
+        "current_intent",
+        "same_intent_target_weight",
+        "forecast",
+        "expected",
+    ),
+    (
+        (
+            0.45,
+            5.0,
+            PositionIntent.LONG,
+            0.45,
+            math.log1p(-0.0095),
+            PositionIntent.LONG,
+        ),
+        (
+            -0.45,
+            -5.0,
+            PositionIntent.SHORT,
+            -0.45,
+            math.log1p(0.0095),
+            PositionIntent.SHORT,
+        ),
+        (
+            0.45,
+            4.5,
+            PositionIntent.LONG,
+            0.5,
+            math.log1p(-0.0095),
+            PositionIntent.FLAT,
+        ),
+        (
+            0.45,
+            5.0,
+            PositionIntent.SHORT,
+            -0.5,
+            math.log1p(0.03),
+            PositionIntent.LONG,
+        ),
+        (
+            1.2,
+            12.0,
+            PositionIntent.LONG,
+            1.3,
+            math.log1p(-0.009),
+            PositionIntent.FLAT,
+        ),
+    ),
+)
+def test_cost_aware_controller_prices_cached_same_intent_target(
+    current_weight: float,
+    quantity: float,
+    current_intent: PositionIntent,
+    same_intent_target_weight: float,
+    forecast: float,
+    expected: PositionIntent,
+) -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=0.01,
+    )
+
+    assert (
+        model.decide_for_position(
+            forecast,
+            current_weight=current_weight,
+            current_position_quantity=quantity,
+            gross_budget=0.5,
+            current_intent=current_intent,
+            same_intent_target_weight=same_intent_target_weight,
+        )
+        is expected
+    )
+
+
+def test_cost_aware_controller_requires_logical_intent_for_cached_target() -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=0.01,
+    )
+
+    with pytest.raises(ValueError, match="current_intent"):
+        model.decide_for_position(
+            0.0,
+            current_weight=0.0,
+            current_position_quantity=0.0,
+            gross_budget=0.5,
+            same_intent_target_weight=0.5,
+        )
+    with pytest.raises(TypeError, match="current_intent"):
+        model.decide_for_position(
+            0.0,
+            current_weight=0.0,
+            current_position_quantity=0.0,
+            gross_budget=0.5,
+            current_intent="long",  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("target_weight", (math.nan, math.inf, -math.inf))
+def test_cost_aware_controller_rejects_non_finite_cached_target(
+    target_weight: float,
+) -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=0.01,
+    )
+
+    with pytest.raises(ValueError, match="same_intent_target_weight"):
+        model.decide_for_position(
+            0.0,
+            current_weight=0.0,
+            current_position_quantity=0.0,
+            gross_budget=0.5,
+            current_intent=PositionIntent.FLAT,
+            same_intent_target_weight=target_weight,
+        )
+
+
+def test_cached_exposure_comparison_preserves_positive_gap_below_float_ulp() -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
+        one_way_switch_cost=1.0,
+    )
+
+    assert (
+        model.decide_for_position(
+            -1000.0,
+            current_weight=-0.5,
+            current_position_quantity=-5.0,
+            gross_budget=0.5,
+            current_intent=PositionIntent.SHORT,
+            same_intent_target_weight=-1e308,
+        )
+        is PositionIntent.SHORT
+    )
+
+
+@pytest.mark.parametrize(
     ("current_weight", "quantity", "gross_budget", "cost", "simple_return"),
     (
         (Fraction(0), Fraction(0), Fraction(1, 2), Fraction(1, 100), Fraction(1, 200)),
@@ -299,7 +440,10 @@ def test_filled_position_decision_rejects_invalid_budget(
 
 
 def test_strategy_observation_validates_optional_intent_gross_budget() -> None:
-    def build_observation(intent_gross_budget: float | None) -> StrategyObservation:
+    def build_observation(
+        intent_gross_budget: float | None,
+        same_intent_target_weight: float | None = None,
+    ) -> StrategyObservation:
         return StrategyObservation(
             index=0,
             timestamp=np.datetime64("2026-01-01T00:00:00", "ns"),
@@ -311,12 +455,19 @@ def test_strategy_observation_validates_optional_intent_gross_budget() -> None:
             current_intent=PositionIntent.FLAT,
             current_weight=0.0,
             intent_gross_budget=intent_gross_budget,
+            same_intent_target_weight=same_intent_target_weight,
         )
 
     assert build_observation(None).intent_gross_budget is None
     assert build_observation(0.5).intent_gross_budget == 0.5
     with pytest.raises(ValueError, match="intent_gross_budget"):
         build_observation(0.0)
+    assert build_observation(0.5, 0.45).same_intent_target_weight == 0.45
+    with pytest.raises(ValueError, match="intent_gross_budget"):
+        build_observation(None, 0.45)
+    for invalid in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError, match="same_intent_target_weight"):
+            build_observation(0.5, invalid)
 
 
 def test_cost_aware_controller_compares_log_forecast_as_simple_return() -> None:

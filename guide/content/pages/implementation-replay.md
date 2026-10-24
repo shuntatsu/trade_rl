@@ -50,7 +50,7 @@ BookState
 
 ## 1. 観測を作る
 
-現在バーのfeature、availability、staleness、global feature情報に、**現在の売買意図・現在ウェイト・実約定数量・銘柄ごとのgross budget**を加えて`StrategyObservation`を作ります。budgetはcanonical replayでは常に渡し、直接構築する従来callerでは省略できます。PPO Observation v3では、さらに実際の約定数量から数えた`position_age_bars`を渡します。最後のactionではなくfillが年齢の起点です。Cost-aware forecast adapterはbudgetがある場合、直近のlogical intentではなくfilled positionを使って離散targetを判断し、partial fillの実weightをcost proxyへ反映します。targetは`-budget` / `0` / `+budget`から選ぶため、risk projection前にpartial quantityを連続最適化するものではありません。
+現在バーのfeature、availability、staleness、global feature情報に、**現在の売買意図・現在ウェイト・実約定数量・銘柄ごとのgross budget**を加えて`StrategyObservation`を作ります。budgetはcanonical replayでは常に渡し、直接構築する従来callerでは省略できます。cached desired quantityを現在のmark/equityでweightにした`same_intent_target_weight`もoptionalで渡します。Cost-aware forecast adapterはbudgetがある場合、signed filled positionからactual sideを決め、actual side・そこからのbaseline hysteresis proposal・FLATを比較します。候補がlogical current intentと一致するときだけcached targetを使い、それ以外は`-budget` / `0` / `+budget`です。actual weightからcached targetまでのpartial-fill residualはcostに残り、same-intentのquantity holdは価格driftだけを理由に再約定しません。minimum-hold中とunlock decisionはhintを省き、既存のquantity overrideとnominal target resetを使います。これは離散intent候補のproxyで、risk projection前にpartial quantityを連続最適化するものではありません。PPO Observation v3ではさらに実際の約定数量から数えた`position_age_bars`を渡します。最後のactionではなくfillが年齢の起点です。
 
 未来のバーを見てから観測を作ることはありません。判断に入る情報は現在時点までに利用可能なものに限定します。
 

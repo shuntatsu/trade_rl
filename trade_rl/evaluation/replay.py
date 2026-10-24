@@ -340,6 +340,27 @@ def _weight_for_desired_quantity(
     )
 
 
+def _cached_same_intent_target_weight(
+    book: BookState,
+    desired_quantity: float,
+    *,
+    symbol_index: int,
+    current_quantity: float,
+    position_age_bars: int,
+    minimum_hold_bars: int,
+    minimum_hold_locked: bool,
+) -> float | None:
+    if minimum_hold_locked or (
+        current_quantity != 0.0 and position_age_bars < minimum_hold_bars
+    ):
+        return None
+    return _weight_for_desired_quantity(
+        book,
+        desired_quantity,
+        symbol_index=symbol_index,
+    )
+
+
 def _validate_risk_execution_compatibility(
     risk: PreTradeRisk,
     executor: MarketExecutor,
@@ -367,6 +388,7 @@ def _observation(
     book: BookState,
     current_intent: PositionIntent,
     intent_gross_budget: float,
+    same_intent_target_weight: float | None = None,
     position_age_bars: int = 0,
     gross_position_return: float | None = None,
 ) -> StrategyObservation:
@@ -387,6 +409,7 @@ def _observation(
         current_weight=float(book.weights[symbol_index]),
         current_position_quantity=float(book.quantities[symbol_index]),
         intent_gross_budget=intent_gross_budget,
+        same_intent_target_weight=same_intent_target_weight,
         position_age_bars=position_age_bars,
         gross_position_return=gross_position_return,
     )
@@ -528,6 +551,15 @@ def run_single_symbol_replay(
             book=book,
             current_intent=current_intent,
             intent_gross_budget=gross_budget,
+            same_intent_target_weight=_cached_same_intent_target_weight(
+                book,
+                desired_quantity,
+                symbol_index=symbol_index,
+                current_quantity=quantity_before,
+                position_age_bars=position_age_before,
+                minimum_hold_bars=resolved_minimum_hold_bars,
+                minimum_hold_locked=minimum_hold_locked,
+            ),
             position_age_bars=position_age_bars,
             gross_position_return=executed_entry_prices.mark_gross_return(
                 symbol_index,
@@ -964,6 +996,15 @@ def run_shared_cash_replay(
                 book=book,
                 current_intent=current_intents[symbol_index],
                 intent_gross_budget=gross_budget,
+                same_intent_target_weight=_cached_same_intent_target_weight(
+                    book,
+                    float(desired_quantities[symbol_index]),
+                    symbol_index=symbol_index,
+                    current_quantity=quantities_before[symbol_index],
+                    position_age_bars=position_age_bars[symbol_index],
+                    minimum_hold_bars=hold_bars_by_symbol[symbol_index],
+                    minimum_hold_locked=minimum_hold_locked[symbol_index],
+                ),
                 position_age_bars=position_age_bars[symbol_index],
                 gross_position_return=executed_entry_prices.mark_gross_return(
                     symbol_index,

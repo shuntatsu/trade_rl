@@ -827,6 +827,37 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Known limitations:** constraint整合性はpolicyが良いallocationを学習することを証明しない。
 
+### GYM-001 — joint Gym uses the existing native portfolio session
+
+**Statement:** The opt-in `SharedPortfolioGymEnv` maps one fixed-shape action
+vector per native decision into one `SharedPortfolioSession`. It carries the
+same returned book, executor, pending-order state, clock, and hard-risk path
+forward. Reward is the net equity increment divided by fixed initial capital,
+including every interval advanced for reserved terminal settlement. The actor
+cannot bypass risk-owned reductions or emergency flattening.
+
+**Counterexample:** Resetting a per-symbol book between decisions, dropping a
+reserved terminal interval, or marking an unsettled/capacity-limited endpoint
+as a usable settled valuation.
+
+**Oracle:** A literal synthetic account checks action validation before state
+advancement, continuous native settlement, actual fee/equity reward, and the
+terminal book and active-order state. A price-gap case also verifies that the
+reported maximum drawdown is retained even when it exceeds the configured
+stop.
+
+**Known limitations:** The fixed observation is partial; it does not invent
+free/reserved cash and rejects more than one active order per symbol or
+incomplete pending-order price context. `objective_endpoint_valid` only means
+the endpoint is settled, flat, order-free, non-insolvent, and has no
+termination reason. It does not establish all objective/risk/digest checks or
+study admission. A stop cannot prevent a larger realized drawdown after a
+price gap. The existing native insolvency path floors terminal cash/equity at
+zero; the adapter adds no reward clipping but does not establish debt-loss
+semantics below -100% of fixed initial capital. Insolvent episodes remain
+invalid rather than being filtered. This adapter is not a trainer and
+establishes no learned-policy or economic result.
+
 ### TRAIN-EVAL-001 — train/evaluation account semantics
 
 **Statement:** trainingとevaluationが同じ経済能力を比較すると主張する場合、資本・観測・action・reward・risk・execution/accounting scopeは同じ意味を持つか、差分が事前に研究factorとして明示されていなければならない。

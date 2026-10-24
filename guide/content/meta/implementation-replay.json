@@ -18,7 +18,8 @@
     "run_shared_portfolio_replay",
     "build_portfolio_decision_snapshot",
     "PortfolioDecisionSnapshot",
-    "PortfolioTargetProposal"
+    "PortfolioTargetProposal",
+    "SharedPortfolioGymEnv"
   ],
   "source_sections": [
     {
@@ -122,6 +123,19 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-gym-adapter",
+      "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
+      "kind": "class",
+      "source_sha256": "429f131699f3928a4007752d8c4fb15af0ae57a3c49fef1190f83416649b93c0",
+      "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
+      "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

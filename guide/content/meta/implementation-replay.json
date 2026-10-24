@@ -13,7 +13,11 @@
     "リスク制約",
     "約定",
     "帳簿",
-    "run_single_symbol_replay"
+    "run_single_symbol_replay",
+    "shared portfolio policy",
+    "run_shared_portfolio_replay",
+    "PortfolioDecisionSnapshot",
+    "PortfolioTargetProposal"
   ],
   "source_sections": [
     {
@@ -24,7 +28,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "3f13b41f789a18440b04f6ea7cd3c25cf6509c16ae6656e2043366a5db9e26f0"
+      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
     }
   ],
   "code_references": [
@@ -77,10 +81,53 @@
       ]
     },
     {
+      "id": "portfolio-replay-run",
+      "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "882b8611bbdcb5300102c2467976ed727c50113d1ac3d4c4131ec59235de0950",
+      "label_ja": "全銘柄portfolio policyを実行",
+      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorを既存のshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenは既存replayが所有します。",
+      "variables": [
+        {
+          "name": "policy",
+          "label_ja": "全銘柄portfolio policy",
+          "description_ja": "PortfolioDecisionSnapshotを受け取り、dataset symbol順のtarget vectorとoptional exact-quantity HOLDを返します。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py"
+      ]
+    },
+    {
+      "id": "portfolio-snapshot-contract",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioDecisionSnapshot",
+      "kind": "class",
+      "source_sha256": "bb23b5f82f4683fd7afc9eaef1488518fd4e61d9e60dc9a6f84357a396f6710a",
+      "label_ja": "現在時点のimmutable portfolio snapshot",
+      "description_ja": "既存current-row StrategyObservationからfeature values/masksをtuple化し、accountとactive-order/risk factsをprimitive valuesで渡します。future rowsやopaque order IDは渡しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-target-proposal-contract",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioTargetProposal",
+      "kind": "class",
+      "source_sha256": "e1e7594bb1c95d150912fb85c0c373c3c4ce2db1eb66eb796f2077c8cbc63b56",
+      "label_ja": "numeric target vectorとexact HOLD",
+      "description_ja": "全symbolに対するfinite target weightと、current weightに完全一致する場合だけ要求できるexact quantity HOLDを表します。hard riskはHOLDを解除できます。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py"
+      ]
+    },
+    {
       "id": "replay-observation",
       "symbol": "trade_rl.evaluation.replay._observation",
       "kind": "function",
-      "source_sha256": "f3dd6290c38d74451da6845fd3e57480bd6339ac7806fb6f41b5509b4b70261a",
+      "source_sha256": "a5c84fef54e3a9935678d36867608798555f4c3bc4b4efed3e5e9a3dda5d8824",
       "label_ja": "その時点の観測を組み立てる",
       "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図・ウェイト・実約定数量・銘柄ごとのgross budget・保有年齢を加えてStrategyObservationを作ります。intentは直近目標、quantityは実保有状態を表します。",
       "variables": [],

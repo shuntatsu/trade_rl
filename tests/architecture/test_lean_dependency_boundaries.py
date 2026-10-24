@@ -101,6 +101,19 @@ def test_strategies_do_not_depend_on_evaluation() -> None:
     assert _offenders(PACKAGE / "strategies", ("trade_rl.evaluation",)) == []
 
 
+def test_portfolio_policy_contract_is_detached_from_runtime_owners() -> None:
+    path = PACKAGE / "strategies" / "portfolio.py"
+    forbidden = (
+        "trade_rl.evaluation",
+        "trade_rl.risk",
+        "trade_rl.simulation",
+    )
+    imports = collect_trade_rl_imports(path)
+    assert not any(
+        within_module(imported, prefix) for imported in imports for prefix in forbidden
+    )
+
+
 def test_rl_does_not_depend_on_forecast_family() -> None:
     assert (
         _offenders(

@@ -46,6 +46,8 @@ artifacts / evidence
 | 単銘柄の共通評価リプレイ | `trade_rl.evaluation.replay.run_single_symbol_replay` |
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
+| 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
+| immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | filled exposureを使うforecast intent utility | `trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position` |
@@ -62,6 +64,8 @@ artifacts / evidence
 共通資金の比較はstrategy armごとに全symbolを一つのaccountでreplayします。armとsymbolごとにfresh strategy adapterを使い、既存replayのcost・funding・borrow・turnover diagnosticsからmetricsを作ります。これはmodel fittingやwinner selectionを行うAPIではありません。
 
 固定action sequence用のopt-in replayでは、`None`がactorの新しい判断なしを表し、既存targetとpending orderを進めます。`HOLD_QUANTITY`は実bookのsigned quantityを保ち、未約定remainderをcancelします。hard riskは引き続き縮小・flattenでき、既存`SingleSymbolStrategy` interfaceは変わりません。
+
+別のopt-in `run_shared_portfolio_replay`は各eligible native barで全symbolを一度に観測し、numeric target vectorを既存のshared risk・execution・accounting loopへ渡します。inputはcurrent-row featuresとdetached account/order/risk factsだけをtuple/scalarで保持し、free/reserved cashやopaque order identityを追加しません。exact quantity HOLDはrisk projectionがweightを変えない場合だけ残ります。legacy intent resultとledger schemaはそのままです。
 
 `decide_for_position` はStrategy packageのutilityで、直接呼び出しに加えて、cost-aware設定かつbudget付きobservationを受け取るRidge / LightGBM adapterから使われます。filled quantity/weight、forecast、同じlogical intentのoptionalなcached targetから`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、canonical replayはその後に既存のhold制約、risk、execution、会計を適用します。
 

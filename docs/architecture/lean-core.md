@@ -172,6 +172,26 @@ This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
 
+`run_shared_portfolio_replay` is a separate opt-in one-bar actor seam. It calls
+one `PortfolioPolicy.decide_portfolio` with a detached `PortfolioDecisionSnapshot`
+for each native decision row, then validates the complete symbol-ordered numeric
+target vector before the existing `execute_native_target_transition` applies the
+same `PreTradeRisk` and advances the same `MarketExecutor` and `BookState` loop.
+The snapshot copies only the current `StrategyObservation` row, primitive account
+facts, active-order quantities/status/timing, and risk-limit scalars into tuples
+and immutable values; it does not include the `MarketDataset`, executor, risk or
+book objects, opaque order IDs, or future rows. Cash is reported as raw account
+cash, not as free or reserved cash, so this input is not a complete Markov account
+state. An explicit exact-quantity HOLD is accepted only when its target exactly
+matches the current book weight, and it survives only if hard risk leaves that
+weight unchanged; the normal executor then cancels any residual order while
+preserving the signed filled quantity. The actor cannot request the terminal
+emergency-flatten mask. Policy calls stop at the existing latency-aware agent
+boundary, after which the existing terminal-settlement path owns flattening. This
+numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
+the existing intent replay result and ledger schemas remain unchanged. This seam
+does not change PPO's per-symbol training path or establish an economic result.
+
 `run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
 sequences. It validates every symbol schedule before execution. `None` means no
 new actor decision and keeps the cached target and pending order progressing;

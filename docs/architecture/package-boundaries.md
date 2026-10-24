@@ -301,6 +301,8 @@ small strategy interfaceとlogical intent、controls、rule、forecast、teacher
 
 lower layerを利用してReplay・metrics・gate・comparison・robustness・concrete runを構成する。
 
+`evaluation/comparison/strategies.py` owns named independent-per-symbol comparisons and shared-cash factory comparisons. Shared-cash comparison gives each strategy arm one replay over the full symbol roster, reusing `evaluation/replay.py` and `evaluate_performance`; it does not fit models or select a winner.
+
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。PPO・risk・execution設定はこの値に依存しない。

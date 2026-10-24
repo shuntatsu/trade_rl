@@ -69,7 +69,7 @@ trade_rl/
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -296,6 +296,8 @@ and execution owners remain unchanged.
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `forecasts/controller.py` also exposes the direct-call `CostAwareForecastIntentController.decide_for_position` utility. It compares a small set of intent targets using filled-side/weight inputs, an optional matching cached target and a simple switch-cost proxy; it does not import execution, risk, or replay and does not replace the existing adapter path.
+
+`forecasts/ridge_artifact.py` owns write-once publication and verified loading for the existing immutable `RidgeForecastModel`. Its single canonical JSON payload binds declared dataset, fit scope, cutoff, model, source, and runtime metadata; loading requires both the external digest and caller-supplied typed binding. It uses the shared `trade_rl.artifacts` canonical encoding and atomic directory publication primitives. It does not fit a model or claim that declared metadata independently proves how a historical fit was produced. LightGBM persistence and evaluation remain outside this module.
 
 `StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
 

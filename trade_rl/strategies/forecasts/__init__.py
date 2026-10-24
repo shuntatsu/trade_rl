@@ -14,6 +14,11 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.forecasts.ridge_artifact import (
+    RidgeForecastArtifactBinding,
+    load_ridge_forecast_artifact,
+    publish_ridge_forecast_artifact,
+)
 from trade_rl.strategies.forecasts.supervised import (
     CausalForecastTrainingSet,
     build_causal_forecast_training_set,
@@ -25,9 +30,12 @@ __all__ = [
     "ForecastIntentController",
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
+    "RidgeForecastArtifactBinding",
     "RidgeForecastModel",
     "RidgeForecastStrategy",
     "build_causal_forecast_training_set",
     "fit_lightgbm_forecast",
     "fit_ridge_forecast",
+    "load_ridge_forecast_artifact",
+    "publish_ridge_forecast_artifact",
 ]

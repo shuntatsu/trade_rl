@@ -334,6 +334,22 @@ def _changed_paths(
     return tuple(sorted(result, key=lambda item: item[1]))
 
 
+def _reject_casefolded_file_directory_prefix_collisions(
+    file_paths: tuple[str, ...],
+) -> None:
+    folded_files = {path.casefold() for path in file_paths}
+    for path in folded_files:
+        components = path.split("/")
+        if any(
+            "/".join(components[:index]) in folded_files
+            for index in range(1, len(components))
+        ):
+            raise ValueError(
+                "changed HEAD files contain a case-insensitive "
+                "file/directory prefix collision"
+            )
+
+
 def _entry_payload(entry: _TreeEntry) -> dict[str, str]:
     return {"mode": entry.mode, "type": entry.object_type, "oid": entry.oid}
 
@@ -468,6 +484,7 @@ def create_source_packet(
     inventory: list[dict[str, object]] = []
     members: dict[str, tuple[bytes, int]] = {}
     expected_tar: dict[str, bytes] = {}
+    head_file_paths: list[str] = []
     for status, path_bytes in paths:
         path = _safe_path(path_bytes)
         old_entry = base_entries.get(path_bytes)
@@ -486,6 +503,7 @@ def create_source_packet(
 
         new_payload: dict[str, object] | None = None
         if new_entry is not None:
+            head_file_paths.append(path)
             raw_blob = _raw_blob(root, new_entry.oid, object_format)
             tar_name = f"files/{path}"
             expected_tar[tar_name] = raw_blob
@@ -505,6 +523,7 @@ def create_source_packet(
             }
         )
 
+    _reject_casefolded_file_directory_prefix_collisions(tuple(head_file_paths))
     diff_flags = _DIFF_FLAGS
     name_status_flags = _NAME_STATUS_FLAGS
     source_tar = _make_tar(members)

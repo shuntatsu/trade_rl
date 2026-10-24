@@ -39,6 +39,70 @@ def _write(root: Path, relative: str, value: bytes) -> None:
     path.write_bytes(value)
 
 
+def _raw_git_tree_commit(
+    root: Path,
+    files: dict[str, bytes],
+    *,
+    message: str,
+    parent: str | None = None,
+) -> str:
+    nodes: dict[str, object] = {}
+    for path, content in files.items():
+        parts = path.split("/")
+        current = nodes
+        for part in parts[:-1]:
+            child = current.setdefault(part, {})
+            if not isinstance(child, dict):
+                raise ValueError(f"file/tree collision in test fixture: {path}")
+            current = child
+        current[parts[-1]] = content
+
+    def write_tree(entries: dict[str, object]) -> str:
+        records: list[bytes] = []
+        for name, child in sorted(entries.items()):
+            if isinstance(child, dict):
+                mode, object_type, oid = "040000", "tree", write_tree(child)
+            else:
+                assert isinstance(child, bytes)
+                blob = _git(
+                    root,
+                    "hash-object",
+                    "-w",
+                    "--stdin",
+                    text=False,
+                    input_bytes=child,
+                )
+                assert isinstance(blob, bytes)
+                mode, object_type, oid = "100644", "blob", blob.decode("ascii").strip()
+            records.append(f"{mode} {object_type} {oid}\t{name}\0".encode("utf-8"))
+        tree = _git(
+            root,
+            "mktree",
+            "-z",
+            text=False,
+            input_bytes=b"".join(records),
+        )
+        assert isinstance(tree, bytes)
+        return tree.decode("ascii").strip()
+
+    tree = write_tree(nodes)
+    commit_args = ["commit-tree", tree]
+    if parent is not None:
+        commit_args.extend(("-p", parent))
+    commit_args.extend(("-m", message))
+    return str(_git(root, *commit_args))
+
+
+def _raw_git_tree_repository(root: Path) -> Path:
+    root.mkdir()
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.name", "Test User")
+    _git(root, "config", "user.email", "test@example.com")
+    base = _raw_git_tree_commit(root, {}, message="empty base")
+    _git(root, "update-ref", "refs/heads/main", base)
+    return root
+
+
 def _repository(root: Path) -> tuple[str, str]:
     root.mkdir()
     _git(root, "init", "-b", "main")
@@ -719,3 +783,120 @@ def test_source_packet_rejects_reserved_device_name_in_raw_git_tree(
     assert "unsafe changed Git path" in result.stderr
     assert result.stdout == ""
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("file_path", "child_path"),
+    (("A", "a/foo"), ("a", "A/foo")),
+)
+def test_source_packet_rejects_casefolded_file_directory_prefix_collisions(
+    tmp_path: Path,
+    file_path: str,
+    child_path: str,
+) -> None:
+    repository = _raw_git_tree_repository(tmp_path / "repo")
+    base = str(_git(repository, "rev-parse", "HEAD"))
+    head = _raw_git_tree_commit(
+        repository,
+        {file_path: b"file\n", child_path: b"child\n"},
+        message="case-folded file directory collision",
+        parent=base,
+    )
+    output = tmp_path / "packet"
+
+    result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(output),
+    )
+
+    assert result.returncode != 0
+    assert "case-insensitive file/directory prefix collision" in result.stderr
+    assert result.stdout == ""
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("files", "expected_members"),
+    (
+        (
+            {"folder/first.txt": b"first\n", "folder/second.txt": b"second\n"},
+            ["files/folder/first.txt", "files/folder/second.txt"],
+        ),
+        (
+            {"A/upper.txt": b"upper\n", "a/lower.txt": b"lower\n"},
+            ["files/A/upper.txt", "files/a/lower.txt"],
+        ),
+    ),
+)
+def test_source_packet_allows_siblings_and_case_distinct_directories(
+    tmp_path: Path,
+    files: dict[str, bytes],
+    expected_members: list[str],
+) -> None:
+    repository = _raw_git_tree_repository(tmp_path / "repo")
+    base = str(_git(repository, "rev-parse", "HEAD"))
+    head = _raw_git_tree_commit(
+        repository,
+        files,
+        message="valid sibling files",
+        parent=base,
+    )
+    output = tmp_path / "packet"
+
+    result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(output),
+    )
+
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(output / "source.tar", mode="r:") as archive:
+        assert archive.getnames() == expected_members
+
+
+def test_source_packet_allows_deleted_file_to_become_casefolded_directory(
+    tmp_path: Path,
+) -> None:
+    repository = _raw_git_tree_repository(tmp_path / "repo")
+    empty_base = str(_git(repository, "rev-parse", "HEAD"))
+    base = _raw_git_tree_commit(
+        repository,
+        {"A": b"old file\n"},
+        message="base file",
+        parent=empty_base,
+    )
+    head = _raw_git_tree_commit(
+        repository,
+        {"a/foo": b"new child\n"},
+        message="replace file with directory",
+        parent=base,
+    )
+    output = tmp_path / "packet"
+
+    result = _run(
+        repository,
+        "--base",
+        base,
+        "--head",
+        head,
+        "--output",
+        str(output),
+    )
+
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((output / "manifest.json").read_bytes())
+    assert [(path["status"], path["path"]) for path in manifest["changed_paths"]] == [
+        ("D", "A"),
+        ("A", "a/foo"),
+    ]
+    with tarfile.open(output / "source.tar", mode="r:") as archive:
+        assert archive.getnames() == ["files/a/foo"]

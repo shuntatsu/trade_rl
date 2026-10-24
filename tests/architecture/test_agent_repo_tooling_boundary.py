@@ -66,4 +66,8 @@ def test_source_packet_contract_is_documented_at_the_repository_boundary() -> No
     assert "`.git` component" in tooling
     assert "`git~1` alias" in tooling
     assert "registered worktree内output" in tooling
+    assert (
+        "case-insensitive file/directory prefix collision among emitted HEAD files"
+        in tooling
+    )
     assert "source transport only" in tooling

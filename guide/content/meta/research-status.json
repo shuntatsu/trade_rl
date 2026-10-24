@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18 loader確認、12 fit後に停止したNONRL準備、未実行の48-cell比較とP&L、研究上の未証明事項を表示します。",
+  "summary": "Task 18準備状況、FAILED_SCREENとなったM34の12行four-arm Ridge開発screen、未完了の48-cell比較、研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -43,7 +43,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "e4b84f56af9158eba03fc7f681bfaa890bd5f2752df24ef3cd4e47e7227b039f"
+      "sha256": "c25e040fe793c8d7c9d388f3d77dfa9cebf5b32dccd65159cf92f8d24629dfc9"
     }
   ],
   "code_references": []

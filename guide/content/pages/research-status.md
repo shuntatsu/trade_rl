@@ -12,6 +12,12 @@ Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v
 
 Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
 
+### 条件付きfour-arm Ridge開発screen
+
+attempt 01では全12行の計算が完了しましたが、screen全体の判定は `FAILED_SCREEN` です。3つのシナリオすべてでcash以外の3 armの費用反映後リターンは正でした。一方、latency 2 barsでは正のcost proxy armが2.6777%で、position-aware `cost=0` の2.8971%を下回り、必要な比較条件を満たしませんでした。全行は終端flat・残注文0で、実現ledger最大DDは20%未満でしたが、勝者や将来利益の証拠ではありません。全12行とDD・費用・fundingの詳細は正本の研究statusに記録しています。rootの別readbackとN2の71/71 source-M34 metadata/public-loader checksは完了しました。詳細reportとevidence packageは[M34のGitHub release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に公開済みです（release ID `422708600`、tagはM34）。
+
+費用はDatasetの `fee_rate=0.0005`（5 bp）と `spread_rate=0.0002`（2 bp）を使い、追加overlayは0です。10 bp/weight-turnoverは意思決定用proxyで、ledger feeではありません。ledgerの費用とfundingは最終wealthに含まれ、再度差し引きません。fundingはbar-close proxyで、実際のexchange settlement markとの一致は未確認です。元の48-cell gateは未完了で、registryには1 interrupted・47 unattempted・0 completeが残っています。入力は過去利用のclosureが不明なTier Uです。PPO/RL、unused-period、将来利益、live運用の証拠ではありません。再実行やretuneはしません。
+
 ## PPO中期保有期間の次期設計
 
 従来の独立口座版 `ppo_holding_duration_v1` は、PPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較します。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。

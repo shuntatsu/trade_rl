@@ -284,6 +284,10 @@ not arbitrary Python reflection. Profiles add no fields to the Dataset schema.
 per-order rules; `orders/reconciliation.py` activates same-side reduce-only exits.
 Admission and allocation enforce quantity bounds and distinct per-order notional
 floors. Unselected symbols and omitted-profile behavior retain their contracts.
+The shared-cash replay's explicit exact-quantity HOLD is carried through
+`targets/execution.py` to reconciliation, which accepts it only when its target
+weight exactly matches the current book weight; it cancels residual orders without
+resizing the native quantity. Ordinary weight targets use the existing path.
 
 ### `strategies`
 
@@ -310,6 +314,11 @@ small strategy interfaceとlogical intent、controls、rule、forecast、teacher
 lower layerを利用してReplay・metrics・gate・comparison・robustness・concrete runを構成する。
 
 `evaluation/comparison/strategies.py` owns named independent-per-symbol comparisons and shared-cash factory comparisons. Shared-cash comparison gives each strategy arm one replay over the full symbol roster, reusing `evaluation/replay.py` and `evaluate_performance`; it does not fit models or select a winner.
+
+`evaluation/replay.py` also owns `run_scripted_shared_cash_replay`, an opt-in
+per-symbol action schedule that reuses the same shared risk, `MarketExecutor`, and
+ledger path. Its no-decision marker preserves pending targets; exact-quantity
+HOLD is accepted only when hard risk leaves the current book weight unchanged.
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 

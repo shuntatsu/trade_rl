@@ -69,6 +69,7 @@ def _reconcile(
     limit_offset_rate: float = 0.01,
     tick_size: float | None = None,
     reduce_only_symbols: tuple[int, ...] | None = None,
+    hold_current_quantity_symbols: tuple[int, ...] = (),
 ):
     return reconcile_target(
         dataset_id="d" * 64,
@@ -88,6 +89,7 @@ def _reconcile(
         tick_sizes=None if tick_size is None else np.array([tick_size]),
         maximum_gross=1.0,
         reduce_only_symbols=reduce_only_symbols,
+        hold_current_quantity_symbols=hold_current_quantity_symbols,
     )
 
 
@@ -104,6 +106,24 @@ def test_reconciliation_does_not_double_submit_matching_active_residual() -> Non
     assert result.order_book.active_orders == (active,)
     np.testing.assert_allclose(result.desired_quantities, [5.0])
     np.testing.assert_allclose(result.residual_quantities, [0.0])
+
+
+def test_exact_quantity_hold_rejects_weight_drift_before_reconciliation() -> None:
+    book = _book(2.0)
+    active = _active(1.0)
+    order_book = OrderBookState(active_orders=(active,), terminal_orders=())
+
+    with pytest.raises(ValueError, match="must equal the current book weight"):
+        _reconcile(
+            target_weight=0.2001,
+            book=book,
+            order_book=order_book,
+            hold_current_quantity_symbols=(0,),
+        )
+
+    assert book.exact_quantities == (Fraction(2),)
+    assert order_book.active_orders == (active,)
+    assert order_book.terminal_orders == ()
 
 
 @pytest.mark.parametrize("order_type", tuple(OrderType))

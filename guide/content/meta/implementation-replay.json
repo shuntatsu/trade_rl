@@ -24,7 +24,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "76ce783b68136beabf6ce93c43a1cfad22da0e2d50a31cfc8de91e28ca6f3a17"
+      "sha256": "b16fcebd5dcc6d52c8316ff4ac59b59e236edaaa127d9f0b433bc192af93ac30"
     }
   ],
   "code_references": [
@@ -104,7 +104,7 @@
       "id": "execute-interval",
       "symbol": "trade_rl.simulation.execution.MarketExecutor.execute_interval",
       "kind": "method",
-      "source_sha256": "1f78a92e5b6b3d31397ed219d1951cf801fdcbe5e47bf020ee3dd5b68fff7289",
+      "source_sha256": "2beb235f8aa89e5e8fb75d49b20d793ca53c3120cc2f12bc7446a8d77b867111",
       "label_ja": "次の区間を約定・会計処理",
       "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],

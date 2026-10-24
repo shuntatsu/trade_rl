@@ -170,6 +170,15 @@ This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
 
+`run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
+sequences. It validates every symbol schedule before execution. `None` means no
+new actor decision and keeps the cached target and pending order progressing;
+`HOLD_QUANTITY` derives the side from the actual signed book quantity, cancels
+any remaining order, and carries the book's exact quantity through reconciliation
+only while the post-risk weight still equals the current book weight. Risk-driven
+shrink or flatten remains effective. The strategy protocol and shared-cash ledger
+schemas are unchanged.
+
 Adaptive rule exits use the optional `StrategyObservation.gross_position_return`
 provided by canonical replay. Replay derives it from the actual average entry
 fill price and the current bar-close mark, signed by the filled position. It is

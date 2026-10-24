@@ -44,28 +44,27 @@ def _top_level_bindings(path: Path) -> frozenset[str]:
 
 
 def _legacy_owner_imports(path: Path) -> frozenset[str]:
-    """Do not accept noncanonical imports as an identity-preserving facade."""
+    """Allow direct canonical imports, not aliases from another owner."""
     aliases: set[str] = set()
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     canonical = "trade_rl.simulation.objectives"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in tree.body:
         if not isinstance(node, ast.ImportFrom):
             continue
-        if node.level == 0 and node.module is not None and (
-            node.module == canonical or node.module.startswith(canonical + ".")
-        ):
-            for symbol in node.names:
-                if symbol.name == "*":
-                    aliases.update(FINANCIAL_SYMBOLS)
-                if symbol.asname in FINANCIAL_SYMBOLS and symbol.asname != symbol.name:
-                    aliases.add(symbol.asname)
-            continue
+        imported_module = node.module if node.level == 0 else None
+        trusted = imported_module == canonical
+        if imported_module is not None:
+            trusted = trusted or imported_module.startswith(canonical + ".")
         for symbol in node.names:
             if symbol.name == "*":
                 aliases.update(FINANCIAL_SYMBOLS)
-            for name in (symbol.name, symbol.asname):
-                if name in FINANCIAL_SYMBOLS:
-                    aliases.add(name)
+            elif trusted:
+                if symbol.asname in FINANCIAL_SYMBOLS and symbol.asname != symbol.name:
+                    aliases.add(symbol.asname)
+            else:
+                for name in (symbol.name, symbol.asname):
+                    if name in FINANCIAL_SYMBOLS:
+                        aliases.add(name)
     return frozenset(aliases)
 
 
@@ -74,9 +73,9 @@ def _duplicate_owners(directory: Path) -> dict[str, frozenset[str]]:
         return {}
     duplicates: dict[str, frozenset[str]] = {}
     for source in sorted(directory.glob("*.py")):
-        overlap = (
-            _top_level_bindings(source) | _legacy_owner_imports(source)
-        ) & FINANCIAL_SYMBOLS
+        definitions = _top_level_bindings(source)
+        noncanonical = _legacy_owner_imports(source)
+        overlap = (definitions | noncanonical) & FINANCIAL_SYMBOLS
         if overlap:
             duplicates[source.name] = overlap
     return duplicates
@@ -131,8 +130,7 @@ def test_legacy_import_only_facade_is_allowed(tmp_path: Path) -> None:
         "from legacy_module import ObjectiveContract as AlternateObjective\n",
         "from legacy_module import *\n",
         "from trade_rl.simulation.objectives import *\n",
-        "from trade_rl.simulation.objectives import "
-        "ObjectiveContract as CapitalContract\n",
+        "from trade_rl.simulation.objectives import ObjectiveContract as CapitalContract\n",
         "from legacy_module import strange as CapitalContract\n",
     ],
 )

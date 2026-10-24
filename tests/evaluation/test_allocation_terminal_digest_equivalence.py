@@ -36,6 +36,24 @@ def _digest_reads_inside(code: CodeType) -> Iterator[list[int]]:
         sys.setprofile(previous)
 
 
+@contextmanager
+def _public_stream_digest_reads() -> Iterator[list[int]]:
+    """Count public serializer calls during one bounded operation."""
+    digest_code = FrozenSimpleReturnStream.digest.fget.__code__
+    reads = [0]
+    previous = sys.getprofile()
+
+    def profile(frame, event, _arg):
+        if event == "call" and frame.f_code is digest_code:
+            reads[0] += 1
+
+    sys.setprofile(profile)
+    try:
+        yield reads
+    finally:
+        sys.setprofile(previous)
+
+
 def _run_route(route, monkeypatch, operation):
     memo_module = import_module(
         "trade_rl.evaluation.rl_allocation._simple_stream_digest"
@@ -76,6 +94,144 @@ def _run_route(route, monkeypatch, operation):
         assert any(count > 0 for count in public_reads)  # cold/fallback path
         assert any(count == 0 for count in public_reads)  # actual memo hit
     return result
+
+
+def test_terminal_preflight_reuses_only_its_live_stream_memo(monkeypatch):
+    execution_api = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    memo_type = import_module(
+        "trade_rl.evaluation.rl_allocation._simple_stream_digest"
+    ).SimpleStreamDigestMemo
+
+    class StopBeforeNativeRun(Exception):
+        pass
+
+    counts = []
+    for route in ("reference", "optimized"):
+        folds, env = carrier()
+        plan = plans(execution_api, env, folds)
+
+        def stop_before_native(*_args, **_kwargs):
+            raise StopBeforeNativeRun
+
+        with monkeypatch.context() as scoped:
+            if route == "reference":
+                scoped.setattr(memo_type, "get", lambda _self, stream: stream.digest)
+            scoped.setattr(
+                execution_api,
+                "run_declared_global_allocation_execution",
+                stop_before_native,
+            )
+            with _public_stream_digest_reads() as reads:
+                with pytest.raises(StopBeforeNativeRun):
+                    execution_api.run_terminal_allocation_execution(folds, env, plan)
+        counts.append(reads[0])
+
+    assert counts[1] < counts[0]
+
+
+def test_terminal_run_owns_a_fresh_memo_for_each_call(monkeypatch):
+    execution_api = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    memo_type = import_module(
+        "trade_rl.evaluation.rl_allocation._simple_stream_digest"
+    ).SimpleStreamDigestMemo
+
+    class StopBeforeNativeRun(Exception):
+        pass
+
+    folds, env = carrier()
+    plan = plans(execution_api, env, folds)
+    memos = []
+
+    def stop_before_native(*_args, **kwargs):
+        memo = kwargs["_stream_digest_memo"]
+        assert type(memo) is memo_type
+        memos.append(memo)
+        raise StopBeforeNativeRun
+
+    monkeypatch.setattr(
+        execution_api,
+        "run_declared_global_allocation_execution",
+        stop_before_native,
+    )
+    for _ in range(2):
+        with pytest.raises(StopBeforeNativeRun):
+            execution_api.run_terminal_allocation_execution(folds, env, plan)
+
+    assert len(memos) == 2
+    assert memos[0] is not memos[1]
+
+
+@pytest.mark.parametrize("mutation", ["packet", "serializer"])
+def test_terminal_live_memo_rechecks_changes_before_native_execution(
+    mutation, monkeypatch
+):
+    execution_api = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    memo_module = import_module(
+        "trade_rl.evaluation.rl_allocation._simple_stream_digest"
+    )
+    canonical = import_module("trade_rl.artifacts.canonical")
+    folds, env = carrier()
+    plan = plans(execution_api, env, folds)
+    original_run = execution_api.run_declared_global_allocation_execution
+    observed_fallback = []
+
+    def mutate_then_run(*args, **kwargs):
+        memo = kwargs["_stream_digest_memo"]
+        assert type(memo) is memo_module.SimpleStreamDigestMemo
+        before = env.stream.digest
+        if mutation == "packet":
+            packet = env.stream.packets[-1]
+            object.__setattr__(
+                packet, "expected_simple_return", packet.expected_simple_return + 0.01
+            )
+        else:
+            original_encode = canonical.json.JSONEncoder.encode
+
+            def altered_encode(encoder, value):
+                return original_encode(encoder, value) + " "
+
+            monkeypatch.setattr(canonical.json.JSONEncoder, "encode", altered_encode)
+
+        current = memo.get(env.stream)
+        assert current == env.stream.digest
+        assert current != before
+        observed_fallback.append(True)
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(
+        execution_api,
+        "run_declared_global_allocation_execution",
+        mutate_then_run,
+    )
+    monkeypatch.setattr(env, "reset", lambda **_: pytest.fail("reset before refusal"))
+
+    with pytest.raises(ValueError):
+        execution_api.run_terminal_allocation_execution(folds, env, plan)
+
+    assert observed_fallback == [True]
+    assert not hasattr(env, "book")
+
+
+def test_standalone_terminal_declaration_keeps_the_direct_public_path(monkeypatch):
+    execution_api = import_module("trade_rl.evaluation.allocation_terminal_execution")
+    memo_type = import_module(
+        "trade_rl.evaluation.rl_allocation._simple_stream_digest"
+    ).SimpleStreamDigestMemo
+    folds, env = carrier()
+    plan = plans(execution_api, env, folds)
+
+    def reject_private_memo(*_args, **_kwargs):
+        pytest.fail("standalone declaration unexpectedly used the private memo")
+
+    monkeypatch.setattr(memo_type, "get", reject_private_memo)
+    declared = execution_api.declare_terminal_allocation_execution(
+        folds,
+        env,
+        plan.native_plan,
+        settlement_stop_index=plan.settlement_stop_index,
+    )
+
+    assert declared == plan
 
 
 @pytest.mark.parametrize(
@@ -124,13 +280,25 @@ def test_same_head_full_terminal_bytes_match_reference_and_memo(
         )
         payload = result.payload
         receipt_bytes = result._bytes
+        native_receipt = result.native_execution.receipt
+        native_payload = native_receipt.payload
+        actor_event_bytes = canonical_json_bytes(
+            [
+                row["native"]["order_events"]
+                for row in native_payload["rows"]
+                if row["native"] is not None
+            ]
+        )
+        closing_event_bytes = canonical_json_bytes(
+            [row["native"]["order_events"] for row in payload["closing_rows"]]
+        )
 
         assert canonical_json_bytes(payload) == receipt_bytes
         assert payload["status"] == "completed"
         assert payload["settlement_complete"]
         assert payload["final_book"]["exact_quantities"] == ["0"]
         assert payload["final_active_orders"] == []
-        assert payload["native_receipt"] == result.native_execution.receipt.payload
+        assert payload["native_receipt"] == native_payload
         assert payload["native_receipt"]["plan"] == plan.native_plan.payload
 
         readback = evidence_api.TerminalAllocationExecutionReceipt.from_payload(
@@ -158,7 +326,12 @@ def test_same_head_full_terminal_bytes_match_reference_and_memo(
         observations.append(
             (
                 plan_bytes,
+                canonical_json_bytes(plan.native_plan.payload),
+                native_receipt._bytes,
+                native_receipt.digest,
                 receipt_bytes,
+                actor_event_bytes,
+                closing_event_bytes,
                 tuple(progress),
             )
         )

@@ -33,6 +33,9 @@ from trade_rl.evaluation.objectives import (
     FinancialClockContract,
     ObjectiveContract,
 )
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.evaluation.robustness.walk_forward.folds import (
     IndexRange,
@@ -235,6 +238,7 @@ def declare_pair(
     )
     plans = []
     for role in ("nonrl", "cash"):
+        stream_digest_memo = SimpleStreamDigestMemo()
         env = carrier(
             prepared,
             estimates,
@@ -252,6 +256,7 @@ def declare_pair(
             scenario=scenario,
             expected_implementation_digest=provenance["implementation_digest"],
             expected_runtime_digest=provenance["runtime_environment_digest"],
+            _stream_digest_memo=stream_digest_memo,
         )
         plans.append(
             declare_terminal_allocation_execution(
@@ -259,6 +264,7 @@ def declare_pair(
                 env,
                 native,
                 settlement_stop_index=protocol["terminal"]["stop_inclusive"],
+                _stream_digest_memo=stream_digest_memo,
             )
         )
     return PairDeclaration(

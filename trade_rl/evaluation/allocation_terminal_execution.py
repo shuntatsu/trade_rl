@@ -36,6 +36,9 @@ from trade_rl.evaluation.rl_allocation._native_progress import (
     AllocationAdvanceObserver,
     validate_advance_observer,
 )
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.evaluation.rl_allocation.global_execution_context import (
@@ -184,6 +187,7 @@ def declare_terminal_allocation_execution(
     native_plan: GlobalAllocationExecutionPlan,
     *,
     settlement_stop_index: int,
+    _stream_digest_memo: SimpleStreamDigestMemo | None = None,
 ) -> TerminalAllocationExecutionPlan:
     if (
         type(env) is not AllocationTradingEnv
@@ -206,6 +210,7 @@ def declare_terminal_allocation_execution(
         scenario=common["scenario"],
         expected_implementation_digest=common["implementation_digest"],
         expected_runtime_digest=common["runtime_environment_digest"],
+        _stream_digest_memo=_stream_digest_memo,
     )
     if actual != native_plan:
         raise ValueError("terminal current native prefix differs from frozen plan")
@@ -395,8 +400,13 @@ def run_terminal_allocation_execution(
     if type(plan) is not TerminalAllocationExecutionPlan:
         raise ValueError("terminal execution requires its exact frozen plan")
     plan.__post_init__()
+    stream_digest_memo = SimpleStreamDigestMemo()
     current = declare_terminal_allocation_execution(
-        folds, env, plan.native_plan, settlement_stop_index=plan.settlement_stop_index
+        folds,
+        env,
+        plan.native_plan,
+        settlement_stop_index=plan.settlement_stop_index,
+        _stream_digest_memo=stream_digest_memo,
     )
     if current != plan:
         raise ValueError("terminal current declaration differs from frozen plan")
@@ -428,6 +438,7 @@ def run_terminal_allocation_execution(
             plan.native_plan,
             forecast_controls=forecast_controls,
             on_advance=forwarded,
+            _stream_digest_memo=stream_digest_memo,
         )
         opening = allocation_state_digest(env)
         if opening != native.receipt.payload["closing_state_digest"]:

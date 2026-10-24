@@ -810,7 +810,10 @@ their virtual digest-property behavior. This is serialization work reduction,
 not a change to forecast units, clocks, model values or economic accounting.
 
 The native global execution collector may retain private run-local simple
-stream, source-envelope, and declared-source digest memos. Each original
+stream, source-envelope, and declared-source digest memos. One top-level native
+terminal execution may pass its own simple-stream memo through terminal-plan
+revalidation, nested global declaration, carrier checks, collector checks, and
+result construction. Each original
 consistency boundary still evaluates non-cost source/array inputs in their
 canonical order and compares current packet values, cost-estimate records,
 declared global source arrays, and all nested native fields and array contents
@@ -819,8 +822,14 @@ remain observable. None of the memos retains mutable payloads or refreshes the
 frozen plan or its initial authority after a mismatch. Unknown carriers,
 subclasses, unsupported mappings or changed serializer contracts use the
 current public digest calculation without re-executing earlier callbacks.
-Public declaration/runtime helpers continue to calculate canonical identities
-directly; cost, source, clock and policy checks keep their existing timing.
+Standalone public declaration/runtime helpers continue to calculate canonical
+identities directly by default; the terminal runner creates a fresh memo for
+each invocation and retains it only for that invocation. The Tier D fixed
+NONRL/CASH pair declarer creates a separate fresh memo inside each role and
+threads it through that role's initial global plan and terminal prefix
+re-declaration. It does not share memo state across roles, pairs or top-level
+runs. The private plumbing does not define a caller-managed cross-run cache
+contract. Cost, source, clock and policy checks keep their existing timing.
 This is a single-process optimization, not protection against arbitrary
 hostile Python code or concurrent unsynchronized mutation.
 
@@ -2103,6 +2112,11 @@ frozen 48-arm configuration, symbol, scenario and role to UTC actor windows, vin
 and reserve intervals. It compares complete effective policy dictionaries; independently
 derived canonical digests are a secondary consistency check, not a substitute for those
 values.
+
+The static source allowlist admits a second exact reviewed byte fingerprint for
+`tools/tier_d_nonrl/tier_d_native.py` alongside the existing fingerprint. This is only a
+static source candidate; it does not declare a protocol source profile or attest to
+runtime behavior.
 
 The runtime economic window covers all 6,527 actor hours. The 24- and 72-hour forecast
 horizons are separate inputs. These static bytes identify declared source and inputs;

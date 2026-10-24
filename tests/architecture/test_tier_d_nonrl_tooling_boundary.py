@@ -87,6 +87,66 @@ def test_tier_d_tooling_does_not_implement_a_ledger_or_import_live_final_or_ppo(
         assert not calls & {"BookState", "env.step", "env.reset"}, path.name
 
 
+def test_pair_declaration_memo_is_role_scoped_and_public_defaults_stay_direct():
+    owner = ast.parse((ROOT / "tools/tier_d_nonrl/tier_d_native.py").read_text("utf-8"))
+    declare_pair = _function(owner, "declare_pair")
+    role_loops = [
+        node
+        for node in ast.walk(declare_pair)
+        if isinstance(node, ast.For)
+        and ast.unparse(node.target) == "role"
+        and ast.unparse(node.iter) == "('nonrl', 'cash')"
+    ]
+    assert len(role_loops) == 1
+    role_loop = role_loops[0]
+    owned_memos = [
+        node
+        for node in role_loop.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "stream_digest_memo"
+            for target in node.targets
+        )
+        and isinstance(node.value, ast.Call)
+        and ast.unparse(node.value.func) == "SimpleStreamDigestMemo"
+    ]
+    assert len(owned_memos) == 1
+    calls = tuple(node for node in ast.walk(role_loop) if isinstance(node, ast.Call))
+    for function_name in (
+        "declare_global_allocation_execution",
+        "declare_terminal_allocation_execution",
+    ):
+        selected = [node for node in calls if ast.unparse(node.func) == function_name]
+        assert len(selected) == 1
+        memo_arguments = [
+            keyword.value
+            for keyword in selected[0].keywords
+            if keyword.arg == "_stream_digest_memo"
+        ]
+        assert len(memo_arguments) == 1
+        assert ast.unparse(memo_arguments[0]) == "stream_digest_memo"
+
+    for path, function_name in (
+        (
+            ROOT / "trade_rl/evaluation/allocation_global_execution.py",
+            "declare_global_allocation_execution",
+        ),
+        (
+            ROOT / "trade_rl/evaluation/allocation_terminal_execution.py",
+            "declare_terminal_allocation_execution",
+        ),
+    ):
+        declaration = _function(ast.parse(path.read_text("utf-8")), function_name)
+        positions = [
+            index
+            for index, argument in enumerate(declaration.args.kwonlyargs)
+            if argument.arg == "_stream_digest_memo"
+        ]
+        assert len(positions) == 1
+        default = declaration.args.kw_defaults[positions[0]]
+        assert isinstance(default, ast.Constant) and default.value is None
+
+
 def test_progress_owners_are_repository_diagnostics_without_domain_execution():
     owner = ROOT / "tools/tier_d_nonrl"
     for name in ("progress.py", "progress_io.py"):

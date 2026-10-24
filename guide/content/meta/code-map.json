@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "d0f6038513e1177fa937df2c26d0da7b60fe9bae43bf357d5a352bc8d3b199f3"
+      "sha256": "3e5d9db66e2b355a56ed73a3def99e72e48be10d9c3eab783fdb8ea1bdd86ea5"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -112,6 +112,18 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "shared-cash-strategy-factory-comparison",
+      "symbol": "trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories",
+      "kind": "function",
+      "source_sha256": "4255a71a6c079ce6c1032d17a1f874397b7e7f7ec023742286518cc948f70e22",
+      "label_ja": "共通資金でstrategy factoryを比較する",
+      "description_ja": "各armが全symbolを一つのshared-cash replayで比較し、既存replayのreturnsとexecution diagnosticsからmetricsを作ります。fittingやwinner selectionは行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_strategy_comparison.py"
       ]
     }
   ]

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 import trade_rl.evaluation as evaluation
+import trade_rl.evaluation.comparison.strategies as comparison_strategies
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
     UniversalStrategyComparison,
@@ -11,6 +14,7 @@ from trade_rl.evaluation.comparison.strategies import (
     compare_strategies_by_symbol,
     compare_strategy_factories_by_symbol,
 )
+from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
@@ -76,6 +80,16 @@ def two_symbol_market() -> MarketDataset:
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
+    )
+
+
+def charged_two_symbol_market() -> MarketDataset:
+    return replace(
+        two_symbol_market(),
+        dataset_id="a" * 64,
+        funding_rate=np.full((4, 2), 0.001),
+        funding_due=np.ones((4, 2), dtype=np.bool_),
+        borrow_rate=np.full((4, 2), 0.25),
     )
 
 
@@ -186,4 +200,258 @@ def test_factory_comparison_is_exposed_from_evaluation_public_api() -> None:
     assert (
         evaluation.compare_strategy_factories_by_symbol
         is compare_strategy_factories_by_symbol
+    )
+
+
+def test_shared_cash_factory_comparison_uses_one_identical_replay_per_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = charged_two_symbol_market()
+    cost = ExecutionCostConfig(
+        fee_rate=0.001,
+        spread_rate=0.001,
+        borrow_rate_multiplier=1.0,
+    )
+    risk = comparison_strategies.PreTradeRisk()
+    created: list[tuple[str, object]] = []
+
+    def factory(name: str, intent: PositionIntent):
+        def create() -> ConstantIntentStrategy:
+            strategy = ConstantIntentStrategy(intent)
+            created.append((name, strategy))
+            return strategy
+
+        return create
+
+    def hold_factory() -> StatefulFirstLongStrategy:
+        strategy = StatefulFirstLongStrategy()
+        created.append(("hold", strategy))
+        return strategy
+
+    factories = {
+        "short": factory("short", PositionIntent.SHORT),
+        "hold": hold_factory,
+        "cash": factory("cash", PositionIntent.FLAT),
+    }
+    replay_calls: list[tuple[MarketDataset, tuple[object, ...], dict[str, object]]] = []
+
+    def record_replay(
+        replay_dataset: MarketDataset,
+        strategies: tuple[object, ...],
+        **kwargs: object,
+    ):
+        assert len(created) == 6
+        replay_calls.append((replay_dataset, strategies, kwargs))
+        return run_shared_cash_replay(replay_dataset, strategies, **kwargs)
+
+    monkeypatch.setattr(
+        comparison_strategies,
+        "run_shared_cash_replay",
+        record_replay,
+        raising=False,
+    )
+    comparison = evaluation.compare_shared_cash_strategy_factories(
+        dataset,
+        factories,
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.2,
+        initial_capital=1_000.0,
+        execution_cost=cost,
+        risk=risk,
+        minimum_hold_bars=(2, 2),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    assert tuple(entry.name for entry in comparison) == ("short", "hold", "cash")
+    assert len(replay_calls) == 3
+    assert len(created) == len({id(strategy) for _, strategy in created}) == 6
+    expected_kwargs = {
+        "start_index": 0,
+        "stop_index": 3,
+        "gross_budget": 0.2,
+        "initial_capital": 1_000.0,
+        "execution_cost": cost,
+        "risk": risk,
+        "market_order_profile": None,
+        "minimum_hold_bars": (2, 2),
+        "settle_terminal_position": True,
+        "capture_ledger_evidence": True,
+    }
+    for replay_dataset, strategies, kwargs in replay_calls:
+        assert replay_dataset is dataset
+        assert len(strategies) == dataset.n_symbols
+        assert len({id(strategy) for strategy in strategies}) == dataset.n_symbols
+        assert kwargs == expected_kwargs
+
+    for entry in comparison:
+        replay = entry.replay
+        assert len(replay.book.quantities) == dataset.n_symbols
+        assert replay.ledger_evidence is not None
+        assert replay.ledger_evidence.intervals[0].cash_before == pytest.approx(1_000.0)
+        assert replay.ledger_evidence.intervals[
+            0
+        ].portfolio_value_before == pytest.approx(1_000.0)
+        assert replay.ledger_evidence.terminal_exact_quantities == ("0", "0")
+        assert replay.ledger_evidence.active_order_remainders == ()
+        diagnostics = replay.diagnostics
+        assert entry.metrics.turnover_total == diagnostics.turnover_total
+        assert entry.metrics.total_cost == diagnostics.total_cost
+        assert entry.metrics.funding_pnl == diagnostics.funding_pnl
+        assert entry.metrics.borrow_cost == diagnostics.borrow_cost
+        assert entry.metrics.n_trades == diagnostics.n_trades
+        assert entry.metrics.rebalance_events == diagnostics.rebalance_events
+        assert entry.metrics.termination_count == diagnostics.termination_count
+
+    short_metrics = comparison[0].metrics
+    assert short_metrics.turnover_total > 0.0
+    assert short_metrics.total_cost > 0.0
+    assert short_metrics.funding_pnl > 0.0
+    assert short_metrics.borrow_cost > 0.0
+
+    hold_replay = comparison[1].replay
+    assert hold_replay.decisions[1].minimum_hold_suppressed == (True, True)
+    assert hold_replay.decisions[1].position_quantity_before == pytest.approx(
+        hold_replay.decisions[0].position_quantity_after
+    )
+    assert hold_replay.decisions[1].position_quantity_after == pytest.approx(
+        hold_replay.decisions[0].position_quantity_after
+    )
+
+
+@pytest.mark.parametrize(
+    ("invalid_kind", "error_type", "message"),
+    [
+        ("empty", ValueError, "at least one"),
+        ("name", ValueError, "name"),
+        ("non_callable", TypeError, "callable"),
+    ],
+)
+def test_shared_cash_factory_roster_is_validated_before_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_kind: str,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    replay_calls = 0
+    factory_calls = 0
+
+    def fail_if_replayed(*args: object, **kwargs: object) -> None:
+        nonlocal replay_calls
+        replay_calls += 1
+        raise AssertionError("invalid roster reached replay")
+
+    def valid_factory() -> ConstantIntentStrategy:
+        nonlocal factory_calls
+        factory_calls += 1
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    factories: object
+    if invalid_kind == "empty":
+        factories = {}
+    elif invalid_kind == "name":
+        factories = {"": valid_factory}
+    else:
+        factories = {"valid": valid_factory, "bad": None}
+
+    monkeypatch.setattr(
+        comparison_strategies,
+        "run_shared_cash_replay",
+        fail_if_replayed,
+        raising=False,
+    )
+
+    with pytest.raises(error_type, match=message):
+        evaluation.compare_shared_cash_strategy_factories(
+            two_symbol_market(),
+            factories,  # type: ignore[arg-type]
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.2,
+        )
+
+    assert replay_calls == 0
+    assert factory_calls == 0
+
+
+@pytest.mark.parametrize("reuse_scope", ["symbols", "arms"])
+def test_shared_cash_factory_reuse_fails_before_replay(
+    monkeypatch: pytest.MonkeyPatch, reuse_scope: str
+) -> None:
+    shared = StatefulFirstLongStrategy()
+    replay_calls = 0
+
+    def fail_if_replayed(*args: object, **kwargs: object) -> None:
+        nonlocal replay_calls
+        replay_calls += 1
+        raise AssertionError("reused adapter reached replay")
+
+    monkeypatch.setattr(
+        comparison_strategies,
+        "run_shared_cash_replay",
+        fail_if_replayed,
+        raising=False,
+    )
+
+    factories = (
+        {"first": lambda: shared}
+        if reuse_scope == "symbols"
+        else {"first": lambda: shared, "second": lambda: shared}
+    )
+
+    with pytest.raises(ValueError, match="distinct strategy instance"):
+        evaluation.compare_shared_cash_strategy_factories(
+            two_symbol_market(),
+            factories,
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.2,
+        )
+
+    assert replay_calls == 0
+
+
+def test_shared_cash_factory_invalid_adapter_fails_before_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replay_calls = 0
+    factory_calls = 0
+
+    def invalid_factory() -> object:
+        nonlocal factory_calls
+        factory_calls += 1
+        return object()
+
+    def fail_if_replayed(*args: object, **kwargs: object) -> None:
+        nonlocal replay_calls
+        replay_calls += 1
+        raise AssertionError("invalid adapter reached replay")
+
+    monkeypatch.setattr(
+        comparison_strategies,
+        "run_shared_cash_replay",
+        fail_if_replayed,
+        raising=False,
+    )
+
+    with pytest.raises(TypeError, match="return a SingleSymbolStrategy"):
+        evaluation.compare_shared_cash_strategy_factories(
+            two_symbol_market(),
+            {"invalid": invalid_factory},
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.2,
+        )
+
+    assert factory_calls == 1
+    assert replay_calls == 0
+
+
+def test_shared_cash_factory_comparison_is_exposed_from_evaluation_public_api() -> None:
+    assert evaluation.SharedCashStrategyComparisonEntry is (
+        comparison_strategies.SharedCashStrategyComparisonEntry
+    )
+    assert evaluation.compare_shared_cash_strategy_factories is (
+        comparison_strategies.compare_shared_cash_strategy_factories
     )

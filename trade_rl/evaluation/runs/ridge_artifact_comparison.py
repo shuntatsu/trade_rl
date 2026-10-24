@@ -286,6 +286,48 @@ class ForecastSymbolDiagnostics:
         object.__setattr__(self, "excluded_counts", counts)
 
 
+def _pooled_symbol_metric(
+    symbols: tuple[ForecastSymbolDiagnostics, ...],
+    *,
+    field: str,
+    root_mean_square: bool,
+) -> float | None:
+    pair_count = sum(item.metrics.pair_count for item in symbols)
+    if pair_count == 0:
+        return None
+    values = tuple(
+        (item.metrics.pair_count, cast(float, getattr(item.metrics, field)))
+        for item in symbols
+        if item.metrics.pair_count > 0
+    )
+    scale = max(value for _, value in values)
+    if scale == 0.0:
+        return 0.0
+    if root_mean_square:
+        normalized = math.fsum(
+            (value / scale) ** 2 * (count / pair_count) for count, value in values
+        )
+        result = scale * math.sqrt(normalized)
+    else:
+        normalized = math.fsum(
+            (value / scale) * (count / pair_count) for count, value in values
+        )
+        result = scale * normalized
+    if not math.isfinite(result):
+        raise ValueError("pooled forecast metric exceeds finite range")
+    return result
+
+
+def _metrics_close(actual: float, expected: float) -> bool:
+    ulp_tolerance = 8.0 * max(math.ulp(actual), math.ulp(expected))
+    return math.isclose(
+        actual,
+        expected,
+        rel_tol=1e-12,
+        abs_tol=ulp_tolerance,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RidgeForecastDiagnostics:
     """Opt-in, out-of-sample log-return errors against the zero forecast."""
@@ -350,11 +392,33 @@ class RidgeForecastDiagnostics:
             raise ValueError("forecast diagnostic symbols must be unique")
         if sum(item.candidate_count for item in symbols) != self.candidate_count:
             raise ValueError("per-symbol candidate counts do not reconcile")
+        candidates_per_symbol = self.decision_stop_index - self.evaluation_start_index
+        if any(item.candidate_count != candidates_per_symbol for item in symbols):
+            raise ValueError(
+                "per-symbol candidate counts do not match the decision scope"
+            )
         if sum(item.eligible_count for item in symbols) != self.eligible_count:
             raise ValueError("per-symbol eligible counts do not reconcile")
         for reason_index, (reason, count) in enumerate(counts):
             if sum(item.excluded_counts[reason_index][1] for item in symbols) != count:
                 raise ValueError(f"per-symbol {reason} counts do not reconcile")
+        if self.eligible_count > 0:
+            for field, root_mean_square in (
+                ("mae", False),
+                ("rmse", True),
+                ("zero_mae", False),
+                ("zero_rmse", True),
+            ):
+                expected = _pooled_symbol_metric(
+                    symbols,
+                    field=field,
+                    root_mean_square=root_mean_square,
+                )
+                actual = cast(float, getattr(self.pooled, field))
+                if expected is None or not _metrics_close(actual, expected):
+                    raise ValueError(
+                        f"pooled {field} does not match per-symbol metrics"
+                    )
         object.__setattr__(self, "excluded_counts", counts)
         object.__setattr__(self, "by_symbol", symbols)
 
@@ -365,7 +429,7 @@ def _mean_absolute(values: Sequence[float]) -> float:
     scale = max(abs(value) for value in values)
     if scale == 0.0:
         return 0.0
-    result = scale * math.fsum(abs(value) / scale for value in values) / len(values)
+    result = scale * (math.fsum(abs(value) / scale for value in values) / len(values))
     if not math.isfinite(result):
         raise ValueError("forecast diagnostics exceed finite metric range")
     return result

@@ -38,6 +38,12 @@ def _comparison_api():
     return module
 
 
+def test_mean_absolute_avoids_overflow_before_finite_average() -> None:
+    api = _comparison_api()
+
+    assert api._mean_absolute((1e308, 1e308)) == 1e308
+
+
 def _dataset() -> MarketDataset:
     offsets_minutes = np.asarray([0, 30, 120, 180, 360, 390], dtype=np.int64)
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (

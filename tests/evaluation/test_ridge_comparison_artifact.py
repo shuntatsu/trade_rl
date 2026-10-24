@@ -589,12 +589,99 @@ def test_v2_loader_rejects_resealed_forecast_scope_and_count_changes(
         pooled = cast(dict[str, object], diagnostics["pooled"])
         pooled["pair_count"] = 1
 
-    for mutate in (remove_opt_in, change_scoring_as_of, change_symbol_pair_count):
+    for mutate in (
+        remove_opt_in,
+        change_scoring_as_of,
+        change_symbol_pair_count,
+    ):
         payload = _mutable_payload(original)
         mutate(payload)
         digest = _reseal(root, payload)
         with pytest.raises((TypeError, ValueError), match="."):
             load_ridge_comparison_artifact(root, expected_digest=digest)
+
+
+def test_v2_loader_rejects_resealed_symbol_candidate_redistribution(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        include_forecast_diagnostics=True,
+    )
+    root = tmp_path / "comparison"
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    original = load_ridge_comparison_artifact(root, expected_digest=digest)
+    payload = _mutable_payload(original)
+    diagnostics = cast(dict[str, object], payload["forecast_diagnostics"])
+    symbols = cast(list[dict[str, object]], diagnostics["by_symbol"])
+    for item, candidate_count in zip(symbols, (3, 1), strict=True):
+        item["candidate_count"] = candidate_count
+        exclusions = cast(list[list[object]], item["excluded_counts"])
+        for exclusion in exclusions:
+            if exclusion[0] == "target_not_mature_by_scoring_as_of":
+                exclusion[1] = candidate_count
+                break
+    digest = _reseal(root, payload)
+
+    with pytest.raises(ValueError, match="candidate.*scope|scope.*candidate"):
+        load_ridge_comparison_artifact(root, expected_digest=digest)
+
+
+def test_v2_loader_rejects_resealed_pooled_metrics_that_disagree_with_symbols(
+    tmp_path: Path,
+) -> None:
+    comparison, provenance = _comparison(
+        tmp_path,
+        include_forecast_diagnostics=True,
+    )
+    root = tmp_path / "comparison"
+    digest = publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    original = load_ridge_comparison_artifact(root, expected_digest=digest)
+    payload = _mutable_payload(original)
+    diagnostics = cast(dict[str, object], payload["forecast_diagnostics"])
+    symbols = cast(list[dict[str, object]], diagnostics["by_symbol"])
+    symbol_metrics = (
+        (1.0, 1.0, 2.0, 2.0, 1.0, 0.75),
+        (3.0, 3.0, 4.0, 4.0, 1.0, 0.4375),
+    )
+    for item, values in zip(symbols, symbol_metrics, strict=True):
+        item["eligible_count"] = 1
+        exclusions = cast(list[list[object]], item["excluded_counts"])
+        for exclusion in exclusions:
+            if exclusion[0] == "target_not_mature_by_scoring_as_of":
+                exclusion[1] = 1
+                break
+        metrics = cast(dict[str, object], item["metrics"])
+        metrics["pair_count"] = 1
+        (
+            metrics["mae"],
+            metrics["rmse"],
+            metrics["zero_mae"],
+            metrics["zero_rmse"],
+            metrics["mae_improvement"],
+            metrics["mse_skill"],
+        ) = values
+    diagnostics["eligible_count"] = 2
+    exclusions = cast(list[list[object]], diagnostics["excluded_counts"])
+    for exclusion in exclusions:
+        if exclusion[0] == "target_not_mature_by_scoring_as_of":
+            exclusion[1] = 2
+            break
+    cast(dict[str, object], diagnostics["pooled"]).update(
+        {
+            "pair_count": 2,
+            "mae": 2.5,
+            "rmse": 2.5,
+            "zero_mae": 3.0,
+            "zero_rmse": 3.0,
+            "mae_improvement": 0.5,
+            "mse_skill": 0.3055555555555556,
+        }
+    )
+    digest = _reseal(root, payload)
+
+    with pytest.raises(ValueError, match="pooled.*symbol|symbol.*pooled"):
+        load_ridge_comparison_artifact(root, expected_digest=digest)
 
 
 @pytest.mark.parametrize(

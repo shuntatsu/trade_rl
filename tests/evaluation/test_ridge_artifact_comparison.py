@@ -168,6 +168,20 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api = _comparison_api()
+    candidate_suite = importlib.import_module(
+        "trade_rl.evaluation.runs.candidate_suite"
+    )
+
+    def unexpected_fit(*_args, **_kwargs):
+        raise AssertionError("the frozen artifact comparison must not fit models")
+
+    for fit_name in (
+        "fit_ridge_forecast",
+        "fit_lightgbm_forecast",
+        "fit_ppo_strategy",
+    ):
+        monkeypatch.setattr(candidate_suite, fit_name, unexpected_fit)
+
     dataset = _dataset()
     dataset_root = tmp_path / "dataset"
     dataset_artifact = publish_market_dataset_artifact(dataset_root, dataset)

@@ -27,6 +27,11 @@ from trade_rl.evaluation.runs.config import (
 )
 from trade_rl.evaluation.runs.execute import CandidateRunResult, execute_candidate_run
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
+from trade_rl.evaluation.runs.ridge_artifact_comparison import (
+    RidgeArtifactComparison,
+    RidgeArtifactComparisonConfig,
+    compare_ridge_artifact_shared_cash,
+)
 
 __all__ = [
     "CandidateRunArtifactIdentity",
@@ -36,7 +41,10 @@ __all__ = [
     "LoadedCandidateRun",
     "PublishedCandidateRun",
     "ResolvedCandidateRunSpec",
+    "RidgeArtifactComparison",
+    "RidgeArtifactComparisonConfig",
     "build_candidate_run_provenance",
+    "compare_ridge_artifact_shared_cash",
     "execute_candidate_run",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",

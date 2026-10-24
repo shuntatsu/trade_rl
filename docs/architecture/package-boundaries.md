@@ -2264,7 +2264,11 @@ later Q replay performs its own bounded receipt scan and continues comparing
 every selected row and final flat/no-active state. The parser also receives a
 canonical projection of event objects already parsed from a receipt; that
 projection pin is derived data, while the original gzip and output-manifest
-pins remain the upper-level evidence.
+pins remain the upper-level evidence. The internal fixed-artificial reference-
+account adapter accepts only the exact component spec and rebuilds the canonical
+Dataset, Q binding, and expected forecast before reading H outputs; it does not
+accept caller-constructed input objects. This preserves the comparison-only
+boundary while running the existing ledger over the complete artificial arm.
 
 For every actor row the Q driver rebuilds the native baseline, context,
 decision, action, and selected identity digests from the receipt projection and
@@ -2294,9 +2298,15 @@ comes from the bound initial capital and Dataset marks; Q-projected costs and
 H-reported account values are not ledger inputs. The existing Q replay remains
 responsible for margin, admission, risk and terminal behavior; the reference
 rejects unsupported settlement, split, cash-interest and terminated-account
-rows. Comparison-only fixtures do not instantiate the ledger. This check still
-does not authenticate an outer attempt or authorize Full B4. The ledger remains
-internal and outside production imports.
+rows. The default comparison-only path does not instantiate the ledger. A
+separate `consume_artificial_reference_account_diagnostic` entry point opts in
+only for the fixed Q artificial profile, its exact role receipt, forecast and
+five-file H output roster. It reuses the same EOF-bound row loop and ledger and
+returns a versioned arithmetic-only record with row/fill counts and manifest/file
+pins. Its outer-attempt, root-observation, Full-B4, research, economic and live
+authority fields remain false; it does not alter the existing comparison result.
+This check still does not authenticate an outer attempt or authorize Full B4.
+The ledger remains internal and outside production imports.
 
 `outer_witness.py` provides immutable pins and bounded canonical readback for
 root-owned start/finish records. It does not create or observe processes, and

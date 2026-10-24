@@ -19,6 +19,8 @@ import numpy as np
 
 from tools.market_b4_oracle.artificial_component import (
     ArtificialComponentInputs,
+    artificial_component_binding,
+    build_artificial_component_inputs,
     verify_artificial_component_forecast,
 )
 from tools.market_b4_oracle.decision_identity import (
@@ -41,6 +43,7 @@ from tools.market_b4_oracle.outer_witness import (
 from tools.market_b4_oracle.output_index import NativeOutputIndex
 from tools.market_b4_oracle.receipt_stream import ReceiptScan
 from tools.market_b4_oracle.reference_ledger import (
+    ReferenceLedgerCoverage,
     _NativeReferenceLedger,
 )
 from tools.market_replay_oracle import (
@@ -63,6 +66,13 @@ from tools.market_replay_oracle import (
 
 _MAX_FORECAST_BYTES = 64 * 1024**2
 _FLOAT_TOLERANCE = 1e-10
+_ARTIFICIAL_COMPONENT_OUTPUT_FILES = (
+    "component-result.json",
+    "forecasts/simple-return-stream.json",
+    "operator-runtime.json",
+    "receipts/cash.json.gz",
+    "receipts/nonrl.json.gz",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +118,42 @@ class IndexedMarketComparison:
     outer_start_witness_sha256: str | None = None
     outer_finish_witness_sha256: str | None = None
     full_b4_authorized: Literal[False] = False
+
+
+@dataclass(frozen=True, slots=True)
+class ArtificialReferenceAccountDiagnostic:
+    """Versioned arithmetic diagnostic over one fixed artificial H arm."""
+
+    schema: Literal["issue810_artificial_reference_account_diagnostic_v1"]
+    status: Literal["ARTIFICIAL_REFERENCE_ACCOUNT_ARITHMETIC_MATCH"]
+    scope: Literal["ARTIFICIAL_COMPARISON_ONLY"]
+    account_id: str
+    scenario: str
+    role: Literal["NONRL", "CASH"]
+    dataset_id: str
+    component_spec_sha256: str
+    source_protocol_sha256: str
+    binding_sha256: str
+    actor_rows: int
+    reserve_rows: int
+    fill_count: int
+    output_manifest_bytes: int
+    output_manifest_sha256: str
+    output_file_pins: tuple[tuple[str, int, str], ...]
+    output_index_rechecked: Literal[True] = True
+    independent_arithmetic_checked: Literal[True] = True
+    outer_attempt_authenticated: Literal[False] = False
+    root_attempt_observed: Literal[False] = False
+    full_b4_authorized: Literal[False] = False
+    research_authorized: Literal[False] = False
+    economic_evidence: Literal[False] = False
+    live_authorized: Literal[False] = False
+
+
+@dataclass(frozen=True, slots=True)
+class _IndexedMarketArmConsumption:
+    comparison: IndexedMarketComparison
+    reference_account_coverage: ReferenceLedgerCoverage | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1387,7 +1433,8 @@ def _consume_indexed_market_arm(
     expected_runtime_environment_sha256: str | None = None,
     whole_index_recheck: bool,
     static_input_recheck: bool,
-) -> IndexedMarketComparison:
+    reference_account_diagnostic: bool = False,
+) -> _IndexedMarketArmConsumption:
     """Replay every indexed receipt row and publish only complete comparison scope.
 
     A non-artificial binding requires H/v3, H/v4, native source and Dataset
@@ -1402,6 +1449,10 @@ def _consume_indexed_market_arm(
         or type(policy) is not FrozenMarketPolicy
     ):
         raise ValueError("requires exact frozen binding and policy types")
+    if type(reference_account_diagnostic) is not bool:
+        raise ValueError("reference-account diagnostic opt-in must be an exact bool")
+    if reference_account_diagnostic and not binding.comparison_only:
+        raise ValueError("reference-account diagnostic requires comparison-only input")
     if role != {"nonrl": "NONRL", "cash": "CASH"}.get(binding.native_role):
         raise ValueError("selected role differs from the frozen arm")
     if (not binding.comparison_only and static_inputs is None) or (
@@ -1500,13 +1551,9 @@ def _consume_indexed_market_arm(
         reserve_plan_digest=reserve_plan_digest,
     )
     reference_ledger = (
-        None
-        if binding.comparison_only
-        else _NativeReferenceLedger(
-            content=content,
-            policy=policy,
-            binding=binding,
-        )
+        _NativeReferenceLedger(content=content, policy=policy, binding=binding)
+        if not binding.comparison_only or reference_account_diagnostic
+        else None
     )
     configurations = protocol.get("configurations")
     configuration_rows = (
@@ -1674,8 +1721,9 @@ def _consume_indexed_market_arm(
     ):
         raise ValueError("reserve receipt rows differ from bound window")
 
-    if reference_ledger is not None:
-        reference_ledger.assert_complete()
+    reference_ledger_coverage = (
+        reference_ledger.assert_complete() if reference_ledger is not None else None
+    )
     completion = replay.completion()
     if (
         completion["status"] != "comparison_window_consumed"
@@ -1727,7 +1775,7 @@ def _consume_indexed_market_arm(
             )
     if whole_index_recheck:
         output_index.recheck()
-    return IndexedMarketComparison(
+    comparison = IndexedMarketComparison(
         status=(
             "ARTIFICIAL_COMPARISON_COMPLETE"
             if binding.comparison_only
@@ -1749,6 +1797,10 @@ def _consume_indexed_market_arm(
         output_index_rechecked=whole_index_recheck,
         static_inputs_rechecked=static_inputs is not None and static_input_recheck,
     )
+    return _IndexedMarketArmConsumption(
+        comparison=comparison,
+        reference_account_coverage=reference_ledger_coverage,
+    )
 
 
 def consume_indexed_market_arm(
@@ -1766,7 +1818,7 @@ def consume_indexed_market_arm(
     expected_runtime_environment_sha256: str | None = None,
 ) -> IndexedMarketComparison:
     """Replay one complete arm with independent before/after source checks."""
-    return _consume_indexed_market_arm(
+    result = _consume_indexed_market_arm(
         output_index=output_index,
         receipt_name=receipt_name,
         forecast_name=forecast_name,
@@ -1780,6 +1832,105 @@ def consume_indexed_market_arm(
         expected_runtime_environment_sha256=expected_runtime_environment_sha256,
         whole_index_recheck=True,
         static_input_recheck=True,
+    )
+    return result.comparison
+
+
+def consume_artificial_reference_account_diagnostic(
+    *,
+    output_index: object,
+    component_spec: object,
+    role: object,
+    reserve_plan_digest: object,
+) -> ArtificialReferenceAccountDiagnostic:
+    """Recheck one complete fixed artificial H arm and its account arithmetic.
+
+    This detached comparison adapter consumes only the exact H output roster
+    and Q-owned artificial recipe. It does not authenticate the process that
+    produced those files or authorize financial, research, or live use.
+    """
+    if type(component_spec) is not dict:
+        raise ValueError("requires an exact artificial component spec")
+    inputs = build_artificial_component_inputs(cast(dict[str, object], component_spec))
+    if type(output_index) is not NativeOutputIndex:
+        raise ValueError("requires an exact immutable native output index")
+    if type(role) is not str or role not in {"NONRL", "CASH"}:
+        raise ValueError("role must be the exact NONRL or CASH label")
+    if type(reserve_plan_digest) is not str:
+        raise ValueError("reserve plan digest must be an explicit lowercase hash")
+    reserve_plan_digest = _sha(reserve_plan_digest, "reserve_plan_digest")
+
+    if output_index.files != _ARTIFICIAL_COMPONENT_OUTPUT_FILES:
+        raise ValueError("H output roster differs from the fixed artificial arm")
+    receipt_name = f"receipts/{role.lower()}.json.gz"
+    forecast_name = "forecasts/simple-return-stream.json"
+    binding, policy = artificial_component_binding(
+        inputs, cast(Literal["NONRL", "CASH"], role)
+    )
+    if (
+        binding.comparison_only is not True
+        or binding.native_role != role.lower()
+        or binding.account_id != "H24_RIDGE_A1_BTCUSDT"
+        or binding.configuration_id != "H24_RIDGE_A1"
+        or binding.scenario != "BASEL0"
+        or binding.selected_symbol_index != 0
+        or binding.expected_horizon_seconds != 24 * 3600
+        or binding.window.actor_start != 2903
+        or binding.window.actor_stop != 9430
+        or binding.window.terminal_stop != 9502
+    ):
+        raise ValueError("derived artificial binding differs from its fixed profile")
+
+    pins = tuple(
+        (name, output_index.pin(name).bytes, output_index.pin(name).sha256)
+        for name in _ARTIFICIAL_COMPONENT_OUTPUT_FILES
+    )
+    consumed = _consume_indexed_market_arm(
+        output_index=output_index,
+        receipt_name=receipt_name,
+        forecast_name=forecast_name,
+        content=inputs.content,
+        policy=policy,
+        binding=binding,
+        role=cast(Literal["NONRL", "CASH"], role),
+        reserve_plan_digest=reserve_plan_digest,
+        artificial_inputs=inputs,
+        whole_index_recheck=True,
+        static_input_recheck=False,
+        reference_account_diagnostic=True,
+    )
+    comparison = consumed.comparison
+    coverage = consumed.reference_account_coverage
+    if (
+        coverage is None
+        or comparison.status != "ARTIFICIAL_COMPARISON_COMPLETE"
+        or not comparison.output_index_rechecked
+        or (comparison.actor_rows, comparison.reserve_rows) != (6527, 72)
+        or (coverage.actor_rows, coverage.reserve_rows) != (6527, 72)
+        or coverage.fill_count
+        < len(comparison.actor_fill_processing_indices)
+        + len(comparison.reserve_fill_processing_indices)
+    ):
+        raise ValueError(
+            "fixed artificial arm did not complete diagnostic row coverage"
+        )
+    return ArtificialReferenceAccountDiagnostic(
+        schema="issue810_artificial_reference_account_diagnostic_v1",
+        status="ARTIFICIAL_REFERENCE_ACCOUNT_ARITHMETIC_MATCH",
+        scope="ARTIFICIAL_COMPARISON_ONLY",
+        account_id=binding.account_id,
+        scenario=binding.scenario,
+        role=cast(Literal["NONRL", "CASH"], role),
+        dataset_id=inputs.content.dataset_id,
+        component_spec_sha256=inputs.spec_sha256,
+        source_protocol_sha256=inputs.source_protocol_sha256,
+        binding_sha256=comparison.binding_digest,
+        actor_rows=coverage.actor_rows,
+        reserve_rows=coverage.reserve_rows,
+        fill_count=coverage.fill_count,
+        output_manifest_bytes=output_index.manifest_pin.bytes,
+        output_manifest_sha256=output_index.manifest_pin.sha256,
+        output_file_pins=pins,
     )
 
 
@@ -1852,7 +2003,7 @@ def consume_indexed_market_matrix(
             digest = plan_digests[key]
         except KeyError as error:
             raise ValueError("native terminal plan omitted a frozen arm") from error
-        comparison = _consume_indexed_market_arm(
+        arm_consumption = _consume_indexed_market_arm(
             output_index=output_index,
             receipt_name=arm.receipt_name,
             forecast_name=arm.forecast_name,
@@ -1867,6 +2018,7 @@ def consume_indexed_market_matrix(
             whole_index_recheck=False,
             static_input_recheck=False,
         )
+        comparison = arm_consumption.comparison
         if (
             comparison.actor_rows != 6527
             or comparison.reserve_rows != 72

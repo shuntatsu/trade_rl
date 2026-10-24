@@ -133,7 +133,7 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "2647f4c5b0d6b499c30c96b2505ad122e4de1c0e6e47e88f2460cedad830421a",
+      "source_sha256": "66cf83cd1e352ed2d0bf050cbe9a36e64f279640aa8c6af337faba170b2c9510",
       "label_ja": "PPO環境を1ステップ進める",
       "description_ja": "actionを売買意図へ変換します。最小保有期間中はFLAT・反対方向を実約定側へ抑制しますが、hard riskはいつでも縮小・flattenできます。約定後の年齢を更新し、terminal settlement有効時は最後に同じrisk/execution経路でFLATを処理します。",
       "variables": [
@@ -234,7 +234,7 @@
       "id": "env-execution-observer",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.__init__",
       "kind": "method",
-      "source_sha256": "dd1fae94bf7ef8f007393b38b84c4fbf576dff5d3d4cbb7af952f23b110bc231",
+      "source_sha256": "02dab6a016f7018b54939395f45ff7c392fe7dcc1b33f27196441335171f1f26",
       "label_ja": "PPO環境へ任意のexecution observerを渡す",
       "description_ja": "指定したobserverだけをMarketExecutorへ渡します。省略時はNoneで、通常のfitへ診断traceを接続しません。",
       "variables": [

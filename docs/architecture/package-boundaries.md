@@ -53,6 +53,7 @@ trade_rl/
 ├── simulation/
 │   ├── accounting.py
 │   ├── execution.py
+│   ├── native_transition.py
 │   ├── bar_path.py
 │   ├── liquidity.py
 │   ├── quantities.py
@@ -284,6 +285,15 @@ not arbitrary Python reflection. Profiles add no fields to the Dataset schema.
 per-order rules; `orders/reconciliation.py` activates same-side reduce-only exits.
 Admission and allocation enforce quantity bounds and distinct per-order notional
 floors. Unselected symbols and omitted-profile behavior retain their contracts.
+`native_transition.py` owns the reusable numeric-target → explicit
+`PreTradeRisk` → one-native-bar `MarketExecutor` transition. It returns the
+existing risk target, execution result, and effective exact-quantity hold indices;
+it creates no second book or ledger and imports neither strategy nor evaluation
+code. Shared-cash replay and PPO paths that already apply configured pre-trade
+risk use this owner. Those callers retain action mapping, cached target rebinding
+against the pre-execution book, split adjustment, and observer/evidence capture.
+The legacy PPO no-risk shortcut remains on its existing direct executor path,
+and this seam does not make per-symbol PPO a joint portfolio learner.
 The shared-cash replay's explicit exact-quantity HOLD is carried through
 `targets/execution.py` to reconciliation, which accepts it only when its target
 weight exactly matches the current book weight; it cancels residual orders without

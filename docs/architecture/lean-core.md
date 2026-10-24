@@ -148,8 +148,10 @@ paired-comparison authorization, PPO behavior change, or economic claim.
 
 `run_shared_cash_replay` is a separate multi-symbol evaluation boundary. Each
 symbol has one fresh strategy instance, all instances observe the same pre-trade
-portfolio snapshot, and their complete target vector passes through the shared
-`PreTradeRisk` and `MarketExecutor` once per interval. `current_weight` is measured
+portfolio snapshot, and their complete target vector passes through
+`simulation.native_transition.execute_native_target_transition`, which applies
+the shared `PreTradeRisk` then advances the canonical `MarketExecutor` once per
+interval. `current_weight` is measured
 against the single portfolio value. Its optional `minimum_hold_bars` can be one
 common duration or an ordered per-symbol vector; age advances from actual signed
 fills, the locked target is rebound to the exact filled quantity, and risk
@@ -309,6 +311,13 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 ## Execution / accounting authority
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
+
+`simulation.native_transition.execute_native_target_transition` owns the shared
+one-bar numeric-target → pre-trade-risk → canonical-executor step. It returns
+the existing `RiskConstrainedTarget` and `ExecutionResult`; it does not add a
+second account or ledger. Replay and PPO callers keep their policy/action state,
+pre-execution cached-target rebinding, split handling and evidence capture around
+that transition. PPO's historical no-risk shortcut remains unchanged.
 
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
 basis as its equity and weights. An entirely cash book uses the current dataset

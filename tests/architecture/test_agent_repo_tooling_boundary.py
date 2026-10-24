@@ -44,3 +44,30 @@ def test_permanent_ci_lints_formats_and_types_repository_tooling() -> None:
     assert "uv run ruff check trade_rl tests tools" in workflow
     assert "uv run ruff format --check trade_rl tests tools" in workflow
     assert "uv run mypy tools/agent_repo tests/architecture/distribution.py" in workflow
+
+
+def test_source_packet_contract_is_documented_at_the_repository_boundary() -> None:
+    instructions = (ROOT / "docs" / "AGENTS.md").read_text(encoding="utf-8")
+    boundaries = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    tooling = boundaries.split("### Repository tooling boundary\n", 1)[1].split(
+        "### Agent Coordination Plane\n", 1
+    )[0]
+
+    assert "source-packet" in instructions
+    assert "source-packet" in tooling
+    assert "git cat-file blob" in tooling
+    assert "--ignore-submodules=none" in tooling
+    assert "temporary bare repository" in tooling
+    assert "GIT_NO_LAZY_FETCH=1" in tooling
+    assert "empty tree" in tooling
+    assert "異なるGit version間のbyte identityは主張しない" in tooling
+    assert "`.git` component" in tooling
+    assert "`git~1` alias" in tooling
+    assert "registered worktree内output" in tooling
+    assert (
+        "case-insensitive file/directory prefix collision among emitted HEAD files"
+        in tooling
+    )
+    assert "source transport only" in tooling

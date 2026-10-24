@@ -201,22 +201,33 @@ This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
 
-`run_shared_portfolio_replay` is a separate opt-in one-bar actor seam. It calls
-one `PortfolioPolicy.decide_portfolio` with a detached `PortfolioDecisionSnapshot`
-for each native decision row, then validates the complete symbol-ordered numeric
-target vector before the existing `execute_native_target_transition` applies the
-same `PreTradeRisk` and advances the same `MarketExecutor` and `BookState` loop.
-The snapshot copies only the current `StrategyObservation` row, primitive account
-facts, active-order quantities/status/timing, and risk-limit scalars into tuples
-and immutable values; it does not include the `MarketDataset`, executor, risk or
-book objects, opaque order IDs, or future rows. Cash is reported as raw account
+`run_shared_portfolio_replay` is the opt-in batch consumer over the
+simulation-owned `SharedPortfolioSession`. It invokes one
+`PortfolioPolicy.decide_portfolio` for each eligible native decision row. The
+session retains the exact returned `BookState` and one `MarketExecutor` across
+calls, advances its native index once per target, and uses the existing
+`execute_native_target_transition` for hard risk and execution. Its public
+account view is a detached clone, and evidence collection remains in evaluation.
+`strategies/portfolio_observation.py` builds the detached snapshot from the
+current `MarketDataset` row, `BookState`, active-order tuple, risk config, and
+decision window; evaluation passes those source-owned inputs without giving the
+strategy an executor or evaluation config. The complete symbol-ordered numeric
+target vector is validated before a native transition can mutate execution
+state. The snapshot copies only the current `StrategyObservation` row,
+primitive account facts, active-order quantities/status/timing, and risk-limit
+scalars into tuples and immutable values; it does not include the
+`MarketDataset`, executor, risk or book objects, opaque order IDs, or future
+rows. Cash is reported as raw account
 cash, not as free or reserved cash, so this input is not a complete Markov account
 state. An explicit exact-quantity HOLD is accepted only when its target exactly
 matches the current book weight, and it survives only if hard risk leaves that
 weight unchanged; the normal executor then cancels any residual order while
 preserving the signed filled quantity. The actor cannot request the terminal
 emergency-flatten mask. Policy calls stop at the existing latency-aware agent
-boundary, after which the existing terminal-settlement path owns flattening. This
+boundary, after which the session reserves terminal intervals for its existing
+risk-owned emergency-flatten path. A failed observer/transition consumes the
+session because executor state may already have advanced; it cannot be retried.
+This
 numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.

@@ -29,7 +29,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "ea91b30a7e908b30a4f4fe3bf6004c335dc07005616ad770d447a8a31a31c27f"
+      "sha256": "9c5cf0e25e3b171bda4a1c6985828a4d25a2b3dde7065c256e248d6875824618"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -39,7 +39,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "f6407d2d2f7aa125453deb817b6bb1d3ca561490aa79de5865af10098b1e0570"
+      "sha256": "248b505e3e727d4c184521995ed821c7bf7f501083fc285e0565523a3fef5b86"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -270,12 +270,39 @@
       ]
     },
     {
+      "id": "shared-portfolio-session",
+      "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
+      "kind": "class",
+      "source_sha256": "d30757a6dcac7a7647ae49e023929517732715509996d63558021b7e723bd848",
+      "label_ja": "native barごとにportfolio状態を継続",
+      "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_simulation_layout.py"
+      ]
+    },
+    {
       "id": "portfolio-decision-snapshot",
       "symbol": "trade_rl.strategies.portfolio.PortfolioDecisionSnapshot",
       "kind": "class",
       "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
       "label_ja": "current-row portfolio actor snapshot",
       "description_ja": "current-row StrategyObservation dataとaccount・active-order・risk factsをimmutable tuple/scalarへコピーします。runtime object、opaque order IDs、future rows、合成free/reserved cashを含みません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-builder",
+      "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "33bc19ae354baa6b9db6a44f3f198ffc5d01fb75401179c1cf4740fe135521a8",
+      "label_ja": "current portfolio snapshot builder",
+      "description_ja": "Copies the current MarketDataset row, BookState, active orders, risk limits and decision window into the immutable portfolio observation contract.",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",

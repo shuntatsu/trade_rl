@@ -28,6 +28,7 @@ EXPECTED_PACKAGE_FILES = {
         "bar_lifecycle.py",
         "order_transitions.py",
         "symbol_fills.py",
+        "portfolio_session.py",
     },
     "targets": {"__init__.py", "execution.py"},
     "diagnostics": {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from enum import IntEnum
 from fractions import Fraction
 
 import numpy as np
@@ -10,9 +11,20 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import (
     run_scripted_shared_cash_replay,
     run_shared_cash_replay,
+    run_shared_portfolio_replay,
 )
-from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation import (
+    BookState,
+    ExecutionCostConfig,
+    ExecutionResult,
+    MarketExecutor,
+)
 from trade_rl.simulation.orders.model import OrderEvent
+from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
+from trade_rl.strategies.portfolio import (
+    PortfolioDecisionSnapshot,
+    PortfolioTargetProposal,
+)
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -23,6 +35,17 @@ class FixedIntent:
     def decide(self, observation: object) -> PositionIntent:
         del observation
         return self.intent
+
+
+@dataclass(frozen=True)
+class FixedPortfolioTarget:
+    target_weights: tuple[float, ...]
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        del snapshot
+        return PortfolioTargetProposal(self.target_weights)
 
 
 def _constant_price_market() -> MarketDataset:
@@ -446,6 +469,44 @@ def test_shared_cash_partial_fills_reconcile_fees_funding_and_short_borrow() -> 
     )
     assert expected_cash == Fraction(237_833, 240)
 
+    # The incremental API must satisfy this independent raw-fill money oracle,
+    # not only agree with the batch path that now delegates to the same session.
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+
+    session = SharedPortfolioSession(
+        dataset,
+        start_index=0,
+        stop_index=5,
+        initial_capital=float(initial_cash),
+        execution_cost=execution_cost,
+        settle_terminal_position=True,
+    )
+    fixed_quantities = (2.0, -1.0)
+    while session.can_decide:
+        book = session.book
+        prices = dataset.resolved_array("mark_price")[session.current_index]
+        target_weights = tuple(
+            quantity * float(price) / book.portfolio_value
+            for quantity, price in zip(fixed_quantities, prices, strict=True)
+        )
+        session.advance(target_weights)
+    while session.can_settle_terminal:
+        session.settle_next_interval()
+
+    session_book = session.book
+    assert session.finished
+    assert session_book.cash == pytest.approx(float(expected_cash), abs=1e-10, rel=0.0)
+    assert session_book.total_cost == pytest.approx(
+        float(expected_fee_total), abs=1e-10, rel=0.0
+    )
+    assert session_book.funding_pnl == pytest.approx(
+        float(expected_funding), abs=1e-10, rel=0.0
+    )
+    assert session_book.borrow_cost == pytest.approx(
+        float(expected_borrow), abs=1e-10, rel=0.0
+    )
+    assert session_book.quantities == pytest.approx((0.0, 0.0), abs=0.0)
+
     funding_intervals = [
         interval for interval in ledger.intervals if interval.funding_events
     ]
@@ -791,3 +852,220 @@ def test_delayed_two_symbol_raw_events_reconcile_accounting_across_split() -> No
     assert expected_borrow_total == pytest.approx(ledger.final_borrow_cost, abs=1e-10)
     assert ledger.terminal_exact_quantities == ("0", "0")
     assert ledger.active_order_remainders == ()
+
+
+@pytest.mark.parametrize("initial_capital", (True, "1000", None))
+def test_portfolio_session_rejects_non_numeric_initial_capital(
+    initial_capital: object,
+) -> None:
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+
+    with pytest.raises(TypeError, match="initial_capital must be a real numeric value"):
+        SharedPortfolioSession(
+            _constant_price_market(),
+            start_index=0,
+            stop_index=5,
+            initial_capital=initial_capital,  # type: ignore[arg-type]
+        )
+
+
+def test_portfolio_session_normalizes_integer_subclass_indices() -> None:
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+
+    class RowIndex(IntEnum):
+        FIRST = 0
+        STOP = 5
+
+    session = SharedPortfolioSession(
+        _constant_price_market(),
+        start_index=RowIndex.FIRST,
+        stop_index=RowIndex.STOP,
+        initial_capital=1_000.0,
+    )
+    assert type(session.current_index) is int
+    session.advance((0.0,))
+    assert session.current_index == 1
+    assert type(session.current_index) is int
+
+
+def test_incremental_portfolio_session_matches_batch_across_split_and_terminal() -> (
+    None
+):
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+
+    dataset = _delayed_two_symbol_split_market()
+    execution_cost = ExecutionCostConfig(
+        fee_rate=0.01,
+        maker_fee_rate=0.0,
+        taker_fee_rate=0.0,
+        spread_rate=0.0,
+        impact_rate=0.0,
+        max_participation_rate=0.5,
+        slippage_std=0.0001,
+        random_seed=17,
+        max_leverage=1.0,
+        maintenance_margin_rate=0.0,
+        borrow_rate_multiplier=1.0,
+        order_latency_bars=1,
+        allow_short=True,
+    )
+    direct_observations: list[StatefulExecutionObservation] = []
+    direct_steps: list[ExecutionResult] = []
+    execution_calls: list[tuple[MarketExecutor, BookState, BookState, int]] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_interval(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+        hold_current_quantity_symbols: tuple[int, ...] = (),
+    ) -> ExecutionResult:
+        result = original_execute_interval(
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+            hold_current_quantity_symbols=hold_current_quantity_symbols,
+        )
+        execution_calls.append((executor, book, result.book, start_index))
+        return result
+
+    direct_session = SharedPortfolioSession(
+        dataset,
+        start_index=0,
+        stop_index=7,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        settle_terminal_position=True,
+        execution_observer=direct_observations.append,
+    )
+    detached_book = direct_session.book
+    detached_book.quantities[0] = 99.0
+    assert direct_session.book.quantities == pytest.approx((0.0, 0.0), abs=0.0)
+    with pytest.raises(ValueError, match="target weights must be finite"):
+        direct_session.advance((float("nan"), -0.2))
+    assert direct_session.current_index == 0
+    assert not direct_session.poisoned
+    assert direct_observations == []
+
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(MarketExecutor, "execute_interval", record_interval)
+        while direct_session.can_decide:
+            _, execution, _ = direct_session.advance((0.2, -0.2))
+            direct_steps.append(execution)
+        assert direct_session.current_index == direct_session.agent_stop_index
+        book_at_actor_stop = direct_session.book
+        with pytest.raises(RuntimeError, match="not accepting actor decisions"):
+            direct_session.advance((0.0, 0.0))
+        assert direct_session.current_index == direct_session.agent_stop_index
+        assert direct_session.book.cash == book_at_actor_stop.cash
+        while direct_session.can_settle_terminal:
+            _, execution, _ = direct_session.settle_next_interval()
+            direct_steps.append(execution)
+
+    assert direct_session.finished
+    assert len(direct_steps) == 7
+    assert len(direct_observations) == 7
+    assert len(execution_calls) == 7
+    assert all(call[0] is execution_calls[0][0] for call in execution_calls)
+    assert all(
+        execution_calls[index + 1][1] is execution_calls[index][2]
+        for index in range(len(execution_calls) - 1)
+    )
+
+    batch = run_shared_portfolio_replay(
+        dataset,
+        FixedPortfolioTarget((0.2, -0.2)),
+        start_index=0,
+        stop_index=7,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    assert batch.ledger_evidence is not None
+    intervals = batch.ledger_evidence.intervals.intervals
+    assert len(intervals) == len(direct_steps)
+    assert tuple(step.next_index for step in direct_steps) == tuple(
+        interval.next_index for interval in intervals
+    )
+    assert tuple(step.book.cash for step in direct_steps) == pytest.approx(
+        tuple(interval.cash_after for interval in intervals), abs=0.0
+    )
+    assert tuple(step.book.portfolio_value for step in direct_steps) == pytest.approx(
+        tuple(interval.portfolio_value_after for interval in intervals), abs=0.0
+    )
+    assert tuple(step.book.total_cost for step in direct_steps) == pytest.approx(
+        tuple(interval.total_cost_after for interval in intervals), abs=0.0
+    )
+    assert tuple(step.book.funding_pnl for step in direct_steps) == pytest.approx(
+        tuple(interval.funding_pnl_after for interval in intervals), abs=0.0
+    )
+    assert tuple(step.book.borrow_cost for step in direct_steps) == pytest.approx(
+        tuple(interval.borrow_cost_after for interval in intervals), abs=0.0
+    )
+    assert tuple(step.book.turnover_total for step in direct_steps) == pytest.approx(
+        tuple(interval.turnover_total_after for interval in intervals), abs=0.0
+    )
+    assert tuple(step.book.max_drawdown for step in direct_steps) == pytest.approx(
+        tuple(interval.max_drawdown_after for interval in intervals), abs=0.0
+    )
+    assert tuple(
+        tuple(str(value) for value in step.book.exact_quantities)
+        for step in direct_steps
+    ) == tuple(interval.exact_quantities_after for interval in intervals)
+    assert tuple(step.interval_net_return for step in direct_steps) == pytest.approx(
+        tuple(interval.interval_net_return for interval in intervals), abs=0.0
+    )
+    assert tuple(
+        tuple(event.canonical_payload() for event in observation.order_events)
+        for observation in direct_observations
+    ) == tuple(
+        tuple(event.canonical_payload() for event in interval.order_events)
+        for interval in intervals
+    )
+    assert any(
+        event.event_type == "cancelled"
+        and event.reason == "split_adjustment_required"
+        and event.symbol_index == 0
+        for interval in intervals
+        for event in interval.order_events
+    )
+    assert batch.book.cash == pytest.approx(direct_session.book.cash, abs=0.0)
+    assert batch.book.max_drawdown == pytest.approx(
+        direct_session.book.max_drawdown, abs=0.0
+    )
+    assert batch.book.quantities == pytest.approx((0.0, 0.0), abs=0.0)
+
+
+def test_portfolio_session_is_poisoned_after_observer_failure() -> None:
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+
+    calls = 0
+
+    def fail_after_execution(observation: StatefulExecutionObservation) -> None:
+        nonlocal calls
+        del observation
+        calls += 1
+        raise RuntimeError("observer failed after native execution")
+
+    session = SharedPortfolioSession(
+        _constant_price_market(),
+        start_index=0,
+        stop_index=5,
+        initial_capital=1_000.0,
+        execution_observer=fail_after_execution,
+    )
+    with pytest.raises(RuntimeError, match="observer failed"):
+        session.advance((0.2,))
+    assert calls == 1
+    assert session.current_index == 0
+    assert session.poisoned
+    assert session.finished
+    with pytest.raises(RuntimeError, match="not accepting actor decisions"):
+        session.advance((0.0,))
+    assert calls == 1

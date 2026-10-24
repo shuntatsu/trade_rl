@@ -293,7 +293,7 @@ the order reference. With no held quantities, it resolves current dataset marks
 before entry sizing so default initial book marks are harmless. The accounting
 and execution owners remain unchanged.
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
 
@@ -306,7 +306,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。PPO・risk・execution設定はこの値に依存しない。
-- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証してdataset-resolved specへbindする。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` は元unitへのexact round-tripを要求する。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持つresult schemaとしてv7/v9だけを許可する。新規Runは正のforecast horizonを`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`（shared-cash）へbindする。v9はv7の追加portfolio return seriesとsettlement / ledger evidenceを維持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。旧result schemasは不変のまま読み込む。

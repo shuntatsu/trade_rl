@@ -4,7 +4,9 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+import trade_rl.strategies.forecasts.lightgbm as lightgbm_module
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastModel,
@@ -113,6 +115,27 @@ def test_fit_uses_shared_causal_rows_and_one_shallow_configuration(monkeypatch) 
     assert regressor.params["num_leaves"] == 7
     assert regressor.params["random_state"] == 7
     assert model.n_samples == 6
+
+
+def test_fit_rejects_unrepresentable_cutoff_before_estimator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_estimator_is_created() -> object:
+        pytest.fail("LightGBM estimator was created before fit_cutoff validation")
+
+    monkeypatch.setattr(
+        lightgbm_module,
+        "_lightgbm_regressor_factory",
+        fail_if_estimator_is_created,
+    )
+
+    with pytest.raises(ValueError, match=r"fit_cutoff.*datetime64\[ns\]"):
+        fit_lightgbm_forecast(
+            market(),
+            feature_indices=(0, 1),
+            fit_cutoff=np.datetime64("1677-01-01T00:00:00", "s"),
+            horizon_hours=1,
+        )
 
 
 def test_lightgbm_strategy_uses_shared_forecast_controller() -> None:

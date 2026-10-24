@@ -67,6 +67,23 @@ def test_fit_cutoff_excludes_labels_ending_at_or_after_cutoff() -> None:
     assert baseline.intercept == mutated_future.intercept
 
 
+def test_fit_rejects_unrepresentable_cutoff_before_solver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_solver_runs(*args: object, **kwargs: object) -> np.ndarray:
+        pytest.fail("Ridge solver ran before fit_cutoff validation")
+
+    monkeypatch.setattr(ridge_module.np.linalg, "solve", fail_if_solver_runs)
+
+    with pytest.raises(ValueError, match=r"fit_cutoff.*datetime64\[ns\]"):
+        fit_ridge_forecast(
+            market(),
+            feature_indices=(0, 1),
+            fit_cutoff=np.datetime64("1677-01-01T00:00:00", "s"),
+            horizon_hours=1,
+        )
+
+
 def test_fit_uses_training_sample_weights(monkeypatch) -> None:
     cutoff = np.datetime64("2026-01-01T08:00:00", "ns")
     training = CausalForecastTrainingSet(

@@ -126,6 +126,129 @@ def test_session_calendar_rejects_nat_timestamp_with_valid_availability() -> Non
         MarketDataset(**values)
 
 
+@pytest.mark.parametrize(
+    "start",
+    ["1677-01-01T00:00:00", "2263-01-01T00:00:00"],
+)
+def test_market_dataset_rejects_timestamps_outside_nanosecond_range(
+    start: str,
+) -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    values["timestamps"] = np.datetime64(start, "s") + np.arange(3) * np.timedelta64(
+        1, "h"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"timestamps must be exactly representable as datetime64\[ns\]",
+    ):
+        MarketDataset(**values)
+
+
+def test_market_dataset_rejects_available_at_outside_nanosecond_range() -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    timestamps = np.datetime64("1677-10-01T00:00:00", "ns") + np.arange(
+        3
+    ) * np.timedelta64(1, "h")
+    values["timestamps"] = timestamps
+    values["available_at"] = np.broadcast_to(
+        np.datetime64("2263-01-01T00:00:00", "s"), (3, 1)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"available_at must be exactly representable as datetime64\[ns\]",
+    ):
+        MarketDataset(**values)
+
+
+@pytest.mark.parametrize(
+    "timestamps",
+    [
+        np.datetime64("1677-09-21T00:12:43.145224193", "ns")
+        + np.arange(3) * np.timedelta64(1, "h"),
+        np.datetime64("2262-04-11T23:47:16.854775807", "ns")
+        - np.arange(2, -1, -1) * np.timedelta64(1, "h"),
+    ],
+)
+def test_market_dataset_accepts_nanosecond_range_boundaries(
+    timestamps: np.ndarray,
+) -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    values["timestamps"] = timestamps
+
+    market = MarketDataset(**values)
+
+    assert np.array_equal(market._timestamp_ns, timestamps.astype(np.int64))
+    assert not market.timestamps.flags.writeable
+    assert not market.available_at.flags.writeable
+
+
+def test_market_dataset_preserves_coarse_and_exact_subnanosecond_clocks() -> None:
+    coarse_values = kwargs(n_bars=3, n_symbols=1)
+    coarse_timestamps = np.datetime64("2026-01-01T01:00:00", "s") + np.arange(
+        3
+    ) * np.timedelta64(1, "h")
+    coarse_values["timestamps"] = coarse_timestamps
+    coarse_values["available_at"] = np.broadcast_to(coarse_timestamps[:, None], (3, 1))
+
+    exact_values = kwargs(n_bars=3, n_symbols=1)
+    exact_timestamps = np.datetime64("1969-12-31T00:00:00", "ns") + np.arange(
+        3
+    ) * np.timedelta64(1, "h")
+    exact_values["timestamps"] = exact_timestamps.astype("datetime64[ps]")
+
+    coarse_market = MarketDataset(**coarse_values)
+    exact_market = MarketDataset(**exact_values)
+    coarse_identity = coarse_market.with_content_identity()
+    coarse_ns_values = {
+        **coarse_values,
+        "timestamps": coarse_timestamps.astype("datetime64[ns]"),
+        "available_at": np.broadcast_to(
+            coarse_timestamps.astype("datetime64[ns]")[:, None], (3, 1)
+        ),
+    }
+    coarse_ns_identity = MarketDataset(**coarse_ns_values).with_content_identity()
+    exact_ns_values = {**exact_values, "timestamps": exact_timestamps}
+    exact_identity = MarketDataset(**exact_ns_values).with_content_identity()
+
+    assert np.array_equal(
+        coarse_market._timestamp_ns,
+        coarse_market.timestamps.astype("datetime64[ns]").astype(np.int64),
+    )
+    assert coarse_market.available_at.dtype == np.dtype("datetime64[ns]")
+    assert exact_market.timestamps.dtype == np.dtype("datetime64[ps]")
+    assert coarse_identity.dataset_id == coarse_ns_identity.dataset_id
+    assert exact_identity.dataset_id == exact_market.with_content_identity().dataset_id
+
+
+@pytest.mark.parametrize("field_name", ["timestamps", "available_at"])
+def test_market_dataset_rejects_subnanosecond_precision(
+    field_name: str,
+) -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    timestamps = np.datetime64("1969-12-31T00:00:00", "ns") + np.arange(
+        3
+    ) * np.timedelta64(1, "h")
+    if field_name == "timestamps":
+        subnanosecond_timestamps = timestamps.astype("datetime64[ps]")
+        subnanosecond_timestamps[0] += np.timedelta64(1, "ps")
+        values["timestamps"] = subnanosecond_timestamps
+    else:
+        values["timestamps"] = timestamps
+        available_at = np.broadcast_to(
+            timestamps[:, None].astype("datetime64[ps]"), (3, 1)
+        ).copy()
+        available_at[0, 0] += np.timedelta64(1, "ps")
+        values["available_at"] = available_at
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field_name} must be exactly representable as datetime64\[ns\]",
+    ):
+        MarketDataset(**values)
+
+
 def test_execution_and_missingness_metadata_are_immutable_and_shaped() -> None:
     values = kwargs()
     values["feature_available"] = np.zeros((8, 2, 2), dtype=np.bool_)

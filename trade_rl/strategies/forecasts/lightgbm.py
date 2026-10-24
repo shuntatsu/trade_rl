@@ -15,7 +15,10 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentConfig,
     ForecastIntentController,
 )
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import (
+    _validated_fit_cutoff_ns,
+    build_causal_forecast_training_set,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -45,6 +48,7 @@ class LightGBMForecastModel:
     fit_cutoff: np.datetime64
 
     def __post_init__(self) -> None:
+        fit_cutoff = _validated_fit_cutoff_ns(self.fit_cutoff)
         indices = tuple(self.feature_indices)
         if not indices or len(set(indices)) != len(indices):
             raise ValueError("feature_indices must be non-empty and unique")
@@ -68,7 +72,7 @@ class LightGBMForecastModel:
         ):
             raise ValueError("n_samples must be a positive integer")
         object.__setattr__(self, "feature_indices", indices)
-        object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "fit_cutoff", fit_cutoff)
 
     def predict(self, features: np.ndarray) -> float:
         vector = np.asarray(features, dtype=np.float64).reshape(-1)
@@ -112,6 +116,12 @@ class LightGBMForecastStrategy:
         )
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
+        if np.isnat(observation.timestamp):
+            raise ValueError("observation timestamp must not be NaT")
+        if self.model.fit_cutoff > observation.timestamp:
+            raise ValueError(
+                "model fit_cutoff must not be later than observation timestamp"
+            )
         indices = self.model.feature_indices
         if max(indices) >= observation.features.size:
             raise ValueError("model feature index is outside observation features")

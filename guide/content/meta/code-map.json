@@ -20,7 +20,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "496077a6056d5d8f63b40a9ccfe5646277606f970033aec9fc815d1f40229612"
+      "sha256": "155328c74411779662b9b1aee340309a44a87a41696583ec858353357f6ebe35"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -194,6 +194,19 @@
       "variables": [],
       "tests": [
         "tests/evaluation/test_strategy_comparison.py"
+      ]
+    },
+    {
+      "id": "ridge-comparison-attempt-runner",
+      "symbol": "trade_rl.evaluation.runs.ridge_comparison_attempt.run_ridge_comparison_attempt",
+      "kind": "function",
+      "source_sha256": "e3faaeafb5ef5c07ac4802a88f7e985aa302baa0e2791d2aab849309f4d86a4a",
+      "label_ja": "4-arm比較のwrite-once実行attempt",
+      "description_ja": "入力前にattempt rootを予約し、比較前後の実provenance、厳密な結果reload、失敗と利用可能なpartial ledgerを記録します。context digestはcaller宣言で、研究approvalやglobal retry budgetではありません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_ridge_comparison_attempt.py",
+        "tests/architecture/test_ridge_comparison_attempt_contract.py"
       ]
     }
   ]

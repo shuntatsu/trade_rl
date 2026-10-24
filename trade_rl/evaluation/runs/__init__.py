@@ -37,6 +37,10 @@ from trade_rl.evaluation.runs.ridge_comparison_artifact import (
     load_ridge_comparison_artifact,
     publish_ridge_comparison_artifact,
 )
+from trade_rl.evaluation.runs.ridge_comparison_attempt import (
+    PublishedRidgeComparisonAttempt,
+    run_ridge_comparison_attempt,
+)
 
 __all__ = [
     "CandidateRunArtifactIdentity",
@@ -46,6 +50,7 @@ __all__ = [
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
+    "PublishedRidgeComparisonAttempt",
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
@@ -60,5 +65,6 @@ __all__ = [
     "publish_candidate_run",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "run_ridge_comparison_attempt",
     "supports_shared_cash_result_schema",
 ]

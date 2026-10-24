@@ -52,6 +52,7 @@ trade_rl/
 │   └── emergency.py
 ├── simulation/
 │   ├── accounting.py
+│   ├── objectives/{__init__.py,contract.py,clock.py,binding.py}
 │   ├── execution.py
 │   ├── native_transition.py
 │   ├── bar_path.py
@@ -266,6 +267,13 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。`PortfolioRi
 ### `simulation`
 
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
+
+`objectives/` は新規Study向けのpureな `CapitalContract`、`ObjectiveContract`、
+`FinancialClockContract`、`BoundObjectiveClock` と固定資本の
+`net_equity_increment` を所有する。値を受け取ってobjective identityを宣言するだけで、
+ledger、replay、selection、study executionを実装しない。入力のequityは既存の
+after-cost accounting ownerが供給する。objective subpackageはsimulation root facadeへ
+再exportせず、validationとartifact identity hashing、および自身の契約型だけを使う。
 
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
 event evidence; `orders/admission.py` rejects requests beyond exact inventory.
@@ -494,6 +502,10 @@ trade_rl -X-> tools/agent_repo
 ```
 
 `evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。strategy family間で共有するdataset-bound selectionはroot `strategies/dataset_scope.py` を経由し、RLからforecast内部へ依存させない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
+
+`simulation/objectives` はdeclaration-onlyのlower-layer packageであり、
+`trade_rl._validation`、`trade_rl.artifacts.hashing` と自身の型だけへ依存する。
+これはcurrent PPO/replayがobjective contractを消費することを意味しない。
 
 ### Static import ownership gate
 

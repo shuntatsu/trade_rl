@@ -2,7 +2,7 @@
   "id": "code-map",
   "title": "コード地図：どこが何を所有するか",
   "nav_label": "コード地図",
-  "summary": "外部sourceからデータ契約、戦略、hard risk、約定・会計、評価・artifactへ流れる責務を、実クラスと関数へ結び付けて確認します。",
+  "summary": "外部sourceからデータ契約、戦略、hard risk、financial objective、約定・会計、評価・artifactへ流れる責務を、実クラスと関数へ結び付けて確認します。",
   "role": "reference",
   "keywords": [
     "code map",
@@ -11,6 +11,10 @@
     "PublishedDatasetArtifact",
     "SingleSymbolStrategy",
     "PreTradeRisk",
+    "CapitalContract",
+    "ObjectiveContract",
+    "FinancialClockContract",
+    "BoundObjectiveClock",
     "MarketExecutor",
     "run_single_symbol_replay",
     "run_scripted_shared_cash_replay",
@@ -22,17 +26,22 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "3301db04e2b1664277c8f5b2d0d1306badd6441a05c5dc6b1e490c3d6ecbede8"
+      "sha256": "5ce4f6590ea55f86451340f56a5870b75785cecd1d66a61f432ec8a4da29056f"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Dependency direction",
-      "sha256": "ed19ca112e9817a3cc66f233e947ec149e413ce4aba1f86040b91fad8f391fcf"
+      "sha256": "48b3e56108e345db6a5e9828da55a9eac4b41c31c8eeda3d0b916b6f672dbe3b"
     },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
       "sha256": "3f13b41f789a18440b04f6ea7cd3c25cf6509c16ae6656e2043366a5db9e26f0"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Financial objective declarations",
+      "sha256": "0182c29b1ea86f838f20030304e391cd404f99cbf5d3e8c70fc81a1482cba505"
     }
   ],
   "code_references": [
@@ -160,6 +169,45 @@
       "variables": [],
       "tests": [
         "tests/risk/test_pretrade.py"
+      ]
+    },
+    {
+      "id": "financial-objective-contract",
+      "symbol": "trade_rl.simulation.objectives.contract.ObjectiveContract",
+      "kind": "class",
+      "source_sha256": "76f5e3b859e6d1fb14bd0ac937d3994c5eaa327d4a453942e660d59501909243",
+      "label_ja": "固定初期資本のterminal net-profit objective",
+      "description_ja": "独立accountまたは一つのshared portfolioの初期資本、UTCの半開evaluation window、after-cost terminal equityとnet external cash flowの扱い、economics/risk/deployment digestを宣言します。入力値から将来利益を推定せず、ledgerやStudyを実行しません。",
+      "variables": [],
+      "tests": [
+        "tests/simulation/objectives/test_contract.py",
+        "tests/architecture/test_objective_contract_boundary.py"
+      ]
+    },
+    {
+      "id": "financial-clock-contract",
+      "symbol": "trade_rl.simulation.objectives.clock.FinancialClockContract",
+      "kind": "class",
+      "source_sha256": "a03f793f1f6919ad45927b7cd4b9f0faff90382995b717b1a953700d5149121c",
+      "label_ja": "regular decision / execution / reward clock",
+      "description_ja": "秒単位intervalの整合、finite horizonとgamma/GAEの範囲、reward schemaを宣言します。terminal-profit alignmentは実環境のparityを証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/simulation/objectives/test_clock.py",
+        "tests/architecture/test_objective_contract_boundary.py"
+      ]
+    },
+    {
+      "id": "bound-financial-objective-clock",
+      "symbol": "trade_rl.simulation.objectives.binding.BoundObjectiveClock",
+      "kind": "class",
+      "source_sha256": "e34f2bc8388c8f5c532e9872696b588beecb781dd0c6a8bf3fc04d3156b23e99",
+      "label_ja": "evaluation windowとfinancial horizonの一致",
+      "description_ja": "aware UTCへ正規化されたObjectiveContractのevaluation期間とFinancialClockContractのelapsed horizonが完全一致することを検証し、両digestを束縛します。runtimeがそのclockを利用する証明ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/simulation/objectives/test_binding.py",
+        "tests/architecture/test_objective_contract_boundary.py"
       ]
     },
     {

@@ -10,7 +10,7 @@
 | data | causalな`MarketDataset`、availability、staleness、dataset identity、検証済みartifactのidentity/data読込 | strategy固有の意思決定 |
 | strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsとlosslessなfit cutoffを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。cost-aware forecastはReplayのbudget・actual weight・filled sideを使って離散targetを選び、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
-| simulation | fill、cost、funding、borrow、margin、`BookState` | winner判断 |
+| simulation | fill、cost、funding、borrow、margin、`BookState`、新Study用の純粋なfinancial objective/clock宣言 | winner判断、Study実行 |
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
 | artifacts / research evidence | runや研究判断を再現可能な証拠として固定 | strategy runtime |
 
@@ -42,6 +42,7 @@ artifacts / evidence
 | 検証済みDataset identityとデータの同時読み込み | `trade_rl.data.load_published_market_dataset_artifact` |
 | 単銘柄戦略の共通interface | `trade_rl.strategies.interface.SingleSymbolStrategy` |
 | hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk` |
+| 新しいStudyのfinancial objective / capital / clock contract | `trade_rl.simulation.objectives.ObjectiveContract` / `CapitalContract` / `BoundObjectiveClock` |
 | 約定・会計の所有者 | `trade_rl.simulation.execution.MarketExecutor` |
 | 単銘柄の共通評価リプレイ | `trade_rl.evaluation.replay.run_single_symbol_replay` |
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
@@ -56,6 +57,11 @@ artifacts / evidence
 | 保有期間Studyの固定protocol・risk条件 | `trade_rl.evaluation.experiments.contracts.study.StudyPlan` |
 | 独立口座v1の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_holding_metrics` |
 | 共通資金v2の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics` |
+
+`simulation.objectives`はafter-cost ledgerから渡されたequity値を固定初期資本で
+正規化するpure declaration ownerです。`BoundObjectiveClock`はUTC evaluation windowと
+finite economic horizonの秒数一致を検証します。ここからcurrent PPOのreward、gamma、
+terminal settlementは変更されず、ledgerやwinner selectionも新設されません。
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 

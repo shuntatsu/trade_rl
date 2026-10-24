@@ -18,6 +18,9 @@ from trade_rl.evaluation.runs.candidate_suite import (
     require_age_aware_hourly_clock,
 )
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
+)
 from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMA,
     PPO_OBSERVATION_SCHEMA_V3,
@@ -72,6 +75,7 @@ class CandidateRunConfig:
         "ppo_observation_schema",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
+        "supervised_forecast_horizon_hours",
     )
 
     signal_name: str
@@ -94,6 +98,7 @@ class CandidateRunConfig:
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    supervised_forecast_horizon_hours: int = 24
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -188,6 +193,10 @@ class CandidateRunConfig:
             raise ValueError(
                 "pretrade_risk_config must be a PreTradeRiskConfig or null"
             )
+        supervised_forecast_horizon_hours = validate_supervised_forecast_horizon_hours(
+            self.supervised_forecast_horizon_hours,
+            field="supervised_forecast_horizon_hours",
+        )
         if self.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
             if not self.ppo_settle_terminal_position:
                 raise ValueError(
@@ -213,6 +222,11 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(
+            self,
+            "supervised_forecast_horizon_hours",
+            supervised_forecast_horizon_hours,
+        )
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""
@@ -374,6 +388,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     settle_terminal_position = raw.get("ppo_settle_terminal_position", False)
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("ppo_settle_terminal_position must be boolean")
+    supervised_forecast_horizon_hours = raw.get("supervised_forecast_horizon_hours", 24)
     risk_payload = raw.get("pretrade_risk_config")
     risk_config: PreTradeRiskConfig | None = None
     if risk_payload is not None:
@@ -442,6 +457,9 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         ppo_observation_schema=observation_schema,
         ppo_settle_terminal_position=settle_terminal_position,
         pretrade_risk_config=risk_config,
+        supervised_forecast_horizon_hours=(
+            supervised_forecast_horizon_hours  # type: ignore[arg-type]
+        ),
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
     )
@@ -535,6 +553,7 @@ def resolve_candidate_run_spec(
         ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
         ppo_observation_schema=config.ppo_observation_schema,
         ppo_settle_terminal_position=config.ppo_settle_terminal_position,
+        supervised_forecast_horizon_hours=(config.supervised_forecast_horizon_hours),
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

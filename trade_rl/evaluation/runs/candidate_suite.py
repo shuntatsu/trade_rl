@@ -28,6 +28,9 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
+)
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import (
@@ -67,6 +70,7 @@ class LeanCandidateConfig:
     ppo_minimum_hold_bars: int = 0
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
+    supervised_forecast_horizon_hours: int = 24
 
     def __post_init__(self) -> None:
         if (
@@ -152,9 +156,18 @@ class LeanCandidateConfig:
             raise ValueError("PPO minimum hold requires the age-aware observation")
         if not isinstance(self.ppo_settle_terminal_position, bool):
             raise ValueError("ppo_settle_terminal_position must be boolean")
+        supervised_forecast_horizon_hours = validate_supervised_forecast_horizon_hours(
+            self.supervised_forecast_horizon_hours,
+            field="supervised_forecast_horizon_hours",
+        )
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(
+            self,
+            "supervised_forecast_horizon_hours",
+            supervised_forecast_horizon_hours,
+        )
 
 
 def _ppo_training_stop_index(
@@ -259,7 +272,7 @@ def run_lean_candidate_suite(
         feature_indices=config.feature_indices,
         fit_symbol_indices=config.fit_symbol_indices,
         fit_cutoff=config.fit_cutoff,
-        horizon_hours=24,
+        horizon_hours=config.supervised_forecast_horizon_hours,
         alpha=1.0,
     )
     lightgbm_model = fit_lightgbm_forecast(
@@ -267,7 +280,7 @@ def run_lean_candidate_suite(
         feature_indices=config.feature_indices,
         fit_symbol_indices=config.fit_symbol_indices,
         fit_cutoff=config.fit_cutoff,
-        horizon_hours=24,
+        horizon_hours=config.supervised_forecast_horizon_hours,
         random_state=0,
     )
     ppo_strategy = fit_ppo_strategy(
@@ -312,15 +325,19 @@ def run_lean_candidate_suite(
         "constant_short": lambda: ConstantIntentStrategy(PositionIntent.SHORT),
         "trend": lambda: TrendIntentStrategy(trend_config),
         "mean_reversion": lambda: MeanReversionIntentStrategy(mean_reversion_config),
-        "ridge24": lambda: RidgeForecastStrategy(
-            ridge_model,
-            entry_threshold=config.forecast_entry_threshold,
-            exit_threshold=config.forecast_exit_threshold,
+        f"ridge{config.supervised_forecast_horizon_hours}": lambda: (
+            RidgeForecastStrategy(
+                ridge_model,
+                entry_threshold=config.forecast_entry_threshold,
+                exit_threshold=config.forecast_exit_threshold,
+            )
         ),
-        "lightgbm24": lambda: LightGBMForecastStrategy(
-            lightgbm_model,
-            entry_threshold=config.forecast_entry_threshold,
-            exit_threshold=config.forecast_exit_threshold,
+        f"lightgbm{config.supervised_forecast_horizon_hours}": lambda: (
+            LightGBMForecastStrategy(
+                lightgbm_model,
+                entry_threshold=config.forecast_entry_threshold,
+                exit_threshold=config.forecast_exit_threshold,
+            )
         ),
         "ppo": lambda: PPOIntentStrategy(
             ppo_strategy.policy,

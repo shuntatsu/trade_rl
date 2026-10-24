@@ -126,6 +126,76 @@ def test_create_study_pre_resolves_and_publishes_only_plan(
     assert plan_payload["ppo_seeds"] == [2, 5]
 
 
+def test_create_study_rejects_nondefault_forecast_horizon_before_dataset_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import workflow as workflow_module
+
+    dataset_calls: list[str] = []
+
+    def forbid_dataset_io(*args, **kwargs):
+        del args, kwargs
+        dataset_calls.append("called")
+        raise AssertionError("dataset resolution must not run for a 72-hour Study")
+
+    monkeypatch.setattr(
+        workflow_module, "inspect_published_market_dataset_artifact", forbid_dataset_io
+    )
+    monkeypatch.setattr(
+        workflow_module, "load_market_dataset_artifact", forbid_dataset_io
+    )
+
+    with pytest.raises(
+        ContractViolationError, match="24-hour supervised forecast horizon"
+    ):
+        create_study(
+            tmp_path / "study",
+            dataset_root=tmp_path / "missing-dataset",
+            research_question="Attempt an unapproved forecast-horizon Study.",
+            baseline_config=replace(_config(), supervised_forecast_horizon_hours=72),
+            ppo_seeds=(2, 5),
+            allowed_factors=(ControlledFactor.FEATURE_SET,),
+            max_experiments=1,
+            n_bootstrap=16,
+            bootstrap_seed=3,
+        )
+
+    assert dataset_calls == []
+
+
+def test_define_experiment_rejects_nondefault_forecast_horizon_before_dataset_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import workflow as workflow_module
+
+    root, dataset_root, snapshot = _with_baseline(tmp_path, monkeypatch)
+    assert snapshot.baseline is not None
+    dataset_calls: list[str] = []
+
+    def forbid_dataset_io(*args, **kwargs):
+        del args, kwargs
+        dataset_calls.append("called")
+        raise AssertionError("dataset resolution must not run for a 72-hour Run")
+
+    monkeypatch.setattr(workflow_module, "_validate_dataset_root", forbid_dataset_io)
+
+    with pytest.raises(
+        ContractViolationError, match="24-hour supervised forecast horizon"
+    ):
+        define_experiment(
+            root,
+            dataset_root=dataset_root,
+            hypothesis="Attempt an unapproved forecast-horizon change.",
+            factor=ControlledFactor.FEATURE_SET,
+            candidate_config=replace(_config(), supervised_forecast_horizon_hours=72),
+            baseline_evidence_digest=snapshot.baseline.fingerprint,
+        )
+
+    assert dataset_calls == []
+
+
 def test_create_study_rejects_final_window_inside_development_dataset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -14,6 +14,26 @@ from trade_rl.strategies.dataset_scope import (
     validated_training_scope,
 )
 
+_NANOSECONDS_PER_HOUR = 3_600_000_000_000
+MAX_SUPERVISED_FORECAST_HORIZON_HOURS = ((2**63) - 1) // _NANOSECONDS_PER_HOUR
+
+
+def validate_supervised_forecast_horizon_hours(
+    value: object,
+    *,
+    field: str = "horizon_hours",
+) -> int:
+    """Validate that an hour horizon fits the signed datetime64[ns] range."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{field} must be a positive integer")
+    if value > MAX_SUPERVISED_FORECAST_HORIZON_HOURS:
+        raise ValueError(
+            f"{field} must be representable as a signed int64 nanosecond "
+            f"duration (maximum {MAX_SUPERVISED_FORECAST_HORIZON_HOURS} hours)"
+        )
+    return value
+
 
 def _immutable_array(
     value: np.ndarray,
@@ -71,18 +91,14 @@ class CausalForecastTrainingSet:
             raise ValueError("sample_weights must be finite and positive")
         if np.any(label_end_times >= cutoff):
             raise ValueError("all label_end_times must be strictly before fit_cutoff")
-        if (
-            isinstance(self.horizon_hours, bool)
-            or not isinstance(self.horizon_hours, int)
-            or self.horizon_hours <= 0
-        ):
-            raise ValueError("horizon_hours must be a positive integer")
+        horizon_hours = validate_supervised_forecast_horizon_hours(self.horizon_hours)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "features", features)
         object.__setattr__(self, "labels", labels)
         object.__setattr__(self, "label_end_times", label_end_times)
         object.__setattr__(self, "sample_weights", sample_weights)
         object.__setattr__(self, "fit_cutoff", cutoff)
+        object.__setattr__(self, "horizon_hours", horizon_hours)
 
     @property
     def n_samples(self) -> int:
@@ -99,26 +115,19 @@ def build_causal_forecast_training_set(
 ) -> CausalForecastTrainingSet:
     """Pool exact-horizon rows without adding symbol identity to model features."""
 
+    horizon_hours = validate_supervised_forecast_horizon_hours(horizon_hours)
     indices, symbols = validated_training_scope(
         dataset,
         feature_indices=feature_indices,
         fit_symbol_indices=fit_symbol_indices,
     )
-    if (
-        isinstance(horizon_hours, bool)
-        or not isinstance(horizon_hours, int)
-        or horizon_hours <= 0
-    ):
-        raise ValueError("horizon_hours must be a positive integer")
 
     cutoff = np.datetime64(fit_cutoff, "ns")
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps = dataset.timestamps.astype("datetime64[ns]")
     timestamps_ns = timestamps.astype(np.int64)
     price_available_at = dataset.resolved_array("available_at")
-    horizon_ns = int(
-        np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
-    )
+    horizon_ns = horizon_hours * _NANOSECONDS_PER_HOUR
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
 
     rows_by_symbol: list[list[np.ndarray]] = [[] for _ in range(dataset.n_symbols)]

@@ -181,6 +181,10 @@ class StudyPlan:
         symbols = contract_unique_texts(self.symbols, field="symbols")
         if not isinstance(self.baseline_config, ResolvedRunConfig):
             raise ContractViolationError("baseline_config must be a ResolvedRunConfig")
+        if self.baseline_config.supervised_forecast_horizon_hours != 24:
+            raise ContractViolationError(
+                "canonical Study requires the 24-hour supervised forecast horizon"
+            )
         ppo_seeds = contract_non_negative_int_tuple(
             self.ppo_seeds,
             field="ppo_seeds",

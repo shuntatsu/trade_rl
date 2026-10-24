@@ -206,24 +206,33 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
     if schema_version in {
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         expected.update({"ppo_training_layout", "ppo_rollout_steps_per_env"})
-    if schema_version in {"resolved_run_config_v4", "resolved_run_config_v5"}:
+    if schema_version in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v6",
+    }:
         expected.update({"ppo_minimum_hold_bars", "ppo_settle_terminal_position"})
     if schema_version == "resolved_run_config_v5":
         expected.add("pretrade_risk_config")
+    elif schema_version == "resolved_run_config_v6":
+        expected.update({"pretrade_risk_config", "supervised_forecast_horizon_hours"})
     elif schema_version != "resolved_run_config_v1":
         if schema_version not in {
             "resolved_run_config_v2",
             "resolved_run_config_v3",
             "resolved_run_config_v4",
             "resolved_run_config_v5",
+            "resolved_run_config_v6",
         }:
             raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
@@ -308,6 +317,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+                    "resolved_run_config_v6",
                 }
                 else "sequential"
             ),
@@ -318,6 +328,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+                    "resolved_run_config_v6",
                 }
                 or raw["ppo_rollout_steps_per_env"] is None
                 else _as_int(
@@ -331,6 +342,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 not in {
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+                    "resolved_run_config_v6",
                 }
                 else _as_int(
                     raw["ppo_minimum_hold_bars"],
@@ -344,7 +356,16 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     field=f"{field}.pretrade_risk_config",
                 )
                 if schema_version == "resolved_run_config_v5"
+                or schema_version == "resolved_run_config_v6"
                 else None
+            ),
+            supervised_forecast_horizon_hours=(
+                _as_int(
+                    raw["supervised_forecast_horizon_hours"],
+                    field=f"{field}.supervised_forecast_horizon_hours",
+                )
+                if schema_version == "resolved_run_config_v6"
+                else 24
             ),
         )
     except ContractViolationError as error:
@@ -544,11 +565,15 @@ def _candidate_config_payload(
     if resolved_schema_version in {
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
         payload["ppo_observation_schema"] = config.ppo_observation_schema
         payload["ppo_settle_terminal_position"] = config.ppo_settle_terminal_position
-    if resolved_schema_version == "resolved_run_config_v5":
+    if resolved_schema_version in {
+        "resolved_run_config_v5",
+        "resolved_run_config_v6",
+    }:
         payload["pretrade_risk_config"] = (
             None
             if config.pretrade_risk_config is None
@@ -565,6 +590,10 @@ def _candidate_config_payload(
                     config.pretrade_risk_config.fail_closed_tolerance
                 ),
             }
+        )
+    if resolved_schema_version == "resolved_run_config_v6":
+        payload["supervised_forecast_horizon_hours"] = (
+            config.supervised_forecast_horizon_hours
         )
     if (
         config.ppo_training_layout != "sequential"
@@ -602,6 +631,9 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             ),
             ppo_settle_terminal_position=config.ppo_settle_terminal_position,
             pretrade_risk_config=config.pretrade_risk_config,
+            supervised_forecast_horizon_hours=(
+                config.supervised_forecast_horizon_hours
+            ),
         )
     except ValueError as error:
         raise ArtifactIntegrityError(

@@ -16,6 +16,46 @@ from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
+@pytest.mark.parametrize(
+    ("field_name", "boolean_value"),
+    (
+        ("rule_entry_threshold", True),
+        ("rule_entry_threshold", False),
+        ("rule_exit_threshold", True),
+        ("rule_exit_threshold", False),
+        ("forecast_entry_threshold", True),
+        ("forecast_entry_threshold", False),
+        ("forecast_exit_threshold", True),
+        ("forecast_exit_threshold", False),
+    ),
+)
+def test_lean_candidate_config_rejects_boolean_thresholds(
+    field_name: str,
+    boolean_value: bool,
+) -> None:
+    thresholds: dict[str, float | bool] = {
+        "rule_entry_threshold": 0.10,
+        "rule_exit_threshold": 0.02,
+        "forecast_entry_threshold": 0.01,
+        "forecast_exit_threshold": 0.002,
+    }
+    if field_name == "rule_exit_threshold":
+        thresholds["rule_entry_threshold"] = 2.0
+    elif field_name == "forecast_exit_threshold":
+        thresholds["forecast_entry_threshold"] = 2.0
+    thresholds[field_name] = boolean_value
+
+    with pytest.raises(ValueError, match=f"{field_name}.*boolean"):
+        candidate_suite.LeanCandidateConfig(
+            signal_index=0,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T00:00:00", "ns"),
+            ppo_total_timesteps=1,
+            **thresholds,
+        )
+
+
 def market(*, bar_hours: int = 1, n_bars: int = 60) -> MarketDataset:
     n = n_bars
     base = np.linspace(100.0, 130.0, n)

@@ -99,12 +99,16 @@ class LeanCandidateConfig:
             ("rule_entry_threshold", self.rule_entry_threshold),
             ("forecast_entry_threshold", self.forecast_entry_threshold),
         ):
+            if isinstance(value, bool):
+                raise ValueError(f"{field_name} must not be a boolean")
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{field_name} must be finite and positive")
         for field_name, value in (
             ("rule_exit_threshold", self.rule_exit_threshold),
             ("forecast_exit_threshold", self.forecast_exit_threshold),
         ):
+            if isinstance(value, bool):
+                raise ValueError(f"{field_name} must not be a boolean")
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
         if self.rule_exit_threshold >= self.rule_entry_threshold:

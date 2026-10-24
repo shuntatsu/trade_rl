@@ -331,6 +331,102 @@ def test_invalid_full_vector_fails_before_executor_mutation(
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    ("invalid_field", "invalid_value", "message"),
+    [
+        (
+            "execution_cost",
+            False,
+            "execution_cost must be an ExecutionCostConfig or None",
+        ),
+        ("execution_cost", 0, "execution_cost must be an ExecutionCostConfig or None"),
+        ("risk", False, "risk must be a PreTradeRisk or None"),
+        ("risk", 0, "risk must be a PreTradeRisk or None"),
+    ],
+)
+def test_portfolio_replay_rejects_falsey_runtime_config_before_policy_or_execution(
+    invalid_field: str,
+    invalid_value: object,
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = _EnterOnce()
+    execution_starts: list[int] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_interval(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+        hold_current_quantity_symbols: tuple[int, ...] = (),
+    ) -> ExecutionResult:
+        execution_starts.append(start_index)
+        return original_execute_interval(
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+            hold_current_quantity_symbols=hold_current_quantity_symbols,
+        )
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", record_interval)
+    kwargs = {invalid_field: invalid_value}
+    with pytest.raises(TypeError, match=message):
+        run_shared_portfolio_replay(
+            _market(),
+            policy,
+            start_index=0,
+            stop_index=2,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    assert policy.indexes == []
+    assert execution_starts == []
+
+
+def test_portfolio_replay_accepts_explicit_none_runtime_defaults() -> None:
+    policy = _EnterOnce()
+    result = run_shared_portfolio_replay(
+        _market(),
+        policy,
+        start_index=0,
+        stop_index=1,
+        execution_cost=None,
+        risk=None,
+    )
+
+    assert policy.indexes == [0]
+    assert len(result.decisions) == 1
+
+
+@pytest.mark.parametrize(
+    ("invalid_features", "error_type"),
+    [
+        ((([1.0],), (1.0,)), TypeError),
+        (((float("nan"),), (1.0,)), ValueError),
+        (((True,), (1.0,)), TypeError),
+    ],
+)
+def test_portfolio_snapshot_rejects_mutable_or_invalid_feature_values(
+    invalid_features: tuple[tuple[object, ...], ...], error_type: type[Exception]
+) -> None:
+    policy = _EnterOnce()
+    run_shared_portfolio_replay(
+        _market(),
+        policy,
+        start_index=0,
+        stop_index=1,
+    )
+    valid_snapshot = policy.snapshots[0]
+
+    with pytest.raises(error_type):
+        replace(valid_snapshot, features=invalid_features)  # type: ignore[arg-type]
+
+
 def test_future_tail_changes_do_not_change_current_snapshot_or_interval() -> None:
     dataset = _market()
     changed_features = np.array(dataset.features, copy=True)

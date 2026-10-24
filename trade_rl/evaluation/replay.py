@@ -1641,6 +1641,13 @@ def run_shared_portfolio_replay(
 ) -> SharedCashPortfolioReplayResult:
     """Call one simultaneous portfolio policy once for each native bar."""
 
+    if execution_cost is not None and not isinstance(
+        execution_cost, ExecutionCostConfig
+    ):
+        raise TypeError("execution_cost must be an ExecutionCostConfig or None")
+    if risk is not None and not isinstance(risk, PreTradeRisk):
+        raise TypeError("risk must be a PreTradeRisk or None")
+
     result, decisions = _run_shared_cash_replay_core(
         dataset,
         None,

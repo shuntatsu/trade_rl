@@ -84,7 +84,7 @@
       "id": "portfolio-replay-run",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "882b8611bbdcb5300102c2467976ed727c50113d1ac3d4c4131ec59235de0950",
+      "source_sha256": "299aaa0c03bf75419cc96bdd02c578c64a497a6a4575b815d708617adaf647a2",
       "label_ja": "全銘柄portfolio policyを実行",
       "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorを既存のshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenは既存replayが所有します。",
       "variables": [
@@ -102,7 +102,7 @@
       "id": "portfolio-snapshot-contract",
       "symbol": "trade_rl.strategies.portfolio.PortfolioDecisionSnapshot",
       "kind": "class",
-      "source_sha256": "bb23b5f82f4683fd7afc9eaef1488518fd4e61d9e60dc9a6f84357a396f6710a",
+      "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
       "label_ja": "現在時点のimmutable portfolio snapshot",
       "description_ja": "既存current-row StrategyObservationからfeature values/masksをtuple化し、accountとactive-order/risk factsをprimitive valuesで渡します。future rowsやopaque order IDは渡しません。",
       "variables": [],

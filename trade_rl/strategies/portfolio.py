@@ -225,10 +225,11 @@ class PortfolioDecisionSnapshot:
             raise TypeError("global_feature_available must contain booleans")
         for name in (
             "global_features",
+            "features",
             "feature_staleness",
         ):
             values = getattr(self, name)
-            if name == "feature_staleness":
+            if name in ("features", "feature_staleness"):
                 values = tuple(item for row in values for item in row)
             for value in values:
                 _require_finite_real(value, name=name)

@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+import trade_rl.strategies.forecasts.supervised as supervised_module
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
@@ -123,6 +124,172 @@ def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff(
         training.labels,
         np.log(dataset.close[[72, 73], 0] / dataset.close[[0, 1], 0]),
     )
+
+
+@pytest.mark.parametrize(
+    "fit_cutoff",
+    (
+        np.datetime64("1677-01-01T00:00:00", "s"),
+        np.datetime64("2263-01-01T00:00:00", "s"),
+        np.datetime64("NaT", "ns"),
+        np.datetime64("1969-12-01T00:00:00.000000000001", "ps"),
+    ),
+    ids=(
+        "below-ns-range",
+        "above-ns-range",
+        "nat",
+        "fractional-nanosecond",
+    ),
+)
+def test_training_builder_rejects_lossy_cutoffs(fit_cutoff: np.datetime64) -> None:
+    with pytest.raises(ValueError, match=r"fit_cutoff.*(NaT|datetime64\[ns\])"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=fit_cutoff,
+            horizon_hours=1,
+        )
+
+
+def test_training_builder_validates_cutoff_before_training_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_scope_is_checked(*args: object, **kwargs: object) -> None:
+        pytest.fail("training scope was inspected before validating fit_cutoff")
+
+    monkeypatch.setattr(
+        supervised_module,
+        "validated_training_scope",
+        fail_if_scope_is_checked,
+    )
+    with pytest.raises(ValueError, match=r"fit_cutoff.*datetime64\[ns\]"):
+        build_causal_forecast_training_set(
+            market(n_bars=5),
+            feature_indices=(0,),
+            fit_cutoff=np.datetime64("1677-01-01T00:00:00", "s"),
+            horizon_hours=1,
+        )
+
+
+def test_training_builder_preserves_exact_cutoffs_at_supported_precisions() -> None:
+    dataset = market(n_bars=5)
+    cutoffs = (
+        np.datetime64("2026-01-01T04:00:00", "h"),
+        np.datetime64("2026-01-01T04:00:00", "h").astype("datetime64[2h]"),
+        np.datetime64("2026-01-01T04:00:00.000000000", "ns"),
+    )
+
+    training_sets = [
+        build_causal_forecast_training_set(
+            dataset,
+            feature_indices=(0,),
+            fit_cutoff=cutoff,
+            horizon_hours=1,
+        )
+        for cutoff in cutoffs
+    ]
+
+    assert [training.n_samples for training in training_sets] == [3, 3, 3]
+    assert all(
+        training.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
+        for training in training_sets
+    )
+
+
+def test_training_builder_accepts_exact_datetime64_nanosecond_boundaries() -> None:
+    dataset = market(n_bars=5)
+    lowest = np.datetime64("1677-09-21T00:12:43.145224193", "ns")
+    highest = np.datetime64("2262-04-11T23:47:16.854775807", "ns")
+
+    with pytest.raises(ValueError, match="at least two eligible training rows"):
+        build_causal_forecast_training_set(
+            dataset,
+            feature_indices=(0,),
+            fit_cutoff=lowest,
+            horizon_hours=1,
+        )
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0,),
+        fit_cutoff=highest,
+        horizon_hours=1,
+    )
+    assert training.n_samples == 4
+
+
+@pytest.mark.parametrize(
+    "fit_cutoff",
+    (
+        np.datetime64("1677-01-01T00:00:00", "s"),
+        np.datetime64("2263-01-01T00:00:00", "s"),
+        np.datetime64("NaT", "ns"),
+    ),
+    ids=("below-ns-range", "above-ns-range", "nat"),
+)
+def test_training_set_rejects_lossy_cutoff_metadata(
+    fit_cutoff: np.datetime64,
+) -> None:
+    training = build_causal_forecast_training_set(
+        market(),
+        feature_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    with pytest.raises(ValueError, match=r"fit_cutoff.*(NaT|datetime64\[ns\])"):
+        replace(training, fit_cutoff=fit_cutoff)
+
+
+def test_training_set_rejects_fractional_nanosecond_cutoff_metadata() -> None:
+    training = build_causal_forecast_training_set(
+        market(),
+        feature_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+    fractional_cutoff = np.datetime64(
+        "1969-12-01T00:00:00.000000000001",
+        "ps",
+    )
+    prior_labels = np.full(
+        training.n_samples,
+        np.datetime64("1969-11-30T00:00:00", "ns"),
+        dtype="datetime64[ns]",
+    )
+
+    with pytest.raises(ValueError, match=r"fit_cutoff.*datetime64\[ns\]"):
+        replace(
+            training,
+            label_end_times=prior_labels,
+            fit_cutoff=fractional_cutoff,
+        )
+
+
+def test_training_set_accepts_subnanosecond_unit_when_value_is_exact() -> None:
+    training = build_causal_forecast_training_set(
+        market(),
+        feature_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+    exact_cutoff = np.datetime64(
+        "1969-12-01T00:00:00.000000001000",
+        "ps",
+    )
+    prior_labels = np.full(
+        training.n_samples,
+        np.datetime64("1969-11-30T00:00:00", "ns"),
+        dtype="datetime64[ns]",
+    )
+
+    exact = replace(
+        training,
+        label_end_times=prior_labels,
+        fit_cutoff=exact_cutoff,
+    )
+
+    assert exact.fit_cutoff == exact_cutoff.astype("datetime64[ns]")
 
 
 def test_training_builder_rejects_horizon_that_wraps_to_one_hour() -> None:

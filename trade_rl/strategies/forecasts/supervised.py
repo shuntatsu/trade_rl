@@ -35,6 +35,29 @@ def validate_supervised_forecast_horizon_hours(
     return value
 
 
+def _validated_fit_cutoff_ns(value: np.datetime64) -> np.datetime64:
+    """Normalize an exact, finite cutoff without datetime64 precision loss."""
+
+    try:
+        source = np.datetime64(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            "fit_cutoff must be exactly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(source):
+        raise ValueError("fit_cutoff must not be NaT")
+    try:
+        cutoff = source.astype("datetime64[ns]")
+        roundtrip = cutoff.astype(source.dtype)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            "fit_cutoff must be exactly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(cutoff) or bool(roundtrip != source):
+        raise ValueError("fit_cutoff must be exactly representable as datetime64[ns]")
+    return cutoff
+
+
 def _immutable_array(
     value: np.ndarray,
     *,
@@ -60,6 +83,7 @@ class CausalForecastTrainingSet:
     horizon_hours: int
 
     def __post_init__(self) -> None:
+        cutoff = _validated_fit_cutoff_ns(self.fit_cutoff)
         indices = tuple(self.feature_indices)
         features = _immutable_array(self.features, dtype=np.dtype(np.float64))
         labels = _immutable_array(
@@ -74,7 +98,6 @@ class CausalForecastTrainingSet:
             np.asarray(self.sample_weights).reshape(-1),
             dtype=np.dtype(np.float64),
         )
-        cutoff = np.datetime64(self.fit_cutoff, "ns")
         if features.ndim != 2 or features.shape[0] == 0:
             raise ValueError("features must be a non-empty two-dimensional array")
         if features.shape[1] != len(indices):
@@ -116,13 +139,13 @@ def build_causal_forecast_training_set(
     """Pool exact-horizon rows without adding symbol identity to model features."""
 
     horizon_hours = validate_supervised_forecast_horizon_hours(horizon_hours)
+    cutoff = _validated_fit_cutoff_ns(fit_cutoff)
     indices, symbols = validated_training_scope(
         dataset,
         feature_indices=feature_indices,
         fit_symbol_indices=fit_symbol_indices,
     )
 
-    cutoff = np.datetime64(fit_cutoff, "ns")
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps = dataset.timestamps.astype("datetime64[ns]")
     timestamps_ns = timestamps.astype(np.int64)

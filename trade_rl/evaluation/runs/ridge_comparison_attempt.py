@@ -76,7 +76,7 @@ def _config_declaration(config: RidgeArtifactComparisonConfig) -> object:
             "digest": profile.digest,
             "declaration": profile.canonical_payload(),
         }
-    return {
+    declaration = {
         "entry_threshold": config.entry_threshold,
         "execution_cost": to_json_value(config.execution_cost),
         "exit_threshold": config.exit_threshold,
@@ -89,6 +89,9 @@ def _config_declaration(config: RidgeArtifactComparisonConfig) -> object:
         "start_index": config.start_index,
         "stop_index": config.stop_index,
     }
+    if config.include_forecast_diagnostics:
+        declaration["include_forecast_diagnostics"] = True
+    return declaration
 
 
 def _publish_record(destination: Path, record: object) -> None:

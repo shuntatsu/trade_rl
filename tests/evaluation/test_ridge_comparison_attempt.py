@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import numpy as np
@@ -228,6 +228,7 @@ def test_actual_synthetic_attempt_publishes_strict_artifact_and_is_write_once(
     after = _record(attempt_root, "after")
     completed = _record(attempt_root, "complete")
     assert started["research_context_digest"] == _CONTEXT
+    assert "include_forecast_diagnostics" not in started["config"]
     assert before["provenance"] == after["provenance"]
     assert before["provenance"]["research_context_digest"] == _CONTEXT
     assert completed["result_artifact_digest"] == result.result_artifact_digest
@@ -240,6 +241,28 @@ def test_actual_synthetic_attempt_publishes_strict_artifact_and_is_write_once(
         _invoke(**arguments)
     assert calls == 1
     assert _tree_bytes(attempt_root) == prior_tree
+
+
+def test_opt_in_forecast_diagnostics_is_bound_in_attempt_journal(
+    tmp_path: Path,
+) -> None:
+    attempt_root = tmp_path / "diagnostics-attempt"
+    arguments = _arguments(attempt_root, tmp_path)
+    arguments["config"] = replace(
+        arguments["config"], include_forecast_diagnostics=True
+    )
+
+    result = _invoke(**arguments)
+
+    assert (
+        _record(attempt_root, "started")["config"]["include_forecast_diagnostics"]
+        is True
+    )
+    loaded = load_ridge_comparison_artifact(
+        attempt_root / "result",
+        expected_digest=result.result_artifact_digest,
+    )
+    assert loaded.payload["schema_version"] == "ridge_shared_cash_comparison_v2"
 
 
 def test_missing_dataset_after_reservation_keeps_failure_evidence(

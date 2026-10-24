@@ -13,8 +13,11 @@ OWNER_PATH = ROOT / "trade_rl" / "evaluation" / "runs" / "ridge_artifact_compari
 
 def test_comparison_api_is_owned_and_reexported_by_runs_facade() -> None:
     for name in (
+        "ForecastErrorMetrics",
+        "ForecastSymbolDiagnostics",
         "RidgeArtifactComparison",
         "RidgeArtifactComparisonConfig",
+        "RidgeForecastDiagnostics",
         "compare_ridge_artifact_shared_cash",
     ):
         assert getattr(runs, name) is getattr(owner, name)

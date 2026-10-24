@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence, cast
 
 import numpy as np
 
@@ -32,6 +32,13 @@ from trade_rl.strategies.forecasts import (
 )
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+
+_FORECAST_EXCLUSION_REASONS = (
+    "feature_unavailable_or_nonfinite",
+    "starting_close_unavailable_at_decision",
+    "target_not_mature_by_scoring_as_of",
+    "target_close_unavailable_by_scoring_as_of",
+)
 
 
 def _finite_float(value: object, *, field: str) -> float:
@@ -108,6 +115,7 @@ class RidgeArtifactComparisonConfig:
     risk: PreTradeRiskConfig
     market_order_profile: MarketOrderProfile | None = None
     minimum_hold_bars: int = 0
+    include_forecast_diagnostics: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -119,6 +127,8 @@ class RidgeArtifactComparisonConfig:
             raise ValueError("replay range requires integer 0 <= start < stop")
         if type(self.minimum_hold_bars) is not int or self.minimum_hold_bars < 0:
             raise ValueError("minimum_hold_bars must be a non-negative integer")
+        if type(self.include_forecast_diagnostics) is not bool:
+            raise ValueError("include_forecast_diagnostics must be a boolean")
 
         gross_budget = _finite_float(self.gross_budget, field="gross_budget")
         if not 0.0 < gross_budget <= 1.0:
@@ -163,6 +173,438 @@ class RidgeArtifactComparisonConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ForecastErrorMetrics:
+    """Paired forecast and zero-baseline errors in Ridge log-return units."""
+
+    pair_count: int
+    mae: float | None
+    rmse: float | None
+    zero_mae: float | None
+    zero_rmse: float | None
+    mae_improvement: float | None
+    mse_skill: float | None
+
+    def __post_init__(self) -> None:
+        if type(self.pair_count) is not int or self.pair_count < 0:
+            raise ValueError("pair_count must be a non-negative integer")
+        numeric_fields = (
+            "mae",
+            "rmse",
+            "zero_mae",
+            "zero_rmse",
+            "mae_improvement",
+            "mse_skill",
+        )
+        values: dict[str, float | None] = {}
+        for name in numeric_fields:
+            value = getattr(self, name)
+            values[name] = None if value is None else _finite_float(value, field=name)
+            object.__setattr__(self, name, values[name])
+        if self.pair_count == 0:
+            if any(value is not None for value in values.values()):
+                raise ValueError("empty forecast metrics must be undefined")
+            return
+        required = ("mae", "rmse", "zero_mae", "zero_rmse", "mae_improvement")
+        if any(values[name] is None for name in required):
+            raise ValueError("non-empty forecast metrics must be finite")
+        for name in ("mae", "rmse", "zero_mae", "zero_rmse"):
+            if cast(float, values[name]) < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        zero_rmse = cast(float, values["zero_rmse"])
+        skill = values["mse_skill"]
+        if (zero_rmse == 0.0) != (skill is None):
+            raise ValueError(
+                "mse_skill is undefined exactly when zero-forecast squared error is zero"
+            )
+        expected_improvement = cast(float, values["zero_mae"]) - cast(
+            float, values["mae"]
+        )
+        if not math.isclose(
+            cast(float, values["mae_improvement"]),
+            expected_improvement,
+            rel_tol=1e-12,
+            abs_tol=1e-15,
+        ):
+            raise ValueError("mae_improvement is inconsistent")
+        if skill is not None:
+            ratio = cast(float, values["rmse"]) / zero_rmse
+            expected_skill = 1.0 - ratio * ratio
+            if not math.isfinite(expected_skill) or not math.isclose(
+                cast(float, skill), expected_skill, rel_tol=1e-12, abs_tol=1e-15
+            ):
+                raise ValueError("mse_skill is inconsistent")
+
+
+def _validated_exclusion_counts(
+    value: object,
+) -> tuple[tuple[str, int], ...]:
+    if not isinstance(value, tuple) or len(value) != len(_FORECAST_EXCLUSION_REASONS):
+        raise ValueError("forecast exclusion counts have an invalid shape")
+    result: list[tuple[str, int]] = []
+    for expected_reason, item in zip(_FORECAST_EXCLUSION_REASONS, value, strict=True):
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or item[0] != expected_reason
+            or type(item[1]) is not int
+            or item[1] < 0
+        ):
+            raise ValueError("forecast exclusion counts are invalid")
+        result.append((expected_reason, item[1]))
+    return tuple(result)
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastSymbolDiagnostics:
+    """Paired scoring counts and metrics for one ordered Dataset symbol."""
+
+    symbol: str
+    candidate_count: int
+    eligible_count: int
+    excluded_counts: tuple[tuple[str, int], ...]
+    metrics: ForecastErrorMetrics
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.symbol, str) or not self.symbol:
+            raise ValueError("forecast diagnostic symbol must be non-empty")
+        if (
+            type(self.candidate_count) is not int
+            or type(self.eligible_count) is not int
+            or self.candidate_count < 0
+            or self.eligible_count < 0
+            or self.eligible_count > self.candidate_count
+        ):
+            raise ValueError("forecast symbol counts are invalid")
+        counts = _validated_exclusion_counts(self.excluded_counts)
+        if (
+            sum(count for _, count in counts)
+            != self.candidate_count - self.eligible_count
+        ):
+            raise ValueError("forecast symbol exclusion counts do not reconcile")
+        if type(self.metrics) is not ForecastErrorMetrics:
+            raise TypeError("forecast symbol metrics are invalid")
+        if self.metrics.pair_count != self.eligible_count:
+            raise ValueError("forecast symbol metric count does not reconcile")
+        object.__setattr__(self, "excluded_counts", counts)
+
+
+def _pooled_symbol_metric(
+    symbols: tuple[ForecastSymbolDiagnostics, ...],
+    *,
+    field: str,
+    root_mean_square: bool,
+) -> float | None:
+    pair_count = sum(item.metrics.pair_count for item in symbols)
+    if pair_count == 0:
+        return None
+    values = tuple(
+        (item.metrics.pair_count, cast(float, getattr(item.metrics, field)))
+        for item in symbols
+        if item.metrics.pair_count > 0
+    )
+    scale = max(value for _, value in values)
+    if scale == 0.0:
+        return 0.0
+    if root_mean_square:
+        normalized = math.fsum(
+            (value / scale) ** 2 * (count / pair_count) for count, value in values
+        )
+        result = scale * math.sqrt(normalized)
+    else:
+        normalized = math.fsum(
+            (value / scale) * (count / pair_count) for count, value in values
+        )
+        result = scale * normalized
+    if not math.isfinite(result):
+        raise ValueError("pooled forecast metric exceeds finite range")
+    return result
+
+
+def _metrics_close(actual: float, expected: float) -> bool:
+    ulp_tolerance = 8.0 * max(math.ulp(actual), math.ulp(expected))
+    return math.isclose(
+        actual,
+        expected,
+        rel_tol=1e-12,
+        abs_tol=ulp_tolerance,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class RidgeForecastDiagnostics:
+    """Opt-in, out-of-sample log-return errors against the zero forecast."""
+
+    horizon_hours: int
+    fit_cutoff_ns: int
+    evaluation_start_index: int
+    decision_stop_index: int
+    evaluation_stop_index: int
+    scoring_as_of_ns: int
+    candidate_count: int
+    eligible_count: int
+    excluded_counts: tuple[tuple[str, int], ...]
+    pooled: ForecastErrorMetrics
+    by_symbol: tuple[ForecastSymbolDiagnostics, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.horizon_hours) is not int or self.horizon_hours <= 0:
+            raise ValueError("diagnostic horizon_hours must be positive")
+        if any(
+            type(value) is not int
+            for value in (
+                self.fit_cutoff_ns,
+                self.evaluation_start_index,
+                self.decision_stop_index,
+                self.evaluation_stop_index,
+                self.scoring_as_of_ns,
+                self.candidate_count,
+                self.eligible_count,
+            )
+        ):
+            raise ValueError("forecast diagnostic scope values must be integers")
+        if not (
+            0
+            <= self.evaluation_start_index
+            < self.decision_stop_index
+            < self.evaluation_stop_index
+        ):
+            raise ValueError("forecast diagnostic index scope is invalid")
+        if (
+            self.candidate_count < 0
+            or self.eligible_count < 0
+            or self.eligible_count > self.candidate_count
+        ):
+            raise ValueError("forecast diagnostic counts are invalid")
+        counts = _validated_exclusion_counts(self.excluded_counts)
+        if (
+            sum(count for _, count in counts)
+            != self.candidate_count - self.eligible_count
+        ):
+            raise ValueError("forecast diagnostic exclusion counts do not reconcile")
+        if type(self.pooled) is not ForecastErrorMetrics:
+            raise TypeError("pooled forecast metrics are invalid")
+        if self.pooled.pair_count != self.eligible_count:
+            raise ValueError("pooled forecast metric count does not reconcile")
+        symbols = tuple(self.by_symbol)
+        if not symbols or any(
+            type(item) is not ForecastSymbolDiagnostics for item in symbols
+        ):
+            raise ValueError("by_symbol must contain forecast diagnostics")
+        if len({item.symbol for item in symbols}) != len(symbols):
+            raise ValueError("forecast diagnostic symbols must be unique")
+        if sum(item.candidate_count for item in symbols) != self.candidate_count:
+            raise ValueError("per-symbol candidate counts do not reconcile")
+        candidates_per_symbol = self.decision_stop_index - self.evaluation_start_index
+        if any(item.candidate_count != candidates_per_symbol for item in symbols):
+            raise ValueError(
+                "per-symbol candidate counts do not match the decision scope"
+            )
+        if sum(item.eligible_count for item in symbols) != self.eligible_count:
+            raise ValueError("per-symbol eligible counts do not reconcile")
+        for reason_index, (reason, count) in enumerate(counts):
+            if sum(item.excluded_counts[reason_index][1] for item in symbols) != count:
+                raise ValueError(f"per-symbol {reason} counts do not reconcile")
+        if self.eligible_count > 0:
+            for field, root_mean_square in (
+                ("mae", False),
+                ("rmse", True),
+                ("zero_mae", False),
+                ("zero_rmse", True),
+            ):
+                expected = _pooled_symbol_metric(
+                    symbols,
+                    field=field,
+                    root_mean_square=root_mean_square,
+                )
+                actual = cast(float, getattr(self.pooled, field))
+                if expected is None or not _metrics_close(actual, expected):
+                    raise ValueError(
+                        f"pooled {field} does not match per-symbol metrics"
+                    )
+        object.__setattr__(self, "excluded_counts", counts)
+        object.__setattr__(self, "by_symbol", symbols)
+
+
+def _mean_absolute(values: Sequence[float]) -> float:
+    if not values:
+        raise ValueError("mean requires at least one value")
+    scale = max(abs(value) for value in values)
+    if scale == 0.0:
+        return 0.0
+    result = scale * (math.fsum(abs(value) / scale for value in values) / len(values))
+    if not math.isfinite(result):
+        raise ValueError("forecast diagnostics exceed finite metric range")
+    return result
+
+
+def _root_mean_square(values: Sequence[float]) -> float:
+    if not values:
+        raise ValueError("root mean square requires at least one value")
+    scale = max(abs(value) for value in values)
+    if scale == 0.0:
+        return 0.0
+    normalized = math.fsum((value / scale) ** 2 for value in values) / len(values)
+    result = scale * math.sqrt(normalized)
+    if not math.isfinite(result):
+        raise ValueError("forecast diagnostics exceed finite metric range")
+    return result
+
+
+def _error_metrics(
+    forecasts: Sequence[float], targets: Sequence[float]
+) -> ForecastErrorMetrics:
+    if len(forecasts) != len(targets):
+        raise ValueError("forecast and baseline must use the same pairs")
+    if not forecasts:
+        return ForecastErrorMetrics(0, None, None, None, None, None, None)
+    errors: list[float] = []
+    zero_errors: list[float] = []
+    for forecast, target in zip(forecasts, targets, strict=True):
+        error = forecast - target
+        zero_error = -target
+        if not math.isfinite(error) or not math.isfinite(zero_error):
+            raise ValueError("forecast errors must remain finite")
+        errors.append(error)
+        zero_errors.append(zero_error)
+    mae = _mean_absolute(errors)
+    rmse = _root_mean_square(errors)
+    zero_mae = _mean_absolute(zero_errors)
+    zero_rmse = _root_mean_square(zero_errors)
+    skill: float | None = None
+    if zero_rmse > 0.0:
+        ratio = rmse / zero_rmse
+        skill = 1.0 - ratio * ratio
+        if not math.isfinite(skill):
+            raise ValueError("forecast diagnostics exceed finite metric range")
+    return ForecastErrorMetrics(
+        pair_count=len(forecasts),
+        mae=mae,
+        rmse=rmse,
+        zero_mae=zero_mae,
+        zero_rmse=zero_rmse,
+        mae_improvement=zero_mae - mae,
+        mse_skill=skill,
+    )
+
+
+def _ridge_forecast_diagnostics(
+    dataset: MarketDataset,
+    model: RidgeForecastModel,
+    config: RidgeArtifactComparisonConfig,
+) -> RidgeForecastDiagnostics:
+    """Score actual model predictions on exact, mature supervised-label pairs."""
+
+    timestamps_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+    scoring_as_of_ns = int(timestamps_ns[config.stop_index])
+    decision_stop_index = (
+        config.stop_index - config.execution_cost.order_latency_bars - 1
+    )
+    if decision_stop_index <= config.start_index:
+        raise ValueError("comparison range has no agent decision interval")
+    horizon_ns = model.horizon_hours * 3_600_000_000_000
+    endpoint_indices = {
+        int(timestamp): index
+        for index, timestamp in enumerate(timestamps_ns[: config.stop_index])
+    }
+    price_available_at = (
+        dataset.resolved_array("available_at").astype("datetime64[ns]").astype(np.int64)
+    )
+    selected_indices = list(model.feature_indices)
+    forecasts_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
+    targets_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
+    exclusions_by_symbol = [
+        {reason: 0 for reason in _FORECAST_EXCLUSION_REASONS}
+        for _ in range(dataset.n_symbols)
+    ]
+    candidate_count = 0
+
+    for decision_index in range(config.start_index, decision_stop_index):
+        decision_ns = int(timestamps_ns[decision_index])
+        for symbol_index in range(dataset.n_symbols):
+            candidate_count += 1
+            symbol_exclusions = exclusions_by_symbol[symbol_index]
+            features = np.asarray(dataset.features[decision_index, symbol_index])
+            available = np.asarray(
+                dataset.feature_available[decision_index, symbol_index], dtype=np.bool_
+            )
+            selected = features[selected_indices]
+            if not bool(np.all(available[selected_indices])) or not bool(
+                np.isfinite(selected).all()
+            ):
+                symbol_exclusions["feature_unavailable_or_nonfinite"] += 1
+                continue
+            if price_available_at[decision_index, symbol_index] > decision_ns:
+                symbol_exclusions["starting_close_unavailable_at_decision"] += 1
+                continue
+
+            forecast = _finite_float(model.predict(features), field="Ridge forecast")
+            endpoint_ns = decision_ns + horizon_ns
+            if endpoint_ns >= scoring_as_of_ns:
+                symbol_exclusions["target_not_mature_by_scoring_as_of"] += 1
+                continue
+            endpoint_index = endpoint_indices.get(endpoint_ns)
+            if endpoint_index is None or endpoint_index <= decision_index:
+                symbol_exclusions["target_not_mature_by_scoring_as_of"] += 1
+                continue
+            if price_available_at[endpoint_index, symbol_index] > scoring_as_of_ns:
+                symbol_exclusions["target_close_unavailable_by_scoring_as_of"] += 1
+                continue
+            start_price = _finite_float(
+                dataset.close[decision_index, symbol_index],
+                field="forecast start close",
+            )
+            end_price = _finite_float(
+                dataset.close[endpoint_index, symbol_index],
+                field="forecast target close",
+            )
+            if start_price <= 0.0 or end_price <= 0.0:
+                raise ValueError("forecast target closes must be positive")
+            target = math.log(end_price / start_price)
+            if not math.isfinite(target):
+                raise ValueError("forecast target must be finite")
+            forecasts_by_symbol[symbol_index].append(forecast)
+            targets_by_symbol[symbol_index].append(target)
+
+    by_symbol = tuple(
+        ForecastSymbolDiagnostics(
+            symbol=dataset.symbols[symbol_index],
+            candidate_count=(decision_stop_index - config.start_index),
+            eligible_count=len(forecasts_by_symbol[symbol_index]),
+            excluded_counts=tuple(
+                (reason, exclusions_by_symbol[symbol_index][reason])
+                for reason in _FORECAST_EXCLUSION_REASONS
+            ),
+            metrics=_error_metrics(
+                forecasts_by_symbol[symbol_index], targets_by_symbol[symbol_index]
+            ),
+        )
+        for symbol_index in range(dataset.n_symbols)
+    )
+    all_forecasts = [value for values in forecasts_by_symbol for value in values]
+    all_targets = [value for values in targets_by_symbol for value in values]
+    excluded_counts = tuple(
+        (
+            reason,
+            sum(exclusions[reason] for exclusions in exclusions_by_symbol),
+        )
+        for reason in _FORECAST_EXCLUSION_REASONS
+    )
+    return RidgeForecastDiagnostics(
+        horizon_hours=model.horizon_hours,
+        fit_cutoff_ns=int(model.fit_cutoff.astype("datetime64[ns]").astype(np.int64)),
+        evaluation_start_index=config.start_index,
+        decision_stop_index=decision_stop_index,
+        evaluation_stop_index=config.stop_index,
+        scoring_as_of_ns=scoring_as_of_ns,
+        candidate_count=candidate_count,
+        eligible_count=len(all_forecasts),
+        excluded_counts=excluded_counts,
+        pooled=_error_metrics(all_forecasts, all_targets),
+        by_symbol=by_symbol,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class RidgeArtifactComparison:
     """Verified inputs, requested Dataset scope, and ledger-backed entries.
 
@@ -179,6 +621,7 @@ class RidgeArtifactComparison:
     binding: RidgeForecastArtifactBinding
     config: RidgeArtifactComparisonConfig
     entries: tuple[SharedCashStrategyComparisonEntry, ...]
+    forecast_diagnostics: RidgeForecastDiagnostics | None = None
 
 
 def _validate_loaded_inputs(
@@ -278,6 +721,11 @@ def compare_ridge_artifact_shared_cash(
     evaluation_start_ns, evaluation_stop_ns = _validate_loaded_inputs(
         dataset_artifact, dataset, model, expected_binding, config
     )
+    forecast_diagnostics = (
+        _ridge_forecast_diagnostics(dataset, model, config)
+        if config.include_forecast_diagnostics
+        else None
+    )
 
     factories: dict[str, Callable[[], SingleSymbolStrategy]] = {
         "cash": lambda: ConstantIntentStrategy(PositionIntent.FLAT),
@@ -321,11 +769,15 @@ def compare_ridge_artifact_shared_cash(
         binding=expected_binding,
         config=config,
         entries=entries,
+        forecast_diagnostics=forecast_diagnostics,
     )
 
 
 __all__ = [
+    "ForecastErrorMetrics",
+    "ForecastSymbolDiagnostics",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
+    "RidgeForecastDiagnostics",
     "compare_ridge_artifact_shared_cash",
 ]

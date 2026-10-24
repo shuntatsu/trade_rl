@@ -38,6 +38,28 @@ def _comparison_api():
     return module
 
 
+def test_mean_absolute_avoids_overflow_before_finite_average() -> None:
+    api = _comparison_api()
+
+    assert api._mean_absolute((1e308, 1e308)) == 1e308
+
+
+def test_mse_skill_is_defined_for_constant_nonzero_targets() -> None:
+    api = _comparison_api()
+
+    metrics = api._error_metrics((0.0, 0.0), (0.1, 0.1))
+
+    assert metrics.zero_rmse == pytest.approx(0.1)
+    assert metrics.mse_skill == pytest.approx(0.0)
+
+
+def test_mse_skill_validation_names_zero_forecast_error() -> None:
+    api = _comparison_api()
+
+    with pytest.raises(ValueError, match="zero-forecast squared error is zero"):
+        api.ForecastErrorMetrics(1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
 def _dataset() -> MarketDataset:
     offsets_minutes = np.asarray([0, 30, 120, 180, 360, 390], dtype=np.int64)
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
@@ -158,6 +180,17 @@ def _fake_dataset_artifact(tmp_path: Path) -> PublishedDatasetArtifact:
     )
 
 
+def _published_comparison_inputs(tmp_path: Path, dataset: MarketDataset):
+    api = _comparison_api()
+    dataset_root = tmp_path / "dataset"
+    dataset_artifact = publish_market_dataset_artifact(dataset_root, dataset)
+    model = _model(dataset)
+    binding = _binding(dataset, dataset_artifact, model)
+    ridge_root = tmp_path / "ridge-model"
+    ridge_digest = publish_ridge_forecast_artifact(ridge_root, model, binding)
+    return api, dataset_root, ridge_root, ridge_digest, binding, model
+
+
 def test_ridge_artifact_shared_cash_comparison_module_is_available() -> None:
     module = _comparison_api()
     assert callable(module.compare_ridge_artifact_shared_cash)
@@ -183,12 +216,9 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
         monkeypatch.setattr(candidate_suite, fit_name, unexpected_fit)
 
     dataset = _dataset()
-    dataset_root = tmp_path / "dataset"
-    dataset_artifact = publish_market_dataset_artifact(dataset_root, dataset)
-    model = _model(dataset)
-    binding = _binding(dataset, dataset_artifact, model)
-    ridge_root = tmp_path / "ridge-model"
-    ridge_digest = publish_ridge_forecast_artifact(ridge_root, model, binding)
+    api, dataset_root, ridge_root, ridge_digest, binding, model = (
+        _published_comparison_inputs(tmp_path, dataset)
+    )
 
     dataset_loads: list[Path] = []
     actual_dataset_loader = api.load_published_market_dataset_artifact
@@ -291,7 +321,8 @@ def test_four_arm_comparison_loads_one_model_and_returns_terminal_ledgers(
         "capture_ledger_evidence": True,
     }
 
-    assert result.dataset_artifact == dataset_artifact
+    assert result.dataset_artifact.root == dataset_root
+    assert result.dataset_artifact.artifact_digest == binding.dataset_artifact_sha256
     assert result.dataset_id == dataset.dataset_id
     assert result.ridge_artifact_digest == ridge_digest
     assert result.binding == binding
@@ -482,3 +513,217 @@ def test_comparison_config_preserves_nested_boolean_policy_flags() -> None:
 
     assert config.execution_cost is execution_cost
     assert config.risk is risk
+
+
+def test_opt_in_forecast_diagnostics_scores_only_shared_mature_pairs(
+    tmp_path: Path,
+) -> None:
+    api = _comparison_api()
+    base = _dataset()
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
+        np.arange(6, dtype=np.int64) * np.timedelta64(1, "h")
+    )
+    availability = base.feature_available.copy()
+    availability[2, 1, :] = False
+    dataset = replace(
+        base,
+        timestamps=timestamps,
+        available_at=np.repeat(timestamps[:, None], 2, axis=1),
+        feature_available=availability,
+        feature_staleness=np.where(availability, 0.0, 1.0).astype(np.float32),
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "ridge-forecast-diagnostics"})
+    dataset_root = tmp_path / "dataset"
+    dataset_artifact = publish_market_dataset_artifact(dataset_root, dataset)
+    model = _model(dataset)
+    binding = _binding(dataset, dataset_artifact, model)
+    ridge_root = tmp_path / "ridge-model"
+    ridge_digest = publish_ridge_forecast_artifact(ridge_root, model, binding)
+
+    result = api.compare_ridge_artifact_shared_cash(
+        dataset_root=dataset_root,
+        ridge_artifact_root=ridge_root,
+        expected_ridge_digest=ridge_digest,
+        expected_binding=binding,
+        config=_config(api, include_forecast_diagnostics=True),
+    )
+
+    diagnostics = result.forecast_diagnostics
+    assert diagnostics is not None
+    assert diagnostics.horizon_hours == model.horizon_hours == 2
+    assert diagnostics.fit_cutoff_ns == int(model.fit_cutoff.astype("int64"))
+    assert diagnostics.evaluation_start_index == 2
+    assert diagnostics.evaluation_stop_index == 5
+    assert diagnostics.scoring_as_of_ns == int(
+        dataset.timestamps[5].astype("datetime64[ns]").astype("int64")
+    )
+    assert diagnostics.candidate_count == 4
+    assert diagnostics.eligible_count == 1
+    assert dict(diagnostics.excluded_counts) == {
+        "feature_unavailable_or_nonfinite": 1,
+        "starting_close_unavailable_at_decision": 0,
+        "target_not_mature_by_scoring_as_of": 2,
+        "target_close_unavailable_by_scoring_as_of": 0,
+    }
+    assert diagnostics.pooled.pair_count == 1
+    assert diagnostics.by_symbol[0].symbol == "BTCUSDT"
+    assert diagnostics.by_symbol[0].metrics.pair_count == 1
+    assert diagnostics.by_symbol[1].symbol == "ETHUSDT"
+    assert diagnostics.by_symbol[1].metrics.pair_count == 0
+    target = float(np.log(dataset.close[4, 0] / dataset.close[2, 0]))
+    forecast = model.predict(dataset.features[2, 0])
+    assert diagnostics.pooled.mae == pytest.approx(abs(forecast - target))
+    assert diagnostics.pooled.zero_mae == pytest.approx(abs(target))
+
+
+def test_forecast_diagnostics_excludes_target_close_late_at_scoring_as_of() -> None:
+    api = _comparison_api()
+    base = _dataset()
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
+        np.arange(6, dtype=np.int64) * np.timedelta64(1, "h")
+    )
+    available_at = np.repeat(timestamps[:, None], 2, axis=1)
+    available_at[2, 0] = timestamps[2] + np.timedelta64(1, "ns")
+    available_at[4, 1] = timestamps[5] + np.timedelta64(1, "ns")
+    information_available = np.ones((6, 2), dtype=np.bool_)
+    information_available[2, 0] = False
+    information_available[4, 1] = False
+    dataset = replace(
+        base,
+        timestamps=timestamps,
+        available_at=available_at,
+        information_available=information_available,
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "late-target-close-at-asof"})
+    model = replace(_model(dataset), horizon_hours=1)
+
+    diagnostics = api._ridge_forecast_diagnostics(
+        dataset,
+        model,
+        _config(api, include_forecast_diagnostics=True),
+    )
+
+    assert diagnostics.candidate_count == 4
+    assert diagnostics.eligible_count == 2
+    assert diagnostics.pooled.pair_count == 2
+    assert dict(diagnostics.excluded_counts) == {
+        "feature_unavailable_or_nonfinite": 0,
+        "starting_close_unavailable_at_decision": 1,
+        "target_not_mature_by_scoring_as_of": 0,
+        "target_close_unavailable_by_scoring_as_of": 1,
+    }
+    assert diagnostics.by_symbol[0].eligible_count == 1
+    assert diagnostics.by_symbol[1].eligible_count == 1
+
+
+def test_forecast_diagnostics_leave_zero_baseline_skill_undefined(
+    tmp_path: Path,
+) -> None:
+    base = _dataset()
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
+        np.arange(6, dtype=np.int64) * np.timedelta64(1, "h")
+    )
+    close = base.close.copy()
+    close[4] = close[2]
+    dataset = replace(
+        base,
+        timestamps=timestamps,
+        available_at=np.repeat(timestamps[:, None], 2, axis=1),
+        open=close.copy(),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "zero-baseline-skill"})
+    api, dataset_root, ridge_root, ridge_digest, binding, _ = (
+        _published_comparison_inputs(tmp_path, dataset)
+    )
+
+    result = api.compare_ridge_artifact_shared_cash(
+        dataset_root=dataset_root,
+        ridge_artifact_root=ridge_root,
+        expected_ridge_digest=ridge_digest,
+        expected_binding=binding,
+        config=_config(api, include_forecast_diagnostics=True),
+    )
+
+    diagnostics = result.forecast_diagnostics
+    assert diagnostics is not None
+    assert diagnostics.pooled.pair_count == 2
+    assert diagnostics.pooled.zero_rmse == 0.0
+    assert diagnostics.pooled.mse_skill is None
+
+
+def test_forecast_diagnostics_reports_empty_mature_pair_scope(
+    tmp_path: Path,
+) -> None:
+    base = _dataset()
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
+        np.arange(6, dtype=np.int64) * np.timedelta64(1, "h")
+    )
+    dataset = replace(
+        base,
+        timestamps=timestamps,
+        available_at=np.repeat(timestamps[:, None], 2, axis=1),
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "empty-forecast-diagnostics"})
+    api, dataset_root, ridge_root, ridge_digest, binding, _ = (
+        _published_comparison_inputs(tmp_path, dataset)
+    )
+
+    result = api.compare_ridge_artifact_shared_cash(
+        dataset_root=dataset_root,
+        ridge_artifact_root=ridge_root,
+        expected_ridge_digest=ridge_digest,
+        expected_binding=binding,
+        config=_config(
+            api,
+            stop_index=4,
+            include_forecast_diagnostics=True,
+        ),
+    )
+
+    diagnostics = result.forecast_diagnostics
+    assert diagnostics is not None
+    assert diagnostics.candidate_count == 2
+    assert diagnostics.eligible_count == 0
+    assert diagnostics.pooled.pair_count == 0
+    assert diagnostics.pooled.mae is None
+    assert dict(diagnostics.excluded_counts)["target_not_mature_by_scoring_as_of"] == 2
+
+
+def test_forecast_diagnostics_rejects_nonfinite_model_predictions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _dataset()
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
+        np.arange(6, dtype=np.int64) * np.timedelta64(1, "h")
+    )
+    dataset = replace(
+        base,
+        timestamps=timestamps,
+        available_at=np.repeat(timestamps[:, None], 2, axis=1),
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "nonfinite-forecast-diagnostics"})
+    api, dataset_root, ridge_root, ridge_digest, binding, _ = (
+        _published_comparison_inputs(tmp_path, dataset)
+    )
+    monkeypatch.setattr(
+        RidgeForecastModel, "predict", lambda _self, _features: float("inf")
+    )
+
+    with pytest.raises(ValueError, match="Ridge forecast must be a finite number"):
+        api.compare_ridge_artifact_shared_cash(
+            dataset_root=dataset_root,
+            ridge_artifact_root=ridge_root,
+            expected_ridge_digest=ridge_digest,
+            expected_binding=binding,
+            config=_config(api, include_forecast_diagnostics=True),
+        )
+
+
+def test_forecast_diagnostics_flag_requires_a_builtin_boolean() -> None:
+    api = _comparison_api()
+    with pytest.raises((TypeError, ValueError), match="boolean"):
+        _config(api, include_forecast_diagnostics=1)

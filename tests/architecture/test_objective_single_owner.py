@@ -43,14 +43,43 @@ def _top_level_bindings(path: Path) -> frozenset[str]:
     return frozenset(result)
 
 
+def _legacy_owner_imports(path: Path) -> frozenset[str]:
+    """Do not accept noncanonical imports as an identity-preserving facade."""
+    aliases: set[str] = set()
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    canonical = "trade_rl.simulation.objectives"
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level == 0 and node.module is not None and (
+            node.module == canonical or node.module.startswith(canonical + ".")
+        ):
+            for symbol in node.names:
+                if symbol.name == "*":
+                    aliases.update(FINANCIAL_SYMBOLS)
+                if symbol.asname in FINANCIAL_SYMBOLS and symbol.asname != symbol.name:
+                    aliases.add(symbol.asname)
+            continue
+        for symbol in node.names:
+            if symbol.name == "*":
+                aliases.update(FINANCIAL_SYMBOLS)
+            for name in (symbol.name, symbol.asname):
+                if name in FINANCIAL_SYMBOLS:
+                    aliases.add(name)
+    return frozenset(aliases)
+
+
 def _duplicate_owners(directory: Path) -> dict[str, frozenset[str]]:
     if not directory.exists():
         return {}
-    return {
-        source.name: overlap
-        for source in sorted(directory.glob("*.py"))
-        if (overlap := _top_level_bindings(source) & FINANCIAL_SYMBOLS)
-    }
+    duplicates: dict[str, frozenset[str]] = {}
+    for source in sorted(directory.glob("*.py")):
+        overlap = (
+            _top_level_bindings(source) | _legacy_owner_imports(source)
+        ) & FINANCIAL_SYMBOLS
+        if overlap:
+            duplicates[source.name] = overlap
+    return duplicates
 
 
 def test_canonical_financial_objective_declarations_stay_in_simulation() -> None:
@@ -92,3 +121,23 @@ def test_legacy_import_only_facade_is_allowed(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _duplicate_owners(tmp_path) == {}
+
+
+@pytest.mark.parametrize(
+    "import_source",
+    [
+        "from trade_rl.evaluation.objectives.contract import CapitalContract\n",
+        "from trade_rl.evaluation.objectives.clock import FinancialClockContract\n",
+        "from legacy_module import ObjectiveContract as AlternateObjective\n",
+        "from legacy_module import *\n",
+        "from trade_rl.simulation.objectives import *\n",
+        "from trade_rl.simulation.objectives import "
+        "ObjectiveContract as CapitalContract\n",
+        "from legacy_module import strange as CapitalContract\n",
+    ],
+)
+def test_import_only_legacy_source_is_not_mistaken_for_canonical_facade(
+    tmp_path: Path, import_source: str
+) -> None:
+    (tmp_path / "__init__.py").write_text(import_source, encoding="utf-8")
+    assert _duplicate_owners(tmp_path)

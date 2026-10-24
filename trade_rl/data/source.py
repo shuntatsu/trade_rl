@@ -227,7 +227,7 @@ def _parse_timestamp(value: str) -> np.datetime64:
             timestamp_text = timestamp_text[: offset_match.start()]
 
         fractional_ns = 0
-        for time_start in (9, 11):
+        for time_start in (8, 9, 11):
             if len(timestamp_text) <= time_start:
                 continue
             fraction_match = _CLOCK_FRACTION.fullmatch(timestamp_text[time_start:])
@@ -245,7 +245,7 @@ def _parse_timestamp(value: str) -> np.datetime64:
         else:
             if any(
                 separator in timestamp_text[time_start:]
-                for time_start in (9, 11)
+                for time_start in (8, 9, 11)
                 if len(timestamp_text) > time_start
                 for separator in (".", ",")
             ):

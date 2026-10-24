@@ -273,7 +273,7 @@
       "id": "shared-portfolio-session",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "84e2eca5912f239501e55bbd2df416e73bc5f934d604ea324f412973692abbdd",
+      "source_sha256": "d30757a6dcac7a7647ae49e023929517732715509996d63558021b7e723bd848",
       "label_ja": "native barごとにportfolio状態を継続",
       "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。",
       "variables": [],

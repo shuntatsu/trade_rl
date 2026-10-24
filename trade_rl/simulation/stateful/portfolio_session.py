@@ -40,9 +40,10 @@ class SharedPortfolioSession:
     """Advance one shared account by one native bar per numeric target.
 
     The session retains the exact returned book and executor between calls. Its
-    public book view is a detached clone, and the actor-facing decision snapshot
-    remains the evaluation owner’s responsibility. Terminal intervals are
-    reserved from actor decisions and can only be advanced by the internal
+    public book view is a detached clone. Callers build actor-facing decision
+    snapshots through the strategy-owned observation builder; the session stays
+    independent of evaluation and policy DTOs. Terminal intervals are reserved
+    from actor decisions and can only be advanced by the internal
     emergency-flatten path.
     """
 

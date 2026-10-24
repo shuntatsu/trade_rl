@@ -177,7 +177,7 @@
       "id": "portfolio-session-owner",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "84e2eca5912f239501e55bbd2df416e73bc5f934d604ea324f412973692abbdd",
+      "source_sha256": "d30757a6dcac7a7647ae49e023929517732715509996d63558021b7e723bd848",
       "label_ja": "数値portfolio sessionを継続",
       "description_ja": "同じBookState・MarketExecutor・native indexを一native-barごとに引き継ぎます。book viewはcloneで、latency-aware actor boundary後のterminal flattenをsessionが予約し、transition failure後の再試行を拒否します。",
       "variables": [],

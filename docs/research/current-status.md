@@ -13,25 +13,17 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - Production/live order routingは未認可。
 - PPOやforecastがruleを上回るという結論はない。
 
-Issue #810では4方式のshared-cash比較・厳密なresult保存・one-shot attemptの**ソフトウェア境界をcurrent `main`へ統合済み**である。ただし固定した実データ条件でのfit/replay、手数料後return、winner、未使用期間での再現性はまだ得ていない。次の実データscreenはfreshなG0–G3審査と別の実行許可が揃うまで開始しない。
+Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34の固定screenを1回実行した。12行すべての計算は完了したが、latency-2でcost-proxy armのreturnがposition-aware cost=0 armを下回り、screen全体は FAILED_SCREEN となった。詳細な結果・前提・限界は下のIssue #810 screen節に記録する。これは勝者や継続的な利益を示さず、元の48-cell gate、unused/final評価、PPO/RLまたはlive適格性を完了させない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
-## Issue #810: frozen four-arm software and development execution gate (2026-10-24)
+## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 
-この節は[Issue #810の現行チェックポイント](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6380032808)と[結果を見る前に固定した完全プロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)を要約する。Git treeにないattempt / independent-review / leaseの最新状態はIssueを正本とし、古いsoftware Greenやhistorical receiptを現在の実行許可へ自動昇格しない。
+この節は[事前登録したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)と[実行結果](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6384143472)の現状を要約する。M34 sourceに固定した一度のscreenでは、1 fit・3 scenario・4 armの全12行を計算し、screen全体は FAILED_SCREEN となった。latency-2でposition-aware cost-proxy armが2.6777%、同じ経路のcost=0 armが2.8971%だったため、事前の比較条件を満たさなかった。シナリオごとの結果、ledger、source、Dataset、費用・funding仮定は、この文書の下にあるConditional four-arm Ridge development screen節と[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に記録している。
 
-**実装済みの範囲。** 2026-10-24時点でcurrent `main`へ正式レビューと同一HEADの必須CIを経て統合したソフトウェアでは、同時検証する公開Dataset loader、外部digest・bindingで固定したRidgeモデル、4方式のshared-cash比較、完全なcanonical結果のwrite-once保存とstrict再読込、before/after provenanceを伴うdurable attempt、terminal risk flattenの回帰修正が揃う。API / accountingの恒久契約は[`lean-core`](../architecture/lean-core.md)と[`package-boundaries`](../architecture/package-boundaries.md)に置く。これらのsoftware統合は新しい実データP&Lを生まない。
+このscreenは、独立した100,000 USDT口座を使うcash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの比較であり、PPO/RLを含まない。Datasetのfee・spread、実行条件、row-close funding proxyは固定した研究仮定で、歴史的なexchange ruleやfunding event markとの一致を証明しない。入力の過去利用範囲はTier Uのままで、unused/final評価にはならない。
 
-**比較の固定条件。** 4 armは `cash` / `legacy_hysteresis` / `position_aware_zero_cost` (`c=0`) / `position_aware_cost` (`c>0`) である。1つの凍結Ridge予測を使い、armごとに独立した初期資金100,000 USDTの口座を用意し、口座内ではBTC/ETHの2銘柄が資金を共有する。arm間で口座を共有しない。legacy対`c=0`はcontrollerの判断規則も変わる複合差分であり、`c=0`対`c>0`だけがposition-aware経路上の判断用cost proxyの差である。proxyをexecutionのfee/spread/funding/borrowへ二重加算しない。RLのfit・inferenceはこの4 armの比較に含めない。
-
-[固定プロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)はSHA-256 `65d37c8329568a511a4515cd13c98827aba734e7eab93a005672525d123e323d`、外部driver v3はSHA-256 `12f7f2dbaf7ed4994e71adb6cd4b9241b30c7b38407daa28e4ba1726fe3cdb2d`。同じfit一度、base / execution-cost stress / 2-bar latencyの3 scenario、計12 armを事前固定する。これは2024年3月の既知historical development windowに限る**記述的screen**であり、消費履歴の完全な閉鎖が未確定な入力はTier Uとして保持し、unused / final / Tier Dと扱わない。fee / spread / margin / venue制約は歴史的実約定の証明ではなく固定した研究仮定で、fundingは完成したnative barのrateに対応するrow-close-mark proxyであり、取引所のevent-mark cashflowとの一致は未証明である。
-
-**得られた証拠と限界。** 入力だけの照合ではpaired Datasetのidentity、2,184 hourly closes、causal 24-bar feature、公式OHLC/quote-volumeとの差分0、公式fundingの完成bar mapping各銘柄273 eventsを確認した。独立したsynthetic-only検証では外側のlease / `_execute`を通して1 fit・3 child attempt・12 ledgerのstrict再読込・全arm終端FLATを確認し、根元のclosureも別のread-only checkerで確認した。初回post-run harnessのtuple/list型比較の失敗は履歴として残し、実行本体のsynthetic completionと混同しない。これらは**実データの12 armを実行した証拠ではない**。
-
-**未解除ゲート。** fresh result-blind G0–G3 source / input / semantic reviewは未完了であり、長いreview packetがprovider内でtruncationされた事実と不完全レビュー報告を保持する。完全なsource/test/input coverage、machine checks、freshな`main` / runtime確認、別途のexact-script one-attempt leaseが揃うまでは実データfit / replayを開始しない。成立した場合のみ事前固定の1回のscreenを実行し、COMPLETE / FAILED / PARTIALの全証拠を保存し、12 armの手数料後return・費用・ledger最大DD・cash / `c=0`対照を公開する。結果を見た後のparameter / window再選定や自動再試行はしない。
-
-**未確立の結論。** 実データの手数料後利益・winner・将来の持続利益、以前のNONRL 48-cell完走（R2は1 arm `INTERRUPTED`、47 arm `UNATTEMPTED`）、未統合のB4累積変更全体の受入、sealed / unused / final / live適格性、90日carry validationはいずれも未確立である。過去のportable Experiment 0001の`KEEP_BASELINE`を変更しない。
+元のNONRL 48-cell gateは別の評価で、registryは1 interrupted・47 unattempted・0 completeの未完了状態を保つ。このM34 screenはそのgateを完了させず、screen結果はforward profitability、winner、future persistence、live order authorizationを確立しない。今回の一度の結果を再実行・retuneしていない。別の試行を始める場合は新しいprotocol、result-blind review、実行許可が必要となる。
 
 ## Generic software PR review policy (2026-10-14)
 
@@ -46,6 +38,35 @@ Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
 
 Issue #810では、この既存Datasetを使うNONRL 48-cell比較をRL実データ作業より先に行う。RL実データfit/replayは、fundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで進めない。既存の6-fit PPO fee-only learnability結果は`FAILED`のままであり、このtechnical attemptによって再分類しない。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益証拠にならず、loader適合・technical retry・software Greenも経済結果として扱わない。
+
+### Conditional four-arm Ridge development screen (FAILED_SCREEN; attempt 01)
+
+Status: `FAILED_SCREEN`. The one authorized fixed screen completed all 12 arm/scenario rows (`COMPLETE`). The `base` and `execution2_borrow2_funding_base` scenario gates passed. The `latency2` gate failed because the positive-cost arm returned 2.6777%, below the position-aware `cost=0` arm at 2.8971%; the required comparison is strictly greater. Every row ended terminal-flat with zero active orders. Ledger maximum drawdown ranged from 0.0000% to 9.3927%, below the 20% limit, but that does not reverse the failed comparison or establish a profitable winner.
+
+The rows below report net ledger return, realized intrainterval ledger maximum drawdown, execution cost, and funding P&L. The report also retains interval-end drawdown as a separate field. All 12 row statuses are `COMPLETE`; the scenario-level gate is shown in the scenario label.
+
+| Scenario (gate) | Arm | Net return (%) | Ledger max DD (%) | Execution cost (USDT) | Funding P&L (USDT) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| base (PASS_SCREEN) | cash | 0.0000 | 0.0000 | 0.00 | 0.00 |
+| base (PASS_SCREEN) | legacy_hysteresis | 1.6246 | 9.3175 | 140.59 | -1,216.70 |
+| base (PASS_SCREEN) | position_aware_zero_cost | 1.6246 | 9.3175 | 140.59 | -1,216.70 |
+| base (PASS_SCREEN) | position_aware_cost | 2.5660 | 8.1152 | 58.62 | -1,204.20 |
+| execution2_borrow2_funding_base (PASS_SCREEN) | cash | 0.0000 | 0.0000 | 0.00 | 0.00 |
+| execution2_borrow2_funding_base (PASS_SCREEN) | legacy_hysteresis | 1.4816 | 9.3927 | 281.06 | -1,215.85 |
+| execution2_borrow2_funding_base (PASS_SCREEN) | position_aware_zero_cost | 1.4816 | 9.3927 | 281.06 | -1,215.85 |
+| execution2_borrow2_funding_base (PASS_SCREEN) | position_aware_cost | 2.5058 | 8.1161 | 117.24 | -1,203.51 |
+| latency2 (FAILED_SCREEN) | cash | 0.0000 | 0.0000 | 0.00 | 0.00 |
+| latency2 (FAILED_SCREEN) | legacy_hysteresis | 2.9949 | 8.1666 | 86.71 | -1,204.51 |
+| latency2 (FAILED_SCREEN) | position_aware_zero_cost | 2.8971 | 8.2563 | 62.92 | -1,204.34 |
+| latency2 (FAILED_SCREEN) | position_aware_cost | 2.6777 | 8.1136 | 58.47 | -1,188.89 |
+
+The run used one frozen Ridge artifact (`93e36450546cb024d4f3718eaf5b498e247cd1c5da73da95dab449697c7d4e52`) with 1,413 eligible fit rows per symbol and the `causal_log_return_24bar` feature. The requested replay interval was `[1461, 2182)`, comprising 721 hourly intervals. Base and `execution2_borrow2_funding_base` each made 720 policy decisions; `latency2` made 718 decisions before reserved terminal settlement at endpoint row 2182. Row 2183 was excluded. The window ran from 2024-03-01 22:00 UTC through the 2024-03-31 23:00 UTC settlement endpoint. Initial capital was 100,000 USDT, with 0.20 maximum absolute symbol weight, 0.40 gross and turnover limits, and a 20% drawdown stop. `execution2_borrow2_funding_base` doubled execution and borrow multipliers; its funding source/rates and configured multiplier stayed unchanged, while realized funding P&L varied with each arm's positions. `latency2` used two-bar order latency. Reported `borrow_cost` was zero in all 12 rows.
+
+The parent Dataset's `MarketDataset.fee_rate=0.0005` and `MarketDataset.spread_rate=0.0002` are the 5 bp fee and 2 bp spread assumptions. The configured execution overlays for fee, spread, and impact were zero; they do not replace or erase the Dataset costs. The positive controller penalty of 0.001 per unit of weight turnover (10 bp) is a separate decision proxy, not a ledger fee. Ledger execution costs and funding are already included in terminal wealth and must not be subtracted again. Funding uses the row-close proxy, not verified exchange settlement marks; current 2026 filters were applied to historical bars and do not prove historical exchange rules.
+
+This screen is separate from, and does not complete or replace, the original NONRL 48-cell gate, which remains incomplete: its retained registry records 1 interrupted, 47 unattempted, and 0 complete cells. The parent input's earlier-use boundary remains `Tier U` (`consumption_closure=unknown`); this screen does not establish that the data were unused. PPO/RL is outside the comparison. The result is one fixed-window descriptive development screen, not statistical evidence, a forward-profit claim, or live-trading approval. No retry, retuning, or additional fit/replay was performed. A separate root readback reloaded the three pinned study artifacts and 12 ledgers and confirmed their Dataset/model/capital/endpoints bindings. N2's source-M34 metadata/public-loader verification completed 71/71 checks (receipt SHA-256 `5a8f2c7c3409b5413831d50dbe96cc98cf08bb37d1ee2bbf0605fd43dfa19a66`); this is a metadata/loader check, not a new fit or replay. The [M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01) (release ID `422708600`) is published. Its [evidence.zip](https://github.com/shuntatsu/trade_rl/releases/download/research/issue810-fourarm-M34-20261024-attempt01/evidence.zip) SHA-256 is `ec7f224a5d5e69a3946ad85e0de0cafb00a1c0f58d32e079e51f631658a9dfa3`; [MANIFEST.json](https://github.com/shuntatsu/trade_rl/releases/download/research/issue810-fourarm-M34-20261024-attempt01/MANIFEST.json) SHA-256 is `986f77e8b44768c62676c79b0acce1571d2b279bdbac6ae1442aac3621acee3b`; and the [machine report](https://github.com/shuntatsu/trade_rl/releases/download/research/issue810-fourarm-M34-20261024-attempt01/report.json) SHA-256 is `5e996fefa833d205cb3100085cf2365621407b8f681ac4a97b91d3e63215018d`.
+
+Source: M34 commit `f5a11c656`, tree `ce80b61cb`; parent Dataset `35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f` / artifact `0d8570a62bf2bc265bacc7b057c7374649bfa49ff9e4f2eed4d22568e649871e`; derived Dataset `2b426305cc5fba13f96f0c06474060b2979f76239d3835d8587e51e8544e5604` / artifact `3cbaa87a895a5b8859eee6ccc3587c0b0265d3d2ef198a2db077f470b8d1895e`; manifest SHA-256 `dda9d63e00b1372500fa5c72ceff3b46322c2f9a4c8e20d5a78620be3da46899`; protocol SHA-256 `65d37c8329568a511a4515cd13c98827aba734e7eab93a005672525d123e323d`; input audit SHA-256 `03fb868bb3a68de142068e28dfc1a84791672e8257a59ad062fe39977ca86e8f`; report JSON SHA-256 `5e996fefa833d205cb3100085cf2365621407b8f681ac4a97b91d3e63215018d`; root completed-run readback SHA-256 `a5cf4d9d900763bf94a02e28f73e3eea13bb883c47058183c5eb984c4f767e1c`.
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 

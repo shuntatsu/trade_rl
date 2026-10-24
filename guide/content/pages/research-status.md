@@ -4,15 +4,15 @@
 
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
-Issue #810の4方式比較に必要なソフトウェアは`main`に統合済みです。しかし、固定済み実データでのfit・12 armの損益計算はまだ行っておらず、利益や採用候補は決まっていません。
+Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しました。screen全体は FAILED_SCREEN です。全てのnon-cash armのreturnは正でしたが、latency-2ではcost-proxy armがposition-aware cost=0 controlを下回りました。
 
-## Issue #810：4方式比較の実装と実行前ゲート（2026-10-24）
+## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 
-現在の[研究状態の正本](../../../docs/research/current-status.md)では、4方式比較と周辺ソフトウェアが正式レビュー・必須CIを通して`main`へ統合済みです。凍結したRidgeモデルと同じDatasetで、cash / legacy hysteresis / 保有量対応`c=0` / 保有量対応`c>0`を比較できます。各方式は独立した100,000 USDT口座を使い、その口座内でBTC/ETHが資金を共有します。判断用のcost proxyと、実際にledgerへ計上するfee・spread・funding・borrowは別です。
+4方式比較のソフトウェアはレビューと必須CIを通してmainに統合され、M34で固定した一度のscreenを実行しました。cash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの12行はすべて計算を完了しましたが、latency-2のnet returnはcost-proxyが2.6777%、cost=0が2.8971%となり、screenの比較条件は不成立です。各行の結果、費用・drawdown・fundingとsource bindingは[研究状態の正本](../../../docs/research/current-status.md)および[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)を参照してください。
 
-[結果前に固定したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)は、1回のfit、3つのscenario、合計12 armを定めています。source・Dataset・公式市場データの入力整合と、人工データを使った外側の一連の実行・保存・再読込は確認しました。ただし、これらは**実データの比較結果ではありません**。fee/spread、funding mark、margin、capacityは歴史的実約定まで保証するものではなく、固定した研究仮定です。
+各armは独立した100,000 USDT口座を持ち、BTC/ETHは口座内で資金を共有します。Datasetのfee_rate 5 bpとspread_rate 2 bpを使い、追加execution overlayは0です。10 bp/weight-turnoverのdecision proxyはledger feeと別で、execution costやfundingを二重計上しません。fundingは完成barのrow-close proxy、marginと市場filterは固定した研究仮定です。
 
-freshなG0〜G3独立レビューは、レビュー資料の伝送欠落によるcoverage不足もあり未完了です。source/runtimeの再確認と別の1回限りの実行許可が揃うまで、実データfit/replayを行いません。実行後には利益だけでなく、各armの費用・損失・ledger最大drawdown・未完了/失敗を残します。継続的な利益、winner、sealed/unused/final、liveは未証明です。
+入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。この結果をretuneや再実行には使いません。
 
 ## Task 18 Datasetの準備状況と次のゲート
 
@@ -23,6 +23,12 @@ Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みですが、歴史的な市場実績へのcalibrationは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではありません。
 
 Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
+
+### 条件付きfour-arm Ridge開発screen
+
+attempt 01では全12行の計算が完了しましたが、screen全体の判定は `FAILED_SCREEN` です。3つのシナリオすべてでcash以外の3 armの費用反映後リターンは正でした。一方、latency 2 barsでは正のcost proxy armが2.6777%で、position-aware `cost=0` の2.8971%を下回り、必要な比較条件を満たしませんでした。全行は終端flat・残注文0で、実現ledger最大DDは20%未満でしたが、勝者や将来利益の証拠ではありません。全12行とDD・費用・fundingの詳細は正本の研究statusに記録しています。rootの別readbackとN2の71/71 source-M34 metadata/public-loader checksは完了しました。詳細reportとevidence packageは[M34のGitHub release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に公開済みです（release ID `422708600`、tagはM34）。
+
+費用はDatasetの `fee_rate=0.0005`（5 bp）と `spread_rate=0.0002`（2 bp）を使い、追加overlayは0です。10 bp/weight-turnoverは意思決定用proxyで、ledger feeではありません。ledgerの費用とfundingは最終wealthに含まれ、再度差し引きません。fundingはbar-close proxyで、実際のexchange settlement markとの一致は未確認です。元の48-cell gateは未完了で、registryには1 interrupted・47 unattempted・0 completeが残っています。入力は過去利用のclosureが不明なTier Uです。PPO/RL、unused-period、将来利益、live運用の証拠ではありません。再実行やretuneはしません。
 
 ## PPO中期保有期間の次期設計
 

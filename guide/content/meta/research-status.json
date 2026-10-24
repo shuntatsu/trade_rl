@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Issue #810の4方式比較ソフトウェア、固定済み1 fit/3 scenario/12 arm、未完了のG0–G3・実データ利益検証、および過去のTask 18とKEEP_BASELINEを説明します。",
+  "summary": "Task 18準備状況、FAILED_SCREENとなったM34の12行four-arm Ridge開発screen、未完了の48-cell比較、研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -19,7 +19,7 @@
     "NONRL 48",
     "fee-only learnability",
     "four-arm comparison",
-    "G0-G3",
+    "FAILED_SCREEN",
     "12 arms",
     "frozen Ridge"
   ],
@@ -27,7 +27,12 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "78ff0b940481ecbb419b1dc4283e1bac63b12aa1580415fc621d0061ffda14fc"
+      "sha256": "782b2ca9c0ac012e8c7367ae67e601542d2b159aa4642b7190ab6abcc4ec585c"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)",
+      "sha256": "d819638b6682fef5ba8ca3f0f94e0b77566a8d619e2609b5c0dd00350921d85f"
     },
     {
       "path": "docs/research/current-status.md",
@@ -47,12 +52,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "e4b84f56af9158eba03fc7f681bfaa890bd5f2752df24ef3cd4e47e7227b039f"
-    },
-    {
-      "path": "docs/research/current-status.md",
-      "heading": "Issue #810: frozen four-arm software and development execution gate (2026-10-24)",
-      "sha256": "667cd80e8b59ddd3b137d5fb6a4f38fcbf87c0a9e7e5e04e80f90cb8d7fd308c"
+      "sha256": "c25e040fe793c8d7c9d388f3d77dfa9cebf5b32dccd65159cf92f8d24629dfc9"
     }
   ],
   "code_references": []

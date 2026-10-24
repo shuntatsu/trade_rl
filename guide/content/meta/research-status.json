@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18準備状況、FAILED_SCREENとなったM34の12行four-arm Ridge開発screen、未完了の48-cell比較、研究上の未証明事項を表示します。",
+  "summary": "Task 18準備状況、opt-in Ridge forecast-versus-zero diagnostics、FAILED_SCREENとなったM34開発screen、未完了の48-cell比較と研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",

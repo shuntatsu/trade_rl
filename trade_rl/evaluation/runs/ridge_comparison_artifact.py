@@ -26,8 +26,11 @@ from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.robustness.closed_trades import ClosedTradeDiagnostics
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 from trade_rl.evaluation.runs.ridge_artifact_comparison import (
+    ForecastErrorMetrics,
+    ForecastSymbolDiagnostics,
     RidgeArtifactComparison,
     RidgeArtifactComparisonConfig,
+    RidgeForecastDiagnostics,
 )
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRiskConfig
@@ -39,6 +42,10 @@ from trade_rl.strategies.position_intent import PositionIntent
 
 _SCHEMA = "ridge_shared_cash_comparison_v1"
 _DIGEST_DOMAIN = b"trade_rl.ridge_shared_cash_comparison_artifact_v1\0"
+_SCHEMA_WITH_FORECAST_DIAGNOSTICS = "ridge_shared_cash_comparison_v2"
+_DIGEST_DOMAIN_WITH_FORECAST_DIAGNOSTICS = (
+    b"trade_rl.ridge_shared_cash_comparison_artifact_v2\0"
+)
 _FILENAME = "comparison.json"
 _ARM_NAMES = (
     "cash",
@@ -126,7 +133,7 @@ def _profile_declaration(profile: MarketOrderProfile | None) -> object:
 
 
 def _config_payload(config: RidgeArtifactComparisonConfig) -> dict[str, object]:
-    return {
+    payload = {
         "entry_threshold": config.entry_threshold,
         "execution_cost": asdict(config.execution_cost),
         "exit_threshold": config.exit_threshold,
@@ -138,6 +145,55 @@ def _config_payload(config: RidgeArtifactComparisonConfig) -> dict[str, object]:
         "risk": asdict(config.risk),
         "start_index": config.start_index,
         "stop_index": config.stop_index,
+    }
+    if config.include_forecast_diagnostics:
+        payload["include_forecast_diagnostics"] = True
+    return payload
+
+
+def _forecast_metrics_payload(metrics: ForecastErrorMetrics) -> dict[str, object]:
+    if type(metrics) is not ForecastErrorMetrics:
+        raise TypeError("forecast metrics are invalid")
+    return {
+        "mae": metrics.mae,
+        "mae_improvement": metrics.mae_improvement,
+        "mse_skill": metrics.mse_skill,
+        "pair_count": metrics.pair_count,
+        "rmse": metrics.rmse,
+        "zero_mae": metrics.zero_mae,
+        "zero_rmse": metrics.zero_rmse,
+    }
+
+
+def _forecast_diagnostics_payload(
+    diagnostics: RidgeForecastDiagnostics,
+) -> dict[str, object]:
+    if type(diagnostics) is not RidgeForecastDiagnostics:
+        raise TypeError("forecast diagnostics are invalid")
+    return {
+        "by_symbol": [
+            {
+                "candidate_count": item.candidate_count,
+                "eligible_count": item.eligible_count,
+                "excluded_counts": [list(pair) for pair in item.excluded_counts],
+                "metrics": _forecast_metrics_payload(item.metrics),
+                "symbol": item.symbol,
+            }
+            for item in diagnostics.by_symbol
+        ],
+        "candidate_count": diagnostics.candidate_count,
+        "decision_stop_index": diagnostics.decision_stop_index,
+        "eligible_count": diagnostics.eligible_count,
+        "evaluation_start_index": diagnostics.evaluation_start_index,
+        "evaluation_stop_index": diagnostics.evaluation_stop_index,
+        "excluded_counts": [list(pair) for pair in diagnostics.excluded_counts],
+        "fit_cutoff_ns": diagnostics.fit_cutoff_ns,
+        "horizon_hours": diagnostics.horizon_hours,
+        "feature_eligibility_rule": "all_model_features_available_and_finite",
+        "pooled": _forecast_metrics_payload(diagnostics.pooled),
+        "target_endpoint_rule": "strictly_before_scoring_as_of",
+        "target_unit": "log_return",
+        "scoring_as_of_ns": diagnostics.scoring_as_of_ns,
     }
 
 
@@ -179,6 +235,10 @@ def _comparison_payload(
         raise TypeError("comparison config is invalid")
     if type(comparison.binding) is not RidgeForecastArtifactBinding:
         raise TypeError("comparison binding is invalid")
+    if comparison.config.include_forecast_diagnostics != (
+        comparison.forecast_diagnostics is not None
+    ):
+        raise ValueError("forecast diagnostic opt-in and result differ")
     if (
         len(comparison.entries) != len(_ARM_NAMES)
         or tuple(entry.name for entry in comparison.entries) != _ARM_NAMES
@@ -209,7 +269,7 @@ def _comparison_payload(
             }
         )
     dataset = comparison.dataset_artifact
-    return {
+    payload: dict[str, object] = {
         "arms": arms,
         "config": _config_payload(comparison.config),
         "dataset": {
@@ -227,8 +287,17 @@ def _comparison_payload(
             "binding": _binding_payload(comparison.binding),
         },
         "provenance": dict(provenance),
-        "schema_version": _SCHEMA,
+        "schema_version": (
+            _SCHEMA_WITH_FORECAST_DIAGNOSTICS
+            if comparison.forecast_diagnostics is not None
+            else _SCHEMA
+        ),
     }
+    if comparison.forecast_diagnostics is not None:
+        payload["forecast_diagnostics"] = _forecast_diagnostics_payload(
+            comparison.forecast_diagnostics
+        )
+    return payload
 
 
 def _validate_provenance(value: object) -> dict[str, object]:
@@ -501,24 +570,32 @@ def _validate_config(
     *,
     dataset_id: str,
     symbols: tuple[str, ...],
+    diagnostics_enabled: bool,
 ) -> tuple[dict[str, object], str]:
+    config_keys = {
+        "entry_threshold",
+        "execution_cost",
+        "exit_threshold",
+        "gross_budget",
+        "initial_capital",
+        "market_order_profile",
+        "minimum_hold_bars",
+        "one_way_switch_cost",
+        "risk",
+        "start_index",
+        "stop_index",
+    }
+    if diagnostics_enabled:
+        config_keys.add("include_forecast_diagnostics")
     config = _object(
         value,
         field="config",
-        keys={
-            "entry_threshold",
-            "execution_cost",
-            "exit_threshold",
-            "gross_budget",
-            "initial_capital",
-            "market_order_profile",
-            "minimum_hold_bars",
-            "one_way_switch_cost",
-            "risk",
-            "start_index",
-            "stop_index",
-        },
+        keys=config_keys,
     )
+    if diagnostics_enabled and type(config["include_forecast_diagnostics"]) is not bool:
+        raise ValueError("config.include_forecast_diagnostics must be boolean")
+    if diagnostics_enabled and config["include_forecast_diagnostics"] is not True:
+        raise ValueError("v2 comparison requires forecast diagnostics opt-in")
     cost_raw = _object(
         config["execution_cost"],
         field="config.execution_cost",
@@ -599,6 +676,7 @@ def _validate_config(
         execution_cost=cost,
         risk=risk,
         minimum_hold_bars=minimum_hold,
+        include_forecast_diagnostics=diagnostics_enabled,
     )
     if profile is None:
         execution_digest = cost.execution_policy_digest
@@ -1476,14 +1554,213 @@ def _validate_arm(
     return periods
 
 
-def _validate_payload(value: object) -> dict[str, object]:
-    payload = _object(
+def _validate_forecast_exclusion_counts(
+    value: object,
+    *,
+    field: str,
+) -> tuple[tuple[str, int], ...]:
+    raw = _sequence(value, field=field)
+    result: list[tuple[str, int]] = []
+    for index, item in enumerate(raw):
+        pair = _sequence(item, field=f"{field}[{index}]")
+        if len(pair) != 2:
+            raise ValueError(f"{field}[{index}] must contain a reason and count")
+        result.append(
+            (
+                _string(pair[0], field=f"{field}[{index}].reason"),
+                _integer(pair[1], field=f"{field}[{index}].count", minimum=0),
+            )
+        )
+    return tuple(result)
+
+
+def _validate_forecast_metrics(value: object, *, field: str) -> ForecastErrorMetrics:
+    raw = _object(
         value,
-        field="comparison",
-        keys={"arms", "config", "dataset", "model", "provenance", "schema_version"},
+        field=field,
+        keys={
+            "mae",
+            "mae_improvement",
+            "mse_skill",
+            "pair_count",
+            "rmse",
+            "zero_mae",
+            "zero_rmse",
+        },
     )
-    if payload["schema_version"] != _SCHEMA:
+
+    def optional_number(name: str) -> float | None:
+        item = raw[name]
+        return None if item is None else _number(item, field=f"{field}.{name}")
+
+    return ForecastErrorMetrics(
+        pair_count=_integer(raw["pair_count"], field=f"{field}.pair_count", minimum=0),
+        mae=optional_number("mae"),
+        rmse=optional_number("rmse"),
+        zero_mae=optional_number("zero_mae"),
+        zero_rmse=optional_number("zero_rmse"),
+        mae_improvement=optional_number("mae_improvement"),
+        mse_skill=optional_number("mse_skill"),
+    )
+
+
+def _validate_forecast_diagnostics(
+    value: object,
+    *,
+    binding: RidgeForecastArtifactBinding,
+    symbols: tuple[str, ...],
+    start: int,
+    stop: int,
+    stop_ns: int,
+    decision_stop: int,
+    candidate_count: int,
+) -> RidgeForecastDiagnostics:
+    raw = _object(
+        value,
+        field="forecast_diagnostics",
+        keys={
+            "by_symbol",
+            "candidate_count",
+            "decision_stop_index",
+            "eligible_count",
+            "evaluation_start_index",
+            "evaluation_stop_index",
+            "excluded_counts",
+            "feature_eligibility_rule",
+            "fit_cutoff_ns",
+            "horizon_hours",
+            "pooled",
+            "scoring_as_of_ns",
+            "target_endpoint_rule",
+            "target_unit",
+        },
+    )
+    if raw["feature_eligibility_rule"] != "all_model_features_available_and_finite":
+        raise ValueError("unsupported forecast feature eligibility rule")
+    if raw["target_endpoint_rule"] != "strictly_before_scoring_as_of":
+        raise ValueError("unsupported forecast target maturity rule")
+    if raw["target_unit"] != "log_return":
+        raise ValueError("unsupported forecast target unit")
+    by_symbol_raw = _sequence(raw["by_symbol"], field="forecast_diagnostics.by_symbol")
+    by_symbol: list[ForecastSymbolDiagnostics] = []
+    for index, item in enumerate(by_symbol_raw):
+        entry = _object(
+            item,
+            field=f"forecast_diagnostics.by_symbol[{index}]",
+            keys={
+                "candidate_count",
+                "eligible_count",
+                "excluded_counts",
+                "metrics",
+                "symbol",
+            },
+        )
+        by_symbol.append(
+            ForecastSymbolDiagnostics(
+                symbol=_string(entry["symbol"], field="forecast diagnostic symbol"),
+                candidate_count=_integer(
+                    entry["candidate_count"],
+                    field="forecast diagnostic symbol candidate_count",
+                    minimum=0,
+                ),
+                eligible_count=_integer(
+                    entry["eligible_count"],
+                    field="forecast diagnostic symbol eligible_count",
+                    minimum=0,
+                ),
+                excluded_counts=_validate_forecast_exclusion_counts(
+                    entry["excluded_counts"],
+                    field="forecast diagnostic symbol excluded_counts",
+                ),
+                metrics=_validate_forecast_metrics(
+                    entry["metrics"], field="forecast diagnostic symbol metrics"
+                ),
+            )
+        )
+    diagnostics = RidgeForecastDiagnostics(
+        horizon_hours=_integer(
+            raw["horizon_hours"], field="forecast diagnostics horizon_hours", minimum=1
+        ),
+        fit_cutoff_ns=_integer(
+            raw["fit_cutoff_ns"], field="forecast diagnostics fit_cutoff_ns"
+        ),
+        evaluation_start_index=_integer(
+            raw["evaluation_start_index"],
+            field="forecast diagnostics evaluation_start_index",
+            minimum=0,
+        ),
+        decision_stop_index=_integer(
+            raw["decision_stop_index"],
+            field="forecast diagnostics decision_stop_index",
+            minimum=1,
+        ),
+        evaluation_stop_index=_integer(
+            raw["evaluation_stop_index"],
+            field="forecast diagnostics evaluation_stop_index",
+            minimum=1,
+        ),
+        scoring_as_of_ns=_integer(
+            raw["scoring_as_of_ns"], field="forecast diagnostics scoring_as_of_ns"
+        ),
+        candidate_count=_integer(
+            raw["candidate_count"],
+            field="forecast diagnostics candidate_count",
+            minimum=0,
+        ),
+        eligible_count=_integer(
+            raw["eligible_count"],
+            field="forecast diagnostics eligible_count",
+            minimum=0,
+        ),
+        excluded_counts=_validate_forecast_exclusion_counts(
+            raw["excluded_counts"], field="forecast diagnostics excluded_counts"
+        ),
+        pooled=_validate_forecast_metrics(
+            raw["pooled"], field="forecast diagnostics pooled"
+        ),
+        by_symbol=tuple(by_symbol),
+    )
+    if (
+        diagnostics.horizon_hours != binding.horizon_hours
+        or diagnostics.fit_cutoff_ns != binding.fit_cutoff_ns
+        or diagnostics.evaluation_start_index != start
+        or diagnostics.decision_stop_index != decision_stop
+        or diagnostics.evaluation_stop_index != stop
+        or diagnostics.scoring_as_of_ns != stop_ns
+        or tuple(item.symbol for item in diagnostics.by_symbol) != symbols
+        or diagnostics.candidate_count != candidate_count
+    ):
+        raise ValueError("forecast diagnostics differ from the bound comparison scope")
+    return diagnostics
+
+
+def _validate_payload(value: object) -> dict[str, object]:
+    unvalidated = _object(value, field="comparison")
+    schema = unvalidated.get("schema_version")
+    if schema == _SCHEMA:
+        diagnostics_enabled = False
+        payload_keys = {
+            "arms",
+            "config",
+            "dataset",
+            "model",
+            "provenance",
+            "schema_version",
+        }
+    elif schema == _SCHEMA_WITH_FORECAST_DIAGNOSTICS:
+        diagnostics_enabled = True
+        payload_keys = {
+            "arms",
+            "config",
+            "dataset",
+            "forecast_diagnostics",
+            "model",
+            "provenance",
+            "schema_version",
+        }
+    else:
         raise ValueError("unsupported Ridge comparison artifact schema")
+    payload = _object(unvalidated, field="comparison", keys=payload_keys)
     dataset, binding, symbols = _validate_dataset_model(payload)
     dataset_id = cast(str, dataset["dataset_id"])
     start = cast(int, dataset["evaluation_start_index"])
@@ -1491,7 +1768,10 @@ def _validate_payload(value: object) -> dict[str, object]:
     start_ns = cast(int, dataset["evaluation_start_ns"])
     stop_ns = cast(int, dataset["evaluation_stop_ns"])
     config, execution_digest = _validate_config(
-        payload["config"], dataset_id=dataset_id, symbols=symbols
+        payload["config"],
+        dataset_id=dataset_id,
+        symbols=symbols,
+        diagnostics_enabled=diagnostics_enabled,
     )
     if (config["start_index"], config["stop_index"]) != (start, stop):
         raise ValueError("config and requested Dataset boundaries differ")
@@ -1510,6 +1790,18 @@ def _validate_payload(value: object) -> dict[str, object]:
     )
     if decision_count <= 0:
         raise ValueError("comparison range has no agent decision interval")
+    decision_stop = start + decision_count
+    if diagnostics_enabled:
+        _validate_forecast_diagnostics(
+            payload["forecast_diagnostics"],
+            binding=binding,
+            symbols=symbols,
+            start=start,
+            stop=stop,
+            stop_ns=stop_ns,
+            decision_stop=decision_stop,
+            candidate_count=decision_count * len(symbols),
+        )
     arms = _sequence(payload["arms"], field="arms")
     if len(arms) != len(_ARM_NAMES):
         raise ValueError("comparison must contain exactly four arms")
@@ -1560,6 +1852,17 @@ def _load_raw(root: Path) -> bytes:
         return handle.read()
 
 
+def _artifact_digest_domain(schema: object) -> tuple[str, bytes]:
+    if schema == _SCHEMA:
+        return _SCHEMA, _DIGEST_DOMAIN
+    if schema == _SCHEMA_WITH_FORECAST_DIAGNOSTICS:
+        return (
+            _SCHEMA_WITH_FORECAST_DIAGNOSTICS,
+            _DIGEST_DOMAIN_WITH_FORECAST_DIAGNOSTICS,
+        )
+    raise ValueError("unsupported Ridge comparison artifact schema")
+
+
 def load_ridge_comparison_artifact(
     root: str | Path,
     *,
@@ -1570,8 +1873,18 @@ def load_ridge_comparison_artifact(
     require_sha256(expected_digest, field="expected_digest")
     artifact_root = Path(root)
     raw = _load_raw(artifact_root)
-    digest = sha256(_DIGEST_DOMAIN + raw).hexdigest()
-    if digest != expected_digest:
+    matched_schema: str | None = None
+    digest = ""
+    for schema, domain in (
+        (_SCHEMA, _DIGEST_DOMAIN),
+        (_SCHEMA_WITH_FORECAST_DIAGNOSTICS, _DIGEST_DOMAIN_WITH_FORECAST_DIAGNOSTICS),
+    ):
+        candidate_digest = sha256(domain + raw).hexdigest()
+        if candidate_digest == expected_digest:
+            matched_schema = schema
+            digest = candidate_digest
+            break
+    if matched_schema is None:
         raise ValueError("comparison artifact digest mismatch")
     try:
         payload = json.loads(
@@ -1581,6 +1894,8 @@ def load_ridge_comparison_artifact(
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("comparison artifact is not valid JSON") from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != matched_schema:
+        raise ValueError("comparison artifact digest domain differs from its schema")
     validated = _validate_payload(payload)
     if canonical_json_bytes(validated) != raw:
         raise ValueError("comparison artifact JSON is not canonical")
@@ -1604,7 +1919,8 @@ def publish_ridge_comparison_artifact(
     payload = _comparison_payload(comparison, provenance)
     validated = _validate_payload(payload)
     raw = canonical_json_bytes(validated)
-    digest = sha256(_DIGEST_DOMAIN + raw).hexdigest()
+    _, domain = _artifact_digest_domain(validated["schema_version"])
+    digest = sha256(domain + raw).hexdigest()
     output = Path(root)
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"comparison destination already exists: {output}")

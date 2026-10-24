@@ -34,6 +34,26 @@ def _readonly_array(
     ).reshape(contiguous.shape)
 
 
+def _datetime64_ns_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    source = np.asarray(value)
+    if not np.issubdtype(source.dtype, np.datetime64):
+        raise ValueError(f"{field_name} must use a datetime64 dtype")
+    if np.isnat(source).any():
+        raise ValueError(f"{field_name} must not contain NaT")
+    try:
+        normalized = source.astype(np.dtype("datetime64[ns]"))
+        round_tripped = normalized.astype(source.dtype)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"{field_name} must be exactly representable as datetime64[ns]"
+        ) from error
+    if not np.array_equal(round_tripped, source):
+        raise ValueError(
+            f"{field_name} must be exactly representable as datetime64[ns]"
+        )
+    return _readonly_array(normalized, dtype=np.dtype("datetime64[ns]"))
+
+
 def _optional_array(
     value: np.ndarray | None,
     *,
@@ -176,10 +196,12 @@ class MarketDataset:
             raise ValueError("timestamps must be one-dimensional")
         if not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must use a datetime64 dtype")
-        if np.isnat(timestamps).any():
-            raise ValueError("timestamps must not contain NaT")
+        normalized_timestamps = _datetime64_ns_array(
+            timestamps,
+            field_name="timestamps",
+        )
         timestamp_ns = _readonly_array(
-            timestamps.astype("datetime64[ns]").astype(np.int64),
+            normalized_timestamps.astype(np.int64),
             dtype=np.dtype(np.int64),
         )
         n_bars = timestamp_ns.shape[0]
@@ -247,13 +269,20 @@ class MarketDataset:
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
 
-        event_times = np.broadcast_to(
-            timestamps.astype("datetime64[ns]")[:, None], price_shape
-        )
-        available_at = _readonly_array(
-            event_times if self.available_at is None else self.available_at,
-            dtype=np.dtype("datetime64[ns]"),
-        )
+        event_times = np.broadcast_to(normalized_timestamps[:, None], price_shape)
+        if self.available_at is None:
+            available_at = _readonly_array(
+                event_times,
+                dtype=np.dtype("datetime64[ns]"),
+            )
+        else:
+            available_source = np.asarray(self.available_at)
+            if available_source.shape != price_shape:
+                raise ValueError("available_at shape does not match bars and symbols")
+            available_at = _datetime64_ns_array(
+                available_source,
+                field_name="available_at",
+            )
         if available_at.shape != price_shape:
             raise ValueError("available_at shape does not match bars and symbols")
         available_ns = available_at.astype("datetime64[ns]").astype(np.int64)

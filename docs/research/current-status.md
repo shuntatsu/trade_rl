@@ -90,15 +90,23 @@ evidence.
 trainer for this opt-in joint environment. It binds rollout policy samples to
 native episode events, records exact rollout completion, checkpoint hashes,
 optimizer-step calls, and failure/incomplete evidence, and leaves the existing
-per-symbol PPO path and defaults untouched. The software path and synthetic
-tests do not establish an economic result, model-selection decision, deployable
-inference bundle, or completion of any research gate. No real-data training is
-claimed here. Before reserving an attempt, its rollout size and GAE lambda must
-match the environment's bound financial clock. Failed receipts retain observed
-optimizer post-step-hook calls and SB3's reported epoch counter when initialized,
-or explicit nulls before initialization. Early target-KL stopping can count a
-partially processed epoch, and a failure inside an optimizer step can leave the
-post-step-hook count below work already applied.
+per-symbol PPO path and defaults untouched. Before reserving an attempt, its
+rollout size and GAE lambda must match the environment's bound financial clock.
+Failed receipts retain observed optimizer post-step-hook calls and SB3's
+reported epoch counter when initialized, or explicit nulls before
+initialization. Early target-KL stopping can count a partially processed epoch,
+and a failure inside an optimizer step can leave the post-step-hook count below
+work already applied.
+
+`portfolio_inference_bundle.py` adds a separate opt-in publisher and strict
+loader for an exact completed trainer attempt. The bundle binds the training
+context, checkpoint bytes, selected source/runtime owner manifest, action
+layout, and an explicitly validated forward environment before SB3 policy
+deserialization. This software path does not establish an economic result,
+model-selection decision, complete transitive source closure, independent fit
+provenance, deployment readiness, or completion of any research gate. No
+real-data-trained policy or real-data inference is claimed here; legacy
+per-symbol PPO paths and defaults remain unchanged.
 
 The exact-window wrapper remains the default. A separate
 `PortfolioObservationRuntimeBinding` can reuse the frozen transform on a

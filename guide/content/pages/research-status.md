@@ -10,7 +10,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。このjournal単体はtrainerやweights/checkpoint lineageのattestationではありません。
 
-`fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。synthetic software testsは利益、model selection、inference bundle、研究gate完了の証拠ではありません。実データ学習は主張せず、legacy PPO defaultも変更しません。
+`fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsynthetic software testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
 
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 

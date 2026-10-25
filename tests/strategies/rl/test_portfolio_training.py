@@ -427,6 +427,90 @@ def test_two_rollouts_bind_actual_policy_samples_to_native_episode_steps(
     assert not hasattr(loaded, "_training_coordinator")
 
 
+def test_training_context_is_persisted_before_first_environment_reset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    env = _environment(stop_index=5)
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "attempt"
+    original_reset = SharedPortfolioGymEnv.reset
+    observed_reset = False
+
+    def check_context_before_reset(
+        instance: SharedPortfolioGymEnv,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+        nonlocal observed_reset
+        if instance is env:
+            context_path = output / "training_context.json"
+            assert context_path.is_file()
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            assert context["schema"] == "shared_portfolio_training_context_v1"
+            manifest = json.loads(
+                (output / "manifest.json").read_text(encoding="utf-8")
+            )
+            assert context["training_context_digest"] == manifest["context_digest"]
+            assert context["transform_digest"] == transform.digest
+            observed_reset = True
+        return original_reset(instance, seed=seed, options=options)
+
+    monkeypatch.setattr(SharedPortfolioGymEnv, "reset", check_context_before_reset)
+    result = fit_shared_portfolio_ppo(
+        env,
+        transform=transform,
+        output_root=output,
+        config=_config(total_timesteps=4, n_steps=4),
+    )
+
+    assert observed_reset
+    context_bytes = (output / "training_context.json").read_bytes()
+    assert result.training_context_sha256 == hashlib.sha256(context_bytes).hexdigest()
+    context = json.loads(context_bytes)
+    assert context["objective"] == env.bound.objective.payload()
+    assert context["financial_clock"] == env.bound.clock.payload()
+    assert context["transform"] == transform.to_payload()
+    policy_layout = context["policy_layout"]
+    assert policy_layout["observation_keys"] == list(transform.observation_keys)
+    assert policy_layout["observation_space"]["field_order"] == list(
+        transform.observation_space.spaces
+    )
+    assert policy_layout["action_space"]["shape"] == [2]
+    assert context["observed_source_runtime"]["scope"] == (
+        "selected direct execution, context and policy owners; not a complete transitive closure"
+    )
+
+
+def test_source_runtime_capture_failure_does_not_consume_attempt_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "capture-failure"
+
+    def fail_capture() -> dict[str, object]:
+        raise RuntimeError("literal synthetic source capture failure")
+
+    monkeypatch.setattr(
+        training_module, "capture_portfolio_source_runtime", fail_capture
+    )
+    with pytest.raises(RuntimeError, match="source capture failure"):
+        fit_shared_portfolio_ppo(
+            env,
+            transform=transform,
+            output_root=output,
+            config=_config(total_timesteps=4),
+        )
+
+    assert env._session is None
+    assert not output.exists()
+
+
 def test_exact_budget_retains_empty_episode_after_terminal_auto_reset(
     tmp_path: Path,
 ) -> None:

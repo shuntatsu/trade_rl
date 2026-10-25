@@ -19,6 +19,10 @@ from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 from trade_rl.strategies.rl.portfolio_episode_journal import (
     PortfolioEpisodeJournalWrapper,
 )
+from trade_rl.strategies.rl.portfolio_inference_bundle import (
+    _space_descriptor,
+    capture_portfolio_source_runtime,
+)
 from trade_rl.strategies.rl.portfolio_policy_sample_journal import (
     PortfolioPolicySampleJournal,
 )
@@ -129,6 +133,9 @@ class SharedPortfolioPPOTrainingResult:
     optimizer_step_calls: int
     epoch_count: int
     final_checkpoint_sha256: str
+    manifest_sha256: str
+    training_context_sha256: str
+    completion_sha256: str
 
 
 class _ActorNativeJoinWrapper(gym.Wrapper):
@@ -626,24 +633,68 @@ def fit_shared_portfolio_ppo(
         raise FileExistsError(f"training attempt root already exists: {root}")
     if not root.parent.is_dir():
         raise FileNotFoundError(f"training attempt parent must exist: {root.parent}")
-    root.mkdir(parents=False, exist_ok=False)
 
+    effective_config = {
+        **asdict(config),
+        "gamma": 1.0,
+        "normalize_advantage": True,
+        "normalize_reward": False,
+        "device": "cpu",
+        "n_envs": 1,
+        "policy": "MultiInputPolicy",
+        "policy_net_arch": _POLICY_NET_ARCH,
+        "policy_activation": "torch.nn.Tanh",
+        "policy_ortho_init": True,
+        "use_sde": False,
+    }
+    profile = env.market_order_profile
+    training_context: dict[str, object] = {
+        "schema": "shared_portfolio_training_context_v1",
+        "training_context_digest": context_digest,
+        "context": context,
+        "transform": transform.to_payload(),
+        "transform_digest": transform.digest,
+        "objective": env.bound.objective.payload(),
+        "objective_digest": env.bound.objective.digest,
+        "financial_clock": env.bound.clock.payload(),
+        "financial_clock_digest": env.bound.clock.digest,
+        "bound_digest": env.bound.digest,
+        "financial_context": {
+            "initial_capital": env.initial_capital,
+            "target_abs_weights": list(env.target_abs_weights),
+            "execution_cost": to_json_value(env.execution_cost),
+            "risk_config": to_json_value(env.risk_config),
+            "market_order_profile": (
+                None if profile is None else profile.canonical_payload()
+            ),
+            "market_order_profile_digest": None if profile is None else profile.digest,
+        },
+        "policy_layout": {
+            "observation_schema": "shared_portfolio_dict_transform_v1",
+            "observation_keys": list(transform.observation_keys),
+            "observation_space": _space_descriptor(transform.observation_space),
+            "symbols": list(env.dataset.symbols),
+            "feature_names": list(env.dataset.feature_names),
+            "global_feature_names": list(env.dataset.global_feature_names),
+            "action_space": _space_descriptor(env.action_space),
+            "action_codes": [0, 1, 2, 3],
+            "target_abs_weights": list(env.target_abs_weights),
+        },
+        "training_config": {
+            "effective_config": effective_config,
+            "requested_timesteps": config.total_timesteps,
+            "execution_seed": env.execution_cost.random_seed,
+            "reset_seed": config.reset_seed,
+            "ppo_seed": config.ppo_seed,
+        },
+        "observed_source_runtime": capture_portfolio_source_runtime(),
+        "caller_declared_research_context": None,
+        "research_attestation": "software training context; not economic evidence",
+    }
     manifest = {
         "schema": PORTFOLIO_PPO_TRAINING_SCHEMA,
         "status": "started",
-        "effective_config": {
-            **asdict(config),
-            "gamma": 1.0,
-            "normalize_advantage": True,
-            "normalize_reward": False,
-            "device": "cpu",
-            "n_envs": 1,
-            "policy": "MultiInputPolicy",
-            "policy_net_arch": _POLICY_NET_ARCH,
-            "policy_activation": "torch.nn.Tanh",
-            "policy_ortho_init": True,
-            "use_sde": False,
-        },
+        "effective_config": effective_config,
         "requested_timesteps": config.total_timesteps,
         "realized_timesteps_contract": "exact total_timesteps; no rollout rounding",
         "execution_seed": env.execution_cost.random_seed,
@@ -658,6 +709,10 @@ def fit_shared_portfolio_ppo(
         "checkpoints_directory": "checkpoints",
     }
 
+    # Reserve only after every preflight/context capture has succeeded. This
+    # keeps an import/provenance failure from consuming an empty attempt root.
+    root.mkdir(parents=False, exist_ok=False)
+
     vector_env: Any | None = None
     episode_journal: PortfolioEpisodeJournalWrapper | None = None
     join_wrapper: _ActorNativeJoinWrapper | None = None
@@ -666,10 +721,15 @@ def fit_shared_portfolio_ppo(
     coordinator: _TrainingCoordinator | None = None
     model: Any | None = None
     primary_error: BaseException | None = None
+    manifest_sha256: str | None = None
+    training_context_sha256: str | None = None
     try:
         (root / "checkpoints").mkdir()
         (root / "rollouts").mkdir()
-        _write_unique(root / "manifest.json", manifest)
+        training_context_sha256 = _write_unique(
+            root / "training_context.json", training_context
+        )
+        manifest_sha256 = _write_unique(root / "manifest.json", manifest)
         transformed_env = PortfolioGymObservationWrapper(env, transform)
         episode_journal = PortfolioEpisodeJournalWrapper(
             transformed_env,
@@ -821,7 +881,7 @@ def fit_shared_portfolio_ppo(
             "final_checkpoint_path": coordinator.checkpoint_path,
             "final_checkpoint_sha256": coordinator.checkpoint_sha256,
         }
-        _write_unique(root / "completion.json", completion)
+        completion_sha256 = _write_unique(root / "completion.json", completion)
         return SharedPortfolioPPOTrainingResult(
             output_root=root,
             requested_timesteps=config.total_timesteps,
@@ -830,6 +890,9 @@ def fit_shared_portfolio_ppo(
             optimizer_step_calls=counter.count,
             epoch_count=int(model._n_updates),
             final_checkpoint_sha256=coordinator.checkpoint_sha256,
+            manifest_sha256=manifest_sha256,
+            training_context_sha256=training_context_sha256,
+            completion_sha256=completion_sha256,
         )
     except BaseException as error:
         primary_error = error

@@ -25,6 +25,8 @@
     "PortfolioPolicySampleJournal",
     "PortfolioEpisodeJournalWrapper",
     "fit_shared_portfolio_ppo",
+    "publish_portfolio_inference_bundle",
+    "load_portfolio_inference_bundle",
     "PortfolioObservationRuntimeBinding"
   ],
   "source_sections": [
@@ -154,12 +156,25 @@
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "a34fdb89d10fab695f6eec7ddc18aaddd247075e8731c0668152856849056429",
+      "source_sha256": "aae1ea2f45aef432b08a56f7ddbe3181efde3bd0be1713ceedb9962fe67d729d",
       "label_ja": "共通portfolioのopt-in PPO training entrypoint",
       "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_training.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-inference-bundle",
+      "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.load_portfolio_inference_bundle",
+      "kind": "function",
+      "source_sha256": "3e7156ca22c6d4d0adcdccb13aee3a00ac6c370e5f29882f3a545fc1ee823d57",
+      "label_ja": "学習attemptを検証するopt-in inference bundle",
+      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはselected owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

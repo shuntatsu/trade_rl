@@ -27,13 +27,15 @@
     "dependency",
     "PortfolioEpisodeJournalWrapper",
     "PortfolioPolicySampleJournal",
-    "fit_shared_portfolio_ppo"
+    "fit_shared_portfolio_ppo",
+    "publish_portfolio_inference_bundle",
+    "load_portfolio_inference_bundle"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "f547dadc1865bc532c220d34e17f0c3c06dae66a2182a244f36ef69b6fdc30c6"
+      "sha256": "c4e296aba862de766b7faa02deaa7d8c7cb451062a5a878e61696453ec485f25"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -378,12 +380,25 @@
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "a34fdb89d10fab695f6eec7ddc18aaddd247075e8731c0668152856849056429",
+      "source_sha256": "aae1ea2f45aef432b08a56f7ddbe3181efde3bd0be1713ceedb9962fe67d729d",
       "label_ja": "共通portfolioの明示的なopt-in PPO trainer",
       "description_ja": "1環境・CPU PPOのrolloutを実行し、実際のpolicy sampleとnative episode eventをjoinしてcheckpointと成功・失敗のsoftware evidenceを保存します。inference bundle、収益性の証拠、legacy PPO defaultの変更は提供しません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_training.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-inference-bundle",
+      "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.load_portfolio_inference_bundle",
+      "kind": "function",
+      "source_sha256": "3e7156ca22c6d4d0adcdccb13aee3a00ac6c370e5f29882f3a545fc1ee823d57",
+      "label_ja": "strictなjoint PPO inference bundle loader",
+      "description_ja": "trustedなbundle/attempt/context digest、forward runtime binding、実際のGym observation/action spacesをSB3 policy load前に照合します。schema v1でselected source/runtime ownerを記録しますが、完全なtransitive source closure、fitの独立証明、性能やdeployment readinessは主張しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

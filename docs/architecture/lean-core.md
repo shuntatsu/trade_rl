@@ -254,6 +254,20 @@ a raw step may have advanced. This does not make observations a complete account
 state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
 or change legacy PPO behavior.
 
+`PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
+It stores actual policy forward inputs, sampled action codes, the returned joint
+log-probability, and critic value before the caller advances the environment.
+Each sample-v2 row also records the forward batch size and actual action/value/
+log-probability tensor dtype and full batch shape, without changing the saved
+action or scalar values. Attachment requires empty policy-local and global
+forward-hook layouts; those layouts and their dispatch flags are frozen after
+attachment. Any later change fails closed before a sample is written, preventing
+a replacing hook from silently changing what SB3 receives. Caller-declared
+context, transform, and policy-version labels are not Dataset, weight, or
+checkpoint-lineage attestations. The recorder does not store optimizer updates
+or join policy samples to native financial transitions, and it leaves legacy
+PPO defaults and serialization unchanged.
+
 `run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
 sequences. It validates every symbol schedule before execution. `None` means no
 new actor decision and keeps the cached target and pending order progressing;

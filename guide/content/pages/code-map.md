@@ -51,6 +51,8 @@ artifacts / evidence
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
 | joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
+| opt-in Gym episode event journal | `trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper` |
+| opt-in SB3 policy forward sample journal | `trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal` |
 | portfolio policyへ渡すcurrent snapshotの組み立て | `trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot` |
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |

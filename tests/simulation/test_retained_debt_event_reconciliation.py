@@ -72,6 +72,68 @@ def _reconstruct_fills(
     return equity, total_fee, tuple(quantities), filled
 
 
+def _verify_terminal_order_chain(
+    *,
+    events: tuple[OrderEvent, ...],
+    intents: tuple[OrderIntent, ...],
+    order_book: OrderBookState,
+    terminal_index: int,
+) -> None:
+    """Match emitted order transitions to every terminal order record."""
+    if order_book.active_orders:
+        raise ValueError("terminal order archive still has active orders")
+    declared = {intent.order_id: intent for intent in intents}
+    terminal = {order.order_id: order for order in order_book.terminal_orders}
+    if (
+        len(declared) != len(intents)
+        or len(terminal) != len(intents)
+        or set(declared) != set(terminal)
+    ):
+        raise ValueError("terminal order roster mismatch")
+
+    last_by_order: dict[str, OrderEvent] = {}
+    for position, event in enumerate(events):
+        if event.sequence != position:
+            raise ValueError("order event sequence mismatch")
+        intent = declared.get(event.order_id)
+        if intent is None:
+            raise ValueError("unknown order in event chain")
+        if (
+            event.dataset_id != intent.dataset_id
+            or event.symbol_index != intent.symbol_index
+            or event.execution_policy_digest != intent.execution_policy_digest
+        ):
+            raise ValueError("event identity differs from declared order")
+        if event.processing_index > terminal_index:
+            raise ValueError("event follows economic termination")
+
+        previous = last_by_order.get(event.order_id)
+        if previous is None:
+            if event.event_type != "submitted":
+                raise ValueError("missing initial order submission")
+        elif (
+            previous.new_status != event.previous_status
+            or previous.new_status.terminal
+        ):
+            raise ValueError("order status chain is broken")
+        last_by_order[event.order_id] = event
+
+    for order_id, order in terminal.items():
+        last = last_by_order.get(order_id)
+        if (
+            last is None
+            or last.new_status != order.status
+            or last.remaining_quantity != order.remaining_quantity
+            or last.reason != order.terminal_reason
+        ):
+            raise ValueError("missing or mismatched terminal order event")
+        if order.terminal_reason == "economic_termination" and (
+            last.event_type != "cancelled"
+            or last.processing_index != terminal_index
+        ):
+            raise ValueError("economic termination cancellation mismatch")
+
+
 def test_short_gap_raw_debt_is_reconstructed_from_actual_fill_event() -> None:
     data = market()
     executor = MarketExecutor(data, cost(), insolvency_valuation="retain_debt")
@@ -160,6 +222,48 @@ def test_cross_symbol_debt_uses_only_first_realized_fill_in_event_ledger() -> No
     assert result.book.portfolio_value == float(equity)
     assert result.book.exact_quantities == (Fraction(0), Fraction(0))
     assert result.order_book.active_orders == ()
+
+    _verify_terminal_order_chain(
+        events=result.order_events,
+        intents=orders,
+        order_book=result.order_book,
+        terminal_index=result.next_index,
+    )
+    cancellations = [
+        event
+        for event in result.order_events
+        if event.event_type == "cancelled"
+        and event.reason == "economic_termination"
+    ]
+    assert len(cancellations) == 1
+    cancelled = cancellations[0]
+
+    missing = []
+    for event in result.order_events:
+        if event.sequence != cancelled.sequence:
+            missing.append(replace(event, sequence=len(missing)))
+    with pytest.raises(ValueError, match="terminal order event"):
+        _verify_terminal_order_chain(
+            events=tuple(missing),
+            intents=orders,
+            order_book=result.order_book,
+            terminal_index=result.next_index,
+        )
+
+    corrupted = list(result.order_events)
+    for changes, error in (
+        ({"reason": "wrong-reason"}, "terminal order event"),
+        ({"processing_index": result.next_index + 1}, "economic termination"),
+        ({"previous_status": cancelled.new_status}, "status chain"),
+    ):
+        corrupted[cancelled.sequence] = replace(cancelled, **changes)
+        with pytest.raises(ValueError, match=error):
+            _verify_terminal_order_chain(
+                events=tuple(corrupted),
+                intents=orders,
+                order_book=result.order_book,
+                terminal_index=result.next_index,
+            )
 
 
 def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper() -> (

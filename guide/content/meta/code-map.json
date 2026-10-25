@@ -352,7 +352,7 @@
       "id": "portfolio-policy-sample-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal",
       "kind": "class",
-      "source_sha256": "50c7d0dd1769b2814fcea1769ca6de306b51a5e1aa6918e4a205e5211938f6f7",
+      "source_sha256": "6cf02c75f8d3159011351162824dd126f6158efcc4344da55a9599ea80546438",
       "label_ja": "SB3 policy forward sampleのopt-in記録",
       "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。sample schema v2はforward batch sizeと出力tensorのdtype/shapeも記録します。attach時にlocal/global hook layoutが空であることを要求し、以降の変更はfail closedします。caller宣言のcontext/versionはattestationではなく、trainerやoptimizer update/native transitionとのjoinは提供しません。",
       "variables": [],

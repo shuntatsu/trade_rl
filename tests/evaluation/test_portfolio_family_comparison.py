@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ import pytest
 
 from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
-from trade_rl.risk.pretrade import PreTradeRiskConfig
+from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.clock import FinancialClockContract
@@ -224,6 +225,7 @@ def test_four_family_comparison_preflights_once_then_reuses_native_engine(
     validation_envs: list[object] = []
     session_records: list[tuple[object, MarketDataset, dict[str, object]]] = []
     replay_calls: list[tuple[MarketDataset, object, dict[str, object]]] = []
+    observed_bundle_pins: dict[str, str] = {}
     ppo_policy = _FixedPPOPolicy()
 
     load_dataset = publication_module.load_published_market_dataset_artifact
@@ -243,13 +245,15 @@ def test_four_family_comparison_preflights_once_then_reuses_native_engine(
         expected_checkpoint_sha256: str,
         runtime_env: object,
     ) -> _FixedPPOPolicy:
-        del (
-            root,
-            expected_bundle_sha256,
-            expected_manifest_sha256,
-            expected_completion_sha256,
-            expected_training_context_sha256,
-            expected_checkpoint_sha256,
+        del root
+        observed_bundle_pins.update(
+            {
+                "expected_bundle_sha256": expected_bundle_sha256,
+                "expected_manifest_sha256": expected_manifest_sha256,
+                "expected_completion_sha256": expected_completion_sha256,
+                "expected_training_context_sha256": expected_training_context_sha256,
+                "expected_checkpoint_sha256": expected_checkpoint_sha256,
+            }
         )
         assert runtime_env.dataset is loaded_pairs[0][1]
         assert runtime_env._session is None
@@ -323,6 +327,13 @@ def test_four_family_comparison_preflights_once_then_reuses_native_engine(
     assert validation_envs[0].dataset is paired_dataset
     assert validation_envs[0]._session is None
     assert len(replay_calls) == 4
+    assert observed_bundle_pins == {
+        "expected_bundle_sha256": inputs["expected_bundle_sha256"],
+        "expected_manifest_sha256": inputs["expected_manifest_sha256"],
+        "expected_completion_sha256": inputs["expected_completion_sha256"],
+        "expected_training_context_sha256": inputs["expected_training_context_sha256"],
+        "expected_checkpoint_sha256": inputs["expected_checkpoint_sha256"],
+    }
     assert len({id(policy) for _, policy, _ in replay_calls}) == 4
     assert all(dataset is paired_dataset for dataset, _, _ in replay_calls)
     assert len(session_records) == 4
@@ -387,6 +398,75 @@ def test_dataset_identity_mismatch_fails_before_any_native_session(
     with pytest.raises(ValueError, match="Dataset artifact"):
         run_four_family_shared_portfolio_replay(**inputs)
     assert replay_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("capital", "error_type"),
+    [
+        pytest.param(True, TypeError, id="bool"),
+        pytest.param(np.bool_(True), TypeError, id="numpy-bool"),
+        pytest.param("1000", TypeError, id="numeric-string"),
+        pytest.param(float("nan"), ValueError, id="nan"),
+        pytest.param(float("inf"), ValueError, id="infinity"),
+        pytest.param(0.0, ValueError, id="zero"),
+        pytest.param(-1.0, ValueError, id="negative"),
+        pytest.param(2**4096, ValueError, id="float-overflow"),
+    ],
+)
+def test_invalid_initial_capital_is_rejected_before_any_artifact_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capital: object,
+    error_type: type[Exception],
+) -> None:
+    from trade_rl.evaluation.runs import (
+        portfolio_family_comparison as comparison_module,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_comparison import (
+        run_four_family_shared_portfolio_replay,
+    )
+
+    inputs, _ = _prepared_inputs(tmp_path)
+    inputs["initial_capital"] = capital
+
+    def forbidden_dataset_load(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("invalid capital must fail before any artifact load")
+
+    monkeypatch.setattr(
+        comparison_module,
+        "load_published_market_dataset_artifact",
+        forbidden_dataset_load,
+    )
+
+    with pytest.raises(error_type):
+        run_four_family_shared_portfolio_replay(**inputs)
+
+
+def test_dataset_digest_mismatch_precedes_ridge_artifact_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import (
+        portfolio_family_comparison as comparison_module,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_comparison import (
+        run_four_family_shared_portfolio_replay,
+    )
+
+    inputs, _ = _prepared_inputs(tmp_path)
+    inputs["expected_dataset_artifact_sha256"] = "c" * 64
+
+    def forbidden_ridge_load(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("Dataset mismatch must fail before Ridge artifact load")
+
+    monkeypatch.setattr(
+        comparison_module, "load_ridge_forecast_artifact", forbidden_ridge_load
+    )
+
+    with pytest.raises(ValueError, match="Dataset artifact digest"):
+        run_four_family_shared_portfolio_replay(**inputs)
 
 
 def test_bundle_validation_failure_precedes_every_native_arm(
@@ -576,3 +656,322 @@ def test_completion_observer_failure_stops_before_the_next_arm(
     assert replay_calls == 1
     assert len(completed) == 1
     assert completed[0].family == "cash"
+
+
+def test_native_ledger_matches_independent_fraction_cost_and_cash_oracle() -> None:
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+
+    dataset = _dataset()
+    fee_rate = Fraction(1, 100)
+    dataset_fee_rate = Fraction(1, 100)
+    annual_borrow_rate = Fraction(365, 1_000)
+    execution_cost = ExecutionCostConfig(
+        fee_rate=float(fee_rate),
+        maker_fee_rate=0.0,
+        taker_fee_rate=0.0,
+        spread_rate=0.0,
+        impact_rate=0.0,
+        max_participation_rate=1.0,
+        max_leverage=1.0,
+        maintenance_margin_rate=0.0,
+        borrow_rate_multiplier=1.0,
+        order_latency_bars=0,
+        allow_short=True,
+    )
+
+    class FixedQuantityPolicy:
+        def decide_portfolio(
+            self, snapshot: PortfolioDecisionSnapshot
+        ) -> PortfolioTargetProposal:
+            equity = Fraction(str(snapshot.account.portfolio_value))
+            prices = dataset.resolved_array("mark_price")[snapshot.index]
+            quantities = (Fraction(2), Fraction(-1))
+            return PortfolioTargetProposal(
+                target_weights=tuple(
+                    float(quantity * Fraction(str(price)) / equity)
+                    for quantity, price in zip(quantities, prices, strict=True)
+                )
+            )
+
+    result = run_shared_portfolio_replay(
+        dataset,
+        FixedQuantityPolicy(),
+        start_index=0,
+        stop_index=5,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk=PreTradeRisk(PreTradeRiskConfig(max_gross=1.0, max_abs_weight=0.5)),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    observed_fills = tuple(
+        (
+            event.processing_index,
+            dataset.symbols[event.symbol_index],
+            Fraction(str(event.filled_quantity)),
+            Fraction(str(event.execution_price)),
+        )
+        for interval in ledger.intervals.intervals
+        for event in interval.order_events
+        if event.filled_quantity != 0.0
+    )
+    literal_fills = (
+        (1, "AAA", Fraction(2), Fraction(100)),
+        (1, "BBB", Fraction(-1), Fraction(100)),
+        (5, "AAA", Fraction(-2), Fraction(100)),
+        (5, "BBB", Fraction(1), Fraction(100)),
+    )
+    assert observed_fills == literal_fills
+
+    signed_trade_cash = sum(
+        (-quantity * price for _, _, quantity, price in literal_fills),
+        start=Fraction(0),
+    )
+    expected_fees = sum(
+        (
+            abs(quantity) * price * (fee_rate + dataset_fee_rate)
+            for _, _, quantity, price in literal_fills
+        ),
+        start=Fraction(0),
+    )
+    expected_funding = -Fraction(200) * Fraction(1, 100) + Fraction(100) * Fraction(
+        1, 200
+    )
+    expected_borrow = Fraction(100) * annual_borrow_rate * 4 / 8_760
+    expected_terminal_cash = (
+        Fraction(1_000)
+        + signed_trade_cash
+        - expected_fees
+        + expected_funding
+        - expected_borrow
+    )
+    assert signed_trade_cash == 0
+    assert expected_fees == 12
+    assert expected_funding == Fraction(-3, 2)
+    assert expected_borrow == Fraction(1, 60)
+    assert expected_terminal_cash == Fraction(59_189, 60)
+    assert result.book.cash == pytest.approx(float(expected_terminal_cash), abs=1e-10)
+    assert ledger.intervals.final_cash == pytest.approx(
+        float(expected_terminal_cash), abs=1e-10
+    )
+    assert result.book.total_cost == pytest.approx(float(expected_fees), abs=1e-10)
+    assert ledger.intervals.final_total_cost == pytest.approx(
+        float(expected_fees), abs=1e-10
+    )
+    assert result.book.funding_pnl == pytest.approx(float(expected_funding), abs=1e-10)
+    assert ledger.intervals.final_funding_pnl == pytest.approx(
+        float(expected_funding), abs=1e-10
+    )
+    assert result.book.borrow_cost == pytest.approx(float(expected_borrow), abs=1e-10)
+    assert ledger.intervals.final_borrow_cost == pytest.approx(
+        float(expected_borrow), abs=1e-10
+    )
+    assert ledger.intervals.terminal_exact_quantities == ("0", "0")
+    assert ledger.intervals.active_order_remainders == ()
+
+
+def _actual_ppo_bundle_case(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[dict[str, Any], MarketDataset, Any]:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
+    from trade_rl.strategies.rl.portfolio_inference_bundle import (
+        publish_portfolio_inference_bundle,
+    )
+    from trade_rl.strategies.rl.portfolio_training import (
+        SharedPortfolioPPOConfig,
+        fit_shared_portfolio_ppo,
+    )
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    root = tmp_path_factory.mktemp("stage4a-actual-ppo")
+    inputs, dataset = _prepared_inputs(root)
+    base_bound = inputs["bound"]
+    training_bound = BoundObjectiveClock(
+        replace(
+            base_bound.objective,
+            evaluation_start=_START,
+            evaluation_stop_exclusive=_START + timedelta(hours=4),
+        ),
+        replace(base_bound.clock, economic_horizon_seconds=4 * 3_600),
+    )
+    runtime_bound = BoundObjectiveClock(
+        replace(
+            base_bound.objective,
+            evaluation_start=_START + timedelta(hours=4),
+            evaluation_stop_exclusive=_START + timedelta(hours=6),
+        ),
+        replace(base_bound.clock, economic_horizon_seconds=2 * 3_600),
+    )
+    inputs.update(
+        {
+            "start_index": 4,
+            "stop_index": 6,
+            "bound": runtime_bound,
+        }
+    )
+    training_env = SharedPortfolioGymEnv(
+        dataset,
+        start_index=0,
+        stop_index=4,
+        bound=training_bound,
+        target_abs_weights=inputs["target_abs_weights"],
+        execution_cost=inputs["execution_cost"],
+        risk_config=inputs["risk_config"],
+        market_order_profile=inputs["market_order_profile"],
+    )
+    transform = fit_portfolio_observation_transform(training_env)
+    attempt = fit_shared_portfolio_ppo(
+        training_env,
+        transform=transform,
+        output_root=root / "training-attempt",
+        config=SharedPortfolioPPOConfig(
+            total_timesteps=8,
+            n_steps=4,
+            batch_size=2,
+            n_epochs=1,
+            reset_seed=47,
+            ppo_seed=53,
+        ),
+    )
+    publication = publish_portfolio_inference_bundle(
+        attempt.output_root,
+        root / "published-bundle",
+        expected_manifest_sha256=attempt.manifest_sha256,
+        expected_completion_sha256=attempt.completion_sha256,
+        expected_training_context_sha256=attempt.training_context_sha256,
+        expected_checkpoint_sha256=attempt.final_checkpoint_sha256,
+    )
+    inputs.update(
+        {
+            "bundle_root": publication.root,
+            "expected_bundle_sha256": publication.bundle_sha256,
+            "expected_manifest_sha256": publication.training_manifest_sha256,
+            "expected_completion_sha256": publication.training_completion_sha256,
+            "expected_training_context_sha256": publication.training_context_sha256,
+            "expected_checkpoint_sha256": publication.checkpoint_sha256,
+        }
+    )
+    return inputs, dataset, publication
+
+
+@pytest.fixture(scope="module")
+def actual_ppo_bundle_case(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[dict[str, Any], MarketDataset, Any]:
+    return _actual_ppo_bundle_case(tmp_path_factory)
+
+
+def test_actual_published_ppo_bundle_uses_strict_loader_in_four_family_runner(
+    actual_ppo_bundle_case: tuple[dict[str, Any], MarketDataset, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import (
+        portfolio_family_comparison as comparison_module,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_comparison import (
+        run_four_family_shared_portfolio_replay,
+    )
+
+    inputs, dataset, publication = actual_ppo_bundle_case
+    strict_loader = comparison_module.load_portfolio_inference_bundle
+    dataset_loader = comparison_module.load_published_market_dataset_artifact
+    replay_runner = comparison_module.run_shared_portfolio_replay
+    forwarded: dict[str, object] = {}
+    loaded_pairs: list[tuple[Any, MarketDataset]] = []
+    replay_datasets: list[MarketDataset] = []
+
+    def record_dataset_load(root: str | Path) -> tuple[Any, MarketDataset]:
+        pair = dataset_loader(root)
+        loaded_pairs.append(pair)
+        return pair
+
+    def record_native_replay(
+        replay_dataset: MarketDataset, policy: object, **kwargs: object
+    ) -> object:
+        replay_datasets.append(replay_dataset)
+        return replay_runner(replay_dataset, policy, **kwargs)
+
+    def record_and_load(root: str | Path, **kwargs: object) -> object:
+        forwarded.update(kwargs)
+        return strict_loader(root, **kwargs)
+
+    monkeypatch.setattr(
+        comparison_module, "load_portfolio_inference_bundle", record_and_load
+    )
+    monkeypatch.setattr(
+        comparison_module, "load_published_market_dataset_artifact", record_dataset_load
+    )
+    monkeypatch.setattr(
+        comparison_module, "run_shared_portfolio_replay", record_native_replay
+    )
+    result = run_four_family_shared_portfolio_replay(**inputs)
+
+    assert result.ppo_bundle_sha256 == publication.bundle_sha256
+    assert tuple(outcome.family for outcome in result.families) == _FAMILY_ORDER
+    assert all(
+        outcome.replay.ledger_evidence is not None for outcome in result.families
+    )
+    assert forwarded == {
+        "expected_bundle_sha256": publication.bundle_sha256,
+        "expected_manifest_sha256": publication.training_manifest_sha256,
+        "expected_completion_sha256": publication.training_completion_sha256,
+        "expected_training_context_sha256": publication.training_context_sha256,
+        "expected_checkpoint_sha256": publication.checkpoint_sha256,
+        "runtime_env": forwarded["runtime_env"],
+    }
+    runtime_env = forwarded["runtime_env"]
+    assert len(loaded_pairs) == 1
+    loaded_dataset = loaded_pairs[0][1]
+    assert loaded_dataset.dataset_id == dataset.dataset_id
+    assert runtime_env.dataset is loaded_dataset
+    assert runtime_env._session is None
+    assert len(replay_datasets) == 4
+    assert all(replay_dataset is loaded_dataset for replay_dataset in replay_datasets)
+
+
+@pytest.mark.parametrize(
+    "pin_name",
+    (
+        "expected_bundle_sha256",
+        "expected_manifest_sha256",
+        "expected_completion_sha256",
+        "expected_training_context_sha256",
+        "expected_checkpoint_sha256",
+    ),
+)
+def test_actual_ppo_bundle_pin_mismatch_precedes_native_session_creation(
+    actual_ppo_bundle_case: tuple[dict[str, Any], MarketDataset, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    pin_name: str,
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_comparison import (
+        run_four_family_shared_portfolio_replay,
+    )
+    from trade_rl.simulation.stateful import portfolio_session as session_module
+
+    inputs, _, _ = actual_ppo_bundle_case
+    bad_inputs = dict(inputs)
+    current = str(bad_inputs[pin_name])
+    bad_inputs[pin_name] = "0" * 64 if current != "0" * 64 else "1" * 64
+    sessions = 0
+
+    def forbidden_session_init(self: object, *args: object, **kwargs: object) -> None:
+        del self, args, kwargs
+        nonlocal sessions
+        sessions += 1
+        raise AssertionError("bundle pin mismatch must precede native sessions")
+
+    monkeypatch.setattr(
+        session_module.SharedPortfolioSession, "__init__", forbidden_session_init
+    )
+
+    with pytest.raises(ValueError):
+        run_four_family_shared_portfolio_replay(**bad_inputs)
+    assert sessions == 0

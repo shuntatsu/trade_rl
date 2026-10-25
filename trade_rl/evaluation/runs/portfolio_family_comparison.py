@@ -212,6 +212,18 @@ def _adapter(
     )
 
 
+def _validated_initial_capital(value: object) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise TypeError("initial_capital must be a real non-boolean number")
+    try:
+        capital = float(value)
+    except OverflowError as error:
+        raise ValueError("initial_capital must be finite and positive") from error
+    if not math.isfinite(capital) or capital <= 0.0:
+        raise ValueError("initial_capital must be finite and positive")
+    return capital
+
+
 def run_four_family_shared_portfolio_replay(
     *,
     dataset_artifact_root: str | Path,
@@ -295,11 +307,7 @@ def run_four_family_shared_portfolio_replay(
         or not 0 <= start_index < stop_index
     ):
         raise ValueError("comparison range must satisfy integer 0 <= start < stop")
-    if isinstance(initial_capital, bool):
-        raise TypeError("initial_capital must not be a boolean")
-    initial_capital = float(initial_capital)
-    if not math.isfinite(initial_capital) or initial_capital <= 0.0:
-        raise ValueError("initial_capital must be finite and positive")
+    initial_capital = _validated_initial_capital(initial_capital)
     if bound.objective.capital.total_initial_capital != initial_capital:
         raise ValueError("bound capital differs from the shared replay capital")
     weights = _positive_weights(target_abs_weights, n_symbols=len(expected_symbols))
@@ -307,8 +315,12 @@ def run_four_family_shared_portfolio_replay(
     dataset_artifact, dataset = load_published_market_dataset_artifact(
         dataset_artifact_root
     )
+    if type(dataset_artifact) is not PublishedDatasetArtifact:
+        raise TypeError("paired Dataset loader must return a PublishedDatasetArtifact")
     if type(dataset) is not MarketDataset:
         raise TypeError("paired Dataset loader must return a MarketDataset")
+    if dataset_artifact.artifact_digest != expected_dataset_artifact_sha256:
+        raise ValueError("Dataset artifact digest differs from the external pin")
     if tuple(dataset.symbols) != expected_symbols:
         raise ValueError("Dataset symbols differ from the fixed comparison roster")
     if len(weights) != dataset.n_symbols:

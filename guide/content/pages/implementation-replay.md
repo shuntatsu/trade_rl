@@ -159,7 +159,7 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 `SingleSymbolPortfolioPolicyAdapter`は、固定roster上のexact built-in constant・trend・Ridge strategyをportfolio targetへ変換するopt-in adapterです。filled sideと明示budgetを使いますが、legacy cached-target、minimum-hold、pending-aware intent、exact-quantity HOLDや任意strategyの互換性は主張しません。より豊かなsemanticsにはdirect `PortfolioPolicy`を使います。
 
-`run_four_family_shared_portfolio_replay`は、callerがpinしたDataset、Ridge artifact、joint PPO bundleと共通設定を全て検証してから、cash・fixed Trend・Ridge・joint PPOを既存native replayへ順番に渡すTier-2 in-memory coordinatorです。各armはfresh policy/risk/sessionを持ち、同じDatasetとimmutableなexecution/risk/profile設定を使います。terminal settlementとledger evidenceを常に有効にし、早期終了やinsolvencyはraw outcomeとflagsに残します。任意の`on_family_completed` observerは完了armを次armの前に受け取り、observerまたは後続armの失敗はそこで伝播します。この入口はattempt予約・永続化・fit・winner selectionを行わず、比較結果や収益性の証拠を作りません。
+`run_four_family_shared_portfolio_replay`は、callerがpinしたDataset、Ridge artifact、joint PPO bundleと共通設定を全て検証してから、cash・fixed Trend・Ridge・joint PPOを既存native replayへ順番に渡すTier-2 in-memory coordinatorです。各armはfresh policy/risk/sessionを持ち、同じDatasetとimmutableなexecution/risk/profile設定を使います。terminal settlementとledger evidenceを常に有効にし、早期終了やinsolvencyはraw outcomeとflagsに残します。任意の`on_family_completed` observerは完了armを次armの前に受け取り、observerまたは後続armの失敗はそこで伝播します。この入口はattempt予約・永続化・fit・winner selectionを行わず、研究上の合格や収益性を確立しません。
 
 `evaluation/portfolio_inference.py`はcallerが指定したDataset artifactとbundleを接続するopt-in filesystem helperです。paired Dataset loaderを一度だけ使い、resetしないGym shellでbundleとのcontextを照合した後、同じDataset objectと同じrisk/execution設定を`run_shared_portfolio_replay`へ一度渡します。Gym shellはfinancial sessionを作らず、replayが唯一のsessionとterminal settlementを所有します。これはsoftware integration contractであり、モデル性能・収益性・研究gate・deployment readinessを示しません。
 

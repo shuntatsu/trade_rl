@@ -338,7 +338,7 @@
       "id": "four-family-portfolio-replay",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "12cb91e5c5d019e4a1a1c40e319aeb00c9ca007a23805894e19bedeab8169184",
+      "source_sha256": "5bbad83bdd1b2e7d175786845c9846dd1529bb955f1ec13d5fb1c1b6751b3997",
       "label_ja": "固定4方式を同じnative replayへ接続",
       "description_ja": "caller-pinned入力を全arm前に検証し、cash・Trend・Ridge・joint PPOをfresh sessionで順に実行します。完了observerは各結果を次arm前に渡し、この入口自体は永続化やfitを行いません。",
       "variables": [

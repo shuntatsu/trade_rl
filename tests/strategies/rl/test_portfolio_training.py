@@ -35,7 +35,9 @@ from trade_rl.strategies.rl.portfolio_transform import (
 _START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _environment(dataset_id: str = "a" * 64) -> SharedPortfolioGymEnv:
+def _environment(
+    dataset_id: str = "a" * 64, *, stop_index: int = 7
+) -> SharedPortfolioGymEnv:
     symbols = ("AAA", "BBB")
     close = np.full((8, len(symbols)), 100.0, dtype=np.float64)
     open_price = close.copy()
@@ -68,7 +70,7 @@ def _environment(dataset_id: str = "a" * 64) -> SharedPortfolioGymEnv:
         spread_rate=zeros.copy(),
         contract_multipliers=np.ones(2, dtype=np.float64),
     )
-    stop = _START + timedelta(hours=7)
+    stop = _START + timedelta(hours=stop_index)
     bound = BoundObjectiveClock(
         ObjectiveContract(
             capital=CapitalContract("shared_portfolio", "USDT", (1_000.0,)),
@@ -84,7 +86,7 @@ def _environment(dataset_id: str = "a" * 64) -> SharedPortfolioGymEnv:
             decision_interval_seconds=3_600,
             execution_interval_seconds=3_600,
             reward_interval_seconds=3_600,
-            economic_horizon_seconds=7 * 3_600,
+            economic_horizon_seconds=stop_index * 3_600,
             rollout_steps=4,
             gamma=1.0,
             gae_lambda=0.95,
@@ -94,7 +96,7 @@ def _environment(dataset_id: str = "a" * 64) -> SharedPortfolioGymEnv:
     return SharedPortfolioGymEnv(
         dataset,
         start_index=0,
-        stop_index=7,
+        stop_index=stop_index,
         bound=bound,
         target_abs_weights=(0.5, 0.5),
         execution_cost=ExecutionCostConfig.zero(),
@@ -212,8 +214,10 @@ def test_missing_training_extra_fails_before_attempt_or_environment_reset(
     assert not output.exists()
 
 
-@pytest.mark.parametrize("sample_state", ["missing", "mismatched_action"])
-def test_join_rejects_missing_or_mismatched_sample_before_native_step(
+@pytest.mark.parametrize(
+    "sample_state", ["missing", "mismatched_action", "extra_unjoined"]
+)
+def test_join_rejects_missing_or_unjoined_sample_before_native_step(
     tmp_path: Path, sample_state: str
 ) -> None:
     env = _environment()
@@ -245,6 +249,13 @@ def test_join_rejects_missing_or_mismatched_sample_before_native_step(
             raw_action_codes=(0, 0),
             forward_batch_size=1,
         )
+    elif sample_state == "extra_unjoined":
+        policy_journal.sample_count = 2
+        policy_journal.latest_sample_reference = SimpleNamespace(
+            sample_id=2,
+            raw_action_codes=(1, 0),
+            forward_batch_size=1,
+        )
 
     with pytest.raises(RuntimeError, match="fresh batch-one|submitted action"):
         join.step(np.asarray([1, 0], dtype=np.int64))
@@ -259,6 +270,60 @@ def test_join_rejects_missing_or_mismatched_sample_before_native_step(
         "episode_started",
         "episode_reset",
     ]
+    join.close()
+
+
+def test_join_rejects_reused_sample_before_second_native_step(tmp_path: Path) -> None:
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    context_digest = "f" * 64
+    episode = PortfolioEpisodeJournalWrapper(
+        PortfolioGymObservationWrapper(env, transform),
+        root=tmp_path / "native",
+        declared_context_digest=context_digest,
+    )
+    join = _ActorNativeJoinWrapper(
+        episode,
+        output_root=tmp_path,
+        root=tmp_path / "joins",
+        context_digest=context_digest,
+    )
+    join.reset(seed=29)
+    sample = SimpleNamespace(
+        sample_id=1,
+        raw_action_codes=(1, 0),
+        forward_batch_size=1,
+        relative_path="samples/sample-000001.json",
+        sha256="a" * 64,
+    )
+    policy_journal = SimpleNamespace(
+        sample_count=0,
+        latest_sample_reference=None,
+        root=tmp_path / "policy-samples",
+    )
+    join.begin_rollout(1, cast(Any, policy_journal))
+    policy_journal.sample_count = 1
+    policy_journal.latest_sample_reference = sample
+
+    join.step(np.asarray([1, 0], dtype=np.int64))
+    assert env._session is not None
+    advanced_index = env._session.current_index
+    latest_native_reference = episode.latest_step_reference
+    assert advanced_index == 1
+    assert latest_native_reference is not None
+    assert join.joined_count == 1
+
+    with pytest.raises(RuntimeError, match="fresh batch-one"):
+        join.step(np.asarray([1, 0], dtype=np.int64))
+
+    assert env._session.current_index == advanced_index
+    assert episode.latest_step_reference is latest_native_reference
+    assert join.joined_count == 1
+    assert join.is_poisoned
+    native_events = _json_files(tmp_path / "native" / "events")
+    join_events = _json_files(tmp_path / "joins" / "events")
+    assert sum(event["event"] == "step_result" for event in native_events) == 1
+    assert len(join_events) == 1
     join.close()
 
 
@@ -360,6 +425,57 @@ def test_two_rollouts_bind_actual_policy_samples_to_native_episode_steps(
     )
     loaded = sb3.PPO.load(final_checkpoint)
     assert not hasattr(loaded, "_training_coordinator")
+
+
+def test_exact_budget_retains_empty_episode_after_terminal_auto_reset(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    env = _environment(stop_index=5)
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "terminal-budget"
+
+    result = fit_shared_portfolio_ppo(
+        env,
+        transform=transform,
+        output_root=output,
+        config=_config(total_timesteps=4, n_steps=4),
+    )
+
+    assert result.requested_timesteps == result.realized_timesteps == 4
+    assert result.rollout_count == 1
+    completion = json.loads((output / "completion.json").read_text(encoding="utf-8"))
+    assert completion["joined_transition_count"] == 4
+    native_events = _json_files(output / "native" / "events")
+    starts = [event for event in native_events if event["event"] == "episode_started"]
+    resets = [event for event in native_events if event["event"] == "episode_reset"]
+    assert [event["episode_index"] for event in starts] == [0, 1]
+    assert [event["episode_index"] for event in resets] == [0, 1]
+
+    first_episode_steps = [
+        event
+        for event in native_events
+        if event["event"] == "step_result" and event["episode_index"] == 0
+    ]
+    assert len(first_episode_steps) == 4
+    assert first_episode_steps[-1]["data"]["terminated"] is True
+    assert not any(
+        event["episode_index"] == 1
+        and event["event"] in ("step_started", "step_result")
+        for event in native_events
+    )
+    empty_episode_close = next(
+        event
+        for event in native_events
+        if event["episode_index"] == 1 and event["event"] == "episode_interrupted"
+    )
+    assert empty_episode_close["data"] == {
+        "reason": "close",
+        "last_recorded_current_index": 0,
+        "completed": False,
+        "settlement_claimed": False,
+    }
 
 
 def test_join_write_failure_preserves_unmatched_actor_and_native_events(

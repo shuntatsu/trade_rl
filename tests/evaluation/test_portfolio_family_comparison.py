@@ -753,21 +753,29 @@ def test_native_ledger_matches_independent_fraction_cost_and_cash_oracle() -> No
     assert expected_funding == Fraction(-3, 2)
     assert expected_borrow == Fraction(1, 60)
     assert expected_terminal_cash == Fraction(59_189, 60)
-    assert result.book.cash == pytest.approx(float(expected_terminal_cash), abs=1e-10)
+    assert result.book.cash == pytest.approx(
+        float(expected_terminal_cash), rel=0.0, abs=1e-10
+    )
     assert ledger.intervals.final_cash == pytest.approx(
-        float(expected_terminal_cash), abs=1e-10
+        float(expected_terminal_cash), rel=0.0, abs=1e-10
     )
-    assert result.book.total_cost == pytest.approx(float(expected_fees), abs=1e-10)
+    assert result.book.total_cost == pytest.approx(
+        float(expected_fees), rel=0.0, abs=1e-10
+    )
     assert ledger.intervals.final_total_cost == pytest.approx(
-        float(expected_fees), abs=1e-10
+        float(expected_fees), rel=0.0, abs=1e-10
     )
-    assert result.book.funding_pnl == pytest.approx(float(expected_funding), abs=1e-10)
+    assert result.book.funding_pnl == pytest.approx(
+        float(expected_funding), rel=0.0, abs=1e-10
+    )
     assert ledger.intervals.final_funding_pnl == pytest.approx(
-        float(expected_funding), abs=1e-10
+        float(expected_funding), rel=0.0, abs=1e-10
     )
-    assert result.book.borrow_cost == pytest.approx(float(expected_borrow), abs=1e-10)
+    assert result.book.borrow_cost == pytest.approx(
+        float(expected_borrow), rel=0.0, abs=1e-10
+    )
     assert ledger.intervals.final_borrow_cost == pytest.approx(
-        float(expected_borrow), abs=1e-10
+        float(expected_borrow), rel=0.0, abs=1e-10
     )
     assert ledger.intervals.terminal_exact_quantities == ("0", "0")
     assert ledger.intervals.active_order_remainders == ()

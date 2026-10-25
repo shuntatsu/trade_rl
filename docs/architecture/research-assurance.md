@@ -883,7 +883,12 @@ clock semantics, timestamp mismatch, and tampered runtime-window metadata.
 **Known limitations:** This binding does not prove that statistics were
 actually fit using the declared training rows, that feature values were
 available at their historical source time, or that a model/policy was trained
-or is valid for deployment. It adds no trainer and no economic evidence.
+or is valid for deployment. A direct low-level
+`transform_observation(..., runtime_binding=...)` call assumes the binding was
+already checked against the typed training bound and actual runtime environment
+with `create` or `validate_environment`; the Gym wrapper performs this check.
+Deserializing a binding alone validates its schema and digest, not its live
+environment context. It adds no trainer and no economic evidence.
 
 ### TRAIN-EVAL-001 — train/evaluation account semantics
 

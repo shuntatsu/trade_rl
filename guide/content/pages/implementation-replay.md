@@ -161,6 +161,8 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 同じwindow以外へ適用する場合は、`PortfolioObservationRuntimeBinding`とtypedなtraining `BoundObjectiveClock`を明示します。Dataset、symbol/feature roster、資本、risk、execution/profile、objectiveとclockの非時間semanticsを維持し、evaluation endpointsとeconomic horizonだけの差を許し、runtime開始をexclusive training stop以後に制約します。変換時のclock/order offsetsはruntime windowを使い、actor-fit統計はそのまま再利用します。このforward bindingもfeature availability/vintageやtrained policyの妥当性を証明せず、trainer・学習結果・収益性の証拠を追加しません。
 
+`transform_observation(..., runtime_binding=...)`を直接呼ぶ場合は、先に`create`または`validate_environment`でtypedなtraining boundと実際のruntime environmentへbindingを照合します。`PortfolioGymObservationWrapper`は使用前にこの照合を行います。`from_payload`単独ではschemaとdigestだけを検証し、live environment contextは検証しません。
+
 ## 不変条件
 
 - 判断前に未来バーを読まない。

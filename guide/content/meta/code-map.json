@@ -301,7 +301,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "f6ceb7bb4afb5f07b00f119276773a0be6d95464ea8edd3d1aa5a454486d79cc",
+      "source_sha256": "40f354c89c0413502516dabf7309ecbf4f73b1b95a23ca232b7b49f810fe69ed",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],

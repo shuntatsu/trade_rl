@@ -68,7 +68,12 @@ the finite economic horizon may differ; the runtime start index must be at or
 after the transform's exclusive training stop. This binding reuses the stored
 statistics and uses the runtime window for actor/order clock features. It does
 not change the transform-v1 payload or prove fit provenance, point-in-time
-feature availability, or learned-policy validity.
+feature availability, or learned-policy validity. A direct
+`transform_observation(..., runtime_binding=...)` call assumes its binding was
+already checked against the typed training bound and actual runtime environment
+with `create` or `validate_environment`; the Gym wrapper performs this check.
+Deserialization alone checks the binding schema and digest, not live runtime
+context.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 

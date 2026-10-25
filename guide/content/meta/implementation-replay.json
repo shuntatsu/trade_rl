@@ -38,7 +38,7 @@
     {
       "path": "docs/architecture/research-assurance.md",
       "heading": "GYM-002 — forward observation-transform binding",
-      "sha256": "6a8c3637ca189ecd9dd93a40955eef84d8bac321d28824a2048cbf214203065b"
+      "sha256": "30fe903cb6e2778e583ab593f5ab664408193ae1afacbaa0226df9e19ea49d4e"
     }
   ],
   "code_references": [
@@ -151,7 +151,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "f6ceb7bb4afb5f07b00f119276773a0be6d95464ea8edd3d1aa5a454486d79cc",
+      "source_sha256": "40f354c89c0413502516dabf7309ecbf4f73b1b95a23ca232b7b49f810fe69ed",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],

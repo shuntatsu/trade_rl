@@ -838,6 +838,14 @@ class PortfolioObservationTransform:
         *,
         runtime_binding: PortfolioObservationRuntimeBinding | None = None,
     ) -> dict[str, np.ndarray]:
+        """Transform one raw observation with frozen preprocessing parameters.
+
+        A supplied runtime binding must already have been validated against
+        this transform, its typed training bound, and the actual runtime
+        environment with ``create`` or ``validate_environment``. This method
+        sees only the raw observation and cannot validate that environment
+        context; ``PortfolioGymObservationWrapper`` performs that validation.
+        """
         if runtime_binding is not None:
             if not isinstance(runtime_binding, PortfolioObservationRuntimeBinding):
                 raise TypeError(

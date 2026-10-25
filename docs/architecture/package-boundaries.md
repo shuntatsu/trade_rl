@@ -353,10 +353,11 @@ matrix. Its 21-column active-order matrix has one row per roster symbol, rejects
 duplicate or out-of-roster orders, and represents each optional price with a
 presence flag plus a zero-filled absent value. An all-`None` legacy price tuple
 therefore remains representable, while consumers can still distinguish missing
-price context. `ACTION_HOLD` preserves the current signed filled quantity; on
-the next native transition, reconciliation cancels any active remainder before
-that interval's fill processing. The action set has no independent cancel
-action, and this wrapper does not add one.
+price context. An exact-quantity `ACTION_HOLD` is accepted only if hard risk
+leaves the current weight unchanged; an accepted HOLD preserves the current
+signed filled quantity. Native reconciliation cancels any active remainder
+before processing the next execution interval's fills. The action set has no
+independent cancel action, and this wrapper does not add one.
 
 `strategies/rl/portfolio_episode_journal.py` は明示的に包んだGym環境の外側で使うopt-in journalである。新しいrootを一度だけ確保し、source action/reward/native interval・terminal factsをeventごとのcanonical JSONへ記録してからtransitionを返す。observation、policy state、log-probabilityは記録せず、caller-declared context digestも独立検証済みとは扱わない。失敗・中断したepisodeは完了扱いにせず、状態が進んだ可能性のあるjournal error後はwrapperをpoisonしてstep/resetを続けない。trainer、rollout collector、episodeの学習再現性は提供しない。
 

@@ -207,6 +207,47 @@ def test_supervised_datetime_multiplier_overflow_is_rejected() -> None:
         supervised_module._validated_fit_cutoff_ns(label_end_times[0])
 
 
+@pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
+def test_datetime_converter_rejects_zero_unit_multiplier(unit: str) -> None:
+    dtype = np.dtype(f"datetime64[0{unit}]")
+    values = np.asarray((0, 1, -1), dtype=np.int64).view(dtype)
+
+    with pytest.raises(ValueError, match="unit multiplier must be positive"):
+        supervised_module._datetime64_values_to_ns_exact(values)
+
+
+@pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
+def test_fit_cutoff_rejects_zero_unit_multiplier(unit: str) -> None:
+    dtype = np.dtype(f"datetime64[0{unit}]")
+    values = np.asarray((0, 1, -1), dtype=np.int64).view(dtype)
+
+    for value in values:
+        with pytest.raises(
+            ValueError,
+            match="fit_cutoff must be exactly representable as datetime64\\[ns\\]",
+        ):
+            supervised_module._validated_fit_cutoff_ns(value)
+
+
+@pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
+def test_training_set_rejects_zero_unit_multiplier_label_end_times(
+    unit: str,
+) -> None:
+    dtype = np.dtype(f"datetime64[0{unit}]")
+    values = np.asarray((0, 1), dtype=np.int64).view(dtype)
+
+    with pytest.raises(
+        ValueError,
+        match="label_end_times must be exactly representable in nanoseconds",
+    ):
+        replace(
+            direct_training_set(
+                np.asarray((0, 0), dtype=np.int64).view("datetime64[ns]")
+            ),
+            label_end_times=values,
+        )
+
+
 def test_exact_large_multiplier_hours_are_lossless_for_labels_and_cutoff() -> None:
     dtype = np.dtype(">M8[1000000h]")
     raw_ticks = np.asarray([-2, -1], dtype=">i8")

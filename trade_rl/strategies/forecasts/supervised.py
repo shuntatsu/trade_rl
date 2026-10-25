@@ -37,7 +37,7 @@ _FIXED_UNIT_NANOSECONDS = {
 
 
 def _datetime64_values_to_ns_exact(values: np.ndarray) -> np.ndarray:
-    """Normalize datetime64 values by exact integer arithmetic before casting."""
+    """Normalize datetime64 values with a positive unit multiplier exactly."""
 
     timestamps = np.asarray(values)
     if timestamps.dtype.kind != "M":
@@ -46,6 +46,8 @@ def _datetime64_values_to_ns_exact(values: np.ndarray) -> np.ndarray:
         raise ValueError("timestamps must not contain NaT")
 
     unit, multiplier = np.datetime_data(timestamps.dtype)
+    if multiplier <= 0:
+        raise ValueError("datetime64 unit multiplier must be positive")
     ticks = timestamps.view(np.dtype(f"{timestamps.dtype.byteorder}i8"))
     if unit in ("Y", "M"):
         normalized_ticks: list[int] = []

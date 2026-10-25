@@ -24,6 +24,7 @@ from trade_rl.strategies.rl.portfolio_episode_journal import (
 from trade_rl.strategies.rl.portfolio_training import (
     SharedPortfolioPPOConfig,
     _ActorNativeJoinWrapper,
+    _TrainingCoordinator,
     fit_shared_portfolio_ppo,
 )
 from trade_rl.strategies.rl.portfolio_transform import (
@@ -84,7 +85,7 @@ def _environment(dataset_id: str = "a" * 64) -> SharedPortfolioGymEnv:
             execution_interval_seconds=3_600,
             reward_interval_seconds=3_600,
             economic_horizon_seconds=7 * 3_600,
-            rollout_steps=2,
+            rollout_steps=4,
             gamma=1.0,
             gae_lambda=0.95,
             reward_schema="equity_delta_v1",
@@ -151,6 +152,60 @@ def test_transform_mismatch_fails_before_attempt_reservation_or_environment_rese
             transform=mismatched,
             output_root=output,
             config=_config(),
+        )
+
+    assert env._session is None
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"n_steps": 2, "total_timesteps": 4}, "rollout_steps"),
+        ({"gae_lambda": 0.5}, "gae_lambda"),
+    ],
+)
+def test_training_clock_mismatch_fails_before_attempt_or_environment_reset(
+    tmp_path: Path, overrides: dict[str, object], message: str
+) -> None:
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "clock-mismatch"
+
+    with pytest.raises(ValueError, match=message):
+        fit_shared_portfolio_ppo(
+            env,
+            transform=transform,
+            output_root=output,
+            config=_config(**overrides),
+        )
+
+    assert env._session is None
+    assert not output.exists()
+
+
+def test_missing_training_extra_fails_before_attempt_or_environment_reset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "missing-extra"
+    original_import = training_module.importlib.import_module
+
+    def missing_training_runtime(name: str, package: str | None = None) -> object:
+        if name == "torch" or name.startswith("stable_baselines3"):
+            raise ImportError("literal optional training dependency absent")
+        return original_import(name, package)
+
+    monkeypatch.setattr(
+        training_module.importlib, "import_module", missing_training_runtime
+    )
+    with pytest.raises(RuntimeError, match="train-sb3 extra"):
+        fit_shared_portfolio_ppo(
+            env,
+            transform=transform,
+            output_root=output,
+            config=_config(total_timesteps=4, n_steps=4),
         )
 
     assert env._session is None
@@ -400,6 +455,8 @@ def test_post_rollout_checkpoint_failure_keeps_last_actor_sample_reference(
     failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
     assert failure["status"] == "failed"
     assert failure["realized_timesteps"] == 4
+    assert failure["optimizer_step_calls_observed"] == 4
+    assert failure["sb3_epoch_count_observed"] == 2
     assert failure["joined_transition_count"] == 4
     assert failure["completed_rollouts"] == []
     assert failure["latest_actor_sample"]["sample_id"] == 4
@@ -426,6 +483,76 @@ def test_post_rollout_checkpoint_failure_keeps_last_actor_sample_reference(
         == hashlib.sha256(sample_path.read_bytes()).hexdigest()
     )
     assert not (rollout / "rollout_completed.json").exists()
+
+
+def test_failure_before_runtime_counters_are_initialized_records_null_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "early-failure"
+    original_write = training_module._write_unique
+
+    def fail_manifest(path: Path, value: object) -> str:
+        if path.name == "manifest.json":
+            raise OSError("literal manifest initialization failure")
+        return original_write(path, value)
+
+    monkeypatch.setattr(training_module, "_write_unique", fail_manifest)
+    with pytest.raises(OSError, match="manifest initialization failure"):
+        fit_shared_portfolio_ppo(
+            env,
+            transform=transform,
+            output_root=output,
+            config=_config(total_timesteps=4, n_steps=4),
+        )
+
+    failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
+    assert failure["optimizer_step_calls_observed"] is None
+    assert failure["sb3_epoch_count_observed"] is None
+    assert failure["optimizer_step_count_semantics"] == (
+        "successful optimizer.step calls observed by the registered post-step hook; "
+        "a failure within a step may leave this count below work already applied"
+    )
+
+
+def test_rollout_error_remains_primary_when_policy_journal_close_also_fails(
+    tmp_path: Path,
+) -> None:
+    class FailingJoin:
+        def end_rollout(self, expected_samples: int) -> None:
+            raise ValueError("literal primary rollout join failure")
+
+    class FailingJournal:
+        sample_count = 0
+        latest_sample_reference = None
+
+        def close(self) -> None:
+            raise OSError("literal secondary journal close failure")
+
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    coordinator = _TrainingCoordinator(
+        output_root=tmp_path,
+        env=env,
+        transform=transform,
+        config=_config(total_timesteps=4, n_steps=4),
+        context_digest="e" * 64,
+        join_wrapper=cast(Any, FailingJoin()),
+        optimizer_counter=cast(Any, SimpleNamespace(count=0)),
+    )
+    coordinator.current_journal = cast(Any, FailingJournal())
+    coordinator.current_rollout_root = tmp_path / "rollout-000001"
+
+    with pytest.raises(ValueError, match="primary rollout join failure") as caught:
+        coordinator.end_rollout()
+
+    assert any(
+        "secondary journal close failure" in note for note in caught.value.__notes__
+    )
+    assert coordinator.current_journal is None
 
 
 def test_target_kl_early_stop_records_actual_optimizer_calls(

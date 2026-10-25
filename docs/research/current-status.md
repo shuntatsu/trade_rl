@@ -37,9 +37,8 @@ maximum drawdown remains visible and can exceed the configured stop after a
 price gap. Existing native insolvency handling floors terminal cash/equity at
 zero, so this adapter adds no reward clipping but also does not establish
 uncapped debt-loss semantics below -100% of fixed initial capital. Such losses
-and invalid endpoints are retained rather than filtered. This adapter does
-not add a trainer, change legacy PPO defaults, or provide training or profit
-evidence.
+and invalid endpoints are retained rather than filtered. The adapter itself
+does not add a trainer or change legacy PPO defaults.
 
 The opt-in `PortfolioObservationTransform` and
 `PortfolioGymObservationWrapper` provide a versioned preprocessing path for the
@@ -86,6 +85,19 @@ model-weight or checkpoint-lineage attestations. The recorder does not capture
 optimizer updates or establish a join with native financial events; it does not
 add a trainer, change legacy PPO defaults, or provide training or profit
 evidence.
+
+`fit_shared_portfolio_ppo` is a separate, explicit one-environment CPU PPO
+trainer for this opt-in joint environment. It binds rollout policy samples to
+native episode events, records exact rollout completion, checkpoint hashes,
+optimizer-step calls, and failure/incomplete evidence, and leaves the existing
+per-symbol PPO path and defaults untouched. The software path and synthetic
+tests do not establish an economic result, model-selection decision, deployable
+inference bundle, or completion of any research gate. No real-data training is
+claimed here. Before reserving an attempt, its rollout size and GAE lambda must
+match the environment's bound financial clock. Failed receipts retain observed
+optimizer post-step-hook calls and SB3 completed epochs when initialized, or
+explicit nulls before initialization; those counters do not claim to capture a
+partially failing optimizer step.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 

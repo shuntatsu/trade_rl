@@ -228,6 +228,32 @@ def test_policy_sample_journal_keeps_torch_and_sb3_optional_at_import_time() -> 
     assert result.returncode == 0, result.stderr
 
 
+def test_joint_portfolio_trainer_is_opt_in_and_keeps_training_runtime_lazy() -> None:
+    path = PACKAGE / "strategies" / "rl" / "portfolio_training.py"
+    imports = collect_trade_rl_imports(path)
+    assert "trade_rl.strategies.rl.portfolio_env" in imports
+    assert not any(within_module(name, "trade_rl.evaluation") for name in imports)
+
+    facade = (PACKAGE / "strategies" / "rl" / "__init__.py").read_text(encoding="utf-8")
+    assert "portfolio_training" not in facade
+    assert "fit_shared_portfolio_ppo" not in facade
+
+    command = (
+        "import sys; "
+        "import trade_rl.strategies.rl.portfolio_training; "
+        "assert 'torch' not in sys.modules; "
+        "assert not any(name.startswith('stable_baselines3') for name in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:
     forbidden = ("trade_rl.strategies", "trade_rl.evaluation")
     assert _offenders(PACKAGE / "risk", forbidden) == []

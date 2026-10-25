@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import math
 from dataclasses import asdict, dataclass
 from numbers import Real
@@ -445,14 +446,27 @@ class _TrainingCoordinator:
         journal = self.current_journal
         if journal is None or self.current_rollout_root is None:
             raise RuntimeError("rollout journal was not opened")
+        primary_error: BaseException | None = None
         try:
             self._capture_latest_actor_sample(journal)
             self.join_wrapper.end_rollout(self.config.n_steps)
             if journal.sample_count != self.config.n_steps:
                 raise RuntimeError("rollout did not persist exactly n_steps samples")
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            journal.close()
-            self.current_journal = None
+            try:
+                journal.close()
+            except BaseException as close_error:
+                if primary_error is None:
+                    raise
+                primary_error.add_note(
+                    "Policy journal close also failed: "
+                    f"{type(close_error).__name__}: {close_error}"
+                )
+            finally:
+                self.current_journal = None
         self.rollout_closed = True
 
     def close_incomplete_rollout(self) -> None:
@@ -559,6 +573,10 @@ def _validate_inputs(
     if env._session is not None:
         raise ValueError("environment must not have been reset before training")
     transform.validate_environment(env)
+    if config.n_steps != env.bound.clock.rollout_steps:
+        raise ValueError("n_steps must match the bound financial clock rollout_steps")
+    if config.gae_lambda != env.bound.clock.gae_lambda:
+        raise ValueError("gae_lambda must match the bound financial clock")
     execution_seed = env.execution_cost.random_seed
     if config.reset_seed == execution_seed or config.ppo_seed == execution_seed:
         raise ValueError("execution, reset, and PPO seeds must be distinct")
@@ -583,13 +601,23 @@ def fit_shared_portfolio_ppo(
     context_digest, context = _validate_inputs(env, transform, config)
 
     # Import the optional training runtime only when this opt-in API is called.
-    import torch
-    from stable_baselines3 import PPO
-    from stable_baselines3.common.callbacks import BaseCallback
-    from stable_baselines3.common.logger import configure
-    from stable_baselines3.common.vec_env import DummyVecEnv
+    try:
+        torch = importlib.import_module("torch")
+        sb3 = importlib.import_module("stable_baselines3")
+        callbacks = importlib.import_module("stable_baselines3.common.callbacks")
+        logger_module = importlib.import_module("stable_baselines3.common.logger")
+        vec_env_module = importlib.import_module("stable_baselines3.common.vec_env")
+        ppo_class = getattr(sb3, "PPO")
+        callback_base = getattr(callbacks, "BaseCallback")
+        configure = getattr(logger_module, "configure")
+        dummy_vec_env = getattr(vec_env_module, "DummyVecEnv")
+        optimizer_type = getattr(getattr(torch, "optim"), "Optimizer")
+        activation_fn = getattr(getattr(torch, "nn"), "Tanh")
+    except (ImportError, AttributeError) as error:
+        raise RuntimeError(
+            "stable-baselines3 and torch are required; install the train-sb3 extra"
+        ) from error
 
-    optimizer_type = torch.optim.Optimizer
     if not callable(getattr(optimizer_type, "register_step_post_hook", None)):
         raise RuntimeError("the installed Torch optimizer lacks post-step hooks")
 
@@ -634,6 +662,7 @@ def fit_shared_portfolio_ppo(
     episode_journal: PortfolioEpisodeJournalWrapper | None = None
     join_wrapper: _ActorNativeJoinWrapper | None = None
     optimizer_handle: Any | None = None
+    optimizer_counter: _OptimizerStepCounter | None = None
     coordinator: _TrainingCoordinator | None = None
     model: Any | None = None
     primary_error: BaseException | None = None
@@ -654,24 +683,36 @@ def fit_shared_portfolio_ppo(
             context_digest=context_digest,
         )
         active_join_wrapper = join_wrapper
-        vector_env = DummyVecEnv([lambda: active_join_wrapper])
+        vector_env = dummy_vec_env([lambda: active_join_wrapper])
         if vector_env.num_envs != 1:
             raise RuntimeError("stage 1 requires exactly one vector environment")
 
-        class _JournaledPPO(PPO):
-            _training_coordinator: _TrainingCoordinator | None = None
+        def excluded_save_params(instance: Any) -> list[str]:
+            return [
+                *ppo_class._excluded_save_params(instance),
+                "_training_coordinator",
+            ]
 
-            def _excluded_save_params(self) -> list[str]:
-                return [*super()._excluded_save_params(), "_training_coordinator"]
+        def train_with_receipt(instance: Any) -> None:
+            ppo_class.train(instance)
+            active = instance._training_coordinator
+            if active is None:
+                raise RuntimeError("training coordinator is unavailable")
+            active.after_train(instance)
 
-            def train(self) -> None:
-                super().train()
-                active = self._training_coordinator
-                if active is None:
-                    raise RuntimeError("training coordinator is unavailable")
-                active.after_train(self)
+        journaled_ppo_class = cast(
+            Any,
+            type(
+                "_JournaledPPO",
+                (ppo_class,),
+                {
+                    "_excluded_save_params": excluded_save_params,
+                    "train": train_with_receipt,
+                },
+            ),
+        )
 
-        model = _JournaledPPO(
+        model = journaled_ppo_class(
             "MultiInputPolicy",
             vector_env,
             learning_rate=config.learning_rate,
@@ -689,7 +730,7 @@ def fit_shared_portfolio_ppo(
             use_sde=False,
             policy_kwargs={
                 "net_arch": {"pi": [64, 64], "vf": [64, 64]},
-                "activation_fn": torch.nn.Tanh,
+                "activation_fn": activation_fn,
                 "ortho_init": True,
             },
             seed=config.ppo_seed,
@@ -708,6 +749,7 @@ def fit_shared_portfolio_ppo(
         model.set_logger(logger)
 
         counter = _OptimizerStepCounter()
+        optimizer_counter = counter
         optimizer_handle = model.policy.optimizer.register_step_post_hook(counter.hook)
         coordinator = _TrainingCoordinator(
             output_root=root,
@@ -723,22 +765,35 @@ def fit_shared_portfolio_ppo(
         coordinator.save_initial_checkpoint(model)
         vector_env.seed(config.reset_seed)
 
-        class _RolloutJournalCallback(BaseCallback):
-            def _on_rollout_start(self) -> None:
-                active_coordinator.start_rollout(self.model)
+        def on_rollout_start(callback: Any) -> None:
+            active_coordinator.start_rollout(callback.model)
 
-            def _on_rollout_end(self) -> None:
-                active_coordinator.end_rollout()
+        def on_rollout_end(callback: Any) -> None:
+            active_coordinator.end_rollout()
 
-            def _on_step(self) -> bool:
-                return True
+        def on_step(callback: Any) -> bool:
+            return True
 
-            def _on_training_end(self) -> None:
-                active_coordinator.validate_training_end(self.model)
+        def on_training_end(callback: Any) -> None:
+            active_coordinator.validate_training_end(callback.model)
+
+        rollout_callback_class = cast(
+            Any,
+            type(
+                "_RolloutJournalCallback",
+                (callback_base,),
+                {
+                    "_on_rollout_start": on_rollout_start,
+                    "_on_rollout_end": on_rollout_end,
+                    "_on_step": on_step,
+                    "_on_training_end": on_training_end,
+                },
+            ),
+        )
 
         model.learn(
             total_timesteps=config.total_timesteps,
-            callback=_RolloutJournalCallback(verbose=0),
+            callback=rollout_callback_class(verbose=0),
             reset_num_timesteps=True,
             progress_bar=False,
         )
@@ -807,6 +862,21 @@ def fit_shared_portfolio_ppo(
                 [] if coordinator is None else coordinator.completed_rollouts
             ),
             "join_poisoned": None if join_wrapper is None else join_wrapper.is_poisoned,
+            "optimizer_step_calls_observed": (
+                None if optimizer_counter is None else optimizer_counter.count
+            ),
+            "optimizer_step_count_semantics": (
+                "successful optimizer.step calls observed by the registered post-step hook; "
+                "a failure within a step may leave this count below work already applied"
+            ),
+            "sb3_epoch_count_observed": (
+                None
+                if model is None or type(getattr(model, "_n_updates", None)) is not int
+                else model._n_updates
+            ),
+            "sb3_epoch_count_semantics": (
+                "SB3 _n_updates counts completed epochs, not optimizer.step calls"
+            ),
         }
         if coordinator is not None:
             if coordinator.current_journal is not None:

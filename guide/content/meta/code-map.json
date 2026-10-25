@@ -26,13 +26,14 @@
     "ownership",
     "dependency",
     "PortfolioEpisodeJournalWrapper",
-    "PortfolioPolicySampleJournal"
+    "PortfolioPolicySampleJournal",
+    "fit_shared_portfolio_ppo"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "46491e5da3ea57356e532853fb7eed356954c5672823554290d1736f54420e7d"
+      "sha256": "3262104672199b67243ca8c56ef0743c77c43f9b0c2ab797fdccc65dc5d099ae"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -292,7 +293,7 @@
       "kind": "class",
       "source_sha256": "429f131699f3928a4007752d8c4fb15af0ae57a3c49fef1190f83416649b93c0",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
-      "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。trainerやlegacy PPO defaultの変更は含みません。",
+      "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。Gym adapter自体はtrainerでもlegacy PPO defaultの変更でもありません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
@@ -339,7 +340,7 @@
       "id": "portfolio-episode-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper",
       "kind": "class",
-      "source_sha256": "74ca8a03826e90933ee8ef0345eb2f468d0a5b2b0d2f59f360f54e12185363be",
+      "source_sha256": "d24e9a9de19f2c94aaa1547e78dc44c7fb87bb376f3aaf82067dfc252c1ba06a",
       "label_ja": "Gym episode factsのopt-in event journal",
       "description_ja": "SharedPortfolioGymEnvを内包するGymまたはobservation-only wrapperを受け、actionを変換せずsource action/reward/target/hold/native interval・terminal factsをevent単位で記録してからtransitionを返します。configured target weightはmanifestに記録しますが、target/hold factsはfillsではありません。observation、PPO log-probability、policy versionは保存せず、失敗・中断したepisodeを完了扱いしません。",
       "variables": [],
@@ -352,12 +353,25 @@
       "id": "portfolio-policy-sample-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal",
       "kind": "class",
-      "source_sha256": "50c7d0dd1769b2814fcea1769ca6de306b51a5e1aa6918e4a205e5211938f6f7",
+      "source_sha256": "a3b2aa5f8571da626755e38690d803663456821cd78eb760c5beed44a0712921",
       "label_ja": "SB3 policy forward sampleのopt-in記録",
       "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。sample schema v2はforward batch sizeと出力tensorのdtype/shapeも記録します。attach時にlocal/global hook layoutが空であることを要求し、以降の変更はfail closedします。caller宣言のcontext/versionはattestationではなく、trainerやoptimizer update/native transitionとのjoinは提供しません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_policy_sample_journal.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-ppo-trainer",
+      "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
+      "kind": "function",
+      "source_sha256": "288ae1c4f68220f139f6e838be530248094a930f796aaf7f95db2bff37ae5e3b",
+      "label_ja": "共通portfolioの明示的なopt-in PPO trainer",
+      "description_ja": "1環境・CPU PPOのrolloutを実行し、実際のpolicy sampleとnative episode eventをjoinしてcheckpointと成功・失敗のsoftware evidenceを保存します。inference bundle、収益性の証拠、legacy PPO defaultの変更は提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_training.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

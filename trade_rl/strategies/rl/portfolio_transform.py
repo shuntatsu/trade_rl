@@ -1050,8 +1050,15 @@ class PortfolioObservationTransform:
             for flag_index in (6, 9, 11, 13, 15, 17, 19):
                 if row[flag_index] not in (0.0, 1.0):
                     raise ValueError("active order presence flags must be binary")
-            if row[19] != 1.0 or row[20] <= 0.0:
-                raise ValueError("active order price context is incomplete")
+            if row[19] == 0.0:
+                if row[20] != 0.0:
+                    raise ValueError("absent submission reference price must be zero")
+                if row[15] != 0.0 or row[17] != 0.0:
+                    raise ValueError(
+                        "limit or stop price requires a submission reference"
+                    )
+            elif row[20] <= 0.0:
+                raise ValueError("present submission reference price must be positive")
             if row[15] == 0.0 and row[16] != 0.0:
                 raise ValueError("absent limit price must be zero")
             if row[17] == 0.0 and row[18] != 0.0:
@@ -1192,8 +1199,10 @@ class PortfolioObservationTransform:
                 0.0 if row[17] == 0.0 else math.log(row[18]) - math.log(row[20])
             )
             output_row[numeric_start + 15] = row[19]
-            output_row[numeric_start + 16] = math.log(row[20]) - math.log(
-                float(account[symbol_index, 2])
+            output_row[numeric_start + 16] = (
+                math.log(row[20]) - math.log(float(account[symbol_index, 2]))
+                if row[19] == 1.0
+                else 0.0
             )
         return output
 

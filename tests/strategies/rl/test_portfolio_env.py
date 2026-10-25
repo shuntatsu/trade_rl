@@ -1027,7 +1027,91 @@ def test_portfolio_transform_marks_pending_notional_at_current_mark() -> None:
     orders = transform.transform_observation(raw)["active_orders"]
 
     assert orders[0, 16] == pytest.approx(0.2)
+    assert orders[0, -2] == 1.0
     assert orders[0, 32] == pytest.approx(math.log(0.5))
+
+
+def test_portfolio_wrapper_transforms_legacy_order_without_price_context() -> None:
+    from trade_rl.strategies.portfolio_policy_codec import (
+        encode_portfolio_decision_snapshot,
+    )
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioGymObservationWrapper,
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    wrapped = PortfolioGymObservationWrapper(env, transform)
+    env.reset()
+    legacy_snapshot = replace(
+        env._snapshot(),
+        active_orders=(_pending_order_snapshot(submission_reference_price=None),),
+    )
+    raw = encode_portfolio_decision_snapshot(legacy_snapshot)
+
+    transformed = wrapped.observation(raw)
+
+    assert transform.observation_space.contains(transformed)
+    assert transformed["active_orders"][0, 16] == pytest.approx(0.1)
+    np.testing.assert_array_equal(transformed["active_orders"][0, -2:], [0.0, 0.0])
+
+
+@pytest.mark.parametrize(
+    ("malformation", "message"),
+    [
+        ("non_binary_mask", "presence flags must be binary"),
+        ("nonzero_absent_value", "absent submission reference price must be zero"),
+        ("zero_present_value", "present submission reference price must be positive"),
+        (
+            "limit_without_reference",
+            "limit or stop price requires a submission reference",
+        ),
+        (
+            "stop_without_reference",
+            "limit or stop price requires a submission reference",
+        ),
+    ],
+)
+def test_portfolio_transform_rejects_malformed_optional_order_price_context(
+    malformation: str, message: str
+) -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    raw, _ = env.reset()
+    if malformation == "limit_without_reference":
+        order = _pending_order_snapshot(
+            order_type=OrderType.LIMIT.value,
+            limit_price=99.0,
+            submission_reference_price=100.0,
+        )
+        raw["active_orders"] = env._encode_active_orders((order,))
+        raw["active_orders"][0, 19:21] = [0.0, 0.0]
+    elif malformation == "stop_without_reference":
+        order = _pending_order_snapshot(
+            order_type=OrderType.STOP_MARKET.value,
+            stop_price=101.0,
+            submission_reference_price=100.0,
+        )
+        raw["active_orders"] = env._encode_active_orders((order,))
+        raw["active_orders"][0, 19:21] = [0.0, 0.0]
+    else:
+        raw["active_orders"] = env._encode_active_orders(
+            (_pending_order_snapshot(submission_reference_price=None),)
+        )
+        if malformation == "non_binary_mask":
+            raw["active_orders"][0, 19] = 2.0
+        elif malformation == "nonzero_absent_value":
+            raw["active_orders"][0, 20] = 100.0
+        else:
+            raw["active_orders"][0, 19] = 1.0
+
+    with pytest.raises(ValueError, match=message):
+        transform.transform_observation(raw)
 
 
 def test_portfolio_transform_preserves_maintenance_margin_rate() -> None:

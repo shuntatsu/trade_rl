@@ -516,6 +516,40 @@ def test_failure_before_runtime_counters_are_initialized_records_null_counts(
         "successful optimizer.step calls observed by the registered post-step hook; "
         "a failure within a step may leave this count below work already applied"
     )
+    assert failure["sb3_epoch_count_semantics"] == (
+        "SB3 _n_updates is an epoch counter; target-KL can stop an epoch early, "
+        "so it may include a partially processed epoch and is not an optimizer-step count"
+    )
+
+
+def test_failed_optimizer_hook_registration_does_not_claim_an_observed_counter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    env = _environment()
+    transform = fit_portfolio_observation_transform(env)
+    output = tmp_path / "hook-registration-failure"
+
+    def fail_registration(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("literal optimizer hook registration failure")
+
+    monkeypatch.setattr(
+        torch.optim.Optimizer, "register_step_post_hook", fail_registration
+    )
+    with pytest.raises(RuntimeError, match="hook registration failure"):
+        fit_shared_portfolio_ppo(
+            env,
+            transform=transform,
+            output_root=output,
+            config=_config(total_timesteps=4, n_steps=4),
+        )
+
+    failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
+    assert failure["optimizer_step_calls_observed"] is None
+    assert failure["sb3_epoch_count_observed"] == 0
+    assert failure["status"] == "failed"
+    assert not (output / "completion.json").exists()
 
 
 def test_rollout_error_remains_primary_when_policy_journal_close_also_fails(

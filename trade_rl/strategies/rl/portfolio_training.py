@@ -749,8 +749,8 @@ def fit_shared_portfolio_ppo(
         model.set_logger(logger)
 
         counter = _OptimizerStepCounter()
-        optimizer_counter = counter
         optimizer_handle = model.policy.optimizer.register_step_post_hook(counter.hook)
+        optimizer_counter = counter
         coordinator = _TrainingCoordinator(
             output_root=root,
             env=env,
@@ -875,7 +875,8 @@ def fit_shared_portfolio_ppo(
                 else model._n_updates
             ),
             "sb3_epoch_count_semantics": (
-                "SB3 _n_updates counts completed epochs, not optimizer.step calls"
+                "SB3 _n_updates is an epoch counter; target-KL can stop an epoch early, "
+                "so it may include a partially processed epoch and is not an optimizer-step count"
             ),
         }
         if coordinator is not None:

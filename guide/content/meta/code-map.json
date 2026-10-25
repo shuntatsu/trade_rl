@@ -33,7 +33,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "3262104672199b67243ca8c56ef0743c77c43f9b0c2ab797fdccc65dc5d099ae"
+      "sha256": "f547dadc1865bc532c220d34e17f0c3c06dae66a2182a244f36ef69b6fdc30c6"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -366,7 +366,7 @@
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "288ae1c4f68220f139f6e838be530248094a930f796aaf7f95db2bff37ae5e3b",
+      "source_sha256": "a34fdb89d10fab695f6eec7ddc18aaddd247075e8731c0668152856849056429",
       "label_ja": "共通portfolioの明示的なopt-in PPO trainer",
       "description_ja": "1環境・CPU PPOのrolloutを実行し、実際のpolicy sampleとnative episode eventをjoinしてcheckpointと成功・失敗のsoftware evidenceを保存します。inference bundle、収益性の証拠、legacy PPO defaultの変更は提供しません。",
       "variables": [],

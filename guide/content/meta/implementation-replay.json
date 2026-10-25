@@ -148,7 +148,7 @@
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "288ae1c4f68220f139f6e838be530248094a930f796aaf7f95db2bff37ae5e3b",
+      "source_sha256": "a34fdb89d10fab695f6eec7ddc18aaddd247075e8731c0668152856849056429",
       "label_ja": "共通portfolioのopt-in PPO training entrypoint",
       "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。",
       "variables": [],

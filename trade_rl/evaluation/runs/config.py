@@ -14,6 +14,7 @@ from typing import ClassVar, cast
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import (
     LeanCandidateConfig,
@@ -383,15 +384,14 @@ def _normalized_datetime64(
         raise ValueError(f"{field} must be an ISO datetime")
 
     try:
-        resolved = source.astype("datetime64[ns]")
-        round_trip = resolved.astype(source.dtype)
+        resolved = _datetime64_values_to_ns_exact(np.asarray(source))
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError(
             f"{field} must be losslessly representable as datetime64[ns]"
         ) from error
-    if np.isnat(resolved) or round_trip != source:
+    if np.isnat(resolved):
         raise ValueError(f"{field} must be losslessly representable as datetime64[ns]")
-    return resolved
+    return cast(np.datetime64, resolved[()])
 
 
 def _require_finite(value: object, *, field: str) -> float:

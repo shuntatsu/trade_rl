@@ -348,6 +348,16 @@ small strategy interfaceとlogical intent、controls、rule、forecast、teacher
 
 `strategies/rl/portfolio_env.py` はopt-in `SharedPortfolioGymEnv` adapterを提供する。固定shapeのjoint action/observationを、strategy-owned snapshot builderとsimulation-owned `SharedPortfolioSession`へ接続するが、`evaluation`には依存しない。shared risk・execution・accounting、native clock、reserved terminal settlementは既存ownerが引き続き処理する。これはGym adapterであり、それ自体はtrainerや学習済みjoint policyを提供せず、legacy PPO defaultも変更しない。RL facadeからは再exportしない。
 
+The codec exports `ACCOUNT_FIELDS` for the four columns of the raw-v1 account
+matrix. Its 21-column active-order matrix has one row per roster symbol, rejects
+duplicate or out-of-roster orders, and represents each optional price with a
+presence flag plus a zero-filled absent value. An all-`None` legacy price tuple
+therefore remains representable, while consumers can still distinguish missing
+price context. `ACTION_HOLD` preserves the current signed filled quantity; on
+the next native transition, reconciliation cancels any active remainder before
+that interval's fill processing. The action set has no independent cancel
+action, and this wrapper does not add one.
+
 `strategies/rl/portfolio_episode_journal.py` は明示的に包んだGym環境の外側で使うopt-in journalである。新しいrootを一度だけ確保し、source action/reward/native interval・terminal factsをeventごとのcanonical JSONへ記録してからtransitionを返す。observation、policy state、log-probabilityは記録せず、caller-declared context digestも独立検証済みとは扱わない。失敗・中断したepisodeは完了扱いにせず、状態が進んだ可能性のあるjournal error後はwrapperをpoisonしてstep/resetを続けない。trainer、rollout collector、episodeの学習再現性は提供しない。
 
 The journal may wrap an observation-only Gym wrapper, but validates that the underlying environment is `SharedPortfolioGymEnv` and forwards the action object unchanged. Its manifest includes configured target weights; each step records the source-requested target weights and effective HOLD symbols. Those are target/hold facts, not fill quantities.

@@ -247,14 +247,25 @@ def test_encoder_rejects_multiple_active_orders_for_one_symbol() -> None:
         )
 
 
-def test_encoder_rejects_legacy_order_without_price_context() -> None:
+def test_encoder_marks_legacy_order_price_context_as_absent() -> None:
     env = _env(_dataset())
     env.reset()
 
-    with pytest.raises(ValueError, match="price context is incomplete"):
-        env._encode_active_orders(
-            (_pending_order_snapshot(submission_reference_price=None),)
-        )
+    encoded = env._encode_active_orders(
+        (_pending_order_snapshot(submission_reference_price=None),)
+    )
+
+    assert encoded[0, 0] == 1.0
+    assert encoded[0, 19] == 0.0
+    assert encoded[0, 20] == 0.0
+
+
+def test_encoder_rejects_pending_order_outside_dataset_symbol_roster() -> None:
+    env = _env(_dataset())
+    env.reset()
+
+    with pytest.raises(ValueError, match="symbol index.*roster"):
+        env._encode_active_orders((_pending_order_snapshot(symbol_index=1),))
 
 
 def test_invalid_joint_actions_do_not_advance_the_shared_session() -> None:
@@ -346,6 +357,38 @@ def test_terminal_reward_aggregates_reserved_close_and_reconciles_literal_fees()
     assert terminal_info["objective_endpoint_valid"] is True
     assert terminal_info["elapsed_intervals"] == 2
     assert sum(rewards) == pytest.approx((998.0 - 1_000.0) / 1_000.0)
+
+
+def test_exact_hold_preserves_filled_quantity_and_cancels_pending_remainder() -> None:
+    volume = np.full((6, 1), 1_000_000.0)
+    volume[1, 0] = 2.0
+    observed: list[StatefulExecutionObservation] = []
+    cost = replace(
+        ExecutionCostConfig.zero(),
+        max_participation_rate=0.5,
+    )
+    env = _env(
+        _dataset(volume=volume),
+        execution_cost=cost,
+        target_abs_weights=(0.5,),
+        execution_observer=observed.append,
+    )
+    env.reset()
+
+    after_long, _, _, _, _ = env.step(np.asarray([ACTION_LONG], dtype=np.int64))
+
+    assert after_long["account"][0, 0] == pytest.approx(1.0)
+    assert after_long["active_orders"][0, 0] == 1.0
+    assert after_long["active_orders"][0, 5] == pytest.approx(4.0)
+
+    after_hold, _, _, _, info = env.step(np.asarray([ACTION_HOLD], dtype=np.int64))
+
+    assert info["effective_hold_symbols"] == (0,)
+    assert after_hold["account"][0, 0] == pytest.approx(1.0)
+    assert after_hold["active_orders"][0, 0] == 0.0
+    assert any(
+        reason == "superseded" for _, reason in observed[-1].terminal_order_reasons
+    )
 
 
 def test_short_gap_preserves_native_insolvency_floor_and_invalid_endpoint() -> None:

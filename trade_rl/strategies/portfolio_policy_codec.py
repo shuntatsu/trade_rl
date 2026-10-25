@@ -21,6 +21,12 @@ ACTION_LONG = 3
 ACTION_CODES = (ACTION_HOLD, ACTION_SHORT, ACTION_FLAT, ACTION_LONG)
 
 PORTFOLIO_GYM_OBSERVATION_SCHEMA = "shared_portfolio_gym_observation_v1"
+ACCOUNT_FIELDS = (
+    "quantity",
+    "weight",
+    "mark_price",
+    "contract_multiplier",
+)
 PORTFOLIO_GYM_OBSERVATION_KEYS = (
     "features",
     "feature_available",
@@ -218,17 +224,19 @@ def encode_portfolio_active_orders(
     n_symbols: int,
     active_orders: tuple[PortfolioPendingOrderSnapshot, ...],
 ) -> np.ndarray:
+    if type(n_symbols) is not int or n_symbols <= 0:
+        raise ValueError("n_symbols must be a positive native integer")
     encoded = np.zeros((n_symbols, len(ACTIVE_ORDER_FIELDS)), dtype=np.float64)
     seen: set[int] = set()
     for order in active_orders:
         symbol_index = order.symbol_index
+        if type(symbol_index) is not int or not 0 <= symbol_index < n_symbols:
+            raise ValueError("active order symbol index must be in the roster")
         if symbol_index in seen:
             raise ValueError(
                 "the observation supports at most one active order per symbol"
             )
         seen.add(symbol_index)
-        if order.submission_reference_price is None:
-            raise ValueError("active order price context is incomplete")
         try:
             order_type = _ORDER_TYPE_CODES[order.order_type]
             time_in_force = _TIME_IN_FORCE_CODES[order.time_in_force]
@@ -259,8 +267,12 @@ def encode_portfolio_active_orders(
             0.0 if order.limit_price is None else order.limit_price,
             float(order.stop_price is not None),
             0.0 if order.stop_price is None else order.stop_price,
-            1.0,
-            order.submission_reference_price,
+            float(order.submission_reference_price is not None),
+            (
+                0.0
+                if order.submission_reference_price is None
+                else order.submission_reference_price
+            ),
         )
         encoded[symbol_index] = np.asarray(values, dtype=np.float64)
     return encoded
@@ -332,6 +344,7 @@ def portfolio_action_to_proposal(
 
 
 __all__ = [
+    "ACCOUNT_FIELDS",
     "ACTION_CODES",
     "ACTION_FLAT",
     "ACTION_HOLD",

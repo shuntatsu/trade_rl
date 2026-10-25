@@ -248,11 +248,20 @@ cash, not as free or reserved cash, so this input is not a complete Markov accou
 state. An explicit exact-quantity HOLD is accepted only when its target exactly
 matches the current book weight, and it survives only if hard risk leaves that
 weight unchanged; the normal executor then cancels any residual order while
-preserving the signed filled quantity. The actor cannot request the terminal
+preserving the signed filled quantity. Reconciliation applies that cancellation
+before processing the next execution interval, so an unfilled remainder cannot
+fill in that interval after a HOLD decision. The actor cannot request the terminal
 emergency-flatten mask. Policy calls stop at the existing latency-aware agent
 boundary, after which the session reserves terminal intervals for its existing
 risk-owned emergency-flatten path. A failed observer/transition consumes the
 session because executor state may already have advanced; it cannot be retried.
+The raw-v1 codec's `account` matrix columns are exported as `ACCOUNT_FIELDS`
+(`quantity`, `weight`, `mark_price`, `contract_multiplier`). Its 21-column
+`active_orders` matrix supports at most one order per symbol and rejects
+out-of-roster symbol indices. Optional limit, stop, or submission-reference
+prices use their existing presence flags; absent values are encoded as zero
+with a zero flag. This keeps all-`None` legacy snapshots encodable without
+inventing missing price facts.
 This
 numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam

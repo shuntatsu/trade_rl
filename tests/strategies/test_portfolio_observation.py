@@ -278,6 +278,12 @@ def test_portfolio_policy_codec_preserves_raw_v1_arrays_and_detaches_values() ->
         encoded["account"],
         [[0.0, 0.0, 100.0, 1.0], [0.0, 0.0, 100.0, 1.0], [0.0, 0.0, 100.0, 1.0]],
     )
+    assert codec.ACCOUNT_FIELDS == (
+        "quantity",
+        "weight",
+        "mark_price",
+        "contract_multiplier",
+    )
     np.testing.assert_array_equal(
         encoded["active_orders"][:, [0, 1, 16, 17, 18, 19, 20]],
         [
@@ -290,6 +296,35 @@ def test_portfolio_policy_codec_preserves_raw_v1_arrays_and_detaches_values() ->
     np.testing.assert_array_equal(encoded["terminal"], [0])
     encoded["features"][0, 0] = -99.0
     assert snapshot.features[0][0] == 0.0
+
+
+def test_active_order_codec_encodes_absent_legacy_price_context_as_zero() -> None:
+    codec = importlib.import_module("trade_rl.strategies.portfolio_policy_codec")
+
+    encoded = codec.encode_portfolio_active_orders(1, (_legacy_snapshot(),))
+
+    assert encoded.shape == (1, len(codec.ACTIVE_ORDER_FIELDS))
+    np.testing.assert_array_equal(
+        encoded[0, [0, 15, 16, 17, 18, 19, 20]], [1, 0, 0, 0, 0, 0, 0]
+    )
+
+
+@pytest.mark.parametrize("n_symbols", [0, -1, True, 1.0])
+def test_active_order_codec_requires_a_positive_native_symbol_count(
+    n_symbols: object,
+) -> None:
+    codec = importlib.import_module("trade_rl.strategies.portfolio_policy_codec")
+
+    with pytest.raises(ValueError, match="positive native integer"):
+        codec.encode_portfolio_active_orders(n_symbols, ())
+
+
+def test_active_order_codec_rejects_symbol_index_outside_declared_shape() -> None:
+    codec = importlib.import_module("trade_rl.strategies.portfolio_policy_codec")
+    out_of_range = replace(_legacy_snapshot(), symbol_index=3)
+
+    with pytest.raises(ValueError, match="symbol index.*roster"):
+        codec.encode_portfolio_active_orders(3, (out_of_range,))
 
 
 def test_portfolio_action_codec_maps_joint_codes_to_exact_hold_proposal() -> None:

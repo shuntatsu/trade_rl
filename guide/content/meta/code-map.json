@@ -38,7 +38,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "44bcff7f21f06345688710aa8cc2bc26678cddb11e2ede234b452eb0bd91b363"
+      "sha256": "2e5449622757614e90f800313c1fe7ed82e9c51b1a122fd0157ba5e3d6582b54"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -398,7 +398,7 @@
       "kind": "function",
       "source_sha256": "6290a816f83d077b129770536272743767a438959a3be516aa8a43d90ca2c7c1",
       "label_ja": "strictなjoint PPO inference bundle loader",
-      "description_ja": "trustedなbundle/attempt/context digest、forward runtime binding、実際のGym observation/action spacesをSB3 policy load前に照合します。schema v1でselected source/runtime ownerを記録しますが、完全なtransitive source closure、fitの独立証明、性能やdeployment readinessは主張しません。",
+      "description_ja": "trustedなbundle/attempt/context digest、forward runtime binding、実際のGym observation/action spacesをSB3 policy load前に照合します。schema v1でDatasetと共有timestamp normalizerを含むselected direct source ownersを記録しますが、完全なtransitive source closure、fitの独立証明、性能やdeployment readinessは主張しません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",

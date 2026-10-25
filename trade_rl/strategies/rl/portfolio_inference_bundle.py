@@ -47,6 +47,7 @@ _SOURCE_MODULES = (
     "trade_rl.artifacts.hashing",
     "trade_rl.artifacts.verified_file",
     "trade_rl.data.market",
+    "trade_rl.data._timestamps",
     "trade_rl.data.market_order_rules",
     "trade_rl.risk.pretrade",
     "trade_rl.simulation.accounting",

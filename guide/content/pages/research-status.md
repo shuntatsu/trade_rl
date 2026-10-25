@@ -20,7 +20,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。このscreenは再実行・retuneせず、固定結果として保持します。次の検証は別protocolと結果前のreviewで条件を固定します。
 
-joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統計とsource/context bindingを持つ前処理です。serialized statisticsはtrusted expected digestで検証しますが、これは署名やfit実施の証明ではありません。transform自体は学習済みjoint policy・利益性の証拠を追加せず、既存PPO defaultも変えません。
+joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統計とsource/context bindingを持つ前処理です。serialized statisticsはtrusted expected digestで検証しますが、これは署名やfit実施の証明ではありません。通常は同じobjective/clock windowだけにbindし、別の明示runtime bindingを使う場合もtypedなtraining Bound、同じDataset・資本・risk・execution context、同じ非時間contract、exclusive training stop以後のruntime startを要求します。forward bindingは統計を再fitせず、featureのpoint-in-time availabilityやpolicy学習を証明しません。まだtrainer・学習済みjoint policy・利益性の証拠を追加せず、既存PPO defaultも変えません。
 
 ## Task 18 Datasetの準備状況と次のゲート
 

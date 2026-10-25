@@ -304,7 +304,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "cca0d6fb875a921bc6263ea0c2c995c2d8c15888e3b6be261006aef166e031cd",
+      "source_sha256": "40f354c89c0413502516dabf7309ecbf4f73b1b95a23ca232b7b49f810fe69ed",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],
@@ -325,10 +325,22 @@
       ]
     },
     {
+      "id": "portfolio-observation-runtime-binding",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationRuntimeBinding",
+      "kind": "class",
+      "source_sha256": "bdd3ab4971e62ce98ffdfaa5a71cd77fc1a55b6a5f9e50b0ed96db02ed684098",
+      "label_ja": "学習統計を将来windowへbind",
+      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py"
+      ]
+    },
+    {
       "id": "portfolio-gym-observation-wrapper",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioGymObservationWrapper",
       "kind": "class",
-      "source_sha256": "53859fe624aeff09deaff29407a9b6ff1040c3533b1a9a211ef68d7e5a35ea2c",
+      "source_sha256": "843fc1e05a174b5387755bda59a5017457bcd497be3c7331fccd1b3b4708449f",
       "label_ja": "native Gym transitionを保つ変換wrapper",
       "description_ja": "観測だけを変換し、action・reward・termination・infoを保ちます。変換失敗後にnative stepが進んだ可能性があればresetまで再stepを拒否します。",
       "variables": [],
@@ -353,7 +365,7 @@
       "id": "portfolio-policy-sample-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal",
       "kind": "class",
-      "source_sha256": "6cf02c75f8d3159011351162824dd126f6158efcc4344da55a9599ea80546438",
+      "source_sha256": "a3b2aa5f8571da626755e38690d803663456821cd78eb760c5beed44a0712921",
       "label_ja": "SB3 policy forward sampleのopt-in記録",
       "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。sample schema v2はforward batch sizeと出力tensorのdtype/shapeも記録します。attach時にlocal/global hook layoutが空であることを要求し、以降の変更はfail closedします。caller宣言のcontext/versionはattestationではなく、trainerやoptimizer update/native transitionとのjoinは提供しません。",
       "variables": [],

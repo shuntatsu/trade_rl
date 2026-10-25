@@ -21,6 +21,7 @@
     "run_shared_portfolio_replay",
     "SharedPortfolioGymEnv",
     "PortfolioEpisodeJournalWrapper",
+    "PortfolioPolicySampleJournal",
     "PortfolioDecisionSnapshot",
     "PortfolioTargetProposal",
     "ScriptedReplayAction",
@@ -31,7 +32,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "cc931800ec245e65d2ef8f8b7848711c7b32aa3342dae9bfa7070e2628c9e457"
+      "sha256": "6313635416bec3d811ee45e227c86e797a6a4169bfd5f11bbd959ce27efb99b0"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -41,7 +42,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
+      "sha256": "098ec6dc179ba21d58c77bfa4260af4b93d1deeed4b6a22f43c55716d0d54595"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -308,6 +309,19 @@
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_episode_journal.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-policy-sample-journal",
+      "symbol": "trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal",
+      "kind": "class",
+      "source_sha256": "8580a82722ee4159b1c9e61cd60b8b002395624b84f6e88eda7468a738530084",
+      "label_ja": "SB3 policy forward sampleのopt-in記録",
+      "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。hook layout変更はfail closedし、caller宣言のcontext/versionはattestationではありません。trainer、optimizer update、native transitionとのjoinは提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_policy_sample_journal.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

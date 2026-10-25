@@ -159,6 +159,8 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 `PortfolioEpisodeJournalWrapper`はこのGym環境またはobservation-only Gym wrapperの外側に置くopt-in event journalです。underlying環境が`SharedPortfolioGymEnv`であることを検証し、action objectを変換せずに渡します。manifestにはconfigured target weightsを記録し、各stepにはsourceのrequested target weightsとeffective HOLD symbolsを記録します。これらはfillsではありません。observation、policy log-probability、policy versionは保存せず、PPO trainerも追加しません。
 
+`PortfolioPolicySampleJournal`は別のopt-in SB3 forward-hook recorderです。SB3がenvironmentを進める前に、policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをbatch rowごとのcanonical JSONへ保存します。attach後はpolicy hook layoutを固定し、後から追加・削除・置換されたhookを検出したら、次のsampleを記録する前にfail closedします。context、transform、policy versionの文字列はcaller宣言のlabelで、Dataset・model weights・checkpoint lineageを証明しません。optimizer updateやnative financial eventとのjoinは記録せず、legacy PPO defaultsやpolicy serializationも変更しません。PyTorch/SB3はrecorder構築時だけimportします。
+
 ## 不変条件
 
 - 判断前に未来バーを読まない。

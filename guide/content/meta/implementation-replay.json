@@ -19,7 +19,8 @@
     "build_portfolio_decision_snapshot",
     "PortfolioDecisionSnapshot",
     "PortfolioTargetProposal",
-    "SharedPortfolioGymEnv"
+    "SharedPortfolioGymEnv",
+    "PortfolioPolicySampleJournal"
   ],
   "source_sections": [
     {
@@ -30,7 +31,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
+      "sha256": "098ec6dc179ba21d58c77bfa4260af4b93d1deeed4b6a22f43c55716d0d54595"
     }
   ],
   "code_references": [

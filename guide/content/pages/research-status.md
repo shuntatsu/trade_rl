@@ -8,6 +8,8 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、trainerや完全な学習記録にはなりません。
 
+別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。trainer、weights/checkpoint lineageのattestation、学習結果や利益の証拠にはなりません。
+
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 
 4方式比較のソフトウェアはレビューと必須CIを通してmainに統合され、M34で固定した一度のscreenを実行しました。cash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの12行はすべて計算を完了しましたが、latency-2のnet returnはcost-proxyが2.6777%、cost=0が2.8971%となり、screenの比較条件は不成立です。各行の結果、費用・drawdown・fundingとsource bindingは[研究状態の正本](../../../docs/research/current-status.md)および[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)を参照してください。

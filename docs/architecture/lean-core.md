@@ -237,6 +237,17 @@ numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.
 
+`PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
+It stores actual policy forward inputs, sampled action codes, the returned joint
+log-probability, and critic value before the caller advances the environment.
+The hook layout is frozen at attachment; any later change fails closed before
+another sample is written, preventing a subsequent replacing hook from silently
+changing what SB3 receives. Caller-declared context, transform, and policy
+version labels are not Dataset, weight, or checkpoint-lineage attestations. The
+recorder does not store optimizer updates or join policy samples to native
+financial transitions, and it leaves legacy PPO defaults and serialization
+unchanged.
+
 `run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
 sequences. It validates every symbol schedule before execution. `None` means no
 new actor decision and keeps the cached target and pending order progressing;

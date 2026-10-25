@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -195,6 +196,23 @@ def test_portfolio_episode_journal_stays_an_opt_in_strategy_wrapper() -> None:
     facade = (PACKAGE / "strategies" / "rl" / "__init__.py").read_text(encoding="utf-8")
     assert "portfolio_episode_journal" not in facade
     assert "PortfolioEpisodeJournalWrapper" not in facade
+
+
+def test_policy_sample_journal_keeps_torch_and_sb3_optional_at_import_time() -> None:
+    command = (
+        "import sys; "
+        "import trade_rl.strategies.rl.portfolio_policy_sample_journal; "
+        "assert 'torch' not in sys.modules; "
+        "assert not any(name.startswith('stable_baselines3') for name in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:

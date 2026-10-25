@@ -31,13 +31,16 @@
     "load_portfolio_inference_bundle",
     "decide_portfolio",
     "run_published_portfolio_inference_replay",
-    "PortfolioObservationRuntimeBinding"
+    "PortfolioObservationRuntimeBinding",
+    "run_four_family_portfolio_attempt",
+    "load_four_family_portfolio_attempt",
+    "load_four_family_portfolio_result_artifact"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "f3f64e74122af4e843a945f05f28e79aed66124002b286df1e3b29b6a4479be0"
+      "sha256": "0dd363de3869b7facae9deae966cb33647fc0e99fe0c851ccff402a02af82df2"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -47,7 +50,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "6ecf3af7e337938b446870f9bbe35d98c016dad51d0eda286df6025e7da6b312"
+      "sha256": "c28f58fadbbff5fe0f73ff0a3de08b5bc99e85f9580cbc15925128d0d6090bf3"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -350,6 +353,55 @@
       ],
       "tests": [
         "tests/evaluation/test_portfolio_family_comparison.py"
+      ]
+    },
+    {
+      "id": "four-family-attempt-run",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_attempt.run_four_family_portfolio_attempt",
+      "kind": "function",
+      "source_sha256": "59afdf4e5a930b6545371423a004a8bada4854ab6043b3ee7d58b82eb682a94a",
+      "label_ja": "固定4方式attemptを予約して実行",
+      "description_ja": "one-shot rootを予約し、expected provenanceを比較前に照合します。各native outcomeを次arm前に保存し、結果をstrict reloadしてから完了を記録します。fitや研究結果は作りません。",
+      "variables": [
+        {
+          "name": "attempt_root",
+          "label_ja": "attempt root",
+          "description_ja": "今回一度だけ使うfilesystem rootです。既存rootは拒否します。"
+        },
+        {
+          "name": "context",
+          "label_ja": "固定入力context",
+          "description_ja": "外部identityとartifact rootsをまとめたtyped contextです。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_attempt.py",
+        "tests/architecture/test_runs_capability_facade.py"
+      ]
+    },
+    {
+      "id": "four-family-attempt-load",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_attempt.load_four_family_portfolio_attempt",
+      "kind": "function",
+      "source_sha256": "ecc7ba4647f6656ae9276d39b6c1b9797701456d43b96adfbaa1c54339073dc6",
+      "label_ja": "完了attemptをstrict reload",
+      "description_ja": "failure markerのないcomplete attemptだけを読み、external identity、全family rows、native ledger、provenance、completion recordを照合します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_attempt.py"
+      ]
+    },
+    {
+      "id": "four-family-result-load",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact",
+      "kind": "function",
+      "source_sha256": "4144f58a7fb9d6d666017c1f00266abe097f4b3f1d218bdd6a25d3a121894c03",
+      "label_ja": "完了前のfour-family resultをstrict reload",
+      "description_ja": "complete markerなしでresult manifestと四つのdurable family rowsを検証し、digest・identity・provenance・Dataset bindingを返します。native financial arithmeticは再計算しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_result_artifact.py",
+        "tests/evaluation/test_portfolio_family_attempt.py"
       ]
     }
   ]

@@ -18,7 +18,7 @@ strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / S
 
 別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
 
-`portfolio_family_comparison.py` adds a separate in-memory coordinator for cash, fixed Trend, pinned Ridge, and verified joint-PPO policies. It preflights their inputs, runs each through a fresh session over the same Dataset and common settings, and can deliver each raw outcome to a completion observer before starting the next arm. It does not persist an attempt, fit a model, or report an economic result.
+`portfolio_family_comparison.py` adds a separate in-memory coordinator for cash, fixed Trend, pinned Ridge, and verified joint-PPO policies. It preflights their inputs, runs each through a fresh session over the same Dataset and common settings, and can deliver each raw outcome to a completion observer before starting the next arm. A separate `portfolio_family_attempt.py` wrapper can reserve a local one-shot attempt root and persist each completed raw outcome before the next arm, then strictly reload the result before marking completion. If its failure journal is writable it retains the failure phase and earlier rows; otherwise the original exception remains primary. Neither path fits a model, selects a winner, or reports an economic result.
 
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 

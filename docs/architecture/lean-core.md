@@ -272,6 +272,20 @@ or a later arm failure propagates without starting subsequent arms. The
 coordinator does not reserve attempts, persist results, fit models, select a
 winner, or establish research or profitability evidence.
 
+`evaluation/runs/portfolio_family_attempt.py` is a separate opt-in filesystem
+wrapper around that comparator. It reserves one attempt root, records declared
+identity and before/after provenance, and persists each raw family outcome in
+the comparator's completion callback before the next family begins. It then
+publishes and strictly reloads the result before writing the completion marker;
+the public attempt loader accepts only a complete, nonfailed root. A failure
+record retains the phase and already completed family rows, while the native
+executor and ledger remain the sole financial-state owners. The wrapper records
+failure phase and earlier rows when its failure journal is writable; if that
+journal write also fails, the original exception remains primary and the
+secondary write error is attached as an exception note. This local write-once
+boundary is not a global retry budget and adds no fit, winner selection,
+research approval, or profitability evidence.
+
 `strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
 Gym Dict. Its versioned payload binds the raw/transformed layouts and
 Dataset/objective/clock/risk/execution context. Local features use the existing

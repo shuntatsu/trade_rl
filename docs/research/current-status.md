@@ -160,6 +160,16 @@ later arm or observer failure cannot hide earlier completed arms. This entry
 point does not reserve or persist attempts, fit models, select a winner, or add
 financial results or profitability evidence.
 
+The separate `portfolio_family_attempt.py` wrapper adds a local one-shot
+filesystem boundary around this opt-in software path. It reserves a caller-named
+attempt root, records expected identity and before/after provenance, writes each
+completed family row before the next family starts, then strictly reloads the
+four-family result before marking the attempt complete. When the failure journal
+is writable, it records the phase and rows from earlier completed families; if
+the journal write itself fails, the original exception remains primary. The wrapper has not been used to
+produce a new financial run; it does not change the historical M34 screen or
+authorize a fit, winner selection, unused-period evaluation, or live action.
+
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 
 この節は[事前登録したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)と[実行結果](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6384143472)の現状を要約する。M34 sourceに固定した一度のscreenでは、1 fit・3 scenario・4 armの全12行を計算し、screen全体は FAILED_SCREEN となった。latency-2でposition-aware cost-proxy armが2.6777%、同じ経路のcost=0 armが2.8971%だったため、事前の比較条件を満たさなかった。シナリオごとの結果、ledger、source、Dataset、費用・funding仮定は、この文書の下にあるConditional four-arm Ridge development screen節と[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に記録している。

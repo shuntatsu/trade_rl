@@ -16,11 +16,16 @@ RUNS_EXPORTS = {
     "CandidateRunResult",
     "ForecastErrorMetrics",
     "ForecastSymbolDiagnostics",
+    "FourFamilyPortfolioAttemptContext",
+    "FourFamilyPortfolioAttemptIdentity",
     "FourFamilyPortfolioReplayResult",
     "LeanCandidateConfig",
+    "LoadedFourFamilyPortfolioAttempt",
+    "LoadedFourFamilyPortfolioResultArtifact",
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
+    "PublishedFourFamilyPortfolioAttempt",
     "PublishedRidgeComparisonAttempt",
     "PortfolioFamilyReplayOutcome",
     "ResolvedCandidateRunSpec",
@@ -32,6 +37,8 @@ RUNS_EXPORTS = {
     "execute_candidate_run",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
+    "load_four_family_portfolio_attempt",
+    "load_four_family_portfolio_result_artifact",
     "load_ridge_comparison_artifact",
     "parse_candidate_run_config",
     "publish_candidate_run",
@@ -39,6 +46,7 @@ RUNS_EXPORTS = {
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
     "run_four_family_shared_portfolio_replay",
+    "run_four_family_portfolio_attempt",
     "run_ridge_comparison_attempt",
     "supports_shared_cash_result_schema",
 }
@@ -53,6 +61,8 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.ridge_comparison_attempt",
     "trade_rl.evaluation.runs.portfolio_family_comparison",
     "trade_rl.evaluation.runs.ridge_comparison_artifact",
+    "trade_rl.evaluation.runs.portfolio_family_attempt",
+    "trade_rl.evaluation.runs.portfolio_family_result_artifact",
 )
 
 EVALUATION_EXPORTS = {
@@ -106,7 +116,9 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
         candidate_suite,
         config,
         execute,
+        portfolio_family_attempt,
         portfolio_family_comparison,
+        portfolio_family_result_artifact,
         provenance,
         ridge_artifact_comparison,
         ridge_comparison_artifact,
@@ -115,6 +127,38 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
 
     assert set(facade.__all__) == RUNS_EXPORTS
     assert facade.CandidateRunConfig is config.CandidateRunConfig
+    assert (
+        facade.FourFamilyPortfolioAttemptIdentity
+        is portfolio_family_result_artifact.FourFamilyPortfolioAttemptIdentity
+    )
+    assert (
+        facade.LoadedFourFamilyPortfolioResultArtifact
+        is portfolio_family_result_artifact.LoadedFourFamilyPortfolioResultArtifact
+    )
+    assert (
+        facade.load_four_family_portfolio_result_artifact
+        is portfolio_family_result_artifact.load_four_family_portfolio_result_artifact
+    )
+    assert (
+        facade.FourFamilyPortfolioAttemptContext
+        is portfolio_family_attempt.FourFamilyPortfolioAttemptContext
+    )
+    assert (
+        facade.LoadedFourFamilyPortfolioAttempt
+        is portfolio_family_attempt.LoadedFourFamilyPortfolioAttempt
+    )
+    assert (
+        facade.PublishedFourFamilyPortfolioAttempt
+        is portfolio_family_attempt.PublishedFourFamilyPortfolioAttempt
+    )
+    assert (
+        facade.run_four_family_portfolio_attempt
+        is portfolio_family_attempt.run_four_family_portfolio_attempt
+    )
+    assert (
+        facade.load_four_family_portfolio_attempt
+        is portfolio_family_attempt.load_four_family_portfolio_attempt
+    )
     assert (
         facade.RidgeArtifactComparison
         is ridge_artifact_comparison.RidgeArtifactComparison

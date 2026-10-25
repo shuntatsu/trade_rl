@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 TARGET_TEST = "tests/evaluation/test_portfolio_family_comparison.py"
+ATTEMPT_TEST = "tests/evaluation/test_portfolio_family_attempt.py"
 
 
 def test_ppo_runtime_runs_four_family_actual_ppo_integration() -> None:
@@ -22,3 +23,4 @@ def test_ppo_runtime_runs_four_family_actual_ppo_integration() -> None:
     assert command_match is not None
     selected_tests = command_match.group(1).split()
     assert TARGET_TEST in selected_tests
+    assert ATTEMPT_TEST in selected_tests

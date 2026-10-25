@@ -20,6 +20,7 @@
     "run_scripted_shared_cash_replay",
     "run_shared_portfolio_replay",
     "SharedPortfolioGymEnv",
+    "PortfolioEpisodeJournalWrapper",
     "PortfolioDecisionSnapshot",
     "PortfolioTargetProposal",
     "ScriptedReplayAction",
@@ -30,7 +31,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "42b52dc480de7c938f9c3ccf98c6cc47709b77f02262b6b9cb3cad4ee3e59722"
+      "sha256": "9206bacd12d57f68a049dba9b8fe5a121a06b4e0576adb3272157560bfa4ab83"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -294,6 +295,19 @@
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-episode-journal",
+      "symbol": "trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper",
+      "kind": "class",
+      "source_sha256": "c50217206961cd1ee272b94222f5bf382b18b295966964a9a61ab1b45807b0c7",
+      "label_ja": "Gym episode factsのopt-in event journal",
+      "description_ja": "一意なjournal rootへsource action/reward/native interval・terminal factsをevent単位で記録してからtransitionを返します。observation、PPO log-probability、policy versionは保存せず、失敗・中断したepisodeを完了扱いしません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_episode_journal.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

@@ -185,6 +185,18 @@ def test_portfolio_gym_is_an_opt_in_adapter_over_existing_owners() -> None:
     assert "SharedPortfolioGymEnv" not in facade
 
 
+def test_portfolio_episode_journal_stays_an_opt_in_strategy_wrapper() -> None:
+    path = PACKAGE / "strategies" / "rl" / "portfolio_episode_journal.py"
+    assert path.is_file()
+    imports = collect_trade_rl_imports(path)
+    assert "trade_rl.strategies.rl.portfolio_env" in imports
+    assert not any(within_module(name, "trade_rl.evaluation") for name in imports)
+
+    facade = (PACKAGE / "strategies" / "rl" / "__init__.py").read_text(encoding="utf-8")
+    assert "portfolio_episode_journal" not in facade
+    assert "PortfolioEpisodeJournalWrapper" not in facade
+
+
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:
     forbidden = ("trade_rl.strategies", "trade_rl.evaluation")
     assert _offenders(PACKAGE / "risk", forbidden) == []

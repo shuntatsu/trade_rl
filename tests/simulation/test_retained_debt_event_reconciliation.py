@@ -162,9 +162,7 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
 ):
     executor = MarketExecutor(market(), cost(), insolvency_valuation="retain_debt")
     entry = short_entry(executor)
-    fills = tuple(
-        event for event in entry.order_events if event.filled_quantity != 0.0
-    )
+    fills = [event for event in entry.order_events if event.filled_quantity != 0.0]
     assert len(fills) == 1
     original = fills[0]
 
@@ -178,15 +176,15 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
         )
 
     tampered = list(entry.order_events)
-    tampered[original.sequence] = replace(
-        original, filled_notional=original.filled_notional + 1.0
-    )
+    bad_notional = original.filled_notional + 1.0
+    tampered[original.sequence] = replace(original, filled_notional=bad_notional)
     with pytest.raises(ValueError, match="notional"):
         replay(tuple(tampered))
     with pytest.raises(ValueError, match="sequence"):
         replay((*entry.order_events, original))
+    other_policy = "f" * 64
     tampered[original.sequence] = replace(
-        original, execution_policy_digest="f" * 64
+        original, execution_policy_digest=other_policy
     )
     with pytest.raises(ValueError, match="execution policy"):
         replay(tuple(tampered))

@@ -37,6 +37,7 @@ _POLICY_VERSION_SEMANTICS = (
     "not an inference-provenance attestation"
 )
 _POLICY_NET_ARCH = {"pi": [64, 64], "vf": [64, 64]}
+_POLICY_FEATURES_EXTRACTOR = "stable_baselines3.common.torch_layers.CombinedExtractor"
 _SEED_MAX = (1 << 32) - 1
 
 
@@ -644,6 +645,7 @@ def fit_shared_portfolio_ppo(
         "policy": "MultiInputPolicy",
         "policy_net_arch": _POLICY_NET_ARCH,
         "policy_activation": "torch.nn.Tanh",
+        "policy_features_extractor": _POLICY_FEATURES_EXTRACTOR,
         "policy_ortho_init": True,
         "use_sde": False,
     }

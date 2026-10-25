@@ -35,7 +35,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "c4e296aba862de766b7faa02deaa7d8c7cb451062a5a878e61696453ec485f25"
+      "sha256": "19234e4ee1427c9bbc19920a1d44e59529be26466b748d36faf4ac5e6d1dafc1"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -380,7 +380,7 @@
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "aae1ea2f45aef432b08a56f7ddbe3181efde3bd0be1713ceedb9962fe67d729d",
+      "source_sha256": "f7798a9232f130a49f8fdd61c5580acaf93f6691d5a112063e1a6c4a67cacccf",
       "label_ja": "共通portfolioの明示的なopt-in PPO trainer",
       "description_ja": "1環境・CPU PPOのrolloutを実行し、実際のpolicy sampleとnative episode eventをjoinしてcheckpointと成功・失敗のsoftware evidenceを保存します。inference bundle、収益性の証拠、legacy PPO defaultの変更は提供しません。",
       "variables": [],
@@ -393,7 +393,7 @@
       "id": "portfolio-inference-bundle",
       "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.load_portfolio_inference_bundle",
       "kind": "function",
-      "source_sha256": "3e7156ca22c6d4d0adcdccb13aee3a00ac6c370e5f29882f3a545fc1ee823d57",
+      "source_sha256": "98ccb3440b0f093f6654e5f6c2f3864c08710c06bfc60ef248f419841f5f1d17",
       "label_ja": "strictなjoint PPO inference bundle loader",
       "description_ja": "trustedなbundle/attempt/context digest、forward runtime binding、実際のGym observation/action spacesをSB3 policy load前に照合します。schema v1でselected source/runtime ownerを記録しますが、完全なtransitive source closure、fitの独立証明、性能やdeployment readinessは主張しません。",
       "variables": [],

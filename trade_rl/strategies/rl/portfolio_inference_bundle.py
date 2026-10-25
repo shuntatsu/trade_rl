@@ -684,22 +684,22 @@ def _validated_training_context(
         },
         field="policy_layout",
     )
-    if (
-        layout["observation_schema"] != "shared_portfolio_dict_transform_v1"
-        or layout["observation_keys"] != list(transform.observation_keys)
-        or layout["observation_space"] != _space_descriptor(transform.observation_space)
-        or layout["symbols"] != symbols
-        or layout["feature_names"] != features
-        or layout["global_feature_names"] != globals_
-        or layout["target_abs_weights"] != weights
-        or layout["action_codes"] != [0, 1, 2, 3]
-    ):
-        raise ValueError("policy layout differs from the typed training context")
     expected_action_space = _space_descriptor(
         gym.spaces.MultiDiscrete(np.full(len(symbols), 4, dtype=np.int64))
     )
-    if layout["action_space"] != expected_action_space:
-        raise ValueError("training action layout is unsupported")
+    expected_layout = {
+        "observation_schema": "shared_portfolio_dict_transform_v1",
+        "observation_keys": list(transform.observation_keys),
+        "observation_space": _space_descriptor(transform.observation_space),
+        "symbols": symbols,
+        "feature_names": features,
+        "global_feature_names": globals_,
+        "action_space": expected_action_space,
+        "action_codes": [0, 1, 2, 3],
+        "target_abs_weights": weights,
+    }
+    if canonical_json_bytes(layout) != canonical_json_bytes(expected_layout):
+        raise ValueError("policy layout differs from the typed training context")
 
     training_config = _strict_object(
         context["training_config"], field="training_config"
@@ -742,6 +742,7 @@ def _validated_training_context(
             "policy",
             "policy_net_arch",
             "policy_activation",
+            "policy_features_extractor",
             "policy_ortho_init",
             "use_sde",
         },
@@ -750,17 +751,22 @@ def _validated_training_context(
     if (
         effective.get("policy") != "MultiInputPolicy"
         or effective.get("device") != "cpu"
+        or type(effective.get("gamma")) is not float
         or effective.get("gamma") != 1.0
         or effective.get("normalize_reward") is not False
         or effective.get("normalize_advantage") is not True
+        or type(effective.get("n_envs")) is not int
         or effective.get("n_envs") != 1
         or effective.get("n_steps") != clock.rollout_steps
         or effective.get("gae_lambda") != clock.gae_lambda
         or effective.get("policy_net_arch") != {"pi": [64, 64], "vf": [64, 64]}
         or effective.get("policy_activation") != "torch.nn.Tanh"
+        or effective.get("policy_features_extractor")
+        != "stable_baselines3.common.torch_layers.CombinedExtractor"
         or effective.get("policy_ortho_init") is not True
         or effective.get("use_sde") is not False
-        or effective != manifest.get("effective_config")
+        or canonical_json_bytes(effective)
+        != canonical_json_bytes(manifest.get("effective_config"))
         or training_config["requested_timesteps"] != manifest.get("requested_timesteps")
     ):
         raise ValueError("effective training configuration is unsupported")
@@ -779,9 +785,7 @@ def _validated_training_context(
     if len({execution_seed, reset_seed, ppo_seed}) != 3:
         raise ValueError("execution, reset, and PPO seeds must be distinct")
 
-    source_runtime = _strict_object(
-        context["observed_source_runtime"], field="observed_source_runtime"
-    )
+    source_runtime = _validate_source_runtime(context["observed_source_runtime"])
     if context["caller_declared_research_context"] is not None:
         raise ValueError("caller-declared research labels are not inference provenance")
     if (
@@ -896,6 +900,61 @@ def _load_policy_from_verified_path(path: Path) -> Any:
     return ppo.load(str(path), device="cpu", print_system_info=False)
 
 
+def _validate_loaded_policy_architecture(
+    model: object, *, effective_config: dict[str, object]
+) -> None:
+    """Check the deserialized PPO against the fixed, declared policy architecture."""
+
+    try:
+        sb3_policies = importlib.import_module("stable_baselines3.common.policies")
+        torch = importlib.import_module("torch")
+        torch_layers = importlib.import_module("stable_baselines3.common.torch_layers")
+        policy_type = getattr(sb3_policies, "MultiInputActorCriticPolicy")
+        extractor_type = getattr(torch_layers, "CombinedExtractor")
+        nn = getattr(torch, "nn")
+    except (ImportError, AttributeError) as error:
+        raise RuntimeError(
+            "stable-baselines3 and torch are required; install the train-sb3 extra"
+        ) from error
+
+    actual_policy = getattr(model, "policy", None)
+    if type(actual_policy) is not policy_type:
+        raise ValueError("loaded PPO policy architecture differs from training")
+    if getattr(actual_policy, "activation_fn", None) is not getattr(nn, "Tanh"):
+        raise ValueError("loaded PPO policy activation differs from training")
+    if type(getattr(actual_policy, "features_extractor", None)) is not extractor_type:
+        raise ValueError("loaded PPO policy features extractor differs from training")
+
+    declared_arch = _strict_object(
+        effective_config.get("policy_net_arch"), field="policy_net_arch"
+    )
+    mlp_extractor = getattr(actual_policy, "mlp_extractor", None)
+    if mlp_extractor is None:
+        raise ValueError("loaded PPO policy has no MLP extractor")
+    for branch, network_name in (("pi", "policy_net"), ("vf", "value_net")):
+        widths = declared_arch.get(branch)
+        if type(widths) is not list or any(
+            type(width) is not int or width < 1 for width in widths
+        ):
+            raise ValueError("declared PPO policy architecture is malformed")
+        network = getattr(mlp_extractor, network_name, None)
+        if type(network) is not getattr(nn, "Sequential"):
+            raise ValueError("loaded PPO policy architecture differs from training")
+        layers = tuple(cast(Any, network).children())
+        if len(layers) != 2 * len(widths):
+            raise ValueError("loaded PPO policy architecture differs from training")
+        for index, width in enumerate(widths):
+            linear = layers[2 * index]
+            activation = layers[2 * index + 1]
+            if (
+                type(linear) is not getattr(nn, "Linear")
+                or type(getattr(linear, "out_features", None)) is not int
+                or linear.out_features != width
+                or type(activation) is not getattr(nn, "Tanh")
+            ):
+                raise ValueError("loaded PPO policy architecture differs from training")
+
+
 def _validate_training_manifest(value: dict[str, object]) -> dict[str, object]:
     _exact_keys(
         value,
@@ -954,6 +1013,7 @@ def _validate_training_manifest(value: dict[str, object]) -> dict[str, object]:
         "policy",
         "policy_net_arch",
         "policy_activation",
+        "policy_features_extractor",
         "policy_ortho_init",
         "use_sde",
     }
@@ -981,12 +1041,16 @@ def _validate_training_manifest(value: dict[str, object]) -> dict[str, object]:
         requested != total
         or effective["policy"] != "MultiInputPolicy"
         or effective["device"] != "cpu"
+        or type(effective["n_envs"]) is not int
         or effective["n_envs"] != 1
+        or type(effective["gamma"]) is not float
         or effective["gamma"] != 1.0
         or effective["normalize_advantage"] is not True
         or effective["normalize_reward"] is not False
         or effective["policy_net_arch"] != {"pi": [64, 64], "vf": [64, 64]}
         or effective["policy_activation"] != "torch.nn.Tanh"
+        or effective["policy_features_extractor"]
+        != "stable_baselines3.common.torch_layers.CombinedExtractor"
         or effective["policy_ortho_init"] is not True
         or effective["use_sde"] is not False
     ):
@@ -1554,6 +1618,10 @@ def load_portfolio_inference_bundle(
         != _space_descriptor(runtime_env.action_space)
     ):
         raise ValueError("loaded PPO policy spaces differ from the validated bundle")
+    effective_config = _strict_object(
+        training_manifest["effective_config"], field="effective_config"
+    )
+    _validate_loaded_policy_architecture(policy, effective_config=effective_config)
     return PortfolioInferencePolicy(
         _policy=policy,
         _transform=transform,

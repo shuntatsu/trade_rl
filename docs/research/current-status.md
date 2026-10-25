@@ -102,7 +102,12 @@ work already applied.
 loader for an exact completed trainer attempt. The bundle binds the training
 context, checkpoint bytes, selected source/runtime owner manifest, action
 layout, and an explicitly validated forward environment before SB3 policy
-deserialization. This software path does not establish an economic result,
+deserialization. After loading the digest-verified checkpoint, the loader also
+checks its actual observation/action spaces, supported MultiInput policy class,
+declared actor/critic MLP widths and activation, and declared default feature
+extractor before returning the prediction facade. These are inference-architecture
+checks; they do not reconstruct optimizer state or all training hyperparameters.
+This software path does not establish an economic result,
 model-selection decision, complete transitive source closure, independent fit
 provenance, deployment readiness, or completion of any research gate. No
 real-data-trained policy or real-data inference is claimed here; legacy

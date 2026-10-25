@@ -1046,6 +1046,9 @@ def test_source_runtime_mismatch_fails_before_load_or_environment_reset(
 
 
 def test_selected_source_runtime_binds_timestamp_owner_content_digest() -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+
     import importlib
 
     from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module

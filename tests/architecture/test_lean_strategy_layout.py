@@ -145,6 +145,14 @@ def test_supervised_cutoff_validation_has_one_forecast_owner() -> None:
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "CausalForecastTrainingSet"
     )
+    for owner in (validator, training_set):
+        calls_shared_converter = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_datetime64_values_to_ns_exact"
+            for node in ast.walk(owner)
+        )
+        assert calls_shared_converter
     builder = next(
         node
         for node in definitions

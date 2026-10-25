@@ -521,6 +521,35 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。
 
+## Explicit insolvency valuation mode (software-only)
+
+The canonical `MarketExecutor` defaults to `insolvency_valuation="floor_zero"`.
+This is the existing production/replay/PPO behavior: a terminated account is
+flattened with nonnegative cash and the historical execution-policy digest is
+unchanged. An explicitly configured `"retain_debt"` alternative is reserved
+for result-blind synthetic conformance of historical native-account research.
+It keeps a negative cash balance after forced insolvency, terminates processing
+at the first economic termination even within one bar, cancels remaining active
+orders, and prevents any subsequent fill or carry accrual. The raw
+`BookState.portfolio_value` is the financial loss authority in this mode.
+
+The retained-debt choice is bound to order/execution identity by wrapping the
+resolved normal execution-policy digest with `insolvency_execution_policy_v1`.
+The default mode keeps the original digest; mismatched order identities are
+rejected before executing fills. Changing the option is not an innocuous
+accounting presentation change. In particular, a frozen R3 protocol, its source
+HEAD, and an old receipt must never be relabeled as if produced by a new HEAD.
+
+The scalar `interval_net_return` / `interval_log_return` diagnostics keep
+their legacy greater-than-minus-one finite bounds even when the raw terminal
+ledger is negative. Those clipped scalars **must not** be used to infer an
+uncapped net-wealth loss, compare debt tails, or accept a research result;
+inspect book equity/cash and a separate independent account oracle. Retained
+debt is not a complete venue bankruptcy/liquidation model and is not enabled
+by default in shared-portfolio sessions or Gym. Green synthetic tests do
+not supply G0–G4 approval, historical market funding or account-rule
+calibration, unused data evidence, or live order authorization.
+
 ## Independent per-symbol evaluation
 
 同じfrozen model/policyを共有しつつ、strategy/controller wrapperは各銘柄ごとにfresh instanceを生成して独立Replayする。前の銘柄で更新されたwrapper内部状態を次の銘柄へ持ち越さない。

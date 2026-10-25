@@ -67,13 +67,35 @@ class StatefulBarLifecycle:
                 float(dataset.resolved_array("cash_rate")[processing_index]),
                 year_fraction=gap_year_fraction,
             )
-            runtime.total_borrow += executor._charge_borrow(
-                runtime.book,
-                index=processing_index,
-                year_fraction=gap_year_fraction,
-            )
+            if not (
+                executor.insolvency_valuation == "retain_debt"
+                and runtime.book.insolvent
+            ):
+                runtime.total_borrow += executor._charge_borrow(
+                    runtime.book,
+                    index=processing_index,
+                    year_fraction=gap_year_fraction,
+                )
             gap_cash_carry_delta = runtime.book.cash - cash_before_gap_carry
             runtime.book.refresh_drawdown()
+            if (
+                executor.insolvency_valuation == "retain_debt"
+                and runtime.book.insolvent
+            ):
+                tick, lot, minimum = executor._effective_rule_array_views(
+                    index=processing_index
+                )
+                return StatefulBarContext(
+                    previous_index=previous_index,
+                    processing_index=processing_index,
+                    period_start_value=period_start_value,
+                    open_prices=runtime.book.mark_prices.copy(),
+                    tick_size=tick,
+                    lot_size=lot,
+                    minimum_notional=minimum,
+                    processing_year_fraction=processing_year_fraction,
+                    gap_cash_carry_delta=gap_cash_carry_delta,
+                )
 
         split = dataset.resolved_array("split_factor")[processing_index]
         if np.any(split != 1.0):
@@ -163,6 +185,8 @@ class StatefulBarLifecycle:
         dataset = executor.dataset
         processing_index = context.processing_index
 
+        if self._finish_retained_termination(runtime, context):
+            return
         if runtime.book.insolvent:
             runtime.cancel_active_orders(
                 processing_index=processing_index,
@@ -173,17 +197,23 @@ class StatefulBarLifecycle:
         runtime.total_dividend += runtime.book.apply_dividend(
             dataset.resolved_array("dividend")[processing_index]
         )
+        if self._finish_retained_termination(runtime, context):
+            return
         runtime.total_cash_interest += self._apply_processing_cash_interest(
             runtime,
             context,
         )
+        if self._finish_retained_termination(runtime, context):
+            return
         funding_amount, borrow_amount = executor._charge_carry(
             runtime.book,
             index=processing_index,
             year_fraction=context.processing_year_fraction,
         )
-        runtime.total_funding += funding_amount
         runtime.total_borrow += borrow_amount
+        if self._finish_retained_termination(runtime, context):
+            return
+        runtime.total_funding += funding_amount
         runtime.book.mark_to_market(
             mark_prices=dataset.resolved_array("mark_price")[processing_index],
             funding_amount=funding_amount,
@@ -203,3 +233,23 @@ class StatefulBarLifecycle:
                 runtime.book,
                 dataset.resolved_array("mark_price")[processing_index],
             )
+
+    def _finish_retained_termination(
+        self,
+        runtime: StatefulExecutionRuntime,
+        context: StatefulBarContext,
+    ) -> bool:
+        executor = runtime.executor
+        if executor.insolvency_valuation != "retain_debt" or not runtime.book.insolvent:
+            return False
+        runtime.cancel_active_orders(
+            processing_index=context.processing_index,
+            reason="economic_termination",
+        )
+        executor._flatten_after_termination(runtime.book, runtime.book.mark_prices)
+        runtime.book.mark_to_market(
+            mark_prices=runtime.book.mark_prices,
+            funding_amount=0.0,
+            period_start_value=context.period_start_value,
+        )
+        return True

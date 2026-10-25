@@ -154,6 +154,7 @@ def execute_stateful_orders(
     transitions = StatefulOrderTransitionProcessor(executor)
     fills = StatefulSymbolFillProcessor(executor)
 
+    bars_advanced = 0
     for offset in range(bars):
         previous_index = start_index + offset
         processing_index = previous_index + 1
@@ -162,15 +163,21 @@ def execute_stateful_orders(
             previous_index=previous_index,
             processing_index=processing_index,
         )
-        accepted = transitions.prepare_orders(runtime, context)
-        attempted = fills.process_symbols(runtime, context, accepted)
-        transitions.expire_attempted_remainders(
-            runtime,
-            processing_index=processing_index,
-            attempted_order_ids=attempted,
-        )
+        absorbing = executor.insolvency_valuation == "retain_debt"
+        if not (absorbing and runtime.book.insolvent):
+            accepted = transitions.prepare_orders(runtime, context)
+            attempted = fills.process_symbols(runtime, context, accepted)
+            if not (absorbing and runtime.book.insolvent):
+                transitions.expire_attempted_remainders(
+                    runtime,
+                    processing_index=processing_index,
+                    attempted_order_ids=attempted,
+                )
         lifecycle.finish_bar(runtime, context)
+        bars_advanced += 1
+        if absorbing and runtime.book.insolvent:
+            break
 
     return StatefulExecutionResult(
-        **runtime.result_payload(start_index=start_index, bars=bars)
+        **runtime.result_payload(start_index=start_index, bars=bars_advanced)
     )

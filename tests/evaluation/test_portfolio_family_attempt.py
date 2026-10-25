@@ -559,7 +559,7 @@ def test_signed_cash_carry_survives_four_family_attempt_round_trip(
         run_four_family_portfolio_attempt,
     )
 
-    inputs, _ = _prepared_inputs(
+    inputs, dataset = _prepared_inputs(
         tmp_path, cash_rate=np.full((7,), annual_rate, dtype=np.float64)
     )
     monkeypatch.setattr(
@@ -654,6 +654,47 @@ def test_signed_cash_carry_survives_four_family_attempt_round_trip(
             abs=1e-12,
         )
 
+    start_index = inputs["start_index"]
+    stop_index = inputs["stop_index"]
+    interval_hours = tuple(
+        float(
+            (dataset.timestamps[index + 1] - dataset.timestamps[index])
+            / np.timedelta64(1, "h")
+        )
+        for index in range(start_index, stop_index)
+    )
+    expected_interval_count = stop_index - start_index
+    assert interval_hours == (1.0,) * 4
+    assert expected_interval_count == 4
+    assert len(intervals) == expected_interval_count
+    assert (
+        tuple(
+            float(value)
+            for value in dataset.resolved_array("cash_rate")[
+                start_index + 1 : stop_index + 1
+            ]
+        )
+        == (annual_rate,) * expected_interval_count
+    )
+
+    expected_cash = float(inputs["initial_capital"])
+    for interval, hours in zip(intervals, interval_hours, strict=True):
+        expected_interest = expected_cash * annual_rate * hours / (365.0 * 24.0)
+        expected_cash += expected_interest
+        assert interval["interval_cash_interest"] == pytest.approx(
+            expected_interest, rel=0.0, abs=1e-10
+        )
+        assert interval["cash_after"] == pytest.approx(
+            expected_cash, rel=0.0, abs=1e-10
+        )
+    expected_terminal_cash = float(inputs["initial_capital"]) * math.prod(
+        1.0 + annual_rate * hours / (365.0 * 24.0) for hours in interval_hours
+    )
+    assert expected_cash == pytest.approx(expected_terminal_cash, rel=0.0, abs=1e-10)
+    assert ledger["final_cash"] == pytest.approx(
+        expected_terminal_cash, rel=0.0, abs=1e-10
+    )
+
     total_interest = math.fsum(
         interval["interval_cash_interest"] for interval in intervals
     )
@@ -664,7 +705,9 @@ def test_signed_cash_carry_survives_four_family_attempt_round_trip(
     )
     assert cash_change * annual_rate > 0.0
     assert math.prod(1.0 + value for value in returns) - 1.0 == pytest.approx(
-        cash_change / identity.initial_capital, rel=0.0, abs=1e-12
+        expected_terminal_cash / identity.initial_capital - 1.0,
+        rel=0.0,
+        abs=1e-12,
     )
 
 

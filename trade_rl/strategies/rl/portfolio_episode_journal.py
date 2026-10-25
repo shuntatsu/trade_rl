@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
 from typing import cast
@@ -19,6 +21,15 @@ from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 PORTFOLIO_EPISODE_JOURNAL_SCHEMA = "shared_portfolio_episode_journal_v1"
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _MAX_ACTION_VALUES = 256
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioEpisodeEventReference:
+    """Immutable pointer to one event written by the episode journal."""
+
+    sequence: int
+    relative_path: str
+    sha256: str
 
 
 def _action_scalar(value: object) -> object:
@@ -152,6 +163,7 @@ class PortfolioEpisodeJournalWrapper(
         self._episode_open = False
         self._poisoned = False
         self._write_failed = False
+        self._latest_step_reference: PortfolioEpisodeEventReference | None = None
 
         base_env = cast(SharedPortfolioGymEnv, self.unwrapped)
         manifest = {
@@ -169,16 +181,23 @@ class PortfolioEpisodeJournalWrapper(
         }
         atomic_write_bytes(self.root / "manifest.json", canonical_json_bytes(manifest))
 
-    def _append_event(self, event: str, data: dict[str, object]) -> None:
+    @property
+    def latest_step_reference(self) -> PortfolioEpisodeEventReference | None:
+        return self._latest_step_reference
+
+    def _append_event(
+        self, event: str, data: dict[str, object]
+    ) -> PortfolioEpisodeEventReference:
         episode_index = self._episode_index
+        sequence = self._event_sequence
         record = {
             "schema": PORTFOLIO_EPISODE_JOURNAL_SCHEMA,
-            "sequence": self._event_sequence,
+            "sequence": sequence,
             "episode_index": episode_index,
             "event": event,
             "data": data,
         }
-        path = self._events_root / f"event-{self._event_sequence:08d}.json"
+        path = self._events_root / f"event-{sequence:08d}.json"
         try:
             if path.exists() or path.is_symlink():
                 raise FileExistsError(f"journal event path already exists: {path}")
@@ -189,6 +208,11 @@ class PortfolioEpisodeJournalWrapper(
             self._poisoned = True
             raise
         self._event_sequence += 1
+        return PortfolioEpisodeEventReference(
+            sequence=sequence,
+            relative_path=path.relative_to(self.root).as_posix(),
+            sha256=hashlib.sha256(payload).hexdigest(),
+        )
 
     def _require_writable(self) -> None:
         if self._poisoned or self._write_failed:
@@ -359,7 +383,7 @@ class PortfolioEpisodeJournalWrapper(
                 "truncated": resolved_truncated,
                 **facts,
             }
-            self._append_event("step_result", data)
+            self._latest_step_reference = self._append_event("step_result", data)
         except BaseException:
             self._poisoned = True
             raise
@@ -388,5 +412,6 @@ class PortfolioEpisodeJournalWrapper(
 
 __all__ = [
     "PORTFOLIO_EPISODE_JOURNAL_SCHEMA",
+    "PortfolioEpisodeEventReference",
     "PortfolioEpisodeJournalWrapper",
 ]

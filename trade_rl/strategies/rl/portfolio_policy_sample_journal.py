@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import threading
 import weakref
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +22,17 @@ _ACTIVE_POLICIES: weakref.WeakKeyDictionary[object, weakref.ReferenceType[object
     weakref.WeakKeyDictionary()
 )
 _ACTIVE_POLICIES_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioPolicySampleReference:
+    """Immutable pointer to one sample persisted by the policy journal."""
+
+    sample_id: int
+    relative_path: str
+    sha256: str
+    raw_action_codes: tuple[int, ...]
+    forward_batch_size: int
 
 
 def _required_text(value: object, *, field: str) -> str:
@@ -208,6 +221,7 @@ class PortfolioPolicySampleJournal:
         self._observation_shapes = shapes
         self._state = "open"
         self._sample_count = 0
+        self._latest_sample_reference: PortfolioPolicySampleReference | None = None
         self._handle: Any | None = None
         self._hook_callback: Any | None = None
         self._hook_layout_at_attach: tuple[tuple[tuple[int, int], ...], ...] = ()
@@ -278,6 +292,10 @@ class PortfolioPolicySampleJournal:
     @property
     def sample_count(self) -> int:
         return self._sample_count
+
+    @property
+    def latest_sample_reference(self) -> PortfolioPolicySampleReference | None:
+        return self._latest_sample_reference
 
     @property
     def is_poisoned(self) -> bool:
@@ -362,8 +380,16 @@ class PortfolioPolicySampleJournal:
                     raise FileExistsError(
                         f"sample record already exists: {destination}"
                     )
-                atomic_write_bytes(destination, canonical_json_bytes(record))
+                payload = canonical_json_bytes(record)
+                atomic_write_bytes(destination, payload)
                 self._sample_count = sample_id
+                self._latest_sample_reference = PortfolioPolicySampleReference(
+                    sample_id=sample_id,
+                    relative_path=destination.relative_to(self.root).as_posix(),
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                    raw_action_codes=tuple(cast(list[int], record["raw_action_codes"])),
+                    forward_batch_size=cast(int, record["forward_batch_size"]),
+                )
         except BaseException:
             self._state = "poisoned"
             raise
@@ -518,4 +544,5 @@ class PortfolioPolicySampleJournal:
 __all__ = [
     "PORTFOLIO_POLICY_SAMPLE_JOURNAL_SCHEMA",
     "PortfolioPolicySampleJournal",
+    "PortfolioPolicySampleReference",
 ]

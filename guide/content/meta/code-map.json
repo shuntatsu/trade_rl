@@ -19,6 +19,9 @@
     "run_single_symbol_replay",
     "run_scripted_shared_cash_replay",
     "run_shared_portfolio_replay",
+    "portfolio_policy_codec",
+    "decide_portfolio",
+    "run_published_portfolio_inference_replay",
     "SharedPortfolioGymEnv",
     "PortfolioDecisionSnapshot",
     "PortfolioTargetProposal",
@@ -35,7 +38,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "19234e4ee1427c9bbc19920a1d44e59529be26466b748d36faf4ac5e6d1dafc1"
+      "sha256": "85a204b593fb30bd61e771b92ca43f00d0384d593dc4c8a67274f319f1b8157b"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -293,7 +296,7 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "429f131699f3928a4007752d8c4fb15af0ae57a3c49fef1190f83416649b93c0",
+      "source_sha256": "c70a11e30c7a053b51ba05140df32c1f3c1c093d5330f49f883cd14f7675bd53",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。Gym adapter自体はtrainerでもlegacy PPO defaultの変更でもありません。",
       "variables": [],
@@ -393,7 +396,7 @@
       "id": "portfolio-inference-bundle",
       "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.load_portfolio_inference_bundle",
       "kind": "function",
-      "source_sha256": "98ccb3440b0f093f6654e5f6c2f3864c08710c06bfc60ef248f419841f5f1d17",
+      "source_sha256": "6290a816f83d077b129770536272743767a438959a3be516aa8a43d90ca2c7c1",
       "label_ja": "strictなjoint PPO inference bundle loader",
       "description_ja": "trustedなbundle/attempt/context digest、forward runtime binding、実際のGym observation/action spacesをSB3 policy load前に照合します。schema v1でselected source/runtime ownerを記録しますが、完全なtransitive source closure、fitの独立証明、性能やdeployment readinessは主張しません。",
       "variables": [],
@@ -427,6 +430,44 @@
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
         "tests/strategies/test_portfolio_observation.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-policy-codec",
+      "symbol": "trade_rl.strategies.portfolio_policy_codec.encode_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "f619d4bf9fd5925ec1b2730c462f77cf6b20ceef57b82096e36775132bf7baf5",
+      "label_ja": "snapshotをraw joint-policy配列へ符号化",
+      "description_ja": "strategy-owned immutable snapshotを、Gymとinferenceが共有するraw-v1 key・shape・dtypeのNumPy Dictへ写します。evaluation、simulation、risk、Gym、SB3には依存しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_portfolio_observation.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-inference-decision-adapter",
+      "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.PortfolioInferencePolicy.decide_portfolio",
+      "kind": "method",
+      "source_sha256": "57fbdc970caba18c40089e3ebfaa0c424f81d77b2bbdf5ef72dfa628a79af646",
+      "label_ja": "bound PPOをnumeric portfolio policyとして呼ぶ",
+      "description_ja": "current snapshotのsymbol・feature roster、native decision window、timestampを照合し、共通codecでraw-v1 observationとexact-HOLD proposalを作ります。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py"
+      ]
+    },
+    {
+      "id": "published-portfolio-inference-replay",
+      "symbol": "trade_rl.evaluation.portfolio_inference.run_published_portfolio_inference_replay",
+      "kind": "function",
+      "source_sha256": "9608c73e0566230e24780de33422cb310e645c479baa4ce66cbee4b41db4b69b",
+      "label_ja": "paired dataとfrozen policyを同じshared replayへ接続",
+      "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度だけ実行します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },

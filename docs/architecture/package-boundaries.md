@@ -70,6 +70,7 @@ trade_rl/
 │   ├── position_intent.py
 │   ├── portfolio.py
 │   ├── portfolio_observation.py
+│   ├── portfolio_policy_codec.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
@@ -77,6 +78,7 @@ trade_rl/
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
+    ├── portfolio_inference.py
     ├── bot.py
     ├── metrics.py
     ├── evidence.py
@@ -340,7 +342,7 @@ the order reference. With no held quantities, it resolves current dataset marks
 before entry sizing so default initial book marks are harmless. The accounting
 and execution owners remain unchanged.
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。`strategies/portfolio_policy_codec.py` はこのDTOとNumPy配列のraw-v1 Dict projection、strict joint action-code decoder、target proposal mappingを共有する純粋なstrategy-layer ownerであり、Gym/SB3/evaluation/simulation/riskをimportしない。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `strategies/rl/portfolio_env.py` はopt-in `SharedPortfolioGymEnv` adapterを提供する。固定shapeのjoint action/observationを、strategy-owned snapshot builderとsimulation-owned `SharedPortfolioSession`へ接続するが、`evaluation`には依存しない。shared risk・execution・accounting、native clock、reserved terminal settlementは既存ownerが引き続き処理する。これはGym adapterであり、それ自体はtrainerや学習済みjoint policyを提供せず、legacy PPO defaultも変更しない。RL facadeからは再exportしない。
 
@@ -380,6 +382,15 @@ account/order/risk facts into primitive values, and sends each complete vector
 through the same native risk/execution transition. Numeric portfolio decisions
 use their own result and ledger schema; the per-symbol intent API and its schemas
 remain unchanged. It does not introduce another book, executor, or P&L loop.
+
+`evaluation/portfolio_inference.py` is the opt-in filesystem consumer for a
+published policy bundle. It loads a caller-bound paired Dataset artifact once,
+uses an unreset Gym environment only to validate the bundle against that same
+Dataset and runtime context, then passes that exact Dataset and unchanged
+execution/risk configuration to `run_shared_portfolio_replay` once. The replay
+creates the sole financial session and owns terminal settlement. The helper
+does not introduce another ledger or change the legacy intent result schemas;
+Gym/SB3 imports are local to the callable path.
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 

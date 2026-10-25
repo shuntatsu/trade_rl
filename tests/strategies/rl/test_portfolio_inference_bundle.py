@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -63,7 +65,7 @@ def _dataset() -> MarketDataset:
         taker_fee_rate=zeros.copy(),
         spread_rate=zeros.copy(),
         contract_multipliers=np.ones(2, dtype=np.float64),
-    )
+    ).with_content_identity({"fixture": "portfolio-inference-bundle"})
 
 
 def _environment(
@@ -183,6 +185,215 @@ def published_bundle(
         result, tmp_path_factory.mktemp("bundle-publication") / "bundle"
     )
     return result, dataset, training_env, publication
+
+
+def test_loaded_policy_decides_from_matching_portfolio_snapshot(
+    published_bundle: tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.simulation.accounting import BookState
+    from trade_rl.strategies.portfolio import PortfolioTargetProposal
+    from trade_rl.strategies.portfolio_observation import (
+        build_portfolio_decision_snapshot,
+    )
+
+    _, dataset, _, publication = published_bundle
+    runtime_env = _environment(dataset, 5, 7)
+    policy = _load(publication, runtime_env)
+    captured: list[dict[str, np.ndarray]] = []
+
+    class FixedPrediction:
+        def predict(
+            self, observation: object, *, deterministic: bool
+        ) -> tuple[np.ndarray, None]:
+            assert deterministic is True
+            assert isinstance(observation, dict)
+            captured.append(observation)
+            return np.asarray([0, 3], dtype=np.int64), None
+
+    policy = replace(policy, _policy=FixedPrediction())
+    book = BookState.zero(
+        dataset.n_symbols,
+        initial_capital=1_000.0,
+        initial_prices=dataset.resolved_array("mark_price")[5],
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    snapshot = build_portfolio_decision_snapshot(
+        dataset,
+        index=5,
+        agent_stop_index=6,
+        book=book,
+        active_orders=(),
+        risk_config=runtime_env.risk_config,
+    )
+
+    proposal = policy.decide_portfolio(snapshot)
+
+    assert isinstance(proposal, PortfolioTargetProposal)
+    assert proposal.target_weights == (0.0, 0.5)
+    assert proposal.hold_current_quantity_symbols == (0,)
+    assert len(captured) == 1
+    assert tuple(captured[0]) == runtime_env.observation_keys
+
+
+@pytest.mark.parametrize("field", ["symbols", "timestamp_ns", "agent_stop_index"])
+def test_loaded_policy_rejects_snapshot_clock_or_roster_before_prediction(
+    published_bundle: tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any],
+    field: str,
+) -> None:
+    from trade_rl.simulation.accounting import BookState
+    from trade_rl.strategies.portfolio_observation import (
+        build_portfolio_decision_snapshot,
+    )
+
+    _, dataset, _, publication = published_bundle
+    runtime_env = _environment(dataset, 5, 7)
+    policy = _load(publication, runtime_env)
+    calls = 0
+
+    class MustNotPredict:
+        def predict(self, *args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            raise AssertionError("an invalid snapshot reached the policy")
+
+    policy = replace(policy, _policy=MustNotPredict())
+    book = BookState.zero(
+        dataset.n_symbols,
+        initial_capital=1_000.0,
+        initial_prices=dataset.resolved_array("mark_price")[5],
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    snapshot = build_portfolio_decision_snapshot(
+        dataset,
+        index=5,
+        agent_stop_index=6,
+        book=book,
+        active_orders=(),
+        risk_config=runtime_env.risk_config,
+    )
+    if field == "symbols":
+        invalid = replace(snapshot, symbols=("BBB", "AAA"))
+    elif field == "timestamp_ns":
+        invalid = replace(snapshot, timestamp_ns=snapshot.timestamp_ns + 1)
+    else:
+        invalid = replace(snapshot, agent_stop_index=7, remaining_decisions=2)
+
+    with pytest.raises(ValueError, match="snapshot"):
+        policy.decide_portfolio(invalid)
+    assert calls == 0
+
+
+def test_published_policy_replay_pairs_one_loaded_dataset_and_native_session(
+    published_bundle: tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        from trade_rl.evaluation.portfolio_inference import (
+            run_published_portfolio_inference_replay,
+        )
+    except ModuleNotFoundError:
+        pytest.fail("the paired published-policy replay adapter is not implemented")
+
+    from trade_rl.evaluation import portfolio_inference as inference_module
+    from trade_rl.simulation.stateful import portfolio_session as session_module
+    from trade_rl.strategies.rl import portfolio_env as env_module
+    from trade_rl.strategies.rl.portfolio_inference_bundle import (
+        PortfolioInferencePolicy,
+    )
+
+    _, dataset, _, bundle = published_bundle
+    data_artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
+    runtime_env = _environment(dataset, 5, 7)
+    loaded_pairs: list[tuple[Any, MarketDataset]] = []
+    validation_envs: list[SharedPortfolioGymEnv] = []
+    native_sessions: list[tuple[MarketDataset, dict[str, object]]] = []
+    policy_calls = 0
+
+    load_dataset = inference_module.load_published_market_dataset_artifact
+
+    def load_dataset_spy(root: str | Path) -> tuple[Any, MarketDataset]:
+        pair = load_dataset(root)
+        loaded_pairs.append(pair)
+        return pair
+
+    env_init = env_module.SharedPortfolioGymEnv.__init__
+
+    def env_init_spy(
+        self: SharedPortfolioGymEnv,
+        dataset_value: MarketDataset,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        env_init(self, dataset_value, *args, **kwargs)
+        validation_envs.append(self)
+
+    def reset_must_not_be_called(*args: object, **kwargs: object) -> object:
+        raise AssertionError("validation environment must remain unreset")
+
+    session_init = session_module.SharedPortfolioSession.__init__
+
+    def session_init_spy(
+        self: object, dataset_value: MarketDataset, **kwargs: object
+    ) -> None:
+        native_sessions.append((dataset_value, kwargs))
+        session_init(self, dataset_value, **kwargs)
+
+    decide = PortfolioInferencePolicy.decide_portfolio
+
+    def decide_spy(self: PortfolioInferencePolicy, snapshot: object) -> object:
+        nonlocal policy_calls
+        policy_calls += 1
+        return decide(self, snapshot)
+
+    monkeypatch.setattr(
+        inference_module,
+        "load_published_market_dataset_artifact",
+        load_dataset_spy,
+    )
+    monkeypatch.setattr(env_module.SharedPortfolioGymEnv, "__init__", env_init_spy)
+    monkeypatch.setattr(
+        env_module.SharedPortfolioGymEnv, "reset", reset_must_not_be_called
+    )
+    monkeypatch.setattr(
+        session_module.SharedPortfolioSession, "__init__", session_init_spy
+    )
+    monkeypatch.setattr(PortfolioInferencePolicy, "decide_portfolio", decide_spy)
+
+    returned_artifact, replay = run_published_portfolio_inference_replay(
+        dataset_artifact_root=data_artifact.root,
+        expected_dataset_artifact_sha256=data_artifact.artifact_digest,
+        bundle_root=bundle.root,
+        expected_bundle_sha256=bundle.bundle_sha256,
+        expected_manifest_sha256=bundle.training_manifest_sha256,
+        expected_completion_sha256=bundle.training_completion_sha256,
+        expected_training_context_sha256=bundle.training_context_sha256,
+        expected_checkpoint_sha256=bundle.checkpoint_sha256,
+        bound=runtime_env.bound,
+        start_index=5,
+        stop_index=7,
+        initial_capital=1_000.0,
+        target_abs_weights=(0.5, 0.5),
+        execution_cost=runtime_env.execution_cost,
+        risk_config=runtime_env.risk_config,
+        market_order_profile=None,
+        capture_ledger_evidence=True,
+    )
+
+    assert returned_artifact.artifact_digest == data_artifact.artifact_digest
+    assert len(loaded_pairs) == 1
+    assert len(validation_envs) == 1
+    assert validation_envs[0]._session is None
+    assert len(native_sessions) == 1
+    loaded_dataset = loaded_pairs[0][1]
+    assert validation_envs[0].dataset is loaded_dataset
+    assert native_sessions[0][0] is loaded_dataset
+    assert native_sessions[0][1]["execution_cost"] is runtime_env.execution_cost
+    assert native_sessions[0][1]["risk"].config is runtime_env.risk_config
+    assert policy_calls == len(replay.decisions) == 1
+    assert replay.ledger_evidence is not None
+    assert all(quantity == 0 for quantity in replay.book.exact_quantities)
 
 
 def _write_canonical(path: Path, value: object) -> bytes:

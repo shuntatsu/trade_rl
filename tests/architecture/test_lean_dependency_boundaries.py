@@ -150,6 +150,26 @@ def test_portfolio_observation_builder_is_strategy_owned_and_reused() -> None:
     assert called_builder
 
 
+def test_portfolio_policy_codec_stays_numpy_and_strategy_owned() -> None:
+    path = PACKAGE / "strategies" / "portfolio_policy_codec.py"
+    assert path.is_file()
+    imports = collect_imports(path)
+    assert collect_trade_rl_imports(path) == {"trade_rl.strategies.portfolio"}
+    forbidden = (
+        "trade_rl.evaluation",
+        "trade_rl.simulation",
+        "trade_rl.risk",
+        "trade_rl.strategies.rl",
+        "gym",
+        "gymnasium",
+        "stable_baselines3",
+        "torch",
+    )
+    assert not any(
+        within_module(imported, prefix) for imported in imports for prefix in forbidden
+    )
+
+
 def test_portfolio_policy_contract_is_detached_from_runtime_owners() -> None:
     path = PACKAGE / "strategies" / "portfolio.py"
     forbidden = (
@@ -268,6 +288,43 @@ def test_portfolio_inference_bundle_is_opt_in_and_keeps_runtime_lazy() -> None:
     command = (
         "import sys; "
         "import trade_rl.strategies.rl.portfolio_inference_bundle; "
+        "assert 'torch' not in sys.modules; "
+        "assert not any(name.startswith('stable_baselines3') for name in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_inference_replay_keeps_gym_and_sb3_lazy_at_import() -> None:
+    path = PACKAGE / "evaluation" / "portfolio_inference.py"
+    assert path.is_file()
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    module_imports = {
+        node.module
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    } | {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert not any(
+        name == "gymnasium"
+        or name.startswith("stable_baselines3")
+        or name == "trade_rl.strategies.rl.portfolio_env"
+        or name == "trade_rl.strategies.rl.portfolio_inference_bundle"
+        for name in module_imports
+    )
+    command = (
+        "import sys; "
+        "import trade_rl.evaluation.portfolio_inference; "
         "assert 'torch' not in sys.modules; "
         "assert not any(name.startswith('stable_baselines3') for name in sys.modules)"
     )

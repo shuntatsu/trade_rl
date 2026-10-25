@@ -26,6 +26,14 @@ from trade_rl.artifacts.verified_file import (
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.clock import FinancialClockContract
 from trade_rl.simulation.objectives.contract import CapitalContract, ObjectiveContract
+from trade_rl.strategies.portfolio import (
+    PortfolioDecisionSnapshot,
+    PortfolioTargetProposal,
+)
+from trade_rl.strategies.portfolio_policy_codec import (
+    encode_portfolio_decision_snapshot,
+    portfolio_action_to_proposal,
+)
 from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 from trade_rl.strategies.rl.portfolio_transform import (
     PortfolioObservationRuntimeBinding,
@@ -62,6 +70,7 @@ _SOURCE_MODULES = (
     "trade_rl.strategies.interface",
     "trade_rl.strategies.portfolio",
     "trade_rl.strategies.portfolio_observation",
+    "trade_rl.strategies.portfolio_policy_codec",
     "trade_rl.strategies.position_intent",
     "trade_rl.strategies.rl.portfolio_env",
     "trade_rl.strategies.rl.portfolio_episode_journal",
@@ -103,6 +112,7 @@ class PortfolioInferencePolicy:
     _transform: PortfolioObservationTransform
     _action_space: gym.Space[Any]
     runtime_binding: PortfolioObservationRuntimeBinding
+    _target_abs_weights: tuple[float, ...]
 
     def predict(self, raw_observation: object) -> np.ndarray:
         """Transform a current native observation and predict one joint action."""
@@ -120,6 +130,47 @@ class PortfolioInferencePolicy:
         ):
             raise ValueError("PPO returned an action outside its bound action space")
         return resolved.copy()
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        """Validate one source snapshot and map its policy action to native targets.
+
+        The snapshot contains no Dataset identity. Callers must obtain it from
+        the verified Dataset and runtime context bound when this policy loaded.
+        """
+
+        if not isinstance(snapshot, PortfolioDecisionSnapshot):
+            raise TypeError("snapshot must be a PortfolioDecisionSnapshot")
+        binding = self.runtime_binding
+        if (
+            snapshot.symbols != self._transform.symbols
+            or snapshot.feature_names != self._transform.feature_names
+            or snapshot.global_feature_names != self._transform.global_feature_names
+        ):
+            raise ValueError("snapshot roster differs from the bound policy")
+        if (
+            snapshot.agent_stop_index != binding.runtime_agent_stop_index
+            or not (
+                binding.runtime_start_index
+                <= snapshot.index
+                < binding.runtime_agent_stop_index
+            )
+            or snapshot.remaining_decisions
+            != binding.runtime_agent_stop_index - snapshot.index
+        ):
+            raise ValueError("snapshot decision window differs from the bound policy")
+        expected_timestamp_ns = (
+            binding.runtime_start_ns
+            + (snapshot.index - binding.runtime_start_index)
+            * binding.native_interval_seconds
+            * 1_000_000_000
+        )
+        if snapshot.timestamp_ns != expected_timestamp_ns:
+            raise ValueError("snapshot timestamp differs from the bound policy clock")
+        raw_observation = encode_portfolio_decision_snapshot(snapshot)
+        action = self.predict(raw_observation)
+        return portfolio_action_to_proposal(action, snapshot, self._target_abs_weights)
 
 
 def capture_portfolio_source_runtime() -> dict[str, object]:
@@ -1627,4 +1678,5 @@ def load_portfolio_inference_bundle(
         _transform=transform,
         _action_space=runtime_env.action_space,
         runtime_binding=runtime_binding,
+        _target_abs_weights=tuple(runtime_env.target_abs_weights),
     )

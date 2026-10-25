@@ -192,9 +192,7 @@ def _manifest_files(manifest: dict[str, Any]) -> dict[str, tuple[int, str]]:
             verified[path][1] == digest,
             f"source-pins disagree with file manifest: {name}",
         )
-    observed_root = {
-        p.removeprefix(R2_ROOT) for p in verified if p.startswith(R2_ROOT)
-    }
+    observed_root = {p.removeprefix(R2_ROOT) for p in verified if p.startswith(R2_ROOT)}
     _require(observed_root == R2_ROOT_FILES, "original R2 root file roster changed")
     _require("CHECKPOINT.md" in verified, "missing original checkpoint explanation")
     return verified
@@ -368,8 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         report = audit_archive(args.archive, args.manifest)
         with args.report.open("x", encoding="utf-8") as output:
             output.write(
-                json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True)
-                + "\n"
+                json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
             )
     except (ArchiveAuditError, OSError) as exc:
         parser.exit(2, f"R2 ARCHIVE NOT VERIFIED: {exc}\n")

@@ -41,9 +41,7 @@ def _members() -> dict[str, bytes]:
 
 
 def _manifest(members: dict[str, bytes]) -> dict[str, object]:
-    pins = {
-        name: _sha(members[R2_SOURCE_DIR + name]) for name in R2_SOURCE_FILES
-    }
+    pins = {name: _sha(members[R2_SOURCE_DIR + name]) for name in R2_SOURCE_FILES}
     return {
         "schema": "issue810_development_checkpoint_v1",
         "scope": "IN_PROGRESS_CONSUMED_DEVELOPMENT_SOURCE_AND_EVIDENCE",
@@ -182,7 +180,7 @@ def test_untrusted_symlink_and_manifest_mismatch_refused(tmp_path: Path) -> None
         )
         _audit(bad_link)
     with pytest.raises(ArchiveAuditError, match="member (length|SHA256) mismatch"):
-        _audit(_create(tmp_path, embedded_manifest=b'{}\n'))
+        _audit(_create(tmp_path, embedded_manifest=b"{}\n"))
 
 
 def test_no_implicit_economic_approval_via_result_tag(tmp_path: Path) -> None:
@@ -232,9 +230,12 @@ def test_report_output_is_write_once_after_valid_identity(
     with pytest.raises(SystemExit) as failure:
         main(
             [
-                "--archive", str(archive),
-                "--manifest", str(manifest),
-                "--report", str(report),
+                "--archive",
+                str(archive),
+                "--manifest",
+                str(manifest),
+                "--report",
+                str(report),
             ]
         )
     assert failure.value.code == 2

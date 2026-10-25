@@ -824,6 +824,9 @@ def _validate_family_payload(
     _validate_string_array(
         diagnostics["termination_reasons"], "diagnostics.termination_reasons"
     )
+    expected_termination_reasons = [] if reason is None else [reason]
+    if diagnostics["termination_reasons"] != expected_termination_reasons:
+        raise ValueError("diagnostic termination reasons differ from family outcome")
     if not isinstance(diagnostics["closed_trades"], dict):
         raise ValueError("diagnostics.closed_trades must be an object")
     return family

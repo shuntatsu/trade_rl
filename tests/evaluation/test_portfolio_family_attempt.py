@@ -382,6 +382,25 @@ def test_family_payload_rejects_conflicting_native_count_and_flags(
         _validate_family_payload(row, expected_family="cash", identity=identity)
 
 
+def test_family_payload_rejects_diagnostic_termination_reason_mismatch(
+    actual_attempt_case: dict[str, Any],
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _family_payload,
+        _validate_family_payload,
+    )
+
+    outcome = actual_attempt_case["observed"][0]
+    identity = actual_attempt_case["identity"]
+    row = _family_payload(outcome)
+    assert row["termination_reason"] is None
+    assert row["diagnostics"]["termination_reasons"] == []
+    row["diagnostics"]["termination_reasons"] = ["insolvency"]
+
+    with pytest.raises(ValueError, match="diagnostic termination reasons differ"):
+        _validate_family_payload(row, expected_family="cash", identity=identity)
+
+
 def test_native_insolvency_is_retained_as_an_incomplete_attempt_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -460,8 +479,22 @@ def test_native_insolvency_is_retained_as_an_incomplete_attempt_row(
     for row in retained:
         assert row["window_complete"] is False
         assert row["termination_reason"] == "insolvency"
+        assert row["diagnostics"]["termination_reasons"] == ["insolvency"]
         assert row["actual_interval_count"] < row["expected_interval_count"]
         assert row["book"]["insolvent"] is True
+
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _validate_family_payload,
+    )
+
+    inconsistent = json.loads(json.dumps(retained[0]))
+    inconsistent["diagnostics"]["termination_reasons"] = []
+    with pytest.raises(ValueError, match="diagnostic termination reasons differ"):
+        _validate_family_payload(
+            inconsistent,
+            expected_family=inconsistent["family"],
+            identity=identity,
+        )
 
 
 @pytest.mark.parametrize("missing_or_extra", ["missing", "extra"])

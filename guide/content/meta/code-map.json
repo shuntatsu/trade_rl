@@ -31,7 +31,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "9206bacd12d57f68a049dba9b8fe5a121a06b4e0576adb3272157560bfa4ab83"
+      "sha256": "cc931800ec245e65d2ef8f8b7848711c7b32aa3342dae9bfa7070e2628c9e457"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -302,9 +302,9 @@
       "id": "portfolio-episode-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper",
       "kind": "class",
-      "source_sha256": "c50217206961cd1ee272b94222f5bf382b18b295966964a9a61ab1b45807b0c7",
+      "source_sha256": "74ca8a03826e90933ee8ef0345eb2f468d0a5b2b0d2f59f360f54e12185363be",
       "label_ja": "Gym episode factsのopt-in event journal",
-      "description_ja": "一意なjournal rootへsource action/reward/native interval・terminal factsをevent単位で記録してからtransitionを返します。observation、PPO log-probability、policy versionは保存せず、失敗・中断したepisodeを完了扱いしません。",
+      "description_ja": "SharedPortfolioGymEnvを内包するGymまたはobservation-only wrapperを受け、actionを変換せずsource action/reward/target/hold/native interval・terminal factsをevent単位で記録してからtransitionを返します。configured target weightはmanifestに記録しますが、target/hold factsはfillsではありません。observation、PPO log-probability、policy versionは保存せず、失敗・中断したepisodeを完了扱いしません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_episode_journal.py",

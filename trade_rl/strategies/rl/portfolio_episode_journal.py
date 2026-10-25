@@ -100,6 +100,7 @@ def _environment_context(env: SharedPortfolioGymEnv) -> dict[str, object]:
         "start_index": env.start_index,
         "stop_index": env.stop_index,
         "initial_capital": env.initial_capital,
+        "target_abs_weights": list(env.target_abs_weights),
         "bound_digest": env.bound.digest,
         "execution_cost": to_json_value(env.execution_cost),
         "risk_config": to_json_value(env.risk_config),
@@ -124,7 +125,7 @@ class PortfolioEpisodeJournalWrapper(
 
     def __init__(
         self,
-        env: SharedPortfolioGymEnv,
+        env: gym.Env[dict[str, np.ndarray], np.ndarray],
         *,
         root: str | Path,
         declared_context_digest: str,
@@ -294,10 +295,24 @@ class PortfolioEpisodeJournalWrapper(
         terminal_state = info.get("terminal_state")
         if terminal_state is not None and type(terminal_state) is not dict:
             raise TypeError("terminal_state must be a dict or None")
+        raw_target_weights = info.get("target_weights")
+        if type(raw_target_weights) not in (tuple, list):
+            raise TypeError("source target_weights must be a sequence")
+        raw_effective_holds = info.get("effective_hold_symbols")
+        if type(raw_effective_holds) not in (tuple, list):
+            raise TypeError("source effective_hold_symbols must be a sequence")
         facts = {
             "raw_action_codes": list(cast(Sequence[int], raw_action)),
             "current_index": current_index,
             "elapsed_intervals": elapsed_intervals,
+            "target_weights": [
+                _strict_finite(value, field="target_weights")
+                for value in cast(Sequence[object], raw_target_weights)
+            ],
+            "effective_hold_symbols": [
+                _strict_int(value, field="effective_hold_symbols")
+                for value in cast(Sequence[object], raw_effective_holds)
+            ],
             "settlement_complete": settlement_complete,
             "objective_endpoint_valid": endpoint_valid,
             "terminal_state": terminal_state,
@@ -319,8 +334,9 @@ class PortfolioEpisodeJournalWrapper(
             {"step_index": step_index, "submitted_action": submitted_action},
         )
         try:
-            source_env = cast(SharedPortfolioGymEnv, self.env)
-            observation, reward, terminated, truncated, info = source_env.step(action)
+            observation, reward, terminated, truncated, info = self.env.step(
+                cast(np.ndarray, action)
+            )
         except BaseException as error:
             self._record_call_failure(
                 "step_failed",

@@ -50,6 +50,12 @@ incomplete; a failure after the native environment may have advanced poisons the
 wrapper so it cannot silently retry or reset. This is episode-fact retention,
 not a PPO trainer or a complete replayable policy record.
 
+It may wrap an observation-only Gym wrapper, validates the underlying
+`SharedPortfolioGymEnv`, and forwards the submitted action object unchanged.
+The journal also binds configured target weights in its manifest and records
+the source's requested target weights and effective HOLD symbols per step;
+these facts describe the proposal/hold path, not fills.
+
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)

@@ -157,6 +157,8 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 `SharedPortfolioGymEnv`はこのnumeric sessionを使うopt-in Gym adapterです。各symbolの`MultiDiscrete` actionは`HOLD=0`、`SHORT=1`、`FLAT=2`、`LONG=3`で、HOLDはrisk projectionが許す範囲で現在の実数量を保ちます。固定shapeのDict observationはsnapshot builderのcurrent-row/account/order/risk factsを符号化しますが、partial observationでありfree/reserved cashを作りません。actor decision後に予約されたterminal settlementも同じsessionが処理し、rewardはそのstepで進んだ全native intervalのnet-equity差を固定初期資本で割った値です。`objective_endpoint_valid`はsettled・flat・注文残なし・非insolvent・termination reasonなしという valuation 条件だけを表し、objective/risk/digest全体の合格やstudy admissionを意味しません。価格gapによる実現drawdownがrisk stopを超えてもその値を保持します。既存native insolvencyはterminal cash/equityをzeroへfloorするため、Gymは追加のreward clippingをしませんが、固定初期資本の-100%を超えるdebt-loss semanticsも確立しません。insolvent episodeはinvalidのまま保持します。これはtrainerではなく、既存PPO defaultsを変えません。
 
+`PortfolioEpisodeJournalWrapper`はこのGym環境またはobservation-only Gym wrapperの外側に置くopt-in event journalです。underlying環境が`SharedPortfolioGymEnv`であることを検証し、action objectを変換せずに渡します。manifestにはconfigured target weightsを記録し、各stepにはsourceのrequested target weightsとeffective HOLD symbolsを記録します。これらはfillsではありません。observation、policy log-probability、policy versionは保存せず、PPO trainerも追加しません。
+
 ## 不変条件
 
 - 判断前に未来バーを読まない。

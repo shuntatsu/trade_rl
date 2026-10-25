@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 import pytest
 
@@ -18,6 +19,7 @@ from trade_rl.simulation.objectives.contract import CapitalContract, ObjectiveCo
 from trade_rl.strategies.rl.portfolio_env import (
     ACTION_FLAT,
     ACTION_HOLD,
+    ACTION_LONG,
     ACTION_SHORT,
     SharedPortfolioGymEnv,
 )
@@ -175,6 +177,54 @@ def test_wrapper_preserves_source_transition_and_writes_terminal_facts(
     assert len(completed) == 1
     assert completed[0]["data"]["terminal_state"]["objective_endpoint_valid"] is True
     assert completed[0]["data"]["raw_action_codes"] == [ACTION_FLAT]
+
+
+def test_observation_only_gym_wrapper_preserves_actions_and_source_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CopyObservation(gym.ObservationWrapper):
+        def observation(
+            self, observation: dict[str, np.ndarray]
+        ) -> dict[str, np.ndarray]:
+            return {key: value.copy() for key, value in observation.items()}
+
+    raw = _environment()
+    original_step = raw.step
+    forwarded_actions: list[object] = []
+
+    def capture_action(
+        action: object,
+    ) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, object]]:
+        forwarded_actions.append(action)
+        return original_step(action)
+
+    monkeypatch.setattr(raw, "step", capture_action)
+    observation_wrapper = CopyObservation(raw)
+    journal_root = tmp_path / "journal"
+    journal = PortfolioEpisodeJournalWrapper(
+        observation_wrapper,
+        root=journal_root,
+        declared_context_digest="a" * 64,
+    )
+
+    manifest = json.loads((journal_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["environment_context"]["target_abs_weights"] == [0.5]
+
+    journal.reset(seed=23)
+    action = np.asarray([ACTION_LONG], dtype=np.int64)
+    _, _, _, _, info = journal.step(action)
+
+    assert len(forwarded_actions) == 1
+    assert forwarded_actions[0] is action
+    assert info["target_weights"] == (0.5,)
+    assert info["effective_hold_symbols"] == ()
+    step_result = next(
+        event["data"]
+        for event in _events(journal_root)
+        if event["event"] == "step_result"
+    )
+    assert step_result["target_weights"] == [0.5]
+    assert step_result["effective_hold_symbols"] == []
 
 
 def test_dummy_vec_env_records_invalid_episode_before_auto_reset(

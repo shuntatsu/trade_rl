@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -197,6 +198,35 @@ def test_portfolio_observation_transform_stays_opt_in_and_out_of_evaluation() ->
     assert "PortfolioObservationTransform" not in facade
     assert "PortfolioObservationRuntimeBinding" not in facade
     assert "PortfolioGymObservationWrapper" not in facade
+
+
+def test_portfolio_episode_journal_stays_an_opt_in_strategy_wrapper() -> None:
+    path = PACKAGE / "strategies" / "rl" / "portfolio_episode_journal.py"
+    assert path.is_file()
+    imports = collect_trade_rl_imports(path)
+    assert "trade_rl.strategies.rl.portfolio_env" in imports
+    assert not any(within_module(name, "trade_rl.evaluation") for name in imports)
+
+    facade = (PACKAGE / "strategies" / "rl" / "__init__.py").read_text(encoding="utf-8")
+    assert "portfolio_episode_journal" not in facade
+    assert "PortfolioEpisodeJournalWrapper" not in facade
+
+
+def test_policy_sample_journal_keeps_torch_and_sb3_optional_at_import_time() -> None:
+    command = (
+        "import sys; "
+        "import trade_rl.strategies.rl.portfolio_policy_sample_journal; "
+        "assert 'torch' not in sys.modules; "
+        "assert not any(name.startswith('stable_baselines3') for name in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:

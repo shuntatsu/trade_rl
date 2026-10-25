@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
@@ -47,13 +48,15 @@ def _validated_fit_cutoff_ns(value: np.datetime64) -> np.datetime64:
     if np.isnat(source):
         raise ValueError("fit_cutoff must not be NaT")
     try:
-        cutoff = source.astype("datetime64[ns]")
-        roundtrip = cutoff.astype(source.dtype)
+        cutoff_ns = int(
+            _datetime64_values_to_ns_exact(np.asarray(source)).astype(np.int64)
+        )
+        cutoff = np.datetime64(cutoff_ns, "ns")
     except (OverflowError, TypeError, ValueError) as error:
         raise ValueError(
             "fit_cutoff must be exactly representable as datetime64[ns]"
         ) from error
-    if np.isnat(cutoff) or bool(roundtrip != source):
+    if np.isnat(cutoff):
         raise ValueError("fit_cutoff must be exactly representable as datetime64[ns]")
     return cutoff
 
@@ -90,8 +93,21 @@ class CausalForecastTrainingSet:
             np.asarray(self.labels).reshape(-1),
             dtype=np.dtype(np.float64),
         )
+        raw_label_end_times = np.asarray(self.label_end_times).reshape(-1)
+        if raw_label_end_times.dtype.kind != "M":
+            raise ValueError("label_end_times must use a datetime64 dtype")
+        if np.isnat(raw_label_end_times).any():
+            raise ValueError("label_end_times must not contain NaT")
+        try:
+            normalized_label_end_times = _datetime64_values_to_ns_exact(
+                raw_label_end_times
+            )
+        except (OverflowError, TypeError, ValueError) as error:
+            raise ValueError(
+                "label_end_times must be exactly representable in nanoseconds"
+            ) from error
         label_end_times = _immutable_array(
-            np.asarray(self.label_end_times).reshape(-1),
+            normalized_label_end_times,
             dtype=np.dtype("datetime64[ns]"),
         )
         sample_weights = _immutable_array(

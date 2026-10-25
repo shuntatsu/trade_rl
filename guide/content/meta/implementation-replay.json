@@ -40,12 +40,12 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "0dd363de3869b7facae9deae966cb33647fc0e99fe0c851ccff402a02af82df2"
+      "sha256": "420e5474ca0b10d086f14a304f179821251af978a10a1b0409f722c9d8d5a119"
     },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "f78df670343249b4e6c24f5e47b72ab1bd31587ad4d777f8c47b75fd86fbdc69"
+      "sha256": "611c6df36683bad20fd7e1f5819dff7b731be6d72d663df808fb94d7cac99592"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -196,7 +196,7 @@
       "kind": "function",
       "source_sha256": "6290a816f83d077b129770536272743767a438959a3be516aa8a43d90ca2c7c1",
       "label_ja": "学習attemptを検証するopt-in inference bundle",
-      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはselected owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。",
+      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",

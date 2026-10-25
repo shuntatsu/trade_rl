@@ -1045,6 +1045,74 @@ def test_source_runtime_mismatch_fails_before_load_or_environment_reset(
     assert runtime_env._session is None
 
 
+def test_selected_source_runtime_binds_timestamp_owner_content_digest() -> None:
+    import importlib
+
+    from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module
+
+    observed = bundle_module.capture_portfolio_source_runtime()
+    modules = observed["source_modules"]
+    assert isinstance(modules, list)
+    names = [entry["module"] for entry in modules if isinstance(entry, dict)]
+    market_index = names.index("trade_rl.data.market")
+    assert names[market_index + 1] == "trade_rl.data._timestamps"
+
+    timestamp_module = importlib.import_module("trade_rl.data._timestamps")
+    origin = getattr(timestamp_module, "__file__", None)
+    assert isinstance(origin, str)
+    source_path = Path(origin).resolve(strict=True)
+    source_bytes = source_path.read_bytes()
+    entry = modules[market_index + 1]
+    assert entry == {
+        "module": "trade_rl.data._timestamps",
+        "origin": source_path.as_posix(),
+        "bytes": len(source_bytes),
+        "sha256": hashlib.sha256(source_bytes).hexdigest(),
+    }
+
+
+def test_re_pinned_bundle_with_previous_source_roster_fails_before_policy_load(
+    published_bundle: tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, dataset, _, publication = published_bundle
+    from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module
+
+    def restore_previous_source_roster(context: dict[str, object]) -> None:
+        observed = context["observed_source_runtime"]
+        assert isinstance(observed, dict)
+        modules = observed["source_modules"]
+        assert isinstance(modules, list)
+        observed["source_modules"] = [
+            entry
+            for entry in modules
+            if not isinstance(entry, dict)
+            or entry.get("module") != "trade_rl.data._timestamps"
+        ]
+
+    old_roster = _copy_and_repin_bundle(
+        publication,
+        tmp_path / "previous-selected-source-roster",
+        mutate_context=restore_previous_source_roster,
+    )
+    policy_loads = 0
+
+    def must_not_deserialize(*args: object, **kwargs: object) -> object:
+        nonlocal policy_loads
+        policy_loads += 1
+        raise AssertionError("old selected-source roster must fail before PPO load")
+
+    monkeypatch.setattr(
+        bundle_module, "_load_policy_from_verified_path", must_not_deserialize
+    )
+    runtime_env = _environment(dataset, 5, 7)
+    with pytest.raises(ValueError, match="source runtime module roster differs"):
+        _load(old_roster, runtime_env)
+    assert policy_loads == 0
+    assert runtime_env._session is None
+
+
 @pytest.mark.parametrize("malformation", ["extra-key", "missing-file-record"])
 def test_re_pinned_bundle_manifest_rejects_extra_or_missing_metadata(
     malformation: str,

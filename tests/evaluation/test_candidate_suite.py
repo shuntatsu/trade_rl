@@ -168,6 +168,38 @@ def test_lean_candidate_config_preserves_lossless_typed_fit_cutoff(
     )
 
 
+def test_lean_candidate_config_rejects_large_week_multiplier_overflow() -> None:
+    fit_cutoff = np.asarray((-1,), dtype=np.int64).view(
+        np.dtype("datetime64[1000000W]")
+    )[0]
+
+    with pytest.raises(
+        ValueError,
+        match=r"fit_cutoff must be losslessly representable as datetime64\[ns\]",
+    ):
+        _candidate_config(fit_cutoff=fit_cutoff)
+
+
+def test_lean_candidate_config_accepts_exact_large_multiplier_hour_cutoff() -> None:
+    fit_cutoff = np.asarray((-2,), dtype=np.int64).view(
+        np.dtype("datetime64[1000000h]")
+    )[0]
+
+    config = _candidate_config(fit_cutoff=fit_cutoff)
+
+    assert config.fit_cutoff == np.datetime64(-7_200_000_000_000_000_000, "ns")
+
+
+def test_lean_candidate_config_rejects_zero_hour_multiplier_cutoff() -> None:
+    fit_cutoff = np.asarray((0,), dtype=np.int64).view(np.dtype("datetime64[0h]"))[0]
+
+    with pytest.raises(
+        ValueError,
+        match=r"fit_cutoff must be losslessly representable as datetime64\[ns\]",
+    ):
+        _candidate_config(fit_cutoff=fit_cutoff)
+
+
 @pytest.mark.parametrize("horizon_hours", (24, 72))
 def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch,

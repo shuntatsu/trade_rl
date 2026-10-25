@@ -12,6 +12,8 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
+
 
 def _readonly(
     value: np.ndarray,
@@ -38,14 +40,12 @@ def _timestamp_ns_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
     if np.any(source.astype(np.int64) == nat_value):
         raise ValueError(f"{field_name} must not contain NaT")
 
-    normalized = source.astype("datetime64[ns]")
-    normalized_ns = normalized.astype(np.int64)
-    if np.any(normalized_ns == nat_value) or not np.array_equal(
-        normalized.astype(source.dtype), source
-    ):
+    try:
+        normalized = _datetime64_values_to_ns_exact(source)
+    except (OverflowError, TypeError, ValueError) as error:
         raise ValueError(
             f"{field_name} values must be exactly representable as datetime64[ns]"
-        )
+        ) from error
     return _readonly(normalized)
 
 

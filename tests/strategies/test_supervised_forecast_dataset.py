@@ -182,6 +182,147 @@ def test_direct_training_set_accepts_lossless_label_end_timestamps(
     )
 
 
+def test_supervised_datetime_multiplier_overflow_is_rejected() -> None:
+    dtype = np.dtype("datetime64[1000000W]")
+    raw_ticks = np.asarray([-1, 0], dtype=np.int64)
+    label_end_times = raw_ticks.view(dtype)
+    exact_first_ns = int(raw_ticks[0]) * 1_000_000 * 7 * 24 * 60 * 60 * 1_000_000_000
+    assert exact_first_ns == -604_800_000_000_000_000_000
+
+    baseline = direct_training_set(
+        np.asarray([0, 0], dtype=np.int64).view("datetime64[ns]")
+    )
+    wrapped_cutoff = np.datetime64(3_942_554_432_415_203_329, "ns")
+    with pytest.raises(
+        ValueError,
+        match="label_end_times must be exactly representable in nanoseconds",
+    ):
+        replace(
+            baseline,
+            label_end_times=label_end_times,
+            fit_cutoff=wrapped_cutoff,
+        )
+
+    with pytest.raises(ValueError, match="fit_cutoff must be exactly representable"):
+        supervised_module._validated_fit_cutoff_ns(label_end_times[0])
+
+
+def test_exact_large_multiplier_hours_are_lossless_for_labels_and_cutoff() -> None:
+    dtype = np.dtype(">M8[1000000h]")
+    raw_ticks = np.asarray([-2, -1], dtype=">i8")
+    label_end_times = raw_ticks.view(dtype)
+    expected_ns = np.asarray(
+        [-7_200_000_000_000_000_000, -3_600_000_000_000_000_000],
+        dtype=np.int64,
+    ).view("datetime64[ns]")
+
+    training = direct_training_set(label_end_times)
+    np.testing.assert_array_equal(training.label_end_times, expected_ns)
+    assert training.label_end_times.flags.writeable is False
+
+    normalized_cutoff = supervised_module._validated_fit_cutoff_ns(label_end_times[0])
+    assert int(normalized_cutoff.astype(np.int64)) == -7_200_000_000_000_000_000
+
+
+@pytest.mark.parametrize(
+    ("unit", "ticks", "expected_ns"),
+    (
+        (
+            "Y",
+            (-2, -1),
+            (-63_158_400_000_000_000, -31_536_000_000_000_000),
+        ),
+        (
+            "M",
+            (-2, -1),
+            (-5_270_400_000_000_000, -2_678_400_000_000_000),
+        ),
+        (
+            "2M",
+            (-2, -1),
+            (-10_540_800_000_000_000, -5_270_400_000_000_000),
+        ),
+    ),
+)
+def test_exact_calendar_datetime_units_remain_supported(
+    unit: str,
+    ticks: tuple[int, int],
+    expected_ns: tuple[int, int],
+) -> None:
+    label_end_times = np.asarray(ticks, dtype=np.int64).view(
+        np.dtype(f"datetime64[{unit}]")
+    )
+
+    training = direct_training_set(label_end_times)
+
+    np.testing.assert_array_equal(
+        training.label_end_times.astype(np.int64),
+        np.asarray(expected_ns, dtype=np.int64),
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_ns"),
+    (
+        (np.datetime64("1678", "Y"), -9_214_560_000_000_000_000),
+        (np.datetime64("2262", "Y"), 9_214_646_400_000_000_000),
+        (np.datetime64("1677-10", "M"), -9_222_508_800_000_000_000),
+        (np.datetime64("2262-04", "M"), 9_222_422_400_000_000_000),
+    ),
+)
+def test_calendar_cutoff_values_at_nanosecond_bounds_are_exact(
+    value: np.datetime64,
+    expected_ns: int,
+) -> None:
+    normalized = supervised_module._validated_fit_cutoff_ns(value)
+
+    assert int(normalized.astype(np.int64)) == expected_ns
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        np.datetime64("1677", "Y"),
+        np.datetime64("2263", "Y"),
+        np.datetime64("1677-09", "M"),
+        np.datetime64("2262-05", "M"),
+    ),
+)
+def test_calendar_cutoff_values_outside_nanosecond_bounds_are_rejected(
+    value: np.datetime64,
+) -> None:
+    with pytest.raises(ValueError, match="fit_cutoff must be exactly representable"):
+        supervised_module._validated_fit_cutoff_ns(value)
+
+
+def test_exact_datetime_converter_preserves_empty_arrays() -> None:
+    empty = np.asarray([], dtype=np.dtype(">M8[1000000h]"))
+
+    normalized = supervised_module._datetime64_values_to_ns_exact(empty)
+
+    assert normalized.shape == (0,)
+    assert normalized.dtype == np.dtype("datetime64[ns]")
+
+
+def test_direct_training_set_rejects_label_maturing_at_cutoff() -> None:
+    cutoff = np.datetime64("1970-01-02T00:00:00", "ns")
+    baseline = direct_training_set(
+        np.asarray(
+            [np.datetime64("1970-01-01", "ns")] * 2,
+            dtype="datetime64[ns]",
+        )
+    )
+    with pytest.raises(ValueError, match="strictly before fit_cutoff"):
+        replace(
+            baseline,
+            label_end_times=np.asarray(
+                [cutoff, np.datetime64("1970-01-01", "ns")],
+                dtype="datetime64[ns]",
+            ),
+            fit_cutoff=cutoff,
+        )
+
+
 def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff() -> (
     None
 ):

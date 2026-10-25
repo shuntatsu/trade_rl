@@ -74,7 +74,7 @@ trade_rl/
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,portfolio_env.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
+│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── bot.py
@@ -214,6 +214,19 @@ adapter shared by PPO and A2C, and the shared `ppo_observation_v2` semantic
 contract (`PPO_OBSERVATION_SCHEMA`, `PPO_GLOBAL_FEATURE_NAMES`, and
 `ppo_observation_contract_payload()`). `ppo.py` keeps the historical public
 names as compatibility re-exports, but is not the semantic contract owner.
+`portfolio_transform.py` owns an opt-in versioned Dict transform and Gym
+observation wrapper for `SharedPortfolioGymEnv`. It binds the raw and
+transformed layouts, Dataset/objective/clock/risk/execution context, and fit
+scope. Local features reuse `PPOFeatureNormalizer`; global features and
+per-symbol geometric mark-price references fit only on actor rows
+`[start_index, agent_stop_index)`. Availability masks remain visible, account
+and order notionals use fixed initial capital, and UTC timestamps are
+subtracted as integers before conversion to floating point. The wrapper keeps
+native actions, rewards, termination, and info unchanged; terminal observations
+use fixed absorbing padding. If transforming a result fails after the wrapped
+environment may have advanced, it records the failure and refuses another step
+until reset. This preprocessing does not create free/reserved cash, train a
+policy, refit on evaluation rows, or change legacy PPO defaults.
 `a2c.py` owns explicit sequential CPU fitting, rollout rounding, and fit-scope
 metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions

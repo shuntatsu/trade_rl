@@ -41,6 +41,24 @@ and invalid endpoints are retained rather than filtered. This adapter does
 not add a trainer, change legacy PPO defaults, or provide training or profit
 evidence.
 
+The opt-in `PortfolioObservationTransform` and
+`PortfolioGymObservationWrapper` provide a versioned preprocessing path for the
+joint Gym Dict. Local feature statistics reuse the existing PPO normalizer;
+global feature statistics and per-symbol geometric mark-price references use
+only actor-fit rows `[start_index, agent_stop_index)`. The serialized payload
+binds the source Dataset, symbol and feature ordering, objective/clock window,
+risk and execution context, and fitted statistics; loading requires a trusted
+out-of-band canonical payload digest, which detects metadata mutation but is
+not a signature or proof of fit provenance. Availability masks and terminal
+state stay explicit; account and active-order notionals use fixed initial
+capital, while maintenance-margin remains a dimensionless rate. UTC nanoseconds
+are subtracted before floating conversion.
+The wrapper preserves native transition rewards and terminal facts, and becomes
+unusable after a transform failure that may follow a consumed native step until
+a fresh reset succeeds. This opt-in preprocessing does not synthesize
+free/reserved cash, refit on evaluation rows, add a trainer, change legacy PPO
+defaults, or supply training or profit evidence.
+
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)

@@ -8,7 +8,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、このjournal単体はtrainerや完全な学習記録ではありません。
 
-別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。このjournal単体はtrainerやweights/checkpoint lineageのattestationではありません。
+別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。このjournal単体はtrainerやweights/checkpoint lineageのattestation、学習結果や利益の証拠ではありません。
 
 `fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsynthetic software testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
 
@@ -19,6 +19,7 @@ strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / S
 別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
 
 `portfolio_family_comparison.py` adds a separate in-memory coordinator for cash, fixed Trend, pinned Ridge, and verified joint-PPO policies. It preflights their inputs, runs each through a fresh session over the same Dataset and common settings, and can deliver each raw outcome to a completion observer before starting the next arm. A separate `portfolio_family_attempt.py` wrapper can reserve a local one-shot attempt root and persist each completed raw outcome before the next arm, then strictly reload the result before marking completion. If its failure journal is writable it retains the failure phase and earlier rows; otherwise the original exception remains primary. Neither path fits a model, selects a winner, or reports an economic result.
+
 
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 

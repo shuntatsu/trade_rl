@@ -57,19 +57,15 @@ def _reconstruct_fills(
         price = Decimal(str(event.execution_price))
         notional = quantity * price
         if notional == 0 or abs(notional) != Decimal(str(event.filled_notional)):
-            raise ValueError(
-                "recorded filled notional disagrees with quantity and price"
-            )
+            raise ValueError("filled notional differs from signed quantity and price")
         fee = abs(notional) * fee_rate
         cash -= notional + fee
         quantities[event.symbol_index] += quantity
         total_fee += fee
         filled += 1
-    marked_values = (
-        quantity * mark
-        for quantity, mark in zip(quantities, terminal_marks, strict=True)
-    )
-    equity = cash + sum(marked_values, Decimal(0))
+    equity = cash
+    for quantity, mark in zip(quantities, terminal_marks, strict=True):
+        equity += quantity * mark
     return equity, total_fee, tuple(quantities), filled
 
 
@@ -167,9 +163,7 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
     executor = MarketExecutor(market(), cost(), insolvency_valuation="retain_debt")
     entry = short_entry(executor)
     fills = tuple(
-        event
-        for event in entry.order_events
-        if event.event_type in {"filled", "partial_fill"}
+        event for event in entry.order_events if event.filled_quantity != 0.0
     )
     assert len(fills) == 1
     original = fills[0]
@@ -183,21 +177,16 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
             policy_digest=executor.execution_policy_digest,
         )
 
+    tampered = list(entry.order_events)
+    tampered[original.sequence] = replace(
+        original, filled_notional=original.filled_notional + 1.0
+    )
     with pytest.raises(ValueError, match="notional"):
-        replay(
-            tuple(
-                replace(event, filled_notional=event.filled_notional + 1.0)
-                if event.sequence == original.sequence else event
-                for event in entry.order_events
-            )
-        )
+        replay(tuple(tampered))
     with pytest.raises(ValueError, match="sequence"):
         replay((*entry.order_events, original))
+    tampered[original.sequence] = replace(
+        original, execution_policy_digest="f" * 64
+    )
     with pytest.raises(ValueError, match="execution policy"):
-        replay(
-            tuple(
-                replace(event, execution_policy_digest="f" * 64)
-                if event.sequence == original.sequence else event
-                for event in entry.order_events
-            )
-        )
+        replay(tuple(tampered))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import math
 import re
 import threading
@@ -57,6 +58,15 @@ def _space_array(value: object) -> object:
     return [_space_array(item) for item in array.tolist()]
 
 
+def _space_integer_array(value: object) -> int | list[object]:
+    import numpy as np
+
+    array = np.asarray(value)
+    if array.ndim == 0:
+        return int(array.item())
+    return [_space_integer_array(item) for item in array.tolist()]
+
+
 def _space_descriptor(space: object) -> dict[str, object]:
     import numpy as np
 
@@ -77,7 +87,7 @@ def _space_descriptor(space: object) -> dict[str, object]:
         descriptor["low"] = _space_array(getattr(space, "low"))
         descriptor["high"] = _space_array(getattr(space, "high"))
     if hasattr(space, "n"):
-        descriptor["n"] = int(getattr(space, "n"))
+        descriptor["n"] = _space_integer_array(getattr(space, "n"))
     return descriptor
 
 
@@ -130,14 +140,22 @@ class PortfolioPolicySampleJournal:
     ) -> None:
         import gymnasium as gym
         import numpy as np
-        import torch
-        from stable_baselines3.common.base_class import BaseAlgorithm
-        from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 
-        if not isinstance(model, BaseAlgorithm):
+        try:
+            torch = importlib.import_module("torch")
+            base_class = importlib.import_module("stable_baselines3.common.base_class")
+            policies = importlib.import_module("stable_baselines3.common.policies")
+            base_algorithm = getattr(base_class, "BaseAlgorithm")
+            multi_input_policy = getattr(policies, "MultiInputActorCriticPolicy")
+        except (ImportError, AttributeError) as error:
+            raise RuntimeError(
+                "stable-baselines3 and torch are required; install the train-sb3 extra"
+            ) from error
+
+        if not isinstance(model, base_algorithm):
             raise TypeError("model must be a Stable-Baselines3 algorithm")
         policy = model.policy
-        if not isinstance(policy, MultiInputActorCriticPolicy):
+        if not isinstance(policy, multi_input_policy):
             raise TypeError("model policy must be MultiInputActorCriticPolicy")
         observation_space = policy.observation_space
         action_space = policy.action_space

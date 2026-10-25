@@ -392,7 +392,9 @@ class MarketExecutor:
             raise ValueError("insolvency_valuation must be floor_zero or retain_debt")
         self._insolvency_valuation = value
 
-    insolvency_valuation = property(_get_insolvency_valuation, _set_insolvency_valuation)
+    insolvency_valuation = property(
+        _get_insolvency_valuation, _set_insolvency_valuation
+    )
 
     def _base_rule_array(
         self,

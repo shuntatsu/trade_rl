@@ -191,10 +191,10 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
 
     # Removing a terminal fill can leave contiguous sequence numbers. The
     # preregistered one-fill count must still reject that missing evidence.
-    missing = [
-        event for event in entry.order_events
-        if event.sequence != original.sequence
-    ]
+    missing = []
+    for event in entry.order_events:
+        if event.sequence != original.sequence:
+            missing.append(event)
     for index, event in enumerate(missing):
         missing[index] = replace(event, sequence=index)
     with pytest.raises(ValueError, match="fill count"):

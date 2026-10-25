@@ -27,25 +27,30 @@ class _TinyPortfolioEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         *,
         sample_root: Path | None = None,
         nvec: tuple[int, ...] = (4, 4),
+        mask_shape: tuple[int, ...] = (2,),
     ) -> None:
         super().__init__()
         self.action_space = gym.spaces.MultiDiscrete(np.asarray(nvec, dtype=np.int64))
+        mask_n: int | tuple[int, ...] = (
+            mask_shape[0] if len(mask_shape) == 1 else mask_shape
+        )
         self.observation_space = gym.spaces.Dict(
             {
                 "features": gym.spaces.Box(
                     low=-10.0, high=10.0, shape=(2,), dtype=np.float32
                 ),
-                "mask": gym.spaces.MultiBinary(2),
+                "mask": gym.spaces.MultiBinary(mask_n),
             }
         )
         self.sample_root = sample_root
+        self._mask_shape = mask_shape
         self.step_calls = 0
         self.sample_counts_at_step: list[int] = []
 
     def _observation(self) -> dict[str, np.ndarray]:
         return {
             "features": np.asarray([0.25, -0.5], dtype=np.float32),
-            "mask": np.asarray([1, 0], dtype=np.int8),
+            "mask": np.asarray([1, 0], dtype=np.int8).reshape(self._mask_shape),
         }
 
     def reset(
@@ -65,10 +70,13 @@ class _TinyPortfolioEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
 
 
 def _model(
-    *, sample_root: Path | None = None, nvec: tuple[int, ...] = (4, 4)
+    *,
+    sample_root: Path | None = None,
+    nvec: tuple[int, ...] = (4, 4),
+    mask_shape: tuple[int, ...] = (2,),
 ) -> tuple[Any, _TinyPortfolioEnv]:
     sb3 = _sb3()
-    env = _TinyPortfolioEnv(sample_root=sample_root, nvec=nvec)
+    env = _TinyPortfolioEnv(sample_root=sample_root, nvec=nvec, mask_shape=mask_shape)
     model = sb3.PPO(
         "MultiInputPolicy",
         env,
@@ -80,6 +88,51 @@ def _model(
         verbose=0,
     )
     return model, env
+
+
+def test_multidimensional_multibinary_space_is_recorded_without_loss(
+    tmp_path: Path,
+) -> None:
+    _sb3()
+    model, _ = _model(mask_shape=(2, 1))
+    root = tmp_path / "multidimensional-space"
+
+    journal = _journal(model, root)
+    journal.close()
+
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    descriptor = manifest["observation_space"]["fields"]["mask"]
+    assert descriptor["shape"] == [2, 1]
+    assert descriptor["n"] == [2, 1]
+    assert all(type(value) is int for value in descriptor["n"])
+
+    scalar_descriptor = journal_module._space_descriptor(gym.spaces.MultiBinary(2))
+    assert scalar_descriptor["n"] == 2
+    assert type(scalar_descriptor["n"]) is int
+
+
+def test_missing_optional_ppo_dependencies_raise_actionable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import_module = journal_module.importlib.import_module
+
+    def import_without_torch(name: str) -> Any:
+        if name == "torch":
+            raise ImportError("torch is unavailable in the core environment")
+        return original_import_module(name)
+
+    monkeypatch.setattr(journal_module.importlib, "import_module", import_without_torch)
+
+    with pytest.raises(RuntimeError, match="install the train-sb3 extra"):
+        PortfolioPolicySampleJournal(
+            object(),
+            root=Path("unused"),
+            symbols=("AAA",),
+            context_digest="a" * 64,
+            transform_digest="b" * 64,
+            policy_version="rollout-0",
+            policy_version_semantics="caller-declared rollout label",
+        )
 
 
 def _journal(model: Any, root: Path) -> PortfolioPolicySampleJournal:

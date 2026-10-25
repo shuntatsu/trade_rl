@@ -5,9 +5,11 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import cast
 
 import numpy as np
 
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
     SharedCashStrategyComparisonEntry,
@@ -62,17 +64,16 @@ def _normalized_fit_cutoff(value: np.datetime64 | str | int) -> np.datetime64:
     if np.datetime_data(value.dtype)[0] == "generic":
         raise ValueError("fit_cutoff must have a datetime unit")
     try:
-        normalized = value.astype("datetime64[ns]")
-        round_trip = normalized.astype(value.dtype)
+        normalized = _datetime64_values_to_ns_exact(np.asarray(value))
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError(
             "fit_cutoff must be losslessly representable as datetime64[ns]"
         ) from error
-    if np.isnat(normalized) or round_trip != value:
+    if np.isnat(normalized):
         raise ValueError(
             "fit_cutoff must be losslessly representable as datetime64[ns]"
         )
-    return normalized
+    return cast(np.datetime64, normalized[()])
 
 
 @dataclass(frozen=True, slots=True)

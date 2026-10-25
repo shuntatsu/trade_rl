@@ -363,6 +363,47 @@ def test_raw_market_series_preserves_lossless_typed_timestamp_units(
     assert normalized[0] == expected_ns
 
 
+@pytest.mark.parametrize("field", ("timestamps", "available_at"))
+def test_raw_market_series_rejects_large_week_multiplier_overflow(
+    field: str,
+) -> None:
+    raw_datetime = np.asarray((0, -1, -2), dtype=np.int64).view(
+        np.dtype("datetime64[1000000W]")
+    )
+    original_bytes = raw_datetime.tobytes()
+    timestamps = raw_datetime
+    available_at = None
+    if field == "available_at":
+        timestamps = np.datetime64("1969-01-01", "ns") + np.arange(3) * np.timedelta64(
+            1, "h"
+        )
+        available_at = raw_datetime
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field} values must be exactly representable as datetime64\[ns\]",
+    ):
+        _raw_series(timestamps=timestamps, available_at=available_at)
+
+    assert raw_datetime.tobytes() == original_bytes
+
+
+def test_raw_market_series_accepts_big_endian_large_multiplier_hours() -> None:
+    ticks = np.asarray((-2, -1, 0), dtype=">i8")
+    timestamps = ticks.view(np.dtype(">M8[1000000h]"))
+
+    series = _raw_series(timestamps=timestamps)
+
+    assert series.timestamps.dtype == np.dtype("datetime64[ns]")
+    np.testing.assert_array_equal(
+        series.timestamps.astype(np.int64),
+        np.asarray(
+            (-7_200_000_000_000_000_000, -3_600_000_000_000_000_000, 0),
+            dtype=np.int64,
+        ),
+    )
+
+
 def test_csv_source_converts_epoch_milliseconds_without_float_rounding(
     tmp_path: Path,
 ) -> None:

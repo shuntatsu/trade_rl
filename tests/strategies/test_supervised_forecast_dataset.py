@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+import trade_rl.data._timestamps as timestamp_module
 import trade_rl.strategies.forecasts.supervised as supervised_module
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
@@ -213,7 +214,7 @@ def test_datetime_converter_rejects_zero_unit_multiplier(unit: str) -> None:
     values = np.asarray((0, 1, -1), dtype=np.int64).view(dtype)
 
     with pytest.raises(ValueError, match="unit multiplier must be positive"):
-        supervised_module._datetime64_values_to_ns_exact(values)
+        timestamp_module._datetime64_values_to_ns_exact(values)
 
 
 @pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
@@ -339,7 +340,7 @@ def test_calendar_cutoff_values_outside_nanosecond_bounds_are_rejected(
 def test_exact_datetime_converter_preserves_empty_arrays() -> None:
     empty = np.asarray([], dtype=np.dtype(">M8[1000000h]"))
 
-    normalized = supervised_module._datetime64_values_to_ns_exact(empty)
+    normalized = timestamp_module._datetime64_values_to_ns_exact(empty)
 
     assert normalized.shape == (0,)
     assert normalized.dtype == np.dtype("datetime64[ns]")

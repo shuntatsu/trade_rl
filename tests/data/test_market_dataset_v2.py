@@ -206,6 +206,60 @@ def test_market_dataset_rejects_available_at_outside_nanosecond_range() -> None:
         MarketDataset(**values)
 
 
+@pytest.mark.parametrize("field_name", ["timestamps", "available_at"])
+def test_market_dataset_rejects_large_week_multiplier_overflow(
+    field_name: str,
+) -> None:
+    raw_datetime = np.asarray((0, -1, -2), dtype=np.int64).view(
+        np.dtype("datetime64[1000000W]")
+    )
+    original_bytes = raw_datetime.tobytes()
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+    if field_name == "timestamps":
+        values["timestamps"] = raw_datetime
+    else:
+        values["timestamps"] = np.datetime64("1969-01-01", "ns") + np.arange(
+            3
+        ) * np.timedelta64(1, "h")
+        values["available_at"] = np.broadcast_to(raw_datetime[:, None], (3, 1))
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field_name} must be exactly representable as datetime64\[ns\]",
+    ):
+        MarketDataset(**values)
+
+    assert raw_datetime.tobytes() == original_bytes
+
+
+def test_market_dataset_accepts_big_endian_large_multiplier_hours() -> None:
+    ticks = np.asarray((-2, -1, 0), dtype=">i8")
+    timestamps = ticks.view(np.dtype(">M8[1000000h]"))
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        timestamps=timestamps,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+
+    dataset = MarketDataset(**values)
+
+    assert dataset.timestamps.dtype == timestamps.dtype
+    np.testing.assert_array_equal(
+        dataset._timestamp_ns,
+        np.asarray(
+            (-7_200_000_000_000_000_000, -3_600_000_000_000_000_000, 0),
+            dtype=np.int64,
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     "timestamps",
     [

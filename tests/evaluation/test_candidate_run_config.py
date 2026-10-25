@@ -153,6 +153,34 @@ def test_candidate_run_rejects_coarse_typed_timestamp_that_wraps(field: str) -> 
 
 
 @pytest.mark.parametrize(
+    "field",
+    ("fit_cutoff", "evaluation_start", "evaluation_stop_exclusive"),
+)
+def test_candidate_run_rejects_large_week_multiplier_typed_timestamp(
+    field: str,
+) -> None:
+    config = parse_candidate_run_config(raw_config())
+    wrapped_value = np.asarray((-1,), dtype=np.int64).view(
+        np.dtype("datetime64[1000000W]")
+    )[0]
+    changes = {
+        "fit_cutoff": np.datetime64("1900-01-01", "ns"),
+        "evaluation_start": np.datetime64("1950-01-01", "ns"),
+        "evaluation_stop_exclusive": np.datetime64("2200-01-01", "ns"),
+    }
+    if field == "fit_cutoff":
+        changes["evaluation_start"] = np.datetime64("2100-01-01", "ns")
+        changes["evaluation_stop_exclusive"] = np.datetime64("2200-01-01", "ns")
+    changes[field] = wrapped_value
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field} must be losslessly representable as datetime64\[ns\]",
+    ):
+        replace(config, **changes)
+
+
+@pytest.mark.parametrize(
     ("field", "timestamp"),
     (
         ("fit_cutoff", "1677-09-21T00:12:43.145224193"),

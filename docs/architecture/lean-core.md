@@ -67,6 +67,7 @@ authorization、financial ledger、winner ruleを加えない。
 - `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` は元unitへのexact round-tripを要求するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
 - forecast training builderへ渡す`fit_cutoff`は、`datetime64[ns]`へ値を失わず変換できなければならない。`NaT`、signed-nanosecond範囲外、nanosecond未満の端数はtraining scopeやlabel rowを調べる前に拒否し、exactに変換できるcoarser / multiplier unitは受け入れる。
+- Ridge / LightGBM model constructorも同じlossless cutoff normalizerを使う。両strategy adapterは、保存済みobservation timestampが`NaT`の場合と`fit_cutoff > observation.timestamp`の場合に、feature fallbackやpredictionより前に拒否し、同時刻は許す。これはmodelの宣言fit cutoffに対するas-of floorであり、modelの生成・配布時刻、vintage、decision時点での実運用可能性を証明しない。`StrategyObservation`構築前のtimestamp変換で既にwrapされた入力時刻も復元できない。
 - `LeanCandidateConfig`のtyped `fit_cutoff`も、nsへの正規化前に元unitとのexact round-tripを要求する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
@@ -199,6 +200,42 @@ those options retain v1 ledger shape.
 This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
+
+`run_shared_portfolio_replay` is the opt-in batch consumer over the
+simulation-owned `SharedPortfolioSession`. It invokes one
+`PortfolioPolicy.decide_portfolio` for each eligible native decision row. The
+session retains the exact returned `BookState` and one `MarketExecutor` across
+calls, advances its native index once per target, and uses the existing
+`execute_native_target_transition` for hard risk and execution. Its public
+account view is a detached clone, and evidence collection remains in evaluation.
+`strategies/portfolio_observation.py` builds the detached snapshot from the
+current `MarketDataset` row, `BookState`, active-order tuple, risk config, and
+decision window; evaluation passes those source-owned inputs without giving the
+strategy an executor or evaluation config. The complete symbol-ordered numeric
+target vector is validated before a native transition can mutate execution
+state. The snapshot copies only the current `StrategyObservation` row,
+primitive account facts, active-order quantities/status/timing and available
+order price context (`limit_price`, `stop_price`, and
+`submission_reference_price`), and risk-limit scalars into tuples and immutable
+values. Snapshots built through the current observation builder carry the
+source intent's price context; directly constructed legacy pending-order
+snapshots may leave all three price fields `None` and are explicitly incomplete
+for price-aware consumers. The snapshot does not include the
+`MarketDataset`, executor, risk or book objects, opaque order IDs, or future
+rows. Cash is reported as raw account
+cash, not as free or reserved cash, so this input is not a complete Markov account
+state. An explicit exact-quantity HOLD is accepted only when its target exactly
+matches the current book weight, and it survives only if hard risk leaves that
+weight unchanged; the normal executor then cancels any residual order while
+preserving the signed filled quantity. The actor cannot request the terminal
+emergency-flatten mask. Policy calls stop at the existing latency-aware agent
+boundary, after which the session reserves terminal intervals for its existing
+risk-owned emergency-flatten path. A failed observer/transition consumes the
+session because executor state may already have advanced; it cannot be retried.
+This
+numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
+the existing intent replay result and ledger schemas remain unchanged. This seam
+does not change PPO's per-symbol training path or establish an economic result.
 
 `run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
 sequences. It validates every symbol schedule before execution. `None` means no

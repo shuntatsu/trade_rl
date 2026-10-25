@@ -13,18 +13,24 @@
     "リスク制約",
     "約定",
     "帳簿",
-    "run_single_symbol_replay"
+    "run_single_symbol_replay",
+    "shared portfolio policy",
+    "run_shared_portfolio_replay",
+    "build_portfolio_decision_snapshot",
+    "PortfolioDecisionSnapshot",
+    "PortfolioTargetProposal",
+    "SharedPortfolioGymEnv"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "3fd004edac773a8bd31f9262ca3f448d724a04fa2dbded5f3f06f9177c8bf19e"
+      "sha256": "f78df670343249b4e6c24f5e47b72ab1bd31587ad4d777f8c47b75fd86fbdc69"
     },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "3f13b41f789a18440b04f6ea7cd3c25cf6509c16ae6656e2043366a5db9e26f0"
+      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
     }
   ],
   "code_references": [
@@ -77,10 +83,79 @@
       ]
     },
     {
+      "id": "portfolio-replay-run",
+      "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "299aaa0c03bf75419cc96bdd02c578c64a497a6a4575b815d708617adaf647a2",
+      "label_ja": "全銘柄portfolio policyを実行",
+      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorをsimulation-owned sessionのshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenはsessionが所有します。",
+      "variables": [
+        {
+          "name": "policy",
+          "label_ja": "全銘柄portfolio policy",
+          "description_ja": "PortfolioDecisionSnapshotを受け取り、dataset symbol順のtarget vectorとoptional exact-quantity HOLDを返します。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py"
+      ]
+    },
+    {
+      "id": "portfolio-snapshot-contract",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioDecisionSnapshot",
+      "kind": "class",
+      "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
+      "label_ja": "現在時点のimmutable portfolio snapshot",
+      "description_ja": "既存current-row StrategyObservationからfeature values/masksをtuple化し、accountとactive-order/risk factsをprimitive valuesで渡します。future rowsやopaque order IDは渡しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-builder",
+      "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "a4c293223b93bbe269699a5f832d8e7cfc8bbde529b1a9ffe5b0075f8cdaf5cd",
+      "label_ja": "current portfolio snapshotを組み立てる",
+      "description_ja": "MarketDatasetのcurrent row、BookState、active-order tuple、risk config、decision windowから、future rowsやopaque order IDsを含まないimmutable snapshotを作ります。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-gym-adapter",
+      "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
+      "kind": "class",
+      "source_sha256": "429f131699f3928a4007752d8c4fb15af0ae57a3c49fef1190f83416649b93c0",
+      "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
+      "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-target-proposal-contract",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioTargetProposal",
+      "kind": "class",
+      "source_sha256": "e1e7594bb1c95d150912fb85c0c373c3c4ce2db1eb66eb796f2077c8cbc63b56",
+      "label_ja": "numeric target vectorとexact HOLD",
+      "description_ja": "全symbolに対するfinite target weightと、current weightに完全一致する場合だけ要求できるexact quantity HOLDを表します。hard riskはHOLDを解除できます。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py"
+      ]
+    },
+    {
       "id": "replay-observation",
       "symbol": "trade_rl.evaluation.replay._observation",
       "kind": "function",
-      "source_sha256": "f3dd6290c38d74451da6845fd3e57480bd6339ac7806fb6f41b5509b4b70261a",
+      "source_sha256": "a5c84fef54e3a9935678d36867608798555f4c3bc4b4efed3e5e9a3dda5d8824",
       "label_ja": "その時点の観測を組み立てる",
       "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図・ウェイト・実約定数量・銘柄ごとのgross budget・保有年齢を加えてStrategyObservationを作ります。intentは直近目標、quantityは実保有状態を表します。",
       "variables": [],
@@ -110,6 +185,19 @@
       "variables": [],
       "tests": [
         "tests/simulation/test_execution_v2.py"
+      ]
+    },
+    {
+      "id": "portfolio-session-owner",
+      "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
+      "kind": "class",
+      "source_sha256": "d30757a6dcac7a7647ae49e023929517732715509996d63558021b7e723bd848",
+      "label_ja": "数値portfolio sessionを継続",
+      "description_ja": "同じBookState・MarketExecutor・native indexを一native-barごとに引き継ぎます。book viewはcloneで、latency-aware actor boundary後のterminal flattenをsessionが予約し、transition failure後の再試行を拒否します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
+        "tests/evaluation/test_shared_portfolio_replay.py"
       ]
     }
   ]

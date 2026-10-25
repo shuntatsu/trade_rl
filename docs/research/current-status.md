@@ -15,12 +15,31 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34の固定screenを1回実行した。12行すべての計算は完了したが、latency-2でcost-proxy armのreturnがposition-aware cost=0 armを下回り、screen全体は FAILED_SCREEN となった。詳細な結果・前提・限界は下のIssue #810 screen節に記録する。これは勝者や継続的な利益を示さず、元の48-cell gate、unused/final評価、PPO/RLまたはlive適格性を完了させない。
 
+追加した`run_shared_portfolio_replay`は、明示的に呼び出す一native-bar単位の数値portfolio policy seamであり、simulation-owned incremental sessionを通じて既存のshared-cash risk・execution・accounting経路を使う。M34 screenでは使っておらず、M34の結果・比較条件・legacy strategy defaultsを変更しない。これはsoftware transition ownerの拡張で、fit、実データreplay、選択、利益の証拠ではなく、PPOのjoint-portfolio学習を実装するものでもない。
+
 P0 software declarations now identify fixed-initial-capital net-profit,
 account mode, finite financial clock, and exact evaluation-window binding in
 `trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do
 not read a ledger, connect a reward to PPO, change its legacy defaults, or
 produce training/replay evidence. The M34 screen classification and every
 existing economic criterion remain unchanged.
+
+`SharedPortfolioGymEnv` is now an opt-in joint Gym adapter over the same
+strategy-owned snapshot builder and simulation-owned `SharedPortfolioSession`.
+It presents one fixed-shape action vector per native decision and advances the
+existing shared risk, execution, accounting, and reserved terminal-settlement
+path. Its Dict observation remains partial: legacy pending-order snapshots may
+omit all price context, and the adapter does not synthesize free/reserved cash.
+`objective_endpoint_valid` means only that the run reached a settled, flat,
+order-free, non-insolvent endpoint without a termination reason; it does not
+certify every objective, risk, digest, or study-admission condition. The actual
+maximum drawdown remains visible and can exceed the configured stop after a
+price gap. Existing native insolvency handling floors terminal cash/equity at
+zero, so this adapter adds no reward clipping but also does not establish
+uncapped debt-loss semantics below -100% of fixed initial capital. Such losses
+and invalid endpoints are retained rather than filtered. This adapter does
+not add a trainer, change legacy PPO defaults, or provide training or profit
+evidence.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
@@ -1117,6 +1136,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 
 - `feature_available_time <= decision_time` を守る。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。この確認は宣言時刻に対するもので、過去のvenue availabilityを独立に証明しない。
+- Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否する。同時刻は許す。この境界はstored timestampと宣言fit cutoffだけを比較し、model-ready時刻や過去のmodel vintageを証明しない。`StrategyObservation`構築時に既にwrapされた入力時刻も検出しない。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
 - fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。

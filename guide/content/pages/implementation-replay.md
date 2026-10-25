@@ -54,6 +54,8 @@ BookState
 
 未来のバーを見てから観測を作ることはありません。判断に入る情報は現在時点までに利用可能なものに限定します。
 
+Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否します。同時刻は許します。このas-of floorはmodelの生成・配布時刻や過去のvintage availabilityを証明せず、`StrategyObservation`構築前に既にwrapされたtimestampも復元しません。
+
 Replayは開始行と、約定またはterminal settlementが処理する各target行について、raw rowの `available_at` がその行のtimestampより後なら、その行を帳簿・risk・strategy・executionへ渡す前に停止します。single-symbolでは選択銘柄と実保有銘柄、shared-cashでは全strategy rosterが対象です。直接`MarketExecutor.execute_interval`も、有効targetのnonzero weightと帳簿のnonzero exact holdingを対象にdecision rowを同じ時計で確認し、遅着ならvaluation・reconciliation前に停止します。flat accountのzero targetでpending orderだけをcancelする場合は許します。未選択flat銘柄と処理しないtailは対象外で、`information_available=False`だけでは拒否しません。判定は前のdecision時刻ではなくtarget行自身のtimestampと比べます。明示`mark_price`・外部帳簿markの独立availability、明示`OrderIntent`実行、直接close liquidation、venue arrivalまで保証するものではありません。
 
 ## 2. 戦略がintentを返す
@@ -131,6 +133,29 @@ target_weight
 このためposition数量が0でも未約定orderが残っている状態を「完全にflat」と誤認せず、research hard guard側でterminal execution stateを検査できます。order evidenceは同じ`MarketExecutor`のobserverから取得し、別のexecutionを再計算しません。
 
 比較に使うのはこの共通経路を通った結果です。
+
+## 同時portfolio policyのopt-in経路
+
+`run_shared_portfolio_replay`はsimulation-ownedな
+`SharedPortfolioSession`を呼び出すopt-in batch consumerです。eligibleなnative
+barごとにpolicyを一度だけ呼びます。sessionは同じ`MarketExecutor`・実際に返された
+`BookState`・native indexを次の呼び出しへ引き継ぎ、各numeric targetを共通risk・
+execution・accounting経路へ渡します。公開book viewはdetached cloneです。
+`strategies/portfolio_observation.py`が現在の`MarketDataset` row、`BookState`、
+active-order tuple、risk config、decision windowからsnapshotを作り、evaluation replay
+はsource-owned builderへこれらの入力を渡します。strategyへexecutorやevaluation
+configを渡さず、snapshotにはcurrent-row feature・availability・staleness、accountと
+active-orderのprimitive factsだけをtupleとscalarでコピーします。active orderの
+limit/stop/submission-reference priceもsource intentからコピーします。直接構築した
+legacy snapshotは3価格fieldをすべて`None`にできますが、価格情報としては不完全です。
+future rowやopaque order IDはpolicy入力に含めません。これは完全なMarkov状態を
+提供するものではなく、free/reserved cashも合成しません。
+
+policyは各symbolのtarget weightをすべて返します。明示的なexact-quantity HOLDも指定できますが、そのweightがhard-risk適用後も変わらない場合だけ既存数量を維持します。riskがtargetを縮小した場合は通常どおり実行され、latency-aware actor boundary後のterminal intervalはsessionのrisk-owned emergency flattenが処理します。observer/transition failure後はexecution stateが進んでいる可能性があるため、sessionを再試行できません。このsnapshotは観測したaccountとpending-order factsであり、free/reserved cashや完全なMarkov stateを合成しません。
+
+この数値portfolio経路は既存の`run_shared_cash_replay` intent APIとは別のopt-in結果型・ledger schemaを使います。既存intent result、schema、default behaviorは変更しません。これは将来のactor接続点であり、PPO学習、fit、研究結果、収益性の証拠を追加するものではありません。
+
+`SharedPortfolioGymEnv`はこのnumeric sessionを使うopt-in Gym adapterです。各symbolの`MultiDiscrete` actionは`HOLD=0`、`SHORT=1`、`FLAT=2`、`LONG=3`で、HOLDはrisk projectionが許す範囲で現在の実数量を保ちます。固定shapeのDict observationはsnapshot builderのcurrent-row/account/order/risk factsを符号化しますが、partial observationでありfree/reserved cashを作りません。actor decision後に予約されたterminal settlementも同じsessionが処理し、rewardはそのstepで進んだ全native intervalのnet-equity差を固定初期資本で割った値です。`objective_endpoint_valid`はsettled・flat・注文残なし・非insolvent・termination reasonなしという valuation 条件だけを表し、objective/risk/digest全体の合格やstudy admissionを意味しません。価格gapによる実現drawdownがrisk stopを超えてもその値を保持します。既存native insolvencyはterminal cash/equityをzeroへfloorするため、Gymは追加のreward clippingをしませんが、固定初期資本の-100%を超えるdebt-loss semanticsも確立しません。insolvent episodeはinvalidのまま保持します。これはtrainerではなく、既存PPO defaultsを変えません。
 
 ## 不変条件
 

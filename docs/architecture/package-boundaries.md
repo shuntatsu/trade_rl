@@ -68,11 +68,13 @@ trade_rl/
 │   ├── position_duration.py
 │   ├── interface.py
 │   ├── position_intent.py
+│   ├── portfolio.py
+│   ├── portfolio_observation.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
+│   └── rl/{intent.py,ppo.py,portfolio_env.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── bot.py
@@ -302,6 +304,14 @@ risk use this owner. Those callers retain action mapping, cached target rebindin
 against the pre-execution book, split adjustment, and observer/evidence capture.
 The legacy PPO no-risk shortcut remains on its existing direct executor path,
 and this seam does not make per-symbol PPO a joint portfolio learner.
+`stateful/portfolio_session.py` owns an opt-in numeric shared-portfolio session:
+it retains the returned book, executor, risk controller, and native index across
+one-bar calls, while exposing only a detached book view. It delegates every step
+to `native_transition.py`, reserves latency-aware terminal intervals for its
+internal emergency flatten, and becomes unusable after a transition/observer
+failure that may have advanced execution state. It imports no strategies or
+evaluation code; the batch portfolio replay remains evaluation-owned and keeps
+decision and ledger evidence collection there.
 The shared-cash replay's explicit exact-quantity HOLD is carried through
 `targets/execution.py` to reconciliation, which accepts it only when its target
 weight exactly matches the current book weight; it cancels residual orders without
@@ -317,7 +327,9 @@ the order reference. With no held quantities, it resolves current dataset marks
 before entry sizing so default initial book marks are harmless. The accounting
 and execution owners remain unchanged.
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+
+`strategies/rl/portfolio_env.py` はopt-in `SharedPortfolioGymEnv` adapterを提供する。固定shapeのjoint action/observationを、strategy-owned snapshot builderとsimulation-owned `SharedPortfolioSession`へ接続するが、`evaluation`には依存しない。shared risk・execution・accounting、native clock、reserved terminal settlementは既存ownerが引き続き処理する。これはGym adapterであり、trainer、学習済みjoint policy、legacy PPO defaultの変更を提供しない。RL facadeからは再exportしない。
 
 `forecasts/controller.py` exposes `CostAwareForecastIntentController.decide_for_position` for direct calls and the cost-aware Ridge / LightGBM adapter path. Adapters call it only when `one_way_switch_cost` is configured and the observation includes `intent_gross_budget`; other observations keep the intent-only controller call. The controller stays independent of execution, risk and replay. Canonical replay supplies filled quantity/weight and an optional matching cached target, then applies its existing minimum-hold, hard-risk, execution and accounting stages.
 
@@ -337,6 +349,14 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 per-symbol action schedule that reuses the same shared risk, `MarketExecutor`, and
 ledger path. Its no-decision marker preserves pending targets; exact-quantity
 HOLD is accepted only when hard risk leaves the current book weight unchanged.
+
+`run_shared_portfolio_replay` is a separate opt-in caller of that same replay
+loop for a simultaneous numeric target vector. It builds its immutable actor
+input through the existing current-row `StrategyObservation` owner, copies
+account/order/risk facts into primitive values, and sends each complete vector
+through the same native risk/execution transition. Numeric portfolio decisions
+use their own result and ledger schema; the per-symbol intent API and its schemas
+remain unchanged. It does not introduce another book, executor, or P&L loop.
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 

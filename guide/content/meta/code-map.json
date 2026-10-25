@@ -18,6 +18,10 @@
     "MarketExecutor",
     "run_single_symbol_replay",
     "run_scripted_shared_cash_replay",
+    "run_shared_portfolio_replay",
+    "SharedPortfolioGymEnv",
+    "PortfolioDecisionSnapshot",
+    "PortfolioTargetProposal",
     "ScriptedReplayAction",
     "ownership",
     "dependency"
@@ -26,7 +30,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "5ce4f6590ea55f86451340f56a5870b75785cecd1d66a61f432ec8a4da29056f"
+      "sha256": "42b52dc480de7c938f9c3ccf98c6cc47709b77f02262b6b9cb3cad4ee3e59722"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -36,7 +40,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "3f13b41f789a18440b04f6ea7cd3c25cf6509c16ae6656e2043366a5db9e26f0"
+      "sha256": "0c364a9241e3166f79163f4bdd390c297d61a32f91297d49c817375ff62073a7"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -251,6 +255,86 @@
       "tests": [
         "tests/evaluation/test_shared_cash_replay.py",
         "tests/architecture/test_shared_cash_replay_contract.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-policy-replay",
+      "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "299aaa0c03bf75419cc96bdd02c578c64a497a6a4575b815d708617adaf647a2",
+      "label_ja": "全銘柄portfolio policyの共通replay",
+      "description_ja": "1 native barごとにdetached snapshotを一つ渡し、全symbol順のnumeric targetを既存のshared PreTradeRisk・MarketExecutor・BookState loopへ通します。numeric actionには別ledger schemaを使い、legacy intent resultは変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-session",
+      "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
+      "kind": "class",
+      "source_sha256": "d30757a6dcac7a7647ae49e023929517732715509996d63558021b7e723bd848",
+      "label_ja": "native barごとにportfolio状態を継続",
+      "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/architecture/test_lean_simulation_layout.py"
+      ]
+    },
+    {
+      "id": "shared-portfolio-gym-adapter",
+      "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
+      "kind": "class",
+      "source_sha256": "429f131699f3928a4007752d8c4fb15af0ae57a3c49fef1190f83416649b93c0",
+      "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
+      "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。trainerやlegacy PPO defaultの変更は含みません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-decision-snapshot",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioDecisionSnapshot",
+      "kind": "class",
+      "source_sha256": "f71fe28569efbe394d9d846de5bcb3d034f339d562ec15ff5200a21ebdbe4aa2",
+      "label_ja": "current-row portfolio actor snapshot",
+      "description_ja": "current-row StrategyObservation data、account・risk facts、active-orderの数量・状態・時刻とsource intentの価格factsをimmutable tuple/scalarへコピーします。3価格fieldすべてNoneのlegacy snapshotは価格contextとして不完全です。runtime object、opaque order IDs、future rows、合成free/reserved cashを含みません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/strategies/test_portfolio_observation.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-observation-builder",
+      "symbol": "trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "a4c293223b93bbe269699a5f832d8e7cfc8bbde529b1a9ffe5b0075f8cdaf5cd",
+      "label_ja": "current portfolio snapshot builder",
+      "description_ja": "Copies the current MarketDataset row, BookState, active-order quantities/status/timing and source intent price facts, risk limits and decision window into the immutable portfolio observation contract.",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/strategies/test_portfolio_observation.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-target-proposal",
+      "symbol": "trade_rl.strategies.portfolio.PortfolioTargetProposal",
+      "kind": "class",
+      "source_sha256": "e1e7594bb1c95d150912fb85c0c373c3c4ce2db1eb66eb796f2077c8cbc63b56",
+      "label_ja": "全銘柄のnumeric target proposal",
+      "description_ja": "全symbol順のfinite target weight vectorと明示exact-quantity HOLD indexesを表します。HOLDはcurrent book weightと一致し、Risk後も不変な場合だけ有効です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_shared_portfolio_replay.py"
       ]
     },
     {

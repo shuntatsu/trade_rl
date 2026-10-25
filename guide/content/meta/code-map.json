@@ -218,12 +218,14 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "a68b3cce93f766b152917f9bbec1e9b855e99c0b82c68a58bf966127674b2b51",
+      "source_sha256": "4d2f0a4338a2536ba4f620098c23445c2be310fe16072d15fec156752ca86ad5",
       "label_ja": "約定・会計の所有者",
-      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
+      "description_ja": "注文、fill、費用、funding、borrow、margin、BookStateを共通の経済経路で更新します。既定の破産評価はゼロ下限で、人工研究専用の明示的retain_debtは負債を残してそのbarで終了し、execution policy identityを分離します。旧方式の有界interval returnでは負債額を評価しません。",
       "variables": [],
       "tests": [
-        "tests/simulation/test_execution_v2.py"
+        "tests/simulation/test_execution_v2.py",
+        "tests/simulation/test_insolvency_valuation.py",
+        "tests/simulation/test_retained_debt_independent_oracle.py"
       ]
     },
     {

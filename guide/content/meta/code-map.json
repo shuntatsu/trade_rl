@@ -351,7 +351,7 @@
       "id": "single-symbol-portfolio-policy-adapter",
       "symbol": "trade_rl.strategies.portfolio_adapter.SingleSymbolPortfolioPolicyAdapter",
       "kind": "class",
-      "source_sha256": "8879e13e3039985c9ca76659ea9c691a25d09b4130b6a71b944713350d8b2050",
+      "source_sha256": "d7411458217ce1a730fba3df4d061d1540fdb371d1d4bcc723d83bbe097f24b2",
       "label_ja": "単銘柄strategyをnumeric portfolio policyへ接続",
       "description_ja": "固定rosterと明示budgetでexact built-in constant / trend / Ridge intentをtarget vectorへ変換し、filled sideはactual exact quantityから導きます。legacy cached target、minimum-hold、pending-aware HOLDや任意strategy parityは提供しません。",
       "variables": [],

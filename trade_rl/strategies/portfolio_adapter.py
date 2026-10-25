@@ -192,7 +192,8 @@ class SingleSymbolPortfolioPolicyAdapter:
                     raise TypeError("strategy output must be a PositionIntent")
                 targets.append(float(int(intent)) * budget)
             proposal = PortfolioTargetProposal(target_weights=tuple(targets))
-        except Exception:
+        except BaseException:
+            # An interrupted partial callback sequence cannot be retried safely.
             self._poisoned = True
             raise
 

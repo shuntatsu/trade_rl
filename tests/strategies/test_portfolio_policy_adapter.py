@@ -494,6 +494,39 @@ def test_callback_exception_after_prior_symbol_poison_prevents_proposal(
         policy.decide_portfolio(_snapshot())
 
 
+def test_callback_interruption_after_prior_symbol_poisons_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.strategies.portfolio_adapter import (
+        SingleSymbolPortfolioPolicyAdapter,
+    )
+
+    first = ConstantIntentStrategy(PositionIntent.LONG)
+    interrupted = ConstantIntentStrategy(PositionIntent.FLAT)
+    never_reached = ConstantIntentStrategy(PositionIntent.SHORT)
+    first_call = Mock(wraps=first.decide)
+    last_call = Mock(wraps=never_reached.decide)
+    interrupted_call = Mock(side_effect=SystemExit(2))
+    monkeypatch.setattr(first, "decide", first_call)
+    monkeypatch.setattr(interrupted, "decide", interrupted_call)
+    monkeypatch.setattr(never_reached, "decide", last_call)
+    policy = SingleSymbolPortfolioPolicyAdapter(
+        symbols=SYMBOLS,
+        feature_names=FEATURE_NAMES,
+        global_feature_names=GLOBAL_FEATURE_NAMES,
+        intent_gross_budgets=(0.4, 0.3, 0.25),
+        strategy_factories=(lambda: first, lambda: interrupted, lambda: never_reached),
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        policy.decide_portfolio(_snapshot())
+    assert first_call.call_count == 1
+    assert interrupted_call.call_count == 1
+    assert last_call.call_count == 0
+    with pytest.raises(RuntimeError, match="poison"):
+        policy.decide_portfolio(_snapshot())
+
+
 @pytest.mark.parametrize("invalid_intent", (None, True, 1, "long"))
 def test_invalid_strategy_output_poison_prevents_a_proposal_or_reuse(
     invalid_intent: object,

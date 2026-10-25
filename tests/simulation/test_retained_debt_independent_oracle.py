@@ -31,12 +31,8 @@ def test_terminal_short_gap_debt_matches_independent_decimal_account() -> None:
     independent_fee = independent_fill_notional * fee_rate
     independent_cash_after_fill = opening_capital + independent_fill_notional
     independent_cash_after_fill -= independent_fee
-    independent_terminal_equity = (
-        independent_cash_after_fill - short_units * terminal_price
-    )
-    independent_return = (
-        independent_terminal_equity - opening_capital
-    ) / opening_capital
+    independent_terminal_equity = independent_cash_after_fill - short_units * terminal_price
+    independent_return = (independent_terminal_equity - opening_capital) / opening_capital
 
     assert independent_terminal_equity == Decimal("-501")
     assert independent_return == Decimal("-1.501")
@@ -63,9 +59,8 @@ def test_terminal_short_gap_debt_matches_independent_decimal_account() -> None:
     assert terminal.interval_funding == 0.0
     assert terminal.interval_borrow_cost == 0.0
     assert terminal.interval_net_return > -1.0
-    assert (terminal.book.portfolio_value / float(opening_capital) - 1.0) == (
-        pytest.approx(float(independent_return))
-    )
+    realized_return = terminal.book.portfolio_value / float(opening_capital) - 1.0
+    assert realized_return == pytest.approx(float(independent_return))
 
 
 def test_default_floor_and_explicit_retained_debt_have_different_terminal_books() -> None:

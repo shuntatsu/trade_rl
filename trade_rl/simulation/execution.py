@@ -382,15 +382,17 @@ class MarketExecutor:
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
 
-    @property
-    def insolvency_valuation(self) -> Literal["floor_zero", "retain_debt"]:
+    def _get_insolvency_valuation(self) -> Literal["floor_zero", "retain_debt"]:
         return self._insolvency_valuation
 
-    @insolvency_valuation.setter
-    def insolvency_valuation(self, value: Literal["floor_zero", "retain_debt"]) -> None:
+    def _set_insolvency_valuation(
+        self, value: Literal["floor_zero", "retain_debt"]
+    ) -> None:
         if not isinstance(value, str) or value not in ("floor_zero", "retain_debt"):
             raise ValueError("insolvency_valuation must be floor_zero or retain_debt")
         self._insolvency_valuation = value
+
+    insolvency_valuation = property(_get_insolvency_valuation, _set_insolvency_valuation)
 
     def _base_rule_array(
         self,

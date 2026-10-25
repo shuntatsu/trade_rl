@@ -21,7 +21,9 @@
     "PortfolioTargetProposal",
     "SharedPortfolioGymEnv",
     "PortfolioObservationTransform",
-    "PortfolioGymObservationWrapper"
+    "PortfolioGymObservationWrapper",
+    "PortfolioPolicySampleJournal",
+    "PortfolioEpisodeJournalWrapper"
   ],
   "source_sections": [
     {
@@ -32,7 +34,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "ee1b4c635c408a8729c9d7cc2b3f2781e73fd21bc894d2aa42e483d25bdf4035"
+      "sha256": "28c53b575d77318497d8e1c81600923c9a2ede63df3fe5d0395b907792825c32"
     }
   ],
   "code_references": [

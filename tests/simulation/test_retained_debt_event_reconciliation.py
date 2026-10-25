@@ -34,6 +34,7 @@ def _reconstruct_fills(
     terminal_marks: tuple[Decimal, ...],
     fee_rate: Decimal,
     policy_digest: str,
+    required_fills: int,
 ) -> tuple[Decimal, Decimal, tuple[Decimal, ...], int]:
     """Calculate pre-flatten equity from event fills, not recorded book totals."""
     cash = initial_cash
@@ -66,6 +67,8 @@ def _reconstruct_fills(
     equity = cash
     for quantity, mark in zip(quantities, terminal_marks, strict=True):
         equity += quantity * mark
+    if filled != required_fills:
+        raise ValueError("event fill count does not match preregistered count")
     return equity, total_fee, tuple(quantities), filled
 
 
@@ -80,6 +83,7 @@ def test_short_gap_raw_debt_is_reconstructed_from_actual_fill_event() -> None:
         terminal_marks=(Decimal("400"),),
         fee_rate=Decimal("0.002"),
         policy_digest=executor.execution_policy_digest,
+        required_fills=1,
     )
     assert fee == Decimal("1")
     assert quantity == (Decimal("-5"),)
@@ -144,6 +148,7 @@ def test_cross_symbol_debt_uses_only_first_realized_fill_in_event_ledger() -> No
         terminal_marks=(Decimal("100"), Decimal("100")),
         fee_rate=Decimal("3"),
         policy_digest=executor.execution_policy_digest,
+        required_fills=1,
     )
     assert equity == Decimal("-500")
     assert fee == Decimal("1500")
@@ -173,6 +178,7 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
             terminal_marks=(Decimal("400"),),
             fee_rate=Decimal("0.002"),
             policy_digest=executor.execution_policy_digest,
+            required_fills=1,
         )
 
     tampered = list(entry.order_events)
@@ -182,6 +188,18 @@ def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper()
         replay(tuple(tampered))
     with pytest.raises(ValueError, match="sequence"):
         replay((*entry.order_events, original))
+
+    # Removing a terminal fill can leave contiguous sequence numbers. The
+    # preregistered one-fill count must still reject that missing evidence.
+    missing = [
+        event for event in entry.order_events
+        if event.sequence != original.sequence
+    ]
+    for index, event in enumerate(missing):
+        missing[index] = replace(event, sequence=index)
+    with pytest.raises(ValueError, match="fill count"):
+        replay(tuple(missing))
+
     other_policy = "f" * 64
     tampered[original.sequence] = replace(
         original, execution_policy_digest=other_policy

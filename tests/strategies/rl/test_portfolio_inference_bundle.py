@@ -6,6 +6,7 @@ import shutil
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -74,6 +75,7 @@ def _environment(
     stop_index: int,
     *,
     target_abs_weights: tuple[float, ...] = (0.5, 0.5),
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> SharedPortfolioGymEnv:
     stop = _START + timedelta(hours=stop_index)
     bound = BoundObjectiveClock(
@@ -104,7 +106,9 @@ def _environment(
         stop_index=stop_index,
         bound=bound,
         target_abs_weights=target_abs_weights,
-        execution_cost=ExecutionCostConfig.zero(),
+        execution_cost=(
+            ExecutionCostConfig.zero() if execution_cost is None else execution_cost
+        ),
         risk_config=PreTradeRiskConfig(
             max_gross=1.0,
             max_abs_weight=0.5,
@@ -394,6 +398,285 @@ def test_published_policy_replay_pairs_one_loaded_dataset_and_native_session(
     assert policy_calls == len(replay.decisions) == 1
     assert replay.ledger_evidence is not None
     assert all(quantity == 0 for quantity in replay.book.exact_quantities)
+    assert replay.ledger_evidence.intervals.active_order_remainders == ()
+
+
+@pytest.mark.parametrize("mismatch", ["dataset", "bundle"])
+def test_paired_replay_rejects_wrong_dataset_or_bundle_identity_before_session(
+    published_bundle: tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch: str,
+) -> None:
+    from trade_rl.evaluation import portfolio_inference as inference_module
+    from trade_rl.simulation.stateful import portfolio_session as session_module
+    from trade_rl.strategies.rl import portfolio_env as env_module
+    from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module
+
+    _, dataset, _, bundle = published_bundle
+    artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
+    runtime_env = _environment(dataset, 5, 7)
+    loaded_pairs: list[tuple[Any, MarketDataset]] = []
+    validation_envs: list[SharedPortfolioGymEnv] = []
+    policy_loads = 0
+    session_starts = 0
+
+    original_loader = inference_module.load_published_market_dataset_artifact
+
+    def loader(root: str | Path) -> tuple[Any, MarketDataset]:
+        pair = original_loader(root)
+        loaded_pairs.append(pair)
+        return pair
+
+    original_env_init = env_module.SharedPortfolioGymEnv.__init__
+
+    def env_init_spy(
+        self: SharedPortfolioGymEnv,
+        dataset_value: MarketDataset,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        original_env_init(self, dataset_value, *args, **kwargs)
+        validation_envs.append(self)
+
+    def reset_must_not_be_called(*args: object, **kwargs: object) -> object:
+        raise AssertionError("identity validation must not reset the Gym shell")
+
+    def deserialize_must_not_be_called(*args: object, **kwargs: object) -> object:
+        nonlocal policy_loads
+        policy_loads += 1
+        raise AssertionError("identity mismatch must precede PPO deserialization")
+
+    def session_must_not_start(*args: object, **kwargs: object) -> None:
+        nonlocal session_starts
+        session_starts += 1
+        raise AssertionError("identity mismatch must precede native session creation")
+
+    monkeypatch.setattr(
+        inference_module, "load_published_market_dataset_artifact", loader
+    )
+    monkeypatch.setattr(env_module.SharedPortfolioGymEnv, "__init__", env_init_spy)
+    monkeypatch.setattr(
+        env_module.SharedPortfolioGymEnv, "reset", reset_must_not_be_called
+    )
+    monkeypatch.setattr(
+        bundle_module, "_load_policy_from_verified_path", deserialize_must_not_be_called
+    )
+    monkeypatch.setattr(
+        session_module.SharedPortfolioSession, "__init__", session_must_not_start
+    )
+
+    expected_dataset_digest = artifact.artifact_digest
+    expected_bundle_digest = bundle.bundle_sha256
+    if mismatch == "dataset":
+        expected_dataset_digest = "0" * 64
+        if expected_dataset_digest == artifact.artifact_digest:
+            expected_dataset_digest = "1" * 64
+    else:
+        expected_bundle_digest = "0" * 64
+        if expected_bundle_digest == bundle.bundle_sha256:
+            expected_bundle_digest = "1" * 64
+
+    with pytest.raises(ValueError):
+        inference_module.run_published_portfolio_inference_replay(
+            dataset_artifact_root=artifact.root,
+            expected_dataset_artifact_sha256=expected_dataset_digest,
+            bundle_root=bundle.root,
+            expected_bundle_sha256=expected_bundle_digest,
+            expected_manifest_sha256=bundle.training_manifest_sha256,
+            expected_completion_sha256=bundle.training_completion_sha256,
+            expected_training_context_sha256=bundle.training_context_sha256,
+            expected_checkpoint_sha256=bundle.checkpoint_sha256,
+            bound=runtime_env.bound,
+            start_index=5,
+            stop_index=7,
+            initial_capital=1_000.0,
+            target_abs_weights=(0.5, 0.5),
+            execution_cost=runtime_env.execution_cost,
+            risk_config=runtime_env.risk_config,
+            market_order_profile=None,
+            capture_ledger_evidence=True,
+        )
+
+    assert len(loaded_pairs) == 1
+    assert policy_loads == 0
+    assert session_starts == 0
+    if mismatch == "dataset":
+        assert validation_envs == []
+    else:
+        assert len(validation_envs) == 1
+        assert validation_envs[0]._session is None
+
+
+def test_paired_fixed_action_replay_routes_positive_costs_through_native_ledger(
+    published_bundle: tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fixed synthetic policy checks cost routing, not learned behavior."""
+    from trade_rl.evaluation import portfolio_inference as inference_module
+    from trade_rl.simulation.stateful import portfolio_session as session_module
+    from trade_rl.strategies.portfolio_observation import PortfolioDecisionSnapshot
+    from trade_rl.strategies.portfolio_policy_codec import (
+        ACTION_LONG,
+        ACTION_SHORT,
+        portfolio_action_to_proposal,
+    )
+    from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module
+
+    _, source_dataset, _, bundle = published_bundle
+    fee_rate = np.full_like(source_dataset.close, 0.001, dtype=np.float64)
+    funding_rate = np.full_like(source_dataset.close, 0.01, dtype=np.float64)
+    funding_due = np.zeros_like(source_dataset.close, dtype=np.bool_)
+    funding_due[6, :] = True
+    borrow_rate = np.zeros_like(source_dataset.close, dtype=np.float64)
+    borrow_rate[6, 1] = 0.0876
+    cost_dataset = replace(
+        source_dataset,
+        fee_rate=fee_rate,
+        maker_fee_rate=np.zeros_like(fee_rate),
+        taker_fee_rate=np.zeros_like(fee_rate),
+        spread_rate=np.zeros_like(fee_rate),
+        funding_rate=funding_rate,
+        funding_due=funding_due,
+        borrow_rate=borrow_rate,
+        borrow_available=np.ones_like(funding_due),
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "portfolio-inference-cost-routing"})
+    data_artifact = publish_market_dataset_artifact(
+        tmp_path / "cost-dataset", cost_dataset
+    )
+    execution_cost = replace(
+        ExecutionCostConfig.zero(),
+        borrow_rate_multiplier=1.0,
+    )
+    runtime_env = _environment(
+        cost_dataset,
+        5,
+        7,
+        target_abs_weights=(0.4, 0.2),
+        execution_cost=execution_cost,
+    )
+    actions_seen: list[int] = []
+    validation_envs: list[SharedPortfolioGymEnv] = []
+    session_datasets: list[MarketDataset] = []
+    loaded_pairs: list[tuple[Any, MarketDataset]] = []
+
+    class FixedActionPolicy:
+        def decide_portfolio(self, snapshot: PortfolioDecisionSnapshot) -> object:
+            actions_seen.append(snapshot.index)
+            return portfolio_action_to_proposal(
+                np.asarray([ACTION_LONG, ACTION_SHORT], dtype=np.int64),
+                snapshot,
+                (0.4, 0.2),
+            )
+
+    fixed_policy = FixedActionPolicy()
+
+    def load_fixed_policy(root: str | Path, **kwargs: object) -> FixedActionPolicy:
+        del root
+        validation_env = kwargs["runtime_env"]
+        assert isinstance(validation_env, SharedPortfolioGymEnv)
+        validation_envs.append(validation_env)
+        assert validation_env.execution_cost is execution_cost
+        assert validation_env.dataset.fee_rate is not None
+        assert validation_env.dataset.fee_rate[6, 0] == 0.001
+        return fixed_policy
+
+    original_loader = inference_module.load_published_market_dataset_artifact
+
+    def dataset_loader(root: str | Path) -> tuple[Any, MarketDataset]:
+        pair = original_loader(root)
+        loaded_pairs.append(pair)
+        return pair
+
+    original_session_init = session_module.SharedPortfolioSession.__init__
+
+    def session_init_spy(
+        self: object, dataset_value: MarketDataset, **kwargs: object
+    ) -> None:
+        session_datasets.append(dataset_value)
+        original_session_init(self, dataset_value, **kwargs)
+
+    monkeypatch.setattr(
+        bundle_module, "load_portfolio_inference_bundle", load_fixed_policy
+    )
+    monkeypatch.setattr(
+        inference_module, "load_published_market_dataset_artifact", dataset_loader
+    )
+    monkeypatch.setattr(
+        session_module.SharedPortfolioSession, "__init__", session_init_spy
+    )
+
+    returned_artifact, replay = (
+        inference_module.run_published_portfolio_inference_replay(
+            dataset_artifact_root=data_artifact.root,
+            expected_dataset_artifact_sha256=data_artifact.artifact_digest,
+            bundle_root=bundle.root,
+            expected_bundle_sha256=bundle.bundle_sha256,
+            expected_manifest_sha256=bundle.training_manifest_sha256,
+            expected_completion_sha256=bundle.training_completion_sha256,
+            expected_training_context_sha256=bundle.training_context_sha256,
+            expected_checkpoint_sha256=bundle.checkpoint_sha256,
+            bound=runtime_env.bound,
+            start_index=5,
+            stop_index=7,
+            initial_capital=1_000.0,
+            target_abs_weights=(0.4, 0.2),
+            execution_cost=execution_cost,
+            risk_config=runtime_env.risk_config,
+            market_order_profile=None,
+            capture_ledger_evidence=True,
+        )
+    )
+
+    assert returned_artifact.artifact_digest == data_artifact.artifact_digest
+    assert len(loaded_pairs) == 1
+    assert len(validation_envs) == len(session_datasets) == 1
+    assert validation_envs[0]._session is None
+    assert loaded_pairs[0][1] is validation_envs[0].dataset
+    assert session_datasets[0] is loaded_pairs[0][1]
+    assert actions_seen == [5]
+    assert replay.ledger_evidence is not None
+    ledger = replay.ledger_evidence.intervals
+    assert ledger.active_order_remainders == ()
+    assert ledger.terminal_exact_quantities == ("0", "0")
+
+    fills = tuple(
+        (
+            event.processing_index,
+            event.symbol_index,
+            event.filled_quantity,
+            event.execution_price,
+        )
+        for interval in ledger.intervals
+        for event in interval.order_events
+        if event.filled_quantity != 0.0
+    )
+    assert fills == (
+        (6, 0, 4.0, 100.0),
+        (6, 1, -2.0, 100.0),
+        (7, 0, -4.0, 100.0),
+        (7, 1, 2.0, 100.0),
+    )
+
+    entry_and_exit_fee = Fraction(2 * (400 + 200), 1_000)
+    funding_cash_delta = -Fraction(400 - 200, 100)
+    borrow_cash_delta = Fraction(200) * Fraction(876, 10_000) / 8_760
+    expected_final_cash = (
+        Fraction(1_000) - entry_and_exit_fee + funding_cash_delta - borrow_cash_delta
+    )
+    assert expected_final_cash == Fraction(498_399, 500)
+    assert ledger.final_cash == pytest.approx(float(expected_final_cash), abs=1e-12)
+    assert ledger.final_total_cost == pytest.approx(
+        float(entry_and_exit_fee), abs=1e-12
+    )
+    assert ledger.final_funding_pnl == pytest.approx(
+        float(funding_cash_delta), abs=1e-12
+    )
+    assert ledger.final_borrow_cost == pytest.approx(
+        float(borrow_cash_delta), abs=1e-12
+    )
 
 
 def _write_canonical(path: Path, value: object) -> bytes:

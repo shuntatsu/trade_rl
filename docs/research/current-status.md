@@ -131,6 +131,23 @@ context.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Shared-portfolioのopt-in policy inference software path
+
+`trade_rl.strategies.portfolio_policy_codec` maps the immutable current-row
+`PortfolioDecisionSnapshot` to raw-v1 NumPy observations and maps joint
+HOLD / SHORT / FLAT / LONG codes to numeric target proposals. HOLD is carried
+as an explicit quantity-preserving request, subject to the existing native
+risk and execution path. `run_published_portfolio_inference_replay` reads one
+expected-digest Dataset artifact, checks the inference bundle and runtime
+context in an unreset Gym shell, then sends that same loaded Dataset object and
+the supplied risk/execution settings through one shared native replay with
+terminal settlement. The M34 screen and legacy per-symbol PPO defaults are
+unchanged. A fixed-action positive-cost synthetic test independently checks
+fee, funding, borrow and terminal-cash routing; it is software coverage, not
+learned-policy behavior or a financial result. This opt-in path adds no
+real-data fit or inference, profit evidence, winner selection, unused-period
+validation, or deployment authorization.
+
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 
 この節は[事前登録したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)と[実行結果](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6384143472)の現状を要約する。M34 sourceに固定した一度のscreenでは、1 fit・3 scenario・4 armの全12行を計算し、screen全体は FAILED_SCREEN となった。latency-2でposition-aware cost-proxy armが2.6777%、同じ経路のcost=0 armが2.8971%だったため、事前の比較条件を満たさなかった。シナリオごとの結果、ledger、source、Dataset、費用・funding仮定は、この文書の下にあるConditional four-arm Ridge development screen節と[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に記録している。

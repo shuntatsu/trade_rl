@@ -21,14 +21,20 @@ from trade_rl.strategies.portfolio_observation import (
 )
 
 
-def _dataset(*, dataset_id: str = "d" * 64, tail_price: float = 100.0) -> MarketDataset:
-    close = np.full((3, 3), 100.0, dtype=np.float64)
+def _dataset(
+    *,
+    dataset_id: str = "d" * 64,
+    tail_price: float = 100.0,
+    symbol_names: tuple[str, ...] = ("BTCUSDT", "ETHUSDT", "SOLUSDT"),
+) -> MarketDataset:
+    n_symbols = len(symbol_names)
+    close = np.full((3, n_symbols), 100.0, dtype=np.float64)
     close[-1, :] = tail_price
-    features = np.arange(9, dtype=np.float32).reshape(3, 3, 1)
+    features = np.arange(3 * n_symbols, dtype=np.float32).reshape(3, n_symbols, 1)
     features[-1, :, 0] = tail_price
     return MarketDataset(
         dataset_id=dataset_id,
-        symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT"),
+        symbols=symbol_names,
         timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
         + np.arange(3) * np.timedelta64(1, "h"),
         features=features,
@@ -37,10 +43,10 @@ def _dataset(*, dataset_id: str = "d" * 64, tail_price: float = 100.0) -> Market
         high=close + 1.0,
         low=close - 1.0,
         close=close,
-        volume=np.full((3, 3), 1_000.0),
-        funding_rate=np.zeros((3, 3), dtype=np.float64),
-        tradable=np.ones((3, 3), dtype=np.bool_),
-        feature_available=np.ones((3, 3, 1), dtype=np.bool_),
+        volume=np.full((3, n_symbols), 1_000.0),
+        funding_rate=np.zeros((3, n_symbols), dtype=np.float64),
+        tradable=np.ones((3, n_symbols), dtype=np.bool_),
+        feature_available=np.ones((3, n_symbols, 1), dtype=np.bool_),
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
@@ -218,6 +224,15 @@ def test_pending_price_snapshot_is_detached_from_dataset_future_tail() -> None:
     with pytest.raises(FrozenInstanceError):
         original.active_orders[1].limit_price = 96.0  # type: ignore[misc]
 
+    codec = importlib.import_module("trade_rl.strategies.portfolio_policy_codec")
+    original_observation = codec.encode_portfolio_decision_snapshot(original)
+    changed_tail_observation = codec.encode_portfolio_decision_snapshot(changed_tail)
+    assert tuple(original_observation) == tuple(changed_tail_observation)
+    for key in original_observation:
+        np.testing.assert_array_equal(
+            original_observation[key], changed_tail_observation[key]
+        )
+
 
 def test_portfolio_policy_codec_preserves_raw_v1_arrays_and_detaches_values() -> None:
     try:
@@ -292,6 +307,40 @@ def test_portfolio_action_codec_maps_joint_codes_to_exact_hold_proposal() -> Non
     )
 
     assert proposal.target_weights == (0.0, -0.3, 0.0)
+    assert proposal.hold_current_quantity_symbols == (0,)
+
+
+def test_portfolio_action_codec_holds_nonzero_quantity_across_mixed_positions() -> None:
+    try:
+        codec = importlib.import_module("trade_rl.strategies.portfolio_policy_codec")
+    except ModuleNotFoundError:
+        pytest.fail("the shared portfolio policy codec is not implemented")
+
+    dataset = _dataset(symbol_names=("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"))
+    book = BookState.from_weights(
+        weights=np.asarray([0.2, 0.0, -0.1, 0.0], dtype=np.float64),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        contract_multipliers=dataset.contract_multipliers,
+        max_gross=1.0,
+    )
+    snapshot = build_portfolio_decision_snapshot(
+        dataset,
+        index=0,
+        agent_stop_index=2,
+        book=book,
+        active_orders=(),
+        risk_config=PreTradeRiskConfig(),
+    )
+
+    proposal = codec.portfolio_action_to_proposal(
+        np.asarray([0, 1, 2, 3], dtype=np.int64),
+        snapshot,
+        (0.4, 0.3, 0.2, 0.25),
+    )
+
+    assert snapshot.account.quantities == (2.0, 0.0, -1.0, 0.0)
+    assert proposal.target_weights == (0.2, -0.3, 0.0, 0.25)
     assert proposal.hold_current_quantity_symbols == (0,)
 
 

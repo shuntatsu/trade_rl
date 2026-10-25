@@ -12,6 +12,10 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 `fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsynthetic software testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
 
+## Shared portfolio inferenceのsoftware path
+
+strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / SHORT / FLAT / LONGをnumeric proposalへ変換します。opt-in paired runnerはexpected digest付きDataset artifactを一度読み、unreset Gym shellでbundle/runtime contextを検証した後、同じDataset objectと渡されたrisk/execution設定でnative shared replayを一度実行し、terminal settlementまで通します。HOLDは既存のrisk/execution経路へquantity-preserving requestとして渡ります。固定actionと正のfee・funding・borrowを使うsynthetic testは配線とcash計算の回帰確認で、学習済みpolicyの挙動や金融結果ではありません。M34 screen、legacy PPO default、利益性・winner・unused validation・deploymentの状態は変わりません。
+
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 
 4方式比較のソフトウェアはレビューと必須CIを通してmainに統合され、M34で固定した一度のscreenを実行しました。cash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの12行はすべて計算を完了しましたが、latency-2のnet returnはcost-proxyが2.6777%、cost=0が2.8971%となり、screenの比較条件は不成立です。各行の結果、費用・drawdown・fundingとsource bindingは[研究状態の正本](../../../docs/research/current-status.md)および[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)を参照してください。

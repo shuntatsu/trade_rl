@@ -68,6 +68,10 @@ def _nanosecond_wrap_alias(timestamp: str) -> str:
     return f"{wall_time:%Y-%m-%dT%H:%M:%S}.{nanoseconds:09d}"
 
 
+def _large_hour_ticks(ticks: tuple[int, ...]) -> np.ndarray:
+    return np.asarray(ticks, dtype=np.int64).view(np.dtype("datetime64[1000000h]"))
+
+
 def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     config = parse_candidate_run_config(raw_config())
 
@@ -178,6 +182,73 @@ def test_candidate_run_rejects_large_week_multiplier_typed_timestamp(
         match=rf"{field} must be losslessly representable as datetime64\[ns\]",
     ):
         replace(config, **changes)
+
+
+def test_candidate_run_accepts_exact_large_multiplier_hour_chronological_window() -> (
+    None
+):
+    config = parse_candidate_run_config(raw_config())
+    fit_cutoff, evaluation_start, evaluation_stop = _large_hour_ticks((-2, -1, 0))
+
+    normalized = replace(
+        config,
+        fit_cutoff=fit_cutoff,
+        evaluation_start=evaluation_start,
+        evaluation_stop_exclusive=evaluation_stop,
+    )
+
+    assert normalized.fit_cutoff == np.datetime64(-7_200_000_000_000_000_000, "ns")
+    assert normalized.evaluation_start == np.datetime64(
+        -3_600_000_000_000_000_000, "ns"
+    )
+    assert normalized.evaluation_stop_exclusive == np.datetime64(0, "ns")
+
+
+@pytest.mark.parametrize(
+    ("field", "unit", "ticks"),
+    (
+        pytest.param(
+            "fit_cutoff",
+            "h",
+            (-2, 1, 2),
+            id="fit-cutoff-zero-hour-multiplier",
+        ),
+        pytest.param(
+            "evaluation_start",
+            "Y",
+            (-2, 0, 1),
+            id="evaluation-start-zero-year-multiplier",
+        ),
+        pytest.param(
+            "evaluation_stop_exclusive",
+            "h",
+            (-2, -1, 0),
+            id="evaluation-stop-zero-hour-multiplier",
+        ),
+    ),
+)
+def test_candidate_run_rejects_zero_multiplier_typed_timestamp(
+    field: str,
+    unit: str,
+    ticks: tuple[int, ...],
+) -> None:
+    config = parse_candidate_run_config(raw_config())
+    fit_cutoff, evaluation_start, evaluation_stop = _large_hour_ticks(ticks)
+    valid_window = replace(
+        config,
+        fit_cutoff=fit_cutoff,
+        evaluation_start=evaluation_start,
+        evaluation_stop_exclusive=evaluation_stop,
+    )
+    invalid_timestamp = np.asarray((0,), dtype=np.int64).view(
+        np.dtype(f"datetime64[0{unit}]")
+    )[0]
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field} must be losslessly representable as datetime64\[ns\]",
+    ):
+        replace(valid_window, **{field: invalid_timestamp})
 
 
 @pytest.mark.parametrize(

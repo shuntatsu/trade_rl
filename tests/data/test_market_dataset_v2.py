@@ -261,6 +261,40 @@ def test_market_dataset_accepts_big_endian_large_multiplier_hours() -> None:
 
 
 @pytest.mark.parametrize(
+    ("field_name", "unit"),
+    (
+        pytest.param("timestamps", "h", id="zero-hour-timestamps"),
+        pytest.param("available_at", "Y", id="zero-year-availability"),
+    ),
+)
+def test_market_dataset_rejects_zero_multiplier_timestamp_fields(
+    field_name: str,
+    unit: str,
+) -> None:
+    invalid_times = np.asarray((0, 1, 2), dtype=np.int64).view(
+        np.dtype(f"datetime64[0{unit}]")
+    )
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        timestamps=np.datetime64("1969-12-31T21:00:00", "ns")
+        + np.arange(3) * np.timedelta64(1, "h"),
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+    if field_name == "timestamps":
+        values["timestamps"] = invalid_times
+    else:
+        values["available_at"] = np.broadcast_to(invalid_times[:, None], (3, 1))
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field_name} must be exactly representable as datetime64\[ns\]",
+    ):
+        MarketDataset(**values)
+
+
+@pytest.mark.parametrize(
     "timestamps",
     [
         np.datetime64("1677-09-21T00:12:43.145224193", "ns")

@@ -404,6 +404,36 @@ def test_raw_market_series_accepts_big_endian_large_multiplier_hours() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("field", "unit"),
+    (
+        pytest.param("timestamps", "h", id="zero-hour-timestamps"),
+        pytest.param("available_at", "Y", id="zero-year-availability"),
+    ),
+)
+def test_raw_market_series_rejects_zero_multiplier_timestamp_fields(
+    field: str,
+    unit: str,
+) -> None:
+    invalid_times = np.asarray((0, 1, 2), dtype=np.int64).view(
+        np.dtype(f"datetime64[0{unit}]")
+    )
+    timestamps = np.datetime64("1969-12-31T21:00:00", "ns") + np.arange(
+        3
+    ) * np.timedelta64(1, "h")
+    available_at = None
+    if field == "timestamps":
+        timestamps = invalid_times
+    else:
+        available_at = invalid_times
+
+    with pytest.raises(
+        ValueError,
+        match=rf"{field} values must be exactly representable as datetime64\[ns\]",
+    ):
+        _raw_series(timestamps=timestamps, available_at=available_at)
+
+
 def test_csv_source_converts_epoch_milliseconds_without_float_rounding(
     tmp_path: Path,
 ) -> None:

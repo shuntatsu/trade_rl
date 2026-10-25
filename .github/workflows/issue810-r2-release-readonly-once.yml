@@ -61,11 +61,14 @@ jobs:
           print("NO_G4_APPROVAL_OR_ORIGINAL_48_COMPLETION")
           PY
 
-      - name: Upload byte audit report only
+      - name: Upload verified public release bytes and attestation for independent readback
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: issue810-r2-archival-byte-audit-${{ github.sha }}
-          path: ${{ runner.temp }}/r2-readback/byte-audit-report.json
+          name: issue810-r2-verified-public-source-bytes-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/r2-readback/issue810-development-checkpoint-20261015.zip
+            ${{ runner.temp }}/r2-readback/MANIFEST.json
+            ${{ runner.temp }}/r2-readback/byte-audit-report.json
           if-no-files-found: error
-          retention-days: 30
-          compression-level: 6
+          retention-days: 7
+          compression-level: 0

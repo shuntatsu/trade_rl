@@ -96,6 +96,7 @@ def test_default_floor_and_explicit_retained_debt_have_different_terminal_books(
     assert retained.book.portfolio_value == -501.0
     assert retained.bars_advanced == 1
 
+
 @pytest.mark.parametrize("reverse_submission", [False, True])
 def test_retain_debt_stops_other_symbol_fills_with_same_bar_fee_bankruptcy(
     reverse_submission: bool,
@@ -150,20 +151,13 @@ def test_retain_debt_stops_other_symbol_fills_with_same_bar_fee_bankruptcy(
         bars=3,
     )
     assert retained_result.book.cash == float(independent_terminal_equity)
-    assert retained_result.book.portfolio_value == float(
-        independent_terminal_equity
-    )
-    assert retained_result.book.exact_quantities == (
-        Fraction(0),
-        Fraction(0),
-    )
+    assert retained_result.book.portfolio_value == float(independent_terminal_equity)
+    assert retained_result.book.exact_quantities == (Fraction(0), Fraction(0))
     assert retained_result.fill_count == 1
     assert retained_result.book.fill_count == 1
     assert retained_result.interval_cost == float(independent_first_fee)
     assert retained_result.book.total_cost == float(independent_first_fee)
-    assert retained_result.filled_notional_by_symbol == pytest.approx(
-        [500.0, 0.0]
-    )
+    assert retained_result.filled_notional_by_symbol == pytest.approx([500.0, 0.0])
     assert retained_result.next_index == 1
     assert retained_result.bars_advanced == 1
     assert retained_result.order_book.active_orders == ()

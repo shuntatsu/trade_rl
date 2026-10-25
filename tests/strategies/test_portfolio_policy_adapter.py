@@ -310,7 +310,7 @@ def test_cost_aware_ridge_receives_budget_and_actual_filled_position() -> None:
         return policy.decide_portfolio(_one_symbol_snapshot())
 
     # With the same -5% log-return forecast and a 10% switch-cost proxy, a
-    # 10% budget leaves the filled 20% long intact; a 40% budget exits it.
+    # 10% budget retains LONG direction with a +10% target; a 40% budget exits.
     # This witnesses that the adapter supplies the actual filled weight and
     # configured intent budget to Ridge's cost-aware controller.
     assert proposal(0.1).target_weights == (0.1,)
@@ -374,6 +374,67 @@ def test_adapter_runs_through_the_existing_shared_portfolio_replay() -> None:
     assert quantities[1] == 0
     assert quantities[2] < 0
     assert result.ledger_evidence is not None
+    assert len(result.ledger_evidence.intervals.intervals) == 2
+
+
+def test_adapter_uses_reserved_native_intervals_to_settle_terminally() -> None:
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+    from trade_rl.risk.pretrade import PreTradeRisk
+    from trade_rl.simulation.execution import ExecutionCostConfig
+    from trade_rl.strategies.portfolio_adapter import (
+        SingleSymbolPortfolioPolicyAdapter,
+    )
+
+    strategies = tuple(ConstantIntentStrategy(PositionIntent.LONG) for _ in SYMBOLS)
+    calls = tuple(Mock(wraps=strategy.decide) for strategy in strategies)
+    policy = SingleSymbolPortfolioPolicyAdapter(
+        symbols=SYMBOLS,
+        feature_names=FEATURE_NAMES,
+        global_feature_names=GLOBAL_FEATURE_NAMES,
+        intent_gross_budgets=(0.4, 0.3, 0.25),
+        strategy_factories=tuple(
+            lambda strategy=strategy: strategy for strategy in strategies
+        ),
+    )
+    for strategy, call in zip(strategies, calls, strict=True):
+        strategy.decide = call  # type: ignore[method-assign]
+
+    result = run_shared_portfolio_replay(
+        _dataset(),
+        policy,
+        start_index=0,
+        stop_index=2,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=1.0,
+                max_abs_weight=0.4,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    assert tuple(call.call_count for call in calls) == (1, 1, 1)
+    assert tuple(call.call_args.args[0].index for call in calls) == (0, 0, 0)
+    assert len(result.decisions) == 1
+    assert result.decisions[0].proposal_weights == (0.4, 0.3, 0.25)
+    assert tuple(str(value) for value in result.book.exact_quantities) == (
+        "0",
+        "0",
+        "0",
+    )
+    assert result.ledger_evidence is not None
+    assert result.ledger_evidence.intervals.terminal_exact_quantities == (
+        "0",
+        "0",
+        "0",
+    )
+    assert result.ledger_evidence.intervals.active_order_remainders == ()
     assert len(result.ledger_evidence.intervals.intervals) == 2
 
 

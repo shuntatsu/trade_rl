@@ -195,6 +195,7 @@ def test_portfolio_observation_transform_stays_opt_in_and_out_of_evaluation() ->
     facade = (PACKAGE / "strategies" / "rl" / "__init__.py").read_text(encoding="utf-8")
     assert "portfolio_transform" not in facade
     assert "PortfolioObservationTransform" not in facade
+    assert "PortfolioObservationRuntimeBinding" not in facade
     assert "PortfolioGymObservationWrapper" not in facade
 
 

@@ -59,6 +59,22 @@ a fresh reset succeeds. This opt-in preprocessing does not synthesize
 free/reserved cash, refit on evaluation rows, add a trainer, change legacy PPO
 defaults, or supply training or profit evidence.
 
+The exact-window wrapper remains the default. A separate
+`PortfolioObservationRuntimeBinding` can reuse the frozen transform on a
+forward window only when a typed training `BoundObjectiveClock` is supplied,
+the same Dataset and capital/risk/execution/profile context is present, and all
+non-temporal objective and clock fields match. Only evaluation endpoints and
+the finite economic horizon may differ; the runtime start index must be at or
+after the transform's exclusive training stop. This binding reuses the stored
+statistics and uses the runtime window for actor/order clock features. It does
+not change the transform-v1 payload or prove fit provenance, point-in-time
+feature availability, or learned-policy validity. A direct
+`transform_observation(..., runtime_binding=...)` call assumes its binding was
+already checked against the typed training bound and actual runtime environment
+with `create` or `validate_environment`; the Gym wrapper performs this check.
+Deserialization alone checks the binding schema and digest, not live runtime
+context.
+
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)

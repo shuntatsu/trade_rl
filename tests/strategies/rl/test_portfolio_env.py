@@ -733,6 +733,175 @@ def test_portfolio_transform_payload_digest_binds_fit_statistics() -> None:
         )
 
 
+def test_portfolio_transform_binds_a_forward_runtime_without_refitting() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioGymObservationWrapper,
+        PortfolioObservationRuntimeBinding,
+        fit_portfolio_observation_transform,
+    )
+
+    dataset = _dataset()
+    training_env = _env(dataset, start_index=0, stop_index=3)
+    transform = fit_portfolio_observation_transform(training_env)
+    original_transform_payload = transform.to_payload()
+    runtime_env = _env(
+        dataset,
+        start_index=3,
+        stop_index=5,
+        bound=_bound_clock(start_index=3, stop_index=5),
+    )
+
+    binding = PortfolioObservationRuntimeBinding.create(
+        transform, training_env.bound, runtime_env
+    )
+    restored_binding = PortfolioObservationRuntimeBinding.from_payload(
+        binding.to_payload(), expected_digest=binding.digest
+    )
+    wrapped = PortfolioGymObservationWrapper(
+        runtime_env,
+        transform,
+        runtime_binding=restored_binding,
+        training_bound=training_env.bound,
+    )
+    observation, _ = wrapped.reset()
+
+    assert observation["clock"].tolist() == pytest.approx([0.0, 1.0, 0.0])
+    assert wrapped.observation_space.contains(observation)
+    assert transform.to_payload() == original_transform_payload
+    assert transform.start_index == 0
+    assert transform.stop_index == 3
+    assert restored_binding.runtime_start_index == 3
+    assert restored_binding.runtime_stop_index == 5
+    terminal, _, terminated, truncated, _ = wrapped.step(
+        np.asarray([ACTION_LONG], dtype=np.int64)
+    )
+    assert terminated and not truncated
+    assert terminal["terminal"].tolist() == [1]
+    with pytest.raises(ValueError, match="context differs"):
+        PortfolioGymObservationWrapper(runtime_env, transform)
+
+
+def test_portfolio_runtime_binding_rejects_overlap_and_semantic_mismatch() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationRuntimeBinding,
+        fit_portfolio_observation_transform,
+    )
+
+    dataset = _dataset()
+    training_env = _env(dataset, start_index=0, stop_index=3)
+    transform = fit_portfolio_observation_transform(training_env)
+    overlapping_env = _env(
+        dataset,
+        start_index=2,
+        stop_index=5,
+        bound=_bound_clock(start_index=2, stop_index=5),
+    )
+    with pytest.raises(ValueError, match="must begin at or after the training stop"):
+        PortfolioObservationRuntimeBinding.create(
+            transform, training_env.bound, overlapping_env
+        )
+
+    runtime_bound = _bound_clock(start_index=3, stop_index=5)
+    changed_objective = replace(runtime_bound.objective, economics_digest="e" * 64)
+    changed_bound_env = _env(
+        dataset,
+        start_index=3,
+        stop_index=5,
+        bound=BoundObjectiveClock(changed_objective, runtime_bound.clock),
+    )
+    with pytest.raises(ValueError, match="objective semantics differ"):
+        PortfolioObservationRuntimeBinding.create(
+            transform, training_env.bound, changed_bound_env
+        )
+
+    changed_clock = replace(runtime_bound.clock, gae_lambda=0.9)
+    changed_clock_env = _env(
+        dataset,
+        start_index=3,
+        stop_index=5,
+        bound=BoundObjectiveClock(runtime_bound.objective, changed_clock),
+    )
+    with pytest.raises(ValueError, match="clock semantics differ"):
+        PortfolioObservationRuntimeBinding.create(
+            transform, training_env.bound, changed_clock_env
+        )
+
+    misdated_env = _env(
+        dataset,
+        start_index=3,
+        stop_index=5,
+        bound=runtime_bound,
+    )
+    misdated_objective = replace(
+        runtime_bound.objective,
+        evaluation_start=runtime_bound.objective.evaluation_start + timedelta(hours=1),
+        evaluation_stop_exclusive=runtime_bound.objective.evaluation_stop_exclusive
+        + timedelta(hours=1),
+    )
+    misdated_env.bound = BoundObjectiveClock(misdated_objective, runtime_bound.clock)
+    with pytest.raises(ValueError, match="runtime environment differs"):
+        PortfolioObservationRuntimeBinding.create(
+            transform, training_env.bound, misdated_env
+        )
+
+    with pytest.raises(ValueError, match="training bound differs"):
+        PortfolioObservationRuntimeBinding.create(
+            transform,
+            _bound_clock(start_index=0, stop_index=3, max_drawdown=0.1),
+            _env(
+                dataset,
+                start_index=3,
+                stop_index=5,
+                bound=runtime_bound,
+            ),
+        )
+
+
+def test_portfolio_runtime_binding_payload_is_strictly_context_bound() -> None:
+    from copy import deepcopy
+
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationRuntimeBinding,
+        fit_portfolio_observation_transform,
+    )
+
+    dataset = _dataset()
+    training_env = _env(dataset, start_index=0, stop_index=3)
+    transform = fit_portfolio_observation_transform(training_env)
+    runtime_env = _env(
+        dataset,
+        start_index=3,
+        stop_index=5,
+        bound=_bound_clock(start_index=3, stop_index=5),
+    )
+    binding = PortfolioObservationRuntimeBinding.create(
+        transform, training_env.bound, runtime_env
+    )
+
+    extra = deepcopy(binding.to_payload())
+    extra["unexpected"] = True
+    with pytest.raises(ValueError, match="missing or extra fields"):
+        PortfolioObservationRuntimeBinding.from_payload(
+            extra, expected_digest=binding.digest
+        )
+    with pytest.raises(ValueError, match="payload digest differs"):
+        PortfolioObservationRuntimeBinding.from_payload(
+            binding.to_payload(), expected_digest="0" * 64
+        )
+
+    moved = deepcopy(binding.to_payload())
+    moved["runtime_start_index"] = 4
+    moved["runtime_stop_index"] = 6
+    moved["runtime_agent_stop_index"] = 5
+    moved["runtime_start_ns"] += 3_600_000_000_000
+    moved_binding = PortfolioObservationRuntimeBinding.from_payload(
+        moved, expected_digest=content_digest(moved)
+    )
+    with pytest.raises(ValueError, match="runtime window differs"):
+        moved_binding.validate_environment(transform, training_env.bound, runtime_env)
+
+
 def test_portfolio_transform_preserves_terminal_padding_and_active_order_facts() -> (
     None
 ):

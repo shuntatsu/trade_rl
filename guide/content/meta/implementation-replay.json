@@ -21,6 +21,7 @@
     "PortfolioTargetProposal",
     "SharedPortfolioGymEnv",
     "PortfolioObservationTransform",
+    "PortfolioObservationRuntimeBinding",
     "PortfolioGymObservationWrapper"
   ],
   "source_sections": [
@@ -33,6 +34,11 @@
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
       "sha256": "ee1b4c635c408a8729c9d7cc2b3f2781e73fd21bc894d2aa42e483d25bdf4035"
+    },
+    {
+      "path": "docs/architecture/research-assurance.md",
+      "heading": "GYM-002 — forward observation-transform binding",
+      "sha256": "30fe903cb6e2778e583ab593f5ab664408193ae1afacbaa0226df9e19ea49d4e"
     }
   ],
   "code_references": [
@@ -145,7 +151,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "cca0d6fb875a921bc6263ea0c2c995c2d8c15888e3b6be261006aef166e031cd",
+      "source_sha256": "40f354c89c0413502516dabf7309ecbf4f73b1b95a23ca232b7b49f810fe69ed",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],
@@ -166,10 +172,22 @@
       ]
     },
     {
+      "id": "portfolio-observation-runtime-binding",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationRuntimeBinding",
+      "kind": "class",
+      "source_sha256": "bdd3ab4971e62ce98ffdfaa5a71cd77fc1a55b6a5f9e50b0ed96db02ed684098",
+      "label_ja": "学習統計を将来windowへbind",
+      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py"
+      ]
+    },
+    {
       "id": "portfolio-gym-observation-wrapper",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioGymObservationWrapper",
       "kind": "class",
-      "source_sha256": "53859fe624aeff09deaff29407a9b6ff1040c3533b1a9a211ef68d7e5a35ea2c",
+      "source_sha256": "843fc1e05a174b5387755bda59a5017457bcd497be3c7331fccd1b3b4708449f",
       "label_ja": "native Gym transitionを保つ変換wrapper",
       "description_ja": "観測だけを変換し、action・reward・termination・infoを保ちます。変換失敗後にnative stepが進んだ可能性があればresetまで再stepを拒否します。",
       "variables": [],

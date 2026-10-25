@@ -61,6 +61,34 @@ a fresh reset succeeds. This opt-in preprocessing does not synthesize
 free/reserved cash, refit on evaluation rows, add a trainer, change legacy PPO
 defaults, or supply training or profit evidence.
 
+`PortfolioEpisodeJournalWrapper` is a separate opt-in outer wrapper that writes
+submitted actions, rewards, native interval facts, and terminal facts before
+returning each transition. It records no observation, PPO log-probability, or
+policy version, and its declared context digest is caller-supplied metadata,
+not an independent attestation. A failed or interrupted episode is retained as
+incomplete; a failure after the native environment may have advanced poisons the
+wrapper so it cannot silently retry or reset. This is episode-fact retention,
+not a PPO trainer or a complete replayable policy record.
+
+It may wrap an observation-only Gym wrapper, validates the underlying
+`SharedPortfolioGymEnv`, and forwards the submitted action object unchanged.
+The journal also binds configured target weights in its manifest and records
+the source's requested target weights and effective HOLD symbols per step;
+these facts describe the proposal/hold path, not fills.
+
+`PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
+It records the actual policy forward inputs, sampled action codes, joint
+log-probability and critic value before environment stepping. Sample schema v2
+also stores the actual output tensor dtypes and full batch shapes plus the
+forward batch size; the recorded values remain unchanged. Attachment requires
+empty policy-local and global forward-hook layouts, then fails closed before
+writing a sample if those layouts or dispatch flags change. Caller-declared
+context, transform and policy-version values are labels, not Dataset,
+model-weight or checkpoint-lineage attestations. The recorder does not capture
+optimizer updates or establish a join with native financial events; it does not
+add a trainer, change legacy PPO defaults, or provide training or profit
+evidence.
+
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)

@@ -24,13 +24,15 @@
     "PortfolioTargetProposal",
     "ScriptedReplayAction",
     "ownership",
-    "dependency"
+    "dependency",
+    "PortfolioEpisodeJournalWrapper",
+    "PortfolioPolicySampleJournal"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "7ca8b5edf34ae94106235a162e6e71d57cd0c5d45b34743351d9bdb1d5169ebf"
+      "sha256": "58ad96d8454ca38dd43ed65dbee81e3460cbc3a48f3b67873b6dc61d7862bb77"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -40,7 +42,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "bcd878ed14132f203e10abcbe775dc9a27262a25df9dd1f7f066cfcedfae9f83"
+      "sha256": "5e38a8746242b4b97ac7bee5ae76545ec0b2495f65d252d497cca5a6253a6c88"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -331,6 +333,32 @@
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py"
+      ]
+    },
+    {
+      "id": "portfolio-episode-journal",
+      "symbol": "trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper",
+      "kind": "class",
+      "source_sha256": "74ca8a03826e90933ee8ef0345eb2f468d0a5b2b0d2f59f360f54e12185363be",
+      "label_ja": "Gym episode factsのopt-in event journal",
+      "description_ja": "SharedPortfolioGymEnvを内包するGymまたはobservation-only wrapperを受け、actionを変換せずsource action/reward/target/hold/native interval・terminal factsをevent単位で記録してからtransitionを返します。configured target weightはmanifestに記録しますが、target/hold factsはfillsではありません。observation、PPO log-probability、policy versionは保存せず、失敗・中断したepisodeを完了扱いしません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_episode_journal.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-policy-sample-journal",
+      "symbol": "trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal",
+      "kind": "class",
+      "source_sha256": "6cf02c75f8d3159011351162824dd126f6158efcc4344da55a9599ea80546438",
+      "label_ja": "SB3 policy forward sampleのopt-in記録",
+      "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。sample schema v2はforward batch sizeと出力tensorのdtype/shapeも記録します。attach時にlocal/global hook layoutが空であることを要求し、以降の変更はfail closedします。caller宣言のcontext/versionはattestationではなく、trainerやoptimizer update/native transitionとのjoinは提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_policy_sample_journal.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
       ]
     },
     {

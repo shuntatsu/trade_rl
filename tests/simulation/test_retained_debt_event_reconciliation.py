@@ -84,11 +84,9 @@ def _verify_terminal_order_chain(
         raise ValueError("terminal order archive still has active orders")
     declared = {intent.order_id: intent for intent in intents}
     terminal = {order.order_id: order for order in order_book.terminal_orders}
-    if (
-        len(declared) != len(intents)
-        or len(terminal) != len(intents)
-        or set(declared) != set(terminal)
-    ):
+    if len(declared) != len(intents) or len(terminal) != len(intents):
+        raise ValueError("terminal order roster mismatch")
+    if set(declared) != set(terminal):
         raise ValueError("terminal order roster mismatch")
 
     last_by_order: dict[str, OrderEvent] = {}
@@ -111,27 +109,27 @@ def _verify_terminal_order_chain(
         if previous is None:
             if event.event_type != "submitted":
                 raise ValueError("missing initial order submission")
-        elif (
-            previous.new_status != event.previous_status
-            or previous.new_status.terminal
-        ):
+        elif previous.new_status != event.previous_status:
+            raise ValueError("order status chain is broken")
+        elif previous.new_status.terminal:
             raise ValueError("order status chain is broken")
         last_by_order[event.order_id] = event
 
     for order_id, order in terminal.items():
         last = last_by_order.get(order_id)
-        if (
-            last is None
-            or last.new_status != order.status
-            or last.remaining_quantity != order.remaining_quantity
-            or last.reason != order.terminal_reason
-        ):
+        if last is None:
             raise ValueError("missing or mismatched terminal order event")
-        if order.terminal_reason == "economic_termination" and (
-            last.event_type != "cancelled"
-            or last.processing_index != terminal_index
-        ):
-            raise ValueError("economic termination cancellation mismatch")
+        if last.new_status != order.status:
+            raise ValueError("missing or mismatched terminal order event")
+        if last.remaining_quantity != order.remaining_quantity:
+            raise ValueError("missing or mismatched terminal order event")
+        if last.reason != order.terminal_reason:
+            raise ValueError("missing or mismatched terminal order event")
+        if order.terminal_reason == "economic_termination":
+            if last.event_type != "cancelled":
+                raise ValueError("economic termination cancellation mismatch")
+            if last.processing_index != terminal_index:
+                raise ValueError("economic termination cancellation mismatch")
 
 
 def test_short_gap_raw_debt_is_reconstructed_from_actual_fill_event() -> None:
@@ -229,14 +227,13 @@ def test_cross_symbol_debt_uses_only_first_realized_fill_in_event_ledger() -> No
         order_book=result.order_book,
         terminal_index=result.next_index,
     )
-    cancellations = [
-        event
-        for event in result.order_events
-        if event.event_type == "cancelled"
-        and event.reason == "economic_termination"
-    ]
-    assert len(cancellations) == 1
-    cancelled = cancellations[0]
+    cancelled = None
+    for event in result.order_events:
+        if event.event_type == "cancelled":
+            if event.reason == "economic_termination":
+                assert cancelled is None
+                cancelled = event
+    assert cancelled is not None
 
     missing = []
     for event in result.order_events:

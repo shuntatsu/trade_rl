@@ -228,8 +228,8 @@ def test_two_rollouts_bind_actual_policy_samples_to_native_episode_steps(
     assert result.optimizer_step_calls == 8
     assert result.epoch_count == 4
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["gamma"] == 1.0
-    assert manifest["normalize_reward"] is False
+    assert manifest["effective_config"]["gamma"] == 1.0
+    assert manifest["effective_config"]["normalize_reward"] is False
     assert manifest["reset_seed"] == 29
     assert manifest["ppo_seed"] == 31
     assert manifest["execution_seed"] == env.execution_cost.random_seed
@@ -273,7 +273,7 @@ def test_two_rollouts_bind_actual_policy_samples_to_native_episode_steps(
     terminal_joins = [record for record in joins if record["terminated"]]
     assert len(terminal_joins) == 1
     for joined in joins:
-        native_path = output / "native" / joined["native_event"]["path"]
+        native_path = output / joined["native_event"]["path"]
         sample_path = output / joined["actor_sample"]["path"]
         native_bytes = native_path.read_bytes()
         sample_bytes = sample_path.read_bytes()
@@ -403,6 +403,7 @@ def test_post_rollout_checkpoint_failure_keeps_last_actor_sample_reference(
     assert failure["joined_transition_count"] == 4
     assert failure["completed_rollouts"] == []
     assert failure["latest_actor_sample"]["sample_id"] == 4
+    assert failure["latest_actor_sample"]["rollout_index"] == 1
     assert failure["latest_native_event"] is not None
     assert not (output / "completion.json").exists()
     assert not (output / "rollouts" / "rollout-000002").exists()
@@ -411,8 +412,19 @@ def test_post_rollout_checkpoint_failure_keeps_last_actor_sample_reference(
     samples = _json_files(rollout / "policy-samples" / "samples")
     assert len(samples) == 4
     last = samples[-1]
-    assert failure["latest_actor_sample"]["relative_path"] == last["relative_path"]
-    assert failure["latest_actor_sample"]["sha256"] == last["sha256"]
+    assert failure["latest_actor_sample"]["sample_id"] == last["sample_id"]
+    sample_relative_path = f"samples/sample-{last['sample_id']:012d}.json"
+    assert failure["latest_actor_sample"]["relative_path"] == sample_relative_path
+    sample_path = (
+        output
+        / failure["latest_actor_sample"]["sample_directory"]
+        / failure["latest_actor_sample"]["relative_path"]
+    )
+    assert sample_path.is_file()
+    assert (
+        failure["latest_actor_sample"]["sha256"]
+        == hashlib.sha256(sample_path.read_bytes()).hexdigest()
+    )
     assert not (rollout / "rollout_completed.json").exists()
 
 

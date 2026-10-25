@@ -354,7 +354,7 @@ class _TrainingCoordinator:
         self.rollout_index = 0
         self.current_journal: PortfolioPolicySampleJournal | None = None
         self.current_rollout_root: Path | None = None
-        self.rollout_start_steps = 0
+        self.latest_actor_sample: dict[str, object] | None = None
         self.rollout_start_optimizer_calls = 0
         self.rollout_start_epochs = 0
         self.rollout_closed = False
@@ -418,16 +418,35 @@ class _TrainingCoordinator:
             raise
         self.current_journal = journal
         self.current_rollout_root = rollout_root
-        self.rollout_start_steps = int(model.num_timesteps)
         self.rollout_start_optimizer_calls = self.optimizer_counter.count
         self.rollout_start_epochs = int(model._n_updates)
         self.rollout_closed = False
+
+    def _capture_latest_actor_sample(
+        self, journal: PortfolioPolicySampleJournal
+    ) -> None:
+        sample = journal.latest_sample_reference
+        if sample is None:
+            return
+        rollout_root = self.current_rollout_root
+        if rollout_root is None:
+            raise RuntimeError("policy sample has no active rollout directory")
+        self.latest_actor_sample = {
+            "rollout_index": self.rollout_index,
+            "sample_directory": (rollout_root / "policy-samples")
+            .relative_to(self.output_root)
+            .as_posix(),
+            "sample_id": sample.sample_id,
+            "relative_path": sample.relative_path,
+            "sha256": sample.sha256,
+        }
 
     def end_rollout(self) -> None:
         journal = self.current_journal
         if journal is None or self.current_rollout_root is None:
             raise RuntimeError("rollout journal was not opened")
         try:
+            self._capture_latest_actor_sample(journal)
             self.join_wrapper.end_rollout(self.config.n_steps)
             if journal.sample_count != self.config.n_steps:
                 raise RuntimeError("rollout did not persist exactly n_steps samples")
@@ -441,7 +460,10 @@ class _TrainingCoordinator:
         self.current_journal = None
         self.join_wrapper.abort_rollout()
         if journal is not None:
-            journal.close()
+            try:
+                self._capture_latest_actor_sample(journal)
+            finally:
+                journal.close()
 
     def after_train(self, model: Any) -> None:
         if not self.rollout_closed or self.current_rollout_root is None:
@@ -786,17 +808,19 @@ def fit_shared_portfolio_ppo(
             ),
             "join_poisoned": None if join_wrapper is None else join_wrapper.is_poisoned,
         }
-        if coordinator is not None and coordinator.current_journal is not None:
-            latest_sample = coordinator.current_journal.latest_sample_reference
-            failure["latest_actor_sample"] = (
-                None
-                if latest_sample is None
-                else {
-                    "sample_id": latest_sample.sample_id,
-                    "relative_path": latest_sample.relative_path,
-                    "sha256": latest_sample.sha256,
-                }
-            )
+        if coordinator is not None:
+            if coordinator.current_journal is not None:
+                try:
+                    coordinator._capture_latest_actor_sample(
+                        coordinator.current_journal
+                    )
+                except BaseException as capture_error:
+                    error.add_note(
+                        "Latest actor sample reference could not be recorded: "
+                        f"{type(capture_error).__name__}: {capture_error}"
+                    )
+            if coordinator.latest_actor_sample is not None:
+                failure["latest_actor_sample"] = coordinator.latest_actor_sample
         if episode_journal is not None:
             latest_native = episode_journal.latest_step_reference
             failure["latest_native_event"] = (

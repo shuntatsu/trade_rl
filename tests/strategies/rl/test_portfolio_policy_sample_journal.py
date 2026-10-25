@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -14,7 +14,7 @@ from trade_rl.strategies.rl.portfolio_policy_sample_journal import (
 )
 
 
-def _sb3():
+def _sb3() -> Any:
     pytest.importorskip("torch")
     return pytest.importorskip("stable_baselines3")
 
@@ -64,7 +64,9 @@ class _TinyPortfolioEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         return self._observation(), 0.0, True, False, {}
 
 
-def _model(*, sample_root: Path | None = None, nvec: tuple[int, ...] = (4, 4)):
+def _model(
+    *, sample_root: Path | None = None, nvec: tuple[int, ...] = (4, 4)
+) -> tuple[Any, _TinyPortfolioEnv]:
     sb3 = _sb3()
     env = _TinyPortfolioEnv(sample_root=sample_root, nvec=nvec)
     model = sb3.PPO(
@@ -142,11 +144,27 @@ def test_hook_preserves_exact_forward_outputs_rng_and_input_tensor_metadata(
         actual = model.policy(observation)
     actual_rng = torch.random.get_rng_state().clone()
     journal.close()
+    event = _sample_events(root)[0]
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
 
+    assert event["schema"] == "portfolio_policy_sample_v2"
+    assert manifest["sample_schema"] == event["schema"]
+    assert event["forward_batch_size"] == 1
+    assert event["forward_output_metadata"]["actions"] == {
+        "dtype": str(actual[0].dtype).removeprefix("torch."),
+        "shape": list(actual[0].shape),
+    }
+    assert event["forward_output_metadata"]["value_prediction"] == {
+        "dtype": str(actual[1].dtype).removeprefix("torch."),
+        "shape": list(actual[1].shape),
+    }
+    assert event["forward_output_metadata"]["joint_log_probability"] == {
+        "dtype": str(actual[2].dtype).removeprefix("torch."),
+        "shape": list(actual[2].shape),
+    }
     for expected_tensor, actual_tensor in zip(expected, actual, strict=True):
         torch.testing.assert_close(expected_tensor, actual_tensor, rtol=0, atol=0)
     assert torch.equal(expected_rng, actual_rng)
-    event = _sample_events(root)[0]
     assert event["inputs"]["features"] == {
         "dtype": "float32",
         "shape": [2],
@@ -182,6 +200,25 @@ def test_batched_policy_forward_creates_one_record_per_environment_row(
     assert [event["sample_id"] for event in events] == [1, 2]
     assert [event["batch_index"] for event in events] == [0, 1]
     assert [event["raw_action_codes"] for event in events] == outputs[0].tolist()
+    assert [event["forward_batch_size"] for event in events] == [2, 2]
+    assert all(
+        event["forward_output_metadata"]
+        == {
+            "actions": {
+                "dtype": str(outputs[0].dtype).removeprefix("torch."),
+                "shape": list(outputs[0].shape),
+            },
+            "value_prediction": {
+                "dtype": str(outputs[1].dtype).removeprefix("torch."),
+                "shape": list(outputs[1].shape),
+            },
+            "joint_log_probability": {
+                "dtype": str(outputs[2].dtype).removeprefix("torch."),
+                "shape": list(outputs[2].shape),
+            },
+        }
+        for event in events
+    )
     assert [event["inputs"]["features"]["values"] for event in events] == [
         [0.25, -0.5],
         [0.75, 0.125],
@@ -313,14 +350,16 @@ def test_later_replacing_policy_hook_is_rejected_before_sample_write(
     root = tmp_path / "hook-order"
     journal = _journal(model, root)
 
-    def replace_sampled_actions(module: object, inputs: object, output: object):
-        actions, values, log_prob = output
+    def replace_sampled_actions(
+        module: object, inputs: object, output: object
+    ) -> object:
+        actions, values, log_prob = cast(tuple[Any, Any, Any], output)
         changed = actions.clone()
         changed[:, 0] = (changed[:, 0] + 1) % 4
         return changed, values, log_prob
 
     later_handle = model.policy.register_forward_hook(replace_sampled_actions)
-    with pytest.raises(RuntimeError, match="must remain the final forward hook"):
+    with pytest.raises(RuntimeError, match="forward-hook layout changed"):
         with torch.no_grad():
             model.policy(
                 {
@@ -333,6 +372,109 @@ def test_later_replacing_policy_hook_is_rejected_before_sample_write(
     assert journal.sample_count == 0
     assert not tuple((root / "samples").glob("sample-*.json"))
     later_handle.remove()
+    journal.close()
+
+
+@pytest.mark.parametrize("scope", ["policy", "global"])
+def test_preexisting_replacing_forward_hook_is_rejected_before_root_creation(
+    tmp_path: Path, scope: str
+) -> None:
+    torch = pytest.importorskip("torch")
+    model, _ = _model()
+
+    def replace_sampled_actions(
+        module: object, inputs: object, output: object
+    ) -> object:
+        if scope == "global" and module is not model.policy:
+            return None
+        actions, values, log_prob = cast(tuple[Any, Any, Any], output)
+        changed = actions.clone()
+        changed[:, 0] = (changed[:, 0] + 1) % 4
+        return changed, values, log_prob
+
+    if scope == "policy":
+        handle = model.policy.register_forward_hook(replace_sampled_actions)
+    else:
+        handle = torch.nn.modules.module.register_module_forward_hook(
+            replace_sampled_actions
+        )
+    root = tmp_path / f"preexisting-{scope}"
+    try:
+        with pytest.raises(RuntimeError, match="pre-existing forward hooks"):
+            _journal(model, root)
+        assert not root.exists()
+        if scope == "policy":
+            assert handle.id in model.policy._forward_hooks
+        else:
+            assert handle.id in torch.nn.modules.module._global_forward_hooks
+        # The rejected recorder leaves the caller's replacing hook in place.
+        with torch.no_grad():
+            model.policy(
+                {
+                    "features": torch.tensor([[0.25, -0.5]]),
+                    "mask": torch.tensor([[1, 0]], dtype=torch.int8),
+                }
+            )
+    finally:
+        handle.remove()
+
+
+def test_postattach_global_replacing_hook_poisons_before_sample_and_env_step(
+    tmp_path: Path,
+) -> None:
+    torch = pytest.importorskip("torch")
+    _sb3()
+    root = tmp_path / "global-hook-order"
+    model, env = _model(sample_root=root)
+    journal = _journal(model, root)
+
+    def replace_policy_output(module: object, inputs: object, output: object) -> object:
+        if module is not model.policy:
+            return None
+        actions, values, log_prob = cast(tuple[Any, Any, Any], output)
+        changed = actions.clone()
+        changed[:, 0] = (changed[:, 0] + 1) % 4
+        return changed, values, log_prob
+
+    handle = torch.nn.modules.module.register_module_forward_hook(replace_policy_output)
+    try:
+        with pytest.raises(RuntimeError, match="forward-hook layout changed"):
+            model.learn(total_timesteps=1)
+        assert env.step_calls == 0
+        assert env.sample_counts_at_step == []
+        assert journal.is_poisoned
+        assert journal.sample_count == 0
+        assert not tuple((root / "samples").glob("sample-*.json"))
+    finally:
+        handle.remove()
+        journal.close()
+
+
+def test_failed_postregistration_layout_validation_removes_only_owned_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model, _ = _model()
+    policy = model.policy
+    register = policy.register_forward_hook
+    intruder_handle = None
+
+    def register_then_add_intruder(hook: Any) -> Any:
+        nonlocal intruder_handle
+        owned_handle = register(hook)
+        intruder_handle = register(lambda module, inputs, output: None)
+        return owned_handle
+
+    monkeypatch.setattr(policy, "register_forward_hook", register_then_add_intruder)
+    root = tmp_path / "attachment-race"
+    with pytest.raises(RuntimeError, match="forward-hook layout changed"):
+        _journal(model, root)
+
+    assert intruder_handle is not None
+    assert tuple(policy._forward_hooks) == (intruder_handle.id,)
+    intruder_handle.remove()
+    monkeypatch.undo()
+
+    journal = _journal(model, tmp_path / "after-cleanup")
     journal.close()
 
 
@@ -362,14 +504,15 @@ def test_close_removes_only_owned_hook_and_duplicate_is_rejected(
     torch = pytest.importorskip("torch")
     model, _ = _model()
     calls: list[int] = []
-    other_handle = model.policy.register_forward_hook(
-        lambda module, inputs, output: calls.append(1)
-    )
     root = tmp_path / "journal"
     journal = _journal(model, root)
     with pytest.raises(ValueError, match="already attached"):
         _journal(model, tmp_path / "duplicate")
     assert not (tmp_path / "duplicate").exists()
+
+    other_handle = model.policy.register_forward_hook(
+        lambda module, inputs, output: calls.append(1)
+    )
 
     journal.close()
     with torch.no_grad():

@@ -14,7 +14,7 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
 
 PORTFOLIO_POLICY_SAMPLE_JOURNAL_SCHEMA = "portfolio_policy_sample_journal_v1"
-_POLICY_SAMPLE_SCHEMA = "portfolio_policy_sample_v1"
+_POLICY_SAMPLE_SCHEMA = "portfolio_policy_sample_v2"
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _ACTIVE_POLICIES: weakref.WeakKeyDictionary[object, weakref.ReferenceType[object]] = (
     weakref.WeakKeyDictionary()
@@ -203,18 +203,24 @@ class PortfolioPolicySampleJournal:
         self.policy_version_semantics = resolved_version_semantics
         self._torch = torch
         self._policy = policy
+        self._global_hook_module = torch.nn.modules.module
         self._observation_keys = observation_keys
         self._observation_shapes = shapes
         self._state = "open"
         self._sample_count = 0
         self._handle: Any | None = None
-        self._hook_layout_at_attach: tuple[tuple[int, int], ...] = ()
+        self._hook_callback: Any | None = None
+        self._hook_layout_at_attach: tuple[tuple[tuple[int, int], ...], ...] = ()
 
         with _ACTIVE_POLICIES_LOCK:
             existing_ref = _ACTIVE_POLICIES.get(policy)
             existing = None if existing_ref is None else existing_ref()
             if existing is not None:
                 raise ValueError("a policy sample journal is already attached")
+            if self._current_forward_hook_layout() != ((), (), (), (), ()):
+                raise RuntimeError(
+                    "pre-existing forward hooks (local or global) are unsupported"
+                )
             _ACTIVE_POLICIES[policy] = weakref.ref(self)
 
         try:
@@ -243,15 +249,30 @@ class PortfolioPolicySampleJournal:
             atomic_write_bytes(
                 self.root / "manifest.json", canonical_json_bytes(manifest)
             )
-            self._handle = policy.register_forward_hook(cast(Any, self._on_forward))
-            self._hook_layout_at_attach = self._current_forward_hook_layout()
-            if (
-                not self._hook_layout_at_attach
-                or self._hook_layout_at_attach[-1][0] != self._handle.id
-            ):
-                raise RuntimeError("policy journal hook must be the final forward hook")
-        except BaseException:
-            self._release_policy_registration()
+            self._hook_callback = cast(Any, self._on_forward)
+            self._handle = policy.register_forward_hook(self._hook_callback)
+            expected_layout = (
+                ((self._handle.id, id(self._hook_callback)),),
+                (),
+                (),
+                (),
+                (),
+            )
+            if self._current_forward_hook_layout() != expected_layout:
+                raise RuntimeError(
+                    "forward-hook layout changed during journal attachment"
+                )
+            self._hook_layout_at_attach = expected_layout
+        except BaseException as original_error:
+            cleanup_error: BaseException | None = None
+            try:
+                self._remove_owned_hook()
+            except BaseException as error:
+                cleanup_error = error
+            finally:
+                self._release_policy_registration()
+            if cleanup_error is not None:
+                raise original_error from cleanup_error
             raise
 
     @property
@@ -272,18 +293,60 @@ class PortfolioPolicySampleJournal:
             if registered_ref is not None and registered_ref() is self:
                 del _ACTIVE_POLICIES[self._policy]
 
-    def _current_forward_hook_layout(self) -> tuple[tuple[int, int], ...]:
-        hooks = getattr(self._policy, "_forward_hooks", None)
+    @staticmethod
+    def _hook_mapping_layout(
+        hooks: object, *, field: str
+    ) -> tuple[tuple[int, int], ...]:
         if not isinstance(hooks, Mapping):
-            raise RuntimeError("policy forward-hook layout is unavailable")
-        return tuple((hook_id, id(hook)) for hook_id, hook in hooks.items())
+            raise RuntimeError(f"{field} forward-hook layout is unavailable")
+        entries: list[tuple[int, int]] = []
+        for hook_id, hook in hooks.items():
+            if type(hook_id) is not int:
+                raise RuntimeError(f"{field} forward-hook identifiers are invalid")
+            entries.append((hook_id, id(hook)))
+        return tuple(entries)
+
+    def _current_forward_hook_layout(
+        self,
+    ) -> tuple[tuple[tuple[int, int], ...], ...]:
+        return (
+            self._hook_mapping_layout(
+                getattr(self._policy, "_forward_hooks", None),
+                field="policy hooks",
+            ),
+            self._hook_mapping_layout(
+                getattr(self._policy, "_forward_hooks_with_kwargs", None),
+                field="policy kwargs hooks",
+            ),
+            self._hook_mapping_layout(
+                getattr(self._policy, "_forward_hooks_always_called", None),
+                field="policy always-called hooks",
+            ),
+            self._hook_mapping_layout(
+                getattr(self._global_hook_module, "_global_forward_hooks", None),
+                field="global hooks",
+            ),
+            self._hook_mapping_layout(
+                getattr(
+                    self._global_hook_module,
+                    "_global_forward_hooks_always_called",
+                    None,
+                ),
+                field="global always-called hooks",
+            ),
+        )
 
     def _validate_forward_hook_layout(self) -> None:
         if self._current_forward_hook_layout() != self._hook_layout_at_attach:
             raise RuntimeError(
-                "policy forward-hook layout changed after journal attachment; "
-                "the journal must remain the final forward hook"
+                "policy or global forward-hook layout changed after journal attachment"
             )
+
+    def _remove_owned_hook(self) -> None:
+        handle = self._handle
+        if handle is not None:
+            handle.remove()
+            self._handle = None
 
     def _on_forward(self, module: Any, inputs: tuple[Any, ...], output: object) -> None:
         if self._state != "open":
@@ -402,6 +465,21 @@ class PortfolioPolicySampleJournal:
                 {
                     "schema": _POLICY_SAMPLE_SCHEMA,
                     "batch_index": batch_index,
+                    "forward_batch_size": batch_size,
+                    "forward_output_metadata": {
+                        "actions": {
+                            "dtype": action_dtype,
+                            "shape": list(action_shape),
+                        },
+                        "value_prediction": {
+                            "dtype": value_dtype,
+                            "shape": list(value_shape),
+                        },
+                        "joint_log_probability": {
+                            "dtype": log_prob_dtype,
+                            "shape": list(log_prob_shape),
+                        },
+                    },
                     "symbols": list(self.symbols),
                     "inputs": record_inputs,
                     "raw_action_codes": action_codes,
@@ -422,12 +500,9 @@ class PortfolioPolicySampleJournal:
     def close(self) -> None:
         if self._state == "closed":
             return
-        handle = self._handle
         try:
-            if handle is not None:
-                handle.remove()
+            self._remove_owned_hook()
         finally:
-            self._handle = None
             self._state = "closed"
             self._release_policy_registration()
 

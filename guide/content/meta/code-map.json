@@ -32,7 +32,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "6313635416bec3d811ee45e227c86e797a6a4169bfd5f11bbd959ce27efb99b0"
+      "sha256": "46491e5da3ea57356e532853fb7eed356954c5672823554290d1736f54420e7d"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -42,7 +42,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "098ec6dc179ba21d58c77bfa4260af4b93d1deeed4b6a22f43c55716d0d54595"
+      "sha256": "e898aa5984af7f7e9827e5883e86c06798e20ae80ba3bb2adb04930e9d5bdb32"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -316,9 +316,9 @@
       "id": "portfolio-policy-sample-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal",
       "kind": "class",
-      "source_sha256": "8580a82722ee4159b1c9e61cd60b8b002395624b84f6e88eda7468a738530084",
+      "source_sha256": "50c7d0dd1769b2814fcea1769ca6de306b51a5e1aa6918e4a205e5211938f6f7",
       "label_ja": "SB3 policy forward sampleのopt-in記録",
-      "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。hook layout変更はfail closedし、caller宣言のcontext/versionはattestationではありません。trainer、optimizer update、native transitionとのjoinは提供しません。",
+      "description_ja": "SB3 policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをforward hookで記録します。sample schema v2はforward batch sizeと出力tensorのdtype/shapeも記録します。attach時にlocal/global hook layoutが空であることを要求し、以降の変更はfail closedします。caller宣言のcontext/versionはattestationではなく、trainerやoptimizer update/native transitionとのjoinは提供しません。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_policy_sample_journal.py",

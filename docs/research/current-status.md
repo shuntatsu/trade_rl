@@ -58,13 +58,16 @@ these facts describe the proposal/hold path, not fills.
 
 `PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
 It records the actual policy forward inputs, sampled action codes, joint
-log-probability and critic value before environment stepping. It requires an
-unchanged policy hook layout after attachment and fails closed if that layout
-changes. Caller-declared context, transform and policy-version values are labels,
-not Dataset, model-weight or checkpoint-lineage attestations. The recorder does
-not capture optimizer updates or establish a join with native financial events;
-it does not add a trainer, change legacy PPO defaults, or provide training or
-profit evidence.
+log-probability and critic value before environment stepping. Sample schema v2
+also stores the actual output tensor dtypes and full batch shapes plus the
+forward batch size; the recorded values remain unchanged. Attachment requires
+empty policy-local and global forward-hook layouts, then fails closed before
+writing a sample if those layouts or dispatch flags change. Caller-declared
+context, transform and policy-version values are labels, not Dataset,
+model-weight or checkpoint-lineage attestations. The recorder does not capture
+optimizer updates or establish a join with native financial events; it does not
+add a trainer, change legacy PPO defaults, or provide training or profit
+evidence.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 

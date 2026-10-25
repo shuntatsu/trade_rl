@@ -57,18 +57,19 @@ def _reconstruct_fills(
         price = Decimal(str(event.execution_price))
         notional = quantity * price
         if notional == 0 or abs(notional) != Decimal(str(event.filled_notional)):
-            raise ValueError("recorded filled notional disagrees with quantity and price")
+            raise ValueError(
+                "recorded filled notional disagrees with quantity and price"
+            )
         fee = abs(notional) * fee_rate
         cash -= notional + fee
         quantities[event.symbol_index] += quantity
         total_fee += fee
         filled += 1
-    equity = cash + sum(
-        (quantity * mark for quantity, mark in zip(
-            quantities, terminal_marks, strict=True
-        )),
-        Decimal(0),
+    marked_values = (
+        quantity * mark
+        for quantity, mark in zip(quantities, terminal_marks, strict=True)
     )
+    equity = cash + sum(marked_values, Decimal(0))
     return equity, total_fee, tuple(quantities), filled
 
 
@@ -160,7 +161,9 @@ def test_cross_symbol_debt_uses_only_first_realized_fill_in_event_ledger() -> No
     assert result.order_book.active_orders == ()
 
 
-def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper() -> None:
+def test_independent_event_oracle_rejects_quantity_notional_or_identity_tamper() -> (
+    None
+):
     executor = MarketExecutor(market(), cost(), insolvency_valuation="retain_debt")
     entry = short_entry(executor)
     fills = tuple(

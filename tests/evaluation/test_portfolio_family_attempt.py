@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pytest
 
 from tests.evaluation.test_portfolio_family_result_artifact import _identity
@@ -536,6 +538,134 @@ def test_native_insolvency_is_retained_as_an_incomplete_attempt_row(
             expected_family=inconsistent["family"],
             identity=identity,
         )
+
+
+@pytest.mark.parametrize("annual_rate", (-0.05, 0.05))
+def test_signed_cash_carry_survives_four_family_attempt_round_trip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    annual_rate: float,
+) -> None:
+    from tests.evaluation.test_portfolio_family_comparison import (
+        _FixedPPOPolicy,
+        _prepared_inputs,
+    )
+    from trade_rl.evaluation.runs import (
+        portfolio_family_comparison as comparison_module,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        FourFamilyPortfolioAttemptContext,
+        load_four_family_portfolio_attempt,
+        run_four_family_portfolio_attempt,
+    )
+
+    inputs, _ = _prepared_inputs(
+        tmp_path, cash_rate=np.full((7,), annual_rate, dtype=np.float64)
+    )
+    monkeypatch.setattr(
+        comparison_module,
+        "load_portfolio_inference_bundle",
+        lambda *args, **kwargs: _FixedPPOPolicy(),
+    )
+    provenance = build_candidate_run_provenance(research_context_digest="c" * 64)
+    identity = replace(
+        _identity(),
+        expected_implementation_digest=provenance["implementation_digest"],
+        expected_runtime_environment_digest=provenance["runtime_environment_digest"],
+        expected_dataset_artifact_sha256=inputs["expected_dataset_artifact_sha256"],
+        expected_symbols=inputs["expected_symbols"],
+        ridge_artifact_sha256=inputs["expected_ridge_artifact_sha256"],
+        expected_ridge_binding=inputs["expected_ridge_binding"],
+        expected_bundle_sha256=inputs["expected_bundle_sha256"],
+        expected_manifest_sha256=inputs["expected_manifest_sha256"],
+        expected_completion_sha256=inputs["expected_completion_sha256"],
+        expected_training_context_sha256=inputs["expected_training_context_sha256"],
+        expected_checkpoint_sha256=inputs["expected_checkpoint_sha256"],
+        bound=inputs["bound"],
+        start_index=inputs["start_index"],
+        stop_index=inputs["stop_index"],
+        initial_capital=inputs["initial_capital"],
+        target_abs_weights=inputs["target_abs_weights"],
+        trend_config=inputs["trend_config"],
+        ridge_entry_threshold=inputs["ridge_entry_threshold"],
+        ridge_exit_threshold=inputs["ridge_exit_threshold"],
+        ridge_one_way_switch_cost=inputs["ridge_one_way_switch_cost"],
+        execution_cost=inputs["execution_cost"],
+        risk_config=inputs["risk_config"],
+        market_order_profile=inputs["market_order_profile"],
+    )
+    context = FourFamilyPortfolioAttemptContext(
+        identity=identity,
+        dataset_artifact_root=inputs["dataset_artifact_root"],
+        ridge_artifact_root=inputs["ridge_artifact_root"],
+        bundle_root=inputs["bundle_root"],
+    )
+
+    attempt = run_four_family_portfolio_attempt(
+        attempt_root=tmp_path / "signed-cash-attempt", context=context
+    )
+    load_four_family_portfolio_attempt(
+        attempt.root,
+        expected_identity=identity,
+        expected_result_digest=attempt.result_artifact_digest,
+    )
+    cash = json.loads(
+        (attempt.root / "families" / "cash" / "record.json").read_text("utf-8")
+    )
+    ledger = cash["ledger"]
+    intervals = ledger["intervals"]
+    returns = cash["returns"]["values"]
+
+    assert cash["window_complete"] is True
+    assert cash["terminal_flat"] is True
+    assert cash["no_active_orders"] is True
+    assert cash["actual_interval_count"] == cash["expected_interval_count"]
+    assert cash["book"]["fill_count"] == 0
+    assert cash["book"]["total_cost"] == 0.0
+    assert cash["book"]["turnover_total"] == 0.0
+    assert ledger["active_order_remainders"] == []
+    assert ledger["terminal_exact_quantities"] == ["0", "0"]
+    assert ledger["final_total_cost"] == 0.0
+    assert ledger["final_funding_pnl"] == 0.0
+    assert ledger["final_borrow_cost"] == 0.0
+    assert len(intervals) == len(returns) == cash["actual_interval_count"]
+
+    for interval, realized_return in zip(intervals, returns, strict=True):
+        interest = interval["interval_cash_interest"]
+        assert interest * annual_rate > 0.0
+        assert interval["interval_cost"] == 0.0
+        assert interval["interval_funding"] == 0.0
+        assert interval["interval_borrow_cost"] == 0.0
+        assert interval["cash_before"] == pytest.approx(
+            interval["portfolio_value_before"], rel=0.0, abs=1e-10
+        )
+        assert interval["cash_after"] == pytest.approx(
+            interval["portfolio_value_after"], rel=0.0, abs=1e-10
+        )
+        assert interval["cash_after"] - interval["cash_before"] == pytest.approx(
+            interest, rel=0.0, abs=1e-10
+        )
+        assert realized_return == pytest.approx(
+            interval["interval_net_return"], rel=0.0, abs=1e-12
+        )
+        assert realized_return == pytest.approx(
+            interest / interval["portfolio_value_before"],
+            rel=0.0,
+            abs=1e-12,
+        )
+
+    total_interest = math.fsum(
+        interval["interval_cash_interest"] for interval in intervals
+    )
+    cash_change = ledger["final_cash"] - identity.initial_capital
+    assert total_interest == pytest.approx(cash_change, rel=0.0, abs=1e-10)
+    assert ledger["final_portfolio_value"] == pytest.approx(
+        ledger["final_cash"], rel=0.0, abs=1e-10
+    )
+    assert cash_change * annual_rate > 0.0
+    assert math.prod(1.0 + value for value in returns) - 1.0 == pytest.approx(
+        cash_change / identity.initial_capital, rel=0.0, abs=1e-12
+    )
 
 
 @pytest.mark.parametrize("missing_or_extra", ["missing", "extra"])

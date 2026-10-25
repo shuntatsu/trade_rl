@@ -31,7 +31,9 @@ _START = datetime(2026, 1, 1, tzinfo=UTC)
 _FAMILY_ORDER = ("cash", "fixed_trend", "ridge_forecast", "joint_ppo")
 
 
-def _dataset(*, force_insolvency: bool = False) -> MarketDataset:
+def _dataset(
+    *, force_insolvency: bool = False, cash_rate: np.ndarray | None = None
+) -> MarketDataset:
     n_bars = 7
     n_symbols = 2
     close = np.full((n_bars, n_symbols), 100.0, dtype=np.float64)
@@ -75,13 +77,17 @@ def _dataset(*, force_insolvency: bool = False) -> MarketDataset:
         taker_fee_rate=zeros.copy(),
         spread_rate=zeros.copy(),
         contract_multipliers=np.ones(n_symbols, dtype=np.float64),
+        cash_rate=cash_rate,
     ).with_content_identity({"fixture": "four-family-portfolio-replay"})
 
 
 def _prepared_inputs(
-    tmp_path: Path, *, force_insolvency: bool = False
+    tmp_path: Path,
+    *,
+    force_insolvency: bool = False,
+    cash_rate: np.ndarray | None = None,
 ) -> tuple[dict[str, Any], MarketDataset]:
-    dataset = _dataset(force_insolvency=force_insolvency)
+    dataset = _dataset(force_insolvency=force_insolvency, cash_rate=cash_rate)
     dataset_artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
     model = RidgeForecastModel(
         feature_indices=(0,),

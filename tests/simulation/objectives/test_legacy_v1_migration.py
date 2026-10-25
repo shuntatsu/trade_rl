@@ -56,7 +56,10 @@ def _clock(horizon: int = ONE_DAY, *, decision: int = 3600) -> FinancialClockCon
 def _old_v1_digest(payload: dict[str, object]) -> str:
     """Independent canonical-JSON hashing, not the production digest helper."""
     encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -72,8 +75,7 @@ def test_old_v1_declaration_payloads_reconstruct_canonical_bytes_and_digests() -
         "objective_id": "expected_terminal_net_profit_v1",
         "tax_treatment": "pretax",
         "infrastructure_cost_treatment": "reported_separately",
-        "external_cash_flow_convention":
-            "net_deposits_positive_withdrawals_negative",
+        "external_cash_flow_convention": "net_deposits_positive_withdrawals_negative",
         "capital": {
             "mode": "independent_symbol",
             "currency": "USDT",

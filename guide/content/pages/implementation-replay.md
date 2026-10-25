@@ -159,6 +159,10 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 このraw Dictを学習前に整えるopt-in経路が`PortfolioObservationTransform`です。payloadはversioned field layoutとDataset・symbol/feature order・objective/clock・risk/execution・fit scopeをbindします。local featureは既存PPO normalizerを使い、global featureと銘柄別geometric mark referenceは`[start_index, agent_stop_index)`のactor-fit rowsだけから求めます。availability maskを残し、account・active-order notionalはfixed initial capital基準、maintenance-margin rateはdimensionlessのまま保ち、UTC nanosecondsはfloat変換前に整数差分を取ります。serialized payloadの読込には別途保持したtrusted expected digestが必要です。これはmetadata改変を検出しますが、署名やfit実施の証明ではありません。raw validationはrisk flagと注文indexの型も検査します。`PortfolioGymObservationWrapper`はnative reward・termination・infoを変えず、terminal時は固定paddingを返します。raw stepの後に変換が失敗した場合は、そのtransitionを取り消したと主張せず、wrapperを記録付きでpoisonし、reset成功まで次のstepを拒否します。このtransformはevaluation rowsへの再fitやfree/reserved cashの合成をせず、trainer・学習結果・収益性の証拠を追加しません。
 
+`PortfolioEpisodeJournalWrapper`はこのGym環境またはobservation-only Gym wrapperの外側に置くopt-in event journalです。underlying環境が`SharedPortfolioGymEnv`であることを検証し、action objectを変換せずに渡します。manifestにはconfigured target weightsを記録し、各stepにはsourceのrequested target weightsとeffective HOLD symbolsを記録します。これらはfillsではありません。observation、policy log-probability、policy versionは保存せず、PPO trainerも追加しません。
+
+`PortfolioPolicySampleJournal`は別のopt-in SB3 forward-hook recorderです。SB3がenvironmentを進める前に、policyへ実際に渡ったtensor入力、sampled action code、joint log-probability、critic valueをbatch rowごとのcanonical JSONへ保存します。sample schema v2ではforward batch sizeと、action/value/log-probability出力tensorの実dtype・batch全体shapeも保存しますが、既存のaction・scalar valuesは変換しません。attach時はpolicy-local/globalのforward hookがない状態を要求し、その後は各hook layoutとdispatch flagを固定します。後から追加・削除・置換されたhookを検出したら、次のsampleを書き込む前にfail closedします。constructorが登録後の検証に失敗した場合は、自分のhookだけを除去しpolicy予約を解放します。context、transform、policy versionの文字列はcaller宣言のlabelで、Dataset・model weights・checkpoint lineageを証明しません。optimizer updateやnative financial eventとのjoinは記録せず、legacy PPO defaultsやpolicy serializationも変更しません。PyTorch/SB3はrecorder構築時だけimportします。
+
 ## 不変条件
 
 - 判断前に未来バーを読まない。

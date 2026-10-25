@@ -426,6 +426,20 @@ Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winne
 
 ## Private development study boundary
 
+`evaluation/experiments/four_family_input_manifest.py` owns only a typed,
+post-Dataset-freeze declaration for the fixed cash, fixed-trend, Ridge, and
+joint-PPO roster. It reuses the existing four-family attempt identity and
+records one base selection attempt plus one base evaluation attempt, with a
+separate training window and fixed metadata caps. Its PPO declaration also
+records the training-side weights, execution-cost, risk, and optional profile
+values, and requires both attempt identities to match them. The transform field
+is the canonical `PortfolioObservationTransform.digest`, not a file hash.
+`verify_bytes` compares canonical serialized bytes against a separately retained
+typed declaration; the module does not reconstruct untrusted plans, load
+Dataset/model artifacts, verify eligibility, fit, replay, select, or authorize
+execution. It is private and does not expand the experiments facade or the
+canonical `StudyPlan` lifecycle.
+
 `evaluation/ppo_feature_study.py` owns a write-once, development-only paired PPO
 feature ablation. It reuses the frozen Dataset, existing PPO fitter, shared-cash
 directional replay, and ledger evidence rather than adding a second execution or

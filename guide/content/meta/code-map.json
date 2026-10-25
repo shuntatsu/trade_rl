@@ -42,7 +42,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "5f03fda2dd02bb32bc00d9a718bf6c870202570c2a765629aea4c2c739b29bda"
+      "sha256": "431171bef44ff934afdaa5f6e0943eed063959af2af0edd5efa1a2b5855d4015"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -52,7 +52,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "5f29d1c17c5a2b685f6c944072ef1e7b7b21944eba2375aa1765dbf4c16c6092"
+      "sha256": "a258b46cf759308fbc6f25a4dc0f8745f3815e64857f8135a4a37ea7303deff6"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -313,7 +313,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "40f354c89c0413502516dabf7309ecbf4f73b1b95a23ca232b7b49f810fe69ed",
+      "source_sha256": "70e6c9f75f1a5af9e90652c4fae556f9e4ac25af5b145bdd6ffd335a5549b861",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],

@@ -5,7 +5,7 @@ import os
 import shutil
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -399,6 +399,47 @@ def test_family_payload_rejects_diagnostic_termination_reason_mismatch(
 
     with pytest.raises(ValueError, match="diagnostic termination reasons differ"):
         _validate_family_payload(row, expected_family="cash", identity=identity)
+
+
+@pytest.mark.parametrize(
+    ("corruption", "message"),
+    [
+        ("missing_prefix", "form a prefix from the requested replay index"),
+        ("multi_bar_interval", "must advance exactly one native bar"),
+        ("interior_termination", "only the final native interval may terminate"),
+        ("final_reason_mismatch", "final native interval termination differs"),
+    ],
+)
+def test_ledger_rejects_non_native_interval_prefix_and_termination(
+    actual_attempt_case: dict[str, Any], corruption: str, message: str
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _family_payload,
+        _validate_ledger_shape,
+    )
+
+    outcome = actual_attempt_case["observed"][0]
+    identity = actual_attempt_case["identity"]
+    family = _family_payload(outcome)
+    ledger = cast(dict[str, object], family["ledger"])
+    intervals = cast(list[object], ledger["intervals"])
+    first = cast(dict[str, object], intervals[0])
+
+    if corruption == "missing_prefix":
+        first["start_index"] = identity.start_index + 1
+        first["next_index"] = identity.start_index + 2
+        intervals[:] = intervals[:1]
+    elif corruption == "multi_bar_interval":
+        first["next_index"] = identity.start_index + 2
+        intervals[:] = intervals[:1]
+    elif corruption == "interior_termination":
+        ledger["termination_reason"] = "insolvency"
+        first["termination_reason"] = "insolvency"
+    else:
+        ledger["termination_reason"] = "insolvency"
+
+    with pytest.raises(ValueError, match=message):
+        _validate_ledger_shape(ledger, identity=identity)
 
 
 def test_native_insolvency_is_retained_as_an_incomplete_attempt_row(

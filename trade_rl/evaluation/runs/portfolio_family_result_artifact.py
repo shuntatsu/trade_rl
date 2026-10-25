@@ -451,7 +451,6 @@ def _validate_ledger_shape(
         "final_turnover_total",
     ):
         _require_number(ledger[name], f"ledger.{name}")
-    previous_next: int | None = None
     for offset, interval_value in enumerate(intervals):
         interval = _require_object(
             interval_value,
@@ -493,9 +492,12 @@ def _validate_ledger_shape(
         )
         if not identity.start_index <= start < next_index <= identity.stop_index:
             raise ValueError("native interval falls outside the fixed comparison range")
-        if previous_next is not None and start != previous_next:
-            raise ValueError("native intervals are not contiguous")
-        previous_next = next_index
+        if start != identity.start_index + offset:
+            raise ValueError(
+                "native intervals must form a prefix from the requested replay index"
+            )
+        if next_index != start + 1:
+            raise ValueError("native interval must advance exactly one native bar")
         for name in (
             "borrow_cost_after",
             "borrow_cost_before",
@@ -529,10 +531,16 @@ def _validate_ledger_shape(
             events = _require_array(interval[name], f"interval[{offset}].{name}")
             if any(not isinstance(item, dict) for item in events):
                 raise ValueError(f"interval[{offset}].{name} entries must be objects")
-        if interval["termination_reason"] is not None and not isinstance(
-            interval["termination_reason"], str
-        ):
+        interval_reason = interval["termination_reason"]
+        if interval_reason is not None and not isinstance(interval_reason, str):
             raise ValueError("interval termination_reason must be string or null")
+        if offset < len(intervals) - 1 and interval_reason is not None:
+            raise ValueError("only the final native interval may terminate")
+        if (
+            offset == len(intervals) - 1
+            and interval_reason != ledger["termination_reason"]
+        ):
+            raise ValueError("final native interval termination differs from ledger")
     for offset, decision_value in enumerate(decisions):
         decision = _require_object(
             decision_value,

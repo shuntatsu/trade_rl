@@ -106,6 +106,26 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+`strategies/portfolio_adapter.py` は、exact built-in `ConstantIntentStrategy`、
+`TrendIntentStrategy`、`RidgeForecastStrategy` だけを、固定symbol/feature rosterと
+有限な`(0, 1]`範囲の明示per-symbol intent budgetを持つnumeric `PortfolioPolicy` adapterへ
+接続するopt-in pathである。各snapshotの`exact_quantities`から実filled sideを導き、
+current weight / quantity、current rowとbudgetを既存`StrategyObservation`へ渡して、
+SHORT / FLAT / LONGを`-budget / 0 / +budget`へ写す。cash armには固定rosterの明示zero-target
+policyを使える。全snapshotとroster/window contextはstrategy callback前に検証し、
+callbackまたはoutput失敗がsymbol走査の途中で起きたadapterはpoisonされ、後続proposalを
+返さない。factoryはadapter内でdistinct instanceを返す必要があり、比較orchestratorは各armの
+ためにfresh instanceを構築する。このadapterはarm間の共有を検出しない。strategy factoryは
+caller codeでありprovenance/sandboxではない。
+
+このadapterはlegacy replayのcached target、minimum-hold、pending-aware intent、
+exact-quantity HOLDを再現せず、任意の`SingleSymbolStrategy`やsubclassにも対応しない。
+それらのsemanticsが必要ならdirect `PortfolioPolicy`を実装する。native sessionは同じ
+BookState/MarketExecutorでrisk、order reconciliation、fill、cost、accountingと終端処理を
+引き続き行う。Ridgeの`one_way_switch_cost`はintent選択のproxyであり、ledger feeを変更しない。
+このstrategy wrapperはjoint PPO learner、training parity、Dataset/profile/fit provenance、
+経済的比較やprofitability evidenceを作らない。
+
 Canonical replayは各`StrategyObservation`へoptionalな`intent_gross_budget`と`same_intent_target_weight`を渡す。後者はbudgetがある場合だけ有効で、cached desired quantityを現在のmark/equityで表したweightである。`one_way_switch_cost`を設定したRidge / LightGBM adapterは、budgetがある場合に`CostAwareForecastIntentController.decide_for_position`を呼び、signed filled quantity（quantityが`None`ならcurrent weight）の符号からactual sideを求める。candidateは`[actual side, actual sideからのbaseline hysteresis proposal, FLAT]`の重複を除いた順序で比べる。candidateのtarget exposure `a`は通常`intent * budget`だが、candidateがlogical `current_intent`と一致しhintがある場合はcached weightを使う。従ってsame-intent holdは価格変動後の旧targetへ不要な再約定を要求せず、partial fillやpending residualは`current_weight`からcached targetまでのturnoverとして残る。direct callerも同じmethodを使えるが、返すのは`PositionIntent`だけで、fillや会計は行わない。
 
 各target exposure `a`のutilityは`U(a) = a*expm1(f) - c*abs(a - w)`で、`f`はlog forecast、`w`はactual weight、`c`はone-way costである。選択はutilityが厳密に高い場合だけ置き換えるため、tieは先のcandidateを維持する。minimum-hold中およびunlock decisionではhintを渡さず、既存constraintがquantity holdとnominal target resetを制御する。pairwise比較はtarget間のturnover傾斜をboundedな相対値として求め、`log1p`と比較する。`1 + c*k`がfloat精度で0へ潰れる境界だけexact binary-rational fallbackを使い、正のgapを保持する。相対値は比較のためだけに使い、actual weightやcached targetをclipしない。任意の部分数量を連続最適化するものではなく、選択後には通常のhard-risk projectionとexecutionが適用される。`intent_gross_budget=None`の直接callerは従来のintent-based controller経路を保つ。

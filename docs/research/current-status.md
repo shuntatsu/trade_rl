@@ -24,10 +24,22 @@ not read a ledger, connect a reward to PPO, change its legacy defaults, or
 produce training/replay evidence. The M34 screen classification and every
 existing economic criterion remain unchanged.
 
-The shared portfolio observation also carries source pending-order price
-facts for a later joint actor. This remains a partial observation: legacy
-snapshots may omit all price fields, and it does not add free/reserved cash,
-Gym state, joint PPO training, or profit evidence.
+`SharedPortfolioGymEnv` is now an opt-in joint Gym adapter over the same
+strategy-owned snapshot builder and simulation-owned `SharedPortfolioSession`.
+It presents one fixed-shape action vector per native decision and advances the
+existing shared risk, execution, accounting, and reserved terminal-settlement
+path. Its Dict observation remains partial: legacy pending-order snapshots may
+omit all price context, and the adapter does not synthesize free/reserved cash.
+`objective_endpoint_valid` means only that the run reached a settled, flat,
+order-free, non-insolvent endpoint without a termination reason; it does not
+certify every objective, risk, digest, or study-admission condition. The actual
+maximum drawdown remains visible and can exceed the configured stop after a
+price gap. Existing native insolvency handling floors terminal cash/equity at
+zero, so this adapter adds no reward clipping but also does not establish
+uncapped debt-loss semantics below -100% of fixed initial capital. Such losses
+and invalid endpoints are retained rather than filtered. This adapter does
+not add a trainer, change legacy PPO defaults, or provide training or profit
+evidence.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 

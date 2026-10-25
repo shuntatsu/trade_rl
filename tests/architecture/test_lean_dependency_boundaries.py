@@ -172,6 +172,19 @@ def test_rl_does_not_depend_on_forecast_family() -> None:
     )
 
 
+def test_portfolio_gym_is_an_opt_in_adapter_over_existing_owners() -> None:
+    path = PACKAGE / "strategies" / "rl" / "portfolio_env.py"
+    imports = collect_trade_rl_imports(path)
+    assert "trade_rl.strategies.portfolio_observation" in imports
+    assert "trade_rl.simulation.stateful.portfolio_session" in imports
+    assert "trade_rl.simulation.objectives.contract" in imports
+    assert not any(within_module(name, "trade_rl.evaluation") for name in imports)
+
+    facade = (PACKAGE / "strategies" / "rl" / "__init__.py").read_text(encoding="utf-8")
+    assert "portfolio_env" not in facade
+    assert "SharedPortfolioGymEnv" not in facade
+
+
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:
     forbidden = ("trade_rl.strategies", "trade_rl.evaluation")
     assert _offenders(PACKAGE / "risk", forbidden) == []

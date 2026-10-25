@@ -162,6 +162,20 @@ def test_portfolio_policy_contract_is_detached_from_runtime_owners() -> None:
     )
 
 
+def test_single_symbol_portfolio_adapter_stays_in_the_strategy_layer() -> None:
+    path = PACKAGE / "strategies" / "portfolio_adapter.py"
+    assert path.is_file()
+    imports = collect_trade_rl_imports(path)
+    forbidden = (
+        "trade_rl.risk",
+        "trade_rl.simulation",
+        "trade_rl.evaluation",
+    )
+    assert not any(
+        within_module(imported, prefix) for imported in imports for prefix in forbidden
+    )
+
+
 def test_rl_does_not_depend_on_forecast_family() -> None:
     assert (
         _offenders(

@@ -285,6 +285,10 @@ journal write also fails, the original exception remains primary and the
 secondary write error is attached as an exception note. This local write-once
 boundary is not a global retry budget and adds no fit, winner selection,
 research approval, or profitability evidence.
+If the comparator raises inside a family before its completion callback, that
+callback does not expose the in-flight family's partial native ledger; the
+failure record therefore contains only rows delivered by earlier callbacks.
+It does not infer a zero count for the unfinished family.
 
 `strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
 Gym Dict. Its versioned payload binds the raw/transformed layouts and

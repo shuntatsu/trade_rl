@@ -5,8 +5,9 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, cast
+from typing import Mapping
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_rename_directory, atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -23,6 +24,7 @@ from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
     _family_payload,
     _require_object,
     _strict_json,
+    _validate_family_payload,
     four_family_portfolio_attempt_identity_digest,
     four_family_portfolio_attempt_identity_payload,
     load_four_family_portfolio_result_artifact,
@@ -210,6 +212,9 @@ def run_four_family_portfolio_attempt(
                     "comparison family callback violated fixed family order"
                 )
             row = _family_payload(outcome)
+            row = _validate_family_payload(
+                row, expected_family=expected_family, identity=identity
+            )
             _publish_record(root / "families" / expected_family / "record.json", row)
             completed_families.append(expected_family)
             completed_outcomes.append(outcome)
@@ -305,7 +310,11 @@ def run_four_family_portfolio_attempt(
         )
         complete_written = True
         phase = "strict_attempt_reload"
-        load_four_family_portfolio_attempt(root, expected_identity=identity)
+        load_four_family_portfolio_attempt(
+            root,
+            expected_identity=identity,
+            expected_result_digest=result_digest,
+        )
         return PublishedFourFamilyPortfolioAttempt(root, result_digest)
     except BaseException as error:
         failure = {
@@ -332,8 +341,10 @@ def load_four_family_portfolio_attempt(
     attempt_root: str | Path,
     *,
     expected_identity: FourFamilyPortfolioAttemptIdentity,
+    expected_result_digest: str,
 ) -> LoadedFourFamilyPortfolioAttempt:
     """Load only a complete, internally consistent, nonfailed attempt."""
+    require_sha256(expected_result_digest, field="expected_result_digest")
     root = _absolute_root(attempt_root)
     if root.is_symlink() or not root.is_dir():
         raise ValueError("attempt root must be a regular directory")
@@ -363,9 +374,11 @@ def load_four_family_portfolio_attempt(
         or complete["expected_identity_digest"] != identity_digest
     ):
         raise ValueError("completion record identity differs from expected attempt")
+    if complete["result_digest"] != expected_result_digest:
+        raise ValueError("completion result digest differs from expected result digest")
     result = load_four_family_portfolio_result_artifact(
         root,
-        expected_digest=cast(str, complete["result_digest"]),
+        expected_digest=expected_result_digest,
         expected_identity=expected_identity,
     )
     if (

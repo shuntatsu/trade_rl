@@ -110,6 +110,8 @@ EVALUATION_EXPORTS = {
 
 
 def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
+    from inspect import Parameter, signature
+
     import trade_rl.evaluation.runs as facade
     from trade_rl.evaluation.runs import (
         artifact,
@@ -159,6 +161,11 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
         facade.load_four_family_portfolio_attempt
         is portfolio_family_attempt.load_four_family_portfolio_attempt
     )
+    result_digest = signature(facade.load_four_family_portfolio_attempt).parameters[
+        "expected_result_digest"
+    ]
+    assert result_digest.kind is Parameter.KEYWORD_ONLY
+    assert result_digest.default is Parameter.empty
     assert (
         facade.RidgeArtifactComparison
         is ridge_artifact_comparison.RidgeArtifactComparison

@@ -52,7 +52,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "c28f58fadbbff5fe0f73ff0a3de08b5bc99e85f9580cbc15925128d0d6090bf3"
+      "sha256": "5f29d1c17c5a2b685f6c944072ef1e7b7b21944eba2375aa1765dbf4c16c6092"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -553,7 +553,7 @@
       "id": "four-family-attempt-run",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_attempt.run_four_family_portfolio_attempt",
       "kind": "function",
-      "source_sha256": "59afdf4e5a930b6545371423a004a8bada4854ab6043b3ee7d58b82eb682a94a",
+      "source_sha256": "7fd700d20969bbcabf2d4d22df9bb99f3fab51a05a826a4c50d20e00ed3f744f",
       "label_ja": "固定4方式attemptを予約して実行",
       "description_ja": "one-shot rootを予約し、expected provenanceを比較前に照合します。各native outcomeを次arm前に保存し、結果をstrict reloadしてから完了を記録します。fitや研究結果は作りません。",
       "variables": [
@@ -577,7 +577,7 @@
       "id": "four-family-attempt-load",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_attempt.load_four_family_portfolio_attempt",
       "kind": "function",
-      "source_sha256": "ecc7ba4647f6656ae9276d39b6c1b9797701456d43b96adfbaa1c54339073dc6",
+      "source_sha256": "4cc9cd4b9dfcdf05e8448e738b3ecce4e2dea31f6ea76810ce64ad94526f269b",
       "label_ja": "完了attemptをstrict reload",
       "description_ja": "failure markerのないcomplete attemptだけを読み、external identity、全family rows、native ledger、provenance、completion recordを照合します。",
       "variables": [],

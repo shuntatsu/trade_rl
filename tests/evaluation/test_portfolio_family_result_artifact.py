@@ -201,3 +201,18 @@ def test_strict_result_loader_does_not_require_completion_marker(
             expected_digest="d" * 64,
             expected_identity=_identity(),
         )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"field":1,"field":2}',
+        b'{"field": 1}',
+    ],
+    ids=("duplicate-key", "noncanonical-spacing"),
+)
+def test_strict_json_rejects_duplicate_keys_and_noncanonical_bytes(raw: bytes) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import _strict_json
+
+    with pytest.raises(ValueError, match="duplicate JSON key|not canonical JSON"):
+        _strict_json(raw, field="synthetic record")

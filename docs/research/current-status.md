@@ -169,6 +169,10 @@ is writable, it records the phase and rows from earlier completed families; if
 the journal write itself fails, the original exception remains primary. The wrapper has not been used to
 produce a new financial run; it does not change the historical M34 screen or
 authorize a fit, winner selection, unused-period evaluation, or live action.
+The public loader also requires an externally supplied expected result digest.
+If the native comparator raises within a family before its completion callback,
+the wrapper cannot read that in-flight family's partial ledger from the public
+API; it retains earlier completed rows and does not infer a zero count.
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 

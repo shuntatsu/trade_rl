@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -65,6 +66,7 @@ def actual_attempt_case(
     )
 
     observed: list[object] = []
+    comparison_results: list[object] = []
     result_load_completion_state: list[bool] = []
     original_runner = attempt_module.run_four_family_shared_portfolio_replay
     original_result_loader = attempt_module.load_four_family_portfolio_result_artifact
@@ -77,7 +79,9 @@ def actual_attempt_case(
             original_observer(outcome)  # type: ignore[operator]
 
         kwargs["on_family_completed"] = observer
-        return original_runner(**kwargs)  # type: ignore[arg-type]
+        result = original_runner(**kwargs)  # type: ignore[arg-type]
+        comparison_results.append(result)
+        return result
 
     def record_result_load_state(root: str | Path, **kwargs: object) -> object:
         result_load_completion_state.append(
@@ -103,6 +107,7 @@ def actual_attempt_case(
     return {
         "attempt": attempt,
         "context": context,
+        "comparison": comparison_results[0],
         "dataset": dataset,
         "identity": identity,
         "observed": tuple(observed),
@@ -122,7 +127,11 @@ def test_actual_ppo_attempt_writes_and_strictly_reloads_complete_result(
     identity = actual_attempt_case["identity"]
     observed = actual_attempt_case["observed"]
 
-    loaded = load_four_family_portfolio_attempt(root, expected_identity=identity)
+    loaded = load_four_family_portfolio_attempt(
+        root,
+        expected_identity=identity,
+        expected_result_digest=actual_attempt_case["attempt"].result_artifact_digest,
+    )
 
     assert tuple(item.family for item in observed) == (
         "cash",
@@ -146,6 +155,21 @@ def test_actual_ppo_attempt_writes_and_strictly_reloads_complete_result(
     assert (root / "result" / "manifest.json").is_file()
     assert (root / "complete" / "record.json").is_file()
     assert not (root / "failure" / "record.json").exists()
+
+
+def test_public_attempt_loader_requires_external_result_digest(
+    actual_attempt_case: dict[str, Any],
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        load_four_family_portfolio_attempt,
+    )
+
+    with pytest.raises(ValueError, match="result digest differs from expected"):
+        load_four_family_portfolio_attempt(
+            actual_attempt_case["root"],
+            expected_identity=actual_attempt_case["identity"],
+            expected_result_digest="e" * 64,
+        )
 
 
 def test_completed_arm_is_preserved_if_a_later_arm_interruption_occurs(
@@ -187,6 +211,45 @@ def test_completed_arm_is_preserved_if_a_later_arm_interruption_occurs(
     assert failure["exception_type"] == "KeyboardInterrupt"
     assert failure["phase"] == "four_family_comparison"
     assert failure["completed_families"] == ["cash"]
+
+
+def test_wrong_callback_family_order_fails_before_persisting_the_row(
+    actual_attempt_case: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import portfolio_family_attempt as attempt_module
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        run_four_family_portfolio_attempt,
+    )
+
+    outcomes = actual_attempt_case["observed"]
+    root = tmp_path / "wrong-family-order"
+    emitted: list[str] = []
+
+    def emit_wrong_first_outcome(**kwargs: object) -> object:
+        observer = kwargs["on_family_completed"]
+        emitted.append(outcomes[1].family)
+        observer(outcomes[1])  # type: ignore[operator]
+        raise AssertionError("family-order failure must stop the comparison")
+
+    monkeypatch.setattr(
+        attempt_module,
+        "run_four_family_shared_portfolio_replay",
+        emit_wrong_first_outcome,
+    )
+
+    with pytest.raises(ValueError, match="fixed family order"):
+        run_four_family_portfolio_attempt(
+            attempt_root=root, context=actual_attempt_case["context"]
+        )
+
+    assert emitted == ["fixed_trend"]
+    assert not (root / "families" / "cash" / "record.json").exists()
+    assert not (root / "families" / "fixed_trend" / "record.json").exists()
+    failure = json.loads((root / "failure" / "record.json").read_text("utf-8"))
+    assert failure["completed_families"] == []
+    assert failure["phase"] == "four_family_comparison"
 
 
 def test_family_row_write_failure_keeps_prior_rows_and_failure_phase(
@@ -237,6 +300,220 @@ def test_family_row_write_failure_keeps_prior_rows_and_failure_phase(
     failure = json.loads((root / "failure" / "record.json").read_text("utf-8"))
     assert failure["phase"] == "four_family_comparison"
     assert failure["completed_families"] == ["cash"]
+
+
+def test_mismatched_callback_dataset_is_rejected_before_next_family(
+    actual_attempt_case: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import portfolio_family_attempt as attempt_module
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        run_four_family_portfolio_attempt,
+    )
+
+    outcomes = actual_attempt_case["observed"]
+    context = actual_attempt_case["context"]
+    root = tmp_path / "callback-dataset-mismatch"
+    emitted: list[str] = []
+    original_payload = attempt_module._family_payload
+
+    def mismatch_fixed_trend_dataset(outcome: object) -> dict[str, object]:
+        payload = original_payload(outcome)  # type: ignore[arg-type]
+        if payload["family"] == "fixed_trend":
+            ledger = dict(payload["ledger"])
+            ledger["dataset_id"] = "unexpected-dataset"
+            payload["ledger"] = ledger
+        return payload
+
+    def emit_outcomes(**kwargs: object) -> object:
+        observer = kwargs["on_family_completed"]
+        for outcome in outcomes:
+            emitted.append(outcome.family)
+            observer(outcome)  # type: ignore[operator]
+        raise AssertionError("invalid callback row must stop before the next family")
+
+    monkeypatch.setattr(attempt_module, "_family_payload", mismatch_fixed_trend_dataset)
+    monkeypatch.setattr(
+        attempt_module, "run_four_family_shared_portfolio_replay", emit_outcomes
+    )
+
+    with pytest.raises(ValueError, match="Dataset identity"):
+        run_four_family_portfolio_attempt(attempt_root=root, context=context)
+
+    assert emitted == ["cash", "fixed_trend"]
+    assert (root / "families" / "cash" / "record.json").is_file()
+    assert not (root / "families" / "fixed_trend" / "record.json").exists()
+    assert not (root / "families" / "ridge_forecast" / "record.json").exists()
+    assert not (root / "families" / "joint_ppo" / "record.json").exists()
+    assert not (root / "result" / "manifest.json").exists()
+    assert not (root / "complete" / "record.json").exists()
+    failure = json.loads((root / "failure" / "record.json").read_text("utf-8"))
+    assert failure["phase"] == "four_family_comparison"
+    assert failure["completed_families"] == ["cash"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("actual_interval_count", 0, "family interval count differs"),
+        ("terminal_flat", False, "terminal flat flag differs"),
+        ("no_active_orders", False, "pending-order flag differs"),
+        ("termination_reason", "synthetic-termination", "termination reason differs"),
+    ],
+)
+def test_family_payload_rejects_conflicting_native_count_and_flags(
+    actual_attempt_case: dict[str, Any],
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _family_payload,
+        _validate_family_payload,
+    )
+
+    outcome = actual_attempt_case["observed"][0]
+    identity = actual_attempt_case["identity"]
+    row = _family_payload(outcome)
+    row[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        _validate_family_payload(row, expected_family="cash", identity=identity)
+
+
+def test_native_insolvency_is_retained_as_an_incomplete_attempt_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.evaluation.test_portfolio_family_comparison import (
+        _FixedPPOPolicy,
+        _prepared_inputs,
+    )
+    from trade_rl.evaluation.runs import (
+        portfolio_family_comparison as comparison_module,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        FourFamilyPortfolioAttemptContext,
+        load_four_family_portfolio_attempt,
+        run_four_family_portfolio_attempt,
+    )
+
+    inputs, _ = _prepared_inputs(tmp_path, force_insolvency=True)
+    monkeypatch.setattr(
+        comparison_module,
+        "load_portfolio_inference_bundle",
+        lambda *args, **kwargs: _FixedPPOPolicy(),
+    )
+    provenance = build_candidate_run_provenance(research_context_digest="c" * 64)
+    identity = replace(
+        _identity(),
+        expected_implementation_digest=provenance["implementation_digest"],
+        expected_runtime_environment_digest=provenance["runtime_environment_digest"],
+        expected_dataset_artifact_sha256=inputs["expected_dataset_artifact_sha256"],
+        expected_symbols=inputs["expected_symbols"],
+        ridge_artifact_sha256=inputs["expected_ridge_artifact_sha256"],
+        expected_ridge_binding=inputs["expected_ridge_binding"],
+        expected_bundle_sha256=inputs["expected_bundle_sha256"],
+        expected_manifest_sha256=inputs["expected_manifest_sha256"],
+        expected_completion_sha256=inputs["expected_completion_sha256"],
+        expected_training_context_sha256=inputs["expected_training_context_sha256"],
+        expected_checkpoint_sha256=inputs["expected_checkpoint_sha256"],
+        bound=inputs["bound"],
+        start_index=inputs["start_index"],
+        stop_index=inputs["stop_index"],
+        initial_capital=inputs["initial_capital"],
+        target_abs_weights=inputs["target_abs_weights"],
+        trend_config=inputs["trend_config"],
+        ridge_entry_threshold=inputs["ridge_entry_threshold"],
+        ridge_exit_threshold=inputs["ridge_exit_threshold"],
+        ridge_one_way_switch_cost=inputs["ridge_one_way_switch_cost"],
+        execution_cost=inputs["execution_cost"],
+        risk_config=inputs["risk_config"],
+        market_order_profile=inputs["market_order_profile"],
+    )
+    context = FourFamilyPortfolioAttemptContext(
+        identity=identity,
+        dataset_artifact_root=inputs["dataset_artifact_root"],
+        ridge_artifact_root=inputs["ridge_artifact_root"],
+        bundle_root=inputs["bundle_root"],
+    )
+
+    attempt = run_four_family_portfolio_attempt(
+        attempt_root=tmp_path / "insolvency-attempt", context=context
+    )
+    loaded = load_four_family_portfolio_attempt(
+        attempt.root,
+        expected_identity=identity,
+        expected_result_digest=attempt.result_artifact_digest,
+    )
+    rows = {
+        family: json.loads(
+            (attempt.root / "families" / family / "record.json").read_text("utf-8")
+        )
+        for family in ("cash", "fixed_trend", "ridge_forecast", "joint_ppo")
+    }
+
+    assert len(loaded.result.payload["families"]) == 4
+    retained = [row for row in rows.values() if row["insolvent"]]
+    assert retained
+    for row in retained:
+        assert row["window_complete"] is False
+        assert row["termination_reason"] == "insolvency"
+        assert row["actual_interval_count"] < row["expected_interval_count"]
+        assert row["book"]["insolvent"] is True
+
+
+@pytest.mark.parametrize("missing_or_extra", ["missing", "extra"])
+def test_public_attempt_loader_rejects_incomplete_or_extra_family_inventory(
+    actual_attempt_case: dict[str, Any],
+    tmp_path: Path,
+    missing_or_extra: str,
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        load_four_family_portfolio_attempt,
+    )
+
+    copied = tmp_path / f"{missing_or_extra}-family-inventory"
+    shutil.copytree(actual_attempt_case["root"], copied)
+    if missing_or_extra == "missing":
+        (copied / "families" / "ridge_forecast" / "record.json").unlink()
+    else:
+        (copied / "unexpected.txt").write_text("unexpected", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing|unexpected"):
+        load_four_family_portfolio_attempt(
+            copied,
+            expected_identity=actual_attempt_case["identity"],
+            expected_result_digest=actual_attempt_case[
+                "attempt"
+            ].result_artifact_digest,
+        )
+
+
+def test_public_attempt_loader_rejects_symlinked_tree_entry(
+    actual_attempt_case: dict[str, Any], tmp_path: Path
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        load_four_family_portfolio_attempt,
+    )
+
+    copied = tmp_path / "symlinked-attempt"
+    shutil.copytree(actual_attempt_case["root"], copied)
+    link = copied / "unexpected-link.json"
+    try:
+        os.symlink(copied / "started" / "record.json", link)
+    except OSError as error:
+        pytest.skip(f"symlink creation is unavailable on this platform: {error}")
+
+    with pytest.raises(ValueError, match="symlink"):
+        load_four_family_portfolio_attempt(
+            copied,
+            expected_identity=actual_attempt_case["identity"],
+            expected_result_digest=actual_attempt_case[
+                "attempt"
+            ].result_artifact_digest,
+        )
 
 
 def test_failure_journal_error_does_not_replace_original_callback_error(
@@ -314,10 +591,14 @@ def test_failed_final_attempt_reload_keeps_complete_but_is_not_loadable(
     assert failure["phase"] == "strict_attempt_reload"
     assert "completion_marker_note" in failure
     with pytest.raises(ValueError, match="failed attempt"):
-        load_four_family_portfolio_attempt(root, expected_identity=context.identity)
+        load_four_family_portfolio_attempt(
+            root,
+            expected_identity=context.identity,
+            expected_result_digest="e" * 64,
+        )
 
 
-def test_expected_implementation_mismatch_stops_before_stage4a_input_loading(
+def test_after_provenance_drift_keeps_rows_but_does_not_publish_result(
     actual_attempt_case: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -327,10 +608,85 @@ def test_expected_implementation_mismatch_stops_before_stage4a_input_loading(
         run_four_family_portfolio_attempt,
     )
 
+    root = tmp_path / "after-provenance-drift"
+    outcomes = actual_attempt_case["observed"]
+
+    def emit_valid_comparison(**kwargs: object) -> object:
+        observer = kwargs["on_family_completed"]
+        for outcome in outcomes:
+            observer(outcome)  # type: ignore[operator]
+        return actual_attempt_case["comparison"]
+
+    original_provenance = attempt_module.build_candidate_run_provenance
+    provenance_calls = 0
+
+    def drift_runtime_provenance(*, research_context_digest: str) -> dict[str, object]:
+        nonlocal provenance_calls
+        provenance_calls += 1
+        provenance = original_provenance(
+            research_context_digest=research_context_digest
+        )
+        if provenance_calls == 2:
+            return {**provenance, "runtime_environment_digest": "f" * 64}
+        return dict(provenance)
+
+    monkeypatch.setattr(
+        attempt_module,
+        "run_four_family_shared_portfolio_replay",
+        emit_valid_comparison,
+    )
+    monkeypatch.setattr(
+        attempt_module,
+        "build_candidate_run_provenance",
+        drift_runtime_provenance,
+    )
+
+    with pytest.raises(ValueError, match="runtime provenance"):
+        run_four_family_portfolio_attempt(
+            attempt_root=root, context=actual_attempt_case["context"]
+        )
+
+    assert provenance_calls == 2
+    assert all(
+        (root / "families" / family / "record.json").is_file()
+        for family in ("cash", "fixed_trend", "ridge_forecast", "joint_ppo")
+    )
+    assert not (root / "provenance" / "after" / "record.json").exists()
+    assert not (root / "result" / "manifest.json").exists()
+    assert not (root / "complete" / "record.json").exists()
+    failure = json.loads((root / "failure" / "record.json").read_text("utf-8"))
+    assert failure["phase"] == "after_provenance"
+    assert failure["completed_families"] == [
+        "cash",
+        "fixed_trend",
+        "ridge_forecast",
+        "joint_ppo",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("digest_field", "message"),
+    [
+        ("expected_implementation_digest", "implementation"),
+        ("expected_runtime_environment_digest", "runtime"),
+    ],
+)
+def test_expected_provenance_mismatch_stops_before_stage4a_input_loading(
+    actual_attempt_case: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    digest_field: str,
+    message: str,
+) -> None:
+    from trade_rl.evaluation.runs import portfolio_family_attempt as attempt_module
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        run_four_family_portfolio_attempt,
+    )
+
     context = actual_attempt_case["context"]
     mismatched = replace(
         context,
-        identity=replace(context.identity, expected_implementation_digest="f" * 64),
+        identity=replace(context.identity, **{digest_field: "f" * 64}),
     )
     calls: list[str] = []
 
@@ -344,7 +700,7 @@ def test_expected_implementation_mismatch_stops_before_stage4a_input_loading(
         must_not_load_inputs,
     )
 
-    with pytest.raises(ValueError, match="implementation"):
+    with pytest.raises(ValueError, match=message):
         run_four_family_portfolio_attempt(
             attempt_root=tmp_path / "provenance-mismatch", context=mismatched
         )
@@ -392,4 +748,7 @@ def test_strict_load_rejects_a_tampered_completed_family_row(
         load_four_family_portfolio_attempt(
             copied,
             expected_identity=actual_attempt_case["identity"],
+            expected_result_digest=actual_attempt_case[
+                "attempt"
+            ].result_artifact_digest,
         )

@@ -110,6 +110,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/execute.py",
         "runs/provenance.py",
         "runs/artifact.py",
+        "runs/portfolio_family_comparison.py",
         "experiments/__init__.py",
         "experiments/errors.py",
         "experiments/codec.py",

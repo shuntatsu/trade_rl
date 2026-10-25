@@ -18,6 +18,8 @@ strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / S
 
 別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
 
+`portfolio_family_comparison.py` adds a separate in-memory coordinator for cash, fixed Trend, pinned Ridge, and verified joint-PPO policies. It preflights their inputs, runs each through a fresh session over the same Dataset and common settings, and can deliver each raw outcome to a completion observer before starting the next arm. It does not persist an attempt, fit a model, or report an economic result.
+
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 
 4方式比較のソフトウェアはレビューと必須CIを通してmainに統合され、M34で固定した一度のscreenを実行しました。cash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの12行はすべて計算を完了しましたが、latency-2のnet returnはcost-proxyが2.6777%、cost=0が2.8971%となり、screenの比較条件は不成立です。各行の結果、費用・drawdown・fundingとsource bindingは[研究状態の正本](../../../docs/research/current-status.md)および[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)を参照してください。

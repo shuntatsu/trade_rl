@@ -49,6 +49,7 @@ artifacts / evidence
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
+| cash / fixed rule / Ridge / joint PPOのin-memory native比較 | `trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
 | joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
 | opt-in Gym episode event journal | `trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper` |

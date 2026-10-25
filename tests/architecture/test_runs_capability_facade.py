@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from tools.agent_repo.source_index import ImportCollector, within_module
@@ -14,11 +16,13 @@ RUNS_EXPORTS = {
     "CandidateRunResult",
     "ForecastErrorMetrics",
     "ForecastSymbolDiagnostics",
+    "FourFamilyPortfolioReplayResult",
     "LeanCandidateConfig",
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
     "PublishedRidgeComparisonAttempt",
+    "PortfolioFamilyReplayOutcome",
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
@@ -34,6 +38,7 @@ RUNS_EXPORTS = {
     "publish_ridge_comparison_artifact",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "run_four_family_shared_portfolio_replay",
     "run_ridge_comparison_attempt",
     "supports_shared_cash_result_schema",
 }
@@ -46,6 +51,7 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.provenance",
     "trade_rl.evaluation.runs.ridge_artifact_comparison",
     "trade_rl.evaluation.runs.ridge_comparison_attempt",
+    "trade_rl.evaluation.runs.portfolio_family_comparison",
     "trade_rl.evaluation.runs.ridge_comparison_artifact",
 )
 
@@ -100,6 +106,7 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
         candidate_suite,
         config,
         execute,
+        portfolio_family_comparison,
         provenance,
         ridge_artifact_comparison,
         ridge_comparison_artifact,
@@ -115,6 +122,18 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert (
         facade.RidgeArtifactComparisonConfig
         is ridge_artifact_comparison.RidgeArtifactComparisonConfig
+    )
+    assert (
+        facade.FourFamilyPortfolioReplayResult
+        is portfolio_family_comparison.FourFamilyPortfolioReplayResult
+    )
+    assert (
+        facade.PortfolioFamilyReplayOutcome
+        is portfolio_family_comparison.PortfolioFamilyReplayOutcome
+    )
+    assert (
+        facade.run_four_family_shared_portfolio_replay
+        is portfolio_family_comparison.run_four_family_shared_portfolio_replay
     )
     assert facade.ForecastErrorMetrics is ridge_artifact_comparison.ForecastErrorMetrics
     assert (
@@ -201,3 +220,20 @@ def test_evaluation_tier1_public_api_is_unchanged() -> None:
     import trade_rl.evaluation as evaluation
 
     assert set(evaluation.__all__) == EVALUATION_EXPORTS
+
+
+def test_runs_facade_keeps_joint_rl_runtime_imports_lazy() -> None:
+    script = (
+        "import sys; import trade_rl.evaluation.runs; "
+        "assert 'torch' not in sys.modules; "
+        "assert not any(name == 'stable_baselines3' or "
+        "name.startswith('stable_baselines3.') for name in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

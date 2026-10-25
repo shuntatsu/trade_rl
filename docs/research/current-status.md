@@ -150,6 +150,16 @@ learned-policy behavior or a financial result. This opt-in path adds no
 real-data fit or inference, profit evidence, winner selection, unused-period
 validation, or deployment authorization.
 
+`evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
+coordinator that runs cash, fixed Trend, pinned Ridge, and verified joint-PPO
+policies through the existing native shared-portfolio replay. It preflights all
+inputs before the first arm and uses the same Dataset and execution/risk/profile
+configuration values with a fresh native session per arm. An optional
+completion observer receives each raw outcome before the next arm starts, so a
+later arm or observer failure cannot hide earlier completed arms. This entry
+point does not reserve or persist attempts, fit models, select a winner, or add
+financial results or profitability evidence.
+
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 
 この節は[事前登録したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)と[実行結果](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6384143472)の現状を要約する。M34 sourceに固定した一度のscreenでは、1 fit・3 scenario・4 armの全12行を計算し、screen全体は FAILED_SCREEN となった。latency-2でposition-aware cost-proxy armが2.6777%、同じ経路のcost=0 armが2.8971%だったため、事前の比較条件を満たさなかった。シナリオごとの結果、ledger、source、Dataset、費用・funding仮定は、この文書の下にあるConditional four-arm Ridge development screen節と[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に記録している。

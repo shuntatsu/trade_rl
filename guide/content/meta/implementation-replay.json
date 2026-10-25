@@ -16,6 +16,7 @@
     "run_single_symbol_replay",
     "shared portfolio policy",
     "run_shared_portfolio_replay",
+    "run_four_family_shared_portfolio_replay",
     "build_portfolio_decision_snapshot",
     "portfolio_policy_codec",
     "PortfolioDecisionSnapshot",
@@ -36,7 +37,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "0b21ad6cea854707d4512f2a9000166e9fb681eaa383e3fd5bfd48b6848a70f2"
+      "sha256": "f3f64e74122af4e843a945f05f28e79aed66124002b286df1e3b29b6a4479be0"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -46,7 +47,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "5e38a8746242b4b97ac7bee5ae76545ec0b2495f65d252d497cca5a6253a6c88"
+      "sha256": "6ecf3af7e337938b446870f9bbe35d98c016dad51d0eda286df6025e7da6b312"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -331,6 +332,24 @@
       "tests": [
         "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
         "tests/evaluation/test_shared_portfolio_replay.py"
+      ]
+    },
+    {
+      "id": "four-family-portfolio-replay",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "12cb91e5c5d019e4a1a1c40e319aeb00c9ca007a23805894e19bedeab8169184",
+      "label_ja": "固定4方式を同じnative replayへ接続",
+      "description_ja": "caller-pinned入力を全arm前に検証し、cash・Trend・Ridge・joint PPOをfresh sessionで順に実行します。完了observerは各結果を次arm前に渡し、この入口自体は永続化やfitを行いません。",
+      "variables": [
+        {
+          "name": "on_family_completed",
+          "label_ja": "arm完了observer",
+          "description_ja": "各raw outcomeを次arm開始前に受け取ります。callback失敗は伝播し、残りarmを開始しません。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_comparison.py"
       ]
     }
   ]

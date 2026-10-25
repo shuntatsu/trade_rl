@@ -257,6 +257,21 @@ numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.
 
+`evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
+coordinator for four fixed families: explicit cash, built-in Trend, a
+caller-pinned Ridge artifact, and a verified joint-PPO inference bundle. It
+loads and validates the paired Dataset, Ridge binding, PPO bundle, roster,
+window, and shared configuration before starting any native arm. The PPO Gym
+is validation-only and is not reset or stepped. Each arm gets a fresh policy,
+risk controller, `SharedPortfolioSession`, and ledger while sharing the same
+Dataset and immutable execution/risk/profile configuration values. Every arm
+uses terminal settlement and ledger capture. Raw early termination and
+insolvency remain visible in the outcome flags. An optional completion observer
+receives each outcome immediately before the next arm begins; callback failure
+or a later arm failure propagates without starting subsequent arms. The
+coordinator does not reserve attempts, persist results, fit models, select a
+winner, or establish research or profitability evidence.
+
 `strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
 Gym Dict. Its versioned payload binds the raw/transformed layouts and
 Dataset/objective/clock/risk/execution context. Local features use the existing

@@ -19,6 +19,7 @@
     "run_single_symbol_replay",
     "run_scripted_shared_cash_replay",
     "run_shared_portfolio_replay",
+    "run_four_family_shared_portfolio_replay",
     "portfolio_policy_codec",
     "decide_portfolio",
     "run_published_portfolio_inference_replay",
@@ -38,7 +39,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "0b21ad6cea854707d4512f2a9000166e9fb681eaa383e3fd5bfd48b6848a70f2"
+      "sha256": "f3f64e74122af4e843a945f05f28e79aed66124002b286df1e3b29b6a4479be0"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -48,7 +49,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "5e38a8746242b4b97ac7bee5ae76545ec0b2495f65d252d497cca5a6253a6c88"
+      "sha256": "6ecf3af7e337938b446870f9bbe35d98c016dad51d0eda286df6025e7da6b312"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -531,6 +532,18 @@
       "variables": [],
       "tests": [
         "tests/strategies/test_portfolio_policy_adapter.py"
+      ]
+    },
+    {
+      "id": "four-family-portfolio-replay",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "12cb91e5c5d019e4a1a1c40e319aeb00c9ca007a23805894e19bedeab8169184",
+      "label_ja": "固定4方式のnative portfolio比較",
+      "description_ja": "Dataset・Ridge artifact・joint PPO bundleと共通設定を全arm前に検証し、各policyを新しいnative sessionで順に比較します。完了observerは各raw outcomeを次arm前に渡し、この入口自体は試行予約や結果保存を行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_comparison.py"
       ]
     }
   ]

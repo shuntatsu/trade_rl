@@ -56,6 +56,8 @@ artifacts / evidence
 | opt-in joint PPO inference bundle publisher / strict loader | `trade_rl.strategies.rl.portfolio_inference_bundle.publish_portfolio_inference_bundle` / `load_portfolio_inference_bundle` |
 | portfolio policyへ渡すcurrent snapshotの組み立て | `trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot` |
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
+| built-in単銘柄戦略をnumeric portfolio policyへ接続 | `trade_rl.strategies.portfolio_adapter.SingleSymbolPortfolioPolicyAdapter` |
+| 明示的なcash zero-target policy | `trade_rl.strategies.portfolio_adapter.CashPortfolioPolicy` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | filled exposureを使うforecast intent utility | `trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position` |
@@ -79,6 +81,8 @@ terminal settlementは変更されず、ledgerやwinner selectionも新設され
 固定action sequence用のopt-in replayでは、`None`がactorの新しい判断なしを表し、既存targetとpending orderを進めます。`HOLD_QUANTITY`は実bookのsigned quantityを保ち、未約定remainderをcancelします。hard riskは引き続き縮小・flattenでき、既存`SingleSymbolStrategy` interfaceは変わりません。
 
 別のopt-in `run_shared_portfolio_replay`は各eligible native barで全symbolを一度に観測し、numeric target vectorをsimulation-owned sessionから既存のshared risk・execution・accounting loopへ渡します。sessionは同じBookState・MarketExecutor・native indexを次のbarへ引き継ぎ、public book viewはcloneを返します。inputはcurrent-row featuresとdetached account/order/risk factsだけをtuple/scalarで保持し、free/reserved cashやopaque order identityを追加しません。exact quantity HOLDはrisk projectionがweightを変えない場合だけ残り、latency-aware actor boundary後のterminal settlementはsession内のrisk-owned pathで進みます。legacy intent resultとledger schemaはそのままです。
+
+`SingleSymbolPortfolioPolicyAdapter`は、このnumeric seam向けにexact built-in constant、trend、Ridge strategyだけを固定symbol rosterと明示budgetで束ねます。現在のfilled sideはsnapshotのexact quantityから求め、Ridge cost proxyを含む既存strategy callbackへactual weight/quantityとbudgetを渡します。同一roster内のstrategy instance再利用を拒否し、比較orchestratorはarmごとにfresh instanceを構築します。legacy cached target/minimum-hold、pending-aware action、exact-quantity HOLDや任意strategy parityは提供せず、より豊かなaction semanticsはdirect `PortfolioPolicy`で表します。callback/output失敗後のadapterはpoisonされ、後続proposalを返しません。
 
 `decide_for_position` はStrategy packageのutilityで、直接呼び出しに加えて、cost-aware設定かつbudget付きobservationを受け取るRidge / LightGBM adapterから使われます。filled quantity/weight、forecast、同じlogical intentのoptionalなcached targetから`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、canonical replayはその後に既存のhold制約、risk、execution、会計を適用します。
 

@@ -38,7 +38,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "85a204b593fb30bd61e771b92ca43f00d0384d593dc4c8a67274f319f1b8157b"
+      "sha256": "0b21ad6cea854707d4512f2a9000166e9fb681eaa383e3fd5bfd48b6848a70f2"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -48,7 +48,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "28c53b575d77318497d8e1c81600923c9a2ede63df3fe5d0395b907792825c32"
+      "sha256": "5e38a8746242b4b97ac7bee5ae76545ec0b2495f65d252d497cca5a6253a6c88"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -506,6 +506,31 @@
       "tests": [
         "tests/evaluation/test_ridge_comparison_attempt.py",
         "tests/architecture/test_ridge_comparison_attempt_contract.py"
+      ]
+    },
+    {
+      "id": "single-symbol-portfolio-policy-adapter",
+      "symbol": "trade_rl.strategies.portfolio_adapter.SingleSymbolPortfolioPolicyAdapter",
+      "kind": "class",
+      "source_sha256": "d7411458217ce1a730fba3df4d061d1540fdb371d1d4bcc723d83bbe097f24b2",
+      "label_ja": "単銘柄strategyをnumeric portfolio policyへ接続",
+      "description_ja": "固定rosterと明示budgetでexact built-in constant / trend / Ridge intentをtarget vectorへ変換し、filled sideはactual exact quantityから導きます。legacy cached target、minimum-hold、pending-aware HOLDや任意strategy parityは提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_portfolio_policy_adapter.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "cash-portfolio-policy",
+      "symbol": "trade_rl.strategies.portfolio_adapter.CashPortfolioPolicy",
+      "kind": "class",
+      "source_sha256": "9cd9e2ffd3e492cc60aa2ac12e42b3b5338817bbf6aaa0018f77e348555147fb",
+      "label_ja": "明示的なcash target policy",
+      "description_ja": "固定symbol rosterに対して明示zero target vectorを返します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_portfolio_policy_adapter.py"
       ]
     }
   ]

@@ -17,6 +17,8 @@ Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34�
 
 追加した`run_shared_portfolio_replay`は、明示的に呼び出す一native-bar単位の数値portfolio policy seamであり、simulation-owned incremental sessionを通じて既存のshared-cash risk・execution・accounting経路を使う。M34 screenでは使っておらず、M34の結果・比較条件・legacy strategy defaultsを変更しない。これはsoftware transition ownerの拡張で、fit、実データreplay、選択、利益の証拠ではなく、PPOのjoint-portfolio学習を実装するものでもない。
 
+`strategies/portfolio_adapter.py` は、その既存portfolio seamへexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy`を接続するopt-in adapterと、固定rosterの明示cash zero-target policyを提供する。filled sideはcurrent snapshotのexact quantityから導き、strategy callbackにはcurrent row/account factsと結果前に固定したper-symbol budgetを渡す。任意のlegacy strategy parity、cached-target/minimum-hold/pending-aware semantics、exact-quantity HOLD、joint PPO trainingは追加しない。hard risk・pending-order reconciliation・fill・cost・accountingは既存のshared portfolio session/native ownerが維持する。この実装はsoftware interface preparationであり、新しいfit/replay/選択、経済結果、Dataset/profile/fit provenance、profitability evidenceではない。
+
 P0 software declarations now identify fixed-initial-capital net-profit,
 account mode, finite financial clock, and exact evaluation-window binding in
 `trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do

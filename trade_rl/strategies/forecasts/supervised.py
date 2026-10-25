@@ -90,8 +90,21 @@ class CausalForecastTrainingSet:
             np.asarray(self.labels).reshape(-1),
             dtype=np.dtype(np.float64),
         )
+        raw_label_end_times = np.asarray(self.label_end_times).reshape(-1)
+        if raw_label_end_times.dtype.kind != "M":
+            raise ValueError("label_end_times must use a datetime64 dtype")
+        if np.isnat(raw_label_end_times).any():
+            raise ValueError("label_end_times must not contain NaT")
+        normalized_label_end_times = raw_label_end_times.astype("datetime64[ns]")
+        if np.isnat(normalized_label_end_times).any() or not np.array_equal(
+            normalized_label_end_times.astype(raw_label_end_times.dtype),
+            raw_label_end_times,
+        ):
+            raise ValueError(
+                "label_end_times must be exactly representable in nanoseconds"
+            )
         label_end_times = _immutable_array(
-            np.asarray(self.label_end_times).reshape(-1),
+            normalized_label_end_times,
             dtype=np.dtype("datetime64[ns]"),
         )
         sample_weights = _immutable_array(

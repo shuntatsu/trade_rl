@@ -8,7 +8,10 @@ import pytest
 import trade_rl.strategies.forecasts.supervised as supervised_module
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
+    build_causal_forecast_training_set,
+)
 
 
 def market(*, future_multiplier: float = 1.0, n_bars: int = 12) -> MarketDataset:
@@ -47,6 +50,7 @@ def pooled_market() -> MarketDataset:
         ),
         axis=1,
     )
+
     features = np.empty((n_bars, 2, 2), dtype=np.float32)
     features[:, 0, 0] = phase
     features[:, 0, 1] = phase**2
@@ -75,6 +79,18 @@ def pooled_market() -> MarketDataset:
     )
 
 
+def direct_training_set(label_end_times: np.ndarray) -> CausalForecastTrainingSet:
+    return CausalForecastTrainingSet(
+        feature_indices=(0,),
+        features=np.asarray([[1.0], [2.0]]),
+        labels=np.asarray([0.01, 0.02]),
+        label_end_times=label_end_times,
+        sample_weights=np.ones(2),
+        fit_cutoff=np.datetime64("1970-01-02T00:00:00", "ns"),
+        horizon_hours=1,
+    )
+
+
 def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     cutoff = np.datetime64("2026-01-01T08:00:00", "ns")
     baseline = build_causal_forecast_training_set(
@@ -99,6 +115,71 @@ def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     assert baseline.labels.flags.writeable is False
     assert baseline.label_end_times.flags.writeable is False
     assert baseline.sample_weights.flags.writeable is False
+
+
+def test_direct_training_set_rejects_nat_label_end_times() -> None:
+    label_end_times = np.asarray(
+        ("1970-01-01T00:00:00", "1970-01-01T12:00:00"),
+        dtype="datetime64[ns]",
+    )
+    label_end_times[0] = np.datetime64("NaT", "ns")
+
+    with pytest.raises(ValueError, match="label_end_times must not contain NaT"):
+        direct_training_set(label_end_times)
+
+
+def test_direct_training_set_rejects_non_datetime_label_end_times() -> None:
+    with pytest.raises(ValueError, match="label_end_times must use a datetime64 dtype"):
+        direct_training_set(np.asarray((1, 2), dtype=np.int64))
+
+
+@pytest.mark.parametrize(
+    "label_end_times",
+    (
+        np.asarray(
+            ("2500-01-01T00:00:00", "1970-01-01T12:00:00"),
+            dtype="datetime64[s]",
+        ),
+        np.asarray(
+            (
+                "1970-01-01T00:00:00.000000000500",
+                "1970-01-01T00:00:00.000000001000",
+            ),
+            dtype="datetime64[ps]",
+        ),
+    ),
+)
+def test_direct_training_set_rejects_lossy_label_end_timestamps(
+    label_end_times: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError, match="exactly representable in nanoseconds"):
+        direct_training_set(label_end_times)
+
+
+@pytest.mark.parametrize(
+    ("unit", "label_ends"),
+    (
+        ("s", ("1970-01-01T00:00:00", "1970-01-01T12:00:00")),
+        (
+            "ps",
+            (
+                "1970-01-01T00:00:00.000000001000",
+                "1970-01-01T00:00:00.000000002000",
+            ),
+        ),
+    ),
+)
+def test_direct_training_set_accepts_lossless_label_end_timestamps(
+    unit: str,
+    label_ends: tuple[str, str],
+) -> None:
+    training = direct_training_set(np.asarray(label_ends, dtype=f"datetime64[{unit}]"))
+
+    assert training.label_end_times.dtype == np.dtype("datetime64[ns]")
+    np.testing.assert_array_equal(
+        training.label_end_times,
+        np.asarray(label_ends, dtype="datetime64[ns]"),
+    )
 
 
 def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff() -> (

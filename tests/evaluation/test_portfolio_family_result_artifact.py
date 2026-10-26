@@ -434,6 +434,90 @@ def test_strict_result_loader_does_not_require_completion_marker(
         )
 
 
+def test_publisher_and_loader_allow_empty_terminal_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        load_four_family_portfolio_result_artifact,
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch
+    )
+    complete_dir = root / "complete"
+    failure_dir = root / "failure"
+    complete_dir.mkdir()
+    failure_dir.mkdir()
+
+    digest = publish_four_family_portfolio_result_artifact(
+        root,
+        result,
+        identity,
+        before_provenance=provenance,
+        after_provenance=provenance,
+    )
+    loaded = load_four_family_portfolio_result_artifact(
+        root,
+        expected_digest=digest,
+        expected_identity=identity,
+    )
+
+    assert loaded.artifact_digest == digest
+    assert complete_dir.is_dir() and not tuple(complete_dir.iterdir())
+    assert failure_dir.is_dir() and not tuple(failure_dir.iterdir())
+
+
+def test_publisher_rejects_second_result_publication_without_rewriting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        load_four_family_portfolio_result_artifact,
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch
+    )
+    digest = publish_four_family_portfolio_result_artifact(
+        root,
+        result,
+        identity,
+        before_provenance=provenance,
+        after_provenance=provenance,
+    )
+    before = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(FileExistsError):
+        publish_four_family_portfolio_result_artifact(
+            root,
+            result,
+            identity,
+            before_provenance=provenance,
+            after_provenance=provenance,
+        )
+
+    assert {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    } == before
+    assert (
+        load_four_family_portfolio_result_artifact(
+            root,
+            expected_digest=digest,
+            expected_identity=identity,
+        ).artifact_digest
+        == digest
+    )
+
+
 @pytest.mark.parametrize("switch_cost", (0.0, 1.0))
 def test_strict_result_loader_reads_legacy_integer_switch_cost_without_rewriting(
     tmp_path: Path,

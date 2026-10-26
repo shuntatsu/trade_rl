@@ -1005,12 +1005,13 @@ def _validate_started_record(
 
 
 def _validate_premanifest_inventory(root: Path) -> None:
+    result_directory = root / "result"
+    if result_directory.exists() or result_directory.is_symlink():
+        raise FileExistsError("result directory already exists before publication")
     expected = set(_ATTEMPT_FILES) - {"result/manifest.json"}
     expected.update(f"families/{name}/record.json" for name in _FAMILY_NAMES)
     if _attempt_file_inventory(root) != expected:
         raise ValueError("attempt files differ from pre-result inventory")
-    if any((root / name).exists() for name in ("result", "complete", "failure")):
-        raise ValueError("attempt has result or terminal directory before publication")
 
 
 def publish_four_family_portfolio_result_artifact(

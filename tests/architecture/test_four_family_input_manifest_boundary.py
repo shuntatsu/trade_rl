@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from importlib.util import resolve_name
 from pathlib import Path
 
 import trade_rl.evaluation.experiments as experiments
@@ -21,9 +22,16 @@ FORBIDDEN_IMPORTS = {
 }
 
 
-def _public_facade_module_imports(module: Path) -> set[str]:
+def _public_facade_module_imports(module: Path, package: Path) -> set[str]:
     parent, _, facade_name = IDENTITY_FACADE.rpartition(".")
     tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+    module_parts = module.relative_to(package.parent).with_suffix("").parts
+    if module_parts[-1] == "__init__":
+        module_parts = module_parts[:-1]
+    module_name = ".".join(module_parts)
+    context = (
+        module_name if module.name == "__init__.py" else module_name.rpartition(".")[0]
+    )
     imports: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -32,15 +40,14 @@ def _public_facade_module_imports(module: Path) -> set[str]:
                 for alias in node.names
                 if within_module(alias.name, IDENTITY_FACADE)
             )
-        elif (
-            isinstance(node, ast.ImportFrom)
-            and node.level == 0
-            and node.module == parent
-        ):
+        elif isinstance(node, ast.ImportFrom):
+            imported_base = node.module or ""
+            if node.level:
+                imported_base = resolve_name("." * node.level + imported_base, context)
             imports.update(
-                f"{parent}.{alias.name}"
+                f"{imported_base}.{alias.name}"
                 for alias in node.names
-                if alias.name == facade_name
+                if imported_base == parent and alias.name == facade_name
             )
     return imports
 
@@ -53,7 +60,7 @@ def _forbidden_direct_imports(module: Path, package: Path) -> set[str]:
         for forbidden in FORBIDDEN_IMPORTS
         if within_module(imported, forbidden)
     }
-    return forbidden | _public_facade_module_imports(module)
+    return forbidden | _public_facade_module_imports(module, package)
 
 
 def test_guard_detects_ordinary_imports_inside_functions(tmp_path: Path) -> None:
@@ -104,7 +111,7 @@ def test_guard_does_not_follow_the_public_identity_facade(tmp_path: Path) -> Non
     collector = ImportCollector(package)
     assert PRIVATE_IDENTITY_MODULE in collector.collect(module)
     assert _forbidden_direct_imports(module, package) == set()
-    assert _public_facade_module_imports(module) == set()
+    assert _public_facade_module_imports(module, package) == set()
 
 
 def test_guard_rejects_plain_public_facade_module_imports(tmp_path: Path) -> None:
@@ -120,6 +127,8 @@ def test_guard_rejects_plain_public_facade_module_imports(tmp_path: Path) -> Non
         "def deferred():\n    import trade_rl.evaluation.runs as runs\n",
         "from trade_rl.evaluation import runs as runs\n",
         "def deferred():\n    from trade_rl.evaluation import runs as runs\n",
+        "from .. import runs as runs\n",
+        "def deferred():\n    from .. import runs as runs\n",
     )
     for statement in statements:
         module.write_text(statement, encoding="utf-8")

@@ -194,6 +194,7 @@ class FourFamilyPortfolioAttemptIdentity:
             )
             if switch_cost < 0.0:
                 raise ValueError("ridge_one_way_switch_cost must be non-negative")
+            object.__setattr__(self, "ridge_one_way_switch_cost", switch_cost)
         if self.trend_config.signal_index < 0:
             raise ValueError("trend signal index must be non-negative")
         object.__setattr__(self, "expected_symbols", symbols)
@@ -992,6 +993,26 @@ def publish_four_family_portfolio_result_artifact(
         raise ValueError("started record identity differs from result identity")
     if started["schema_version"] != "four_family_portfolio_attempt_started_v1":
         raise ValueError("started record schema is unsupported")
+    before_digest = content_digest(before_provenance)
+    after_digest = content_digest(after_provenance)
+    before_record = _validate_provenance_record(
+        root,
+        "before",
+        identity=identity,
+        expected_digest=before_digest,
+    )
+    after_record = _validate_provenance_record(
+        root,
+        "after",
+        identity=identity,
+        expected_digest=after_digest,
+    )
+    if canonical_json_bytes(before_record) != canonical_json_bytes(
+        before_provenance
+    ) or canonical_json_bytes(after_record) != canonical_json_bytes(after_provenance):
+        raise ValueError("provenance records differ from supplied provenance")
+    if canonical_json_bytes(before_record) != canonical_json_bytes(after_record):
+        raise ValueError("before/after provenance records differ")
     rows: list[dict[str, object]] = []
     for outcome, family in zip(result.families, _FAMILY_NAMES, strict=True):
         family_path = root / "families" / family / "record.json"
@@ -1011,8 +1032,8 @@ def publish_four_family_portfolio_result_artifact(
                 "size_bytes": len(raw),
             }
         )
-    before_digest = content_digest(before_provenance)
-    after_digest = content_digest(after_provenance)
+    before_digest = content_digest(before_record)
+    after_digest = content_digest(after_record)
     content: dict[str, object] = {
         "after_provenance_digest": after_digest,
         "before_provenance_digest": before_digest,

@@ -159,6 +159,69 @@ def test_actual_ppo_attempt_writes_and_strictly_reloads_complete_result(
     assert not (root / "failure" / "record.json").exists()
 
 
+def test_complete_attempt_loader_accepts_legacy_integer_switch_cost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.evaluation.test_portfolio_family_result_artifact import (
+        _rewrite_result_identity_for_compatibility_test,
+        _synthetic_precompletion_case,
+    )
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.evaluation.runs.portfolio_family_attempt import (
+        load_four_family_portfolio_attempt,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch, ridge_one_way_switch_cost=0.0
+    )
+    publish_four_family_portfolio_result_artifact(
+        root,
+        result,
+        identity,
+        before_provenance=provenance,
+        after_provenance=provenance,
+    )
+    result_digest, legacy_identity_digest = (
+        _rewrite_result_identity_for_compatibility_test(
+            root, field="ridge_one_way_switch_cost", value=0
+        )
+    )
+    result_path = root / "result" / "manifest.json"
+    started_path = root / "started" / "record.json"
+    result_before = result_path.read_bytes()
+    started_before = started_path.read_bytes()
+    payload = json.loads(result_before)["payload"]
+    completion = {
+        "after_provenance_digest": payload["after_provenance_digest"],
+        "attempt_id": identity.attempt_id,
+        "before_provenance_digest": payload["before_provenance_digest"],
+        "expected_identity_digest": legacy_identity_digest,
+        "result_digest": result_digest,
+        "schema_version": "four_family_portfolio_attempt_complete_v1",
+    }
+    complete_path = root / "complete" / "record.json"
+    complete_path.parent.mkdir()
+    complete_path.write_bytes(canonical_json_bytes(completion))
+    complete_before = complete_path.read_bytes()
+
+    loaded = load_four_family_portfolio_attempt(
+        root,
+        expected_identity=identity,
+        expected_result_digest=result_digest,
+    )
+
+    assert loaded.attempt.root == root
+    assert loaded.result.artifact_digest == result_digest
+    assert loaded.result.payload["identity_digest"] == legacy_identity_digest
+    assert result_path.read_bytes() == result_before
+    assert started_path.read_bytes() == started_before
+    assert complete_path.read_bytes() == complete_before
+
+
 def test_public_attempt_loader_requires_external_result_digest(
     actual_attempt_case: dict[str, Any],
 ) -> None:

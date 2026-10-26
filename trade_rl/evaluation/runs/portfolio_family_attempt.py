@@ -368,11 +368,7 @@ def load_four_family_portfolio_attempt(
     )
     if complete["schema_version"] != "four_family_portfolio_attempt_complete_v1":
         raise ValueError("completion record schema is unsupported")
-    identity_digest = four_family_portfolio_attempt_identity_digest(expected_identity)
-    if (
-        complete["attempt_id"] != expected_identity.attempt_id
-        or complete["expected_identity_digest"] != identity_digest
-    ):
+    if complete["attempt_id"] != expected_identity.attempt_id:
         raise ValueError("completion record identity differs from expected attempt")
     if complete["result_digest"] != expected_result_digest:
         raise ValueError("completion result digest differs from expected result digest")
@@ -381,6 +377,8 @@ def load_four_family_portfolio_attempt(
         expected_digest=expected_result_digest,
         expected_identity=expected_identity,
     )
+    if complete["expected_identity_digest"] != result.payload["identity_digest"]:
+        raise ValueError("completion record identity differs from expected attempt")
     if (
         complete["before_provenance_digest"]
         != result.payload["before_provenance_digest"]

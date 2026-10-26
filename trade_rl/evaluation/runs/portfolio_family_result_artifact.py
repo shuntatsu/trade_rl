@@ -255,6 +255,29 @@ def four_family_portfolio_attempt_identity_digest(
     return content_digest(four_family_portfolio_attempt_identity_payload(identity))
 
 
+def _identity_payload_matches_expected(
+    persisted: object, expected: Mapping[str, object]
+) -> bool:
+    """Match current identities or the exact v1 optional-cost representation."""
+    if not isinstance(persisted, dict) or set(persisted) != set(expected):
+        return False
+    if canonical_json_bytes(persisted) == canonical_json_bytes(expected):
+        return True
+
+    persisted_cost = persisted.get("ridge_one_way_switch_cost")
+    expected_cost = expected.get("ridge_one_way_switch_cost")
+    if (
+        type(persisted_cost) is not int
+        or persisted_cost < 0
+        or type(expected_cost) is not float
+        or persisted_cost != expected_cost
+    ):
+        return False
+    legacy_expected = dict(expected)
+    legacy_expected["ridge_one_way_switch_cost"] = persisted_cost
+    return canonical_json_bytes(persisted) == canonical_json_bytes(legacy_expected)
+
+
 @dataclass(frozen=True, slots=True)
 class LoadedFourFamilyPortfolioResultArtifact:
     root: Path
@@ -1118,9 +1141,12 @@ def load_four_family_portfolio_result_artifact(
     if payload["schema_version"] != _SCHEMA:
         raise ValueError("unsupported four-family result schema")
     identity_payload = four_family_portfolio_attempt_identity_payload(expected_identity)
-    if payload["identity"] != identity_payload:
+    persisted_identity = _require_object(
+        payload["identity"], field="result identity", keys=set(identity_payload)
+    )
+    if not _identity_payload_matches_expected(persisted_identity, identity_payload):
         raise ValueError("result identity differs from the expected identity")
-    identity_digest = four_family_portfolio_attempt_identity_digest(expected_identity)
+    identity_digest = content_digest(persisted_identity)
     if payload["identity_digest"] != identity_digest:
         raise ValueError("result identity digest mismatch")
     started_ref = _require_object(
@@ -1140,7 +1166,12 @@ def load_four_family_portfolio_result_artifact(
         field="started record",
         keys={"declared_roots", "identity", "schema_version"},
     )
-    if started["identity"] != identity_payload:
+    started_identity = _require_object(
+        started["identity"], field="started.identity", keys=set(identity_payload)
+    )
+    if canonical_json_bytes(started_identity) != canonical_json_bytes(
+        persisted_identity
+    ):
         raise ValueError("started record identity differs from result")
     if started["schema_version"] != "four_family_portfolio_attempt_started_v1":
         raise ValueError("started record schema is unsupported")

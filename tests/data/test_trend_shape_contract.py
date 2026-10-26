@@ -30,9 +30,7 @@ def _shape(
         volume=np.ones(size, dtype=np.float64),
         funding_rate=np.zeros(size, dtype=np.float64),
         funding_available=np.zeros(size, dtype=np.bool_),
-        row_present=(
-            np.ones(size, dtype=np.bool_) if present is None else present
-        ),
+        row_present=np.ones(size, dtype=np.bool_) if present is None else present,
         active=np.ones(size, dtype=np.bool_) if active is None else active,
     )
 

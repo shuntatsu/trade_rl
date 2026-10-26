@@ -6,9 +6,20 @@ Portable Controlled Experiment 0001は独立再検証まで完了し、formal de
 
 Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しました。screen全体は FAILED_SCREEN です。全てのnon-cash armのreturnは正でしたが、latency-2ではcost-proxy armがposition-aware cost=0 controlを下回りました。
 
-新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、trainerや完全な学習記録にはなりません。
+新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、このjournal単体はtrainerや完全な学習記録ではありません。
 
-別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。trainer、weights/checkpoint lineageのattestation、学習結果や利益の証拠にはなりません。
+別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。このjournal単体はtrainerやweights/checkpoint lineageのattestation、学習結果や利益の証拠ではありません。
+
+`fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsynthetic software testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
+
+## Shared portfolio inferenceのsoftware path
+
+strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / SHORT / FLAT / LONGをnumeric proposalへ変換します。opt-in paired runnerはexpected digest付きDataset artifactを一度読み、unreset Gym shellでbundle/runtime contextを検証した後、同じDataset objectと渡されたrisk/execution設定でnative shared replayを一度実行し、terminal settlementまで通します。HOLDは既存のrisk/execution経路へquantity-preserving requestとして渡ります。固定actionと正のfee・funding・borrowを使うsynthetic testは配線とcash計算の回帰確認で、学習済みpolicyの挙動や金融結果ではありません。M34 screen、legacy PPO default、利益性・winner・unused validation・deploymentの状態は変わりません。
+
+別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
+
+`portfolio_family_comparison.py` adds a separate in-memory coordinator for cash, fixed Trend, pinned Ridge, and verified joint-PPO policies. It preflights their inputs, runs each through a fresh session over the same Dataset and common settings, and can deliver each raw outcome to a completion observer before starting the next arm. A separate `portfolio_family_attempt.py` wrapper can reserve a local one-shot attempt root and persist each completed raw outcome before the next arm, then strictly reload the result before marking completion. If its failure journal is writable it retains the failure phase and earlier rows; otherwise the original exception remains primary. Neither path fits a model, selects a winner, or reports an economic result.
+
 
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 
@@ -18,7 +29,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。このscreenは再実行・retuneせず、固定結果として保持します。次の検証は別protocolと結果前のreviewで条件を固定します。
 
-joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統計とsource/context bindingを持つ前処理です。serialized statisticsはtrusted expected digestで検証しますが、これは署名やfit実施の証明ではありません。まだtrainer・学習済みjoint policy・利益性の証拠を追加せず、既存PPO defaultも変えません。
+joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統計とsource/context bindingを持つ前処理です。serialized statisticsはtrusted expected digestで検証しますが、これは署名やfit実施の証明ではありません。通常は同じobjective/clock windowだけにbindし、別の明示runtime bindingを使う場合もtypedなtraining Bound、同じDataset・資本・risk・execution context、同じ非時間contract、exclusive training stop以後のruntime startを要求します。forward bindingは統計を再fitせず、featureのpoint-in-time availabilityやpolicy学習を証明しません。このforward binding自体は学習済みjoint policy・利益性の証拠を追加せず、既存PPO defaultも変えません。
 
 ## Task 18 Datasetの準備状況と次のゲート
 

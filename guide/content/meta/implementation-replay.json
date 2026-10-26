@@ -16,25 +16,46 @@
     "run_single_symbol_replay",
     "shared portfolio policy",
     "run_shared_portfolio_replay",
+    "run_four_family_shared_portfolio_replay",
     "build_portfolio_decision_snapshot",
+    "portfolio_policy_codec",
     "PortfolioDecisionSnapshot",
     "PortfolioTargetProposal",
     "SharedPortfolioGymEnv",
     "PortfolioObservationTransform",
     "PortfolioGymObservationWrapper",
     "PortfolioPolicySampleJournal",
-    "PortfolioEpisodeJournalWrapper"
+    "PortfolioEpisodeJournalWrapper",
+    "fit_shared_portfolio_ppo",
+    "publish_portfolio_inference_bundle",
+    "load_portfolio_inference_bundle",
+    "decide_portfolio",
+    "run_published_portfolio_inference_replay",
+    "PortfolioObservationRuntimeBinding",
+    "run_four_family_portfolio_attempt",
+    "load_four_family_portfolio_attempt",
+    "load_four_family_portfolio_result_artifact"
   ],
   "source_sections": [
     {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Ownership",
+      "sha256": "431171bef44ff934afdaa5f6e0943eed063959af2af0edd5efa1a2b5855d4015"
+    },
+    {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "f78df670343249b4e6c24f5e47b72ab1bd31587ad4d777f8c47b75fd86fbdc69"
+      "sha256": "611c6df36683bad20fd7e1f5819dff7b731be6d72d663df808fb94d7cac99592"
     },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "28c53b575d77318497d8e1c81600923c9a2ede63df3fe5d0395b907792825c32"
+      "sha256": "a258b46cf759308fbc6f25a4dc0f8745f3815e64857f8135a4a37ea7303deff6"
+    },
+    {
+      "path": "docs/architecture/research-assurance.md",
+      "heading": "GYM-002 — forward observation-transform binding",
+      "sha256": "30fe903cb6e2778e583ab593f5ab664408193ae1afacbaa0226df9e19ea49d4e"
     }
   ],
   "code_references": [
@@ -131,10 +152,23 @@
       ]
     },
     {
+      "id": "portfolio-policy-codec",
+      "symbol": "trade_rl.strategies.portfolio_policy_codec.encode_portfolio_decision_snapshot",
+      "kind": "function",
+      "source_sha256": "f619d4bf9fd5925ec1b2730c462f77cf6b20ceef57b82096e36775132bf7baf5",
+      "label_ja": "snapshotをraw joint-policy配列へ符号化",
+      "description_ja": "Gymとinferenceが共有する純粋なstrategy-layer codecです。snapshotのraw-v1 Dict key・shape・dtypeを保ち、risk/execution/evaluationへ依存しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_portfolio_observation.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "429f131699f3928a4007752d8c4fb15af0ae57a3c49fef1190f83416649b93c0",
+      "source_sha256": "c70a11e30c7a053b51ba05140df32c1f3c1c093d5330f49f883cd14f7675bd53",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。",
       "variables": [],
@@ -144,10 +178,61 @@
       ]
     },
     {
+      "id": "shared-portfolio-ppo-trainer",
+      "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
+      "kind": "function",
+      "source_sha256": "f7798a9232f130a49f8fdd61c5580acaf93f6691d5a112063e1a6c4a67cacccf",
+      "label_ja": "共通portfolioのopt-in PPO training entrypoint",
+      "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_training.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-inference-bundle",
+      "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.load_portfolio_inference_bundle",
+      "kind": "function",
+      "source_sha256": "6290a816f83d077b129770536272743767a438959a3be516aa8a43d90ca2c7c1",
+      "label_ja": "学習attemptを検証するopt-in inference bundle",
+      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
+      "id": "portfolio-inference-decision-adapter",
+      "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.PortfolioInferencePolicy.decide_portfolio",
+      "kind": "method",
+      "source_sha256": "57fbdc970caba18c40089e3ebfaa0c424f81d77b2bbdf5ef72dfa628a79af646",
+      "label_ja": "bound PPOをnumeric portfolio policyとして呼ぶ",
+      "description_ja": "snapshotのroster、decision window、native timestampをbundle bindingへ照合し、共有codecでexact-HOLDを含むnumeric proposalへ変換します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py"
+      ]
+    },
+    {
+      "id": "published-portfolio-inference-replay",
+      "symbol": "trade_rl.evaluation.portfolio_inference.run_published_portfolio_inference_replay",
+      "kind": "function",
+      "source_sha256": "9608c73e0566230e24780de33422cb310e645c479baa4ce66cbee4b41db4b69b",
+      "label_ja": "paired dataとfrozen policyを共通replayへ接続",
+      "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度実行します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_lean_dependency_boundaries.py"
+      ]
+    },
+    {
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "cca0d6fb875a921bc6263ea0c2c995c2d8c15888e3b6be261006aef166e031cd",
+      "source_sha256": "70e6c9f75f1a5af9e90652c4fae556f9e4ac25af5b145bdd6ffd335a5549b861",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],
@@ -168,10 +253,22 @@
       ]
     },
     {
+      "id": "portfolio-observation-runtime-binding",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationRuntimeBinding",
+      "kind": "class",
+      "source_sha256": "bdd3ab4971e62ce98ffdfaa5a71cd77fc1a55b6a5f9e50b0ed96db02ed684098",
+      "label_ja": "学習統計を将来windowへbind",
+      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_env.py"
+      ]
+    },
+    {
       "id": "portfolio-gym-observation-wrapper",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioGymObservationWrapper",
       "kind": "class",
-      "source_sha256": "53859fe624aeff09deaff29407a9b6ff1040c3533b1a9a211ef68d7e5a35ea2c",
+      "source_sha256": "843fc1e05a174b5387755bda59a5017457bcd497be3c7331fccd1b3b4708449f",
       "label_ja": "native Gym transitionを保つ変換wrapper",
       "description_ja": "観測だけを変換し、action・reward・termination・infoを保ちます。変換失敗後にnative stepが進んだ可能性があればresetまで再stepを拒否します。",
       "variables": [],
@@ -238,6 +335,73 @@
       "tests": [
         "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
         "tests/evaluation/test_shared_portfolio_replay.py"
+      ]
+    },
+    {
+      "id": "four-family-portfolio-replay",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay",
+      "kind": "function",
+      "source_sha256": "5bbad83bdd1b2e7d175786845c9846dd1529bb955f1ec13d5fb1c1b6751b3997",
+      "label_ja": "固定4方式を同じnative replayへ接続",
+      "description_ja": "caller-pinned入力を全arm前に検証し、cash・Trend・Ridge・joint PPOをfresh sessionで順に実行します。完了observerは各結果を次arm前に渡し、この入口自体は永続化やfitを行いません。",
+      "variables": [
+        {
+          "name": "on_family_completed",
+          "label_ja": "arm完了observer",
+          "description_ja": "各raw outcomeを次arm開始前に受け取ります。callback失敗は伝播し、残りarmを開始しません。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_comparison.py"
+      ]
+    },
+    {
+      "id": "four-family-attempt-run",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_attempt.run_four_family_portfolio_attempt",
+      "kind": "function",
+      "source_sha256": "7fd700d20969bbcabf2d4d22df9bb99f3fab51a05a826a4c50d20e00ed3f744f",
+      "label_ja": "固定4方式attemptを予約して実行",
+      "description_ja": "one-shot rootを予約し、expected provenanceを比較前に照合します。各native outcomeを次arm前に保存し、結果をstrict reloadしてから完了を記録します。fitや研究結果は作りません。",
+      "variables": [
+        {
+          "name": "attempt_root",
+          "label_ja": "attempt root",
+          "description_ja": "今回一度だけ使うfilesystem rootです。既存rootは拒否します。"
+        },
+        {
+          "name": "context",
+          "label_ja": "固定入力context",
+          "description_ja": "外部identityとartifact rootsをまとめたtyped contextです。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_attempt.py",
+        "tests/architecture/test_runs_capability_facade.py"
+      ]
+    },
+    {
+      "id": "four-family-attempt-load",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_attempt.load_four_family_portfolio_attempt",
+      "kind": "function",
+      "source_sha256": "4cc9cd4b9dfcdf05e8448e738b3ecce4e2dea31f6ea76810ce64ad94526f269b",
+      "label_ja": "完了attemptをstrict reload",
+      "description_ja": "failure markerのないcomplete attemptだけを読み、external identityとexpected result digest、全family rows、native ledger、provenance、completion recordを照合します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_attempt.py"
+      ]
+    },
+    {
+      "id": "four-family-result-load",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact",
+      "kind": "function",
+      "source_sha256": "4144f58a7fb9d6d666017c1f00266abe097f4b3f1d218bdd6a25d3a121894c03",
+      "label_ja": "完了前のfour-family resultをstrict reload",
+      "description_ja": "complete markerなしでresult manifestと四つのdurable family rowsを検証し、digest・identity・provenance・Dataset bindingを返します。native financial arithmeticは再計算しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_result_artifact.py",
+        "tests/evaluation/test_portfolio_family_attempt.py"
       ]
     }
   ]

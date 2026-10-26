@@ -62,13 +62,14 @@ authorization、financial ledger、winner ruleを加えない。
 
 - `feature_available_time <= decision_time` を満たす。featureのinformation/availability timeはdecision timeを越えない。
 - `MarketDataset.periods_per_year` はannualization clockを表すpositive integerであり、booleanやfractional/non-finite frequencyは拒否する。
+- `trade_rl.data._timestamps` はtyped `datetime64` 値をsigned nanosecond clockへ正確に正規化するinternal helperを一つだけ所有する。raw tickとunit multiplierを整数演算し、範囲とsub-nanosecond precisionをcast前に検証する。public data facadeへはexportしない。
 - `timestamps` と明示された `available_at` は、計算に使う `datetime64[ns]` へlosslessに変換できる値だけを受け入れる。nanosecond範囲外へのunit変換によるwrapと、sub-nanosecond精度の切り捨ては拒否する。NaTも拒否し、有効なcoarser-unit timestampの表現は維持する。
-- `CsvMarketDataSource` はISO日時本体のfractionをnanosecondまで整数で保持し、integer epochは従来どおり `abs(value) >= 10^12` をmillisecond、それ未満をsecondとして正確に変換する。日時本体のnanosecond範囲外とnon-zero sub-nanosecond fractionは拒否する。小数秒を含むtimezone offsetはmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあるoffsetは拒否する（余分な桁がすべてzeroなら値は失われない）。`RawMarketSeries` のtyped datetime配列もnsへのexact round-tripを要求し、1ns遅れた `available_at` を同時刻へ丸めず後段へ渡す。時系列順序は隣接値を直接比較し、Datasetのperiod deltaが正のint64 nanosecondsへ収まらない入力は拒否する。
-- `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` は元unitへのexact round-tripを要求するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
+- `CsvMarketDataSource` はISO日時本体のfractionをnanosecondまで整数で保持し、integer epochは従来どおり `abs(value) >= 10^12` をmillisecond、それ未満をsecondとして正確に変換する。日時本体のnanosecond範囲外とnon-zero sub-nanosecond fractionは拒否する。小数秒を含むtimezone offsetはmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあるoffsetは拒否する（余分な桁がすべてzeroなら値は失われない）。`RawMarketSeries` のtyped datetime配列もshared helperの整数演算でnsへ正確に変換し、1ns遅れた `available_at` を同時刻へ丸めず後段へ渡す。時系列順序は隣接値を直接比較し、Datasetのperiod deltaが正のint64 nanosecondsへ収まらない入力は拒否する。
+- `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` はshared data helperのexact integer arithmeticで検証するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
-- forecast training builderへ渡す`fit_cutoff`は、`datetime64[ns]`へ値を失わず変換できなければならない。`NaT`、signed-nanosecond範囲外、nanosecond未満の端数はtraining scopeやlabel rowを調べる前に拒否し、exactに変換できるcoarser / multiplier unitは受け入れる。
+- forecast training builderへ渡す`fit_cutoff`と、`CausalForecastTrainingSet`へ直接渡す`label_end_times`は、`data._timestamps`のshared helperを通し、元のdatetime64 unitと正のmultiplier metadataから正確な整数演算でns値を求めてからsigned-nanosecond範囲を確認する。multiplierが0以下のmetadata、`NaT`、範囲外へのwrap、nanosecond未満の端数はscopeやmaturity比較より前に拒否し、正確に表現できるfixed-duration unitとcalendar `Y` / `M` unitを受け入れる。cast後の逆変換一致だけをoverflow判定には使わない。
 - Ridge / LightGBM model constructorも同じlossless cutoff normalizerを使う。両strategy adapterは、保存済みobservation timestampが`NaT`の場合と`fit_cutoff > observation.timestamp`の場合に、feature fallbackやpredictionより前に拒否し、同時刻は許す。これはmodelの宣言fit cutoffに対するas-of floorであり、modelの生成・配布時刻、vintage、decision時点での実運用可能性を証明しない。`StrategyObservation`構築前のtimestamp変換で既にwrapされた入力時刻も復元できない。
-- `LeanCandidateConfig`のtyped `fit_cutoff`も、nsへの正規化前に元unitとのexact round-tripを要求する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
+- `LeanCandidateConfig`と`CandidateRunConfig`のtyped `datetime64` 値も同じshared helperで正確に正規化する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。ISO文字列のparse semanticsは変えない。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
 - developmentやfinal futureをthreshold/model選択へ戻さない。
@@ -104,6 +105,26 @@ Strategyの責任:
 - signal / forecast / policyに基づく経済判断
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
+
+`strategies/portfolio_adapter.py` は、exact built-in `ConstantIntentStrategy`、
+`TrendIntentStrategy`、`RidgeForecastStrategy` だけを、固定symbol/feature rosterと
+有限な`(0, 1]`範囲の明示per-symbol intent budgetを持つnumeric `PortfolioPolicy` adapterへ
+接続するopt-in pathである。各snapshotの`exact_quantities`から実filled sideを導き、
+current weight / quantity、current rowとbudgetを既存`StrategyObservation`へ渡して、
+SHORT / FLAT / LONGを`-budget / 0 / +budget`へ写す。cash armには固定rosterの明示zero-target
+policyを使える。全snapshotとroster/window contextはstrategy callback前に検証し、
+callbackまたはoutput失敗がsymbol走査の途中で起きたadapterはpoisonされ、後続proposalを
+返さない。factoryはadapter内でdistinct instanceを返す必要があり、比較orchestratorは各armの
+ためにfresh instanceを構築する。このadapterはarm間の共有を検出しない。strategy factoryは
+caller codeでありprovenance/sandboxではない。
+
+このadapterはlegacy replayのcached target、minimum-hold、pending-aware intent、
+exact-quantity HOLDを再現せず、任意の`SingleSymbolStrategy`やsubclassにも対応しない。
+それらのsemanticsが必要ならdirect `PortfolioPolicy`を実装する。native sessionは同じ
+BookState/MarketExecutorでrisk、order reconciliation、fill、cost、accountingと終端処理を
+引き続き行う。Ridgeの`one_way_switch_cost`はintent選択のproxyであり、ledger feeを変更しない。
+このstrategy wrapperはjoint PPO learner、training parity、Dataset/profile/fit provenance、
+経済的比較やprofitability evidenceを作らない。
 
 Canonical replayは各`StrategyObservation`へoptionalな`intent_gross_budget`と`same_intent_target_weight`を渡す。後者はbudgetがある場合だけ有効で、cached desired quantityを現在のmark/equityで表したweightである。`one_way_switch_cost`を設定したRidge / LightGBM adapterは、budgetがある場合に`CostAwareForecastIntentController.decide_for_position`を呼び、signed filled quantity（quantityが`None`ならcurrent weight）の符号からactual sideを求める。candidateは`[actual side, actual sideからのbaseline hysteresis proposal, FLAT]`の重複を除いた順序で比べる。candidateのtarget exposure `a`は通常`intent * budget`だが、candidateがlogical `current_intent`と一致しhintがある場合はcached weightを使う。従ってsame-intent holdは価格変動後の旧targetへ不要な再約定を要求せず、partial fillやpending residualは`current_weight`からcached targetまでのturnoverとして残る。direct callerも同じmethodを使えるが、返すのは`PositionIntent`だけで、fillや会計は行わない。
 
@@ -227,15 +248,57 @@ cash, not as free or reserved cash, so this input is not a complete Markov accou
 state. An explicit exact-quantity HOLD is accepted only when its target exactly
 matches the current book weight, and it survives only if hard risk leaves that
 weight unchanged; the normal executor then cancels any residual order while
-preserving the signed filled quantity. The actor cannot request the terminal
+preserving the signed filled quantity. Reconciliation applies that cancellation
+before processing the next execution interval, so an unfilled remainder cannot
+fill in that interval after a HOLD decision. The actor cannot request the terminal
 emergency-flatten mask. Policy calls stop at the existing latency-aware agent
 boundary, after which the session reserves terminal intervals for its existing
 risk-owned emergency-flatten path. A failed observer/transition consumes the
 session because executor state may already have advanced; it cannot be retried.
+The raw-v1 codec's `account` matrix columns are exported as `ACCOUNT_FIELDS`
+(`quantity`, `weight`, `mark_price`, `contract_multiplier`). Its 21-column
+`active_orders` matrix supports at most one order per symbol and rejects
+out-of-roster symbol indices. Optional limit, stop, or submission-reference
+prices use their existing presence flags; absent values are encoded as zero
+with a zero flag. This keeps all-`None` legacy snapshots encodable without
+inventing missing price facts.
 This
 numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.
+
+`evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
+coordinator for four fixed families: explicit cash, built-in Trend, a
+caller-pinned Ridge artifact, and a verified joint-PPO inference bundle. It
+loads and validates the paired Dataset, Ridge binding, PPO bundle, roster,
+window, and shared configuration before starting any native arm. The PPO Gym
+is validation-only and is not reset or stepped. Each arm gets a fresh policy,
+risk controller, `SharedPortfolioSession`, and ledger while sharing the same
+Dataset and immutable execution/risk/profile configuration values. Every arm
+uses terminal settlement and ledger capture. Raw early termination and
+insolvency remain visible in the outcome flags. An optional completion observer
+receives each outcome immediately before the next arm begins; callback failure
+or a later arm failure propagates without starting subsequent arms. The
+coordinator does not reserve attempts, persist results, fit models, select a
+winner, or establish research or profitability evidence.
+
+`evaluation/runs/portfolio_family_attempt.py` is a separate opt-in filesystem
+wrapper around that comparator. It reserves one attempt root, records declared
+identity and before/after provenance, and persists each raw family outcome in
+the comparator's completion callback before the next family begins. It then
+publishes and strictly reloads the result before writing the completion marker;
+the public attempt loader accepts only a complete, nonfailed root. A failure
+record retains the phase and already completed family rows, while the native
+executor and ledger remain the sole financial-state owners. The wrapper records
+failure phase and earlier rows when its failure journal is writable; if that
+journal write also fails, the original exception remains primary and the
+secondary write error is attached as an exception note. This local write-once
+boundary is not a global retry budget and adds no fit, winner selection,
+research approval, or profitability evidence.
+If the comparator raises inside a family before its completion callback, that
+callback does not expose the in-flight family's partial native ledger; the
+failure record therefore contains only rows delivered by earlier callbacks.
+It does not infer a zero count for the unfinished family.
 
 `strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
 Gym Dict. Its versioned payload binds the raw/transformed layouts and

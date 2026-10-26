@@ -974,6 +974,45 @@ def _attempt_file_inventory(root: Path) -> set[str]:
     return found
 
 
+def _validate_started_record(
+    raw: bytes, *, expected_identity: Mapping[str, object]
+) -> None:
+    started = _require_object(
+        _strict_json(raw, field="started record"),
+        field="started record",
+        keys={"declared_roots", "identity", "schema_version"},
+    )
+    started_identity = _require_object(
+        started["identity"],
+        field="started.identity",
+        keys=set(expected_identity),
+    )
+    if canonical_json_bytes(started_identity) != canonical_json_bytes(
+        expected_identity
+    ):
+        raise ValueError("started record identity differs from result")
+    if started["schema_version"] != "four_family_portfolio_attempt_started_v1":
+        raise ValueError("started record schema is unsupported")
+    declared_roots = _require_object(
+        started["declared_roots"],
+        field="started.declared_roots",
+        keys={"bundle_root", "dataset_artifact_root", "ridge_artifact_root"},
+    )
+    if any(
+        not isinstance(value, str) or not value for value in declared_roots.values()
+    ):
+        raise ValueError("started record roots must be non-empty strings")
+
+
+def _validate_premanifest_inventory(root: Path) -> None:
+    expected = set(_ATTEMPT_FILES) - {"result/manifest.json"}
+    expected.update(f"families/{name}/record.json" for name in _FAMILY_NAMES)
+    if _attempt_file_inventory(root) != expected:
+        raise ValueError("attempt files differ from pre-result inventory")
+    if any((root / name).exists() for name in ("result", "complete", "failure")):
+        raise ValueError("attempt has result or terminal directory before publication")
+
+
 def publish_four_family_portfolio_result_artifact(
     attempt_root: str | Path,
     result: FourFamilyPortfolioReplayResult,
@@ -989,6 +1028,7 @@ def publish_four_family_portfolio_result_artifact(
         raise TypeError("identity must be a FourFamilyPortfolioAttemptIdentity")
     root = Path(attempt_root)
     identity_payload = four_family_portfolio_attempt_identity_payload(identity)
+    _validate_premanifest_inventory(root)
     if (
         result.dataset_id != identity.expected_ridge_binding.dataset_id
         or result.dataset_artifact.artifact_digest
@@ -1007,15 +1047,7 @@ def publish_four_family_portfolio_result_artifact(
         raise ValueError("result must contain all four fixed families in order")
     started_path = root / "started" / "record.json"
     started_raw = _read_file(started_path, field="started record")
-    started = _require_object(
-        _strict_json(started_raw, field="started record"),
-        field="started record",
-        keys={"declared_roots", "identity", "schema_version"},
-    )
-    if started["identity"] != identity_payload:
-        raise ValueError("started record identity differs from result identity")
-    if started["schema_version"] != "four_family_portfolio_attempt_started_v1":
-        raise ValueError("started record schema is unsupported")
+    _validate_started_record(started_raw, expected_identity=identity_payload)
     before_digest = content_digest(before_provenance)
     after_digest = content_digest(after_provenance)
     before_record = _validate_provenance_record(
@@ -1161,29 +1193,7 @@ def load_four_family_portfolio_result_artifact(
         "size_bytes"
     ] != len(started_raw):
         raise ValueError("started record bytes differ from result manifest")
-    started = _require_object(
-        _strict_json(started_raw, field="started record"),
-        field="started record",
-        keys={"declared_roots", "identity", "schema_version"},
-    )
-    started_identity = _require_object(
-        started["identity"], field="started.identity", keys=set(identity_payload)
-    )
-    if canonical_json_bytes(started_identity) != canonical_json_bytes(
-        persisted_identity
-    ):
-        raise ValueError("started record identity differs from result")
-    if started["schema_version"] != "four_family_portfolio_attempt_started_v1":
-        raise ValueError("started record schema is unsupported")
-    declared_roots = _require_object(
-        started["declared_roots"],
-        field="started.declared_roots",
-        keys={"bundle_root", "dataset_artifact_root", "ridge_artifact_root"},
-    )
-    if any(
-        not isinstance(value, str) or not value for value in declared_roots.values()
-    ):
-        raise ValueError("started record roots must be non-empty strings")
+    _validate_started_record(started_raw, expected_identity=persisted_identity)
     before = _validate_provenance_record(
         root,
         "before",

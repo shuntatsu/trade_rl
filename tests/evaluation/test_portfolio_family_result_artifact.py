@@ -583,6 +583,152 @@ def test_started_identity_must_match_result_identity_canonical_bytes(
         )
 
 
+def test_publisher_rejects_noncanonical_started_identity_before_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        four_family_portfolio_attempt_identity_payload,
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch, ridge_one_way_switch_cost=0.0
+    )
+    started_path = root / "started" / "record.json"
+    started = json.loads(started_path.read_bytes())
+    started["identity"]["ridge_one_way_switch_cost"] = 0
+    assert started["identity"] == four_family_portfolio_attempt_identity_payload(
+        identity
+    )
+    started_path.write_bytes(canonical_json_bytes(started))
+    before = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(ValueError, match="started record identity differs"):
+        publish_four_family_portfolio_result_artifact(
+            root,
+            result,
+            identity,
+            before_provenance=provenance,
+            after_provenance=provenance,
+        )
+
+    assert not (root / "result" / "manifest.json").exists()
+    assert {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing-key", "extra-key", "empty-value", "non-string-value"),
+)
+def test_publisher_rejects_invalid_started_roots_before_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    import json
+
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch
+    )
+    started_path = root / "started" / "record.json"
+    started = json.loads(started_path.read_bytes())
+    roots = started["declared_roots"]
+    assert isinstance(roots, dict)
+    if mutation == "missing-key":
+        roots.pop("bundle_root")
+    elif mutation == "extra-key":
+        roots["unexpected_root"] = "synthetic-path"
+    elif mutation == "empty-value":
+        roots["bundle_root"] = ""
+    else:
+        roots["bundle_root"] = None
+    started_path.write_bytes(canonical_json_bytes(started))
+    before = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(ValueError):
+        publish_four_family_portfolio_result_artifact(
+            root,
+            result,
+            identity,
+            before_provenance=provenance,
+            after_provenance=provenance,
+        )
+
+    assert not (root / "result" / "manifest.json").exists()
+    assert {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    "entry", ("unexpected-file", "complete-marker", "failure-marker")
+)
+def test_publisher_rejects_nonpremanifest_entries_before_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    entry: str,
+) -> None:
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch
+    )
+    if entry == "unexpected-file":
+        (root / "unexpected.synthetic-marker").write_bytes(b"synthetic")
+    else:
+        marker_name = "complete" if entry == "complete-marker" else "failure"
+        marker_path = root / marker_name / "record.json"
+        marker_path.parent.mkdir(parents=True)
+        marker_path.write_bytes(canonical_json_bytes({"synthetic": True}))
+    before = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(ValueError):
+        publish_four_family_portfolio_result_artifact(
+            root,
+            result,
+            identity,
+            before_provenance=provenance,
+            after_provenance=provenance,
+        )
+
+    assert not (root / "result" / "manifest.json").exists()
+    assert {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    } == before
+
+
 def test_publisher_rejects_provenance_arguments_that_differ_from_disk(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

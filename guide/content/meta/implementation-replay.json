@@ -40,7 +40,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "7fb8400fa15fea7a3ff1b7365e06fd29dc225a96758e841a58469a9b5c84ef0a"
+      "sha256": "b083e6f37642d5ed6a656bbddfa2d78ea64187b43e6ea72a1e2bba036c165025"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -395,7 +395,7 @@
       "id": "four-family-result-load",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact",
       "kind": "function",
-      "source_sha256": "e422e73a5f8c45a48ab4e610771a4402160fb3be48631fcb59ab49e9e5599ab0",
+      "source_sha256": "02c79872bfd368cae0520c16e379e4d61559e62e77cca973c99bb4e45a16b245",
       "label_ja": "完了前のfour-family resultをstrict reload",
       "description_ja": "complete markerなしでresult manifestと四つのdurable family rowsを検証し、digest・identity・provenance・Dataset bindingを返します。native financial arithmeticは再計算しません。",
       "variables": [],

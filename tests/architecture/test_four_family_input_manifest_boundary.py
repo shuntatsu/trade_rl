@@ -21,14 +21,39 @@ FORBIDDEN_IMPORTS = {
 }
 
 
+def _public_facade_module_imports(module: Path) -> set[str]:
+    parent, _, facade_name = IDENTITY_FACADE.rpartition(".")
+    tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+    imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(
+                alias.name
+                for alias in node.names
+                if within_module(alias.name, IDENTITY_FACADE)
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and node.module == parent
+        ):
+            imports.update(
+                f"{parent}.{alias.name}"
+                for alias in node.names
+                if alias.name == facade_name
+            )
+    return imports
+
+
 def _forbidden_direct_imports(module: Path, package: Path) -> set[str]:
     imported_modules = ImportCollector(package).collect_direct(module)
-    return {
+    forbidden = {
         imported
         for imported in imported_modules
         for forbidden in FORBIDDEN_IMPORTS
         if within_module(imported, forbidden)
     }
+    return forbidden | _public_facade_module_imports(module)
 
 
 def test_guard_detects_ordinary_imports_inside_functions(tmp_path: Path) -> None:
@@ -79,6 +104,26 @@ def test_guard_does_not_follow_the_public_identity_facade(tmp_path: Path) -> Non
     collector = ImportCollector(package)
     assert PRIVATE_IDENTITY_MODULE in collector.collect(module)
     assert _forbidden_direct_imports(module, package) == set()
+    assert _public_facade_module_imports(module) == set()
+
+
+def test_guard_rejects_plain_public_facade_module_imports(tmp_path: Path) -> None:
+    package = tmp_path / "trade_rl"
+    runs = package / "evaluation" / "runs"
+    runs.mkdir(parents=True)
+    (runs / "__init__.py").write_text("", encoding="utf-8")
+    module = package / "evaluation" / "experiments" / "fixture.py"
+    module.parent.mkdir(parents=True)
+
+    statements = (
+        "import trade_rl.evaluation.runs as runs\n",
+        "def deferred():\n    import trade_rl.evaluation.runs as runs\n",
+        "from trade_rl.evaluation import runs as runs\n",
+        "def deferred():\n    from trade_rl.evaluation import runs as runs\n",
+    )
+    for statement in statements:
+        module.write_text(statement, encoding="utf-8")
+        assert _forbidden_direct_imports(module, package) == {IDENTITY_FACADE}
 
 
 def test_post_freeze_manifest_stays_private_and_metadata_only() -> None:

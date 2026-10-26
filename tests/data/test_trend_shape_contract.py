@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 
 import numpy as np
 import pytest
 
-from trade_rl.data.contracts import FeatureKind, FeatureSpec
+from trade_rl.data.build.builder import MarketDatasetBuilder
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.features import calculate_feature_events
+from trade_rl.data.market import MarketDataset
+from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 
 _SHAPE_KINDS = (FeatureKind.LINEAR_REGRESSION_SLOPE, FeatureKind.TREND_R2)
 
@@ -129,3 +138,123 @@ def test_flat_and_signed_linear_trends_preserve_documented_convention() -> None:
     assert down_slope == pytest.approx(-0.004, abs=1e-12)
     assert _shape(FeatureKind.TREND_R2, positive)[0][-1] == pytest.approx(1.0)
     assert _shape(FeatureKind.TREND_R2, negative)[0][-1] == pytest.approx(1.0)
+
+
+def _built_shape(
+    *,
+    delayed_index: int | None = None,
+    delayed_close_multiplier: float = 1.0,
+    delisted_at: datetime | None = None,
+) -> MarketDataset:
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        65
+    ) * np.timedelta64(1, "h")
+    phase = np.arange(65, dtype=np.float64)
+    close = 100.0 * np.exp(0.003 * phase + 0.018 * np.sin(phase / 5.0))
+    close[35] *= delayed_close_multiplier
+    available_at = timestamps.copy()
+    if delayed_index is not None:
+        available_at[delayed_index] += np.timedelta64(1, "h")
+    raw = RawMarketSeries(
+        timestamps=timestamps,
+        available_at=available_at,
+        open=close.copy(),
+        high=close * 1.001,
+        low=close * 0.999,
+        close=close,
+        volume=np.full(65, 1000.0),
+        funding_rate=np.zeros(65),
+        tradable=np.ones(65, dtype=np.bool_),
+    )
+    return MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=(
+                FeatureSpec(
+                    name="slope24",
+                    kind=FeatureKind.LINEAR_REGRESSION_SLOPE,
+                    lookback=24,
+                    max_staleness_hours=2.0,
+                ),
+                FeatureSpec(
+                    name="r2_24",
+                    kind=FeatureKind.TREND_R2,
+                    lookback=24,
+                    max_staleness_hours=2.0,
+                ),
+            ),
+        )
+    ).build(
+        InMemoryMarketDataSource({"BTCUSDT": raw}),
+        (
+            InstrumentContract(
+                symbol="BTCUSDT",
+                listed_at=datetime(2026, 1, 1, tzinfo=UTC),
+                delisted_at=delisted_at,
+            ),
+        ),
+    )
+
+
+def test_delayed_native_close_is_bounded_carry_not_fresh_shape() -> None:
+    original = _built_shape(delayed_index=35)
+    poisoned = _built_shape(
+        delayed_index=35,
+        delayed_close_multiplier=9.0,
+    )
+    assert original.feature_names == ("slope24", "r2_24")
+    assert original.dataset_id != poisoned.dataset_id
+    assert original.information_available is not None
+    assert not original.information_available[35, 0]
+    assert original.available_at is not None
+    assert original.available_at[35, 0] == original.timestamps[36]
+
+    # The delayed close is censored from new shape events, including the
+    # 24-bar windows spanning it. No later bar can launder it into a feature.
+    np.testing.assert_array_equal(original.features, poisoned.features)
+    np.testing.assert_array_equal(
+        original.feature_available, poisoned.feature_available
+    )
+    np.testing.assert_array_equal(
+        original.resolved_array("feature_staleness"),
+        poisoned.resolved_array("feature_staleness"),
+    )
+    np.testing.assert_array_equal(
+        original.resolved_array("feature_staleness_hours"),
+        poisoned.resolved_array("feature_staleness_hours"),
+    )
+
+    # The previous valid event stays observable at ages 1h and 2h.
+    np.testing.assert_array_equal(
+        original.features[35:37, 0],
+        np.broadcast_to(original.features[34, 0], (2, 2)),
+    )
+    assert original.feature_available[35:37, 0].all()
+    np.testing.assert_array_equal(
+        original.resolved_array("feature_staleness")[35:38, 0],
+        [[0.5, 0.5], [1.0, 1.0], [1.0, 1.0]],
+    )
+    assert not original.feature_available[37:59, 0].any()
+    np.testing.assert_array_equal(
+        original.features[37:59, 0], np.zeros((22, 2), dtype=np.float32)
+    )
+
+    # A genuinely new event requires 24 contiguous usable closes, starting
+    # with row 36 after the unavailable row 35.
+    assert original.feature_available[59, 0].all()
+    np.testing.assert_array_equal(
+        original.resolved_array("feature_staleness")[59, 0], [0.0, 0.0]
+    )
+
+
+def test_delisting_clears_stale_shape_carry_at_the_exact_row() -> None:
+    delisted = _built_shape(
+        delisted_at=datetime(2026, 1, 2, 11, tzinfo=UTC),
+    )
+    assert delisted.symbol_active[34, 0]
+    assert not delisted.symbol_active[35:, 0].any()
+    assert delisted.feature_available[34, 0].all()
+    assert not delisted.feature_available[35:, 0].any()
+    np.testing.assert_array_equal(
+        delisted.features[35:, 0], np.zeros((30, 2), dtype=np.float32)
+    )

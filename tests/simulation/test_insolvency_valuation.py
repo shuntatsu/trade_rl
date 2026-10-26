@@ -219,6 +219,86 @@ def test_retained_debt_stops_at_first_termination_without_later_bar_consumption(
     assert len(crashed.book.returns_history) == 2
 
 
+def test_retained_debt_rejects_restart_after_positive_equity_margin_call():
+    data = replace(
+        market(),
+        calendar_kind="session_calendar",
+        nominal_bar_hours=1.0,
+        available_at=None,
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.array([0, 1, 3, 4]) * np.timedelta64(1, "h"),
+        cash_rate=np.array([0.0, 0.0, 8760.0, 0.0]),
+    )
+    stressed_cost = replace(
+        ExecutionCostConfig.zero(),
+        max_leverage=2.0,
+        maintenance_margin_rate=0.75,
+    )
+    executor = MarketExecutor(
+        data,
+        stressed_cost,
+        insolvency_valuation="retain_debt",
+    )
+    leveraged_book = BookState(
+        quantities=np.array([20.0]),
+        cash=-1000.0,
+        mark_prices=np.array([100.0]),
+        peak_value=1000.0,
+    )
+
+    margin_call = executor.execute_orders(
+        leveraged_book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    assert margin_call.termination_reason == "margin_call"
+    assert margin_call.book.insolvent
+    assert margin_call.book.cash == margin_call.book.portfolio_value == 1000.0
+    assert margin_call.book.exact_quantities == (Fraction(0),)
+
+    book_cash_before = margin_call.book.cash
+    book_quantities_before = margin_call.book.quantities.copy()
+    book_returns_before = tuple(margin_call.book.returns_history)
+    order_book_before = margin_call.order_book
+    new_intent = OrderIntent.create(
+        dataset_id=data.dataset_id,
+        target_identity="restart-after-margin-call",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=50.0,
+        stop_price=None,
+        submit_index=1,
+        eligible_index=2,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=margin_call.book.portfolio_value,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="retain_debt execution cannot restart from an already terminated book",
+    ):
+        executor.execute_orders(
+            margin_call.book,
+            margin_call.order_book,
+            (new_intent,),
+            start_index=1,
+            bars=1,
+        )
+
+    assert margin_call.book.cash == book_cash_before
+    np.testing.assert_array_equal(margin_call.book.quantities, book_quantities_before)
+    assert tuple(margin_call.book.returns_history) == book_returns_before
+    assert margin_call.order_book is order_book_before
+    assert margin_call.order_book.active_orders == ()
+
+
 @pytest.mark.parametrize("mode", [None, "floor_zero"])
 def test_floor_zero_keeps_historical_full_requested_bar_path(mode):
     prices = np.array([100.0, 100.0, 400.0, 900.0])[:, None]

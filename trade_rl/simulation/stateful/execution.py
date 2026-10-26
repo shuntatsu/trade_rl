@@ -117,6 +117,10 @@ def execute_stateful_orders(
         raise ValueError("execution interval is outside the dataset")
     if book.quantities.shape != (dataset.n_symbols,):
         raise ValueError("book quantities do not match market symbols")
+    if executor.insolvency_valuation == "retain_debt" and book.insolvent:
+        raise ValueError(
+            "retain_debt execution cannot restart from an already terminated book"
+        )
 
     runtime = StatefulExecutionRuntime.create(executor, book, order_book)
     cancellation_ids: set[str] = set()

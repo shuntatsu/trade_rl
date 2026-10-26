@@ -605,10 +605,12 @@ This is the existing production/replay/PPO behavior: a terminated account is
 flattened with nonnegative cash and the historical execution-policy digest is
 unchanged. An explicitly configured `"retain_debt"` alternative is reserved
 for result-blind synthetic conformance of historical native-account research.
-It keeps a negative cash balance after forced insolvency, terminates processing
-at the first economic termination even within one bar, cancels remaining active
-orders, and prevents any subsequent fill or carry accrual. The raw
-`BookState.portfolio_value` is the financial loss authority in this mode.
+It keeps a negative cash balance after forced insolvency and rejects a new
+execution call when its incoming `BookState` is already insolvent, including a
+positive-equity margin call, before accepting orders or accruing gap carry.
+Within a call, it terminates processing at the first economic termination,
+cancels remaining active orders, and prevents any later fill or carry accrual.
+The raw `BookState.portfolio_value` is the financial loss authority in this mode.
 
 The retained-debt choice is bound to order/execution identity by wrapping the
 resolved normal execution-policy digest with `insolvency_execution_policy_v1`.

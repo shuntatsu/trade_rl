@@ -317,6 +317,15 @@ a raw step may have advanced. This does not make observations a complete account
 state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
 or change legacy PPO behavior.
 
+`PortfolioRuntimeExecutionScenarioV2` is a declaration-only versioned contract
+for a future opt-in runtime stress binding. It anchors a predeclared plan,
+training context, transform, checkpoint, and both full typed execution-cost
+policies; its explicit diff may change only fee/spread/impact/slippage fields,
+the cost multiplier, and order latency. It has no default stress coefficients
+or execution authority. Existing transform/runtime v1 matching stays strict,
+and this declaration alone does not validate Dataset, roster, risk, profile,
+capital, or clock invariants at runtime. Its opaque anchors are labels, not proof
+of those checks, prior fit provenance, stress adversity, or an economic result.
 `PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
 It stores actual policy forward inputs, sampled action codes, the returned joint
 log-probability, and critic value before the caller advances the environment.

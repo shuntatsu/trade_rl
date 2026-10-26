@@ -131,6 +131,15 @@ with `create` or `validate_environment`; the Gym wrapper performs this check.
 Deserialization alone checks the binding schema and digest, not live runtime
 context.
 
+The source also defines `PortfolioRuntimeExecutionScenarioV2`, a pure declaration
+for a separately planned runtime execution scenario. Its first version binds the
+training-context, transform, checkpoint, and plan digests to exact base/runtime
+`ExecutionCostConfig` declarations, allowing only the explicitly listed cost
+and order-latency fields to differ. It selects no numeric stress recipe and does
+not integrate with the inference loader or execute a fit/replay. Existing v1
+runtime matching remains strict; the opaque context anchor does not validate
+Dataset, risk, profile, roster, capital, or clock at runtime. This software
+contract changes no M34 result and is not financial or profitability evidence.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Shared-portfolioのopt-in policy inference software path

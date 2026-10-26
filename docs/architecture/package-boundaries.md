@@ -77,7 +77,7 @@ trade_rl/
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
+│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── portfolio_inference.py
@@ -231,6 +231,18 @@ use fixed absorbing padding. If transforming a result fails after the wrapped
 environment may have advanced, it records the failure and refuses another step
 until reset. This preprocessing does not create free/reserved cash, train a
 policy, refit on evaluation rows, or change legacy PPO defaults.
+`strategies/rl/portfolio_runtime_scenario.py` owns only the immutable, versioned
+`PortfolioRuntimeExecutionScenarioV2` declaration. It binds caller-declared plan,
+training-context, transform, and checkpoint SHA-256 anchors to exact typed base
+and runtime `ExecutionCostConfig` policies and their canonical policy digests.
+Version 2 permits changes only to fee, spread, impact, slippage, cost multiplier,
+and order latency fields; borrow and capacity remain invariant. The declared
+changed-field roster must exactly match the canonical per-field diff. Byte
+verification compares against a separately retained typed declaration and an
+external expected digest, without reconstructing untrusted JSON. The owner does
+not load a model, validate Dataset/risk/profile/roster/capital/clock context,
+run a scenario, or establish calibration, provenance, gate approval, or economic
+performance. It is not re-exported by a package facade.
 `a2c.py` owns explicit sequential CPU fitting, rollout rounding, and fit-scope
 metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions

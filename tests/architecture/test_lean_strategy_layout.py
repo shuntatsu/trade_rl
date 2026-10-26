@@ -72,6 +72,7 @@ def test_strategy_family_packages_exist() -> None:
         "rl/ppo.py",
         "rl/ppo_normalization.py",
         "rl/ppo_artifact.py",
+        "rl/portfolio_runtime_scenario.py",
     ):
         assert (STRATEGIES / relative).is_file(), relative
 

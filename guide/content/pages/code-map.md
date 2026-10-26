@@ -54,6 +54,7 @@ artifacts / evidence
 | fixed four-family resultのstrict artifact reload | `trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
 | joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
+| 将来のruntime execution stress用の純粋なversioned declaration | `trade_rl.strategies.rl.portfolio_runtime_scenario.PortfolioRuntimeExecutionScenarioV2` |
 | opt-in Gym episode event journal | `trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper` |
 | opt-in SB3 policy forward sample journal | `trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal` |
 | opt-in joint PPO inference bundle publisher / strict loader | `trade_rl.strategies.rl.portfolio_inference_bundle.publish_portfolio_inference_bundle` / `load_portfolio_inference_bundle` |
@@ -76,6 +77,12 @@ artifacts / evidence
 正規化するpure declaration ownerです。`BoundObjectiveClock`はUTC evaluation windowと
 finite economic horizonの秒数一致を検証します。ここからcurrent PPOのreward、gamma、
 terminal settlementは変更されず、ledgerやwinner selectionも新設されません。
+
+`PortfolioRuntimeExecutionScenarioV2`は、将来のopt-in runtime stress bindingに向けた
+pure declarationです。plan/training/transform/checkpointのdigestと、完全なbase/runtime
+`ExecutionCostConfig`、canonical digest、10個のcost/latency allowlist差分を記録します。
+borrow・capacity等は不変で、既存v1 matchingを緩めず、runtime context検証・実行・gateや
+経済結果の証拠も作りません。
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 

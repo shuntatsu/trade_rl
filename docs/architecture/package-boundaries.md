@@ -270,7 +270,10 @@ explicit evaluation owner for that composition. It checks the scenario and
 current scenario-inference source pins before loading evaluation artifacts,
 passes the declared runtime execution cost to the existing private four-family
 preflight/native loop, and returns those four native outcomes together with the
-actual scenario inference binding. `portfolio_family_comparison.py` retains its
+actual scenario inference binding. The v2-only private boundary check repeats
+the scenario/source pin and loaded policy environment validation before each
+arm and completion observer; v1 leaves that hook unset. A failed check stops
+before the next arm or observer. `portfolio_family_comparison.py` retains its
 strict v1 signature and runtime-cost rejection while sharing that private loop.
 The v2 entry is not re-exported by `evaluation.runs`; it creates no durable
 attempt/result, selects no scenario recipe, and supplies no economic evidence.

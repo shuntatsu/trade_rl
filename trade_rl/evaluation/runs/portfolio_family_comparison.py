@@ -258,6 +258,7 @@ def _run_four_family_shared_portfolio_replay_core(
     execution_cost: ExecutionCostConfig,
     risk_config: PreTradeRiskConfig,
     inference_policy_loader: Callable[[SharedPortfolioGymEnv], PortfolioPolicy],
+    boundary_validator: Callable[[], None] | None = None,
     market_order_profile: MarketOrderProfile | None = None,
     on_family_completed: Callable[[PortfolioFamilyReplayOutcome], None] | None = None,
 ) -> _FourFamilyReplayExecution:
@@ -271,7 +272,8 @@ def _run_four_family_shared_portfolio_replay_core(
     ``on_family_completed`` receives each outcome immediately before the next arm
     starts, so a later failure cannot hide already completed outcomes. Observer
     failures propagate and stop the comparison; this function owns no journal or
-    attempt reservation.
+    attempt reservation. The optional private boundary validator runs before every
+    arm and before each completion observer; the strict v1 entry leaves it unset.
     """
     for name, digest in (
         ("expected_dataset_artifact_sha256", expected_dataset_artifact_sha256),
@@ -308,6 +310,8 @@ def _run_four_family_shared_portfolio_replay_core(
         )
     if on_family_completed is not None and not callable(on_family_completed):
         raise TypeError("on_family_completed must be callable or None")
+    if boundary_validator is not None and not callable(boundary_validator):
+        raise TypeError("boundary_validator must be callable or None")
     if (
         isinstance(start_index, bool)
         or type(start_index) is not int
@@ -412,6 +416,8 @@ def _run_four_family_shared_portfolio_replay_core(
     for family, policy, risk in zip(
         _FAMILY_NAMES, policies, risk_controllers, strict=True
     ):
+        if boundary_validator is not None:
+            boundary_validator()
         replay = run_shared_portfolio_replay(
             dataset,
             policy,
@@ -447,6 +453,8 @@ def _run_four_family_shared_portfolio_replay_core(
         )
         outcomes.append(outcome)
         if on_family_completed is not None:
+            if boundary_validator is not None:
+                boundary_validator()
             on_family_completed(outcome)
 
     return _FourFamilyReplayExecution(

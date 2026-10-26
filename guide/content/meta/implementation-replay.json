@@ -57,7 +57,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "46e8f968301119cd895f4951404a294dfac8a503726cc6ff478297b84cfbec6a"
+      "sha256": "a664658d503d6b98dbfc53d7648655f0eb1e972498eec1da3ed93c6289e138cd"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -366,7 +366,7 @@
       "id": "four-family-scenario-replay-v2",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.run_four_family_shared_portfolio_scenario_replay_v2",
       "kind": "function",
-      "source_sha256": "a5a621f05d7770c16b5829253de38ba2f85ed934deaa11f01dcd83c132bc3cba",
+      "source_sha256": "defa1429caed225ebff14da4bfdfed43a6b691f423eebe44510b386645b21f47",
       "label_ja": "scenario v2で4方式のnative replayを実行",
       "description_ja": "同じverified checkpointを保ち、scenario runtime costでcash・Trend・Ridge・joint PPOをfresh native sessionへ通します。resultは実bindingを持つmemory-only値です。v1 strict入口、durable schema、研究判断は変更しません。",
       "variables": [

@@ -337,6 +337,11 @@ source/runtime checkpoints. Selected source manifests are direct-owner records,
 not a complete transitive source or in-memory-code proof. The explicit
 `portfolio_family_scenario_replay_v2` evaluation entry now wires this loader
 into four actual native arms under the scenario's runtime cost configuration.
+The v2 coordinator rechecks its scenario digest and current source digest, then
+validates the loaded PPO policy's bound runtime environment before each arm and
+before each completion observer. A mismatch stops before the next arm or before
+an observer receives the completed outcome; the strict v1 entry leaves this
+private boundary check unset.
 It returns an in-memory result only: it does not add a durable scenario result
 schema or attempt, select a numeric stress recipe, or establish economic
 validation, adversity, profitability, unused-period approval, or live

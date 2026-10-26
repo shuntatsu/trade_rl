@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 import trade_rl.strategies as strategies
 import trade_rl.strategies.rl as rl
 from tools.agent_repo.source_index import ImportCollector
@@ -21,8 +23,20 @@ FORBIDDEN_IMPORT_PREFIXES = (
 )
 
 
-def _imports(path: Path) -> set[str]:
-    return ImportCollector(ROOT / "trade_rl").collect_direct(path)
+def _imports(path: Path, *, package: Path = ROOT / "trade_rl") -> set[str]:
+    return ImportCollector(package).collect_direct(path)
+
+
+def _assert_scenario_import_boundary(imports: set[str], *, label: str) -> None:
+    forbidden = {
+        module
+        for module in imports
+        if any(
+            module == prefix or module.startswith(f"{prefix}.")
+            for prefix in FORBIDDEN_IMPORT_PREFIXES
+        )
+    }
+    assert not forbidden, f"{label} imports forbidden scenario owners: {forbidden}"
 
 
 def test_direct_child_import_is_visible_to_the_scenario_boundary_guard(
@@ -38,21 +52,15 @@ def test_direct_child_import_is_visible_to_the_scenario_boundary_guard(
         encoding="utf-8",
     )
     child.write_text("VALUE = 1\n", encoding="utf-8")
-    imports = ImportCollector(package).collect_direct(probe)
+    imports = _imports(probe, package=package)
     assert "trade_rl.strategies.rl.portfolio_training" in imports
+    with pytest.raises(AssertionError, match="forbidden scenario owners"):
+        _assert_scenario_import_boundary(imports, label="synthetic probe")
 
 
 def test_scenario_inference_owners_stay_in_the_rl_capability() -> None:
     for path in MODULES:
-        imports = _imports(path)
-        assert not {
-            module
-            for module in imports
-            if any(
-                module == prefix or module.startswith(f"{prefix}.")
-                for prefix in FORBIDDEN_IMPORT_PREFIXES
-            )
-        }, path.name
+        _assert_scenario_import_boundary(_imports(path), label=path.name)
 
 
 def test_scenario_inference_does_not_expand_strategy_facades() -> None:

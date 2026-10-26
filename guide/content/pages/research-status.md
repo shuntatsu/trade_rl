@@ -17,7 +17,7 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 
 strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / SHORT / FLAT / LONGをnumeric proposalへ変換します。opt-in paired runnerはexpected digest付きDataset artifactを一度読み、unreset Gym shellでbundle/runtime contextを検証した後、同じDataset objectと渡されたrisk/execution設定でnative shared replayを一度実行し、terminal settlementまで通します。HOLDは既存のrisk/execution経路へquantity-preserving requestとして渡ります。固定actionと正のfee・funding・borrowを使うsynthetic testは配線とcash計算の回帰確認で、学習済みpolicyの挙動や金融結果ではありません。M34 screen、legacy PPO default、利益性・winner・unused validation・deploymentの状態は変わりません。
 
-同じverified bundleには別のopt-in v2 loaderがあり、scenario digestとcurrent v2 source digest、training context/checkpoint pins、base / runtime cost identity、実際のforward Dataset・clock・risk・profile・spaceをcheckpoint読込み前に検証します。元のfit statisticsとv1 strict loaderは維持し、runtime latencyからruntime actor windowを作ります。scenario-bound comparatorはこの同じpolicyを4つのfresh native accountへ接続しますが、durable result/attemptはまだありません。synthetic software behaviorは経済性能を示しません。
+同じverified bundleには別のopt-in v2 loaderがあり、scenario digestとcurrent v2 source digest、training context/checkpoint pins、base / runtime cost identity、実際のforward Dataset・clock・risk・profile・spaceをcheckpoint読込み前に検証します。元のfit statisticsとv1 strict loaderは維持し、runtime latencyからruntime actor windowを作ります。scenario-bound comparatorはこの同じpolicyを4つのfresh native accountへ接続し、各armとcompletion observerの直前にscenario/source pinとloaded policyのruntime environment bindingを再検証します。不一致なら次armまたはobserverの前に停止しますが、durable result/attemptはまだありません。synthetic software behaviorは経済性能を示しません。
 
 別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
 

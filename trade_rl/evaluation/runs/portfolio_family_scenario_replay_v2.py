@@ -139,7 +139,10 @@ def run_four_family_shared_portfolio_scenario_replay_v2(
         load_portfolio_scenario_inference_bundle,
     )
 
+    loaded_policy: PortfolioScenarioInferencePolicy | None = None
+
     def load_scenario_policy(runtime_env: SharedPortfolioGymEnv) -> PortfolioPolicy:
+        nonlocal loaded_policy
         policy = load_portfolio_scenario_inference_bundle(
             bundle_root,
             expected_bundle_sha256=expected_bundle_sha256,
@@ -178,7 +181,23 @@ def run_four_family_shared_portfolio_scenario_replay_v2(
             raise ValueError(
                 "loaded scenario policy binding differs from replay inputs"
             )
+        loaded_policy = policy
         return policy
+
+    def validate_scenario_boundary() -> None:
+        expected_scenario.to_bytes()
+        if expected_scenario.digest != expected_scenario_sha256:
+            raise ValueError("scenario digest differs from its external expected pin")
+        if (
+            capture_portfolio_scenario_inference_source_digest()
+            != expected_scenario_inference_source_sha256
+        ):
+            raise ValueError("current scenario inference source differs from its pin")
+        if loaded_policy is None:
+            raise RuntimeError(
+                "scenario policy has not been loaded at a native boundary"
+            )
+        loaded_policy._observation_wrapper.validate_environment()
 
     execution = _run_four_family_shared_portfolio_replay_core(
         dataset_artifact_root=dataset_artifact_root,
@@ -205,6 +224,7 @@ def run_four_family_shared_portfolio_scenario_replay_v2(
         execution_cost=expected_scenario.runtime_execution_cost,
         risk_config=risk_config,
         inference_policy_loader=load_scenario_policy,
+        boundary_validator=validate_scenario_boundary,
         market_order_profile=market_order_profile,
         on_family_completed=on_family_completed,
     )

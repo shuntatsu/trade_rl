@@ -466,6 +466,186 @@ def test_scenario_source_mismatch_precedes_checkpoint_and_any_arm(
         )
 
 
+def test_scenario_source_drift_after_completion_stops_before_next_family(
+    scenario_replay_inputs: tuple[dict[str, Any], Any, Any, Any, dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import portfolio_family_comparison as core_module
+    from trade_rl.strategies.rl import portfolio_scenario_inference as inference_module
+    from trade_rl.strategies.rl import portfolio_scenario_runtime as runtime_module
+
+    inputs, result, _, training_env, training_context = scenario_replay_inputs
+    pinned_digest = runtime_module.capture_portfolio_scenario_inference_source_digest()
+    current_digest = {"value": pinned_digest}
+
+    def capture_current_digest() -> str:
+        return current_digest["value"]
+
+    monkeypatch.setattr(
+        runtime_module,
+        "capture_portfolio_scenario_inference_source_digest",
+        capture_current_digest,
+    )
+    monkeypatch.setattr(
+        inference_module,
+        "capture_portfolio_scenario_inference_source_digest",
+        capture_current_digest,
+    )
+
+    native_runner = core_module.run_shared_portfolio_replay
+    native_families: list[str] = []
+    completed_families: list[str] = []
+
+    def record_replay(dataset: object, policy: object, **kwargs: object) -> object:
+        native_families.append(_FAMILY_ORDER[len(native_families)])
+        return native_runner(dataset, policy, **kwargs)
+
+    def drift_after_cash(outcome: Any) -> None:
+        completed_families.append(outcome.family)
+        if outcome.family == "cash":
+            current_digest["value"] = "0" * 64
+
+    monkeypatch.setattr(core_module, "run_shared_portfolio_replay", record_replay)
+    with pytest.raises(
+        ValueError, match="current scenario inference source differs from its pin"
+    ):
+        _run_scenario_replay(
+            inputs,
+            result,
+            training_env,
+            training_context,
+            scenario_id="source-drift-after-callback-software-test",
+            runtime_updates={},
+            on_family_completed=drift_after_cash,
+        )
+
+    assert native_families == ["cash"]
+    assert completed_families == ["cash"]
+
+
+def test_scenario_source_drift_before_completion_stops_observer(
+    scenario_replay_inputs: tuple[dict[str, Any], Any, Any, Any, dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import portfolio_family_comparison as core_module
+    from trade_rl.strategies.rl import portfolio_scenario_inference as inference_module
+    from trade_rl.strategies.rl import portfolio_scenario_runtime as runtime_module
+
+    inputs, result, _, training_env, training_context = scenario_replay_inputs
+    pinned_digest = runtime_module.capture_portfolio_scenario_inference_source_digest()
+    current_digest = {"value": pinned_digest}
+
+    def capture_current_digest() -> str:
+        return current_digest["value"]
+
+    monkeypatch.setattr(
+        runtime_module,
+        "capture_portfolio_scenario_inference_source_digest",
+        capture_current_digest,
+    )
+    monkeypatch.setattr(
+        inference_module,
+        "capture_portfolio_scenario_inference_source_digest",
+        capture_current_digest,
+    )
+
+    native_runner = core_module.run_shared_portfolio_replay
+    native_families: list[str] = []
+    completed_families: list[str] = []
+
+    def drift_during_cash_replay(
+        dataset: object, policy: object, **kwargs: object
+    ) -> object:
+        native_families.append(_FAMILY_ORDER[len(native_families)])
+        outcome = native_runner(dataset, policy, **kwargs)
+        if len(native_families) == 1:
+            current_digest["value"] = "0" * 64
+        return outcome
+
+    def observe_completion(outcome: Any) -> None:
+        completed_families.append(outcome.family)
+
+    monkeypatch.setattr(
+        core_module, "run_shared_portfolio_replay", drift_during_cash_replay
+    )
+    with pytest.raises(
+        ValueError, match="current scenario inference source differs from its pin"
+    ):
+        _run_scenario_replay(
+            inputs,
+            result,
+            training_env,
+            training_context,
+            scenario_id="source-drift-before-callback-software-test",
+            runtime_updates={},
+            on_family_completed=observe_completion,
+        )
+
+    assert native_families == ["cash"]
+    assert completed_families == []
+
+
+def test_scenario_environment_drift_stops_before_completion_observer(
+    scenario_replay_inputs: tuple[dict[str, Any], Any, Any, Any, dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import portfolio_family_comparison as core_module
+    from trade_rl.strategies.rl import portfolio_scenario_inference as inference_module
+
+    inputs, result, _, training_env, training_context = scenario_replay_inputs
+    native_loader = inference_module.load_portfolio_scenario_inference_bundle
+    loaded_policies: list[Any] = []
+
+    def record_scenario_policy(*args: object, **kwargs: object) -> object:
+        policy = native_loader(*args, **kwargs)
+        loaded_policies.append(policy)
+        return policy
+
+    monkeypatch.setattr(
+        inference_module,
+        "load_portfolio_scenario_inference_bundle",
+        record_scenario_policy,
+    )
+
+    native_runner = core_module.run_shared_portfolio_replay
+    native_families: list[str] = []
+    completed_families: list[str] = []
+
+    def drift_during_cash_replay(
+        dataset: object, policy: object, **kwargs: object
+    ) -> object:
+        native_families.append(_FAMILY_ORDER[len(native_families)])
+        outcome = native_runner(dataset, policy, **kwargs)
+        if len(native_families) == 1:
+            assert len(loaded_policies) == 1
+            loaded_policies[
+                0
+            ]._observation_wrapper.env.execution_cost = training_env.execution_cost
+        return outcome
+
+    def observe_completion(outcome: Any) -> None:
+        completed_families.append(outcome.family)
+
+    monkeypatch.setattr(
+        core_module, "run_shared_portfolio_replay", drift_during_cash_replay
+    )
+    with pytest.raises(
+        ValueError, match="runtime environment execution cost differs from scenario"
+    ):
+        _run_scenario_replay(
+            inputs,
+            result,
+            training_env,
+            training_context,
+            scenario_id="environment-drift-before-callback-software-test",
+            runtime_updates={"fee_rate": 0.001},
+            on_family_completed=observe_completion,
+        )
+
+    assert native_families == ["cash"]
+    assert completed_families == []
+
+
 def test_scenario_digest_mismatch_precedes_dataset_and_any_arm(
     scenario_replay_inputs: tuple[dict[str, Any], Any, Any, Any, dict[str, object]],
     monkeypatch: pytest.MonkeyPatch,

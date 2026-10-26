@@ -148,6 +148,9 @@ the declared runtime cost through the same four-arm native replay owner and
 returns an in-memory scenario-bound result. Before each arm and completion
 observer it rechecks the scenario/source pins and the loaded policy's runtime
 environment binding, stopping before further work or observation on a mismatch.
+The loader reconstructs execution-policy and runtime/window checks from typed
+inputs, but the preserved training-bound digest does not independently prove
+that a training fit occurred or establish its provenance.
 The separate `run_four_family_portfolio_scenario_attempt_v2` wrapper can retain
 that software replay in a one-shot local v2 attempt, with native rows,
 before/after provenance and source records, and strict result reload before

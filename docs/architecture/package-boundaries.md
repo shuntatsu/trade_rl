@@ -258,6 +258,9 @@ fitted transform, the runtime policy with the actual environment, and both
 execution identities with the declared scenario. Its selected source digest
 combines the existing selected source/runtime identity with the exact v2 owner
 files; neither manifest claims complete transitive or in-memory code closure.
+The binding reconstructs execution-policy and runtime/window checks from typed
+inputs, but its preserved training-bound digest does not independently prove
+that a training fit occurred or establish its provenance.
 `strategies/rl/portfolio_scenario_inference.py` owns the explicit v2 bundle
 loader and deterministic policy adapter. It reuses the strict bundle-byte,
 training-context, source/runtime, checkpoint-copy, and loaded-policy checks,

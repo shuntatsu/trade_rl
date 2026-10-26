@@ -17,6 +17,8 @@
     "shared portfolio policy",
     "run_shared_portfolio_replay",
     "run_four_family_shared_portfolio_replay",
+    "run_four_family_shared_portfolio_scenario_replay_v2",
+    "FourFamilyPortfolioScenarioReplayV2Result",
     "build_portfolio_decision_snapshot",
     "portfolio_policy_codec",
     "PortfolioDecisionSnapshot",
@@ -45,7 +47,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "adb458951b8c377dfd325933b644736f6b3476c8fdb8becf0380f61e9466ea96"
+      "sha256": "72821a679c4f072b4657968c9e8ad2899ac19f02807c9ce978ccd642ca6cad25"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -55,7 +57,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "ad42904013614710724f4d6932d28f8c3eeecf61a5d8e10a2ca801b799ff0eb1"
+      "sha256": "46e8f968301119cd895f4951404a294dfac8a503726cc6ff478297b84cfbec6a"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -346,7 +348,7 @@
       "id": "four-family-portfolio-replay",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "5bbad83bdd1b2e7d175786845c9846dd1529bb955f1ec13d5fb1c1b6751b3997",
+      "source_sha256": "fa2101f94db3636d349bcafc03870c31164f22aaef97190cd3fce1a932aad5e3",
       "label_ja": "固定4方式を同じnative replayへ接続",
       "description_ja": "caller-pinned入力を全arm前に検証し、cash・Trend・Ridge・joint PPOをfresh sessionで順に実行します。完了observerは各結果を次arm前に渡し、この入口自体は永続化やfitを行いません。",
       "variables": [
@@ -358,6 +360,42 @@
       ],
       "tests": [
         "tests/evaluation/test_portfolio_family_comparison.py"
+      ]
+    },
+    {
+      "id": "four-family-scenario-replay-v2",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.run_four_family_shared_portfolio_scenario_replay_v2",
+      "kind": "function",
+      "source_sha256": "a5a621f05d7770c16b5829253de38ba2f85ed934deaa11f01dcd83c132bc3cba",
+      "label_ja": "scenario v2で4方式のnative replayを実行",
+      "description_ja": "同じverified checkpointを保ち、scenario runtime costでcash・Trend・Ridge・joint PPOをfresh native sessionへ通します。resultは実bindingを持つmemory-only値です。v1 strict入口、durable schema、研究判断は変更しません。",
+      "variables": [
+        {
+          "name": "expected_scenario",
+          "label_ja": "typed runtime scenario",
+          "description_ja": "trusted external digestでpinされたbase/runtime execution declarationです。runtime policyだけが4 armへ適用されます。"
+        },
+        {
+          "name": "expected_scenario_inference_source_sha256",
+          "label_ja": "scenario inference source pin",
+          "description_ja": "checkpointを読む前に現行v2 inference owner digestと照合します。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_scenario_replay_v2.py",
+        "tests/architecture/test_portfolio_family_scenario_replay_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "four-family-scenario-result-v2",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.FourFamilyPortfolioScenarioReplayV2Result",
+      "kind": "class",
+      "source_sha256": "a0635d7f97969fcd51017a28f1c641d313f2759545f9555d9daa12405fa69076",
+      "label_ja": "四方式scenario結果を実bindingへ結合",
+      "description_ja": "同じnative four-arm resultとactual scenario declaration/source/bindingをin-memoryで保持します。durable result/attempt schemaや独立経済証拠は含みません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_scenario_replay_v2.py"
       ]
     },
     {

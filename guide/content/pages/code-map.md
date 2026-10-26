@@ -50,6 +50,7 @@ artifacts / evidence
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
 | cash / fixed rule / Ridge / joint PPOのin-memory native比較 | `trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay` |
+| declared runtime scenarioで4方式を同じnative coreへ接続 | `trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.run_four_family_shared_portfolio_scenario_replay_v2` |
 | 固定4方式attemptの予約・逐次journal・strict completion | `trade_rl.evaluation.runs.portfolio_family_attempt.run_four_family_portfolio_attempt` / `load_four_family_portfolio_attempt` |
 | fixed four-family resultのstrict artifact reload | `trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
@@ -83,8 +84,11 @@ terminal settlementは変更されず、ledgerやwinner selectionも新設され
 base/runtime `ExecutionCostConfig`、canonical digest、10個のcost/latency allowlist差分を記録する
 pure declarationです。`portfolio_scenario_inference`は別のopt-in v2 loaderを提供し、external
 scenario/source/bundle pinsと実際のforward contextをcheckpoint deserialization前に検証します。
-既存v1 matchingは緩めず、fit統計も再利用します。scenarioはまだfour-family comparisonや
-persisted resultへ接続されず、numeric stress recipe・gate・経済結果の証拠も作りません。
+既存v1 matchingは緩めず、fit統計も再利用します。別の明示的なv2 evaluation entryは、
+このverified checkpointをcash・Trend・Ridge・joint PPOの
+4つのnative armへ渡し、scenarioのruntime costを全armへ適用したin-memory comparisonを返します。
+strict v1入口とTier-2 facadeは変わらず、scenario用のdurable attempt/resultやeconomic evidenceは
+まだありません。numeric stress recipe・gate・経済結果の証拠も作りません。
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 

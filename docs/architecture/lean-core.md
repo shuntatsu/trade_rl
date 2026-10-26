@@ -334,10 +334,13 @@ environment before reset, each native step, and observation transformation;
 it poisons itself after a failed post-step transform. The v1 loader, binding, payloads, and strict full-cost
 matching remain unchanged; no compatibility bridge admits older selected
 source/runtime checkpoints. Selected source manifests are direct-owner records,
-not a complete transitive source or in-memory-code proof. The path does not yet
-wire scenarios into the four-family comparator or persisted result schema, and
-it establishes no economic validation, adversity, profitability, unused-period
-approval, or live eligibility.
+not a complete transitive source or in-memory-code proof. The explicit
+`portfolio_family_scenario_replay_v2` evaluation entry now wires this loader
+into four actual native arms under the scenario's runtime cost configuration.
+It returns an in-memory result only: it does not add a durable scenario result
+schema or attempt, select a numeric stress recipe, or establish economic
+validation, adversity, profitability, unused-period approval, or live
+eligibility.
 `PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
 It stores actual policy forward inputs, sampled action codes, the returned joint
 log-probability, and critic value before the caller advances the environment.

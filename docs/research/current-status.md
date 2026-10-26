@@ -142,10 +142,13 @@ context, and checks these conditions before deserializing the unchanged PPO
 checkpoint. It preserves the fitted statistics, uses base latency for the
 original training actor stop and runtime latency for the runtime actor window,
 and routes predictions through the existing native observation/action
-contracts. Existing v1 runtime matching and payloads remain strict. This is
-software capability only: scenarios are not yet wired into the four-family
-comparator or persisted result schema, select no numeric stress recipe, and
-change no M34 result or financial/profitability evidence.
+contracts. Existing v1 runtime matching and payloads remain strict. The separate
+`run_four_family_shared_portfolio_scenario_replay_v2` software entry now passes
+the declared runtime cost through the same four-arm native replay owner and
+returns an in-memory scenario-bound result. It does not select a numeric stress
+recipe, create a durable attempt/result, change the completed M34 screen, or
+establish financial performance, profitability, unused-period approval, or live
+eligibility.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Shared-portfolioのopt-in policy inference software path

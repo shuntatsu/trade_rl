@@ -60,6 +60,7 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.ridge_artifact_comparison",
     "trade_rl.evaluation.runs.ridge_comparison_attempt",
     "trade_rl.evaluation.runs.portfolio_family_comparison",
+    "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2",
     "trade_rl.evaluation.runs.ridge_comparison_artifact",
     "trade_rl.evaluation.runs.portfolio_family_attempt",
     "trade_rl.evaluation.runs.portfolio_family_result_artifact",
@@ -276,6 +277,7 @@ def test_evaluation_tier1_public_api_is_unchanged() -> None:
 def test_runs_facade_keeps_joint_rl_runtime_imports_lazy() -> None:
     script = (
         "import sys; import trade_rl.evaluation.runs; "
+        "import trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2; "
         "assert 'torch' not in sys.modules; "
         "assert not any(name == 'stable_baselines3' or "
         "name.startswith('stable_baselines3.') for name in sys.modules)"

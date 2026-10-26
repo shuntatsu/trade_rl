@@ -5,6 +5,7 @@ from pathlib import Path
 
 import trade_rl.strategies as strategies
 import trade_rl.strategies.rl as rl
+from tools.agent_repo.source_index import ImportCollector
 
 ROOT = Path(__file__).resolve().parents[2]
 RL_ROOT = ROOT / "trade_rl" / "strategies" / "rl"
@@ -21,14 +22,24 @@ FORBIDDEN_IMPORT_PREFIXES = (
 
 
 def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    result: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            result.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            result.add(node.module)
-    return result
+    return ImportCollector(ROOT / "trade_rl").collect_direct(path)
+
+
+def test_direct_child_import_is_visible_to_the_scenario_boundary_guard(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "trade_rl"
+    probe = package / "evaluation" / "scenario_import_probe.py"
+    child = package / "strategies" / "rl" / "portfolio_training.py"
+    probe.parent.mkdir(parents=True)
+    child.parent.mkdir(parents=True)
+    probe.write_text(
+        "from trade_rl.strategies.rl import portfolio_training\n",
+        encoding="utf-8",
+    )
+    child.write_text("VALUE = 1\n", encoding="utf-8")
+    imports = ImportCollector(package).collect_direct(probe)
+    assert "trade_rl.strategies.rl.portfolio_training" in imports
 
 
 def test_scenario_inference_owners_stay_in_the_rl_capability() -> None:

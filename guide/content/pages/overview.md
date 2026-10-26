@@ -36,7 +36,7 @@ metrics / comparison / robustness / immutable evidence
 | 正式判断 | Experiment 0001は事前登録したruleに従い **KEEP_BASELINE** |
 | 未証明 | 継続的なprofitability、winner strategy、unused future dataでの勝利、Production/live order authorization |
 
-同じfrozen PPOを明示的なruntime execution scenarioへloadするopt-in v2 software pathもあります。これはv1のstrict matchingを維持し、scenarioをfour-family comparisonや保存resultへまだ接続しません。
+同じfrozen PPOを明示的なruntime execution scenarioへloadし、cash・Trend・Ridge・joint PPOの4つを同じnative replayへ渡すopt-in v2 software pathもあります。v1のstrict matchingとTier-2 facadeは維持し、scenario用のdurable result/attemptや経済性能の証拠は追加しません。
 
 **再現可能な研究基盤が成立したことと、儲かる戦略が見つかったことは別です。** 現時点では後者を主張しません。
 

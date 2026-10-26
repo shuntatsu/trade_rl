@@ -20,6 +20,8 @@
     "run_scripted_shared_cash_replay",
     "run_shared_portfolio_replay",
     "run_four_family_shared_portfolio_replay",
+    "run_four_family_shared_portfolio_scenario_replay_v2",
+    "FourFamilyPortfolioScenarioReplayV2Result",
     "portfolio_policy_codec",
     "decide_portfolio",
     "run_published_portfolio_inference_replay",
@@ -45,7 +47,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "adb458951b8c377dfd325933b644736f6b3476c8fdb8becf0380f61e9466ea96"
+      "sha256": "72821a679c4f072b4657968c9e8ad2899ac19f02807c9ce978ccd642ca6cad25"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -55,7 +57,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "ad42904013614710724f4d6932d28f8c3eeecf61a5d8e10a2ca801b799ff0eb1"
+      "sha256": "46e8f968301119cd895f4951404a294dfac8a503726cc6ff478297b84cfbec6a"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -544,12 +546,37 @@
       "id": "four-family-portfolio-replay",
       "symbol": "trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "5bbad83bdd1b2e7d175786845c9846dd1529bb955f1ec13d5fb1c1b6751b3997",
+      "source_sha256": "fa2101f94db3636d349bcafc03870c31164f22aaef97190cd3fce1a932aad5e3",
       "label_ja": "固定4方式のnative portfolio比較",
       "description_ja": "Dataset・Ridge artifact・joint PPO bundleと共通設定を全arm前に検証し、各policyを新しいnative sessionで順に比較します。完了observerは各raw outcomeを次arm前に渡し、この入口自体は試行予約や結果保存を行いません。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_portfolio_family_comparison.py"
+      ]
+    },
+    {
+      "id": "four-family-scenario-replay-v2",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.run_four_family_shared_portfolio_scenario_replay_v2",
+      "kind": "function",
+      "source_sha256": "a5a621f05d7770c16b5829253de38ba2f85ed934deaa11f01dcd83c132bc3cba",
+      "label_ja": "scenario v2で固定4方式をnative replay",
+      "description_ja": "外部scenario/source pinsをartifact読込前に検証し、scenarioのruntime execution costを全4 armに適用します。結果は実際のscenario bindingを含むin-memory値で、durable result/attemptや経済証拠ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_scenario_replay_v2.py",
+        "tests/architecture/test_portfolio_family_scenario_replay_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "four-family-scenario-result-v2",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.FourFamilyPortfolioScenarioReplayV2Result",
+      "kind": "class",
+      "source_sha256": "a0635d7f97969fcd51017a28f1c641d313f2759545f9555d9daa12405fa69076",
+      "label_ja": "実際のscenario bindingを持つnative結果",
+      "description_ja": "four-family native replay result、typed scenario、scenario inference source pin、loaded policyのruntime bindingをまとめたmemory-only値です。既存v1保存schemaではありません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_scenario_replay_v2.py"
       ]
     },
     {

@@ -96,6 +96,14 @@ class FourFamilyPortfolioReplayResult:
     families: tuple[PortfolioFamilyReplayOutcome, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _FourFamilyReplayExecution:
+    """Private common outcomes plus the policy used by the PPO arm."""
+
+    common_replay: FourFamilyPortfolioReplayResult
+    inference_policy: PortfolioPolicy
+
+
 def load_portfolio_inference_bundle(
     root: str | Path,
     *,
@@ -224,7 +232,7 @@ def _validated_initial_capital(value: object) -> float:
     return capital
 
 
-def run_four_family_shared_portfolio_replay(
+def _run_four_family_shared_portfolio_replay_core(
     *,
     dataset_artifact_root: str | Path,
     expected_dataset_artifact_sha256: str,
@@ -249,9 +257,10 @@ def run_four_family_shared_portfolio_replay(
     ridge_one_way_switch_cost: float | None,
     execution_cost: ExecutionCostConfig,
     risk_config: PreTradeRiskConfig,
+    inference_policy_loader: Callable[[SharedPortfolioGymEnv], PortfolioPolicy],
     market_order_profile: MarketOrderProfile | None = None,
     on_family_completed: Callable[[PortfolioFamilyReplayOutcome], None] | None = None,
-) -> FourFamilyPortfolioReplayResult:
+) -> _FourFamilyReplayExecution:
     """Run four fixed policy families through the same native shared-account path.
 
     All dataset, model, bundle, window, profile, cost, risk, and policy preflight
@@ -360,16 +369,8 @@ def run_four_family_shared_portfolio_replay(
         risk_config=risk_config,
         market_order_profile=market_order_profile,
     )
-    bundle_policy = load_portfolio_inference_bundle(
-        bundle_root,
-        expected_bundle_sha256=expected_bundle_sha256,
-        expected_manifest_sha256=expected_manifest_sha256,
-        expected_completion_sha256=expected_completion_sha256,
-        expected_training_context_sha256=expected_training_context_sha256,
-        expected_checkpoint_sha256=expected_checkpoint_sha256,
-        runtime_env=validation_env,
-    )
-    if not callable(getattr(bundle_policy, "decide_portfolio", None)):
+    inference_policy = inference_policy_loader(validation_env)
+    if not callable(getattr(inference_policy, "decide_portfolio", None)):
         raise TypeError("PPO bundle loader must return a portfolio inference policy")
 
     # Construct all arm-local actor and risk state before any replay begins.
@@ -393,7 +394,7 @@ def run_four_family_shared_portfolio_replay(
         cash_policy,
         trend_policy,
         ridge_policy,
-        bundle_policy,
+        inference_policy,
     )
     risk_controllers = tuple(PreTradeRisk(risk_config) for _ in _FAMILY_NAMES)
 
@@ -448,16 +449,102 @@ def run_four_family_shared_portfolio_replay(
         if on_family_completed is not None:
             on_family_completed(outcome)
 
-    return FourFamilyPortfolioReplayResult(
-        dataset_artifact=dataset_artifact,
-        dataset_id=dataset.dataset_id,
-        symbols=expected_symbols,
+    return _FourFamilyReplayExecution(
+        common_replay=FourFamilyPortfolioReplayResult(
+            dataset_artifact=dataset_artifact,
+            dataset_id=dataset.dataset_id,
+            symbols=expected_symbols,
+            start_index=start_index,
+            stop_index=stop_index,
+            ridge_artifact_digest=expected_ridge_artifact_sha256,
+            ppo_bundle_sha256=expected_bundle_sha256,
+            families=tuple(outcomes),
+        ),
+        inference_policy=inference_policy,
+    )
+
+
+def run_four_family_shared_portfolio_replay(
+    *,
+    dataset_artifact_root: str | Path,
+    expected_dataset_artifact_sha256: str,
+    expected_symbols: tuple[str, ...],
+    ridge_artifact_root: str | Path,
+    expected_ridge_artifact_sha256: str,
+    expected_ridge_binding: RidgeForecastArtifactBinding,
+    bundle_root: str | Path,
+    expected_bundle_sha256: str,
+    expected_manifest_sha256: str,
+    expected_completion_sha256: str,
+    expected_training_context_sha256: str,
+    expected_checkpoint_sha256: str,
+    bound: BoundObjectiveClock,
+    start_index: int,
+    stop_index: int,
+    initial_capital: float,
+    target_abs_weights: tuple[float, ...],
+    trend_config: TrendIntentConfig,
+    ridge_entry_threshold: float,
+    ridge_exit_threshold: float,
+    ridge_one_way_switch_cost: float | None,
+    execution_cost: ExecutionCostConfig,
+    risk_config: PreTradeRiskConfig,
+    market_order_profile: MarketOrderProfile | None = None,
+    on_family_completed: Callable[[PortfolioFamilyReplayOutcome], None] | None = None,
+) -> FourFamilyPortfolioReplayResult:
+    """Run four fixed policy families through the same native shared-account path.
+
+    All dataset, model, bundle, window, profile, cost, risk, and policy preflight
+    completes before the first arm starts. Each arm then receives a fresh policy,
+    pre-trade risk controller, native session, and ledger; immutable Dataset and
+    execution/risk/profile configuration values are shared. Early native
+    termination is retained with its raw replay and endpoint flags. When supplied,
+    ``on_family_completed`` receives each outcome immediately before the next arm
+    starts, so a later failure cannot hide already completed outcomes. Observer
+    failures propagate and stop the comparison; this function owns no journal or
+    attempt reservation.
+    """
+
+    def load_v1_policy(runtime_env: SharedPortfolioGymEnv) -> PortfolioPolicy:
+        return load_portfolio_inference_bundle(
+            bundle_root,
+            expected_bundle_sha256=expected_bundle_sha256,
+            expected_manifest_sha256=expected_manifest_sha256,
+            expected_completion_sha256=expected_completion_sha256,
+            expected_training_context_sha256=expected_training_context_sha256,
+            expected_checkpoint_sha256=expected_checkpoint_sha256,
+            runtime_env=runtime_env,
+        )
+
+    execution = _run_four_family_shared_portfolio_replay_core(
+        dataset_artifact_root=dataset_artifact_root,
+        expected_dataset_artifact_sha256=expected_dataset_artifact_sha256,
+        expected_symbols=expected_symbols,
+        ridge_artifact_root=ridge_artifact_root,
+        expected_ridge_artifact_sha256=expected_ridge_artifact_sha256,
+        expected_ridge_binding=expected_ridge_binding,
+        bundle_root=bundle_root,
+        expected_bundle_sha256=expected_bundle_sha256,
+        expected_manifest_sha256=expected_manifest_sha256,
+        expected_completion_sha256=expected_completion_sha256,
+        expected_training_context_sha256=expected_training_context_sha256,
+        expected_checkpoint_sha256=expected_checkpoint_sha256,
+        bound=bound,
         start_index=start_index,
         stop_index=stop_index,
-        ridge_artifact_digest=expected_ridge_artifact_sha256,
-        ppo_bundle_sha256=expected_bundle_sha256,
-        families=tuple(outcomes),
+        initial_capital=initial_capital,
+        target_abs_weights=target_abs_weights,
+        trend_config=trend_config,
+        ridge_entry_threshold=ridge_entry_threshold,
+        ridge_exit_threshold=ridge_exit_threshold,
+        ridge_one_way_switch_cost=ridge_one_way_switch_cost,
+        execution_cost=execution_cost,
+        risk_config=risk_config,
+        inference_policy_loader=load_v1_policy,
+        market_order_profile=market_order_profile,
+        on_family_completed=on_family_completed,
     )
+    return execution.common_replay
 
 
 __all__ = [

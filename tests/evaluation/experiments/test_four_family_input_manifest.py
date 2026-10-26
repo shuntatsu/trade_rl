@@ -125,6 +125,124 @@ def _identity(
     )
 
 
+def _market_order_profile(*, reduce_only_exits: bool = True):
+    import hashlib
+
+    import numpy as np
+
+    from trade_rl.data.market import MarketDataset
+    from trade_rl.integrations.binance.market_order_profile import (
+        build_usdm_market_order_profile,
+    )
+    from trade_rl.integrations.binance.metadata import BinanceExchangeInfoSnapshot
+
+    symbols = ("AAAUSDT",)
+    n_bars = 9
+    shape = (n_bars, len(symbols))
+    prices = np.full(shape, 100.0)
+    dataset = MarketDataset(
+        dataset_id="a" * 64,
+        symbols=symbols,
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((*shape, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=prices,
+        high=prices + 1.0,
+        low=prices - 1.0,
+        close=prices,
+        volume=np.full(shape, 1_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=bool),
+        feature_available=np.ones((*shape, 1), dtype=bool),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        minimum_notional=np.full(shape, 50.0),
+        lot_size=np.full(shape, 0.001),
+    ).with_content_identity({"fixture": "four-family-manifest-profile"})
+    payload = {
+        "symbols": [
+            {
+                "symbol": "AAAUSDT",
+                "status": "TRADING",
+                "baseAsset": "AAA",
+                "quoteAsset": "USDT",
+                "orderTypes": ["MARKET"],
+                "contractType": "PERPETUAL",
+                "marginAsset": "USDT",
+                "filters": [
+                    {
+                        "filterType": "PRICE_FILTER",
+                        "minPrice": "0.01",
+                        "maxPrice": "1000000",
+                        "tickSize": "0.01",
+                    },
+                    {
+                        "filterType": "LOT_SIZE",
+                        "minQty": "0.001",
+                        "maxQty": "1000",
+                        "stepSize": "0.001",
+                    },
+                    {
+                        "filterType": "MARKET_LOT_SIZE",
+                        "minQty": "0",
+                        "maxQty": "100",
+                        "stepSize": "0",
+                    },
+                    {"filterType": "MIN_NOTIONAL", "notional": "50"},
+                ],
+            }
+        ]
+    }
+    raw_payload = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    snapshot = BinanceExchangeInfoSnapshot(
+        payload=payload,
+        raw_payload=raw_payload,
+        source_uri="https://fapi.binance.com/fapi/v1/exchangeInfo",
+        retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
+        raw_payload_sha256=hashlib.sha256(raw_payload).hexdigest(),
+    )
+    return build_usdm_market_order_profile(
+        dataset,
+        snapshot,
+        selected_symbols=symbols,
+        account_mode="one_way",
+        reduce_only_exits=reduce_only_exits,
+    )
+
+
+def _manifest_with_market_order_profile(manifest, profile):
+    dataset = replace(
+        manifest.dataset,
+        dataset_id=profile.dataset_id,
+        symbols=profile.dataset_symbols,
+    )
+    ridge_binding = replace(
+        manifest.attempts[0].identity.expected_ridge_binding,
+        dataset_id=profile.dataset_id,
+        fit_symbol_names=profile.dataset_symbols,
+    )
+    attempts = tuple(
+        replace(
+            attempt,
+            identity=replace(
+                attempt.identity,
+                expected_symbols=profile.dataset_symbols,
+                expected_ridge_binding=ridge_binding,
+                market_order_profile=profile,
+            ),
+        )
+        for attempt in manifest.attempts
+    )
+    return replace(
+        manifest,
+        dataset=dataset,
+        attempts=attempts,
+        ppo_training=replace(manifest.ppo_training, market_order_profile=profile),
+    )
+
+
 @pytest.fixture
 def input_manifest() -> FourFamilyPostFreezeInputManifest:
     origin = datetime(2026, 1, 1, tzinfo=UTC)
@@ -240,6 +358,67 @@ def test_verify_bytes_requires_exact_canonical_expected_declaration(
                 ),
             ),
         )
+
+
+def test_non_null_market_profile_is_bound_in_ppo_and_both_attempts(
+    input_manifest,
+) -> None:
+    profile = _market_order_profile()
+    declared = _manifest_with_market_order_profile(input_manifest, profile)
+    raw = declared.to_bytes()
+    profile_payload = {
+        "declaration": profile.canonical_payload(),
+        "digest": profile.digest,
+    }
+
+    payload = json.loads(raw)
+    assert payload["ppo_training"]["market_order_profile"] == profile_payload
+    assert all(
+        attempt["identity_declaration"]["market_order_profile"] == profile_payload
+        for attempt in payload["attempts"]
+    )
+    assert verify_bytes(raw, expected=declared) is declared
+
+    changed_profile = _market_order_profile(reduce_only_exits=False)
+    assert changed_profile.digest != profile.digest
+    with pytest.raises(ValueError, match="financial declaration"):
+        replace(
+            declared,
+            ppo_training=replace(
+                declared.ppo_training, market_order_profile=changed_profile
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "changed_value"),
+    [("n_steps", 4), ("gae_lambda", 0.8)],
+)
+def test_valid_ppo_clock_mismatches_are_rejected(input_manifest, field, changed_value):
+    changed_config = replace(
+        input_manifest.ppo_training.config, **{field: changed_value}
+    )
+
+    with pytest.raises(ValueError, match="PPO config differs from the training clock"):
+        replace(
+            input_manifest,
+            ppo_training=replace(input_manifest.ppo_training, config=changed_config),
+        )
+
+
+def test_manifest_digest_matches_fixed_current_v1_compatibility_vector(
+    input_manifest,
+) -> None:
+    # Fixed domain-separated vector for this fixture; keep the expected value literal.
+    assert input_manifest.digest == (
+        "cd0fad5d97f957210429ddf8c9cb99e0c1084bad0a975084f28825c8eefb154b"
+    )
+
+    changed = replace(
+        input_manifest,
+        ppo_training=replace(input_manifest.ppo_training, transform_digest="e" * 64),
+    )
+    assert changed.digest != input_manifest.digest
 
 
 @pytest.mark.parametrize(

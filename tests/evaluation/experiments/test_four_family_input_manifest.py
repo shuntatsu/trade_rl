@@ -137,15 +137,16 @@ def _market_order_profile(*, reduce_only_exits: bool = True):
     from trade_rl.integrations.binance.metadata import BinanceExchangeInfoSnapshot
 
     symbols = ("AAAUSDT",)
-    shape = (6, len(symbols))
+    n_bars = 9
+    shape = (n_bars, len(symbols))
     prices = np.full(shape, 100.0)
     dataset = MarketDataset(
         dataset_id="a" * 64,
         symbols=symbols,
         timestamps=np.datetime64("2026-01-01", "ns")
-        + np.arange(6) * np.timedelta64(1, "h"),
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
         features=np.zeros((*shape, 1), dtype=np.float32),
-        global_features=np.zeros((6, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
         open=prices,
         high=prices + 1.0,
         low=prices - 1.0,

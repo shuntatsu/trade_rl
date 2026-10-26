@@ -106,6 +106,69 @@ class PortfolioInferenceBundleReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class _VerifiedPortfolioInferenceBundleInputs:
+    """Canonical bundle inputs verified before a runtime-specific admission."""
+
+    bundle_root: Path
+    training_context: dict[str, object]
+    training_manifest: dict[str, object]
+    transform: PortfolioObservationTransform
+    training_bound: BoundObjectiveClock
+    source_runtime: dict[str, object]
+    file_records: dict[str, dict[str, object]]
+
+
+def _predict_portfolio_action(
+    policy: Any,
+    transformed_observation: object,
+    action_space: gym.Space[Any],
+) -> np.ndarray:
+    prediction = policy.predict(transformed_observation, deterministic=True)
+    action = prediction[0] if isinstance(prediction, tuple) else prediction
+    resolved = np.asarray(action)
+    if (
+        resolved.ndim != 1
+        or resolved.dtype.kind not in "iu"
+        or not action_space.contains(resolved)
+    ):
+        raise ValueError("PPO returned an action outside its bound action space")
+    return resolved.copy()
+
+
+def _validate_portfolio_snapshot_window(
+    snapshot: PortfolioDecisionSnapshot,
+    *,
+    symbols: tuple[str, ...],
+    feature_names: tuple[str, ...],
+    global_feature_names: tuple[str, ...],
+    runtime_start_index: int,
+    runtime_agent_stop_index: int,
+    runtime_start_ns: int,
+    native_interval_seconds: int,
+) -> None:
+    if (
+        snapshot.symbols != symbols
+        or snapshot.feature_names != feature_names
+        or snapshot.global_feature_names != global_feature_names
+    ):
+        raise ValueError("snapshot roster differs from the bound policy")
+    if (
+        snapshot.agent_stop_index != runtime_agent_stop_index
+        or not runtime_start_index <= snapshot.index < runtime_agent_stop_index
+        or snapshot.remaining_decisions != runtime_agent_stop_index - snapshot.index
+    ):
+        raise ValueError("snapshot decision window differs from the bound policy")
+    expected_timestamp_ns = (
+        runtime_start_ns
+        + (snapshot.index - runtime_start_index)
+        * native_interval_seconds
+        * 1_000_000_000
+    )
+    if snapshot.timestamp_ns != expected_timestamp_ns:
+        raise ValueError("snapshot timestamp differs from the bound policy clock")
+
+
+@dataclass(frozen=True, slots=True)
 class PortfolioInferencePolicy:
     """Deterministic prediction facade bound to a validated forward environment."""
 
@@ -121,16 +184,7 @@ class PortfolioInferencePolicy:
         transformed = self._transform.transform_observation(
             raw_observation, runtime_binding=self.runtime_binding
         )
-        prediction = self._policy.predict(transformed, deterministic=True)
-        action = prediction[0] if isinstance(prediction, tuple) else prediction
-        resolved = np.asarray(action)
-        if (
-            resolved.ndim != 1
-            or resolved.dtype.kind not in "iu"
-            or not self._action_space.contains(resolved)
-        ):
-            raise ValueError("PPO returned an action outside its bound action space")
-        return resolved.copy()
+        return _predict_portfolio_action(self._policy, transformed, self._action_space)
 
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
@@ -144,31 +198,16 @@ class PortfolioInferencePolicy:
         if not isinstance(snapshot, PortfolioDecisionSnapshot):
             raise TypeError("snapshot must be a PortfolioDecisionSnapshot")
         binding = self.runtime_binding
-        if (
-            snapshot.symbols != self._transform.symbols
-            or snapshot.feature_names != self._transform.feature_names
-            or snapshot.global_feature_names != self._transform.global_feature_names
-        ):
-            raise ValueError("snapshot roster differs from the bound policy")
-        if (
-            snapshot.agent_stop_index != binding.runtime_agent_stop_index
-            or not (
-                binding.runtime_start_index
-                <= snapshot.index
-                < binding.runtime_agent_stop_index
-            )
-            or snapshot.remaining_decisions
-            != binding.runtime_agent_stop_index - snapshot.index
-        ):
-            raise ValueError("snapshot decision window differs from the bound policy")
-        expected_timestamp_ns = (
-            binding.runtime_start_ns
-            + (snapshot.index - binding.runtime_start_index)
-            * binding.native_interval_seconds
-            * 1_000_000_000
+        _validate_portfolio_snapshot_window(
+            snapshot,
+            symbols=self._transform.symbols,
+            feature_names=self._transform.feature_names,
+            global_feature_names=self._transform.global_feature_names,
+            runtime_start_index=binding.runtime_start_index,
+            runtime_agent_stop_index=binding.runtime_agent_stop_index,
+            runtime_start_ns=binding.runtime_start_ns,
+            native_interval_seconds=binding.native_interval_seconds,
         )
-        if snapshot.timestamp_ns != expected_timestamp_ns:
-            raise ValueError("snapshot timestamp differs from the bound policy clock")
         raw_observation = encode_portfolio_decision_snapshot(snapshot)
         action = self.predict(raw_observation)
         return portfolio_action_to_proposal(action, snapshot, self._target_abs_weights)
@@ -1481,52 +1520,7 @@ def publish_portfolio_inference_bundle(
         raise
 
 
-def _validate_runtime_environment(
-    runtime_env: SharedPortfolioGymEnv,
-    *,
-    transform: PortfolioObservationTransform,
-    training_bound: BoundObjectiveClock,
-    training_context: dict[str, object],
-) -> PortfolioObservationRuntimeBinding:
-    if not isinstance(runtime_env, SharedPortfolioGymEnv):
-        raise TypeError("runtime_env must be a SharedPortfolioGymEnv")
-    if runtime_env._session is not None:
-        raise ValueError("runtime_env must not have been reset before bundle loading")
-    financial = _strict_object(
-        training_context["financial_context"], field="financial_context"
-    )
-    profile_payload = financial["market_order_profile"]
-    current_profile = (
-        None
-        if runtime_env.market_order_profile is None
-        else runtime_env.market_order_profile.canonical_payload()
-    )
-    if (
-        tuple(runtime_env.target_abs_weights)
-        != tuple(cast(list[object], financial["target_abs_weights"]))
-        or canonical_json_bytes(to_json_value(runtime_env.execution_cost))
-        != canonical_json_bytes(financial["execution_cost"])
-        or canonical_json_bytes(to_json_value(runtime_env.risk_config))
-        != canonical_json_bytes(financial["risk_config"])
-        or canonical_json_bytes(current_profile)
-        != canonical_json_bytes(profile_payload)
-    ):
-        raise ValueError(
-            "runtime financial or target-weight context differs from training"
-        )
-    binding = PortfolioObservationRuntimeBinding.create(
-        transform, training_bound, runtime_env
-    )
-    layout = _strict_object(training_context["policy_layout"], field="policy_layout")
-    if (
-        _space_descriptor(transform.observation_space) != layout["observation_space"]
-        or _space_descriptor(runtime_env.action_space) != layout["action_space"]
-    ):
-        raise ValueError("runtime policy spaces differ from training")
-    return binding
-
-
-def load_portfolio_inference_bundle(
+def _verify_portfolio_inference_bundle_inputs(
     root: str | Path,
     *,
     expected_bundle_sha256: str,
@@ -1534,13 +1528,8 @@ def load_portfolio_inference_bundle(
     expected_completion_sha256: str,
     expected_training_context_sha256: str,
     expected_checkpoint_sha256: str,
-    runtime_env: SharedPortfolioGymEnv,
-) -> PortfolioInferencePolicy:
-    """Load a separately pinned bundle after validating its forward environment.
-
-    The checkpoint digest must be independently retained from a trusted training
-    completion receipt; a digest copied only from an untrusted bundle is not trust.
-    """
+) -> _VerifiedPortfolioInferenceBundleInputs:
+    """Verify pinned bundle bytes and training context without loading PPO."""
 
     for name, value in (
         ("expected_bundle_sha256", expected_bundle_sha256),
@@ -1643,17 +1632,31 @@ def load_portfolio_inference_bundle(
     )
     if not _source_runtime_matches(source_runtime, observed_runtime):
         raise ValueError("observed source/runtime differs from training")
-    runtime_binding = _validate_runtime_environment(
-        runtime_env,
+    return _VerifiedPortfolioInferenceBundleInputs(
+        bundle_root=bundle_root,
+        training_context=training_context,
+        training_manifest=training_manifest,
         transform=transform,
         training_bound=training_bound,
-        training_context=training_context,
+        source_runtime=source_runtime,
+        file_records=file_records,
     )
-    policy_path = _safe_member(bundle_root, "policy.zip", field="policy checkpoint")
-    checkpoint_size = file_records["policy.zip"]["size_bytes"]
+
+
+def _load_verified_bundle_policy(
+    verified: _VerifiedPortfolioInferenceBundleInputs,
+    *,
+    action_space: gym.Space[Any],
+) -> Any:
+    """Deserialize a checkpoint only after its caller's runtime checks pass."""
+
+    policy_path = _safe_member(
+        verified.bundle_root, "policy.zip", field="policy checkpoint"
+    )
+    checkpoint_size = verified.file_records["policy.zip"]["size_bytes"]
     with verified_private_copy(
         policy_path,
-        expected_digest=expected_checkpoint_sha256,
+        expected_digest=cast(str, verified.file_records["policy.zip"]["sha256"]),
         expected_size_bytes=cast(int, checkpoint_size),
         field="policy checkpoint",
         filename="policy.zip",
@@ -1665,18 +1668,99 @@ def load_portfolio_inference_bundle(
         policy_observation_space is None
         or policy_action_space is None
         or _space_descriptor(policy_observation_space)
-        != _space_descriptor(transform.observation_space)
-        or _space_descriptor(policy_action_space)
-        != _space_descriptor(runtime_env.action_space)
+        != _space_descriptor(verified.transform.observation_space)
+        or _space_descriptor(policy_action_space) != _space_descriptor(action_space)
     ):
         raise ValueError("loaded PPO policy spaces differ from the validated bundle")
     effective_config = _strict_object(
-        training_manifest["effective_config"], field="effective_config"
+        verified.training_manifest["effective_config"], field="effective_config"
     )
     _validate_loaded_policy_architecture(policy, effective_config=effective_config)
+    return policy
+
+
+def _validate_runtime_environment(
+    runtime_env: SharedPortfolioGymEnv,
+    *,
+    transform: PortfolioObservationTransform,
+    training_bound: BoundObjectiveClock,
+    training_context: dict[str, object],
+) -> PortfolioObservationRuntimeBinding:
+    if not isinstance(runtime_env, SharedPortfolioGymEnv):
+        raise TypeError("runtime_env must be a SharedPortfolioGymEnv")
+    if runtime_env._session is not None:
+        raise ValueError("runtime_env must not have been reset before bundle loading")
+    financial = _strict_object(
+        training_context["financial_context"], field="financial_context"
+    )
+    profile_payload = financial["market_order_profile"]
+    current_profile = (
+        None
+        if runtime_env.market_order_profile is None
+        else runtime_env.market_order_profile.canonical_payload()
+    )
+    if (
+        tuple(runtime_env.target_abs_weights)
+        != tuple(cast(list[object], financial["target_abs_weights"]))
+        or canonical_json_bytes(to_json_value(runtime_env.execution_cost))
+        != canonical_json_bytes(financial["execution_cost"])
+        or canonical_json_bytes(to_json_value(runtime_env.risk_config))
+        != canonical_json_bytes(financial["risk_config"])
+        or canonical_json_bytes(current_profile)
+        != canonical_json_bytes(profile_payload)
+    ):
+        raise ValueError(
+            "runtime financial or target-weight context differs from training"
+        )
+    binding = PortfolioObservationRuntimeBinding.create(
+        transform, training_bound, runtime_env
+    )
+    layout = _strict_object(training_context["policy_layout"], field="policy_layout")
+    if (
+        _space_descriptor(transform.observation_space) != layout["observation_space"]
+        or _space_descriptor(runtime_env.action_space) != layout["action_space"]
+    ):
+        raise ValueError("runtime policy spaces differ from training")
+    return binding
+
+
+def load_portfolio_inference_bundle(
+    root: str | Path,
+    *,
+    expected_bundle_sha256: str,
+    expected_manifest_sha256: str,
+    expected_completion_sha256: str,
+    expected_training_context_sha256: str,
+    expected_checkpoint_sha256: str,
+    runtime_env: SharedPortfolioGymEnv,
+) -> PortfolioInferencePolicy:
+    """Load a separately pinned bundle after validating its forward environment.
+
+    The checkpoint digest must be independently retained from a trusted training
+    completion receipt; a digest copied only from an untrusted bundle is not trust.
+    """
+
+    verified = _verify_portfolio_inference_bundle_inputs(
+        root,
+        expected_bundle_sha256=expected_bundle_sha256,
+        expected_manifest_sha256=expected_manifest_sha256,
+        expected_completion_sha256=expected_completion_sha256,
+        expected_training_context_sha256=expected_training_context_sha256,
+        expected_checkpoint_sha256=expected_checkpoint_sha256,
+    )
+    runtime_binding = _validate_runtime_environment(
+        runtime_env,
+        transform=verified.transform,
+        training_bound=verified.training_bound,
+        training_context=verified.training_context,
+    )
+    policy = _load_verified_bundle_policy(
+        verified,
+        action_space=runtime_env.action_space,
+    )
     return PortfolioInferencePolicy(
         _policy=policy,
-        _transform=transform,
+        _transform=verified.transform,
         _action_space=runtime_env.action_space,
         runtime_binding=runtime_binding,
         _target_abs_weights=tuple(runtime_env.target_abs_weights),

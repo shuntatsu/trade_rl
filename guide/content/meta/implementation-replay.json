@@ -34,13 +34,18 @@
     "PortfolioObservationRuntimeBinding",
     "run_four_family_portfolio_attempt",
     "load_four_family_portfolio_attempt",
-    "load_four_family_portfolio_result_artifact"
+    "load_four_family_portfolio_result_artifact",
+    "PortfolioRuntimeExecutionScenarioV2",
+    "PortfolioScenarioObservationRuntimeBindingV2",
+    "PortfolioScenarioGymObservationWrapperV2",
+    "PortfolioScenarioInferencePolicy",
+    "load_portfolio_scenario_inference_bundle"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "b083e6f37642d5ed6a656bbddfa2d78ea64187b43e6ea72a1e2bba036c165025"
+      "sha256": "adb458951b8c377dfd325933b644736f6b3476c8fdb8becf0380f61e9466ea96"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -50,7 +55,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "77a60f51e4286378f6682d4afdc9332ac470393dce98b155bc7c00992e15dde3"
+      "sha256": "ad42904013614710724f4d6932d28f8c3eeecf61a5d8e10a2ca801b799ff0eb1"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -194,7 +199,7 @@
       "id": "portfolio-inference-bundle",
       "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.load_portfolio_inference_bundle",
       "kind": "function",
-      "source_sha256": "6290a816f83d077b129770536272743767a438959a3be516aa8a43d90ca2c7c1",
+      "source_sha256": "c08db217e277ad500e492fc34d2344a3f1d51c1e8090cf126492b2e5df4bcd54",
       "label_ja": "学習attemptを検証するopt-in inference bundle",
       "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。",
       "variables": [],
@@ -207,7 +212,7 @@
       "id": "portfolio-inference-decision-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_inference_bundle.PortfolioInferencePolicy.decide_portfolio",
       "kind": "method",
-      "source_sha256": "57fbdc970caba18c40089e3ebfaa0c424f81d77b2bbdf5ef72dfa628a79af646",
+      "source_sha256": "e07a0f195ee137128152c53c5516a86c87ea083925c19d24a8f13ee59598e8e8",
       "label_ja": "bound PPOをnumeric portfolio policyとして呼ぶ",
       "description_ja": "snapshotのroster、decision window、native timestampをbundle bindingへ照合し、共有codecでexact-HOLDを含むnumeric proposalへ変換します。",
       "variables": [],
@@ -232,7 +237,7 @@
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "70e6c9f75f1a5af9e90652c4fae556f9e4ac25af5b145bdd6ffd335a5549b861",
+      "source_sha256": "cf4b212fda41e6b30ff762a78b4880ff054fdc25732add83d93a113702ac3ed8",
       "label_ja": "fit範囲と環境へbindする観測変換",
       "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
       "variables": [],
@@ -402,6 +407,57 @@
       "tests": [
         "tests/evaluation/test_portfolio_family_result_artifact.py",
         "tests/evaluation/test_portfolio_family_attempt.py"
+      ]
+    },
+    {
+      "id": "portfolio-scenario-inference-load",
+      "symbol": "trade_rl.strategies.rl.portfolio_scenario_inference.load_portfolio_scenario_inference_bundle",
+      "kind": "function",
+      "source_sha256": "99c2d2e9a0933ee2cfd7afe7091e0fccd190dd4902ea266369e820c006d0256c",
+      "label_ja": "scenario v2でfrozen PPOを検証してload",
+      "description_ja": "外部scenario/source/bundle pins、元のfit context、baseとruntimeのExecutionCostConfig、実際のforward environmentをcheckpoint deserialization前に検証します。v1 strict loader、fit統計、checkpoint weightsは変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_portfolio_scenario_inference_boundary.py"
+      ]
+    },
+    {
+      "id": "portfolio-scenario-runtime-binding-v2",
+      "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioScenarioObservationRuntimeBindingV2",
+      "kind": "class",
+      "source_sha256": "eb656d500b275e6537a1cb2b68e7204a51d95f8370809b554375668af18f00a0",
+      "label_ja": "fit windowとscenario runtime windowを別々にbind",
+      "description_ja": "元のtraining actor stop/base execution identityとruntime actor stop/runtime identity、scenario・source・context・transform・checkpoint anchorsを一つのversioned bindingに保持します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_portfolio_scenario_inference_boundary.py"
+      ]
+    },
+    {
+      "id": "portfolio-scenario-observation-wrapper-v2",
+      "symbol": "trade_rl.strategies.rl.portfolio_scenario_runtime.PortfolioScenarioGymObservationWrapperV2",
+      "kind": "class",
+      "source_sha256": "f714033ec2401951e872490f33d46fcc7679b0b128abbe7dbb8bf28a81323f62",
+      "label_ja": "runtime scenarioの観測をfrozen統計で変換",
+      "description_ja": "実際のforward SharedPortfolioGymEnvをbindingへ照合し、raw observationを同じv1 codecとfrozen transform statisticsで処理します。post-step変換失敗時はresetまでfail closedします。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_portfolio_scenario_inference_boundary.py"
+      ]
+    },
+    {
+      "id": "portfolio-scenario-inference-decision",
+      "symbol": "trade_rl.strategies.rl.portfolio_scenario_inference.PortfolioScenarioInferencePolicy.decide_portfolio",
+      "kind": "method",
+      "source_sha256": "e363a413f40e26ad33e472ea7f862fb0b7d02c735b449f231fbe4c5eda2d7642",
+      "label_ja": "scenario-bound PPOをnative snapshotから呼ぶ",
+      "description_ja": "runtime bindingとsnapshot roster/window/timestampを検証し、既存codecで同じjoint actionからnative numeric proposalを作ります。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py"
       ]
     }
   ]

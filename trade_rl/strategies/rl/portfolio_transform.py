@@ -40,6 +40,9 @@ PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA = "shared_portfolio_observation_transform
 PORTFOLIO_OBSERVATION_RUNTIME_BINDING_SCHEMA = (
     "shared_portfolio_observation_runtime_binding_v1"
 )
+PORTFOLIO_SCENARIO_OBSERVATION_RUNTIME_BINDING_SCHEMA = (
+    "shared_portfolio_scenario_observation_runtime_binding_v2"
+)
 PORTFOLIO_TRANSFORMED_OBSERVATION_SCHEMA = "shared_portfolio_dict_transform_v1"
 PORTFOLIO_TRANSFORMED_OBSERVATION_KEYS = PORTFOLIO_GYM_OBSERVATION_KEYS
 
@@ -445,6 +448,139 @@ class PortfolioObservationRuntimeBinding:
             raise ValueError("runtime window differs from the serialized binding")
         if self != expected:
             raise ValueError("runtime binding differs from current transform context")
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioScenarioObservationRuntimeBindingV2:
+    """Retain the distinct fit and runtime identities for scenario inference."""
+
+    training_context_sha256: str
+    transform_digest: str
+    checkpoint_sha256: str
+    scenario_sha256: str
+    scenario_inference_source_sha256: str
+    base_execution_policy_digest: str
+    training_execution_config_digest: str
+    runtime_execution_policy_digest: str
+    training_bound_digest: str
+    runtime_bound_digest: str
+    dataset_id: str
+    training_start_index: int
+    training_stop_index: int
+    training_agent_stop_index: int
+    runtime_start_index: int
+    runtime_stop_index: int
+    runtime_agent_stop_index: int
+    runtime_start_ns: int
+    runtime_horizon_seconds: int
+    native_interval_seconds: int
+    schema_version: str = PORTFOLIO_SCENARIO_OBSERVATION_RUNTIME_BINDING_SCHEMA
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.schema_version) is not str
+            or self.schema_version
+            != PORTFOLIO_SCENARIO_OBSERVATION_RUNTIME_BINDING_SCHEMA
+        ):
+            raise ValueError("scenario runtime binding schema is unsupported")
+        for name in (
+            "training_context_sha256",
+            "transform_digest",
+            "checkpoint_sha256",
+            "scenario_sha256",
+            "scenario_inference_source_sha256",
+            "base_execution_policy_digest",
+            "training_execution_config_digest",
+            "runtime_execution_policy_digest",
+            "training_bound_digest",
+            "runtime_bound_digest",
+            "dataset_id",
+        ):
+            require_sha256(getattr(self, name), field=name)
+        for name in (
+            "training_start_index",
+            "training_stop_index",
+            "training_agent_stop_index",
+            "runtime_start_index",
+            "runtime_stop_index",
+            "runtime_agent_stop_index",
+            "runtime_start_ns",
+            "runtime_horizon_seconds",
+            "native_interval_seconds",
+        ):
+            _native_int(getattr(self, name), field=name)
+        if not (
+            0
+            <= self.training_start_index
+            < self.training_agent_stop_index
+            <= self.training_stop_index
+            <= self.runtime_start_index
+            < self.runtime_agent_stop_index
+            <= self.runtime_stop_index
+        ):
+            raise ValueError("scenario runtime binding windows are inconsistent")
+        if self.runtime_horizon_seconds <= 0 or self.native_interval_seconds <= 0:
+            raise ValueError("scenario runtime horizon and cadence must be positive")
+        if (
+            self.runtime_horizon_seconds
+            != (self.runtime_stop_index - self.runtime_start_index)
+            * self.native_interval_seconds
+        ):
+            raise ValueError("scenario runtime horizon differs from its index window")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "schema": self.schema_version,
+            "training_context_sha256": self.training_context_sha256,
+            "transform_digest": self.transform_digest,
+            "checkpoint_sha256": self.checkpoint_sha256,
+            "scenario_sha256": self.scenario_sha256,
+            "scenario_inference_source_sha256": self.scenario_inference_source_sha256,
+            "base_execution_policy_digest": self.base_execution_policy_digest,
+            "training_execution_config_digest": self.training_execution_config_digest,
+            "runtime_execution_policy_digest": self.runtime_execution_policy_digest,
+            "training_bound_digest": self.training_bound_digest,
+            "runtime_bound_digest": self.runtime_bound_digest,
+            "dataset_id": self.dataset_id,
+            "training_start_index": self.training_start_index,
+            "training_stop_index": self.training_stop_index,
+            "training_agent_stop_index": self.training_agent_stop_index,
+            "runtime_start_index": self.runtime_start_index,
+            "runtime_stop_index": self.runtime_stop_index,
+            "runtime_agent_stop_index": self.runtime_agent_stop_index,
+            "runtime_start_ns": self.runtime_start_ns,
+            "runtime_horizon_seconds": self.runtime_horizon_seconds,
+            "native_interval_seconds": self.native_interval_seconds,
+        }
+
+    @property
+    def digest(self) -> str:
+        return content_digest(self.to_payload())
+
+
+def verify_portfolio_scenario_observation_runtime_binding_v2_bytes(
+    raw: bytes,
+    *,
+    expected: PortfolioScenarioObservationRuntimeBindingV2,
+    expected_digest: str,
+) -> PortfolioScenarioObservationRuntimeBindingV2:
+    """Verify canonical bytes against an externally pinned typed binding."""
+
+    if type(raw) is not bytes:
+        raise TypeError("raw must be bytes")
+    if type(expected) is not PortfolioScenarioObservationRuntimeBindingV2:
+        raise TypeError("expected must be PortfolioScenarioObservationRuntimeBindingV2")
+    require_sha256(expected_digest, field="expected_digest")
+    if expected.digest != expected_digest:
+        raise ValueError("expected digest differs from typed scenario binding")
+    if raw != canonical_json_bytes(expected.to_payload()):
+        raise ValueError("scenario runtime binding bytes differ from expected")
+    return expected
+
+
+_ObservationRuntimeBinding = (
+    PortfolioObservationRuntimeBinding | PortfolioScenarioObservationRuntimeBindingV2
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -866,6 +1002,51 @@ class PortfolioObservationTransform:
                 or runtime_binding.runtime_start_ns != expected_runtime_start_ns
             ):
                 raise ValueError("runtime binding belongs to a different transform")
+        return self._transform_observation(raw, runtime_binding=runtime_binding)
+
+    def transform_scenario_observation_v2(
+        self,
+        raw: object,
+        *,
+        runtime_binding: PortfolioScenarioObservationRuntimeBindingV2,
+    ) -> dict[str, np.ndarray]:
+        """Transform a raw snapshot under a separately validated v2 window."""
+
+        if type(runtime_binding) is not PortfolioScenarioObservationRuntimeBindingV2:
+            raise TypeError(
+                "runtime_binding must be exactly "
+                "PortfolioScenarioObservationRuntimeBindingV2"
+            )
+        expected_runtime_start_ns = (
+            self.objective_start_ns
+            + (runtime_binding.runtime_start_index - self.start_index)
+            * self.native_interval_seconds
+            * 1_000_000_000
+        )
+        if (
+            runtime_binding.transform_digest != self.digest
+            or runtime_binding.training_bound_digest != self.bound_digest
+            or runtime_binding.dataset_id != self.source_dataset_id
+            or runtime_binding.training_start_index != self.start_index
+            or runtime_binding.training_stop_index != self.stop_index
+            or runtime_binding.training_agent_stop_index != self.agent_stop_index
+            or runtime_binding.training_execution_config_digest
+            != self.execution_config_digest
+            or runtime_binding.runtime_start_index < self.stop_index
+            or runtime_binding.native_interval_seconds != self.native_interval_seconds
+            or runtime_binding.runtime_start_ns != expected_runtime_start_ns
+        ):
+            raise ValueError(
+                "scenario runtime binding belongs to a different transform"
+            )
+        return self._transform_observation(raw, runtime_binding=runtime_binding)
+
+    def _transform_observation(
+        self,
+        raw: object,
+        *,
+        runtime_binding: _ObservationRuntimeBinding | None,
+    ) -> dict[str, np.ndarray]:
         values, current_index, is_terminal = self._validated_raw(
             raw, runtime_binding=runtime_binding
         )
@@ -926,7 +1107,7 @@ class PortfolioObservationTransform:
         self,
         raw: object,
         *,
-        runtime_binding: PortfolioObservationRuntimeBinding | None = None,
+        runtime_binding: _ObservationRuntimeBinding | None = None,
     ) -> tuple[dict[str, np.ndarray], int, bool]:
         if not isinstance(raw, Mapping) or tuple(raw) != PORTFOLIO_GYM_OBSERVATION_KEYS:
             raise ValueError("raw observation keys or ordering differ from schema")
@@ -1131,7 +1312,7 @@ class PortfolioObservationTransform:
         account: np.ndarray,
         current_index: int,
         *,
-        runtime_binding: PortfolioObservationRuntimeBinding | None = None,
+        runtime_binding: _ObservationRuntimeBinding | None = None,
     ) -> np.ndarray:
         output = np.zeros((len(self.symbols), len(_ACTIVE_ORDER_OUTPUT_FIELDS)))
         window_start = (
@@ -1210,7 +1391,7 @@ class PortfolioObservationTransform:
         self,
         raw: np.ndarray,
         *,
-        runtime_binding: PortfolioObservationRuntimeBinding | None = None,
+        runtime_binding: _ObservationRuntimeBinding | None = None,
     ) -> np.ndarray:
         current_index = int(raw[0])
         timestamp_ns = int(raw[1])
@@ -1423,9 +1604,12 @@ class PortfolioGymObservationWrapper(gym.ObservationWrapper):
 __all__ = [
     "PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA",
     "PORTFOLIO_OBSERVATION_RUNTIME_BINDING_SCHEMA",
+    "PORTFOLIO_SCENARIO_OBSERVATION_RUNTIME_BINDING_SCHEMA",
     "PORTFOLIO_TRANSFORMED_OBSERVATION_SCHEMA",
     "PortfolioGymObservationWrapper",
     "PortfolioObservationRuntimeBinding",
     "PortfolioObservationTransform",
+    "PortfolioScenarioObservationRuntimeBindingV2",
     "fit_portfolio_observation_transform",
+    "verify_portfolio_scenario_observation_runtime_binding_v2_bytes",
 ]

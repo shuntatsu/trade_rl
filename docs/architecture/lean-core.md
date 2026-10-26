@@ -317,15 +317,27 @@ a raw step may have advanced. This does not make observations a complete account
 state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
 or change legacy PPO behavior.
 
-`PortfolioRuntimeExecutionScenarioV2` is a declaration-only versioned contract
-for a future opt-in runtime stress binding. It anchors a predeclared plan,
-training context, transform, checkpoint, and both full typed execution-cost
-policies; its explicit diff may change only fee/spread/impact/slippage fields,
-the cost multiplier, and order latency. It has no default stress coefficients
-or execution authority. Existing transform/runtime v1 matching stays strict,
-and this declaration alone does not validate Dataset, roster, risk, profile,
-capital, or clock invariants at runtime. Its opaque anchors are labels, not proof
-of those checks, prior fit provenance, stress adversity, or an economic result.
+`PortfolioRuntimeExecutionScenarioV2` is the typed declaration used by a
+separate opt-in scenario inference path. The v2 loader requires the typed
+declaration and external scenario digest, all existing bundle/context/checkpoint
+pins, and a separately expected current scenario-source digest. Before PPO
+deserialization it validates that the declared base execution policy matches
+the fitted context and the transform's existing execution-config digest, while
+the runtime policy matches the actual forward `SharedPortfolioGymEnv`. The
+versioned runtime binding retains both execution identities, the original fit
+and actor-stop window, the runtime bound/window/actor stop, and scenario,
+checkpoint, context, transform, and source identities. Fit statistics and
+checkpoint bytes stay unchanged: the training actor stop uses base latency,
+while runtime clock/order features and the native terminal reservation use
+runtime latency. A dedicated v2 observation wrapper checks the actual runtime
+environment before reset, each native step, and observation transformation;
+it poisons itself after a failed post-step transform. The v1 loader, binding, payloads, and strict full-cost
+matching remain unchanged; no compatibility bridge admits older selected
+source/runtime checkpoints. Selected source manifests are direct-owner records,
+not a complete transitive source or in-memory-code proof. The path does not yet
+wire scenarios into the four-family comparator or persisted result schema, and
+it establishes no economic validation, adversity, profitability, unused-period
+approval, or live eligibility.
 `PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
 It stores actual policy forward inputs, sampled action codes, the returned joint
 log-probability, and critic value before the caller advances the environment.

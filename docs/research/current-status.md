@@ -131,15 +131,21 @@ with `create` or `validate_environment`; the Gym wrapper performs this check.
 Deserialization alone checks the binding schema and digest, not live runtime
 context.
 
-The source also defines `PortfolioRuntimeExecutionScenarioV2`, a pure declaration
-for a separately planned runtime execution scenario. Its first version binds the
-training-context, transform, checkpoint, and plan digests to exact base/runtime
-`ExecutionCostConfig` declarations, allowing only the explicitly listed cost
-and order-latency fields to differ. It selects no numeric stress recipe and does
-not integrate with the inference loader or execute a fit/replay. Existing v1
-runtime matching remains strict; the opaque context anchor does not validate
-Dataset, risk, profile, roster, capital, or clock at runtime. This software
-contract changes no M34 result and is not financial or profitability evidence.
+The source defines `PortfolioRuntimeExecutionScenarioV2` and a separate
+opt-in v2 scenario inference loader. The declaration binds the training-context,
+transform, checkpoint, and plan digests to exact base/runtime
+`ExecutionCostConfig` declarations, allowing only its supported cost and
+order-latency fields to differ. The loader requires an external scenario digest
+and current v2 source digest, verifies the base policy against the fitted
+context, validates the actual forward Dataset/objective/clock/risk/profile/space
+context, and checks these conditions before deserializing the unchanged PPO
+checkpoint. It preserves the fitted statistics, uses base latency for the
+original training actor stop and runtime latency for the runtime actor window,
+and routes predictions through the existing native observation/action
+contracts. Existing v1 runtime matching and payloads remain strict. This is
+software capability only: scenarios are not yet wired into the four-family
+comparator or persisted result schema, select no numeric stress recipe, and
+change no M34 result or financial/profitability evidence.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Shared-portfolioのopt-in policy inference software path

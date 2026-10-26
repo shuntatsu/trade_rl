@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.clock import FinancialClockContract
 from trade_rl.simulation.objectives.contract import CapitalContract, ObjectiveContract
+from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 from trade_rl.strategies.rl.portfolio_training import (
     SharedPortfolioPPOConfig,
@@ -36,18 +38,18 @@ from trade_rl.strategies.rl.portfolio_transform import (
 _START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _dataset() -> MarketDataset:
-    close = np.full((8, 2), 100.0, dtype=np.float64)
+def _dataset(n_bars: int = 8) -> MarketDataset:
+    close = np.full((n_bars, 2), 100.0, dtype=np.float64)
     zeros = np.zeros_like(close)
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
-        len(close)
+        n_bars
     ) * np.timedelta64(1, "h")
     return MarketDataset(
         dataset_id="a" * 64,
         symbols=("AAA", "BBB"),
         timestamps=timestamps,
-        features=np.arange(16, dtype=np.float32).reshape(8, 2, 1),
-        global_features=np.arange(8, dtype=np.float32).reshape(8, 1),
+        features=np.arange(n_bars * 2, dtype=np.float32).reshape(n_bars, 2, 1),
+        global_features=np.arange(n_bars, dtype=np.float32).reshape(n_bars, 1),
         open=close.copy(),
         high=close.copy(),
         low=close.copy(),
@@ -57,7 +59,7 @@ def _dataset() -> MarketDataset:
         funding_due=None,
         borrow_rate=zeros.copy(),
         tradable=np.ones_like(close, dtype=np.bool_),
-        feature_available=np.ones((8, 2, 1), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
         feature_names=("literal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
@@ -76,6 +78,7 @@ def _environment(
     *,
     target_abs_weights: tuple[float, ...] = (0.5, 0.5),
     execution_cost: ExecutionCostConfig | None = None,
+    execution_observer: Callable[[StatefulExecutionObservation], None] | None = None,
 ) -> SharedPortfolioGymEnv:
     stop = _START + timedelta(hours=stop_index)
     bound = BoundObjectiveClock(
@@ -116,13 +119,16 @@ def _environment(
             drawdown_start=0.20,
             drawdown_stop=0.20,
         ),
+        execution_observer=execution_observer,
     )
 
 
-def _train_two_rollouts(root: Path) -> tuple[Any, MarketDataset, SharedPortfolioGymEnv]:
+def _train_two_rollouts(
+    root: Path, *, dataset: MarketDataset | None = None
+) -> tuple[Any, MarketDataset, SharedPortfolioGymEnv]:
     pytest.importorskip("torch")
     pytest.importorskip("stable_baselines3")
-    dataset = _dataset()
+    dataset = _dataset() if dataset is None else dataset
     training_env = _environment(dataset, 0, 5)
     transform = fit_portfolio_observation_transform(training_env)
     result = fit_shared_portfolio_ppo(
@@ -189,6 +195,23 @@ def published_bundle(
         result, tmp_path_factory.mktemp("bundle-publication") / "bundle"
     )
     return result, dataset, training_env, publication
+
+
+@pytest.fixture(scope="module")
+def scenario_published_bundle(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Any, MarketDataset, SharedPortfolioGymEnv, Any, dict[str, object]]:
+    root = tmp_path_factory.mktemp("scenario-bundle")
+    attempt_parent = root / "attempt"
+    attempt_parent.mkdir()
+    result, dataset, training_env = _train_two_rollouts(
+        attempt_parent, dataset=_dataset(n_bars=12)
+    )
+    publication = _publish(result, root / "published")
+    training_context = json.loads(
+        (result.output_root / "training_context.json").read_text(encoding="utf-8")
+    )
+    return result, dataset, training_env, publication, training_context
 
 
 def test_loaded_policy_decides_from_matching_portfolio_snapshot(
@@ -1364,3 +1387,373 @@ def test_failed_training_attempt_cannot_be_exported(
             expected_checkpoint_sha256="2" * 64,
         )
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("runtime_updates", "changed_fields"),
+    [
+        ({}, ()),
+        ({"fee_rate": 0.001}, ("fee_rate",)),
+        ({"order_latency_bars": 2}, ("order_latency_bars",)),
+        (
+            {"fee_rate": 0.001, "order_latency_bars": 2},
+            ("fee_rate", "order_latency_bars"),
+        ),
+    ],
+)
+def test_scenario_inference_loads_unchanged_policy_for_runtime_costs(
+    scenario_published_bundle: tuple[
+        Any, MarketDataset, SharedPortfolioGymEnv, Any, dict[str, object]
+    ],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_updates: dict[str, object],
+    changed_fields: tuple[str, ...],
+) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("stable_baselines3")
+    from trade_rl.strategies.rl.portfolio_runtime_scenario import (
+        PortfolioRuntimeExecutionScenarioV2,
+    )
+    from trade_rl.strategies.rl.portfolio_scenario_inference import (
+        load_portfolio_scenario_inference_bundle,
+    )
+    from trade_rl.strategies.rl.portfolio_scenario_runtime import (
+        capture_portfolio_scenario_inference_source_digest,
+    )
+
+    result, dataset, training_env, publication, training_context = (
+        scenario_published_bundle
+    )
+    base_cost = training_env.execution_cost
+    runtime_cost = replace(base_cost, **runtime_updates)
+    scenario = PortfolioRuntimeExecutionScenarioV2(
+        scenario_id=(
+            "base-software-test" if not changed_fields else "scenario-software-test"
+        ),
+        role="base" if not changed_fields else "diagnostic_stress",
+        scenario_plan_sha256="e" * 64,
+        training_context_sha256=result.training_context_sha256,
+        transform_digest=training_context["transform_digest"],
+        checkpoint_sha256=result.final_checkpoint_sha256,
+        base_execution_cost=base_cost,
+        runtime_execution_cost=runtime_cost,
+        changed_fields=changed_fields,
+    )
+    source_digest = capture_portfolio_scenario_inference_source_digest()
+    runtime_events: list[StatefulExecutionObservation] = []
+    runtime_env = _environment(
+        dataset,
+        5,
+        11,
+        execution_cost=runtime_cost,
+        execution_observer=runtime_events.append,
+    )
+    if changed_fields:
+        from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module
+
+        def must_not_deserialize(*args: object, **kwargs: object) -> object:
+            raise AssertionError("v1 cost mismatch must precede PPO deserialization")
+
+        with monkeypatch.context() as patcher:
+            patcher.setattr(
+                bundle_module, "_load_policy_from_verified_path", must_not_deserialize
+            )
+            with pytest.raises(
+                ValueError, match="runtime financial or target-weight context"
+            ):
+                _load(publication, runtime_env)
+
+    policy = load_portfolio_scenario_inference_bundle(
+        publication.root,
+        expected_bundle_sha256=publication.bundle_sha256,
+        expected_manifest_sha256=publication.training_manifest_sha256,
+        expected_completion_sha256=publication.training_completion_sha256,
+        expected_training_context_sha256=publication.training_context_sha256,
+        expected_checkpoint_sha256=publication.checkpoint_sha256,
+        expected_scenario=scenario,
+        expected_scenario_sha256=scenario.digest,
+        expected_scenario_inference_source_sha256=source_digest,
+        runtime_env=runtime_env,
+    )
+
+    assert policy._transform.digest == training_context["transform_digest"]
+    assert policy.runtime_binding.training_agent_stop_index == 4
+    assert policy.runtime_binding.runtime_agent_stop_index == (
+        11 - runtime_cost.order_latency_bars - 1
+    )
+    assert policy.runtime_binding.checkpoint_sha256 == result.final_checkpoint_sha256
+    assert policy.runtime_binding.runtime_execution_policy_digest == (
+        runtime_cost.execution_policy_digest
+    )
+    assert canonical_json_bytes(policy._transform.to_payload()) == canonical_json_bytes(
+        training_context["transform"]
+    )
+    assert runtime_env._session is None
+    raw, _ = runtime_env.reset(seed=43)
+    actual_action = policy.predict(raw)
+    assert np.array_equal(actual_action, policy.predict(raw))
+    assert runtime_env.action_space.contains(actual_action)
+    with pytest.raises(TypeError, match="PortfolioObservationRuntimeBinding"):
+        policy._transform.transform_observation(
+            raw, runtime_binding=policy.runtime_binding
+        )
+
+    actual_proposal = policy.decide_portfolio(runtime_env._snapshot())
+    assert len(actual_proposal.target_weights) == dataset.n_symbols
+
+    if runtime_cost.order_latency_bars:
+
+        class FixedLongPolicy:
+            def predict(
+                self, observation: object, *, deterministic: bool
+            ) -> tuple[np.ndarray, None]:
+                assert deterministic is True
+                assert isinstance(observation, dict)
+                return np.asarray([3, 3], dtype=np.int64), None
+
+        native_policy = replace(policy, _policy=FixedLongPolicy())
+        assert native_policy.decide_portfolio(
+            runtime_env._snapshot()
+        ).target_weights == (0.5, 0.5)
+        runtime_action = native_policy.predict(raw)
+        _, _, _, _, runtime_info = runtime_env.step(runtime_action)
+        assert runtime_info["current_index"] == 6
+        assert runtime_env._session is not None
+        assert runtime_env._session.agent_stop_index == 8
+        assert len(runtime_env._session.active_orders) == 2
+        assert {
+            order.intent.eligible_index for order in runtime_env._session.active_orders
+        } == {7}
+        assert any(
+            event.event_type == "latency_wait"
+            for observation in runtime_events
+            for event in observation.order_events
+        )
+        _, _, first_terminal, _, _ = policy._observation_wrapper.step(
+            np.asarray([1, 1], dtype=np.int64)
+        )
+        assert first_terminal is False
+        terminal_observation, _, terminated, _, _ = policy._observation_wrapper.step(
+            np.asarray([1, 1], dtype=np.int64)
+        )
+        assert terminated is True
+        assert policy._observation_wrapper.observation_space.contains(
+            terminal_observation
+        )
+        assert runtime_env._session.current_index == 11
+        assert runtime_env._session.agent_stop_index == 8
+        with pytest.raises(RuntimeError, match="unusable|episode has ended"):
+            policy._observation_wrapper.step(np.asarray([1, 1], dtype=np.int64))
+
+        base_events: list[StatefulExecutionObservation] = []
+        control_cost = replace(runtime_cost, order_latency_bars=0)
+        control_env = _environment(
+            dataset,
+            5,
+            11,
+            execution_cost=control_cost,
+            execution_observer=base_events.append,
+        )
+        control_env.reset(seed=43)
+        control_env.step(np.asarray([3, 3], dtype=np.int64))
+        assert control_env._session is not None
+        assert control_env._session.active_orders == ()
+        assert any(
+            event.event_type == "filled"
+            for observation in base_events
+            for event in observation.order_events
+        )
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        ("scenario_digest", "scenario digest differs"),
+        ("source_digest", "current scenario inference source differs"),
+        ("checkpoint_anchor", "scenario training, transform, or checkpoint anchor"),
+        ("runtime_cost", "runtime environment execution cost differs from scenario"),
+        (
+            "target_weights",
+            "runtime Dataset or financial context differs from training",
+        ),
+        ("already_reset", "must not have been reset"),
+    ],
+)
+def test_scenario_admission_rejects_context_before_checkpoint_load(
+    scenario_published_bundle: tuple[
+        Any, MarketDataset, SharedPortfolioGymEnv, Any, dict[str, object]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    message: str,
+) -> None:
+    from trade_rl.strategies.rl import portfolio_inference_bundle as bundle_module
+    from trade_rl.strategies.rl.portfolio_runtime_scenario import (
+        PortfolioRuntimeExecutionScenarioV2,
+    )
+    from trade_rl.strategies.rl.portfolio_scenario_inference import (
+        load_portfolio_scenario_inference_bundle,
+    )
+    from trade_rl.strategies.rl.portfolio_scenario_runtime import (
+        capture_portfolio_scenario_inference_source_digest,
+    )
+
+    result, dataset, training_env, publication, training_context = (
+        scenario_published_bundle
+    )
+    base_cost = training_env.execution_cost
+    declared_runtime_cost = replace(base_cost, order_latency_bars=1)
+    scenario = PortfolioRuntimeExecutionScenarioV2(
+        scenario_id="rejection-software-test",
+        role="diagnostic_stress",
+        scenario_plan_sha256="e" * 64,
+        training_context_sha256=result.training_context_sha256,
+        transform_digest=training_context["transform_digest"],
+        checkpoint_sha256=result.final_checkpoint_sha256,
+        base_execution_cost=base_cost,
+        runtime_execution_cost=declared_runtime_cost,
+        changed_fields=("order_latency_bars",),
+    )
+    runtime_cost = base_cost if failure == "runtime_cost" else declared_runtime_cost
+    target_weights = (0.4, 0.6) if failure == "target_weights" else (0.5, 0.5)
+    runtime_env = _environment(
+        dataset,
+        5,
+        11,
+        target_abs_weights=target_weights,
+        execution_cost=runtime_cost,
+    )
+    if failure == "already_reset":
+        runtime_env.reset(seed=47)
+    expected_source_digest = capture_portfolio_scenario_inference_source_digest()
+    if failure == "checkpoint_anchor":
+        scenario = replace(scenario, checkpoint_sha256="f" * 64)
+    if failure == "source_digest":
+        expected_source_digest = "0" * 64
+    expected_scenario_digest = scenario.digest
+    if failure == "scenario_digest":
+        expected_scenario_digest = "0" * 64
+
+    def must_not_deserialize(*args: object, **kwargs: object) -> object:
+        raise AssertionError("scenario rejection must precede PPO deserialization")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            bundle_module, "_load_policy_from_verified_path", must_not_deserialize
+        )
+        with pytest.raises(ValueError, match=message):
+            load_portfolio_scenario_inference_bundle(
+                publication.root,
+                expected_bundle_sha256=publication.bundle_sha256,
+                expected_manifest_sha256=publication.training_manifest_sha256,
+                expected_completion_sha256=publication.training_completion_sha256,
+                expected_training_context_sha256=publication.training_context_sha256,
+                expected_checkpoint_sha256=publication.checkpoint_sha256,
+                expected_scenario=scenario,
+                expected_scenario_sha256=expected_scenario_digest,
+                expected_scenario_inference_source_sha256=expected_source_digest,
+                runtime_env=runtime_env,
+            )
+
+
+def test_scenario_observation_wrapper_poisoning_requires_a_fresh_reset(
+    scenario_published_bundle: tuple[
+        Any, MarketDataset, SharedPortfolioGymEnv, Any, dict[str, object]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.strategies.rl.portfolio_runtime_scenario import (
+        PortfolioRuntimeExecutionScenarioV2,
+    )
+    from trade_rl.strategies.rl.portfolio_scenario_inference import (
+        load_portfolio_scenario_inference_bundle,
+    )
+    from trade_rl.strategies.rl.portfolio_scenario_runtime import (
+        capture_portfolio_scenario_inference_source_digest,
+    )
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationTransform,
+    )
+
+    result, dataset, training_env, publication, training_context = (
+        scenario_published_bundle
+    )
+    base_cost = training_env.execution_cost
+    runtime_cost = replace(base_cost, order_latency_bars=1)
+    scenario = PortfolioRuntimeExecutionScenarioV2(
+        scenario_id="wrapper-poison-software-test",
+        role="diagnostic_stress",
+        scenario_plan_sha256="e" * 64,
+        training_context_sha256=result.training_context_sha256,
+        transform_digest=training_context["transform_digest"],
+        checkpoint_sha256=result.final_checkpoint_sha256,
+        base_execution_cost=base_cost,
+        runtime_execution_cost=runtime_cost,
+        changed_fields=("order_latency_bars",),
+    )
+    runtime_env = _environment(dataset, 5, 11, execution_cost=runtime_cost)
+    policy = load_portfolio_scenario_inference_bundle(
+        publication.root,
+        expected_bundle_sha256=publication.bundle_sha256,
+        expected_manifest_sha256=publication.training_manifest_sha256,
+        expected_completion_sha256=publication.training_completion_sha256,
+        expected_training_context_sha256=publication.training_context_sha256,
+        expected_checkpoint_sha256=publication.checkpoint_sha256,
+        expected_scenario=scenario,
+        expected_scenario_sha256=scenario.digest,
+        expected_scenario_inference_source_sha256=(
+            capture_portfolio_scenario_inference_source_digest()
+        ),
+        runtime_env=runtime_env,
+    )
+    wrapper = policy._observation_wrapper
+    wrapper.reset(seed=53)
+    assert runtime_env._session is not None
+    current_index = runtime_env._session.current_index
+    runtime_env.execution_cost = replace(runtime_cost, taker_fee_rate=0.001)
+    with pytest.raises(ValueError, match="runtime environment execution cost"):
+        wrapper.step(np.asarray([1, 1], dtype=np.int64))
+    assert runtime_env._session.current_index == current_index
+    with pytest.raises(ValueError, match="runtime environment execution cost"):
+        wrapper.reset(seed=57)
+    assert runtime_env._session.current_index == current_index
+    runtime_env.execution_cost = runtime_cost
+    observation, _ = wrapper.reset(seed=59)
+    assert wrapper.observation_space.contains(observation)
+
+    original_transform = PortfolioObservationTransform.transform_scenario_observation_v2
+
+    def fail_transform(
+        self: PortfolioObservationTransform,
+        raw: object,
+        *,
+        runtime_binding: object,
+    ) -> dict[str, np.ndarray]:
+        del self, raw, runtime_binding
+        raise ValueError("synthetic post-step transform failure")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            PortfolioObservationTransform,
+            "transform_scenario_observation_v2",
+            fail_transform,
+        )
+        with pytest.raises(ValueError, match="post-step transform failure"):
+            wrapper.step(np.asarray([1, 1], dtype=np.int64))
+        assert runtime_env._session is not None
+        assert runtime_env._session.current_index == 6
+        assert "synthetic post-step transform failure" in (wrapper.last_failure or "")
+        with pytest.raises(RuntimeError, match="unusable; reset is required"):
+            policy.predict({})
+        with pytest.raises(RuntimeError, match="unusable; reset is required"):
+            wrapper.step(np.asarray([1, 1], dtype=np.int64))
+
+    monkeypatch.setattr(
+        PortfolioObservationTransform,
+        "transform_scenario_observation_v2",
+        original_transform,
+    )
+    observation, _ = wrapper.reset(seed=61)
+    assert wrapper.observation_space.contains(observation)
+    assert wrapper.last_failure is None

@@ -77,7 +77,7 @@ trade_rl/
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
+│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── portfolio_inference.py
@@ -231,6 +231,14 @@ use fixed absorbing padding. If transforming a result fails after the wrapped
 environment may have advanced, it records the failure and refuses another step
 until reset. This preprocessing does not create free/reserved cash, train a
 policy, refit on evaluation rows, or change legacy PPO defaults.
+The same owner provides a distinct `PortfolioScenarioObservationRuntimeBindingV2`
+and v2 transform entry point for explicitly admitted execution scenarios. The
+v2 binding keeps the original fit stop and training execution-config digest
+separate from the runtime actor stop and execution-policy digest; the existing
+v1 transform payload and accepted binding type remain unchanged. The runtime
+scenario wrapper rechecks its typed binding against the actual forward
+environment before reset and each native step, and fails closed after a
+post-step transform error.
 `strategies/rl/portfolio_runtime_scenario.py` owns only the immutable, versioned
 `PortfolioRuntimeExecutionScenarioV2` declaration. It binds caller-declared plan,
 training-context, transform, and checkpoint SHA-256 anchors to exact typed base
@@ -243,6 +251,20 @@ external expected digest, without reconstructing untrusted JSON. The owner does
 not load a model, validate Dataset/risk/profile/roster/capital/clock context,
 run a scenario, or establish calibration, provenance, gate approval, or economic
 performance. It is not re-exported by a package facade.
+`strategies/rl/portfolio_scenario_runtime.py` owns the v2 runtime binding
+construction, direct-owner source digest, and validating Gym observation
+wrapper. It compares the base policy with the verified training context and
+fitted transform, the runtime policy with the actual environment, and both
+execution identities with the declared scenario. Its selected source digest
+combines the existing selected source/runtime identity with the exact v2 owner
+files; neither manifest claims complete transitive or in-memory code closure.
+`strategies/rl/portfolio_scenario_inference.py` owns the explicit v2 bundle
+loader and deterministic policy adapter. It reuses the strict bundle-byte,
+training-context, source/runtime, checkpoint-copy, and loaded-policy checks,
+then validates scenario and runtime context before checkpoint deserialization.
+It shares the existing raw snapshot codec and native action proposal mapping.
+Neither module changes the v1 bundle schema or loader signature, is exported by
+a facade, wires the four-family comparator, or creates financial evidence.
 `a2c.py` owns explicit sequential CPU fitting, rollout rounding, and fit-scope
 metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions
@@ -380,6 +402,7 @@ The journal may wrap an observation-only Gym wrapper, but validates that the und
 `strategies/rl/portfolio_training.py` は明示的に呼び出す `fit_shared_portfolio_ppo` とその設定・結果型を所有する。これは1環境・CPUのopt-in PPO trainerで、actorのpolicy sampleをnative episode eventへ結び、rollout単位のcheckpoint・optimizer step呼出数・episode/join evidenceをwrite-once rootへ保存する。root予約前にrollout sizeとGAE lambdaが環境のbound financial clockに一致することを検証する。失敗時は利用可能なpartial evidenceを残し、完了扱いしない。failure receiptはhook登録後に観測したoptimizer post-step hook呼出数とSB3の報告するepoch counterを保持し、未初期化の場合はnullを記録する。target-KLはepoch途中で停止し得るため、このcounterは部分epochを含み得てoptimizer step数とは異なる。trainerは学習済みinference bundleやdeployment loaderを作らず、従来のper-symbol PPO入口・defaultにも接続しない。実行経路やソフトウェアテストは利益、候補選択、研究gateの通過を示さない。Torch/SB3はこのopt-in関数の呼出時にだけimportする。
 
 `strategies/rl/portfolio_inference_bundle.py` はtrainerが残したexact completed attemptから、別schemaのopt-in inference bundleをpublish/loadする。publisherはtraining manifest・completion receipt・context・checkpoint bytesを照合し、loaderはtrustedな外部digestとforward runtime bindingをSB3 policyのload前に検証する。verified checkpointのdeserialization後、実際のobservation/action spacesに加え、宣言されたMultiInput policy class・MLP widths・activation・default features extractorも照合してから推論facadeを返す。これはinference architectureの確認であり、optimizer stateや全training hyperparameterをcheckpointから再構成しない。source/runtime manifestは明示したselected owner群の観測であり、この経路ではDataset module `data.market` と共有timestamp normalizer `data._timestamps` を含むが、完全なtransitive source closureや過去fitの独立証明ではない。bundleはlegacy PPO artifact/API/defaultへ接続せず、推定性能・research gate・deployment readinessを示さない。Torch/SB3はpublisherまたはloaderの実行時だけimportする。
+このownerはv1のstrict loaderとscenario-v2 loaderが共有するprivate verified-input / checkpoint routinesも持つ。v1は全financial contextの一致を維持し、v2は別ownerでscenario-specific validationを済ませてから同じverified checkpoint loadへ進む。
 
 `forecasts/controller.py` exposes `CostAwareForecastIntentController.decide_for_position` for direct calls and the cost-aware Ridge / LightGBM adapter path. Adapters call it only when `one_way_switch_cost` is configured and the observation includes `intent_gross_budget`; other observations keep the intent-only controller call. The controller stays independent of execution, risk and replay. Canonical replay supplies filled quantity/weight and an optional matching cached target, then applies its existing minimum-hold, hard-risk, execution and accounting stages.
 

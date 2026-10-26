@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   source-only:
-    if: github.event.pull_request.number == 1017
+    if: github.event.pull_request.number == 1017 && github.event.pull_request.head.sha == '92da089d9a78a8532d959662fabe8868a4761c98'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -184,3 +184,51 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
           overwrite: false
+
+  receipt-readback:
+    if: github.event.pull_request.number == 1017
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify uploaded structural-only receipt and show its coverage counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIPT_ZIP: ${{ runner.temp }}/issue1016-source-receipt.zip
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12662792022/zip" > "$RECEIPT_ZIP"
+          python3 - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          source=Path(os.environ["RECEIPT_ZIP"])
+          sha=hashlib.sha256(source.read_bytes()).hexdigest()
+          assert sha=="458b387fc97a63c8303237a5e95706e041ee1c880b0a4d7454a5dc66a1fb5356", "receipt ZIP changed"
+          with zipfile.ZipFile(source) as z:
+              assert z.namelist()==["issue1016-structural.json"], "receipt member closure"
+              assert z.getinfo("issue1016-structural.json").file_size < 20000, "unexpected receipt size"
+              d=json.loads(z.read("issue1016-structural.json"))
+              assert d["schema"] == "issue1016_source_only_feature_structural_v1"
+              assert d["dataset_id"] == "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
+              assert d["raw_zip_sha256"] == "f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a"
+              assert d["dataset_artifact_digest"] == "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+              assert d["row_count_pre2023"] == 17519
+              assert d["proves_external_ingestion_clock"] is False and d["proves_prediction_value"] is False
+              expected_symbols={"BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"}
+              expected_features={"1h__linear_regression_slope_24bar","1h__trend_r2_24bar"}
+              rows=d["rows"]
+              assert len(rows)==20
+              assert {(r["year"],r["symbol"],r["feature"]) for r in rows} == {
+                  (year,symbol,feature) for year in (2021,2022)
+                  for symbol in expected_symbols for feature in expected_features
+              }, "coverage roster drift"
+              for r in rows:
+                  assert 0 <= r["fresh"] <= r["available"] <= r["rows"]
+                  assert r["fresh"]+r["carried"] == r["available"]
+              print(json.dumps({
+                "schema":d["schema"],"artifact_zip_sha256":sha,
+                "dataset_id":d["dataset_id"],"row_count_pre2023":d["row_count_pre2023"],
+                "feature_count":d["feature_count"],"selected_indices":d["selected_indices"],
+                "rows":sorted(rows,key=lambda r:(r["year"],r["symbol"],r["feature"])),
+                "external_ingestion_proven":False,"prediction_value_proven":False
+              },sort_keys=True,indent=2))
+          PY

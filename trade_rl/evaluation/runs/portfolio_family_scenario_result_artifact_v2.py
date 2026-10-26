@@ -11,7 +11,6 @@ from typing import cast
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes, freeze_json_value
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.evaluation.runs.portfolio_family_comparison import (
     _FAMILY_NAMES,
     FourFamilyPortfolioReplayResult,
@@ -237,13 +236,6 @@ def _publish_record(path: Path, record: object) -> bytes:
     raw = canonical_json_bytes(record)
     _publish_v1_record(path, raw)
     return raw
-
-
-def _read_regular_bytes(path: Path, *, field: str) -> bytes:
-    if path.is_symlink():
-        raise ValueError(f"{field} must not be a symlink")
-    with open_regular_binary(path, field=field) as handle:
-        return handle.read()
 
 
 def _attempt_file_inventory(root: Path) -> set[str]:

@@ -112,6 +112,8 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/artifact.py",
         "runs/portfolio_family_comparison.py",
         "runs/portfolio_family_scenario_replay_v2.py",
+        "runs/portfolio_family_scenario_attempt_v2.py",
+        "runs/portfolio_family_scenario_result_artifact_v2.py",
         "runs/portfolio_family_attempt.py",
         "runs/portfolio_family_result_artifact.py",
         "experiments/__init__.py",

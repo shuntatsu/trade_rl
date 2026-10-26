@@ -148,8 +148,11 @@ the declared runtime cost through the same four-arm native replay owner and
 returns an in-memory scenario-bound result. Before each arm and completion
 observer it rechecks the scenario/source pins and the loaded policy's runtime
 environment binding, stopping before further work or observation on a mismatch.
-It does not select a numeric stress recipe, create a durable attempt/result,
-change the completed M34 screen, or establish financial performance,
+The separate `run_four_family_portfolio_scenario_attempt_v2` wrapper can retain
+that software replay in a one-shot local v2 attempt, with native rows,
+before/after provenance and source records, and strict result reload before
+completion. This API addition did not rerun or change the completed M34 screen.
+It does not select a numeric stress recipe or establish financial performance,
 profitability, unused-period approval, or live eligibility.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 

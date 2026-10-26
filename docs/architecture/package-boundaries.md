@@ -106,7 +106,7 @@ trade_rl/
     │   ├── fold_metrics.py
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
-    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py}
+    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_scenario_attempt_v2.py,portfolio_family_scenario_result_artifact_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py}
     ├── final_test/{__init__.py,contracts.py,workflow.py}
     └── experiments/
         ├── errors.py
@@ -275,8 +275,14 @@ the scenario/source pin and loaded policy environment validation before each
 arm and completion observer; v1 leaves that hook unset. A failed check stops
 before the next arm or observer. `portfolio_family_comparison.py` retains its
 strict v1 signature and runtime-cost rejection while sharing that private loop.
-The v2 entry is not re-exported by `evaluation.runs`; it creates no durable
-attempt/result, selects no scenario recipe, and supplies no economic evidence.
+The v2 replay entry is not re-exported by `evaluation.runs`. The separate
+`portfolio_family_scenario_result_artifact_v2.py` owner validates the actual
+scenario binding and native rows, and `portfolio_family_scenario_attempt_v2.py`
+provides its one-shot local wrapper and strict attempt loader. The v2 artifact
+has its own external identity and expected result digest, records before/after
+provenance plus scenario-source pins, and preserves completed rows on failure;
+it does not alter or bridge the v1 attempt/result schemas. These owners select
+no scenario recipe and supply no economic evidence.
 `a2c.py` owns explicit sequential CPU fitting, rollout rounding, and fit-scope
 metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions
@@ -466,8 +472,9 @@ Gym/SB3 imports are local to the callable path.
 - `portfolio_family_comparison.py`: caller-pinned Dataset、Ridge artifact、joint-PPO bundle、fixed roster/window/configをpreflightし、cash・fixed Trend・Ridge・joint PPOを順に既存のnative shared-portfolio replayへ渡すin-memory comparatorである。全armの検証・policy/risk構築を最初のreplay前に完了し、armごとにfresh policy/risk/sessionを使う一方、同一Datasetとimmutable execution/risk/profile config valuesを共有する。native early terminationは完了扱いへ変換せず、raw outcomeとwindow/termination/insolvency/terminal flagsを保持する。optional `on_family_completed` observerは各outcomeを次armの前に渡し、later-armまたはobserver failureを即時伝播する。ownerはattempt reservation、journal、artifact publication、fit、winner selection、research approvalを行わない。
 - `portfolio_family_result_artifact.py`: caller-declared identityとfour-family resultsをcanonical, digest-bound filesへwrite-once保存し、started record、各native family row、result manifest、provenance、Dataset identityをstrict reloadで照合する。新規identityではoptionalな`ridge_one_way_switch_cost`をfloatへ正規化する。publisherはmanifest書込み前にstarted recordの正規identity・rootsと、failure/complete markerや余分なentryのないpre-result inventoryを検証する。v1保存結果は、他のidentity fieldがcanonical bytesで一致し、このfieldだけが同値の非負な正確なint表現なら、元のidentity digestとresult/started identityの一致を検証して読み込める。ledgerの独立した第二計算や、nested native eventの再解釈は行わない。
 - `portfolio_family_attempt.py`: comparatorをone-shot local attempt rootへ接続する薄いwrapperである。各family outcomeを次arm開始前に保存し、strict result reloadの後にだけcomplete markerを書く。failure journalが書ける場合は失敗phaseと先に保存したfamily rowsを残し、journal自体の失敗では元例外を維持して二次書込errorを注記する。failure/completionが併存するrootはpublic loaderが拒否する。global retry budget、fit、winner選択、research approvalは所有しない。
+- `portfolio_family_scenario_result_artifact_v2.py` と `portfolio_family_scenario_attempt_v2.py`: declared scenario用の別v2 identity/result schemaとone-shot local attempt/loadを所有する。actual replay binding、source/provenance records、native rowsをexternal identity/result digestに対してstrictに照合し、各arm rowを次armの前に保存する。v1 payloadやloaderへ接続せず、帳簿を再計算せず、scenario選択やeconomic resultも所有しない。
 
-`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance construction、v1 fixed four-family comparison/attempt、result loader、および`supports_shared_cash_result_schema` queryのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py`、`ridge_artifact_comparison.py`、`ridge_comparison_artifact.py`、`ridge_comparison_attempt.py`、`portfolio_family_comparison.py`、`portfolio_family_attempt.py`、`portfolio_family_result_artifact.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。`portfolio_family_scenario_replay_v2.py` はexplicit opt-in v2 evaluation ownerだが、Tier-2 facadeへ追加しない。`evaluation/experiments/` を含むproduction codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
+`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance construction、v1 fixed four-family comparison/attempt、result loader、および`supports_shared_cash_result_schema` queryのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py`、`ridge_artifact_comparison.py`、`ridge_comparison_artifact.py`、`ridge_comparison_attempt.py`、`portfolio_family_comparison.py`、`portfolio_family_attempt.py`、`portfolio_family_result_artifact.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。`portfolio_family_scenario_replay_v2.py`、`portfolio_family_scenario_attempt_v2.py`、`portfolio_family_scenario_result_artifact_v2.py` はexplicit opt-in v2 ownersであり、Tier-2 facadeへ追加しない。`evaluation/experiments/` を含むproduction codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
 
 `runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`contracts/research.py` の `StudyResearchContext` / `ConsumedEvidence` はStudyをまたいで既知development evidenceが次の研究定義へ流入した事実をmachine-readableに表し、context-bound `StudyPlan` digestの一部となる。これはresult/selection oracleではなくprovenance authorityである。`contracts/study.py` がversioned `StudyProtocol` identityと、PPO holding-duration protocolの完全一致risk profileを所有し、`protocols.py` はv1 independent-account / v2 shared-cash result eligibilityとwinner orderingをpure selectorとして共有する。`analysis.py` はv3 seed-symbol comparisonとv4 combined shared-cash portfolio comparisonを所有し、v4はpersisted portfolio seriesから再計算されたreturn / drawdownを選定へ渡す。`codec.py` はpersisted JSONから既存contractへのfail-closed decodeとstable payload/identity変換を所有し、`inspection.py` はdisk graphからのread-only state reconstruction・tamper validation・`inspect_study`を所有する。`workflow.py` はmutation lock下のcommand orchestrationだけを所有し、各mutation前のdisk再構築と既存failure-injection seamを維持する。
 

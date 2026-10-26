@@ -51,6 +51,7 @@ artifacts / evidence
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
 | cash / fixed rule / Ridge / joint PPOのin-memory native比較 | `trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay` |
 | declared runtime scenarioで4方式を同じnative coreへ接続 | `trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.run_four_family_shared_portfolio_scenario_replay_v2` |
+| scenario v2のfour-family attemptとstrict result reload | `trade_rl.evaluation.runs.portfolio_family_scenario_attempt_v2.run_four_family_portfolio_scenario_attempt_v2` / `load_four_family_portfolio_scenario_attempt_v2` |
 | 固定4方式attemptの予約・逐次journal・strict completion | `trade_rl.evaluation.runs.portfolio_family_attempt.run_four_family_portfolio_attempt` / `load_four_family_portfolio_attempt` |
 | fixed four-family resultのstrict artifact reload | `trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |

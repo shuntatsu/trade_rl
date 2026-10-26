@@ -342,10 +342,16 @@ validates the loaded PPO policy's bound runtime environment before each arm and
 before each completion observer. A mismatch stops before the next arm or before
 an observer receives the completed outcome; the strict v1 entry leaves this
 private boundary check unset.
-It returns an in-memory result only: it does not add a durable scenario result
-schema or attempt, select a numeric stress recipe, or establish economic
-validation, adversity, profitability, unused-period approval, or live
-eligibility.
+The in-memory entry remains separate from the opt-in
+`run_four_family_portfolio_scenario_attempt_v2` one-shot local wrapper. That
+wrapper records a versioned external identity, started marker, before/after
+provenance and scenario-source records, and each existing native family row
+before starting the next arm. A strict result reload checks the caller-held
+identity and expected result digest before completion; failures retain the
+primary error and rows already written. This is software-integrity evidence:
+it does not select a numeric stress recipe, repeat native accounting, alter the
+v1 artifact schema, or establish economic validation, profitability,
+unused-period approval, or live eligibility.
 `PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
 It stores actual policy forward inputs, sampled action codes, the returned joint
 log-probability, and critic value before the caller advances the environment.

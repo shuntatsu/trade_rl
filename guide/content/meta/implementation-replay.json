@@ -37,6 +37,8 @@
     "run_four_family_portfolio_attempt",
     "load_four_family_portfolio_attempt",
     "load_four_family_portfolio_result_artifact",
+    "run_four_family_portfolio_scenario_attempt_v2",
+    "load_four_family_portfolio_scenario_attempt_v2",
     "PortfolioRuntimeExecutionScenarioV2",
     "PortfolioScenarioObservationRuntimeBindingV2",
     "PortfolioScenarioGymObservationWrapperV2",
@@ -47,7 +49,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "72821a679c4f072b4657968c9e8ad2899ac19f02807c9ce978ccd642ca6cad25"
+      "sha256": "bb58fcd27e9a27300d349786a071e16603d96a58a33c929055dd04bdea694506"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -57,7 +59,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "a664658d503d6b98dbfc53d7648655f0eb1e972498eec1da3ed93c6289e138cd"
+      "sha256": "14c4cccfc42fa0bdcde3dd0dd07ff591f70da7cf5fb830cd9694fe4075604480"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -392,10 +394,36 @@
       "kind": "class",
       "source_sha256": "a0635d7f97969fcd51017a28f1c641d313f2759545f9555d9daa12405fa69076",
       "label_ja": "四方式scenario結果を実bindingへ結合",
-      "description_ja": "同じnative four-arm resultとactual scenario declaration/source/bindingをin-memoryで保持します。durable result/attempt schemaや独立経済証拠は含みません。",
+      "description_ja": "同じnative four-arm resultとactual scenario declaration/source/bindingをin-memoryで保持します。durable schemaは別のscenario attempt ownerが扱い、独立経済証拠は含みません。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_portfolio_family_scenario_replay_v2.py"
+      ]
+    },
+    {
+      "id": "four-family-scenario-attempt-v2-run",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_attempt_v2.run_four_family_portfolio_scenario_attempt_v2",
+      "kind": "function",
+      "source_sha256": "61441b6658fa8647c91fe03f3325770c5703eb8f106bf609804cc68793870c1b",
+      "label_ja": "scenario v2のfour-family attemptを実行",
+      "description_ja": "外部identityとsource pinsを照合し、既存native arm rowsを各arm直後に保存します。strict result reloadが成功した後だけcomplete markerを書きます。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_scenario_attempt_v2.py",
+        "tests/architecture/test_portfolio_family_scenario_attempt_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "four-family-scenario-attempt-v2-load",
+      "symbol": "trade_rl.evaluation.runs.portfolio_family_scenario_attempt_v2.load_four_family_portfolio_scenario_attempt_v2",
+      "kind": "function",
+      "source_sha256": "efb245a56043bc221d889d658e81b298517e6fc03d01548ff3dcefa52a361cb9",
+      "label_ja": "scenario v2の完了attemptを検証",
+      "description_ja": "failureのないcompletion、caller-held identity、expected result digest、scenario source pins、Datasetと四つのnative rowsをstrictに照合します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_portfolio_family_scenario_attempt_v2.py",
+        "tests/architecture/test_portfolio_family_scenario_attempt_v2_boundary.py"
       ]
     },
     {

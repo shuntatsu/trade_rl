@@ -144,6 +144,7 @@ def _built_shape(
     *,
     delayed_index: int | None = None,
     delayed_close_multiplier: float = 1.0,
+    delayed_lag_ns: int = 3_600_000_000_000,
     delisted_at: datetime | None = None,
 ) -> MarketDataset:
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
@@ -154,7 +155,7 @@ def _built_shape(
     close[35] *= delayed_close_multiplier
     available_at = timestamps.copy()
     if delayed_index is not None:
-        available_at[delayed_index] += np.timedelta64(1, "h")
+        available_at[delayed_index] += np.timedelta64(delayed_lag_ns, "ns")
     raw = RawMarketSeries(
         timestamps=timestamps,
         available_at=available_at,
@@ -196,18 +197,22 @@ def _built_shape(
     )
 
 
-def test_delayed_native_close_is_bounded_carry_not_fresh_shape() -> None:
-    original = _built_shape(delayed_index=35)
+@pytest.mark.parametrize("lag_ns", (1, 3_600_000_000_000))
+def test_delayed_native_close_is_bounded_carry_not_fresh_shape(lag_ns: int) -> None:
+    original = _built_shape(delayed_index=35, delayed_lag_ns=lag_ns)
     poisoned = _built_shape(
         delayed_index=35,
         delayed_close_multiplier=9.0,
+        delayed_lag_ns=lag_ns,
     )
     assert original.feature_names == ("slope24", "r2_24")
     assert original.dataset_id != poisoned.dataset_id
     assert original.information_available is not None
     assert not original.information_available[35, 0]
     assert original.available_at is not None
-    assert original.available_at[35, 0] == original.timestamps[36]
+    assert original.available_at[35, 0] == original.timestamps[35] + np.timedelta64(
+        lag_ns, "ns"
+    )
 
     # The delayed close is censored from new shape events, including the
     # 24-bar windows spanning it. No later bar can launder it into a feature.
@@ -258,3 +263,75 @@ def test_delisting_clears_stale_shape_carry_at_the_exact_row() -> None:
     np.testing.assert_array_equal(
         delisted.features[35:, 0], np.zeros((30, 2), dtype=np.float32)
     )
+
+
+def test_shape_dataset_is_invariant_to_symbol_order() -> None:
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        65
+    ) * np.timedelta64(1, "h")
+    phase = np.arange(65, dtype=np.float64)
+    closes = {
+        "BTCUSDT": 100.0 * np.exp(0.003 * phase + 0.018 * np.sin(phase / 5.0)),
+        "ETHUSDT": 210.0 * np.exp(-0.001 * phase + 0.025 * np.cos(phase / 7.0)),
+    }
+    source = InMemoryMarketDataSource(
+        {
+            symbol: RawMarketSeries(
+                timestamps=timestamps,
+                open=close.copy(),
+                high=close * 1.001,
+                low=close * 0.999,
+                close=close,
+                volume=np.full(65, 1000.0),
+                funding_rate=np.zeros(65),
+                tradable=np.ones(65, dtype=np.bool_),
+            )
+            for symbol, close in closes.items()
+        }
+    )
+    builder = MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=(
+                FeatureSpec(
+                    name="slope24",
+                    kind=FeatureKind.LINEAR_REGRESSION_SLOPE,
+                    lookback=24,
+                ),
+                FeatureSpec(
+                    name="r2_24",
+                    kind=FeatureKind.TREND_R2,
+                    lookback=24,
+                ),
+            ),
+        )
+    )
+
+    def build(symbols: tuple[str, ...]) -> MarketDataset:
+        return builder.build(
+            source,
+            tuple(
+                InstrumentContract(
+                    symbol=symbol,
+                    listed_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+                for symbol in symbols
+            ),
+        )
+
+    forward = build(("BTCUSDT", "ETHUSDT"))
+    reverse = build(("ETHUSDT", "BTCUSDT"))
+    assert forward.symbols == tuple(reversed(reverse.symbols))
+    for first, symbol in enumerate(forward.symbols):
+        second = reverse.symbols.index(symbol)
+        np.testing.assert_array_equal(
+            forward.features[:, first], reverse.features[:, second]
+        )
+        np.testing.assert_array_equal(
+            forward.feature_available[:, first],
+            reverse.feature_available[:, second],
+        )
+        np.testing.assert_array_equal(
+            forward.resolved_array("feature_staleness")[:, first],
+            reverse.resolved_array("feature_staleness")[:, second],
+        )

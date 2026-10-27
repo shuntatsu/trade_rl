@@ -21,10 +21,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.contract import net_equity_increment
 from trade_rl.simulation.orders.model import (
-    OrderStatus,
-    OrderType,
     PendingOrder,
-    TimeInForce,
 )
 from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
 from trade_rl.strategies.portfolio import (
@@ -34,97 +31,26 @@ from trade_rl.strategies.portfolio import (
 from trade_rl.strategies.portfolio_observation import (
     build_portfolio_decision_snapshot,
 )
+from trade_rl.strategies.portfolio_policy_codec import (
+    ACTION_CODES,
+    ACTION_FLAT,
+    ACTION_HOLD,
+    ACTION_LONG,
+    ACTION_SHORT,
+    ACTIVE_ORDER_FIELDS,
+    PORTFOLIO_GYM_OBSERVATION_KEYS,
+    PORTFOLIO_GYM_OBSERVATION_SCHEMA,
+    PORTFOLIO_STATE_FIELDS,
+    RISK_STATE_FIELDS,
+    decode_portfolio_action_codes,
+    encode_portfolio_active_orders,
+    encode_portfolio_decision_snapshot,
+    portfolio_action_to_proposal,
+)
 
 if TYPE_CHECKING:
     from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 
-ACTION_HOLD = 0
-ACTION_SHORT = 1
-ACTION_FLAT = 2
-ACTION_LONG = 3
-ACTION_CODES = (ACTION_HOLD, ACTION_SHORT, ACTION_FLAT, ACTION_LONG)
-
-PORTFOLIO_GYM_OBSERVATION_SCHEMA = "shared_portfolio_gym_observation_v1"
-PORTFOLIO_GYM_OBSERVATION_KEYS = (
-    "features",
-    "feature_available",
-    "feature_staleness",
-    "global_features",
-    "global_feature_available",
-    "account",
-    "portfolio",
-    "risk",
-    "active_orders",
-    "clock",
-    "terminal",
-)
-PORTFOLIO_STATE_FIELDS = (
-    "cash",
-    "portfolio_value",
-    "peak_value",
-    "max_drawdown",
-    "turnover_total",
-    "total_cost",
-    "funding_pnl",
-    "borrow_cost",
-    "margin_used",
-    "maintenance_margin",
-    "maintenance_requirement",
-    "margin_deficit",
-    "insolvent",
-    "termination_reason_code",
-)
-RISK_STATE_FIELDS = (
-    "max_gross",
-    "max_abs_weight",
-    "max_turnover",
-    "has_max_turnover",
-    "drawdown_start",
-    "drawdown_stop",
-    "emergency_turnover_override",
-    "fail_closed_tolerance",
-)
-ACTIVE_ORDER_FIELDS = (
-    "present",
-    "order_type_code",
-    "time_in_force_code",
-    "status_code",
-    "requested_quantity",
-    "remaining_quantity",
-    "reduce_only",
-    "submit_index",
-    "eligible_index",
-    "has_last_processed_index",
-    "last_processed_index",
-    "has_trigger_index",
-    "trigger_index",
-    "has_expiry_index",
-    "expiry_index",
-    "has_limit_price",
-    "limit_price",
-    "has_stop_price",
-    "stop_price",
-    "has_submission_reference_price",
-    "submission_reference_price",
-)
-
-_ORDER_TYPE_CODES = {
-    OrderType.MARKET.value: 1,
-    OrderType.LIMIT.value: 2,
-    OrderType.STOP_MARKET.value: 3,
-}
-_TIME_IN_FORCE_CODES = {
-    TimeInForce.IOC.value: 1,
-    TimeInForce.DAY.value: 2,
-    TimeInForce.GTC.value: 3,
-}
-_ORDER_STATUS_CODES = {
-    status.value: index for index, status in enumerate(OrderStatus, start=1)
-}
-_TERMINATION_REASON_CODES = {
-    reason.value: index
-    for index, reason in enumerate(EconomicTerminationReason, start=1)
-}
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
@@ -426,18 +352,7 @@ class SharedPortfolioGymEnv(gym.Env):
         return self._session
 
     def _validated_action(self, action: object) -> tuple[int, ...]:
-        if isinstance(action, (tuple, list)) and any(
-            isinstance(value, (bool, np.bool_)) for value in action
-        ):
-            raise TypeError("action codes may not contain booleans")
-        values = np.asarray(action)
-        if values.shape != (self.dataset.n_symbols,):
-            raise ValueError("action must contain exactly one code per symbol")
-        if values.dtype.kind not in "iu":
-            raise TypeError("action codes must be integers, not booleans or floats")
-        if np.any(values < ACTION_HOLD) or np.any(values > ACTION_LONG):
-            raise ValueError("action code is outside the declared action space")
-        return tuple(int(value) for value in values)
+        return decode_portfolio_action_codes(action, n_symbols=self.dataset.n_symbols)
 
     def _snapshot(self) -> PortfolioDecisionSnapshot:
         session = self._require_live_session()
@@ -455,155 +370,20 @@ class SharedPortfolioGymEnv(gym.Env):
         codes: tuple[int, ...],
         snapshot: PortfolioDecisionSnapshot,
     ) -> tuple[tuple[float, ...], tuple[int, ...]]:
-        weights: list[float] = []
-        holds: list[int] = []
-        for symbol_index, code in enumerate(codes):
-            if code == ACTION_HOLD:
-                weights.append(snapshot.account.weights[symbol_index])
-                holds.append(symbol_index)
-            elif code == ACTION_SHORT:
-                weights.append(-self.target_abs_weights[symbol_index])
-            elif code == ACTION_FLAT:
-                weights.append(0.0)
-            elif code == ACTION_LONG:
-                weights.append(self.target_abs_weights[symbol_index])
-            else:
-                raise ValueError("action code is not supported")
-        return tuple(weights), tuple(holds)
+        proposal = portfolio_action_to_proposal(
+            codes, snapshot, self.target_abs_weights
+        )
+        return proposal.target_weights, proposal.hold_current_quantity_symbols
 
     def _encode_snapshot(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> dict[str, np.ndarray]:
-        account = snapshot.account
-        reason = account.termination_reason
-        if reason is None:
-            reason_code = 0
-        else:
-            try:
-                reason_code = _TERMINATION_REASON_CODES[reason]
-            except KeyError as error:
-                raise ValueError(
-                    "snapshot has an unknown termination reason"
-                ) from error
-        risk = snapshot.risk
-        return {
-            "features": np.asarray(snapshot.features, dtype=np.float64).copy(),
-            "feature_available": np.asarray(
-                snapshot.feature_available, dtype=np.int8
-            ).copy(),
-            "feature_staleness": np.asarray(
-                snapshot.feature_staleness, dtype=np.float64
-            ).copy(),
-            "global_features": np.asarray(
-                snapshot.global_features, dtype=np.float64
-            ).copy(),
-            "global_feature_available": np.asarray(
-                snapshot.global_feature_available, dtype=np.int8
-            ).copy(),
-            "account": np.column_stack(
-                (
-                    account.quantities,
-                    account.weights,
-                    account.mark_prices,
-                    account.contract_multipliers,
-                )
-            ).astype(np.float64, copy=False),
-            "portfolio": np.asarray(
-                (
-                    account.cash,
-                    account.portfolio_value,
-                    account.peak_value,
-                    account.max_drawdown,
-                    account.turnover_total,
-                    account.total_cost,
-                    account.funding_pnl,
-                    account.borrow_cost,
-                    account.margin_used,
-                    account.maintenance_margin,
-                    account.maintenance_requirement,
-                    account.margin_deficit,
-                    float(account.insolvent),
-                    float(reason_code),
-                ),
-                dtype=np.float64,
-            ),
-            "risk": np.asarray(
-                (
-                    risk.max_gross,
-                    risk.max_abs_weight,
-                    0.0 if risk.max_turnover is None else risk.max_turnover,
-                    float(risk.max_turnover is not None),
-                    risk.drawdown_start,
-                    risk.drawdown_stop,
-                    float(risk.emergency_turnover_override),
-                    risk.fail_closed_tolerance,
-                ),
-                dtype=np.float64,
-            ),
-            "active_orders": self._encode_active_orders(snapshot.active_orders),
-            "clock": np.asarray(
-                (
-                    snapshot.index,
-                    snapshot.timestamp_ns,
-                    snapshot.agent_stop_index,
-                    snapshot.remaining_decisions,
-                ),
-                dtype=np.int64,
-            ),
-            "terminal": np.zeros(1, dtype=np.int8),
-        }
+        return encode_portfolio_decision_snapshot(snapshot)
 
     def _encode_active_orders(
         self, active_orders: tuple[PortfolioPendingOrderSnapshot, ...]
     ) -> np.ndarray:
-        encoded = np.zeros(
-            (self.dataset.n_symbols, len(ACTIVE_ORDER_FIELDS)), dtype=np.float64
-        )
-        seen: set[int] = set()
-        for order in active_orders:
-            symbol_index = order.symbol_index
-            if symbol_index in seen:
-                raise ValueError(
-                    "the observation supports at most one active order per symbol"
-                )
-            seen.add(symbol_index)
-            if order.submission_reference_price is None:
-                raise ValueError("active order price context is incomplete")
-            try:
-                order_type = _ORDER_TYPE_CODES[order.order_type]
-                time_in_force = _TIME_IN_FORCE_CODES[order.time_in_force]
-                status = _ORDER_STATUS_CODES[order.status]
-            except KeyError as error:
-                raise ValueError(
-                    "active order contains an unsupported enum value"
-                ) from error
-            values = (
-                1.0,
-                float(order_type),
-                float(time_in_force),
-                float(status),
-                order.requested_quantity,
-                order.remaining_quantity,
-                float(order.reduce_only),
-                float(order.submit_index),
-                float(order.eligible_index),
-                float(order.last_processed_index is not None),
-                0.0
-                if order.last_processed_index is None
-                else float(order.last_processed_index),
-                float(order.trigger_index is not None),
-                0.0 if order.trigger_index is None else float(order.trigger_index),
-                float(order.expiry_index is not None),
-                0.0 if order.expiry_index is None else float(order.expiry_index),
-                float(order.limit_price is not None),
-                0.0 if order.limit_price is None else order.limit_price,
-                float(order.stop_price is not None),
-                0.0 if order.stop_price is None else order.stop_price,
-                1.0,
-                order.submission_reference_price,
-            )
-            encoded[symbol_index] = np.asarray(values, dtype=np.float64)
-        return encoded
+        return encode_portfolio_active_orders(self.dataset.n_symbols, active_orders)
 
     def _terminal_observation(self) -> dict[str, np.ndarray]:
         spaces_by_key = cast(spaces.Dict, self.observation_space).spaces

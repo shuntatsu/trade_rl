@@ -79,6 +79,27 @@ def _market(
     )
 
 
+def _with_late_mark(
+    dataset: MarketDataset,
+    *,
+    row_index: int,
+    symbol_index: int,
+) -> MarketDataset:
+    assert dataset.available_at is not None
+    assert dataset.information_available is not None
+    available_at = dataset.available_at.copy()
+    information_available = dataset.information_available.copy()
+    available_at[row_index, symbol_index] = dataset.timestamps[
+        row_index
+    ] + np.timedelta64(1, "h")
+    information_available[row_index, symbol_index] = False
+    return replace(
+        dataset,
+        available_at=available_at,
+        information_available=information_available,
+    )
+
+
 @dataclass
 class _HoldPartialFill:
     snapshots: list[PortfolioDecisionSnapshot] = field(default_factory=list)
@@ -253,6 +274,77 @@ class _EnterOnce:
         self.indexes.append(snapshot.index)
         self.snapshots.append(snapshot)
         return PortfolioTargetProposal((0.5, 0.0))
+
+
+@dataclass
+class _FlatPortfolioPolicy:
+    snapshots: list[PortfolioDecisionSnapshot] = field(default_factory=list)
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        self.snapshots.append(snapshot)
+        return PortfolioTargetProposal((0.0, 0.0))
+
+
+@pytest.mark.parametrize(
+    ("late_row", "expected_policy_indexes", "expected_execution_starts"),
+    [
+        (0, (), ()),
+        (2, (0, 1), (0,)),
+    ],
+    ids=("late-initial-row", "late-nontraded-roster-member"),
+)
+def test_shared_portfolio_rejects_late_mark_before_affected_policy_callback(
+    late_row: int,
+    expected_policy_indexes: tuple[int, ...],
+    expected_execution_starts: tuple[int, ...],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _with_late_mark(_market(), row_index=late_row, symbol_index=1)
+    policy = _FlatPortfolioPolicy()
+    execution_starts: list[int] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_execution_start(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+        hold_current_quantity_symbols: tuple[int, ...] = (),
+    ) -> ExecutionResult:
+        execution_starts.append(start_index)
+        return original_execute_interval(
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+            hold_current_quantity_symbols=hold_current_quantity_symbols,
+        )
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", record_execution_start)
+
+    with pytest.raises(
+        ValueError,
+        match=rf"decision-time mark unavailable for ETHUSDT at row {late_row}",
+    ):
+        run_shared_portfolio_replay(
+            dataset,
+            policy,
+            start_index=0,
+            stop_index=3,
+            execution_cost=ExecutionCostConfig.zero(),
+        )
+
+    assert tuple(snapshot.index for snapshot in policy.snapshots) == (
+        expected_policy_indexes
+    )
+    assert all(snapshot.symbols == dataset.symbols for snapshot in policy.snapshots)
+    assert all(snapshot.index < late_row for snapshot in policy.snapshots)
+    assert tuple(execution_starts) == expected_execution_starts
 
 
 def test_latency_terminal_settlement_limits_actor_calls_and_flattens() -> None:

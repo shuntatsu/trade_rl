@@ -29,7 +29,7 @@ from trade_rl.evaluation.runs.portfolio_family_comparison import (
     PortfolioFamilyReplayOutcome,
 )
 from trade_rl.risk.pretrade import PreTradeRiskConfig
-from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution import ExecutionCostConfig, ExecutionRuleStress
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.strategies.forecasts.ridge_artifact import (
     RidgeForecastArtifactBinding,
@@ -385,6 +385,24 @@ def _validate_pairs(value: object, field: str, *, numeric_value: bool) -> None:
             raise ValueError(f"{field}[{index}][1] must be a string")
 
 
+def _expected_execution_policy_digest(
+    identity: FourFamilyPortfolioAttemptIdentity,
+) -> str:
+    """Derive the native policy digest declared by the fixed replay identity."""
+    digest = identity.execution_cost.execution_policy_digest
+    profile = identity.market_order_profile
+    if profile is None:
+        return digest
+    return content_digest(
+        {
+            "schema_version": "profile_market_execution_v1",
+            "base_policy_digest": digest,
+            "market_order_profile_digest": profile.digest,
+            "rule_stress": ExecutionRuleStress().digest_payload(),
+        }
+    )
+
+
 def _validate_ledger_shape(
     value: object, *, identity: FourFamilyPortfolioAttemptIdentity
 ) -> dict[str, object]:
@@ -420,6 +438,8 @@ def _validate_ledger_shape(
     if not isinstance(execution_policy_digest, str):
         raise ValueError("execution_policy_digest must be a string")
     require_sha256(execution_policy_digest, field="execution_policy_digest")
+    if execution_policy_digest != _expected_execution_policy_digest(identity):
+        raise ValueError("ledger execution policy digest differs from attempt identity")
     if (ledger["start_index"], ledger["stop_index"]) != (
         identity.start_index,
         identity.stop_index,

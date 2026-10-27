@@ -5,19 +5,22 @@
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
 Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しました。screen全体は FAILED_SCREEN です。全てのnon-cash armのreturnは正でしたが、latency-2ではcost-proxy armがposition-aware cost=0 controlを下回りました。
-別のversioned execution-scenario declarationは、同じfrozen PPO checkpointを宣言済みのcost / order-latency runtimeへ明示的にloadします。scenario-bound v2 evaluation entryはそのpolicyをcash・Trend・Ridge・joint PPOの4つのnative armへ渡します。これはsynthetic software integration capabilityであり、保存result/attempt、stress値の選択、fit、M34 screenの再解釈、economic evidenceは追加しません。
+M34 screenはIssue #810 P4の残差PPO比較armとzero-residual parityを含まず、元の段階比較計画を完了していません。
+別のversioned execution-scenario declarationは、同じfrozen PPO checkpointを宣言済みのcost / order-latency runtimeへ明示的にloadします。scenario-bound v2 evaluation entryはそのpolicyをcash・Trend・Ridge・joint PPOの4つのnative armへ渡します。inference/replay entry自体はin-memoryですが、別のv2 attempt wrapperがnative arm rowとprovenanceを保存し、strict result reload後にcompletionを記録します。専用のv2 result publisher/loaderもあります。これはsoftware persistence/integration capabilityであり、scenarioやstress値の選択、fit、M34 screenの再解釈、economic evidenceは追加しません。以前のbase-only runtime-bindingの記述を更新するのはこのsoftware capabilityだけで、v1 strict matchや実験の承認条件は変わりません。
+
+`FourFamilyPostFreezeInputManifest`はDataset pin、chronological training/selection/evaluation windows、PPO training declaration、およびselection/evaluation各1件のattemptをbindするtyped metadataです。fit capは0で、windowsはstaticです。これはouter walk-forward refitやmodel-update boundaryをまたぐcontinuous portfolio accountingを実装するものではなく、実行可能なstudy planやrun authorizationでもありません。
 
 新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、このjournal単体はtrainerや完全な学習記録ではありません。
 
 別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。このjournal単体はtrainerやweights/checkpoint lineageのattestation、学習結果や利益の証拠ではありません。
 
-`fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsynthetic software testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
+`fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。joint environmentはgamma-oneのterminal-profit-aligned clockを要求し、rewardには固定初期資本で正規化したnet-equity incrementを使います。trainerもeffective gammaを1.0、reward normalizationを無効に固定します。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsoftware testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
 
 ## Shared portfolio inferenceのsoftware path
 
 strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / SHORT / FLAT / LONGをnumeric proposalへ変換します。opt-in paired runnerはexpected digest付きDataset artifactを一度読み、unreset Gym shellでbundle/runtime contextを検証した後、同じDataset objectと渡されたrisk/execution設定でnative shared replayを一度実行し、terminal settlementまで通します。HOLDは既存のrisk/execution経路へquantity-preserving requestとして渡ります。固定actionと正のfee・funding・borrowを使うsynthetic testは配線とcash計算の回帰確認で、学習済みpolicyの挙動や金融結果ではありません。M34 screen、legacy PPO default、利益性・winner・unused validation・deploymentの状態は変わりません。
 
-同じverified bundleには別のopt-in v2 loaderがあり、scenario digestとcurrent v2 source digest、training context/checkpoint pins、base / runtime cost identity、実際のforward Dataset・clock・risk・profile・spaceをcheckpoint読込み前に検証します。元のfit statisticsとv1 strict loaderは維持し、runtime latencyからruntime actor windowを作ります。scenario-bound comparatorはこの同じpolicyを4つのfresh native accountへ接続し、各armとcompletion observerの直前にscenario/source pinとloaded policyのruntime environment bindingを再検証します。不一致なら次armまたはobserverの前に停止しますが、durable result/attemptはまだありません。synthetic software behaviorは経済性能を示しません。
+同じverified bundleには別のopt-in v2 loaderがあり、scenario digestとcurrent v2 source digest、training context/checkpoint pins、base / runtime cost identity、実際のforward Dataset・clock・risk・profile・spaceをcheckpoint読込み前に検証します。元のfit statisticsとv1 strict loaderは維持し、runtime latencyからruntime actor windowを作ります。scenario-bound comparatorはこの同じpolicyを4つのfresh native accountへ接続し、各armとcompletion observerの直前にscenario/source pinとloaded policyのruntime environment bindingを再検証します。不一致なら次armまたはobserverの前に停止します。このloader/comparatorだけではattempt/resultを保存しませんが、前段落の明示的v2 attempt/result APIがその責務を持ちます。synthetic software behaviorは経済性能を示しません。
 
 別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
 

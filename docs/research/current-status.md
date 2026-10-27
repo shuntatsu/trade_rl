@@ -155,7 +155,9 @@ The separate `run_four_family_portfolio_scenario_attempt_v2` wrapper can retain
 that software replay in a one-shot local v2 attempt, with native rows,
 before/after provenance and source records, and strict result reload before
 completion. This API addition did not rerun or change the completed M34 screen.
-It does not select a numeric stress recipe or establish financial performance,
+This later v2 software path supersedes only the earlier statement that runtime
+cost/order-latency binding was unavailable. The v1 strict-match contract remains
+unchanged. It does not select a numeric stress recipe or establish financial performance,
 profitability, unused-period approval, or live eligibility.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
@@ -200,11 +202,22 @@ If the native comparator raises within a family before its completion callback,
 the wrapper cannot read that in-flight family's partial ledger from the public
 API; it retains earlier completed rows and does not infer a zero count.
 
+`FourFamilyPostFreezeInputManifest` is a typed metadata roster for one selection
+and one evaluation attempt, with a pinned Dataset, chronological training /
+selection / evaluation windows, and a declared PPO training request. Its byte
+verification compares against a separately retained typed declaration; it is
+not an executable study plan or an authorization to run either attempt. Its
+fit cap is fixed at zero and its selection/evaluation windows are static; it does
+not implement outer walk-forward refitting or continuous portfolio accounting
+across model-update boundaries required by the original staged plan. Those
+acceptance items remain open.
+
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 
 この節は[事前登録したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)と[実行結果](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6384143472)の現状を要約する。M34 sourceに固定した一度のscreenでは、1 fit・3 scenario・4 armの全12行を計算し、screen全体は FAILED_SCREEN となった。latency-2でposition-aware cost-proxy armが2.6777%、同じ経路のcost=0 armが2.8971%だったため、事前の比較条件を満たさなかった。シナリオごとの結果、ledger、source、Dataset、費用・funding仮定は、この文書の下にあるConditional four-arm Ridge development screen節と[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に記録している。
 
 このscreenは、独立した100,000 USDT口座を使うcash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの比較であり、PPO/RLを含まない。Datasetのfee・spread、実行条件、row-close funding proxyは固定した研究仮定で、歴史的なexchange ruleやfunding event markとの一致を証明しない。入力の過去利用範囲はTier Uのままで、unused/final評価にはならない。
+Issue #810のP4にある残差PPO比較armとzero-residual parityはこのscreenに含まれていないため、M34の4方式screenはその段階比較計画を完了していない。これは別途preregisterして評価する必要がある研究範囲であり、既存のFAILED_SCREENを変更しない。
 
 元のNONRL 48-cell gateは別の評価で、registryは1 interrupted・47 unattempted・0 completeの未完了状態を保つ。このM34 screenはそのgateを完了させず、screen結果はforward profitability、winner、future persistence、live order authorizationを確立しない。今回の一度の結果を再実行・retuneしていない。別の試行を始める場合は新しいprotocol、result-blind review、実行許可が必要となる。
 
@@ -1575,6 +1588,6 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 
 現時点の次アクションは、Run Coreやbootstrap toolingをさらに拡張することではない。
 
-> 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
+> Experiment 0001のKEEP_BASELINEを維持し、次に検証するControlled Factorを結果を見る前に事前登録したうえで、次のdevelopment Experimentを独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。

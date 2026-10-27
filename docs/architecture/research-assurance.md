@@ -686,6 +686,8 @@ behavior. Terminated child processes must be reaped before evidence upload.
 
 `Generic Independent Research Review` はsoftware-onlyのPR統合確認であり、GitHub account分離ではなくconfigured AIモデルの分離を要求する。同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
 
+review inputには、対象HEADの正確なsourceと対応する完全なpatch、現行のauthoritative contractに加え、目的・業務上の目標・因果的な理由、関連する親planと実装planの完全な本文、代替案・受入条件・反証方法・test strategy・既知の限界を含める。現在のphase、未完了のwhole-program項目、plan間の優先順位も明示する。短い要約は、レビューに必要な完全なplan/sourceの代替にならない。歴史的な結果を含むsoftware auditは、fresh result-blind G0-G2 reviewとは別の範囲である。
+
 review本文にはcode fence外に一つの `<!-- independent-research-review-audit -->` と唯一の `### Disposition: APPROVED` を置き、閉じた `independent-review-receipt` fenceを一つ置く。そのJSON envelopeのfieldは `payload` と `sha256` だけである。payloadのfieldは次に限定する。
 
 supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の正規化に使う。indented code、HTML/comment内の見出しやfence、Unicode space/line separatorを使う見出しはstructured dispositionにならない。fenced content外のraw HTMLは必須markerを除きapprovalをfail-closedにする。receipt内のactual reportはJSON dataとしてそのまま保持し、Markdown全体をrender/解釈するauthorityとはしない。

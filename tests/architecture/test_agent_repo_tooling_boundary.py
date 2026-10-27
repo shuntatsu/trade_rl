@@ -44,6 +44,7 @@ def test_permanent_ci_lints_formats_and_types_repository_tooling() -> None:
     assert "uv run ruff check trade_rl tests tools" in workflow
     assert "uv run ruff format --check trade_rl tests tools" in workflow
     assert "uv run mypy tools/agent_repo tests/architecture/distribution.py" in workflow
+    assert workflow.count("tools/issue810_joint_fee_only_fixture.py") == 2
 
 
 def test_source_packet_contract_is_documented_at_the_repository_boundary() -> None:

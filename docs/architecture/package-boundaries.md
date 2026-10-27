@@ -22,6 +22,7 @@ trade_rl/
 │   └── verified_file.py
 ├── data/
 │   ├── market.py
+│   ├── _timestamps.py
 │   ├── market_order_rules.py
 │   ├── contracts.py
 │   ├── identity.py
@@ -70,11 +71,12 @@ trade_rl/
 │   ├── position_intent.py
 │   ├── portfolio.py
 │   ├── portfolio_observation.py
+│   ├── portfolio_adapter.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,portfolio_env.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
+│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── bot.py
@@ -214,6 +216,19 @@ adapter shared by PPO and A2C, and the shared `ppo_observation_v2` semantic
 contract (`PPO_OBSERVATION_SCHEMA`, `PPO_GLOBAL_FEATURE_NAMES`, and
 `ppo_observation_contract_payload()`). `ppo.py` keeps the historical public
 names as compatibility re-exports, but is not the semantic contract owner.
+`portfolio_transform.py` owns an opt-in versioned Dict transform and Gym
+observation wrapper for `SharedPortfolioGymEnv`. It binds the raw and
+transformed layouts, Dataset/objective/clock/risk/execution context, and fit
+scope. Local features reuse `PPOFeatureNormalizer`; global features and
+per-symbol geometric mark-price references fit only on actor rows
+`[start_index, agent_stop_index)`. Availability masks remain visible, account
+and order notionals use fixed initial capital, and UTC timestamps are
+subtracted as integers before conversion to floating point. The wrapper keeps
+native actions, rewards, termination, and info unchanged; terminal observations
+use fixed absorbing padding. If transforming a result fails after the wrapped
+environment may have advanced, it records the failure and refuses another step
+until reset. This preprocessing does not create free/reserved cash, train a
+policy, refit on evaluation rows, or change legacy PPO defaults.
 `a2c.py` owns explicit sequential CPU fitting, rollout rounding, and fit-scope
 metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions
@@ -254,7 +269,7 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `data`
 
-`MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。`data/features/numerics.py` はcanonical Dataset identityへ入るfeature計算のportable scalar/reduction semanticsを所有し、`core.py`、`cross_asset.py`、`builder.py` が共有する。モデル学習、simulation P&L、汎用evaluationの数値計算まではこのauthorityへ含めない。現行 `MarketBuildConfig` は `market_build_v3` / `portable_feature_numerics_v1` をbuild identityへbindし、historical `market_build_v2` artifactのreader互換はartifact contractとして維持する。`data/build/economics.py` は build-level `ExecutionEconomicsProfile` の単一ownerであり、`MarketBuildConfig` のfeature/build semanticsとは分離する。profile省略時はlegacy economic behaviorを維持し、明示profileは既存economic-semantics経路を通してimmutable Dataset fields/content identityへbindする。
+`MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。private `data/_timestamps.py` はtyped `datetime64` 値のexact integer normalizationを共有するinternal ownerであり、public facadeへexportしない。MarketDataset、RawMarketSeries、forecast cutoff/label validation、candidate typed configがこのhelperを使う。`data/features/numerics.py` はcanonical Dataset identityへ入るfeature計算のportable scalar/reduction semanticsを所有し、`core.py`、`cross_asset.py`、`builder.py` が共有する。モデル学習、simulation P&L、汎用evaluationの数値計算まではこのauthorityへ含めない。現行 `MarketBuildConfig` は `market_build_v3` / `portable_feature_numerics_v1` をbuild identityへbindし、historical `market_build_v2` artifactのreader互換はartifact contractとして維持する。`data/build/economics.py` は build-level `ExecutionEconomicsProfile` の単一ownerであり、`MarketBuildConfig` のfeature/build semanticsとは分離する。profile省略時はlegacy economic behaviorを維持し、明示profileは既存economic-semantics経路を通してimmutable Dataset fields/content identityへbindする。
 
 `data/artifacts/codec.py` owns the verified Dataset reconstruction and manifest digest from one manifest read and its corresponding array bytes. `data/artifacts/publication.py` exposes `load_published_market_dataset_artifact` as an identity-first `(PublishedDatasetArtifact, MarketDataset)` pair, and `inspect_published_market_dataset_artifact` delegates to that owner. The existing `load_market_dataset_artifact` remains Dataset-only. The pair is bound to one verification pass; loading does not lock the directory or promise an OS-level atomic filesystem snapshot.
 
@@ -327,9 +342,15 @@ the order reference. With no held quantities, it resolves current dataset marks
 before entry sizing so default initial book marks are harmless. The accounting
 and execution owners remain unchanged.
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsと`fit_cutoff`のlossless `datetime64[ns]` validationを所有し、両fit pathはestimator / solverより前にこれを通る。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持ち、evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`strategies/portfolio_adapter.py` は固定roster・明示budgetで、exact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy` をnumeric `PortfolioPolicy` proposalへ写すopt-in adapterと、明示cash zero-target policyを持つ。filled sideはsnapshotのexact quantityから導き、risk・pending-order reconciliation・fill・cost・accountingは共有portfolio session / native ownerに残す。legacy cached-target、minimum-hold、exact-quantity HOLD、任意strategy parityは提供しない。adapterからruntime/evaluationへ依存せず、strategy facadeへも再exportしない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsとfit-scope validationを所有し、両fit pathはestimator / solverより前にこれを通る。`fit_cutoff` / `label_end_times` の元unit、正のmultiplier、範囲、sub-nanosecond精度のexact integer validationは `data/_timestamps.py` が単一ownerとして提供する。fixed-duration unitとcalendar `Y` / `M`は値を正確にnsへ表せる場合だけ受け入れ、cast後の逆変換をoverflow判定の根拠にしない。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `strategies/rl/portfolio_env.py` はopt-in `SharedPortfolioGymEnv` adapterを提供する。固定shapeのjoint action/observationを、strategy-owned snapshot builderとsimulation-owned `SharedPortfolioSession`へ接続するが、`evaluation`には依存しない。shared risk・execution・accounting、native clock、reserved terminal settlementは既存ownerが引き続き処理する。これはGym adapterであり、trainer、学習済みjoint policy、legacy PPO defaultの変更を提供しない。RL facadeからは再exportしない。
+
+`strategies/rl/portfolio_episode_journal.py` は明示的に包んだGym環境の外側で使うopt-in journalである。新しいrootを一度だけ確保し、source action/reward/native interval・terminal factsをeventごとのcanonical JSONへ記録してからtransitionを返す。observation、policy state、log-probabilityは記録せず、caller-declared context digestも独立検証済みとは扱わない。失敗・中断したepisodeは完了扱いにせず、状態が進んだ可能性のあるjournal error後はwrapperをpoisonしてstep/resetを続けない。trainer、rollout collector、episodeの学習再現性は提供しない。
+
+The journal may wrap an observation-only Gym wrapper, but validates that the underlying environment is `SharedPortfolioGymEnv` and forwards the action object unchanged. Its manifest includes configured target weights; each step records the source-requested target weights and effective HOLD symbols. Those are target/hold facts, not fill quantities.
+
+`strategies/rl/portfolio_policy_sample_journal.py` is a separate opt-in SB3 forward-hook recorder. It writes the actual policy forward-input tensors, sampled discrete action codes, joint log-probability, and critic value before SB3 advances the environment. Sample schema v2 adds the forward batch size and actual action/value/log-probability tensor dtypes and full batch shapes while retaining the existing recorded values. Attachment requires no pre-existing policy-local or global forward hooks and freezes both hook layouts and their dispatch flags; a later layout change poisons the journal before any sample is written. Constructor failure after hook registration removes only its owned hook and releases its policy reservation. The journal's context, transform, and policy-version strings are caller-declared labels, not Dataset or weight/checkpoint attestations. It does not capture optimizer updates, establish actor-to-native-transition joins, or change policy serialization; Torch and SB3 remain lazily imported only when the recorder is constructed.
 
 `forecasts/controller.py` exposes `CostAwareForecastIntentController.decide_for_position` for direct calls and the cost-aware Ridge / LightGBM adapter path. Adapters call it only when `one_way_switch_cost` is configured and the observation includes `intent_gross_budget`; other observations keep the intent-only controller call. The controller stays independent of execution, risk and replay. Canonical replay supplies filled quantity/weight and an optional matching cached target, then applies its existing minimum-hold, hard-risk, execution and accounting stages.
 
@@ -360,8 +381,8 @@ remain unchanged. It does not introduce another book, executor, or P&L loop.
 
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
-- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`は4つのthresholdでbuilt-in `bool`を拒否し、typed `fit_cutoff`も正規化前にlosslessな元unit round-tripを検証する。PPO・risk・execution設定はforecast horizonに依存しない。
-- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` は元unitへのexact round-tripを要求する。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
+- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`は4つのthresholdでbuilt-in `bool`を拒否し、typed `fit_cutoff`もshared data helperでexact integer normalizationを行う。PPO・risk・execution設定はforecast horizonに依存しない。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` はshared data helperでexact integer normalizationを行う。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持つresult schemaとしてv7/v9だけを許可する。新規Runは正のforecast horizonを`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`（shared-cash）へbindする。v9はv7の追加portfolio return seriesとsettlement / ledger evidenceを維持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。旧result schemasは不変のまま読み込む。

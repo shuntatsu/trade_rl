@@ -17,6 +17,8 @@ Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34�
 
 追加した`run_shared_portfolio_replay`は、明示的に呼び出す一native-bar単位の数値portfolio policy seamであり、simulation-owned incremental sessionを通じて既存のshared-cash risk・execution・accounting経路を使う。M34 screenでは使っておらず、M34の結果・比較条件・legacy strategy defaultsを変更しない。これはsoftware transition ownerの拡張で、fit、実データreplay、選択、利益の証拠ではなく、PPOのjoint-portfolio学習を実装するものでもない。
 
+`strategies/portfolio_adapter.py` は、その既存portfolio seamへexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy`を接続するopt-in adapterと、固定rosterの明示cash zero-target policyを提供する。filled sideはcurrent snapshotのexact quantityから導き、strategy callbackにはcurrent row/account factsと結果前に固定したper-symbol budgetを渡す。任意のlegacy strategy parity、cached-target/minimum-hold/pending-aware semantics、exact-quantity HOLD、joint PPO trainingは追加しない。hard risk・pending-order reconciliation・fill・cost・accountingは既存のshared portfolio session/native ownerが維持する。この実装はsoftware interface preparationであり、新しいfit/replay/選択、経済結果、Dataset/profile/fit provenance、profitability evidenceではない。
+
 P0 software declarations now identify fixed-initial-capital net-profit,
 account mode, finite financial clock, and exact evaluation-window binding in
 `trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do
@@ -39,6 +41,52 @@ zero, so this adapter adds no reward clipping but also does not establish
 uncapped debt-loss semantics below -100% of fixed initial capital. Such losses
 and invalid endpoints are retained rather than filtered. This adapter does
 not add a trainer, change legacy PPO defaults, or provide training or profit
+evidence.
+
+The opt-in `PortfolioObservationTransform` and
+`PortfolioGymObservationWrapper` provide a versioned preprocessing path for the
+joint Gym Dict. Local feature statistics reuse the existing PPO normalizer;
+global feature statistics and per-symbol geometric mark-price references use
+only actor-fit rows `[start_index, agent_stop_index)`. The serialized payload
+binds the source Dataset, symbol and feature ordering, objective/clock window,
+risk and execution context, and fitted statistics; loading requires a trusted
+out-of-band canonical payload digest, which detects metadata mutation but is
+not a signature or proof of fit provenance. Availability masks and terminal
+state stay explicit; account and active-order notionals use fixed initial
+capital, while maintenance-margin remains a dimensionless rate. UTC nanoseconds
+are subtracted before floating conversion.
+The wrapper preserves native transition rewards and terminal facts, and becomes
+unusable after a transform failure that may follow a consumed native step until
+a fresh reset succeeds. This opt-in preprocessing does not synthesize
+free/reserved cash, refit on evaluation rows, add a trainer, change legacy PPO
+defaults, or supply training or profit evidence.
+
+`PortfolioEpisodeJournalWrapper` is a separate opt-in outer wrapper that writes
+submitted actions, rewards, native interval facts, and terminal facts before
+returning each transition. It records no observation, PPO log-probability, or
+policy version, and its declared context digest is caller-supplied metadata,
+not an independent attestation. A failed or interrupted episode is retained as
+incomplete; a failure after the native environment may have advanced poisons the
+wrapper so it cannot silently retry or reset. This is episode-fact retention,
+not a PPO trainer or a complete replayable policy record.
+
+It may wrap an observation-only Gym wrapper, validates the underlying
+`SharedPortfolioGymEnv`, and forwards the submitted action object unchanged.
+The journal also binds configured target weights in its manifest and records
+the source's requested target weights and effective HOLD symbols per step;
+these facts describe the proposal/hold path, not fills.
+
+`PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
+It records the actual policy forward inputs, sampled action codes, joint
+log-probability and critic value before environment stepping. Sample schema v2
+also stores the actual output tensor dtypes and full batch shapes plus the
+forward batch size; the recorded values remain unchanged. Attachment requires
+empty policy-local and global forward-hook layouts, then fails closed before
+writing a sample if those layouts or dispatch flags change. Caller-declared
+context, transform and policy-version values are labels, not Dataset,
+model-weight or checkpoint-lineage attestations. The recorder does not capture
+optimizer updates or establish a join with native financial events; it does not
+add a trainer, change legacy PPO defaults, or provide training or profit
 evidence.
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。

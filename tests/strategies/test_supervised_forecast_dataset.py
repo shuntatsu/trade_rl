@@ -5,10 +5,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+import trade_rl.data._timestamps as timestamp_module
 import trade_rl.strategies.forecasts.supervised as supervised_module
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
+    build_causal_forecast_training_set,
+)
 
 
 def market(*, future_multiplier: float = 1.0, n_bars: int = 12) -> MarketDataset:
@@ -47,6 +51,7 @@ def pooled_market() -> MarketDataset:
         ),
         axis=1,
     )
+
     features = np.empty((n_bars, 2, 2), dtype=np.float32)
     features[:, 0, 0] = phase
     features[:, 0, 1] = phase**2
@@ -75,6 +80,18 @@ def pooled_market() -> MarketDataset:
     )
 
 
+def direct_training_set(label_end_times: np.ndarray) -> CausalForecastTrainingSet:
+    return CausalForecastTrainingSet(
+        feature_indices=(0,),
+        features=np.asarray([[1.0], [2.0]]),
+        labels=np.asarray([0.01, 0.02]),
+        label_end_times=label_end_times,
+        sample_weights=np.ones(2),
+        fit_cutoff=np.datetime64("1970-01-02T00:00:00", "ns"),
+        horizon_hours=1,
+    )
+
+
 def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     cutoff = np.datetime64("2026-01-01T08:00:00", "ns")
     baseline = build_causal_forecast_training_set(
@@ -99,6 +116,253 @@ def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     assert baseline.labels.flags.writeable is False
     assert baseline.label_end_times.flags.writeable is False
     assert baseline.sample_weights.flags.writeable is False
+
+
+def test_direct_training_set_rejects_nat_label_end_times() -> None:
+    label_end_times = np.asarray(
+        ("1970-01-01T00:00:00", "1970-01-01T12:00:00"),
+        dtype="datetime64[ns]",
+    )
+    label_end_times[0] = np.datetime64("NaT", "ns")
+
+    with pytest.raises(ValueError, match="label_end_times must not contain NaT"):
+        direct_training_set(label_end_times)
+
+
+def test_direct_training_set_rejects_non_datetime_label_end_times() -> None:
+    with pytest.raises(ValueError, match="label_end_times must use a datetime64 dtype"):
+        direct_training_set(np.asarray((1, 2), dtype=np.int64))
+
+
+@pytest.mark.parametrize(
+    "label_end_times",
+    (
+        np.asarray(
+            ("2500-01-01T00:00:00", "1970-01-01T12:00:00"),
+            dtype="datetime64[s]",
+        ),
+        np.asarray(
+            (
+                "1970-01-01T00:00:00.000000000500",
+                "1970-01-01T00:00:00.000000001000",
+            ),
+            dtype="datetime64[ps]",
+        ),
+    ),
+)
+def test_direct_training_set_rejects_lossy_label_end_timestamps(
+    label_end_times: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError, match="exactly representable in nanoseconds"):
+        direct_training_set(label_end_times)
+
+
+@pytest.mark.parametrize(
+    ("unit", "label_ends"),
+    (
+        ("s", ("1970-01-01T00:00:00", "1970-01-01T12:00:00")),
+        (
+            "ps",
+            (
+                "1970-01-01T00:00:00.000000001000",
+                "1970-01-01T00:00:00.000000002000",
+            ),
+        ),
+    ),
+)
+def test_direct_training_set_accepts_lossless_label_end_timestamps(
+    unit: str,
+    label_ends: tuple[str, str],
+) -> None:
+    training = direct_training_set(np.asarray(label_ends, dtype=f"datetime64[{unit}]"))
+
+    assert training.label_end_times.dtype == np.dtype("datetime64[ns]")
+    np.testing.assert_array_equal(
+        training.label_end_times,
+        np.asarray(label_ends, dtype="datetime64[ns]"),
+    )
+
+
+def test_supervised_datetime_multiplier_overflow_is_rejected() -> None:
+    dtype = np.dtype("datetime64[1000000W]")
+    raw_ticks = np.asarray([-1, 0], dtype=np.int64)
+    label_end_times = raw_ticks.view(dtype)
+    exact_first_ns = int(raw_ticks[0]) * 1_000_000 * 7 * 24 * 60 * 60 * 1_000_000_000
+    assert exact_first_ns == -604_800_000_000_000_000_000
+
+    baseline = direct_training_set(
+        np.asarray([0, 0], dtype=np.int64).view("datetime64[ns]")
+    )
+    wrapped_cutoff = np.datetime64(3_942_554_432_415_203_329, "ns")
+    with pytest.raises(
+        ValueError,
+        match="label_end_times must be exactly representable in nanoseconds",
+    ):
+        replace(
+            baseline,
+            label_end_times=label_end_times,
+            fit_cutoff=wrapped_cutoff,
+        )
+
+    with pytest.raises(ValueError, match="fit_cutoff must be exactly representable"):
+        supervised_module._validated_fit_cutoff_ns(label_end_times[0])
+
+
+@pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
+def test_datetime_converter_rejects_zero_unit_multiplier(unit: str) -> None:
+    dtype = np.dtype(f"datetime64[0{unit}]")
+    values = np.asarray((0, 1, -1), dtype=np.int64).view(dtype)
+
+    with pytest.raises(ValueError, match="unit multiplier must be positive"):
+        timestamp_module._datetime64_values_to_ns_exact(values)
+
+
+@pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
+def test_fit_cutoff_rejects_zero_unit_multiplier(unit: str) -> None:
+    dtype = np.dtype(f"datetime64[0{unit}]")
+    values = np.asarray((0, 1, -1), dtype=np.int64).view(dtype)
+
+    for value in values:
+        with pytest.raises(
+            ValueError,
+            match="fit_cutoff must be exactly representable as datetime64\\[ns\\]",
+        ):
+            supervised_module._validated_fit_cutoff_ns(value)
+
+
+@pytest.mark.parametrize("unit", ("h", "ns", "Y", "M"))
+def test_training_set_rejects_zero_unit_multiplier_label_end_times(
+    unit: str,
+) -> None:
+    dtype = np.dtype(f"datetime64[0{unit}]")
+    values = np.asarray((0, 1), dtype=np.int64).view(dtype)
+
+    with pytest.raises(
+        ValueError,
+        match="label_end_times must be exactly representable in nanoseconds",
+    ):
+        replace(
+            direct_training_set(
+                np.asarray((0, 0), dtype=np.int64).view("datetime64[ns]")
+            ),
+            label_end_times=values,
+        )
+
+
+def test_exact_large_multiplier_hours_are_lossless_for_labels_and_cutoff() -> None:
+    dtype = np.dtype(">M8[1000000h]")
+    raw_ticks = np.asarray([-2, -1], dtype=">i8")
+    label_end_times = raw_ticks.view(dtype)
+    expected_ns = np.asarray(
+        [-7_200_000_000_000_000_000, -3_600_000_000_000_000_000],
+        dtype=np.int64,
+    ).view("datetime64[ns]")
+
+    training = direct_training_set(label_end_times)
+    np.testing.assert_array_equal(training.label_end_times, expected_ns)
+    assert training.label_end_times.flags.writeable is False
+
+    normalized_cutoff = supervised_module._validated_fit_cutoff_ns(label_end_times[0])
+    assert int(normalized_cutoff.astype(np.int64)) == -7_200_000_000_000_000_000
+
+
+@pytest.mark.parametrize(
+    ("unit", "ticks", "expected_ns"),
+    (
+        (
+            "Y",
+            (-2, -1),
+            (-63_158_400_000_000_000, -31_536_000_000_000_000),
+        ),
+        (
+            "M",
+            (-2, -1),
+            (-5_270_400_000_000_000, -2_678_400_000_000_000),
+        ),
+        (
+            "2M",
+            (-2, -1),
+            (-10_540_800_000_000_000, -5_270_400_000_000_000),
+        ),
+    ),
+)
+def test_exact_calendar_datetime_units_remain_supported(
+    unit: str,
+    ticks: tuple[int, int],
+    expected_ns: tuple[int, int],
+) -> None:
+    label_end_times = np.asarray(ticks, dtype=np.int64).view(
+        np.dtype(f"datetime64[{unit}]")
+    )
+
+    training = direct_training_set(label_end_times)
+
+    np.testing.assert_array_equal(
+        training.label_end_times.astype(np.int64),
+        np.asarray(expected_ns, dtype=np.int64),
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_ns"),
+    (
+        (np.datetime64("1678", "Y"), -9_214_560_000_000_000_000),
+        (np.datetime64("2262", "Y"), 9_214_646_400_000_000_000),
+        (np.datetime64("1677-10", "M"), -9_222_508_800_000_000_000),
+        (np.datetime64("2262-04", "M"), 9_222_422_400_000_000_000),
+    ),
+)
+def test_calendar_cutoff_values_at_nanosecond_bounds_are_exact(
+    value: np.datetime64,
+    expected_ns: int,
+) -> None:
+    normalized = supervised_module._validated_fit_cutoff_ns(value)
+
+    assert int(normalized.astype(np.int64)) == expected_ns
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        np.datetime64("1677", "Y"),
+        np.datetime64("2263", "Y"),
+        np.datetime64("1677-09", "M"),
+        np.datetime64("2262-05", "M"),
+    ),
+)
+def test_calendar_cutoff_values_outside_nanosecond_bounds_are_rejected(
+    value: np.datetime64,
+) -> None:
+    with pytest.raises(ValueError, match="fit_cutoff must be exactly representable"):
+        supervised_module._validated_fit_cutoff_ns(value)
+
+
+def test_exact_datetime_converter_preserves_empty_arrays() -> None:
+    empty = np.asarray([], dtype=np.dtype(">M8[1000000h]"))
+
+    normalized = timestamp_module._datetime64_values_to_ns_exact(empty)
+
+    assert normalized.shape == (0,)
+    assert normalized.dtype == np.dtype("datetime64[ns]")
+
+
+def test_direct_training_set_rejects_label_maturing_at_cutoff() -> None:
+    cutoff = np.datetime64("1970-01-02T00:00:00", "ns")
+    baseline = direct_training_set(
+        np.asarray(
+            [np.datetime64("1970-01-01", "ns")] * 2,
+            dtype="datetime64[ns]",
+        )
+    )
+    with pytest.raises(ValueError, match="strictly before fit_cutoff"):
+        replace(
+            baseline,
+            label_end_times=np.asarray(
+                [cutoff, np.datetime64("1970-01-01", "ns")],
+                dtype="datetime64[ns]",
+            ),
+            fit_cutoff=cutoff,
+        )
 
 
 def test_72_hour_training_labels_use_exact_elapsed_endpoint_and_maturity_cutoff() -> (

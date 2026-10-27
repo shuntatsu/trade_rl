@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -7,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import gymnasium as gym
 import numpy as np
 import pytest
+from gymnasium.utils.env_checker import check_env
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRiskConfig
@@ -21,6 +23,7 @@ from trade_rl.simulation.orders.model import OrderStatus, OrderType, TimeInForce
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 from trade_rl.strategies.portfolio import PortfolioPendingOrderSnapshot
 from trade_rl.strategies.rl.portfolio_env import (
+    ACTION_FLAT,
     ACTION_HOLD,
     ACTION_LONG,
     ACTION_SHORT,
@@ -38,6 +41,10 @@ def _dataset(
     open_price: np.ndarray | None = None,
     volume: np.ndarray | None = None,
     features: np.ndarray | None = None,
+    feature_available: np.ndarray | None = None,
+    global_features: np.ndarray | None = None,
+    global_feature_available: np.ndarray | None = None,
+    mark_price: np.ndarray | None = None,
     funding_rate: np.ndarray | None = None,
     funding_due: np.ndarray | None = None,
     borrow_rate: np.ndarray | None = None,
@@ -75,7 +82,11 @@ def _dataset(
         timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
         + np.arange(n_bars) * np.timedelta64(1, "h"),
         features=resolved_features,
-        global_features=np.arange(n_bars, dtype=np.float32).reshape(n_bars, 1),
+        global_features=(
+            np.arange(n_bars, dtype=np.float32).reshape(n_bars, 1)
+            if global_features is None
+            else global_features
+        ),
         open=resolved_open_price,
         high=np.maximum(resolved_open_price, resolved_close),
         low=np.minimum(resolved_open_price, resolved_close),
@@ -85,15 +96,21 @@ def _dataset(
         funding_due=funding_due,
         borrow_rate=zeros.copy() if borrow_rate is None else borrow_rate,
         tradable=np.ones((n_bars, n_symbols), dtype=np.bool_),
-        feature_available=np.ones((n_bars, n_symbols, 1), dtype=np.bool_),
+        feature_available=(
+            np.ones((n_bars, n_symbols, 1), dtype=np.bool_)
+            if feature_available is None
+            else feature_available
+        ),
         feature_names=("literal",),
         global_feature_names=("regime",),
+        global_feature_available=global_feature_available,
         periods_per_year=8_760,
         fee_rate=zeros.copy(),
         maker_fee_rate=zeros.copy(),
         taker_fee_rate=zeros.copy(),
         spread_rate=zeros.copy(),
         contract_multipliers=np.ones(n_symbols, dtype=np.float64),
+        mark_price=mark_price,
         split_factor=split_factor,
     )
 
@@ -102,12 +119,13 @@ def _bound_clock(
     *,
     start_index: int = 0,
     stop_index: int = 5,
+    initial_capital: float = 1_000.0,
     gamma: float = 1.0,
     reward_schema: str = "equity_delta_v1",
     max_drawdown: float = 0.20,
 ) -> BoundObjectiveClock:
     objective = ObjectiveContract(
-        capital=CapitalContract("shared_portfolio", "USDT", (1_000.0,)),
+        capital=CapitalContract("shared_portfolio", "USDT", (initial_capital,)),
         evaluation_start=_START + timedelta(hours=start_index),
         evaluation_stop_exclusive=_START + timedelta(hours=stop_index),
         terminal_valuation="settled",
@@ -143,11 +161,15 @@ def _risk(
 
 def _pending_order_snapshot(
     *,
+    symbol_index: int = 0,
+    order_type: str = OrderType.MARKET.value,
+    limit_price: float | None = None,
+    stop_price: float | None = None,
     submission_reference_price: float | None = 100.0,
 ) -> PortfolioPendingOrderSnapshot:
     return PortfolioPendingOrderSnapshot(
-        symbol_index=0,
-        order_type=OrderType.MARKET.value,
+        symbol_index=symbol_index,
+        order_type=order_type,
         time_in_force=TimeInForce.GTC.value,
         requested_quantity=1.0,
         remaining_quantity=1.0,
@@ -158,6 +180,8 @@ def _pending_order_snapshot(
         trigger_index=None,
         expiry_index=None,
         reduce_only=False,
+        limit_price=limit_price,
+        stop_price=stop_price,
         submission_reference_price=submission_reference_price,
     )
 
@@ -495,3 +519,404 @@ def test_settled_endpoint_does_not_hide_drawdown_beyond_configured_stop() -> Non
     assert terminal_state["max_drawdown"] == pytest.approx(0.25)
     assert terminal_state["settlement_complete"] is True
     assert terminal_state["objective_endpoint_valid"] is True
+
+
+def test_opt_in_portfolio_transform_fits_only_actor_rows_and_round_trips() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationTransform,
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset(symbols=("AAA", "BBB")))
+    transform = fit_portfolio_observation_transform(env)
+    payload = transform.to_payload()
+    restored = PortfolioObservationTransform.from_payload(
+        payload, expected_digest=transform.digest
+    )
+    observation, _ = env.reset()
+
+    transformed = restored.transform_observation(observation)
+
+    assert tuple(transformed) == restored.observation_keys
+    assert restored.observation_space.contains(transformed)
+    assert restored.local_normalizer.stop_index == env.stop_index - 1
+    assert restored.global_usable_counts == (4,)
+    assert restored.reference_price_counts == (4, 4)
+
+
+def test_transformed_gym_poisoning_blocks_retry_after_post_step_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioGymObservationWrapper,
+        PortfolioObservationTransform,
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    wrapped = PortfolioGymObservationWrapper(env, transform)
+    wrapped.reset()
+    original_index = env._session.current_index  # type: ignore[union-attr]
+
+    def fail_transform(
+        _self: PortfolioObservationTransform, _raw: object
+    ) -> dict[str, np.ndarray]:
+        raise ValueError("literal transformed observation overflow")
+
+    monkeypatch.setattr(
+        PortfolioObservationTransform, "transform_observation", fail_transform
+    )
+    with pytest.raises(ValueError, match="literal transformed observation overflow"):
+        wrapped.step(np.asarray([ACTION_LONG], dtype=np.int64))
+
+    advanced_index = env._session.current_index  # type: ignore[union-attr]
+    assert advanced_index == original_index + 1
+    with pytest.raises(RuntimeError, match="reset is required"):
+        wrapped.step(np.asarray([ACTION_LONG], dtype=np.int64))
+    assert env._session.current_index == advanced_index  # type: ignore[union-attr]
+    assert (
+        wrapped.last_failure == "ValueError: literal transformed observation overflow"
+    )
+
+
+def test_portfolio_transform_statistics_ignore_rows_after_actor_fit_scope() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    features = np.arange(6, dtype=np.float32).reshape(6, 1, 1)
+    changed_features = features.copy()
+    changed_features[4:] += 10_000.0
+    close = np.full((6, 1), 100.0)
+    changed_close = close.copy()
+    changed_close[4:, 0] = (1_000.0, 2_000.0)
+    global_values = np.arange(6, dtype=np.float32).reshape(6, 1)
+    changed_global = global_values.copy()
+    changed_global[4:] += 10_000.0
+    mark = np.asarray([50.0, 100.0, 200.0, 100.0, 100.0, 100.0])[:, None]
+    changed_mark = mark.copy()
+    changed_mark[4:, 0] = (1_000.0, 2_000.0)
+    base = fit_portfolio_observation_transform(
+        _env(
+            _dataset(
+                dataset_id="f" * 64,
+                features=features,
+                close=close,
+                global_features=global_values,
+                mark_price=mark,
+            )
+        )
+    )
+    changed_tail = fit_portfolio_observation_transform(
+        _env(
+            _dataset(
+                dataset_id="a" * 64,
+                features=changed_features,
+                close=changed_close,
+                global_features=changed_global,
+                mark_price=changed_mark,
+            )
+        )
+    )
+
+    assert base.local_normalizer.mean == changed_tail.local_normalizer.mean
+    assert base.local_normalizer.scale == changed_tail.local_normalizer.scale
+    assert base.global_mean == changed_tail.global_mean
+    assert base.global_scale == changed_tail.global_scale
+    assert base.reference_log_price_mean == changed_tail.reference_log_price_mean
+    assert base.reference_log_price_mean == pytest.approx(
+        (math.fsum(math.log(value) for value in (50.0, 100.0, 200.0, 100.0)) / 4,)
+    )
+
+
+def test_portfolio_transform_keeps_unavailable_values_zero_and_masks_visible() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    feature_mask = np.ones((6, 1, 1), dtype=np.bool_)
+    feature_mask[0, 0, 0] = False
+    global_mask = np.ones((6, 1), dtype=np.bool_)
+    global_mask[0, 0] = False
+    env = _env(
+        _dataset(
+            feature_available=feature_mask,
+            global_feature_available=global_mask,
+        )
+    )
+    transform = fit_portfolio_observation_transform(env)
+    raw, _ = env.reset()
+
+    normalized = transform.transform_observation(raw)
+
+    assert normalized["feature_available"].tolist() == [[0]]
+    assert normalized["features"].tolist() == [[0.0]]
+    assert normalized["global_feature_available"].tolist() == [0]
+    assert normalized["global_features"].tolist() == [0.0]
+    assert transform.local_normalizer.usable_counts == ((3,),)
+    assert transform.global_usable_counts == (3,)
+
+
+def test_portfolio_transform_rejects_tampered_schema_context_and_raw_dtype() -> None:
+    from copy import deepcopy
+
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationTransform,
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    payload = transform.to_payload()
+    extra = deepcopy(payload)
+    extra["unexpected"] = True
+    with pytest.raises(ValueError, match="missing or extra fields"):
+        PortfolioObservationTransform.from_payload(
+            extra, expected_digest=transform.digest
+        )
+    wrong_layout = deepcopy(payload)
+    wrong_layout["output_layout"]["account"][0] = "unbound-field"  # type: ignore[index]
+    with pytest.raises(ValueError, match="schema or field layout"):
+        PortfolioObservationTransform.from_payload(
+            wrong_layout, expected_digest=content_digest(wrong_layout)
+        )
+    boolean_layout = deepcopy(payload)
+    boolean_layout["output_layout"]["order_type_codes"]["market"] = True  # type: ignore[index]
+    with pytest.raises(ValueError, match="schema or field layout"):
+        PortfolioObservationTransform.from_payload(
+            boolean_layout, expected_digest=content_digest(boolean_layout)
+        )
+
+    other_env = _env(_dataset(), risk_config=_risk(drawdown_start=0.1))
+    with pytest.raises(ValueError, match="context differs"):
+        transform.validate_environment(other_env)
+
+    observation, _ = env.reset()
+    observation["features"] = observation["features"].astype(np.float32)
+    with pytest.raises(ValueError, match="dtype or shape"):
+        transform.transform_observation(observation)
+
+    overflow_observation, _ = env.reset()
+    overflow_observation["account"][0, 0] = 1e308
+    with pytest.raises(ValueError, match="exceeds finite float32 range"):
+        transform.transform_observation(overflow_observation)
+
+
+def test_portfolio_transform_payload_digest_binds_fit_statistics() -> None:
+    from copy import deepcopy
+
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioObservationTransform,
+        fit_portfolio_observation_transform,
+    )
+
+    transform = fit_portfolio_observation_transform(_env(_dataset()))
+    payload = transform.to_payload()
+    trusted_digest = transform.digest
+    tampered_statistics = deepcopy(payload)
+    tampered_statistics["global_mean"][0] += 0.25  # type: ignore[index]
+    with pytest.raises(ValueError, match="payload digest differs"):
+        PortfolioObservationTransform.from_payload(
+            tampered_statistics, expected_digest=trusted_digest
+        )
+    with pytest.raises(ValueError, match="payload digest differs"):
+        PortfolioObservationTransform.from_payload(payload, expected_digest="0" * 64)
+
+    invalid_scale = deepcopy(payload)
+    invalid_scale["global_scale"][0] = 0.0  # type: ignore[index]
+    with pytest.raises(ValueError, match="global scales must be positive"):
+        PortfolioObservationTransform.from_payload(
+            invalid_scale, expected_digest=content_digest(invalid_scale)
+        )
+
+
+def test_portfolio_transform_preserves_terminal_padding_and_active_order_facts() -> (
+    None
+):
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    cost = replace(ExecutionCostConfig.zero(), order_latency_bars=2)
+    env = _env(_dataset(), execution_cost=cost)
+    transform = fit_portfolio_observation_transform(env)
+    env.reset()
+    pending, *_ = env.step(np.asarray([ACTION_LONG], dtype=np.int64))
+    transformed_pending = transform.transform_observation(pending)
+    orders = transformed_pending["active_orders"]
+    assert orders[0, 0] == 1.0
+    assert orders[0, 1] == 1.0
+    assert orders[0, 16] != 0.0
+    assert orders[0, 17] != 0.0
+
+    terminal = pending
+    for _ in range(3):
+        terminal, _, terminated, _, _ = env.step(
+            np.asarray([ACTION_FLAT], dtype=np.int64)
+        )
+        if terminated:
+            break
+    assert terminated
+    transformed_terminal = transform.transform_observation(terminal)
+    assert transformed_terminal["terminal"].tolist() == [1]
+    for key, values in transformed_terminal.items():
+        if key != "terminal":
+            assert not np.any(values)
+    assert transform.observation_space.contains(transformed_terminal)
+
+
+def test_portfolio_transform_uses_stable_one_hot_order_context_codes() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset(symbols=("AAA", "BBB")))
+    transform = fit_portfolio_observation_transform(env)
+    raw, _ = env.reset()
+    raw["active_orders"] = env._encode_active_orders(
+        (
+            _pending_order_snapshot(
+                symbol_index=0,
+                order_type=OrderType.LIMIT.value,
+                limit_price=101.0,
+            ),
+            _pending_order_snapshot(
+                symbol_index=1,
+                order_type=OrderType.STOP_MARKET.value,
+                stop_price=99.0,
+            ),
+        )
+    )
+
+    orders = transform.transform_observation(raw)["active_orders"]
+
+    np.testing.assert_array_equal(orders[0, 1:4], np.asarray([0.0, 1.0, 0.0]))
+    np.testing.assert_array_equal(orders[1, 1:4], np.asarray([0.0, 0.0, 1.0]))
+    assert orders[0, 16] != 0.0
+    assert orders[0, 28] != 0.0
+    assert orders[1, 30] != 0.0
+
+
+def test_portfolio_transform_marks_pending_notional_at_current_mark() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset(mark_price=np.full((6, 1), 200.0)))
+    transform = fit_portfolio_observation_transform(env)
+    raw, _ = env.reset()
+    raw["active_orders"] = env._encode_active_orders(
+        (_pending_order_snapshot(submission_reference_price=100.0),)
+    )
+
+    orders = transform.transform_observation(raw)["active_orders"]
+
+    assert orders[0, 16] == pytest.approx(0.2)
+    assert orders[0, 32] == pytest.approx(math.log(0.5))
+
+
+def test_portfolio_transform_preserves_maintenance_margin_rate() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    cost = replace(ExecutionCostConfig.zero(), maintenance_margin_rate=0.25)
+    env = _env(
+        _dataset(),
+        bound=_bound_clock(initial_capital=0.5),
+        execution_cost=cost,
+    )
+    transform = fit_portfolio_observation_transform(env)
+    env.reset()
+    raw, _, _, _, _ = env.step(np.asarray([ACTION_LONG], dtype=np.int64))
+
+    normalized = transform.transform_observation(raw)
+
+    assert raw["portfolio"][9] == pytest.approx(0.25)
+    assert normalized["portfolio"][9] == pytest.approx(0.25)
+    assert transform.to_payload()["output_layout"]["portfolio"][9] == (
+        "maintenance_margin_rate"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "index", "value", "presence_index", "message"),
+    (
+        ("risk", 3, 0.5, None, "risk flags must be binary"),
+        ("risk", 6, 0.5, None, "risk flags must be binary"),
+        ("risk", 2, 0.25, None, "max_turnover presence"),
+        ("active_orders", 7, 0.5, None, "order indices must be integers"),
+        ("active_orders", 8, 1.5, None, "order indices must be integers"),
+        ("active_orders", 10, 1.5, 9, "order indices must be integers"),
+        ("active_orders", 12, 1.5, 11, "order indices must be integers"),
+        ("active_orders", 14, 1.5, 13, "order indices must be integers"),
+    ),
+)
+def test_portfolio_transform_rejects_noncanonical_risk_and_order_fields(
+    field: str,
+    index: int,
+    value: float,
+    presence_index: int | None,
+    message: str,
+) -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    raw, _ = env.reset()
+    if field == "active_orders":
+        raw["active_orders"] = env._encode_active_orders((_pending_order_snapshot(),))
+        row = raw["active_orders"][0]
+        if presence_index is not None:
+            row[presence_index] = 1.0
+        row[index] = value
+    else:
+        raw["risk"][index] = value
+
+    with pytest.raises(ValueError, match=message):
+        transform.transform_observation(raw)
+
+
+def test_portfolio_gym_wrapper_preserves_native_step_and_reward() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioGymObservationWrapper,
+        fit_portfolio_observation_transform,
+    )
+
+    dataset = _dataset(symbols=("AAA", "BBB"))
+    transform = fit_portfolio_observation_transform(_env(dataset))
+    raw_env = _env(dataset)
+    wrapped = PortfolioGymObservationWrapper(_env(dataset), transform)
+    raw_reset, raw_reset_info = raw_env.reset(seed=8)
+    wrapped_reset, wrapped_reset_info = wrapped.reset(seed=8)
+    np.testing.assert_array_equal(
+        wrapped_reset["features"],
+        transform.transform_observation(raw_reset)["features"],
+    )
+    assert wrapped_reset_info == raw_reset_info
+
+    action = np.asarray([ACTION_LONG, ACTION_SHORT], dtype=np.int64)
+    raw_result = raw_env.step(action)
+    wrapped_result = wrapped.step(action)
+    expected = transform.transform_observation(raw_result[0])
+    for key in expected:
+        np.testing.assert_array_equal(wrapped_result[0][key], expected[key])
+    assert wrapped_result[1:] == raw_result[1:]
+
+
+def test_transformed_portfolio_gym_passes_gymnasium_checker() -> None:
+    from trade_rl.strategies.rl.portfolio_transform import (
+        PortfolioGymObservationWrapper,
+        fit_portfolio_observation_transform,
+    )
+
+    env = _env(_dataset(symbols=("AAA", "BBB")))
+    transform = fit_portfolio_observation_transform(env)
+    wrapped = PortfolioGymObservationWrapper(env, transform)
+
+    check_env(wrapped, skip_render_check=True)

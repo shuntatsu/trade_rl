@@ -62,13 +62,14 @@ authorization、financial ledger、winner ruleを加えない。
 
 - `feature_available_time <= decision_time` を満たす。featureのinformation/availability timeはdecision timeを越えない。
 - `MarketDataset.periods_per_year` はannualization clockを表すpositive integerであり、booleanやfractional/non-finite frequencyは拒否する。
+- `trade_rl.data._timestamps` はtyped `datetime64` 値をsigned nanosecond clockへ正確に正規化するinternal helperを一つだけ所有する。raw tickとunit multiplierを整数演算し、範囲とsub-nanosecond precisionをcast前に検証する。public data facadeへはexportしない。
 - `timestamps` と明示された `available_at` は、計算に使う `datetime64[ns]` へlosslessに変換できる値だけを受け入れる。nanosecond範囲外へのunit変換によるwrapと、sub-nanosecond精度の切り捨ては拒否する。NaTも拒否し、有効なcoarser-unit timestampの表現は維持する。
-- `CsvMarketDataSource` はISO日時本体のfractionをnanosecondまで整数で保持し、integer epochは従来どおり `abs(value) >= 10^12` をmillisecond、それ未満をsecondとして正確に変換する。日時本体のnanosecond範囲外とnon-zero sub-nanosecond fractionは拒否する。小数秒を含むtimezone offsetはmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあるoffsetは拒否する（余分な桁がすべてzeroなら値は失われない）。`RawMarketSeries` のtyped datetime配列もnsへのexact round-tripを要求し、1ns遅れた `available_at` を同時刻へ丸めず後段へ渡す。時系列順序は隣接値を直接比較し、Datasetのperiod deltaが正のint64 nanosecondsへ収まらない入力は拒否する。
-- `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` は元unitへのexact round-tripを要求するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
+- `CsvMarketDataSource` はISO日時本体のfractionをnanosecondまで整数で保持し、integer epochは従来どおり `abs(value) >= 10^12` をmillisecond、それ未満をsecondとして正確に変換する。日時本体のnanosecond範囲外とnon-zero sub-nanosecond fractionは拒否する。小数秒を含むtimezone offsetはmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあるoffsetは拒否する（余分な桁がすべてzeroなら値は失われない）。`RawMarketSeries` のtyped datetime配列もshared helperの整数演算でnsへ正確に変換し、1ns遅れた `available_at` を同時刻へ丸めず後段へ渡す。時系列順序は隣接値を直接比較し、Datasetのperiod deltaが正のint64 nanosecondsへ収まらない入力は拒否する。
+- `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` はshared data helperのexact integer arithmeticで検証するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
-- forecast training builderへ渡す`fit_cutoff`は、`datetime64[ns]`へ値を失わず変換できなければならない。`NaT`、signed-nanosecond範囲外、nanosecond未満の端数はtraining scopeやlabel rowを調べる前に拒否し、exactに変換できるcoarser / multiplier unitは受け入れる。
+- forecast training builderへ渡す`fit_cutoff`と、`CausalForecastTrainingSet`へ直接渡す`label_end_times`は、`data._timestamps`のshared helperを通し、元のdatetime64 unitと正のmultiplier metadataから正確な整数演算でns値を求めてからsigned-nanosecond範囲を確認する。multiplierが0以下のmetadata、`NaT`、範囲外へのwrap、nanosecond未満の端数はscopeやmaturity比較より前に拒否し、正確に表現できるfixed-duration unitとcalendar `Y` / `M` unitを受け入れる。cast後の逆変換一致だけをoverflow判定には使わない。
 - Ridge / LightGBM model constructorも同じlossless cutoff normalizerを使う。両strategy adapterは、保存済みobservation timestampが`NaT`の場合と`fit_cutoff > observation.timestamp`の場合に、feature fallbackやpredictionより前に拒否し、同時刻は許す。これはmodelの宣言fit cutoffに対するas-of floorであり、modelの生成・配布時刻、vintage、decision時点での実運用可能性を証明しない。`StrategyObservation`構築前のtimestamp変換で既にwrapされた入力時刻も復元できない。
-- `LeanCandidateConfig`のtyped `fit_cutoff`も、nsへの正規化前に元unitとのexact round-tripを要求する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
+- `LeanCandidateConfig`と`CandidateRunConfig`のtyped `datetime64` 値も同じshared helperで正確に正規化する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。ISO文字列のparse semanticsは変えない。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
 - developmentやfinal futureをthreshold/model選択へ戻さない。
@@ -104,6 +105,26 @@ Strategyの責任:
 - signal / forecast / policyに基づく経済判断
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
+
+`strategies/portfolio_adapter.py` は、exact built-in `ConstantIntentStrategy`、
+`TrendIntentStrategy`、`RidgeForecastStrategy` だけを、固定symbol/feature rosterと
+有限な`(0, 1]`範囲の明示per-symbol intent budgetを持つnumeric `PortfolioPolicy` adapterへ
+接続するopt-in pathである。各snapshotの`exact_quantities`から実filled sideを導き、
+current weight / quantity、current rowとbudgetを既存`StrategyObservation`へ渡して、
+SHORT / FLAT / LONGを`-budget / 0 / +budget`へ写す。cash armには固定rosterの明示zero-target
+policyを使える。全snapshotとroster/window contextはstrategy callback前に検証し、
+callbackまたはoutput失敗がsymbol走査の途中で起きたadapterはpoisonされ、後続proposalを
+返さない。factoryはadapter内でdistinct instanceを返す必要があり、比較orchestratorは各armの
+ためにfresh instanceを構築する。このadapterはarm間の共有を検出しない。strategy factoryは
+caller codeでありprovenance/sandboxではない。
+
+このadapterはlegacy replayのcached target、minimum-hold、pending-aware intent、
+exact-quantity HOLDを再現せず、任意の`SingleSymbolStrategy`やsubclassにも対応しない。
+それらのsemanticsが必要ならdirect `PortfolioPolicy`を実装する。native sessionは同じ
+BookState/MarketExecutorでrisk、order reconciliation、fill、cost、accountingと終端処理を
+引き続き行う。Ridgeの`one_way_switch_cost`はintent選択のproxyであり、ledger feeを変更しない。
+このstrategy wrapperはjoint PPO learner、training parity、Dataset/profile/fit provenance、
+経済的比較やprofitability evidenceを作らない。
 
 Canonical replayは各`StrategyObservation`へoptionalな`intent_gross_budget`と`same_intent_target_weight`を渡す。後者はbudgetがある場合だけ有効で、cached desired quantityを現在のmark/equityで表したweightである。`one_way_switch_cost`を設定したRidge / LightGBM adapterは、budgetがある場合に`CostAwareForecastIntentController.decide_for_position`を呼び、signed filled quantity（quantityが`None`ならcurrent weight）の符号からactual sideを求める。candidateは`[actual side, actual sideからのbaseline hysteresis proposal, FLAT]`の重複を除いた順序で比べる。candidateのtarget exposure `a`は通常`intent * budget`だが、candidateがlogical `current_intent`と一致しhintがある場合はcached weightを使う。従ってsame-intent holdは価格変動後の旧targetへ不要な再約定を要求せず、partial fillやpending residualは`current_weight`からcached targetまでのturnoverとして残る。direct callerも同じmethodを使えるが、返すのは`PositionIntent`だけで、fillや会計は行わない。
 
@@ -236,6 +257,37 @@ This
 numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.
+
+`strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
+Gym Dict. Its versioned payload binds the raw/transformed layouts and
+Dataset/objective/clock/risk/execution context. Local features use the existing
+PPO normalizer; global features and per-symbol geometric mark-price references
+are fitted only on `[start_index, agent_stop_index)`. Availability masks remain
+explicit, account and active-order notionals use fixed initial capital, while
+the dimensionless maintenance-margin rate remains a rate. UTC nanoseconds are
+differenced before conversion to floating point. Loading serialized transform
+parameters requires an independently retained expected digest; this detects
+payload changes but does not prove authorship or fit provenance. Raw validation
+also checks risk flags and order-index fields against their declared types. The
+wrapper preserves native rewards and termination facts, uses absorbing padding
+after termination, and records then poisons itself if transformation fails after
+a raw step may have advanced. This does not make observations a complete account
+state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
+or change legacy PPO behavior.
+
+`PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
+It stores actual policy forward inputs, sampled action codes, the returned joint
+log-probability, and critic value before the caller advances the environment.
+Each sample-v2 row also records the forward batch size and actual action/value/
+log-probability tensor dtype and full batch shape, without changing the saved
+action or scalar values. Attachment requires empty policy-local and global
+forward-hook layouts; those layouts and their dispatch flags are frozen after
+attachment. Any later change fails closed before a sample is written, preventing
+a replacing hook from silently changing what SB3 receives. Caller-declared
+context, transform, and policy-version labels are not Dataset, weight, or
+checkpoint-lineage attestations. The recorder does not store optimizer updates
+or join policy samples to native financial transitions, and it leaves legacy
+PPO defaults and serialization unchanged.
 
 `run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
 sequences. It validates every symbol schedule before execution. `None` means no

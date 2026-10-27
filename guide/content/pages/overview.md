@@ -24,6 +24,8 @@ metrics / comparison / robustness / immutable evidence
 
 この流れでは、戦略が直接P&Lを作りません。戦略は売買意図を出し、riskとexecution/accountingを必ず通った後の結果だけを比較します。
 
+共有資金のnumeric policy経路には、既存のconstant・trend・Ridge戦略を固定rosterと明示budgetで接続する限定的なopt-in adapterもあります。これはjoint PPO learnerや経済結果ではなく、risk・約定・会計は引き続き共通ownerが処理します。
+
 ## 現在どこまで分かっているか
 
 | 区分 | 現在の状態 |

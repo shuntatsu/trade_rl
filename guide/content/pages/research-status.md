@@ -6,6 +6,12 @@ Portable Controlled Experiment 0001は独立再検証まで完了し、formal de
 
 Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しました。screen全体は FAILED_SCREEN です。全てのnon-cash armのreturnは正でしたが、latency-2ではcost-proxy armがposition-aware cost=0 controlを下回りました。
 
+別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
+
+新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、trainerや完全な学習記録にはなりません。
+
+別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。trainer、weights/checkpoint lineageのattestation、学習結果や利益の証拠にはなりません。
+
 ## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
 
 4方式比較のソフトウェアはレビューと必須CIを通してmainに統合され、M34で固定した一度のscreenを実行しました。cash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの12行はすべて計算を完了しましたが、latency-2のnet returnはcost-proxyが2.6777%、cost=0が2.8971%となり、screenの比較条件は不成立です。各行の結果、費用・drawdown・fundingとsource bindingは[研究状態の正本](../../../docs/research/current-status.md)および[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)を参照してください。
@@ -13,6 +19,8 @@ Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しま
 各armは独立した100,000 USDT口座を持ち、BTC/ETHは口座内で資金を共有します。Datasetのfee_rate 5 bpとspread_rate 2 bpを使い、追加execution overlayは0です。10 bp/weight-turnoverのdecision proxyはledger feeと別で、execution costやfundingを二重計上しません。fundingは完成barのrow-close proxy、marginと市場filterは固定した研究仮定です。
 
 入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。このscreenは再実行・retuneせず、固定結果として保持します。次の検証は別protocolと結果前のreviewで条件を固定します。
+
+joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統計とsource/context bindingを持つ前処理です。serialized statisticsはtrusted expected digestで検証しますが、これは署名やfit実施の証明ではありません。まだtrainer・学習済みjoint policy・利益性の証拠を追加せず、既存PPO defaultも変えません。
 
 ## Task 18 Datasetの準備状況と次のゲート
 

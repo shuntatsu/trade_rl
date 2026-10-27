@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | integrations | provider固有レスポンスを内部source evidenceへ変換 | 売買判断 |
 | data | causalな`MarketDataset`、availability、staleness、dataset identity、検証済みartifactのidentity/data読込 | strategy固有の意思決定 |
-| strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsとlosslessなfit cutoffを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。cost-aware forecastはReplayのbudget・actual weight・filled sideを使って離散targetを選び、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
+| strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsと、正の元unit multiplierを使う正確な整数ns validationを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。cost-aware forecastはReplayのbudget・actual weight・filled sideを使って離散targetを選び、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
 | simulation | fill、cost、funding、borrow、margin、`BookState`、新Study用の純粋なfinancial objective/clock宣言 | winner判断、Study実行 |
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
@@ -50,8 +50,13 @@ artifacts / evidence
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
+| joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
+| opt-in Gym episode event journal | `trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper` |
+| opt-in SB3 policy forward sample journal | `trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal` |
 | portfolio policyへ渡すcurrent snapshotの組み立て | `trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot` |
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
+| built-in単銘柄戦略をnumeric portfolio policyへ接続 | `trade_rl.strategies.portfolio_adapter.SingleSymbolPortfolioPolicyAdapter` |
+| 明示的なcash zero-target policy | `trade_rl.strategies.portfolio_adapter.CashPortfolioPolicy` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | filled exposureを使うforecast intent utility | `trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position` |
@@ -75,6 +80,8 @@ terminal settlementは変更されず、ledgerやwinner selectionも新設され
 固定action sequence用のopt-in replayでは、`None`がactorの新しい判断なしを表し、既存targetとpending orderを進めます。`HOLD_QUANTITY`は実bookのsigned quantityを保ち、未約定remainderをcancelします。hard riskは引き続き縮小・flattenでき、既存`SingleSymbolStrategy` interfaceは変わりません。
 
 別のopt-in `run_shared_portfolio_replay`は各eligible native barで全symbolを一度に観測し、numeric target vectorをsimulation-owned sessionから既存のshared risk・execution・accounting loopへ渡します。sessionは同じBookState・MarketExecutor・native indexを次のbarへ引き継ぎ、public book viewはcloneを返します。inputはcurrent-row featuresとdetached account/order/risk factsだけをtuple/scalarで保持し、free/reserved cashやopaque order identityを追加しません。exact quantity HOLDはrisk projectionがweightを変えない場合だけ残り、latency-aware actor boundary後のterminal settlementはsession内のrisk-owned pathで進みます。legacy intent resultとledger schemaはそのままです。
+
+`SingleSymbolPortfolioPolicyAdapter`は、このnumeric seam向けにexact built-in constant、trend、Ridge strategyだけを固定symbol rosterと明示budgetで束ねます。現在のfilled sideはsnapshotのexact quantityから求め、Ridge cost proxyを含む既存strategy callbackへactual weight/quantityとbudgetを渡します。同一roster内のstrategy instance再利用を拒否し、比較orchestratorはarmごとにfresh instanceを構築します。legacy cached target/minimum-hold、pending-aware action、exact-quantity HOLDや任意strategy parityは提供せず、より豊かなaction semanticsはdirect `PortfolioPolicy`で表します。callback/output失敗後のadapterはpoisonされ、後続proposalを返しません。
 
 `decide_for_position` はStrategy packageのutilityで、直接呼び出しに加えて、cost-aware設定かつbudget付きobservationを受け取るRidge / LightGBM adapterから使われます。filled quantity/weight、forecast、同じlogical intentのoptionalなcached targetから`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、canonical replayはその後に既存のhold制約、risk、execution、会計を適用します。
 

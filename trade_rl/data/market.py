@@ -10,6 +10,7 @@ from numbers import Integral
 import numpy as np
 
 from trade_rl._validation import require_sha256, require_unique_non_empty
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.identity import (
     canonical_identity_json,
@@ -41,16 +42,11 @@ def _datetime64_ns_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
     if np.isnat(source).any():
         raise ValueError(f"{field_name} must not contain NaT")
     try:
-        normalized = source.astype(np.dtype("datetime64[ns]"))
-        round_tripped = normalized.astype(source.dtype)
+        normalized = _datetime64_values_to_ns_exact(source)
     except (OverflowError, TypeError, ValueError) as error:
         raise ValueError(
             f"{field_name} must be exactly representable as datetime64[ns]"
         ) from error
-    if not np.array_equal(round_tripped, source):
-        raise ValueError(
-            f"{field_name} must be exactly representable as datetime64[ns]"
-        )
     return _readonly_array(normalized, dtype=np.dtype("datetime64[ns]"))
 
 

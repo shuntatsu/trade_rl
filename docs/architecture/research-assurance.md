@@ -858,6 +858,38 @@ semantics below -100% of fixed initial capital. Insolvent episodes remain
 invalid rather than being filtered. This adapter is not a trainer and
 establishes no learned-policy or economic result.
 
+### GYM-002 — forward observation-transform binding
+
+**Statement:** An opt-in forward runtime may reuse a frozen
+`PortfolioObservationTransform` only with its typed training
+`BoundObjectiveClock`. The binding must match the transform's canonical
+training digests and fit window, use the same Dataset, ordered symbols and
+features, capital, risk, execution, and market-order-profile context, and
+preserve every objective and financial-clock field except evaluation start,
+evaluation stop, and economic horizon. The runtime's start index is at or
+after the transform's exclusive training stop. Runtime actor-clock and
+pending-order offsets use the runtime window; fitted statistics are not
+refit.
+
+**Counterexample:** Reusing the statistics on an overlapping window, a changed
+capital/risk/execution context, a different reward or discount contract, or a
+runtime bound whose timestamps do not match the Dataset rows.
+
+**Oracle:** Synthetic tests bind a transform to a contiguous forward window,
+check the runtime clock fractions and unchanged transform payload, and reject
+overlap, mismatched training-bound identity, changed non-temporal objective or
+clock semantics, timestamp mismatch, and tampered runtime-window metadata.
+
+**Known limitations:** This binding does not prove that statistics were
+actually fit using the declared training rows, that feature values were
+available at their historical source time, or that a model/policy was trained
+or is valid for deployment. A direct low-level
+`transform_observation(..., runtime_binding=...)` call assumes the binding was
+already checked against the typed training bound and actual runtime environment
+with `create` or `validate_environment`; the Gym wrapper performs this check.
+Deserializing a binding alone validates its schema and digest, not its live
+environment context. It adds no trainer and no economic evidence.
+
 ### TRAIN-EVAL-001 — train/evaluation account semantics
 
 **Statement:** trainingとevaluationが同じ経済能力を比較すると主張する場合、資本・観測・action・reward・risk・execution/accounting scopeは同じ意味を持つか、差分が事前に研究factorとして明示されていなければならない。

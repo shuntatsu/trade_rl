@@ -24,6 +24,8 @@ metrics / comparison / robustness / immutable evidence
 
 この流れでは、戦略が直接P&Lを作りません。戦略は売買意図を出し、riskとexecution/accountingを必ず通った後の結果だけを比較します。
 
+共有資金のnumeric policy経路には、既存のconstant・trend・Ridge戦略を固定rosterと明示budgetで接続する限定的なopt-in adapterもあります。これはjoint PPO learnerや経済結果ではなく、risk・約定・会計は引き続き共通ownerが処理します。
+
 ## 現在どこまで分かっているか
 
 | 区分 | 現在の状態 |
@@ -33,6 +35,8 @@ metrics / comparison / robustness / immutable evidence
 | 観測したが不十分 | Portable Controlled Experiment 0001ではmean-reversionがbaseline比で5 / 5銘柄改善しturnoverも低下したが、candidate total returnが正だったのは1 / 5銘柄 |
 | 正式判断 | Experiment 0001は事前登録したruleに従い **KEEP_BASELINE** |
 | 未証明 | 継続的なprofitability、winner strategy、unused future dataでの勝利、Production/live order authorization |
+
+同じfrozen PPOを明示的なruntime execution scenarioへloadし、cash・Trend・Ridge・joint PPOの4つを同じnative replayへ渡すopt-in v2 software pathもあります。v1のstrict matchingとTier-2 facadeは維持し、scenario用のdurable result/attemptや経済性能の証拠は追加しません。
 
 **再現可能な研究基盤が成立したことと、儲かる戦略が見つかったことは別です。** 現時点では後者を主張しません。
 

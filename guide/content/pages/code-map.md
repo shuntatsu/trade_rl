@@ -49,12 +49,22 @@ artifacts / evidence
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 固定action sequenceによる共通資金replay | `trade_rl.evaluation.replay.run_scripted_shared_cash_replay` |
 | 全銘柄portfolio policyのnumeric共通replay | `trade_rl.evaluation.replay.run_shared_portfolio_replay` |
+| cash / fixed rule / Ridge / joint PPOのin-memory native比較 | `trade_rl.evaluation.runs.portfolio_family_comparison.run_four_family_shared_portfolio_replay` |
+| declared runtime scenarioで4方式を同じnative coreへ接続 | `trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2.run_four_family_shared_portfolio_scenario_replay_v2` |
+| scenario v2のfour-family attemptとstrict result reload | `trade_rl.evaluation.runs.portfolio_family_scenario_attempt_v2.run_four_family_portfolio_scenario_attempt_v2` / `load_four_family_portfolio_scenario_attempt_v2` |
+| 固定4方式attemptの予約・逐次journal・strict completion | `trade_rl.evaluation.runs.portfolio_family_attempt.run_four_family_portfolio_attempt` / `load_four_family_portfolio_attempt` |
+| fixed four-family resultのstrict artifact reload | `trade_rl.evaluation.runs.portfolio_family_result_artifact.load_four_family_portfolio_result_artifact` |
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
 | joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
+| declared runtime scenarioのstrict bundle loaderとobservation wrapper | `trade_rl.strategies.rl.portfolio_scenario_inference.load_portfolio_scenario_inference_bundle` / `trade_rl.strategies.rl.portfolio_scenario_runtime.PortfolioScenarioGymObservationWrapperV2` |
+| runtime execution scenarioの純粋なversioned declaration | `trade_rl.strategies.rl.portfolio_runtime_scenario.PortfolioRuntimeExecutionScenarioV2` |
 | opt-in Gym episode event journal | `trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper` |
 | opt-in SB3 policy forward sample journal | `trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal` |
+| opt-in joint PPO inference bundle publisher / strict loader | `trade_rl.strategies.rl.portfolio_inference_bundle.publish_portfolio_inference_bundle` / `load_portfolio_inference_bundle` |
 | portfolio policyへ渡すcurrent snapshotの組み立て | `trade_rl.strategies.portfolio_observation.build_portfolio_decision_snapshot` |
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
+| built-in単銘柄戦略をnumeric portfolio policyへ接続 | `trade_rl.strategies.portfolio_adapter.SingleSymbolPortfolioPolicyAdapter` |
+| 明示的なcash zero-target policy | `trade_rl.strategies.portfolio_adapter.CashPortfolioPolicy` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | filled exposureを使うforecast intent utility | `trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position` |
@@ -71,6 +81,16 @@ artifacts / evidence
 finite economic horizonの秒数一致を検証します。ここからcurrent PPOのreward、gamma、
 terminal settlementは変更されず、ledgerやwinner selectionも新設されません。
 
+`PortfolioRuntimeExecutionScenarioV2`はplan/training/transform/checkpointのdigestと、完全な
+base/runtime `ExecutionCostConfig`、canonical digest、10個のcost/latency allowlist差分を記録する
+pure declarationです。`portfolio_scenario_inference`は別のopt-in v2 loaderを提供し、external
+scenario/source/bundle pinsと実際のforward contextをcheckpoint deserialization前に検証します。
+既存v1 matchingは緩めず、fit統計も再利用します。別の明示的なv2 evaluation entryは、
+このverified checkpointをcash・Trend・Ridge・joint PPOの
+4つのnative armへ渡し、scenarioのruntime costを全armへ適用したin-memory comparisonを返します。
+strict v1入口とTier-2 facadeは変わらず、scenario用のdurable attempt/resultやeconomic evidenceは
+まだありません。numeric stress recipe・gate・経済結果の証拠も作りません。
+
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 
 共通資金の比較はstrategy armごとに全symbolを一つのaccountでreplayします。armとsymbolごとにfresh strategy adapterを使い、既存replayのcost・funding・borrow・turnover diagnosticsからmetricsを作ります。これはmodel fittingやwinner selectionを行うAPIではありません。
@@ -78,6 +98,8 @@ terminal settlementは変更されず、ledgerやwinner selectionも新設され
 固定action sequence用のopt-in replayでは、`None`がactorの新しい判断なしを表し、既存targetとpending orderを進めます。`HOLD_QUANTITY`は実bookのsigned quantityを保ち、未約定remainderをcancelします。hard riskは引き続き縮小・flattenでき、既存`SingleSymbolStrategy` interfaceは変わりません。
 
 別のopt-in `run_shared_portfolio_replay`は各eligible native barで全symbolを一度に観測し、numeric target vectorをsimulation-owned sessionから既存のshared risk・execution・accounting loopへ渡します。sessionは同じBookState・MarketExecutor・native indexを次のbarへ引き継ぎ、public book viewはcloneを返します。inputはcurrent-row featuresとdetached account/order/risk factsだけをtuple/scalarで保持し、free/reserved cashやopaque order identityを追加しません。exact quantity HOLDはrisk projectionがweightを変えない場合だけ残り、latency-aware actor boundary後のterminal settlementはsession内のrisk-owned pathで進みます。legacy intent resultとledger schemaはそのままです。
+
+`SingleSymbolPortfolioPolicyAdapter`は、このnumeric seam向けにexact built-in constant、trend、Ridge strategyだけを固定symbol rosterと明示budgetで束ねます。現在のfilled sideはsnapshotのexact quantityから求め、Ridge cost proxyを含む既存strategy callbackへactual weight/quantityとbudgetを渡します。同一roster内のstrategy instance再利用を拒否し、比較orchestratorはarmごとにfresh instanceを構築します。legacy cached target/minimum-hold、pending-aware action、exact-quantity HOLDや任意strategy parityは提供せず、より豊かなaction semanticsはdirect `PortfolioPolicy`で表します。callback/output失敗後のadapterはpoisonされ、後続proposalを返しません。
 
 `decide_for_position` はStrategy packageのutilityで、直接呼び出しに加えて、cost-aware設定かつbudget付きobservationを受け取るRidge / LightGBM adapterから使われます。filled quantity/weight、forecast、同じlogical intentのoptionalなcached targetから`PositionIntent`を返します。simple switch-cost proxyは帳簿feeではなく、canonical replayはその後に既存のhold制約、risk、execution、会計を適用します。
 
@@ -88,6 +110,8 @@ Ridge artifactは既存のfrozen model parametersと宣言されたfit context�
 `publish_ridge_comparison_artifact` はその完全な4-arm返り値を一つのcanonical JSONへwrite-once保存します。必須の外部digestを使うloaderは、full ledger、returns、metrics、config、ordered symbol、Dataset/model境界、caller-supplied provenanceを検証してdeep read-only payloadを返します。returnsは`BASE_BAR`・elapsed-years未指定・共通annualizationに固定し、flat no-order cash/equity flowと利用可能なfunding event合計を照合します。cash armはtrade/rebalance、closed/open-position、realized net/gross trading P&Lがゼロで、FLATのまま正負のcash interestを保持できます。returnから再計算したinterval-end drawdownとledger intrainterval maximum drawdownは別々に扱い、前者が後者以下であることだけを検証します。ledger v2が独立fieldを持たないdelisting/split settlement proceedsを含む全fill-to-cash再構築は主張しません。保存profileは宣言データのままで、replay前後のsource/runtime採取やfit証明を追加しません。opt-in diagnosticsはartifact v2へ保存し、default v1 artifactの読込互換を保ちます。hourly horizon labelsは重なるためpair countは独立sample数ではなく、metricはprequential predictionやP&Lを示しません。このstorage capabilityだけではStudy protocol、winner選択、研究結果、profitabilityを示しません。
 
 `run_ridge_comparison_attempt` は新しいattempt rootを入力読込前に予約し、exact config/binding/pathとcaller context digestを記録します。比較を一度実行し、その前後に既存provenance ownerを呼びます。変化がなければ結果をpublish・strict reloadし、最後にcompletionを記録します。失敗も記録し、比較が返した後なら各armのledger mappingをpartial evidenceとして残します。これはlocal software attempt boundaryであり、global retry budget、approval、fit、研究結果を追加しません。
+
+`run_four_family_portfolio_attempt` はfixed cash / Trend / Ridge / joint-PPO comparator専用の別attempt wrapperです。one-shot local rootを確保し、比較の完了observerから受け取った各family rowを次arm開始前に保存します。全4rowのcanonical resultとprovenanceをstrict reloadしてからcompletionを記録し、failure journalが書ける場合はphaseと前段のrowを残します。journal write自体が失敗した場合は元例外を維持します。native ledgerを保存するだけで再計算せず、このwrapperからfit・winner選択・研究結果は生まれません。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 

@@ -54,6 +54,7 @@ def test_strategy_family_packages_exist() -> None:
     for relative in (
         "dataset_scope.py",
         "position_duration.py",
+        "portfolio_adapter.py",
         "carry.py",
         "rules/__init__.py",
         "rules/trend.py",
@@ -71,6 +72,7 @@ def test_strategy_family_packages_exist() -> None:
         "rl/ppo.py",
         "rl/ppo_normalization.py",
         "rl/ppo_artifact.py",
+        "rl/portfolio_runtime_scenario.py",
     ):
         assert (STRATEGIES / relative).is_file(), relative
 

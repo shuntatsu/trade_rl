@@ -379,17 +379,19 @@ def test_selected_feature_masks_can_change_forecast_training_rows() -> None:
         ),
     )
     cutoff = timestamps[-1]
-    shared = {
-        "dataset": dataset,
-        "fit_symbol_indices": (0,),
-        "fit_cutoff": cutoff,
-        "horizon_hours": 24,
-    }
     baseline = build_causal_forecast_training_set(
-        feature_indices=(0,), **shared
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+        fit_cutoff=cutoff,
+        horizon_hours=24,
     )
     candidate = build_causal_forecast_training_set(
-        feature_indices=(0, 1, 2), **shared
+        dataset,
+        feature_indices=(0, 1, 2),
+        fit_symbol_indices=(0,),
+        fit_cutoff=cutoff,
+        horizon_hours=24,
     )
 
     # The current fitter properly uses only selected feature masks. Thus

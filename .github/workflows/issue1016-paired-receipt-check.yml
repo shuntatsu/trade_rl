@@ -1,0 +1,103 @@
+name: Issue1016 artifact-only paired-row reconstruction (temporary)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+    paths:
+      - .github/workflows/issue1016-paired-receipt-check.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  paired-receipt:
+    if: github.event.pull_request.number == 1017
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Independent immutable pair-receipt byte validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIPT_ZIP: ${{ runner.temp }}/issue1016-paired-receipt.zip
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12744965658/zip" > "$RECEIPT_ZIP"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          path = Path(os.environ["RECEIPT_ZIP"])
+          sha = hashlib.sha256(path.read_bytes()).hexdigest()
+          if sha != "6e06432843126edd8fc57bb7b3d13a931f0e0d4bf6b905bfa88f07b7be293cdb":
+              raise ValueError("paired evidence ZIP SHA mismatch")
+          with zipfile.ZipFile(path) as z:
+              members = z.namelist()
+              if members != ["issue1016-paired-rows.json"]:
+                  raise ValueError("unexpected receipt member roster")
+              if z.getinfo(members[0]).file_size >= 100000:
+                  raise ValueError("unexpected receipt size")
+              raw = z.read(members[0])
+          d = json.loads(raw)
+          assert d["schema"] == "issue1016_paired_train_score_membership_v1"
+          assert d["source_artifact_id"] == 10301701698
+          assert d["raw_zip_sha256"] == "f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a"
+          assert d["dataset_id"] == "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
+          assert d["dataset_digest"] == "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+          assert d["row_count_pre2023"] == 17519
+          assert d["proves_real_provider_publication_time"] is False
+          assert d["proves_predictive_or_economic_value"] is False
+          assert d["all_arms_equal"] is True
+          assert d["declared_asof_arms_equal"] is True
+
+          symbols=("BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT")
+          expected={(y,s) for y in (2021,2022) for s in symbols}
+          rows=d["cells"]
+          if len(rows)!=10 or {(r["year"],r["symbol"]) for r in rows}!=expected:
+              raise ValueError("not an exact 5-by-2 year-symbol roster")
+          assert len(d["feature_roster"]) == 14 and len(set(d["feature_indices"])) == 14
+          for r in rows:
+              if r["baseline_count"] <= 0 or r["candidate_count"] <= 0:
+                  raise ValueError("no eligible rows")
+              if r["baseline_count"] != r["candidate_count"]:
+                  raise ValueError("source-only fit/scoring membership mismatch")
+              if r["baseline_only"] != 0 or r["candidate_only"] != 0:
+                  raise ValueError("nonmatched row identities")
+              if r["identities_equal"] is not True:
+                  raise ValueError("source row admission not equal")
+              if r["baseline_identity_sha256"] != r["candidate_identity_sha256"]:
+                  raise ValueError("matched training identity digest drift")
+              if r["declared_asof_identical"] is not True:
+                  raise ValueError("as-of identity mismatch")
+              if r["declared_asof_baseline_count"] != r["declared_asof_candidate_count"]:
+                  raise ValueError("declared as-of count mismatch")
+              if not 0 <= r["declared_asof_candidate_count"] <= r["candidate_count"]:
+                  raise ValueError("impossible as-of admission counts")
+              if r["asof_censored_count"] != (
+                  r["candidate_count"] - r["declared_asof_candidate_count"]
+              ):
+                  raise ValueError("inconsistent declared as-of censor count")
+          print(json.dumps({
+              "status": "ISSUE1016_PAIRED_RECEIPT_BYTE_VERIFIED",
+              "receipt_sha256": sha,
+              "source": d["dataset_id"],
+              "year_symbol_rows": sorted(
+                  [
+                      {
+                          "year": r["year"],
+                          "symbol": r["symbol"],
+                          "paired_eligible": r["candidate_count"],
+                          "declared_asof_eligible": r["declared_asof_candidate_count"],
+                          "asof_censored": r["asof_censored_count"],
+                      } for r in rows
+                  ],
+                  key=lambda r: (r["year"], r["symbol"])
+              ),
+              "external_provider_time_proven": False,
+              "any_forecast_score_or_PnL": False,
+          }, sort_keys=True))
+          PY

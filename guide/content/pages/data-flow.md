@@ -80,6 +80,8 @@ strategy出力はhard riskと`MarketExecutor + BookState`を通し、summaryだ�
 
 結果の意味を後から検証できるようにするためです。
 
+Scenario v2には、その既存native four-arm結果を各arm後に保存し、before/after provenanceとsource records、外部identity、expected result digestをstrict reloadで確認してからcompleteにするone-shot local attemptもあります。これはsoftware-integrity recordであり、別の帳簿や損益計算、研究判定を追加しません。
+
 ## 不変条件
 
 - `feature_available_time <= decision_time`。

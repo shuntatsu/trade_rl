@@ -39,9 +39,8 @@ maximum drawdown remains visible and can exceed the configured stop after a
 price gap. Existing native insolvency handling floors terminal cash/equity at
 zero, so this adapter adds no reward clipping but also does not establish
 uncapped debt-loss semantics below -100% of fixed initial capital. Such losses
-and invalid endpoints are retained rather than filtered. This adapter does
-not add a trainer, change legacy PPO defaults, or provide training or profit
-evidence.
+and invalid endpoints are retained rather than filtered. The adapter itself
+does not add a trainer or change legacy PPO defaults.
 
 The opt-in `PortfolioObservationTransform` and
 `PortfolioGymObservationWrapper` provide a versioned preprocessing path for the
@@ -89,13 +88,136 @@ optimizer updates or establish a join with native financial events; it does not
 add a trainer, change legacy PPO defaults, or provide training or profit
 evidence.
 
+`fit_shared_portfolio_ppo` is a separate, explicit one-environment CPU PPO
+trainer for this opt-in joint environment. It binds rollout policy samples to
+native episode events, records exact rollout completion, checkpoint hashes,
+optimizer-step calls, and failure/incomplete evidence, and leaves the existing
+per-symbol PPO path and defaults untouched. Before reserving an attempt, its
+rollout size and GAE lambda must match the environment's bound financial clock.
+Failed receipts retain observed optimizer post-step-hook calls and SB3's
+reported epoch counter when initialized, or explicit nulls before
+initialization. Early target-KL stopping can count a partially processed epoch,
+and a failure inside an optimizer step can leave the post-step-hook count below
+work already applied.
+
+`portfolio_inference_bundle.py` adds a separate opt-in publisher and strict
+loader for an exact completed trainer attempt. The bundle binds the training
+context, checkpoint bytes, selected source/runtime owner manifest, action
+layout, and an explicitly validated forward environment before SB3 policy
+deserialization. After loading the digest-verified checkpoint, the loader also
+checks its actual observation/action spaces, supported MultiInput policy class,
+declared actor/critic MLP widths and activation, and declared default feature
+extractor before returning the prediction facade. These are inference-architecture
+checks; they do not reconstruct optimizer state or all training hyperparameters.
+This software path does not establish an economic result,
+model-selection decision, complete transitive source closure, independent fit
+provenance, deployment readiness, or completion of any research gate. No
+real-data-trained policy or real-data inference is claimed here; legacy
+per-symbol PPO paths and defaults remain unchanged.
+
+The exact-window wrapper remains the default. A separate
+`PortfolioObservationRuntimeBinding` can reuse the frozen transform on a
+forward window only when a typed training `BoundObjectiveClock` is supplied,
+the same Dataset and capital/risk/execution/profile context is present, and all
+non-temporal objective and clock fields match. Only evaluation endpoints and
+the finite economic horizon may differ; the runtime start index must be at or
+after the transform's exclusive training stop. This binding reuses the stored
+statistics and uses the runtime window for actor/order clock features. It does
+not change the transform-v1 payload or prove fit provenance, point-in-time
+feature availability, or learned-policy validity. A direct
+`transform_observation(..., runtime_binding=...)` call assumes its binding was
+already checked against the typed training bound and actual runtime environment
+with `create` or `validate_environment`; the Gym wrapper performs this check.
+Deserialization alone checks the binding schema and digest, not live runtime
+context.
+
+The source defines `PortfolioRuntimeExecutionScenarioV2` and a separate
+opt-in v2 scenario inference loader. The declaration binds the training-context,
+transform, checkpoint, and plan digests to exact base/runtime
+`ExecutionCostConfig` declarations, allowing only its supported cost and
+order-latency fields to differ. The loader requires an external scenario digest
+and current v2 source digest, verifies the base policy against the fitted
+context, validates the actual forward Dataset/objective/clock/risk/profile/space
+context, and checks these conditions before deserializing the unchanged PPO
+checkpoint. It preserves the fitted statistics, uses base latency for the
+original training actor stop and runtime latency for the runtime actor window,
+and routes predictions through the existing native observation/action
+contracts. Existing v1 runtime matching and payloads remain strict. The separate
+`run_four_family_shared_portfolio_scenario_replay_v2` software entry now passes
+the declared runtime cost through the same four-arm native replay owner and
+returns an in-memory scenario-bound result. Before each arm and completion
+observer it rechecks the scenario/source pins and the loaded policy's runtime
+environment binding, stopping before further work or observation on a mismatch.
+The loader reconstructs execution-policy and runtime/window checks from typed
+inputs, but the preserved training-bound digest does not independently prove
+that a training fit occurred or establish its provenance.
+The separate `run_four_family_portfolio_scenario_attempt_v2` wrapper can retain
+that software replay in a one-shot local v2 attempt, with native rows,
+before/after provenance and source records, and strict result reload before
+completion. This API addition did not rerun or change the completed M34 screen.
+This later v2 software path supersedes only the earlier statement that runtime
+cost/order-latency binding was unavailable. The v1 strict-match contract remains
+unchanged. It does not select a numeric stress recipe or establish financial performance,
+profitability, unused-period approval, or live eligibility.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Shared-portfolioのopt-in policy inference software path
+
+`trade_rl.strategies.portfolio_policy_codec` maps the immutable current-row
+`PortfolioDecisionSnapshot` to raw-v1 NumPy observations and maps joint
+HOLD / SHORT / FLAT / LONG codes to numeric target proposals. HOLD is carried
+as an explicit quantity-preserving request, subject to the existing native
+risk and execution path. `run_published_portfolio_inference_replay` reads one
+expected-digest Dataset artifact, checks the inference bundle and runtime
+context in an unreset Gym shell, then sends that same loaded Dataset object and
+the supplied risk/execution settings through one shared native replay with
+terminal settlement. The M34 screen and legacy per-symbol PPO defaults are
+unchanged. A fixed-action positive-cost synthetic test independently checks
+fee, funding, borrow and terminal-cash routing; it is software coverage, not
+learned-policy behavior or a financial result. This opt-in path adds no
+real-data fit or inference, profit evidence, winner selection, unused-period
+validation, or deployment authorization.
+
+`evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
+coordinator that runs cash, fixed Trend, pinned Ridge, and verified joint-PPO
+policies through the existing native shared-portfolio replay. It preflights all
+inputs before the first arm and uses the same Dataset and execution/risk/profile
+configuration values with a fresh native session per arm. An optional
+completion observer receives each raw outcome before the next arm starts, so a
+later arm or observer failure cannot hide earlier completed arms. This entry
+point does not reserve or persist attempts, fit models, select a winner, or add
+financial results or profitability evidence.
+
+The separate `portfolio_family_attempt.py` wrapper adds a local one-shot
+filesystem boundary around this opt-in software path. It reserves a caller-named
+attempt root, records expected identity and before/after provenance, writes each
+completed family row before the next family starts, then strictly reloads the
+four-family result before marking the attempt complete. When the failure journal
+is writable, it records the phase and rows from earlier completed families; if
+the journal write itself fails, the original exception remains primary. The wrapper has not been used to
+produce a new financial run; it does not change the historical M34 screen or
+authorize a fit, winner selection, unused-period evaluation, or live action.
+The public loader also requires an externally supplied expected result digest.
+If the native comparator raises within a family before its completion callback,
+the wrapper cannot read that in-flight family's partial ledger from the public
+API; it retains earlier completed rows and does not infer a zero count.
+
+`FourFamilyPostFreezeInputManifest` is a typed metadata roster for one selection
+and one evaluation attempt, with a pinned Dataset, chronological training /
+selection / evaluation windows, and a declared PPO training request. Its byte
+verification compares against a separately retained typed declaration; it is
+not an executable study plan or an authorization to run either attempt. Its
+fit cap is fixed at zero and its selection/evaluation windows are static; it does
+not implement outer walk-forward refitting or continuous portfolio accounting
+across model-update boundaries required by the original staged plan. Those
+acceptance items remain open.
 
 ## Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)
 
 この節は[事前登録したプロトコル](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6383093872)と[実行結果](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6384143472)の現状を要約する。M34 sourceに固定した一度のscreenでは、1 fit・3 scenario・4 armの全12行を計算し、screen全体は FAILED_SCREEN となった。latency-2でposition-aware cost-proxy armが2.6777%、同じ経路のcost=0 armが2.8971%だったため、事前の比較条件を満たさなかった。シナリオごとの結果、ledger、source、Dataset、費用・funding仮定は、この文書の下にあるConditional four-arm Ridge development screen節と[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に記録している。
 
 このscreenは、独立した100,000 USDT口座を使うcash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの比較であり、PPO/RLを含まない。Datasetのfee・spread、実行条件、row-close funding proxyは固定した研究仮定で、歴史的なexchange ruleやfunding event markとの一致を証明しない。入力の過去利用範囲はTier Uのままで、unused/final評価にはならない。
+Issue #810のP4にある残差PPO比較armとzero-residual parityはこのscreenに含まれていないため、M34の4方式screenはその段階比較計画を完了していない。これは別途preregisterして評価する必要がある研究範囲であり、既存のFAILED_SCREENを変更しない。
 
 元のNONRL 48-cell gateは別の評価で、registryは1 interrupted・47 unattempted・0 completeの未完了状態を保つ。このM34 screenはそのgateを完了させず、screen結果はforward profitability、winner、future persistence、live order authorizationを確立しない。今回の一度の結果を再実行・retuneしていない。別の試行を始める場合は新しいprotocol、result-blind review、実行許可が必要となる。
 
@@ -1464,6 +1586,6 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 
 現時点の次アクションは、Run Coreやbootstrap toolingをさらに拡張することではない。
 
-> 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
+> Experiment 0001のKEEP_BASELINEを維持し、次に検証するControlled Factorを結果を見る前に事前登録したうえで、次のdevelopment Experimentを独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。

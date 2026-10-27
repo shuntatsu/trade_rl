@@ -26,6 +26,23 @@ from trade_rl.evaluation.runs.config import (
     resolve_candidate_run_spec,
 )
 from trade_rl.evaluation.runs.execute import CandidateRunResult, execute_candidate_run
+from trade_rl.evaluation.runs.portfolio_family_attempt import (
+    FourFamilyPortfolioAttemptContext,
+    LoadedFourFamilyPortfolioAttempt,
+    PublishedFourFamilyPortfolioAttempt,
+    load_four_family_portfolio_attempt,
+    run_four_family_portfolio_attempt,
+)
+from trade_rl.evaluation.runs.portfolio_family_comparison import (
+    FourFamilyPortfolioReplayResult,
+    PortfolioFamilyReplayOutcome,
+    run_four_family_shared_portfolio_replay,
+)
+from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+    FourFamilyPortfolioAttemptIdentity,
+    LoadedFourFamilyPortfolioResultArtifact,
+    load_four_family_portfolio_result_artifact,
+)
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.evaluation.runs.ridge_artifact_comparison import (
     ForecastErrorMetrics,
@@ -51,11 +68,18 @@ __all__ = [
     "CandidateRunResult",
     "ForecastErrorMetrics",
     "ForecastSymbolDiagnostics",
+    "FourFamilyPortfolioAttemptContext",
+    "FourFamilyPortfolioAttemptIdentity",
+    "FourFamilyPortfolioReplayResult",
     "LeanCandidateConfig",
+    "LoadedFourFamilyPortfolioAttempt",
+    "LoadedFourFamilyPortfolioResultArtifact",
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
     "PublishedRidgeComparisonAttempt",
+    "PublishedFourFamilyPortfolioAttempt",
+    "PortfolioFamilyReplayOutcome",
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
@@ -65,12 +89,16 @@ __all__ = [
     "execute_candidate_run",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
+    "load_four_family_portfolio_attempt",
+    "load_four_family_portfolio_result_artifact",
     "load_ridge_comparison_artifact",
     "parse_candidate_run_config",
     "publish_ridge_comparison_artifact",
     "publish_candidate_run",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "run_four_family_shared_portfolio_replay",
+    "run_four_family_portfolio_attempt",
     "run_ridge_comparison_attempt",
     "supports_shared_cash_result_schema",
 ]

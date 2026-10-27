@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import stat
 import warnings
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tools import issue810_r2_release_audit as release_audit
 from tools.issue810_r2_release_audit import (
     R2_HEAD,
     R2_ROOT,
@@ -100,6 +102,53 @@ def _create(
 def _audit(bundle: tuple[Path, Path, dict[str, object]]) -> dict[str, object]:
     archive, manifest, args = bundle
     return audit_archive(archive, manifest, **args)  # type: ignore[arg-type]
+
+
+def test_zip_path_replacement_cannot_separate_reported_and_verified_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    zip_path, manifest_path, args = _create(tmp_path)
+    original_bytes = zip_path.read_bytes()
+    replacement_path = tmp_path / "repacked.zip"
+    with zipfile.ZipFile(zip_path, "r") as original:
+        members = [(info.filename, original.read(info)) for info in original.infolist()]
+    with zipfile.ZipFile(
+        replacement_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as replacement:
+        for name, content in members:
+            replacement.writestr(name, content)
+        replacement.comment = b"different ZIP container bytes"
+    replacement_bytes = replacement_path.read_bytes()
+    assert replacement_bytes != original_bytes
+    with zipfile.ZipFile(replacement_path, "r") as replacement:
+        assert {
+            info.filename: replacement.read(info) for info in replacement.infolist()
+        } == dict(members)
+
+    observed_digests: list[str] = []
+    original_zipfile = release_audit.zipfile.ZipFile
+
+    def replace_before_open(
+        source: Path | io.BytesIO,
+        *open_args: object,
+        **open_kwargs: object,
+    ) -> zipfile.ZipFile:
+        zip_path.write_bytes(replacement_bytes)
+        consumed_bytes = (
+            source.getvalue() if isinstance(source, io.BytesIO) else source.read_bytes()
+        )
+        observed_digests.append(_sha(consumed_bytes))
+        return original_zipfile(source, *open_args, **open_kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(release_audit.zipfile, "ZipFile", replace_before_open)
+    report = audit_archive(zip_path, manifest_path, **args)  # type: ignore[arg-type]
+
+    assert zip_path.read_bytes() == replacement_bytes
+    assert observed_digests == [report["zip_sha256"]]
+    assert report["zip_sha256"] == _sha(original_bytes)
 
 
 def test_complete_synthetic_checkpoint_accepts_exact_87_member_bytes(

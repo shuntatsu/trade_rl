@@ -40,6 +40,8 @@ joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統�
 
 Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageで12 fitが計画されていましたが、保持されたprovenanceから完了は確認できません。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
 
+別のoffline source-byte auditorは、提供されたR2 release ZIPとそのメンバー、および別途提供された場合のTask 18 Datasetファイルのbyte identityを確認します。これは申告されたGit headからのsource再現、NPZ配列値、v3/v4 loader互換性、8,761行と9,504行の対応、PIT、48-cell完了、G0-G4、利益やlive適格性の証拠ではありません。
+
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みですが、歴史的な市場実績へのcalibrationは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではありません。
 
 Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。

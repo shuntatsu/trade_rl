@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import stat
@@ -67,14 +68,21 @@ def _require(condition: bool, message: str) -> None:
         raise ArchiveAuditError(message)
 
 
-def _sha_file(path: Path) -> tuple[str, int]:
-    hasher = hashlib.sha256()
-    size = 0
+def _read_bounded_file(
+    path: Path,
+    expected_size: int,
+    *,
+    maximum_size: int,
+    size_error: str,
+) -> bytes:
+    _require(
+        type(expected_size) is int and 0 <= expected_size <= maximum_size,
+        "expected input size exceeds the pinned read bound",
+    )
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
-            hasher.update(chunk)
-            size += len(chunk)
-    return hasher.hexdigest(), size
+        content = handle.read(expected_size + 1)
+    _require(len(content) == expected_size, size_error)
+    return content
 
 
 def _checked_json(data: bytes, *, name: str) -> dict[str, Any]:
@@ -222,27 +230,34 @@ def audit_archive(
     )
     _require(archive_path.is_file(), "R2 ZIP file is absent")
     _require(manifest_path.is_file(), "R2 release MANIFEST.json is absent")
-    observed_zip_sha, observed_zip_bytes = _sha_file(archive_path)
-    _require(
-        observed_zip_bytes == archive_size,
-        "R2 ZIP byte length differs from release",
+    archive_bytes = _read_bounded_file(
+        archive_path,
+        archive_size,
+        maximum_size=R2_ZIP_BYTES,
+        size_error="R2 ZIP byte length differs from release",
     )
+    observed_zip_bytes = len(archive_bytes)
+    observed_zip_sha = hashlib.sha256(archive_bytes).hexdigest()
     _require(observed_zip_sha == archive_sha256, "R2 ZIP SHA256 differs from release")
-    observed_manifest_sha, observed_manifest_bytes = _sha_file(manifest_path)
-    _require(
-        observed_manifest_bytes == manifest_size,
-        "external MANIFEST byte length differs",
+    manifest_bytes = _read_bounded_file(
+        manifest_path,
+        manifest_size,
+        maximum_size=R2_MANIFEST_BYTES,
+        size_error="external MANIFEST byte length differs",
     )
+    observed_manifest_bytes = len(manifest_bytes)
+    observed_manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
     _require(
         observed_manifest_sha == manifest_sha256,
         "external MANIFEST SHA256 differs",
     )
-    manifest_bytes = manifest_path.read_bytes()
     manifest = _checked_json(manifest_bytes, name="external manifest")
     listed_files = _manifest_files(manifest)
 
     try:
-        with zipfile.ZipFile(archive_path, "r", allowZip64=True) as archive:
+        with zipfile.ZipFile(
+            io.BytesIO(archive_bytes), "r", allowZip64=True
+        ) as archive:
             infos = archive.infolist()
             _require(len(infos) <= MAX_MEMBERS, "ZIP has too many members")
             names: set[str] = set()

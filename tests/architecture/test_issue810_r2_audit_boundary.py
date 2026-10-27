@@ -11,6 +11,7 @@ SOURCE = Path(__file__).resolve().parents[2] / "tools" / "issue810_r2_release_au
 ALLOWED_IMPORTS = {
     "argparse",
     "hashlib",
+    "io",
     "json",
     "re",
     "stat",

@@ -248,15 +248,57 @@ cash, not as free or reserved cash, so this input is not a complete Markov accou
 state. An explicit exact-quantity HOLD is accepted only when its target exactly
 matches the current book weight, and it survives only if hard risk leaves that
 weight unchanged; the normal executor then cancels any residual order while
-preserving the signed filled quantity. The actor cannot request the terminal
+preserving the signed filled quantity. Reconciliation applies that cancellation
+before processing the next execution interval, so an unfilled remainder cannot
+fill in that interval after a HOLD decision. The actor cannot request the terminal
 emergency-flatten mask. Policy calls stop at the existing latency-aware agent
 boundary, after which the session reserves terminal intervals for its existing
 risk-owned emergency-flatten path. A failed observer/transition consumes the
 session because executor state may already have advanced; it cannot be retried.
+The raw-v1 codec's `account` matrix columns are exported as `ACCOUNT_FIELDS`
+(`quantity`, `weight`, `mark_price`, `contract_multiplier`). Its 21-column
+`active_orders` matrix supports at most one order per symbol and rejects
+out-of-roster symbol indices. Optional limit, stop, or submission-reference
+prices use their existing presence flags; absent values are encoded as zero
+with a zero flag. This keeps all-`None` legacy snapshots encodable without
+inventing missing price facts.
 This
 numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
 the existing intent replay result and ledger schemas remain unchanged. This seam
 does not change PPO's per-symbol training path or establish an economic result.
+
+`evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
+coordinator for four fixed families: explicit cash, built-in Trend, a
+caller-pinned Ridge artifact, and a verified joint-PPO inference bundle. It
+loads and validates the paired Dataset, Ridge binding, PPO bundle, roster,
+window, and shared configuration before starting any native arm. The PPO Gym
+is validation-only and is not reset or stepped. Each arm gets a fresh policy,
+risk controller, `SharedPortfolioSession`, and ledger while sharing the same
+Dataset and immutable execution/risk/profile configuration values. Every arm
+uses terminal settlement and ledger capture. Raw early termination and
+insolvency remain visible in the outcome flags. An optional completion observer
+receives each outcome immediately before the next arm begins; callback failure
+or a later arm failure propagates without starting subsequent arms. The
+coordinator does not reserve attempts, persist results, fit models, select a
+winner, or establish research or profitability evidence.
+
+`evaluation/runs/portfolio_family_attempt.py` is a separate opt-in filesystem
+wrapper around that comparator. It reserves one attempt root, records declared
+identity and before/after provenance, and persists each raw family outcome in
+the comparator's completion callback before the next family begins. It then
+publishes and strictly reloads the result before writing the completion marker;
+the public attempt loader accepts only a complete, nonfailed root. A failure
+record retains the phase and already completed family rows, while the native
+executor and ledger remain the sole financial-state owners. The wrapper records
+failure phase and earlier rows when its failure journal is writable; if that
+journal write also fails, the original exception remains primary and the
+secondary write error is attached as an exception note. This local write-once
+boundary is not a global retry budget and adds no fit, winner selection,
+research approval, or profitability evidence.
+If the comparator raises inside a family before its completion callback, that
+callback does not expose the in-flight family's partial native ledger; the
+failure record therefore contains only rows delivered by earlier callbacks.
+It does not infer a zero count for the unfinished family.
 
 `strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
 Gym Dict. Its versioned payload binds the raw/transformed layouts and
@@ -275,6 +317,41 @@ a raw step may have advanced. This does not make observations a complete account
 state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
 or change legacy PPO behavior.
 
+`PortfolioRuntimeExecutionScenarioV2` is the typed declaration used by a
+separate opt-in scenario inference path. The v2 loader requires the typed
+declaration and external scenario digest, all existing bundle/context/checkpoint
+pins, and a separately expected current scenario-source digest. Before PPO
+deserialization it validates that the declared base execution policy matches
+the fitted context and the transform's existing execution-config digest, while
+the runtime policy matches the actual forward `SharedPortfolioGymEnv`. The
+versioned runtime binding retains both execution identities, the original fit
+and actor-stop window, the runtime bound/window/actor stop, and scenario,
+checkpoint, context, transform, and source identities. Fit statistics and
+checkpoint bytes stay unchanged: the training actor stop uses base latency,
+while runtime clock/order features and the native terminal reservation use
+runtime latency. A dedicated v2 observation wrapper checks the actual runtime
+environment before reset, each native step, and observation transformation;
+it poisons itself after a failed post-step transform. The v1 loader, binding, payloads, and strict full-cost
+matching remain unchanged; no compatibility bridge admits older selected
+source/runtime checkpoints. Selected source manifests are direct-owner records,
+not a complete transitive source or in-memory-code proof. The explicit
+`portfolio_family_scenario_replay_v2` evaluation entry now wires this loader
+into four actual native arms under the scenario's runtime cost configuration.
+The v2 coordinator rechecks its scenario digest and current source digest, then
+validates the loaded PPO policy's bound runtime environment before each arm and
+before each completion observer. A mismatch stops before the next arm or before
+an observer receives the completed outcome; the strict v1 entry leaves this
+private boundary check unset.
+The in-memory entry remains separate from the opt-in
+`run_four_family_portfolio_scenario_attempt_v2` one-shot local wrapper. That
+wrapper records a versioned external identity, started marker, before/after
+provenance and scenario-source records, and each existing native family row
+before starting the next arm. A strict result reload checks the caller-held
+identity and expected result digest before completion; failures retain the
+primary error and rows already written. This is software-integrity evidence:
+it does not select a numeric stress recipe, repeat native accounting, alter the
+v1 artifact schema, or establish economic validation, profitability,
+unused-period approval, or live eligibility.
 `PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
 It stores actual policy forward inputs, sampled action codes, the returned joint
 log-probability, and critic value before the caller advances the environment.

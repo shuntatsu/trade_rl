@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18準備状況、opt-in Ridge forecast-versus-zero diagnostics、FAILED_SCREENとなったM34開発screen、未完了の48-cell比較と研究上の未証明事項を表示します。",
+  "summary": "Task 18準備状況、opt-in shared-portfolio inference software path、Ridge forecast-versus-zero diagnostics、FAILED_SCREENとなったM34開発screen、未完了の48-cell比較と研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -21,18 +21,25 @@
     "four-arm comparison",
     "FAILED_SCREEN",
     "12 arms",
-    "frozen Ridge"
+    "frozen Ridge",
+    "portfolio policy codec",
+    "paired shared-portfolio inference"
   ],
   "source_sections": [
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "0f7dbe6e671168d28782846f92d3acea486240b71febf8e63e29533b63190f70"
+      "sha256": "8744a8e1a4aa9741ffff1e2c4e3bc29506a7719614a0b8b1ba7880b0fc1b47d4"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Shared-portfolioのopt-in policy inference software path",
+      "sha256": "c3d3088e2f60e8b04826f058bbcfd3cb7fb5e95fa3ab092073ae660157bae056"
     },
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)",
-      "sha256": "d819638b6682fef5ba8ca3f0f94e0b77566a8d619e2609b5c0dd00350921d85f"
+      "sha256": "f581b41bd3b1e42c8fcf66cdc6bcfcdf806f6bd18aba92296a20ad7a1fc9c28e"
     },
     {
       "path": "docs/research/current-status.md",

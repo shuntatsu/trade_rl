@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from tools.agent_repo.source_index import ImportCollector, within_module
@@ -14,11 +16,18 @@ RUNS_EXPORTS = {
     "CandidateRunResult",
     "ForecastErrorMetrics",
     "ForecastSymbolDiagnostics",
+    "FourFamilyPortfolioAttemptContext",
+    "FourFamilyPortfolioAttemptIdentity",
+    "FourFamilyPortfolioReplayResult",
     "LeanCandidateConfig",
+    "LoadedFourFamilyPortfolioAttempt",
+    "LoadedFourFamilyPortfolioResultArtifact",
     "LoadedRidgeComparisonArtifact",
     "LoadedCandidateRun",
     "PublishedCandidateRun",
+    "PublishedFourFamilyPortfolioAttempt",
     "PublishedRidgeComparisonAttempt",
+    "PortfolioFamilyReplayOutcome",
     "ResolvedCandidateRunSpec",
     "RidgeArtifactComparison",
     "RidgeArtifactComparisonConfig",
@@ -28,12 +37,16 @@ RUNS_EXPORTS = {
     "execute_candidate_run",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
+    "load_four_family_portfolio_attempt",
+    "load_four_family_portfolio_result_artifact",
     "load_ridge_comparison_artifact",
     "parse_candidate_run_config",
     "publish_candidate_run",
     "publish_ridge_comparison_artifact",
     "resolve_candidate_run_spec",
     "run_lean_candidate_suite",
+    "run_four_family_shared_portfolio_replay",
+    "run_four_family_portfolio_attempt",
     "run_ridge_comparison_attempt",
     "supports_shared_cash_result_schema",
 }
@@ -46,7 +59,13 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.provenance",
     "trade_rl.evaluation.runs.ridge_artifact_comparison",
     "trade_rl.evaluation.runs.ridge_comparison_attempt",
+    "trade_rl.evaluation.runs.portfolio_family_comparison",
+    "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2",
+    "trade_rl.evaluation.runs.portfolio_family_scenario_attempt_v2",
+    "trade_rl.evaluation.runs.portfolio_family_scenario_result_artifact_v2",
     "trade_rl.evaluation.runs.ridge_comparison_artifact",
+    "trade_rl.evaluation.runs.portfolio_family_attempt",
+    "trade_rl.evaluation.runs.portfolio_family_result_artifact",
 )
 
 EVALUATION_EXPORTS = {
@@ -94,12 +113,17 @@ EVALUATION_EXPORTS = {
 
 
 def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
+    from inspect import Parameter, signature
+
     import trade_rl.evaluation.runs as facade
     from trade_rl.evaluation.runs import (
         artifact,
         candidate_suite,
         config,
         execute,
+        portfolio_family_attempt,
+        portfolio_family_comparison,
+        portfolio_family_result_artifact,
         provenance,
         ridge_artifact_comparison,
         ridge_comparison_artifact,
@@ -109,12 +133,61 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert set(facade.__all__) == RUNS_EXPORTS
     assert facade.CandidateRunConfig is config.CandidateRunConfig
     assert (
+        facade.FourFamilyPortfolioAttemptIdentity
+        is portfolio_family_result_artifact.FourFamilyPortfolioAttemptIdentity
+    )
+    assert (
+        facade.LoadedFourFamilyPortfolioResultArtifact
+        is portfolio_family_result_artifact.LoadedFourFamilyPortfolioResultArtifact
+    )
+    assert (
+        facade.load_four_family_portfolio_result_artifact
+        is portfolio_family_result_artifact.load_four_family_portfolio_result_artifact
+    )
+    assert (
+        facade.FourFamilyPortfolioAttemptContext
+        is portfolio_family_attempt.FourFamilyPortfolioAttemptContext
+    )
+    assert (
+        facade.LoadedFourFamilyPortfolioAttempt
+        is portfolio_family_attempt.LoadedFourFamilyPortfolioAttempt
+    )
+    assert (
+        facade.PublishedFourFamilyPortfolioAttempt
+        is portfolio_family_attempt.PublishedFourFamilyPortfolioAttempt
+    )
+    assert (
+        facade.run_four_family_portfolio_attempt
+        is portfolio_family_attempt.run_four_family_portfolio_attempt
+    )
+    assert (
+        facade.load_four_family_portfolio_attempt
+        is portfolio_family_attempt.load_four_family_portfolio_attempt
+    )
+    result_digest = signature(facade.load_four_family_portfolio_attempt).parameters[
+        "expected_result_digest"
+    ]
+    assert result_digest.kind is Parameter.KEYWORD_ONLY
+    assert result_digest.default is Parameter.empty
+    assert (
         facade.RidgeArtifactComparison
         is ridge_artifact_comparison.RidgeArtifactComparison
     )
     assert (
         facade.RidgeArtifactComparisonConfig
         is ridge_artifact_comparison.RidgeArtifactComparisonConfig
+    )
+    assert (
+        facade.FourFamilyPortfolioReplayResult
+        is portfolio_family_comparison.FourFamilyPortfolioReplayResult
+    )
+    assert (
+        facade.PortfolioFamilyReplayOutcome
+        is portfolio_family_comparison.PortfolioFamilyReplayOutcome
+    )
+    assert (
+        facade.run_four_family_shared_portfolio_replay
+        is portfolio_family_comparison.run_four_family_shared_portfolio_replay
     )
     assert facade.ForecastErrorMetrics is ridge_artifact_comparison.ForecastErrorMetrics
     assert (
@@ -201,3 +274,21 @@ def test_evaluation_tier1_public_api_is_unchanged() -> None:
     import trade_rl.evaluation as evaluation
 
     assert set(evaluation.__all__) == EVALUATION_EXPORTS
+
+
+def test_runs_facade_keeps_joint_rl_runtime_imports_lazy() -> None:
+    script = (
+        "import sys; import trade_rl.evaluation.runs; "
+        "import trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2; "
+        "assert 'torch' not in sys.modules; "
+        "assert not any(name == 'stable_baselines3' or "
+        "name.startswith('stable_baselines3.') for name in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

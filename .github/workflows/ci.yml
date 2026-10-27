@@ -58,7 +58,7 @@ jobs:
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
 
       - name: Conditional PPO diagnostic types
-        run: uv run mypy tools/ppo_conditional_diagnostic.py
+        run: uv run mypy tools/ppo_conditional_diagnostic.py tools/issue810_portfolio_probability_probe.py
 
       - name: Install gated 4h smoke PPO runtime
         if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
@@ -131,7 +131,7 @@ jobs:
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
 
       - name: Conditional PPO diagnostic types
-        run: uv run mypy tools/ppo_conditional_diagnostic.py
+        run: uv run mypy tools/ppo_conditional_diagnostic.py tools/issue810_portfolio_probability_probe.py
 
       - name: Core tests
         run: uv run pytest -q tests
@@ -226,7 +226,7 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Real SB3 PPO integration
-        run: uv run pytest -q tests/strategies/rl/ tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/evaluation/test_portfolio_family_comparison.py tests/evaluation/test_portfolio_family_attempt.py tests/evaluation/test_portfolio_family_scenario_replay_v2.py tests/evaluation/test_portfolio_family_scenario_attempt_v2.py tests/evaluation/experiments/test_four_family_input_manifest.py
+        run: uv run pytest -q tests/strategies/rl/ tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/evaluation/test_portfolio_family_comparison.py tests/evaluation/test_portfolio_family_attempt.py tests/evaluation/test_portfolio_family_scenario_replay_v2.py tests/evaluation/test_portfolio_family_scenario_attempt_v2.py tests/evaluation/experiments/test_four_family_input_manifest.py tests/tools/test_issue810_portfolio_probability_probe.py
 
   guide:
     name: Human Guide

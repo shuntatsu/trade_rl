@@ -61,6 +61,8 @@ FORBIDDEN_OWNER_MODULES = (
     "trade_rl.evaluation.runs.ridge_comparison_attempt",
     "trade_rl.evaluation.runs.portfolio_family_comparison",
     "trade_rl.evaluation.runs.portfolio_family_scenario_replay_v2",
+    "trade_rl.evaluation.runs.portfolio_family_scenario_attempt_v2",
+    "trade_rl.evaluation.runs.portfolio_family_scenario_result_artifact_v2",
     "trade_rl.evaluation.runs.ridge_comparison_artifact",
     "trade_rl.evaluation.runs.portfolio_family_attempt",
     "trade_rl.evaluation.runs.portfolio_family_result_artifact",

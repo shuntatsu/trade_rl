@@ -57,6 +57,8 @@ artifacts / evidence
 | opt-in joint portfolio Gym adapter | `trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv` |
 | joint Gym observationのfit-scope-bound変換 | `trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform` / `PortfolioGymObservationWrapper` |
 | declared runtime scenarioのstrict bundle loaderとobservation wrapper | `trade_rl.strategies.rl.portfolio_scenario_inference.load_portfolio_scenario_inference_bundle` / `trade_rl.strategies.rl.portfolio_scenario_runtime.PortfolioScenarioGymObservationWrapperV2` |
+| scenario-bound runtimeのPPO decision adapter | `trade_rl.strategies.rl.portfolio_scenario_inference.PortfolioScenarioInferencePolicy` |
+| two-attempt post-freeze input metadata roster | `trade_rl.evaluation.experiments.four_family_input_manifest.FourFamilyPostFreezeInputManifest` |
 | runtime execution scenarioの純粋なversioned declaration | `trade_rl.strategies.rl.portfolio_runtime_scenario.PortfolioRuntimeExecutionScenarioV2` |
 | opt-in Gym episode event journal | `trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper` |
 | opt-in SB3 policy forward sample journal | `trade_rl.strategies.rl.portfolio_policy_sample_journal.PortfolioPolicySampleJournal` |
@@ -88,8 +90,10 @@ scenario/source/bundle pinsと実際のforward contextをcheckpoint deserializat
 既存v1 matchingは緩めず、fit統計も再利用します。別の明示的なv2 evaluation entryは、
 このverified checkpointをcash・Trend・Ridge・joint PPOの
 4つのnative armへ渡し、scenarioのruntime costを全armへ適用したin-memory comparisonを返します。
-strict v1入口とTier-2 facadeは変わらず、scenario用のdurable attempt/resultやeconomic evidenceは
-まだありません。numeric stress recipe・gate・経済結果の証拠も作りません。
+strict v1入口とTier-2 facadeは変わりません。inference loaderとscenario replay自体はin-memoryですが、別の
+`run_four_family_portfolio_scenario_attempt_v2`がnative arm rowとprovenanceを保存し、strict result reload後にcompletionを記録します。
+`publish_four_family_portfolio_scenario_result_artifact_v2` / `load_four_family_portfolio_scenario_result_artifact_v2`も明示的なv2 result APIです。
+この保存機能はscenarioやnumeric stress recipeを選ばず、gate・経済結果の証拠も作りません。
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 

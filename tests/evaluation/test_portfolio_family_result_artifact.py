@@ -914,6 +914,87 @@ def test_public_result_loader_rejects_a_tampered_family_row(
         )
 
 
+def test_publisher_rejects_ledger_execution_policy_digest_outside_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _family_payload,
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch
+    )
+    changed_outcomes = []
+    for outcome in result.families:
+        ledger = outcome.replay.ledger_evidence
+        assert ledger is not None
+        changed_intervals = replace(
+            ledger.intervals,
+            execution_policy_digest="f" * 64,
+        )
+        changed_ledger = replace(ledger, intervals=changed_intervals)
+        changed_replay = replace(outcome.replay, ledger_evidence=changed_ledger)
+        changed_outcome = replace(outcome, replay=changed_replay)
+        changed_outcomes.append(changed_outcome)
+        row_path = root / "families" / outcome.family / "record.json"
+        row_path.write_bytes(canonical_json_bytes(_family_payload(changed_outcome)))
+
+    changed_result = replace(result, families=tuple(changed_outcomes))
+    with pytest.raises(ValueError, match="execution policy digest"):
+        publish_four_family_portfolio_result_artifact(
+            root,
+            changed_result,
+            identity,
+            before_provenance=provenance,
+            after_provenance=provenance,
+        )
+
+    assert not (root / "result" / "manifest.json").exists()
+
+
+def test_expected_ledger_policy_digest_includes_verified_market_profile() -> None:
+    from dataclasses import replace
+
+    from tests.integrations.test_binance_market_order_profile import (
+        _dataset,
+        _profile,
+        _snapshot,
+    )
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _expected_execution_policy_digest,
+    )
+    from trade_rl.simulation.execution import MarketExecutor
+
+    dataset = _dataset(("BTCUSDT",))
+    profile = _profile(dataset, _snapshot())
+    base_identity = _identity()
+    binding = replace(
+        base_identity.expected_ridge_binding,
+        dataset_id=dataset.dataset_id,
+        fit_symbol_names=dataset.symbols,
+    )
+    identity = replace(
+        base_identity,
+        expected_symbols=dataset.symbols,
+        expected_ridge_binding=binding,
+        market_order_profile=profile,
+    )
+    executor = MarketExecutor(
+        dataset,
+        identity.execution_cost,
+        market_order_profile=profile,
+    )
+
+    expected = _expected_execution_policy_digest(identity)
+    assert expected == executor.execution_policy_digest
+    assert expected != identity.execution_cost.execution_policy_digest
+
+
 @pytest.mark.parametrize(
     "raw",
     [

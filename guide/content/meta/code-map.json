@@ -43,13 +43,14 @@
     "load_portfolio_scenario_inference_bundle",
     "run_four_family_portfolio_attempt",
     "load_four_family_portfolio_attempt",
-    "load_four_family_portfolio_result_artifact"
+    "load_four_family_portfolio_result_artifact",
+    "FourFamilyPostFreezeInputManifest"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "bb58fcd27e9a27300d349786a071e16603d96a58a33c929055dd04bdea694506"
+      "sha256": "3773ebe7a803bed530e8ca7f21fa48327cf3ef8df56656a31d76a031333a4fa3"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -654,6 +655,58 @@
       "tests": [
         "tests/evaluation/test_portfolio_family_result_artifact.py",
         "tests/evaluation/test_portfolio_family_attempt.py"
+      ]
+    },
+    {
+      "id": "portfolio-runtime-execution-scenario-v2",
+      "symbol": "trade_rl.strategies.rl.portfolio_runtime_scenario.PortfolioRuntimeExecutionScenarioV2",
+      "kind": "class",
+      "source_sha256": "8034b52ec5cc2462e1981dfe016473b97516d848e6b16d5f34aa5efa6e18a294",
+      "label_ja": "base / runtime実行条件を結ぶscenario declaration",
+      "description_ja": "training context・transform・checkpoint・plan pinsと、base/runtimeのtyped execution costを結ぶversioned declarationです。対応するcost/order-latency変更を宣言しますが、stress recipeや研究承認は選びません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_runtime_scenario.py",
+        "tests/evaluation/test_portfolio_family_scenario_replay_v2.py"
+      ]
+    },
+    {
+      "id": "portfolio-scenario-inference-policy",
+      "symbol": "trade_rl.strategies.rl.portfolio_scenario_inference.PortfolioScenarioInferencePolicy",
+      "kind": "class",
+      "source_sha256": "3453f7217339c7f8e6c63ff3b5faab730ef5fa519d91722e988af91598eb1896",
+      "label_ja": "scenario-bound runtime PPO policy adapter",
+      "description_ja": "verified v2 inference bindingを保持し、forward Dataset/window/runtime contextを検証してnative snapshotから既存codec経由でaction proposalを作ります。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_portfolio_scenario_inference_boundary.py"
+      ]
+    },
+    {
+      "id": "portfolio-scenario-inference-loader",
+      "symbol": "trade_rl.strategies.rl.portfolio_scenario_inference.load_portfolio_scenario_inference_bundle",
+      "kind": "function",
+      "source_sha256": "99c2d2e9a0933ee2cfd7afe7091e0fccd190dd4902ea266369e820c006d0256c",
+      "label_ja": "外部pin付きscenario v2 inference loader",
+      "description_ja": "scenario/source/bundle identityと実forward environmentをcheckpoint deserialization前に検証し、v1 strict loaderとは別の明示opt-in APIとしてpolicyをloadします。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/rl/test_portfolio_inference_bundle.py",
+        "tests/architecture/test_portfolio_scenario_inference_boundary.py"
+      ]
+    },
+    {
+      "id": "four-family-post-freeze-input-manifest",
+      "symbol": "trade_rl.evaluation.experiments.four_family_input_manifest.FourFamilyPostFreezeInputManifest",
+      "kind": "class",
+      "source_sha256": "90749fa44e879008bc8808b94037eac5be612b8d492b541ce8baa74a93855c31",
+      "label_ja": "two-attempt post-freeze metadata roster",
+      "description_ja": "Dataset pin、chronological training/selection/evaluation windows、PPO training declarationとselection/evaluation各1件をtyped bytesへbindします。study planやrun authorizationではありません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/experiments/test_four_family_input_manifest.py",
+        "tests/architecture/test_four_family_input_manifest_boundary.py"
       ]
     }
   ]

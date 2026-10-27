@@ -18,6 +18,7 @@ from trade_rl.data.contracts import (
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
 _SHAPE_KINDS = (FeatureKind.LINEAR_REGRESSION_SLOPE, FeatureKind.TREND_R2)
 
@@ -335,3 +336,76 @@ def test_shape_dataset_is_invariant_to_symbol_order() -> None:
             forward.resolved_array("feature_staleness")[:, first],
             reverse.resolved_array("feature_staleness")[:, second],
         )
+
+
+
+def test_selected_feature_masks_can_change_forecast_training_rows() -> None:
+    """A one-factor comparison needs an explicit matched training-row oracle."""
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        65
+    ) * np.timedelta64(1, "h")
+    phase = np.arange(65, dtype=np.float64)
+    close = 100.0 * np.exp(0.002 * phase + 0.01 * np.sin(phase / 5.0))
+    raw = RawMarketSeries(
+        timestamps=timestamps,
+        open=close.copy(),
+        high=close * 1.001,
+        low=close * 0.999,
+        close=close,
+        volume=np.full(65, 1000.0),
+        funding_rate=np.zeros(65),
+        tradable=np.ones(65, dtype=np.bool_),
+    )
+    dataset = MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=(
+                FeatureSpec(name="return_1bar", kind=FeatureKind.LOG_RETURN),
+                FeatureSpec(
+                    name="slope24",
+                    kind=FeatureKind.LINEAR_REGRESSION_SLOPE,
+                    lookback=24,
+                ),
+                FeatureSpec(name="r2_24", kind=FeatureKind.TREND_R2, lookback=24),
+            ),
+        )
+    ).build(
+        InMemoryMarketDataSource({"BTCUSDT": raw}),
+        (
+            InstrumentContract(
+                symbol="BTCUSDT",
+                listed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        ),
+    )
+    cutoff = timestamps[-1]
+    shared = {
+        "dataset": dataset,
+        "fit_symbol_indices": (0,),
+        "fit_cutoff": cutoff,
+        "horizon_hours": 24,
+    }
+    baseline = build_causal_forecast_training_set(
+        feature_indices=(0,), **shared
+    )
+    candidate = build_causal_forecast_training_set(
+        feature_indices=(0, 1, 2), **shared
+    )
+
+    # The current fitter properly uses only selected feature masks. Thus
+    # separately fitted arms can differ in training rows even with the same
+    # Dataset, symbols, label horizon, cutoff, and hyperparameters.
+    assert baseline.n_samples == 39
+    assert candidate.n_samples == 17
+    assert not np.array_equal(
+        baseline.label_end_times, candidate.label_end_times
+    )
+    np.testing.assert_array_equal(
+        baseline.label_end_times[-candidate.n_samples :],
+        candidate.label_end_times,
+    )
+    np.testing.assert_array_equal(
+        baseline.features[-candidate.n_samples :, 0],
+        candidate.features[:, 0],
+    )
+    assert np.all(candidate.label_end_times < cutoff)

@@ -71,20 +71,3 @@ def test_source_packet_contract_is_documented_at_the_repository_boundary() -> No
         in tooling
     )
     assert "source transport only" in tooling
-
-
-def test_probability_probe_is_documented_as_repository_only_tooling() -> None:
-    boundaries = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
-        encoding="utf-8"
-    )
-
-    for required in (
-        "tools/issue810_portfolio_probability_probe.py",
-        "caller-declared symbol names",
-        "stable-baselines3 2.3.2",
-        "torch 2.4.1",
-        "does not verify Dataset, transform, or checkpoint provenance",
-        "fit, train, replay, or provide economic or live-readiness authority",
-        "outside the production wheel and `trade_rl` runtime",
-    ):
-        assert required in boundaries

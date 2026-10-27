@@ -337,8 +337,6 @@ def test_shape_dataset_is_invariant_to_symbol_order() -> None:
             reverse.resolved_array("feature_staleness")[:, second],
         )
 
-
-
 def test_selected_feature_masks_can_change_forecast_training_rows() -> None:
     """A one-factor comparison needs an explicit matched training-row oracle."""
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
@@ -399,9 +397,7 @@ def test_selected_feature_masks_can_change_forecast_training_rows() -> None:
     # Dataset, symbols, label horizon, cutoff, and hyperparameters.
     assert baseline.n_samples == 39
     assert candidate.n_samples == 17
-    assert not np.array_equal(
-        baseline.label_end_times, candidate.label_end_times
-    )
+    assert not np.array_equal(baseline.label_end_times, candidate.label_end_times)
     np.testing.assert_array_equal(
         baseline.label_end_times[-candidate.n_samples :],
         candidate.label_end_times,

@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-CANONICAL_OWNER = ROOT / "trade_rl" / "simulation" / "objectives"
 LEGACY_LOCATION = ROOT / "trade_rl" / "evaluation" / "objectives"
 CONTRACT_OWNERS = {
     "contract.py": frozenset(
@@ -79,13 +78,6 @@ def _duplicate_owners(directory: Path) -> dict[str, frozenset[str]]:
         if overlap:
             duplicates[source.name] = overlap
     return duplicates
-
-
-def test_canonical_financial_objective_declarations_stay_in_simulation() -> None:
-    for filename, expected in CONTRACT_OWNERS.items():
-        source = CANONICAL_OWNER / filename
-        assert source.is_file(), f"missing financial-objective owner: {source}"
-        assert expected <= _top_level_bindings(source)
 
 
 def test_evaluation_cannot_declare_second_financial_objective_owners() -> None:

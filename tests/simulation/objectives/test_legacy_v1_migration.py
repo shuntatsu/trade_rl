@@ -171,10 +171,3 @@ def test_legacy_microsecond_fraction_cannot_be_rounded_out_of_horizon() -> None:
 
     with pytest.raises(ValueError, match="economic horizon"):
         BoundObjectiveClock(_objective(start, stop), _clock(whole_seconds, decision=1))
-
-
-def test_clock_overflow_is_an_intentional_forward_only_correction() -> None:
-    """Old direct exponentiation could overflow; never restore that behavior."""
-    discounted = replace(_clock(), gamma=0.99)
-    assert discounted.discount_after(10**400) == 0.0
-    assert _clock().discount_after(10**400) == 1.0

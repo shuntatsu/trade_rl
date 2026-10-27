@@ -669,6 +669,8 @@ star importはliteral `__all__`、または明示的なpublic import re-export�
 - toolingのstatic analysisはruntime reachabilityの完全証明ではなく、source reviewとfinal full CIを置き換えない。
 - local `verify` は開発中の検査選択を支援するが、完了判定ではpermanent CIのfull gateへ収束する。
 
+`tools/issue810_portfolio_probability_probe.py` is opt-in repository-only tooling. It accepts an already-loaded PPO model, one transformed observation, and caller-declared symbol names; it lazily imports the pinned `stable-baselines3 2.3.2` and `torch 2.4.1` runtime only when invoked. It reports per-coordinate action probabilities but does not verify Dataset, transform, or checkpoint provenance. It does not load checkpoints, fit, train, replay, or provide economic or live-readiness authority. This helper stays outside the production wheel and `trade_rl` runtime.
+
 ### Agent Coordination Plane
 
 `tools/agent_repo/coordination/` は複数AgentのTask分離・ownership・dependency・semantic collision・review/verification freshnessを扱うrepository toolingである。既存Control PlaneがRepositoryのsource-derived factを読むのに対し、Coordination Planeはそのfactを使って「誰が何を同時に実行できるか」を管理する。どちらも`trade_rl` runtime/domain authorityではなく、**production wheelへ混入させない**。

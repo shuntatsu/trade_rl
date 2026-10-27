@@ -224,10 +224,10 @@ def extract_portfolio_action_probabilities(
                 }
             )
     finally:
-        # Restore every module independently; SB3's recursive train() otherwise
-        # erases intentionally mixed child-module training flags.
+        # Restore flags directly: recursive train() calls can overwrite a
+        # shared child again when it is reachable through a later parent.
         for module, training in module_modes:
-            module.train(training)
+            module.training = training
 
     return {
         "schema": _SCHEMA,

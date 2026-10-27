@@ -151,6 +151,58 @@ def test_restores_mixed_module_modes_after_distribution_failure(
     assert [module.training for module in modules] == modes_before
 
 
+@pytest.mark.parametrize("fail_distribution", [False, True])
+def test_restores_shared_child_mode_after_success_and_failure(
+    model: PPO,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_distribution: bool,
+) -> None:
+    policy = model.policy
+    shared_child = torch.nn.Identity()
+    left_parent = torch.nn.Sequential(shared_child)
+    right_parent = torch.nn.Sequential(shared_child)
+    policy.add_module("shared_mode_left", left_parent)
+    policy.add_module("shared_mode_right", right_parent)
+    policy.train(True)
+    shared_child.eval()
+
+    modes_before = (
+        policy.training,
+        left_parent.training,
+        shared_child.training,
+        right_parent.training,
+    )
+    assert modes_before == (True, True, False, True)
+    assert sum(module is shared_child for module in policy.modules()) == 1
+
+    if fail_distribution:
+
+        def fail(_observation: torch.Tensor) -> object:
+            raise RuntimeError("injected shared-module failure")
+
+        monkeypatch.setattr(policy, "get_distribution", fail)
+        with pytest.raises(RuntimeError, match="injected shared-module failure"):
+            _probe().extract_portfolio_action_probabilities(
+                model,
+                {"state": np.zeros(3, dtype=np.float32)},
+                ordered_symbols=("BTCUSDT", "ETHUSDT"),
+            )
+    else:
+        _probe().extract_portfolio_action_probabilities(
+            model,
+            {"state": np.zeros(3, dtype=np.float32)},
+            ordered_symbols=("BTCUSDT", "ETHUSDT"),
+        )
+
+    modes_after = (
+        policy.training,
+        left_parent.training,
+        shared_child.training,
+        right_parent.training,
+    )
+    assert modes_after == modes_before
+
+
 def test_rejects_batched_observation_and_symbol_roster_mismatch(model: PPO) -> None:
     with pytest.raises(ValueError, match="unbatched"):
         _probe().extract_portfolio_action_probabilities(

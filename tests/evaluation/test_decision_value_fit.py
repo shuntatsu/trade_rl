@@ -24,7 +24,10 @@ from trade_rl.strategies.portfolio import (
     PortfolioTargetProposal,
 )
 from trade_rl.strategies.portfolio_policy_codec import (
-    ACTION_HOLD, ACTION_LONG, ACTION_SHORT, portfolio_action_to_proposal,
+    ACTION_HOLD,
+    ACTION_LONG,
+    ACTION_SHORT,
+    portfolio_action_to_proposal,
 )
 
 _HOLD = (ACTION_HOLD, ACTION_HOLD)
@@ -190,8 +193,6 @@ def test_real_small_fit_replays_frozen_policy_on_separate_synthetic_periods() ->
     # A change to the *future* payoff cannot alter the already frozen action.
     bad_tail = _market(signal=0.8, move=-0.018, day="2026-03-03", tag="bad-tail")
     good_tail = _market(signal=0.8, move=0.018, day="2026-03-03", tag="good-tail")
-    from trade_rl.evaluation.replay import run_shared_portfolio_replay
-
     class _Capture:
         def __init__(self) -> None:
             self.first = None

@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Protocol, Sequence, cast
 
 from tools.tier_d_nonrl.tier_d_process_tree import ProcessIdentity
 
@@ -20,6 +20,12 @@ _CREATE_SUSPENDED = 0x00000004
 _PROCESS_QUERY_INFORMATION = 0x00000400
 _PROCESS_VM_READ = 0x00000010
 _SYNCHRONIZE = 0x00100000
+
+
+class _WindowsPopenHandle(Protocol):
+    """The Windows-only native handle exposed by CPython's ``Popen``."""
+
+    _handle: int
 
 
 class ProcessContainmentError(RuntimeError):
@@ -246,10 +252,11 @@ def _launch_windows_contained_process(
     try:
         creationflags = int(popen_kwargs.pop("creationflags", 0)) | _CREATE_SUSPENDED
         process = subprocess.Popen(args, creationflags=creationflags, **popen_kwargs)
-        job.assign(process._handle)
-        root_identity = job.identity_from_handle(process._handle, process.pid)
+        process_handle = _windows_popen_handle(process)
+        job.assign(process_handle)
+        root_identity = job.identity_from_handle(process_handle, process.pid)
         job.set_root_identity(root_identity)
-        job.resume(process._handle)
+        job.resume(process_handle)
         return ContainedProcess(process, job)
     except BaseException as launch_error:
         cleanup_errors: list[BaseException] = []
@@ -270,7 +277,7 @@ def _launch_windows_contained_process(
                         if job.assigned:
                             job.terminate_members()
                         else:
-                            job.terminate_process_handle(process._handle)
+                            job.terminate_process_handle(_windows_popen_handle(process))
                         process.wait(timeout=10)
                     except BaseException as exc:
                         cleanup_errors.append(exc)
@@ -311,7 +318,18 @@ def _terminate_unassigned_process(
     except OSError:
         # TerminateProcess on the original Popen handle is the last-resort path;
         # this never targets a PID discovered through a process-tree scan.
-        job.terminate_process_handle(process._handle)
+        job.terminate_process_handle(_windows_popen_handle(process))
+
+
+def _windows_popen_handle(process: subprocess.Popen[Any]) -> int:
+    """Read CPython's Windows-only ``Popen._handle`` through a narrow type boundary.
+
+    The runtime attribute is intentionally private and absent from the portable
+    typeshed declaration for ``Popen``. Callers use this accessor only on the
+    Windows Job Object launch/cleanup path.
+    """
+
+    return cast(_WindowsPopenHandle, process)._handle
 
 
 class _WindowsJob:

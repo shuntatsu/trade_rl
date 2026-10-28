@@ -182,7 +182,7 @@ def test_serialization_preserves_action_and_fails_closed_on_tamper(
         ) == (LinearDecisionValuePolicy(model).decide_action(_snapshot(signal=signal)))
     with pytest.raises(ValueError, match="digest"):
         load_linear_decision_value(
-            payload.replace("-0.001", "0.9000"), expected_sha256=digest
+            payload.replace("-0.001", "0.9"), expected_sha256=digest
         )
     with pytest.raises(ValueError, match="digest"):
         load_linear_decision_value(payload, expected_sha256="c" * 64)

@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-25 (JST)
+更新基準: 2026-10-28 (JST)
 
 ## 結論
 
@@ -19,12 +19,14 @@ Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34�
 
 `strategies/portfolio_adapter.py` は、その既存portfolio seamへexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy`を接続するopt-in adapterと、固定rosterの明示cash zero-target policyを提供する。filled sideはcurrent snapshotのexact quantityから導き、strategy callbackにはcurrent row/account factsと結果前に固定したper-symbol budgetを渡す。任意のlegacy strategy parity、cached-target/minimum-hold/pending-aware semantics、exact-quantity HOLD、joint PPO trainingは追加しない。hard risk・pending-order reconciliation・fill・cost・accountingは既存のshared portfolio session/native ownerが維持する。この実装はsoftware interface preparationであり、新しいfit/replay/選択、経済結果、Dataset/profile/fit provenance、profitability evidenceではない。
 
-P0 software declarations now identify fixed-initial-capital net-profit,
-account mode, finite financial clock, and exact evaluation-window binding in
-`trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do
-not read a ledger, connect a reward to PPO, change its legacy defaults, or
-produce training/replay evidence. The M34 screen classification and every
-existing economic criterion remain unchanged.
+P0 software declarations identify fixed-initial-capital net-profit, account
+mode, finite financial clock, and exact evaluation-window binding in
+`trade_rl.simulation.objectives`. They remain pure ledger-independent contracts.
+The opt-in `SharedPortfolioGymEnv` requires a bound objective/clock and uses
+gamma-one equity-delta reward, while `fit_shared_portfolio_ppo` checks the
+bound clock. This is a software runtime connection, not reward/ledger oracle,
+economic learnability, real-data training, Study authorization, or profitability
+evidence. Legacy per-symbol PPO defaults and the M34 classification are unchanged.
 
 `SharedPortfolioGymEnv` is now an opt-in joint Gym adapter over the same
 strategy-owned snapshot builder and simulation-owned `SharedPortfolioSession`.
@@ -226,6 +228,146 @@ Issue #810のP4にある残差PPO比較armとzero-residual parityはこのscreen
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
 
 receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
+## Issue #1025: native paired portfolio action comparison (software stage; 2026-10-28)
+
+`evaluation/paired_portfolio_action.py` は、同一Dataset・初期資本・hard risk・costと
+freshな別actorから同じprefixをnative replayし、1つのdecisionだけ異なる4-code joint
+actionへ差し替えるopt-in evaluation helperである。両armの観測・reference proposal・
+native ledger prefixが一致しなければ失敗し、random slippageをv1で拒否する。
+HOLDはexact quantity request、terminal処理は既存ownerのままとし、ラベルは両armの
+決済済み・非insolvent・無残注文の正常終端でのみ有効とする。失敗・insolvencyを成功
+labelへ変換せず、native結果は保持する。reference policyのhidden stateが一致する証明や、
+実市場のsource/PIT evidence・prequential fit・結果保存のone-shot authorityはまだない。
+
+後続のopt-in `evaluation/paired_portfolio_label.py` は**人工データ専用**として、
+決定時のsnapshotとnative ledgerのDataset/execution identity・申告した行動の一致を
+照合し、終端時刻・市場入力のavailable-at・明示的な人工settlement receiptの
+最大時刻よりもfit cutoffを厳密に後へ置く。条件を満たさないラベルは拒否する。
+符号付き実現差額と決定時snapshotを保持し、未来価格経路やnative BookStateは
+学習rowへ渡さない。複数rowの重複は拒否し、時系列が重なるlabelは同groupへ束ねる。
+参照policy digestとreceipt時刻は呼出側の宣言であり、真正な外部sourceやactor
+内部状態の検証ではないため、このmoduleから**実市場fitは認可されない**。
+[TD2 draft review](https://github.com/shuntatsu/trade_rl/pull/1028) は
+TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビューが必要である。
+
+これは[#1025](https://github.com/shuntatsu/trade_rl/issues/1025) TD1のsoftware準備であり、
+[#1027](https://github.com/shuntatsu/trade_rl/pull/1027)に実装・合成反証を載せる。
+実市場fit/replay、economic winner、unused/final、live注文は認可・実行していない。
+原NONRL48、M34 FAILED_SCREEN、既存fee-only PPO FAILEDは変更しない。
+
+## Issue #1025: synthetic linear decision-value software head (2026-10-29)
+
+`strategies/decision_value.py` は、事前固定したjoint HOLD/LONG/SHORT等の
+**有限candidate roster**のうち、HOLDを増分価値0として、それ以外のcandidateを
+独立の線形headで順位付けする opt-in `LinearDecisionValuePolicy` を提供する。
+入力はdecision時点で観測されたfeature/global featureと実際の口座weightのみであり、
+市場の将来pathやevaluation/replayからfutureの情報を読み込まない。
+推定値が正の固定marginを超えないときはquantity-preserving HOLDを返し、
+pending注文、欠損feature、roster不一致、fit cutoff以前の推論は明示的に拒否する。
+推論時は `LinearDecisionValueRuntimeContext` のsynthetic source scopeと
+feature/normalizer/execution/reference-policyの申告digestがfit済みmodelと
+一致することを必須とする。callerの申告だけで市場sourceやactual executorが
+独立認証されたとは扱わない。推論後のhard risk、pending reconciliation、
+約定、fee/funding、BookStateは従来のsimulation ownerが扱い、
+推定価値はその会計を置き換えない。
+
+`evaluation/decision_value_fit.py` は `SyntheticPairedLabelBatch` だけを受け、
+成熟済みの符号付きnative終端口座差額をfixed penaltyのRidgeで一度だけfitし、
+重複・不正vintage・action/mask/source schemaをrejectする。候補actionを後から
+広げない。既存候補やハイパーパラメータの利益結果選択は行わない。
+`LinearDecisionValueModel` のJSONはversioned・canonicalで、読み込みには
+外部から渡されたtrusted SHA-256 digestの一致が必須であるが、
+これはartifactsのone-shot publication/外部source attestationではない。
+
+この経路は**人工データ専用**の学習可能性software preparationである。
+強い取引可能signalを意図的に与える合成oracleへのfitと、別の人工時系列における
+native account E2Eの成否は、実市場のedge、独立市場標本、G4/G5、
+unused/finalデータの確認、live注文、PPO/非RL経済gateを証明しない。
+特にtraining中の重なるlabelは独立した標本として数えず、
+current modelは完全なactor hidden state、unknown action、pending-order価値、
+symbol間の高次joint interaction、実行経済recipeの外部検証を保証しない。
+[TD3 review](https://github.com/shuntatsu/trade_rl/pull/1031) は
+[TD2 review](https://github.com/shuntatsu/trade_rl/pull/1028) および
+[TD1 review](https://github.com/shuntatsu/trade_rl/pull/1027) の上に積んだDraftであり、
+それぞれのexact HEAD independent reviewと統合後の再検証が未了である。
+
+## Issue #1025: synthetic write-once native value comparison (TD4a software)
+
+`evaluation/runs/synthetic_value_attempt.py` は、人工データだけを対象にした
+**別のopt-in attempt**である。既存四方式比較の固定family名を流用せず、
+`cash / fixed_long / linear_value` を固定順に、同一のsource・capital・risk・
+execution cost・clockを持つ別々のnative shared-book上で実行する。
+fixed_longは最初の一度だけ入って、その後はexact quantity HOLDする単純controlであり、
+既存のcost-aware forecast方式に代わる基準ではない。推定値・実現収益は
+native ledgerのaccountingを上書きしない。
+
+各armのraw native ledger・費用・終端資産・flat/未約定/insolvency判定を、
+次arm開始前に書き込み、失敗でも既に完了したarm行とfailure recordを残す。
+fixed rosterが全件正常決済できた場合だけresult/complete markerを生成し、
+結果とarm行のdigest・source/model/実行recipe一致をstrict reloadで検証する。
+同じattempt rootへのtechnical rerunを拒否する。Datasetは64行以下の
+**非published identity**の二銘柄人工fixtureへ限定し、インメモリ全フィールドdigestで
+実行途中の変化を検出する。ただし、このdigestとdataset_idは外部原データの
+認証ではなく、source実バイト一式を単独で復元する外部snapshot artifactでもない。
+同じデータを再現するには別にfixture/sourceが必要である。
+
+これは**TD4の限定的なsoftware persistence/comparison substep**である。
+本研究で必要なcost-aware controllerとの正式比較、全joint16-action、
+training/closed-loopの多期間妥当性・部分約定/latency/funding/注文競合の
+全反証、厳密な事前登録run budget、G4研究実行認可、unused/final、
+liveを達成しない。[TD4a Draft review](https://github.com/shuntatsu/trade_rl/pull/1032)
+を先行するTD1/TD2/TD3へstackし、各段階の異なるモデルによる独立レビューと
+exact-HEAD統合を必須とする。M34/NONRL48/fee-only PPOの既存判定は不変。
+
+## Issue #1025: cost-aware Ridge comparator in a separate synthetic v2 attempt (TD4b)
+
+`evaluation/runs/synthetic_value_costaware_attempt.py` は、既存TD4aの
+`cash / fixed_long / linear_value` の **write-once v1試行をそのままネスト**し、
+新たな `cost_aware_ridge` を同一人工Dataset・初期資本・hard risk・
+execution cost・native shared book・terminal clockで比較する
+**別のv2 schemaを持つopt-in attempt** である。旧v1 writer/reader・
+既存FourFamily comparatorの固定arm名・既存Run artifactは変更しない。
+
+追加の第四armには現行の `RidgeForecastStrategy` と
+`CostAwareForecastIntentController` を **実際に使用**する。
+従来の汎用 `SingleSymbolPortfolioPolicyAdapter` はexact Fractionの
+通常のfloat変換とnative表示用quantityの完全一致を要求し、
+nativeの保守的なfloat射影では小数建玉の反例がある。
+**その既存検証を緩めず**、この人工試験では
+`_ExactQuantityCostAwareRidgePolicy` が
+`simulation.quantities.parse_quantity/project_quantity` の既存正本で
+canonicalなexact数量を読む。報告用quantityとの照合も許容誤差ではなく
+**nativeの保守的float射影との厳密一致**を要求し、同じ
+`RidgeForecastStrategy.decide`・同じ離散intent→target weightを通す。
+新しいbridgeは不正な数量差分・未約定注文・連続でないclockを拒否し、
+failure時はpoisonされる。これは従来adapterの完全同一runtime経路ではなく、
+本4方式の新規bounded bridgeである。Ridgeモデルの係数・平均・尺度・fit cutoff等は
+人工検証用に固定し、canonical hex浮動小数点から作るdigestで本人申告モデルを
+照合する。これは実Datasetに対して実際にfitされたforecastではなく、
+外部source・forecast vintage・手数料校正の独立証明でもない。
+cost-awareの単方向switch cost proxyは、この小試験で
+`execution fee_rate + spread_rate` と一致させ、追加のimpact・別maker/taker
+料金・funding等の不整合な設定は **事前に拒否** する。旧3方式の
+native ledgerと新たな第四armのraw ledgerをそれぞれ保存し、
+途中失敗や人工signalが逆行して生じた損失も公開条件から除外しない。
+
+v2結果はネストしたv1結果と第四armのrecord digest、Ridge fixture bytes、
+source/modelの宣言を外部から渡すSHA-256で再照合する。
+未決済・callback失敗・改ざん・同一rootの再実行はfailure/拒否であり、
+complete markerは4方式の正常終端をstrict-reloadした場合だけ作成する。
+ただしこのcontent-addressed readerもroot/source実バイト一式の
+再公開、独立source証明、producer identityの真正性を自動保証しない。
+
+これは **TD4の限定的な人工データsoftware mechanism確認**に過ぎない。
+frozen Ridge forecastを含むため、直接学習器とcost-aware方式の真の
+out-of-sample比較・独立training/selection/evaluation分割、16 joint actions、
+多数銘柄・期間・stochastic/partial fill/funding・stressを満たさない。
+試行からwinnerを選ばず、実市場fit、G4/G5、unused/final、live注文はしない。
+[TD4b review](https://github.com/shuntatsu/trade_rl/pull/1033) は
+TD1/TD2/TD3/TD4aにstackしたDraftで、各段階の別configured-model
+exact-head reviewとmain基準の再検証を待つ。M34/NONRL48/PPO fee-only
+の既存判定を変更しない。
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 

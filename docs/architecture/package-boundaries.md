@@ -61,7 +61,7 @@ trade_rl/
 │   ├── quantities.py
 │   ├── depth.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
-│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
+│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py,portfolio_session.py}
 │   ├── targets/execution.py
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
@@ -73,6 +73,7 @@ trade_rl/
 │   ├── portfolio_observation.py
 │   ├── portfolio_adapter.py
 │   ├── portfolio_policy_codec.py
+│   ├── decision_value.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
@@ -80,6 +81,9 @@ trade_rl/
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
+    ├── paired_portfolio_action.py
+    ├── paired_portfolio_label.py
+    ├── decision_value_fit.py
     ├── portfolio_inference.py
     ├── bot.py
     ├── metrics.py
@@ -106,7 +110,7 @@ trade_rl/
     │   ├── fold_metrics.py
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
-    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_scenario_attempt_v2.py,portfolio_family_scenario_result_artifact_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py}
+    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_scenario_attempt_v2.py,portfolio_family_scenario_result_artifact_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py,synthetic_value_attempt.py,synthetic_value_costaware_attempt.py}
     ├── final_test/{__init__.py,contracts.py,workflow.py}
     └── experiments/
         ├── errors.py

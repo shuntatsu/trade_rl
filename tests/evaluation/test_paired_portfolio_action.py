@@ -27,9 +27,7 @@ _FEE = 0.001
 _SPREAD = 0.0002
 _CAPITAL = 1_000.0
 _TARGET_WEIGHT = 0.4
-_COST = replace(
-    ExecutionCostConfig.zero(), fee_rate=_FEE, spread_rate=_SPREAD
-)
+_COST = replace(ExecutionCostConfig.zero(), fee_rate=_FEE, spread_rate=_SPREAD)
 _RISK = PreTradeRisk(
     PreTradeRiskConfig(
         max_gross=0.5,
@@ -197,14 +195,6 @@ def test_mismatched_reference_prefix_is_rejected() -> None:
     def unsafe_factory() -> _EnterThenHold:
         nonlocal calls
         calls += 1
-
-        class _Different(_EnterThenHold):
-            def decide_portfolio(
-                self, snapshot: PortfolioDecisionSnapshot
-            ) -> PortfolioTargetProposal:
-                if snapshot.index == 0 and calls == 2:
-                    return PortfolioTargetProposal((0.0, 0.0))
-                return super().decide_portfolio(snapshot)
 
         # Capture the branch-specific choice, not a mutable free variable.
         branch = calls

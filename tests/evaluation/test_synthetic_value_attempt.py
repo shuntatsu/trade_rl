@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.evaluation.runs.synthetic_value_attempt import (
     SyntheticValueAttemptConfig,
     load_synthetic_value_attempt,
@@ -24,7 +25,6 @@ from trade_rl.evaluation.runs.synthetic_value_costaware_attempt import (
     run_synthetic_cost_aware_attempt,
     synthetic_ridge_fixture_digest,
 )
-from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.decision_value import (
@@ -32,7 +32,10 @@ from trade_rl.strategies.decision_value import (
     serialize_linear_decision_value,
 )
 from trade_rl.strategies.forecasts.ridge import RidgeForecastModel
-from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot, PortfolioTargetProposal
+from trade_rl.strategies.portfolio import (
+    PortfolioDecisionSnapshot,
+    PortfolioTargetProposal,
+)
 from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
     ACTION_LONG,

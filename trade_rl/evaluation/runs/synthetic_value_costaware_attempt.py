@@ -330,8 +330,13 @@ def _v2_rows(
     ):
         raise ValueError("cost-aware native row digest/endpoint identity mismatch")
     intervals = ledger.get("intervals")
-    if not isinstance(intervals, list) or len(intervals) != (
-        base_started["stop_index"] - base_started["start_index"]
+    start_index = base_started.get("start_index")
+    stop_index = base_started.get("stop_index")
+    if (
+        type(start_index) is not int
+        or type(stop_index) is not int
+        or not isinstance(intervals, list)
+        or len(intervals) != stop_index - start_index
     ):
         raise ValueError("cost-aware native interval count mismatch")
     return (*legacy.arms, cost_row)

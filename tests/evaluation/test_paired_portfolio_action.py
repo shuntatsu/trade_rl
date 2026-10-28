@@ -348,6 +348,30 @@ def test_observation_arriving_after_decision_is_not_a_causal_feature() -> None:
         )
 
 
+def test_two_matching_but_forged_decision_snapshots_are_not_admitted() -> None:
+    market = _dataset()
+    pair = _paired(market=market)
+    snapshot = pair.baseline_snapshot
+
+    forged_feature = replace(
+        snapshot, features=((12345.0,), snapshot.features[1])
+    )
+    forged_pair = replace(
+        pair, baseline_snapshot=forged_feature, candidate_snapshot=forged_feature
+    )
+    with pytest.raises(ValueError, match="source Dataset"):
+        _sample(market=market, paired=forged_pair)
+
+    forged_account = replace(
+        snapshot, account=replace(snapshot.account, cash=snapshot.account.cash + 1)
+    )
+    forged_pair = replace(
+        pair, baseline_snapshot=forged_account, candidate_snapshot=forged_account
+    )
+    with pytest.raises(ValueError, match="native boundary ledger"):
+        _sample(market=market, paired=forged_pair)
+
+
 def test_untrusted_lineage_or_forged_pair_cannot_form_label() -> None:
     with pytest.raises(ValueError, match="execution_policy_digest"):
         _sample(expected_execution_policy_digest="b" * 64)

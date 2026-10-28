@@ -37,7 +37,10 @@ from trade_rl.strategies.forecasts.controller import (
     CostAwareForecastIntentController,
     ForecastIntentConfig,
 )
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.portfolio_adapter import SingleSymbolPortfolioPolicyAdapter
 
 _FAMILIES = ("cash", "fixed_long", "linear_value", "cost_aware_ridge")
@@ -112,9 +115,16 @@ def _decode_hex(value: object, *, name: str) -> float:
 
 def _decode_ridge_payload(payload: dict[str, object]) -> RidgeForecastModel:
     expected_fields = {
-        "schema_version", "feature_indices", "feature_mean_hex",
-        "feature_scale_hex", "coefficients_hex", "intercept_hex",
-        "horizon_hours", "alpha_hex", "n_samples", "fit_cutoff_ns",
+        "schema_version",
+        "feature_indices",
+        "feature_mean_hex",
+        "feature_scale_hex",
+        "coefficients_hex",
+        "intercept_hex",
+        "horizon_hours",
+        "alpha_hex",
+        "n_samples",
+        "fit_cutoff_ns",
     }
     if set(payload) != expected_fields or payload.get("schema_version") != _FORECAST:
         raise ValueError("synthetic frozen forecast schema differs from v1")
@@ -128,7 +138,9 @@ def _decode_ridge_payload(payload: dict[str, object]) -> RidgeForecastModel:
             if not isinstance(values, list):
                 raise ValueError(f"forecast {name} must be a list")
             arrays.append(
-                np.asarray([_decode_hex(v, name=name) for v in values], dtype=np.float64)
+                np.asarray(
+                    [_decode_hex(v, name=name) for v in values], dtype=np.float64
+                )
             )
         cutoff = payload["fit_cutoff_ns"]
         if type(cutoff) is not int:
@@ -149,7 +161,9 @@ def _decode_ridge_payload(payload: dict[str, object]) -> RidgeForecastModel:
             fit_cutoff=np.datetime64(cutoff, "ns"),
         )
     except (OverflowError, TypeError, ValueError) as error:
-        raise ValueError("synthetic frozen forecast has invalid typed values") from error
+        raise ValueError(
+            "synthetic frozen forecast has invalid typed values"
+        ) from error
     if canonical_json_bytes(_ridge_payload(model)) != canonical_json_bytes(payload):
         raise ValueError("synthetic forecast has noncanonical typed values")
     return model
@@ -174,7 +188,9 @@ def _preflight_cost_aware(
         raise ValueError("forecast feature index exceeds the Dataset roster")
     start_timestamp = dataset.timestamps[base.start_index]
     if model.fit_cutoff >= start_timestamp:
-        raise ValueError("forecast fit_cutoff cannot be from the future evaluation window")
+        raise ValueError(
+            "forecast fit_cutoff cannot be from the future evaluation window"
+        )
     thresholds = ForecastIntentConfig(
         entry_threshold=config.entry_threshold, exit_threshold=config.exit_threshold
     )
@@ -203,30 +219,42 @@ def _preflight_cost_aware(
     ):
         raise ValueError("cost proxy differs from fee plus spread")
     for field in (
-        "fee_rate", "maker_fee_rate", "taker_fee_rate", "spread_rate",
-        "borrow_rate", "funding_rate", "dividend", "cash_rate",
+        "fee_rate",
+        "maker_fee_rate",
+        "taker_fee_rate",
+        "spread_rate",
+        "borrow_rate",
+        "funding_rate",
+        "dividend",
+        "cash_rate",
     ):
-        values = dataset.funding_rate if field == "funding_rate" else (
-            dataset.resolved_array(field)
+        values = (
+            dataset.funding_rate
+            if field == "funding_rate"
+            else (dataset.resolved_array(field))
         )
         if np.any(values != 0):
             raise ValueError(f"cost proxy v2 rejects unsupported Dataset {field}")
-    return value_model, fingerprint, {
-        "schema_version": _STARTED,
-        "source_scope": "synthetic_only",
-        "dataset_id": base.expected_dataset_id,
-        "source_fingerprint": fingerprint,
-        "value_model_sha256": base.expected_model_sha256,
-        "forecast_sha256": config.expected_forecast_sha256,
-        "base_started_sha256": hashlib.sha256(
-            canonical_json_bytes(parent_started)
-        ).hexdigest(),
-        "execution_policy_digest": cost.execution_policy_digest,
-        "entry_threshold_hex": float(config.entry_threshold).hex(),
-        "exit_threshold_hex": float(config.exit_threshold).hex(),
-        "one_way_switch_cost_hex": float(config.one_way_switch_cost).hex(),
-        "families": _FAMILIES,
-    }
+    return (
+        value_model,
+        fingerprint,
+        {
+            "schema_version": _STARTED,
+            "source_scope": "synthetic_only",
+            "dataset_id": base.expected_dataset_id,
+            "source_fingerprint": fingerprint,
+            "value_model_sha256": base.expected_model_sha256,
+            "forecast_sha256": config.expected_forecast_sha256,
+            "base_started_sha256": hashlib.sha256(
+                canonical_json_bytes(parent_started)
+            ).hexdigest(),
+            "execution_policy_digest": cost.execution_policy_digest,
+            "entry_threshold_hex": float(config.entry_threshold).hex(),
+            "exit_threshold_hex": float(config.exit_threshold).hex(),
+            "one_way_switch_cost_hex": float(config.one_way_switch_cost).hex(),
+            "families": _FAMILIES,
+        },
+    )
 
 
 def _cost_aware_policy(
@@ -349,9 +377,7 @@ def run_synthetic_cost_aware_attempt(
     on_arm_completed: Callable[[str], None] | None = None,
 ) -> PublishedSyntheticCostAwareAttempt:
     """Write a nested v1 attempt, then one true cost-aware native replay arm."""
-    value_model, fingerprint, started = _preflight_cost_aware(
-        config, on_arm_completed
-    )
+    value_model, fingerprint, started = _preflight_cost_aware(config, on_arm_completed)
     base = config.value_attempt
     root = Path(attempt_root).expanduser().absolute()
     if root.exists() or root.is_symlink():
@@ -366,7 +392,9 @@ def run_synthetic_cost_aware_attempt(
     result_sha256: str | None = None
     try:
         started_sha256 = _write_record(root, "started/record.json", started)
-        _write_record(root, "input/forecast.json", _ridge_payload(config.forecast_model))
+        _write_record(
+            root, "input/forecast.json", _ridge_payload(config.forecast_model)
+        )
         phase = "three_arm_v1"
 
         def persist_inner(family: str) -> None:
@@ -446,7 +474,9 @@ def run_synthetic_cost_aware_attempt(
             expected_forecast_sha256=config.expected_forecast_sha256,
             expected_dataset_id=base.expected_dataset_id,
         )
-        return PublishedSyntheticCostAwareAttempt(root=root, result_sha256=result_sha256)
+        return PublishedSyntheticCostAwareAttempt(
+            root=root, result_sha256=result_sha256
+        )
     except BaseException as error:
         failure = {
             "schema_version": _FAILURE,

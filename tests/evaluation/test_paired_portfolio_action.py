@@ -424,6 +424,26 @@ def test_label_batch_groups_overlapping_paths_and_blocks() -> None:
         )
 
 
+def test_unavailable_feature_value_is_not_exposed_to_future_training() -> None:
+    market = _dataset()
+    unavailable = np.asarray(market.feature_available).copy()
+    unavailable[1, 0, 0] = False
+    future_values = np.asarray(market.features).copy()
+    future_values[1, 0, 0] = 999999.0
+    masked_market = replace(
+        market, feature_available=unavailable, features=future_values
+    )
+    paired = _paired(market=masked_market)
+    with pytest.raises(ValueError, match="unavailable decision feature"):
+        _sample(market=masked_market, paired=paired)
+
+    global_unavailable = np.asarray(market.global_feature_available).copy()
+    global_unavailable[1, 0] = False
+    global_market = replace(market, global_feature_available=global_unavailable)
+    with pytest.raises(ValueError, match="unavailable decision feature"):
+        _sample(market=global_market)
+
+
 def test_synthetic_scope_cannot_be_relabelled_as_market_evidence() -> None:
     sample = _sample()
     with pytest.raises(ValueError, match="synthetic"):

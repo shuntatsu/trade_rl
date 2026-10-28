@@ -177,12 +177,50 @@ class LinearDecisionValueModel:
                 _finite(value, field="coefficient")
 
 
+@dataclass(frozen=True, slots=True)
+class LinearDecisionValueRuntimeContext:
+    """Caller-declared synthetic runtime recipe; external attestation is separate."""
+
+    source_scope: str
+    feature_config_digest: str
+    normalization_digest: str
+    execution_policy_digest: str
+    reference_policy_digest: str
+
+    def __post_init__(self) -> None:
+        if self.source_scope != "synthetic_only":
+            raise ValueError("synthetic-only runtime context is required")
+        for field_name in (
+            "feature_config_digest",
+            "normalization_digest",
+            "execution_policy_digest",
+            "reference_policy_digest",
+        ):
+            require_sha256(getattr(self, field_name), field=field_name)
+
+
 class LinearDecisionValuePolicy:
     """Synthetic-only PortfolioPolicy; hard risk and native execution stay downstream."""
 
-    def __init__(self, model: LinearDecisionValueModel) -> None:
+    def __init__(
+        self,
+        model: LinearDecisionValueModel,
+        *,
+        runtime_context: LinearDecisionValueRuntimeContext,
+    ) -> None:
         if not isinstance(model, LinearDecisionValueModel):
             raise TypeError("model must be LinearDecisionValueModel")
+        if not isinstance(runtime_context, LinearDecisionValueRuntimeContext):
+            raise TypeError("runtime_context must be a typed synthetic runtime context")
+        for field_name in (
+            "source_scope",
+            "feature_config_digest",
+            "normalization_digest",
+            "execution_policy_digest",
+            "reference_policy_digest",
+        ):
+            if getattr(model, field_name) != getattr(runtime_context, field_name):
+                raise ValueError(f"runtime {field_name} differs from fitted model")
         self.model = model
 
     def _scores(self, snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
@@ -299,6 +337,7 @@ def load_linear_decision_value(
 __all__ = [
     "LinearDecisionValueModel",
     "LinearDecisionValuePolicy",
+    "LinearDecisionValueRuntimeContext",
     "encode_decision_value_state",
     "serialize_linear_decision_value",
     "load_linear_decision_value",

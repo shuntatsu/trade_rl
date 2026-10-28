@@ -61,7 +61,7 @@ trade_rl/
 │   ├── quantities.py
 │   ├── depth.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
-│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
+│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py,portfolio_session.py}
 │   ├── targets/execution.py
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
@@ -80,6 +80,7 @@ trade_rl/
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
+    ├── paired_portfolio_action.py
     ├── portfolio_inference.py
     ├── bot.py
     ├── metrics.py

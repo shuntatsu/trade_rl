@@ -46,9 +46,7 @@ jobs:
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: |
-          uv run ruff format --diff tests/evaluation/test_synthetic_value_attempt.py trade_rl/evaluation/runs/synthetic_value_attempt.py || true
-          uv run ruff format --check trade_rl tests tools
+        run: uv run ruff format --check trade_rl tests tools
 
       - name: Mypy
         run: uv run mypy trade_rl

@@ -8,6 +8,13 @@ between refits, so every packet is a pure function of data that was available
 at its ``fit_time`` and of the decision-row features.  The module reuses
 ``build_causal_forecast_training_set`` for all label construction and does not
 own an account, a ledger, or any trading decision.
+
+Peeking is structurally impossible through the fitter interface: the source
+builds the causal training set itself and hands a fitter only that frozen
+object (features, labels, weights, feature metadata) -- never the
+``MarketDataset`` -- so a fitter has no handle on rows after the cutoff.  The
+residual variance and every point forecast are computed through the same
+``fitter.predict_rows`` path, and ``model.predict`` must agree with it.
 """
 
 from __future__ import annotations
@@ -26,8 +33,13 @@ from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
     validated_symbol_indices,
 )
-from trade_rl.strategies.forecasts.lightgbm import fit_lightgbm_forecast
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, fit_ridge_forecast
+from trade_rl.strategies.forecasts.lightgbm import (
+    fit_lightgbm_forecast_from_training_set,
+)
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    fit_ridge_forecast_from_training_set,
+)
 from trade_rl.strategies.forecasts.supervised import (
     CausalForecastTrainingSet,
     _validated_fit_cutoff_ns,
@@ -38,6 +50,9 @@ from trade_rl.strategies.forecasts.supervised import (
 LOG_RETURN_UNIT = "log"
 _NS_PER_HOUR = 3_600_000_000_000
 _NS_PER_DAY = 24 * _NS_PER_HOUR
+_AGREEMENT_PROBE_ROWS = 32
+_AGREEMENT_RTOL = 1e-9
+_AGREEMENT_ATOL = 1e-12
 
 
 class PrequentialForecastModel(Protocol):
@@ -50,20 +65,18 @@ class PrequentialForecastModel(Protocol):
 
 
 class PrequentialForecastFitter(Protocol):
-    """Small fitter protocol: fit on a causal prefix, score rows in batch."""
+    """Small fitter protocol: fit on a causal training set, score rows in batch.
+
+    ``fit`` receives only the frozen :class:`CausalForecastTrainingSet` built by
+    the source (rows whose labels were available strictly before the cutoff);
+    it never receives the dataset.  ``predict_rows`` is the single scoring path
+    used for both the training residuals and every served point forecast.
+    """
 
     @property
     def identity(self) -> str: ...
 
-    def fit(
-        self,
-        dataset: MarketDataset,
-        *,
-        feature_indices: tuple[int, ...],
-        fit_symbol_indices: tuple[int, ...] | None,
-        fit_cutoff: np.datetime64,
-        horizon_hours: int,
-    ) -> PrequentialForecastModel: ...
+    def fit(self, training: CausalForecastTrainingSet) -> PrequentialForecastModel: ...
 
     def predict_rows(
         self,
@@ -92,23 +105,8 @@ class RidgeForecastFitter:
     def identity(self) -> str:
         return f"ridge:alpha={self.alpha!r}"
 
-    def fit(
-        self,
-        dataset: MarketDataset,
-        *,
-        feature_indices: tuple[int, ...],
-        fit_symbol_indices: tuple[int, ...] | None,
-        fit_cutoff: np.datetime64,
-        horizon_hours: int,
-    ) -> RidgeForecastModel:
-        return fit_ridge_forecast(
-            dataset,
-            feature_indices=feature_indices,
-            fit_symbol_indices=fit_symbol_indices,
-            fit_cutoff=fit_cutoff,
-            horizon_hours=horizon_hours,
-            alpha=self.alpha,
-        )
+    def fit(self, training: CausalForecastTrainingSet) -> RidgeForecastModel:
+        return fit_ridge_forecast_from_training_set(training, alpha=self.alpha)
 
     def predict_rows(
         self,
@@ -140,22 +138,9 @@ class LightGBMForecastFitter:
     def identity(self) -> str:
         return f"lightgbm:random_state={self.random_state}"
 
-    def fit(
-        self,
-        dataset: MarketDataset,
-        *,
-        feature_indices: tuple[int, ...],
-        fit_symbol_indices: tuple[int, ...] | None,
-        fit_cutoff: np.datetime64,
-        horizon_hours: int,
-    ) -> PrequentialForecastModel:
-        return fit_lightgbm_forecast(
-            dataset,
-            feature_indices=feature_indices,
-            fit_symbol_indices=fit_symbol_indices,
-            fit_cutoff=fit_cutoff,
-            horizon_hours=horizon_hours,
-            random_state=self.random_state,
+    def fit(self, training: CausalForecastTrainingSet) -> PrequentialForecastModel:
+        return fit_lightgbm_forecast_from_training_set(
+            training, random_state=self.random_state
         )
 
     def predict_rows(
@@ -211,8 +196,11 @@ class PrequentialSchedule:
     assumed to finish instantly, which is the right model for a backtest whose
     cutoff is the fit instant).  A positive delay is required when the dataset's
     ``available_at`` lags the bar timestamp enough that a label becomes
-    available exactly at the cutoff.  The training window always starts at the
-    dataset's first row, so it only grows.
+    available exactly at the cutoff: it only moves ``fit_time`` after the last
+    admitted label's availability.  It does *not* relax decision-row
+    availability: a decision row whose ``available_at`` is later than its own
+    timestamp is never servable and ``packet`` fails closed.  The training
+    window always starts at the dataset's first row, so it only grows.
     """
 
     first_fit_time: np.datetime64
@@ -405,7 +393,16 @@ class ForecastPacket:
 
 @dataclass(frozen=True, slots=True)
 class ForecastVintage:
-    """One frozen fit: model, training provenance and residual variance."""
+    """One frozen fit: model, training provenance and residual variance.
+
+    ``residual_variance`` is the *in-sample* weighted training residual variance
+    of the vintage, so it understates out-of-sample error (most for flexible
+    models such as LightGBM, which biases a later ``expm1(mu + s2 / 2)``
+    log-to-simple conversion low).  ``max_training_label_available_at`` is
+    taken over all rows of the label end bars that the builder could have
+    admitted, which is exact for the default ``available_at == timestamp`` and
+    otherwise a conservative (possibly later) bound.
+    """
 
     vintage_id: str
     fit_time: np.datetime64
@@ -508,22 +505,13 @@ class PrequentialForecastSource:
             fit_cutoff=cutoff,
             horizon_hours=self._horizon_hours,
         )
-        model = self._fitter.fit(
-            dataset,
-            feature_indices=self._feature_indices,
-            fit_symbol_indices=self._fit_symbol_indices,
-            fit_cutoff=cutoff,
-            horizon_hours=self._horizon_hours,
-        )
+        # The fitter sees only the frozen causal training set, never the dataset.
+        model = self._fitter.fit(training)
         model_cutoff = _ns(model.fit_cutoff, field_name="model fit_cutoff")
         if model_cutoff != int(cutoff.astype(np.int64)):
             raise ValueError("fitted model cutoff does not match the scheduled cutoff")
-        fitted = np.asarray(
-            self._fitter.predict_rows(model, training.features),
-            dtype=np.float64,
-        ).reshape(-1)
-        if fitted.shape != training.labels.shape or not np.isfinite(fitted).all():
-            raise ValueError("fitter must return one finite prediction per row")
+        fitted = self._score_rows(model, training.features)
+        self._assert_predict_agreement(model, training.features, fitted)
         residuals = training.labels - fitted
         weights = training.sample_weights
         residual_variance = float(np.dot(weights, residuals**2) / float(weights.sum()))
@@ -569,6 +557,54 @@ class PrequentialForecastSource:
             model=model,
         )
 
+    def _score_rows(
+        self,
+        model: PrequentialForecastModel,
+        features: np.ndarray,
+    ) -> np.ndarray:
+        """Single scoring path for training residuals and served forecasts."""
+
+        scores = np.asarray(
+            self._fitter.predict_rows(model, features),
+            dtype=np.float64,
+        ).reshape(-1)
+        if scores.shape != (features.shape[0],) or not np.isfinite(scores).all():
+            raise ValueError("fitter must return one finite prediction per row")
+        return scores
+
+    def _full_vector(self, selected: np.ndarray) -> np.ndarray:
+        """Embed selected features at their dataset positions (others zero)."""
+
+        vector = np.zeros(self._dataset.features.shape[2], dtype=np.float64)
+        vector[list(self._feature_indices)] = selected
+        return vector
+
+    def _assert_predict_agreement(
+        self,
+        model: PrequentialForecastModel,
+        features: np.ndarray,
+        scores: np.ndarray,
+    ) -> None:
+        """``model.predict`` must reproduce ``fitter.predict_rows`` on a probe set."""
+
+        n_rows = features.shape[0]
+        probe = np.unique(
+            np.linspace(0, n_rows - 1, min(_AGREEMENT_PROBE_ROWS, n_rows)).astype(
+                np.int64
+            )
+        )
+        for row in probe:
+            direct = float(model.predict(self._full_vector(features[row])))
+            if not math.isclose(
+                direct,
+                float(scores[row]),
+                rel_tol=_AGREEMENT_RTOL,
+                abs_tol=_AGREEMENT_ATOL,
+            ):
+                raise ValueError(
+                    "model.predict and fitter.predict_rows disagree on a training row"
+                )
+
     def _row_index(self, decision_time: np.datetime64) -> tuple[int, int]:
         decision_ns = _ns(decision_time, field_name="decision_time")
         row = int(np.searchsorted(self._timestamps_ns, decision_ns))
@@ -612,9 +648,15 @@ class PrequentialForecastSource:
         )
         if not np.isfinite(selected[indices]).all():
             return None
-        forecast = float(vintage.model.predict(selected))
-        if not math.isfinite(forecast):
-            return None
+        row_features = selected[indices].reshape(1, -1)
+        forecast = float(self._score_rows(vintage.model, row_features)[0])
+        direct = float(vintage.model.predict(self._full_vector(selected[indices])))
+        if not math.isclose(
+            direct, forecast, rel_tol=_AGREEMENT_RTOL, abs_tol=_AGREEMENT_ATOL
+        ):
+            raise ValueError(
+                "model.predict and fitter.predict_rows disagree on the decision row"
+            )
         fit_ns = int(vintage.fit_time.astype(np.int64))
         return ForecastPacket(
             symbol=dataset.symbols[symbol_index],

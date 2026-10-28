@@ -114,7 +114,9 @@ class LinearDecisionValueModel:
             raise TypeError("model symbol and feature rosters must be tuples")
         require_unique_non_empty(self.symbols, field="symbols")
         require_unique_non_empty(self.feature_names, field="feature_names")
-        require_unique_non_empty(self.global_feature_names, field="global_feature_names")
+        require_unique_non_empty(
+            self.global_feature_names, field="global_feature_names"
+        )
         for name in (
             "feature_config_digest",
             "normalization_digest",
@@ -122,10 +124,15 @@ class LinearDecisionValueModel:
             "reference_policy_digest",
         ):
             require_sha256(getattr(self, name), field=name)
-        if any(type(getattr(self, field)) is not int for field in (
-            "fit_cutoff_ns", "evaluation_start_ns", "training_rows",
-            "overlap_groups"
-        )):
+        if any(
+            type(getattr(self, field)) is not int
+            for field in (
+                "fit_cutoff_ns",
+                "evaluation_start_ns",
+                "training_rows",
+                "overlap_groups",
+            )
+        ):
             raise ValueError("model cutoffs and counts must be native integers")
         if self.fit_cutoff_ns >= self.evaluation_start_ns:
             raise ValueError("evaluation must begin after the fit cutoff")
@@ -140,9 +147,7 @@ class LinearDecisionValueModel:
             raise ValueError("target weights must match symbol roster")
         if any(_finite(w, field="target weight") < 0 for w in self.target_abs_weights):
             raise ValueError("target weights must be non-negative")
-        if type(self.candidate_actions) is not tuple or len(
-            self.candidate_actions
-        ) < 2:
+        if type(self.candidate_actions) is not tuple or len(self.candidate_actions) < 2:
             raise ValueError("candidate actions require HOLD and another action")
         seen: set[tuple[int, ...]] = set()
         for action in self.candidate_actions:
@@ -160,9 +165,10 @@ class LinearDecisionValueModel:
             + len(self.global_feature_names)
             + len(self.symbols)
         )
-        if type(self.coefficients) is not tuple or len(
-            self.coefficients
-        ) != len(self.candidate_actions) - 1:
+        if (
+            type(self.coefficients) is not tuple
+            or len(self.coefficients) != len(self.candidate_actions) - 1
+        ):
             raise ValueError("coefficients must match candidate count")
         for row in self.coefficients:
             if type(row) is not tuple or len(row) != width:
@@ -228,8 +234,11 @@ def serialize_linear_decision_value(
     if not isinstance(model, LinearDecisionValueModel):
         raise TypeError("model must be LinearDecisionValueModel")
     encoded = json.dumps(
-        asdict(model), sort_keys=True, ensure_ascii=False,
-        separators=(",", ":"), allow_nan=False
+        asdict(model),
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
     )
     return encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -244,8 +253,11 @@ def load_linear_decision_value(
     try:
         value: object = json.loads(text)
         canonical = json.dumps(
-            value, sort_keys=True, ensure_ascii=False,
-            separators=(",", ":"), allow_nan=False
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
         )
     except (TypeError, ValueError) as error:
         raise ValueError("model artifact contains invalid JSON") from error

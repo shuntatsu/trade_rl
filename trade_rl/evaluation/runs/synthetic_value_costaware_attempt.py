@@ -43,7 +43,10 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
 )
 from trade_rl.strategies.interface import StrategyObservation
-from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot, PortfolioTargetProposal
+from trade_rl.strategies.portfolio import (
+    PortfolioDecisionSnapshot,
+    PortfolioTargetProposal,
+)
 from trade_rl.strategies.position_intent import PositionIntent
 
 _FAMILIES = ("cash", "fixed_long", "linear_value", "cost_aware_ridge")

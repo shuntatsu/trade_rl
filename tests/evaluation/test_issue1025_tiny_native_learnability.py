@@ -129,7 +129,7 @@ def _rollout(
     )
     assert len(policy.prefix) == 2
     assert result.ledger_evidence is not None
-    assert len(result.ledger_evidence.intervals) == 6
+    assert len(result.ledger_evidence.to_mapping()["intervals"]) == 6
     assert tuple(str(q) for q in result.book.exact_quantities) == ("0", "0")
     return float(result.book.portfolio_value), tuple(policy.prefix)
 

@@ -256,6 +256,38 @@ TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビュ�
 実市場fit/replay、economic winner、unused/final、live注文は認可・実行していない。
 原NONRL48、M34 FAILED_SCREEN、既存fee-only PPO FAILEDは変更しない。
 
+## Issue #1025: synthetic linear decision-value software head (2026-10-29)
+
+`strategies/decision_value.py` は、事前固定したjoint HOLD/LONG/SHORT等の
+**有限candidate roster**のうち、HOLDを増分価値0として、それ以外のcandidateを
+独立の線形headで順位付けする opt-in `LinearDecisionValuePolicy` を提供する。
+入力はdecision時点で観測されたfeature/global featureと実際の口座weightのみであり、
+市場の将来pathやevaluation/replayからfutureの情報を読み込まない。
+推定値が正の固定marginを超えないときはquantity-preserving HOLDを返し、
+pending注文、欠損feature、roster不一致、fit cutoff以前の推論は明示的に拒否する。
+推論後のhard risk、pending reconciliation、約定、fee/funding、BookStateは従来の
+simulation ownerが扱い、推定価値はその会計を置き換えない。
+
+`evaluation/decision_value_fit.py` は `SyntheticPairedLabelBatch` だけを受け、
+成熟済みの符号付きnative終端口座差額をfixed penaltyのRidgeで一度だけfitし、
+重複・不正vintage・action/mask/source schemaをrejectする。候補actionを後から
+広げない。既存候補やハイパーパラメータの利益結果選択は行わない。
+`LinearDecisionValueModel` のJSONはversioned・canonicalで、読み込みには
+外部から渡されたtrusted SHA-256 digestの一致が必須であるが、
+これはartifactsのone-shot publication/外部source attestationではない。
+
+この経路は**人工データ専用**の学習可能性software preparationである。
+強い取引可能signalを意図的に与える合成oracleへのfitと、別の人工時系列における
+native account E2Eの成否は、実市場のedge、独立市場標本、G4/G5、
+unused/finalデータの確認、live注文、PPO/非RL経済gateを証明しない。
+特にtraining中の重なるlabelは独立した標本として数えず、
+current modelは完全なactor hidden state、unknown action、pending-order価値、
+symbol間の高次joint interaction、実行経済recipeの外部検証を保証しない。
+[TD3 review](https://github.com/shuntatsu/trade_rl/pull/1031) は
+[TD2 review](https://github.com/shuntatsu/trade_rl/pull/1028) および
+[TD1 review](https://github.com/shuntatsu/trade_rl/pull/1027) の上に積んだDraftであり、
+それぞれのexact HEAD independent reviewと統合後の再検証が未了である。
+
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
 Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitは計画されていたが、保持されたprovenanceから完了は確認できない。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。

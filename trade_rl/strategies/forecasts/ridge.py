@@ -14,6 +14,7 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentController,
 )
 from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
     _immutable_array,
     _validated_fit_cutoff_ns,
     build_causal_forecast_training_set,
@@ -182,6 +183,19 @@ def fit_ridge_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
+    return fit_ridge_forecast_from_training_set(training, alpha=alpha)
+
+
+def fit_ridge_forecast_from_training_set(
+    training: CausalForecastTrainingSet,
+    *,
+    alpha: float = 1.0,
+) -> RidgeForecastModel:
+    """Fit the same shared Ridge from an already built causal training set."""
+
+    if not math.isfinite(alpha) or alpha <= 0.0:
+        raise ValueError("alpha must be finite and positive")
+    horizon_hours = training.horizon_hours
     x = training.features
     y = training.labels
     weights = training.sample_weights
@@ -222,4 +236,9 @@ def fit_ridge_forecast(
     )
 
 
-__all__ = ["RidgeForecastModel", "RidgeForecastStrategy", "fit_ridge_forecast"]
+__all__ = [
+    "RidgeForecastModel",
+    "RidgeForecastStrategy",
+    "fit_ridge_forecast",
+    "fit_ridge_forecast_from_training_set",
+]

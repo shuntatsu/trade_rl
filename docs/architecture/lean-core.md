@@ -123,6 +123,8 @@ exact-quantity HOLDを再現せず、任意の`SingleSymbolStrategy`やsubclass�
 それらのsemanticsが必要ならdirect `PortfolioPolicy`を実装する。native sessionは同じ
 BookState/MarketExecutorでrisk、order reconciliation、fill、cost、accountingと終端処理を
 引き続き行う。Ridgeの`one_way_switch_cost`はintent選択のproxyであり、ledger feeを変更しない。
+
+`strategies/allocation/` は同じ`PortfolioPolicy` seamへ、forecast sourceが供給するper-symbolの期待単純収益から費用控除後のtarget weightを作るallocatorと、等weight buy-and-hold対照を追加する。`CostAwareAllocationPolicy`は各scheduled decisionで`mu.w - (gamma/2) w'Sigma w - sum_i c_i |w_i - w_cur_i|`（`|w_i| <= w_max`、`sum|w| <= gross_max`、任意でlong-only）を許容誤差内で解き、KKT最適性certificateが通った解だけを採用する（通らなければHOLD）。L1 costがno-trade regionを作り、`min_trade_fraction`未満の変更は`hold_current_quantity_symbols`にする。Sigmaはdecision時刻以前の日次mark価格のEWMA共分散を対角へshrinkしたもので、未来barは使わない。decision schedule以外のbar、forecast/共分散/solverの失敗、口座終端では全symbolをHOLDし、黙ってtradeしない。account・P&L ledger・fill・feeは持たず、既存のshared portfolio sessionが所有する。`forecast_source`の中身（モデル・fit・provenance）はこのcontractの外にある。この実装はsoftware seamであり、経済結果やprofitability evidenceではない。
 このstrategy wrapperはjoint PPO learner、training parity、Dataset/profile/fit provenance、
 経済的比較やprofitability evidenceを作らない。
 
@@ -892,6 +894,10 @@ the journal chain only and must not claim raw-source financial validation.
 Even `PAPER_SCREEN_PASSED` retains `production_eligible=false`: observed paper
 marks, cost assumptions and public depth do not establish live fill guarantees,
 intraminute drawdown, optimal returns or private-account suitability.
+
+## Prequential forecast availability
+
+Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
 ## 非目標
 

@@ -9,6 +9,7 @@ from tools.issue810_p3_rollout_boundary_diagnostic import (
     RunCell,
     _cell_meets_acceptance,
     _execute_cells,
+    _heldout_result_record,
     _verify_training_join_scope,
     planned_cells,
 )
@@ -93,6 +94,28 @@ def test_protocol_is_exactly_six_nonadaptive_delay_seed_cells() -> None:
     ]
     assert len({cell.cell_id for cell in cells}) == 6
     assert all(isinstance(cell, RunCell) for cell in cells)
+
+
+def test_heldout_result_uses_evaluator_actor_range_key() -> None:
+    trained = {"actor_input_range_half_open": [1_025, 2_049]}
+    initialized = {"actor_input_range_half_open": [1_025, 2_049]}
+    fixed_long = {"actor_input_range_half_open": [1_025, 2_049]}
+    cash = {"actor_input_range_half_open": [1_025, 2_049]}
+
+    result = _heldout_result_record(
+        window_index=1,
+        dataset_id="synthetic-dataset-id",
+        trained=trained,
+        initialized=initialized,
+        fixed_long=fixed_long,
+        cash=cash,
+    )
+
+    assert result["actor_index_range"] == [1_025, 2_049]
+    assert result["trained"] is trained
+    assert result["initialized"] is initialized
+    assert result["fixed_long"] is fixed_long
+    assert result["cash"] is cash
 
 
 def test_observation_transform_is_fitted_only_on_training_actor_prefix() -> None:

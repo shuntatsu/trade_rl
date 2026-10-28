@@ -503,6 +503,34 @@ def _load_checkpoint(path: Path) -> Any:
     return ppo.load(str(path), device="cpu")
 
 
+def _heldout_result_record(
+    *,
+    window_index: int,
+    dataset_id: str,
+    trained: Mapping[str, object],
+    initialized: Mapping[str, object],
+    fixed_long: Mapping[str, object],
+    cash: Mapping[str, object],
+) -> dict[str, object]:
+    actor_range = trained.get("actor_input_range_half_open")
+    if (
+        type(actor_range) is not list
+        or len(actor_range) != 2
+        or any(type(index) is not int for index in actor_range)
+        or actor_range[0] >= actor_range[1]
+    ):
+        raise ValueError("trained held-out result omitted its actor input range")
+    return {
+        "window_index": window_index,
+        "dataset_id": dataset_id,
+        "actor_index_range": list(actor_range),
+        "trained": trained,
+        "initialized": initialized,
+        "fixed_long": fixed_long,
+        "cash": cash,
+    }
+
+
 def _evaluate_policy(
     *,
     policy_name: str,
@@ -820,15 +848,14 @@ def _run_real_cell(cell: RunCell, attempt_root: Path) -> Mapping[str, object]:
             seed=cell.seed + 1,
         )
         heldout_results.append(
-            {
-                "window_index": window_index,
-                "dataset_id": dataset.dataset_id,
-                "actor_index_range": trained["actor_index_range"],
-                "trained": trained,
-                "initialized": initial,
-                "fixed_long": fixed_long,
-                "cash": cash,
-            }
+            _heldout_result_record(
+                window_index=window_index,
+                dataset_id=dataset.dataset_id,
+                trained=trained,
+                initialized=initial,
+                fixed_long=fixed_long,
+                cash=cash,
+            )
         )
 
     return {

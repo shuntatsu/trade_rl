@@ -259,6 +259,7 @@ def test_unsettled_terminal_keeps_raw_arms_but_blocks_label() -> None:
 # TD2: labels are post-settlement observations, not as-of-decision features.
 # Synthetic-only scope deliberately cannot authorize real-data training.
 
+
 def _sample(
     *,
     market: MarketDataset | None = None,
@@ -286,6 +287,7 @@ def _sample(
         paired,
         baseline_action=baseline_action,
         candidate_action=candidate_action,
+        target_abs_weights=(_TARGET_WEIGHT, _TARGET_WEIGHT),
         reference_policy_digest=reference_policy_digest,
         expected_execution_policy_digest=(
             digest
@@ -383,7 +385,8 @@ def test_invalid_settlement_never_becomes_fit_sample() -> None:
         _sample(market=blocked, paired=pair)
 
 
-def test_sample_batch_groups_overlapping_paths_and_blocks_duplicate_or_mixed_vintage() -> None:
+def test_sample_batch_groups_overlapping_paths_and_blocks_duplicate_or_mixed_vintage(
+) -> None:
     cutoff = np.datetime64("2026-03-01T00:00:00", "ns")
     first = _sample(fit_cutoff=cutoff)
     second_market = replace(_dataset(rise=-10), dataset_id="2" * 64)

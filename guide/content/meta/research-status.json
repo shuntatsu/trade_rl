@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "Task 18準備状況、opt-in shared-portfolio inference software path、Ridge forecast-versus-zero diagnostics、FAILED_SCREENとなったM34開発screen、未完了の48-cell比較と研究上の未証明事項を表示します。",
+  "summary": "Task 18準備状況と回収した原R2入力のbyte範囲、opt-in shared-portfolio inference software path、FAILED_SCREENとなったM34開発screen、未完了の48-cell比較と研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -59,7 +59,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
-      "sha256": "3b619d6daa970e465c14508d4dff1ce9812564d9dfaa68ad89b5db6aba399d85"
+      "sha256": "a8543e9ce99ae3968d69d1597cae2e837f2c44f3c63113e235c26acfe4242789"
     }
   ],
   "code_references": []

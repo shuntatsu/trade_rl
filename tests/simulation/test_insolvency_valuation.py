@@ -22,6 +22,7 @@ def _market(
     gap_before_insolvency: bool = False,
     insolvency_price: float = 400.0,
     insolvency_borrow_rate: float = 0.5,
+    insolvency_funding_rate: float = 0.1,
     processing_cash_rate: float = 0.0,
 ) -> MarketDataset:
     close = np.array(
@@ -50,7 +51,7 @@ def _market(
         low=close - 1.0,
         close=close,
         volume=np.full(shape, 1_000_000.0),
-        funding_rate=np.array([[0.0], [0.0], [0.1], [0.2], [0.2]]),
+        funding_rate=np.array([[0.0], [0.0], [insolvency_funding_rate], [0.2], [0.2]]),
         funding_due=np.array([[False], [False], [True], [True], [True]]),
         borrow_rate=np.array([[0.0], [0.0], [insolvency_borrow_rate], [1.0], [1.0]]),
         cash_rate=cash_rate,
@@ -72,6 +73,7 @@ def _executor(
     insolvency_valuation: str = "floor_zero",
     fee_rate: float = 0.0,
     borrow_rate_multiplier: float = 0.0,
+    maintenance_margin_rate: float = 0.0,
 ) -> MarketExecutor:
     cost = replace(
         ExecutionCostConfig.zero(),
@@ -79,7 +81,7 @@ def _executor(
         borrow_rate_multiplier=borrow_rate_multiplier,
         fee_rate=fee_rate,
         max_leverage=2.0,
-        maintenance_margin_rate=0.0,
+        maintenance_margin_rate=maintenance_margin_rate,
         processing_bar_volume_capacity=True,
     )
     return MarketExecutor(
@@ -221,7 +223,7 @@ def test_retain_debt_terminal_book_is_not_resumable_or_mutated_by_rejection() ->
     terminal_cash = terminal.book.cash
     terminal_orders = terminal.order_book
 
-    with pytest.raises(ValueError, match="positive starting equity"):
+    with pytest.raises(ValueError, match="terminal insolvent book"):
         executor.execute_orders(
             terminal.book,
             terminal.order_book,
@@ -234,6 +236,45 @@ def test_retain_debt_terminal_book_is_not_resumable_or_mutated_by_rejection() ->
     assert terminal.book.portfolio_value == terminal_cash
     assert terminal.book.quantities.tolist() == [0.0]
     assert terminal.order_book is terminal_orders
+    assert terminal.order_book.active_orders == ()
+
+
+def test_retain_debt_positive_nav_margin_call_book_is_not_resumable() -> None:
+    dataset = _market(insolvency_price=225.0, insolvency_funding_rate=0.0)
+    executor = _executor(
+        dataset,
+        insolvency_valuation="retain_debt",
+        maintenance_margin_rate=0.5,
+    )
+    opened = _open_short(executor)
+    terminal = executor.execute_orders(
+        opened.book,
+        opened.order_book,
+        (),
+        start_index=1,
+        bars=3,
+    )
+    terminal_cash = terminal.book.cash
+    terminal_reason = terminal.book.termination_reason
+    terminal_index = terminal.next_index
+
+    assert terminal.termination_reason == EconomicTerminationReason.MARGIN_CALL.value
+    assert terminal.book.portfolio_value == pytest.approx(375.0)
+    assert terminal.book.insolvent is True
+
+    with pytest.raises(ValueError, match="terminal insolvent book"):
+        executor.execute_orders(
+            terminal.book,
+            terminal.order_book,
+            (),
+            start_index=terminal.next_index,
+            bars=2,
+        )
+
+    assert terminal.book.cash == pytest.approx(terminal_cash)
+    assert terminal.book.portfolio_value == pytest.approx(terminal_cash)
+    assert terminal.book.termination_reason is terminal_reason
+    assert terminal.next_index == terminal_index
     assert terminal.order_book.active_orders == ()
 
 

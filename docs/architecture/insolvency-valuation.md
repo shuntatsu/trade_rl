@@ -24,8 +24,10 @@ bound. A result consumer that needs the amount of retained debt must inspect
 the native terminal book rather than infer it from the bounded return fields.
 
 The retained-debt book is terminal output, not a resumable starting state:
-execution still rejects non-positive starting equity, before advancing a bar or
-mutating the returned account/order-book snapshots.
+another retain-debt execution call rejects an already insolvent or terminated
+book before creating a runtime, submitting new intents, advancing a bar, or
+mutating the returned account/order-book snapshots. The existing positive
+starting-equity precondition remains in force for non-terminal books.
 
 This mode changes execution/accounting semantics only when explicitly selected.
 It does not qualify the underlying data, historical venue rules, insolvency

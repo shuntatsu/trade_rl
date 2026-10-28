@@ -19,7 +19,9 @@ REQUIRED_DOC_FILES = {
     "architecture/controlled-experiment-loop.md",
     "architecture/final-evaluation-authorization.md",
     "architecture/research-assurance.md",
+    "architecture/ppo-rollout-boundary.md",
     "research/current-status.md",
+    "research/ppo-rollout-boundary-protocol.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
 COMPLETED_EPHEMERAL_DOCS = (
@@ -37,7 +39,9 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
+    DOCS / "architecture" / "ppo-rollout-boundary.md",
     DOCS / "research" / "current-status.md",
+    DOCS / "research" / "ppo-rollout-boundary-protocol.md",
     ROOT / "LICENSES" / "LICENSING.md",
     ROOT / "LICENSES" / "PROVENANCE.md",
     ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md",
@@ -192,7 +196,9 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/controlled-experiment-loop.md",
         "architecture/final-evaluation-authorization.md",
         "architecture/research-assurance.md",
+        "architecture/ppo-rollout-boundary.md",
         "research/current-status.md",
+        "research/ppo-rollout-boundary-protocol.md",
     ):
         assert target in index
     for relative in sorted(_doc_files() - REQUIRED_DOC_FILES):

@@ -12,6 +12,10 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.paired_portfolio_action import run_paired_portfolio_action
+from trade_rl.evaluation.paired_portfolio_label import (
+    build_synthetic_paired_label,
+    build_synthetic_paired_label_batch,
+)
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.portfolio import (
@@ -250,3 +254,188 @@ def test_unsettled_terminal_keeps_raw_arms_but_blocks_label() -> None:
     assert paired.baseline_result.ledger_evidence is not None
     retained = paired.baseline_result.ledger_evidence.to_mapping()
     assert retained["active_order_remainders"]
+
+
+# TD2: labels are post-settlement observations, not as-of-decision features.
+# Synthetic-only scope deliberately cannot authorize real-data training.
+
+def _sample(
+    *,
+    market: MarketDataset | None = None,
+    paired: object | None = None,
+    observation_record_available_at: np.datetime64 = np.datetime64(
+        "2026-01-01T01:00:00", "ns"
+    ),
+    settlement_record_available_at: np.datetime64 = np.datetime64(
+        "2026-01-01T07:30:00", "ns"
+    ),
+    fit_cutoff: np.datetime64 = np.datetime64("2026-01-01T10:00:00", "ns"),
+    reference_policy_digest: str = "a" * 64,
+    expected_execution_policy_digest: str | None = None,
+    baseline_action: tuple[int, int] = (ACTION_HOLD, ACTION_HOLD),
+    candidate_action: tuple[int, int] = (ACTION_FLAT, ACTION_HOLD),
+):
+    market = _dataset() if market is None else market
+    paired = _paired(market=market) if paired is None else paired
+    evidence = paired.baseline_result.ledger_evidence
+    assert evidence is not None
+    digest = evidence.to_mapping()["execution_policy_digest"]
+    assert isinstance(digest, str)
+    return build_synthetic_paired_label(
+        market,
+        paired,
+        baseline_action=baseline_action,
+        candidate_action=candidate_action,
+        reference_policy_digest=reference_policy_digest,
+        expected_execution_policy_digest=(
+            digest
+            if expected_execution_policy_digest is None
+            else expected_execution_policy_digest
+        ),
+        observation_record_available_at=observation_record_available_at,
+        settlement_record_available_at=settlement_record_available_at,
+        fit_cutoff=fit_cutoff,
+    )
+
+
+def test_synthetic_label_is_frozen_post_settlement_and_excludes_future_paths() -> None:
+    market = _dataset()
+    pair = _paired(market=market)
+    sample = _sample(market=market, paired=pair)
+    assert sample.source_scope == "synthetic_only"
+    assert sample.dataset_id == market.dataset_id
+    assert sample.decision_time_ns == int(market.timestamps[1].astype("int64"))
+    assert sample.terminal_time_ns == int(market.timestamps[7].astype("int64"))
+    assert sample.label_first_available_ns == int(
+        np.datetime64("2026-01-01T07:30:00", "ns").astype("int64")
+    )
+    assert sample.fit_cutoff_ns > sample.label_first_available_ns
+    assert sample.observation == pair.baseline_snapshot
+    assert sample.label_delta == pytest.approx(pair.delta_per_initial_capital)
+    assert not hasattr(sample, "baseline_result")
+    assert not hasattr(sample, "candidate_result")
+    assert not hasattr(sample, "market_price_path")
+
+    # Mutating a *future* market path changes a training label, not its inputs.
+    down = replace(_dataset(rise=-10), dataset_id="2" * 64)
+    changed = _sample(market=down)
+    assert sample.observation == changed.observation
+    assert sample.label_delta * changed.label_delta < 0.0
+
+
+@pytest.mark.parametrize(
+    "bad_cutoff",
+    ["2026-01-01T07:30:00", "2026-01-01T07:00:00"],
+)
+def test_label_must_mature_strictly_before_fit(bad_cutoff: str) -> None:
+    with pytest.raises(ValueError, match="matur|cutoff"):
+        _sample(fit_cutoff=np.datetime64(bad_cutoff, "ns"))
+
+
+def test_late_settlement_receipt_blocks_preceding_fit() -> None:
+    with pytest.raises(ValueError, match="matur|cutoff"):
+        _sample(
+            settlement_record_available_at=np.datetime64(
+                "2026-01-01T12:00:00", "ns"
+            )
+        )
+
+
+def test_observation_arriving_after_decision_is_not_a_causal_feature() -> None:
+    with pytest.raises(ValueError, match="observation|decision"):
+        _sample(
+            observation_record_available_at=np.datetime64(
+                "2026-01-01T02:00:00", "ns"
+            )
+        )
+
+
+def test_untrusted_lineage_or_forged_pair_cannot_form_label() -> None:
+    with pytest.raises(ValueError, match="execution_policy_digest"):
+        _sample(expected_execution_policy_digest="b" * 64)
+    with pytest.raises(ValueError, match="reference_policy_digest"):
+        _sample(reference_policy_digest="not a digest")
+
+    pair = _paired()
+    forged = replace(pair, delta_per_initial_capital=999.0)
+    with pytest.raises(ValueError, match="delta|ledger"):
+        _sample(paired=forged)
+
+    forged_snapshot = replace(
+        pair,
+        baseline_snapshot=replace(
+            pair.baseline_snapshot,
+            timestamp_ns=pair.baseline_snapshot.timestamp_ns + 1,
+        ),
+    )
+    with pytest.raises(ValueError, match="snapshot|decision"):
+        _sample(paired=forged_snapshot)
+
+
+def test_invalid_settlement_never_becomes_fit_sample() -> None:
+    market = _dataset()
+    volume = market.volume.copy()
+    volume[-1, 0] = 0.0
+    blocked = replace(market, volume=volume)
+    pair = _paired(market=blocked)
+    assert not pair.eligible_for_label
+    with pytest.raises(ValueError, match="settled|eligible"):
+        _sample(market=blocked, paired=pair)
+
+
+def test_sample_batch_groups_overlapping_paths_and_blocks_duplicate_or_mixed_vintage() -> None:
+    cutoff = np.datetime64("2026-03-01T00:00:00", "ns")
+    first = _sample(fit_cutoff=cutoff)
+    second_market = replace(_dataset(rise=-10), dataset_id="2" * 64)
+    second = _sample(market=second_market, fit_cutoff=cutoff)
+    third_market = replace(
+        _dataset(),
+        dataset_id="3" * 64,
+        timestamps=_dataset().timestamps + np.timedelta64(31, "D"),
+    )
+    third = _sample(
+        market=third_market,
+        observation_record_available_at=np.datetime64(
+            "2026-02-01T01:00:00", "ns"
+        ),
+        settlement_record_available_at=np.datetime64(
+            "2026-02-01T07:30:00", "ns"
+        ),
+        fit_cutoff=cutoff,
+    )
+    batch = build_synthetic_paired_label_batch(
+        (third, first, second),
+        fit_cutoff=cutoff,
+        evaluation_start=np.datetime64("2026-03-02T00:00:00", "ns"),
+        expected_reference_policy_digest="a" * 64,
+    )
+    assert batch.group_ids == (0, 0, 1)
+    assert batch.samples[0].decision_time_ns <= batch.samples[1].decision_time_ns
+    assert batch.samples[1].label_first_available_ns < cutoff.astype("int64")
+    assert len(batch.samples) == 3
+
+    with pytest.raises(ValueError, match="duplicate"):
+        build_synthetic_paired_label_batch(
+            (first, first),
+            fit_cutoff=cutoff,
+            evaluation_start=np.datetime64("2026-03-02", "ns"),
+            expected_reference_policy_digest="a" * 64,
+        )
+    with pytest.raises(ValueError, match="reference_policy_digest"):
+        build_synthetic_paired_label_batch(
+            (first, replace(second, reference_policy_digest="b" * 64)),
+            fit_cutoff=cutoff,
+            evaluation_start=np.datetime64("2026-03-02", "ns"),
+            expected_reference_policy_digest="a" * 64,
+        )
+
+
+def test_synthetic_scope_cannot_be_relabelled_as_market_evidence() -> None:
+    sample = _sample()
+    with pytest.raises(ValueError, match="synthetic"):
+        build_synthetic_paired_label_batch(
+            (replace(sample, source_scope="real_market"),),
+            fit_cutoff=np.datetime64("2026-01-01T10:00:00", "ns"),
+            evaluation_start=np.datetime64("2026-01-02T00:00:00", "ns"),
+            expected_reference_policy_digest="a" * 64,
+        )

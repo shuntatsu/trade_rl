@@ -114,7 +114,7 @@ def run_paired_portfolio_action(
     intervention_index: int,
     baseline_action: tuple[int, ...],
     candidate_action: tuple[int, ...],
-    target_abs_weights: tuple[float, ...],
+    target_abs_weights: tuple[object, ...],
     initial_capital: object,
     execution_cost: ExecutionCostConfig,
     risk: PreTradeRisk,
@@ -239,10 +239,13 @@ def run_paired_portfolio_action(
     baseline_ledger = baseline_result.ledger_evidence.to_mapping()
     candidate_ledger = candidate_result.ledger_evidence.to_mapping()
     prefix_length = intervention_index - start_index
-    if (
-        baseline_ledger["intervals"][:prefix_length]
-        != candidate_ledger["intervals"][:prefix_length]
+    baseline_intervals = baseline_ledger["intervals"]
+    candidate_intervals = candidate_ledger["intervals"]
+    if not isinstance(baseline_intervals, (tuple, list)) or not isinstance(
+        candidate_intervals, (tuple, list)
     ):
+        raise RuntimeError("paired native intervals must be ordered sequences")
+    if baseline_intervals[:prefix_length] != candidate_intervals[:prefix_length]:
         raise RuntimeError("paired native ledger prefix is not identical")
     if baseline_codes == candidate_codes and baseline_ledger != candidate_ledger:
         raise RuntimeError("null intervention changed the native outcome")

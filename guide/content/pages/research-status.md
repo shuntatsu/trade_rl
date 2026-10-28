@@ -39,9 +39,11 @@ joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統�
 
 ## Task 18 Datasetの準備状況と次のゲート
 
-以下のTask 18節は2026-10-14時点のtechnical attemptの記録です。後続R2も48 armを完走せず、1 arm `INTERRUPTED`・47 arm `UNATTEMPTED`のままであり、上記4方式screenの実行完了を示しません。
+以下は2026-10-14時点のtechnical attemptの記録と、2026-10-28に追記した原R2入力のbyte回収事実を分けて示します。後続R2も48 armを完走せず、1 arm `INTERRUPTED`・47 arm `UNATTEMPTED`のままであり、上記4方式screenの実行完了を示しません。
 
-Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageで12 fitが計画されていましたが、保持されたprovenanceから完了は確認できません。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
+Task 18のSourceVerifier 30cは、2026-10-14当時に公開されていた`market_build_v3` / `identity_v7` Datasetを当時のpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはその時点のhistorical v4/v7 loader pathの記録であり、後に回収した原R2 inputのartifact v4や、現在維持されるv3/v6 readerとのsource・semantic互換性を示しません。48-cell比較やP&Lの証拠でもありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageで12 fitが計画されていましたが、保持されたprovenanceから完了は確認できません。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
+
+2026-10-28に原R2 `manifest.json`（7,453 bytes、SHA-256 `6ac5099b98a32bd33e4f98c5ac5fb2dbffd19b0b9e3c7c3a9b5a8f6860810ee6`）と`arrays.npz`（5,864,784 bytes、SHA-256 `25c97a4ebd1e81ac64f4bc7e78dce4ab102c522e548e30a2154fcfa0143842a3`）の固定byte hash一致を確認しました。[公開記録](https://github.com/shuntatsu/trade_rl/issues/888#issuecomment-6455973812)にある通り、manifest metadataだけを読み、artifact v4 / Dataset ID `e916ff716fb5e4b90d5805eaa79200824b09f103984fa845bbeaedb57bef194f` / 9,504 rows、2銘柄の各6 local featuresと4 global features、`funding_price_rate`を確認しています。NPZの展開や配列値の読込はしていません。Byte一致はsource再現、配列値の正しさ、v3/v6 reader互換性、8,761行と9,504行の対応、PIT、48-cell完了、G0-G4、利益やlive適格性の証拠ではありません。
 
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みですが、歴史的な市場実績へのcalibrationは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではありません。
 

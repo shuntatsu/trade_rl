@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-25 (JST)
+更新基準: 2026-10-28 (JST)
 
 ## 結論
 
@@ -229,7 +229,9 @@ receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの�
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
-Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitは計画されていたが、保持されたprovenanceから完了は確認できない。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
+Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、2026-10-14当時に公開されていた`market_build_v3` / `identity_v7` Datasetを当時のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはその時点のhistorical v4/v7 loader pathに対する確認であり、後に回収したR2 inputのartifact v4、または現在維持されるv3/v6 readerとのsource・semantic互換性を示さない。NONRL 48-cell比較やP&Lの証拠でもない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitは計画されていたが、保持されたprovenanceから完了は確認できない。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。
+
+追加のoffline source-byte auditorは、与えられたR2 release ZIPとそのメンバー、およびTask 18 Datasetファイルについて、宣言されたbyte identityを確認する。2026-10-28に回収を確認した原R2 `manifest.json`（7,453 bytes、SHA-256 `6ac5099b98a32bd33e4f98c5ac5fb2dbffd19b0b9e3c7c3a9b5a8f6860810ee6`）と`arrays.npz`（5,864,784 bytes、SHA-256 `25c97a4ebd1e81ac64f4bc7e78dce4ab102c522e548e30a2154fcfa0143842a3`）は、独立した2つのreaderで固定SHA-256との一致を確認した。manifest metadataだけが読まれ、artifact v4、Dataset ID `e916ff716fb5e4b90d5805eaa79200824b09f103984fa845bbeaedb57bef194f`、9,504 rows、2銘柄の各6 local featuresと4 global features、`funding_price_rate`を宣言していることを確認した。NPZは展開されず、配列値は読まれていない。詳細と公開記録は[Issue #888の回収記録](https://github.com/shuntatsu/trade_rl/issues/888#issuecomment-6455973812)を参照。これは元ファイルのbyte identityだけであり、申告Git headからのsource再現、配列値の正しさ、v3/v6 readerとのsource・semantic互換性、8,761行と9,504行の対応、PIT、48-cell完了、G0-G4、利益またはlive適格性を確立しない。
 
 比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みだが、歴史的な市場実績へのcalibrationは未確立である。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではない。
 

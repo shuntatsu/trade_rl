@@ -36,10 +36,8 @@ from trade_rl.strategies.forecasts.controller import (
     CostAwareForecastIntentController,
     ForecastIntentConfig,
 )
-from trade_rl.strategies.forecasts.ridge import (
-    RidgeForecastModel,
-    RidgeForecastStrategy,
-)
+from trade_rl.strategies.decision_value import LinearDecisionValueModel
+from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
 from trade_rl.strategies.portfolio_adapter import SingleSymbolPortfolioPolicyAdapter
 
 _FAMILIES = ("cash", "fixed_long", "linear_value", "cost_aware_ridge")
@@ -160,11 +158,11 @@ def _decode_ridge_payload(payload: dict[str, object]) -> RidgeForecastModel:
 def _preflight_cost_aware(
     config: SyntheticCostAwareAttemptConfig,
     observer: Callable[[str], None] | None,
-) -> tuple[str, dict[str, object]]:
+) -> tuple[LinearDecisionValueModel, str, dict[str, object]]:
     if type(config) is not SyntheticCostAwareAttemptConfig:
         raise TypeError("TD4b config must be SyntheticCostAwareAttemptConfig")
     base = config.value_attempt
-    _, fingerprint, parent_started = _preflight(base, observer)
+    value_model, fingerprint, parent_started = _preflight(base, observer)
     require_sha256(config.expected_forecast_sha256, field="expected_forecast_sha256")
     if synthetic_ridge_fixture_digest(config.forecast_model) != (
         config.expected_forecast_sha256
@@ -213,7 +211,7 @@ def _preflight_cost_aware(
         )
         if np.any(values != 0):
             raise ValueError(f"cost proxy v2 rejects unsupported Dataset {field}")
-    return fingerprint, {
+    return value_model, fingerprint, {
         "schema_version": _STARTED,
         "source_scope": "synthetic_only",
         "dataset_id": base.expected_dataset_id,
@@ -232,7 +230,9 @@ def _preflight_cost_aware(
 
 
 def _cost_aware_policy(
-    dataset: MarketDataset, config: SyntheticCostAwareAttemptConfig
+    dataset: MarketDataset,
+    config: SyntheticCostAwareAttemptConfig,
+    target_abs_weights: tuple[float, ...],
 ) -> SingleSymbolPortfolioPolicyAdapter:
     forecast = config.forecast_model
 
@@ -249,23 +249,9 @@ def _cost_aware_policy(
         symbols=tuple(dataset.symbols),
         feature_names=tuple(dataset.feature_names),
         global_feature_names=tuple(dataset.global_feature_names),
-        intent_gross_budgets=config.value_attempt.fixed_action
-        if False
-        else _fitted_target_abs_weights(config),
+        intent_gross_budgets=target_abs_weights,
         strategy_factories=tuple(make_strategy for _ in dataset.symbols),
     )
-
-
-def _fitted_target_abs_weights(
-    config: SyntheticCostAwareAttemptConfig,
-) -> tuple[float, ...]:
-    from trade_rl.strategies.decision_value import load_linear_decision_value
-
-    base = config.value_attempt
-    model = load_linear_decision_value(
-        base.model_json, expected_sha256=base.expected_model_sha256
-    )
-    return model.target_abs_weights
 
 
 def _v2_rows(
@@ -338,7 +324,7 @@ def _v2_rows(
         != started.get("execution_policy_digest")
         or ledger.get("final_portfolio_value") != cost_row.get("terminal_equity")
         or ledger.get("final_total_cost") != cost_row.get("total_cost")
-        or ledger.get("terminal_exact_quantities") != ["0"] * len(forecast_model.feature_indices) * 0 + ["0", "0"]
+        or ledger.get("terminal_exact_quantities") != ["0", "0"]
         or ledger.get("active_order_remainders") != []
         or result.get("cost_aware_terminal_equity") != cost_row.get("terminal_equity")
     ):
@@ -358,7 +344,9 @@ def run_synthetic_cost_aware_attempt(
     on_arm_completed: Callable[[str], None] | None = None,
 ) -> PublishedSyntheticCostAwareAttempt:
     """Write a nested v1 attempt, then one true cost-aware native replay arm."""
-    fingerprint, started = _preflight_cost_aware(config, on_arm_completed)
+    value_model, fingerprint, started = _preflight_cost_aware(
+        config, on_arm_completed
+    )
     base = config.value_attempt
     root = Path(attempt_root).expanduser().absolute()
     if root.exists() or root.is_symlink():
@@ -397,7 +385,7 @@ def run_synthetic_cost_aware_attempt(
             raise RuntimeError("frozen forecast changed before cost-aware arm")
         native = run_shared_portfolio_replay(
             base.dataset,
-            _cost_aware_policy(base.dataset, config),
+            _cost_aware_policy(base.dataset, config, value_model.target_abs_weights),
             start_index=base.start_index,
             stop_index=base.stop_index,
             initial_capital=float(cast(float, base.initial_capital)),

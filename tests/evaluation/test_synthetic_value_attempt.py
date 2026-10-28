@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
@@ -18,21 +19,25 @@ from trade_rl.evaluation.runs.synthetic_value_attempt import (
 )
 from trade_rl.evaluation.runs.synthetic_value_costaware_attempt import (
     SyntheticCostAwareAttemptConfig,
+    _ExactQuantityCostAwareRidgePolicy,
     load_synthetic_cost_aware_attempt,
     run_synthetic_cost_aware_attempt,
     synthetic_ridge_fixture_digest,
 )
-from trade_rl.risk.pretrade import PreTradeRiskConfig
+from trade_rl.evaluation.replay import run_shared_portfolio_replay
+from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.decision_value import (
     LinearDecisionValueModel,
     serialize_linear_decision_value,
 )
 from trade_rl.strategies.forecasts.ridge import RidgeForecastModel
+from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot, PortfolioTargetProposal
 from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
     ACTION_LONG,
     ACTION_SHORT,
+    portfolio_action_to_proposal,
 )
 
 _CASH = (ACTION_HOLD, ACTION_HOLD)
@@ -503,3 +508,54 @@ def test_cost_aware_v2_detects_nested_v1_tamper_and_frozen_forecast_tamper(
     (root / "complete/record.json").unlink()
     with pytest.raises(ValueError, match="complete"):
         load_synthetic_cost_aware_attempt(root, **params)
+
+
+def test_cost_aware_v2_exact_quantity_bridge_preserves_native_account_state() -> None:
+    market = _dataset(signal=0.8, move=0.018)
+    config = _cost_aware_config(market)
+
+    class _CaptureNative:
+        def __init__(self) -> None:
+            self.observed: PortfolioDecisionSnapshot | None = None
+
+        def decide_portfolio(
+            self, snapshot: PortfolioDecisionSnapshot
+        ) -> PortfolioTargetProposal:
+            if snapshot.index == 2:
+                self.observed = snapshot
+            action = _LONG if snapshot.index == 0 else _CASH
+            return portfolio_action_to_proposal(action, snapshot, (0.4, 0.4))
+
+    capturer = _CaptureNative()
+    run_shared_portfolio_replay(
+        market,
+        capturer,
+        start_index=0,
+        stop_index=7,
+        initial_capital=1000.0,
+        execution_cost=_COST,
+        risk=PreTradeRisk(_RISK),
+        settle_terminal_position=True,
+    )
+    observed = capturer.observed
+    assert observed is not None
+    assert Fraction(observed.account.exact_quantities[0]) > 0
+
+    # The native BookState exact quantity is authoritative; a native floating
+    # view may differ by a few ULPs. Do not weaken the legacy portfolio adapter.
+    adapter = _ExactQuantityCostAwareRidgePolicy(market, config, (0.4, 0.4))
+    proposal = adapter.decide_portfolio(observed)
+    assert proposal.target_weights == (0.4, 0.0)
+
+    broken = replace(
+        observed,
+        account=replace(
+            observed.account,
+            quantities=(observed.account.quantities[0] + 1.0, 0.0),
+        ),
+    )
+    poisoned = _ExactQuantityCostAwareRidgePolicy(market, config, (0.4, 0.4))
+    with pytest.raises(ValueError, match="materially disagree"):
+        poisoned.decide_portfolio(broken)
+    with pytest.raises(RuntimeError, match="poison"):
+        poisoned.decide_portfolio(observed)

@@ -544,9 +544,10 @@ def test_cost_aware_v2_exact_quantity_bridge_preserves_native_account_state() ->
     observed = capturer.observed
     assert observed is not None
     assert Fraction(observed.account.exact_quantities[0]) > 0
-    assert project_quantity(
+    projected_quantity = project_quantity(
         parse_quantity(observed.account.exact_quantities[0])
-    ) == observed.account.quantities[0]
+    )
+    assert projected_quantity == observed.account.quantities[0]
 
     # Native conservative projection is the authority, not float(Fraction),
     # and a tolerance must not permit a forged reporting view.

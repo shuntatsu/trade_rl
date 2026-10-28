@@ -11,7 +11,6 @@ import hashlib
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
@@ -33,6 +32,7 @@ from trade_rl.evaluation.runs.synthetic_value_attempt import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.quantities import parse_quantity, project_quantity
 from trade_rl.strategies.decision_value import LinearDecisionValueModel
 from trade_rl.strategies.forecasts.controller import (
     CostAwareForecastIntentController,
@@ -266,11 +266,11 @@ def _preflight_cost_aware(
 class _ExactQuantityCostAwareRidgePolicy:
     """Portfolio bridge for the existing Ridge+cost-aware controller.
 
-    The legacy generic adapter intentionally rejects even a one-ULP difference
-    between exact fractional quantity and its native float reporting view.
-    Here we verify a bounded reporting projection without changing that adapter
-    or the native BookState. Target intent semantics remain the adapter's:
-    LONG/SHORT -> signed budget, FLAT -> zero, with hard risk downstream.
+    The generic adapter compares float(Fraction) to the native conservative
+    reporting projection, which may differ for valid fractional fills.
+    This bridge instead uses the source-owned parse_quantity/project_quantity
+    for *exact* reporting parity. The generic adapter and BookState are
+    unchanged; returned intent and risk semantics remain identical.
     """
 
     __slots__ = (
@@ -346,23 +346,14 @@ class _ExactQuantityCostAwareRidgePolicy:
             ):
                 raw_exact = snapshot.account.exact_quantities[i]
                 try:
-                    exact = Fraction(raw_exact)
-                    if str(exact) != raw_exact:
-                        raise ValueError("noncanonical native exact position quantity")
-                    quantity = float(exact)
-                except (ValueError, ZeroDivisionError, OverflowError) as error:
+                    exact = parse_quantity(raw_exact)
+                    quantity = project_quantity(exact)
+                except ValueError as error:
                     raise ValueError(
                         "cost-aware exact position quantity is invalid"
                     ) from error
-                if (
-                    not math.isfinite(quantity)
-                    or (exact != 0 and quantity == 0.0)
-                    or not math.isclose(
-                        quantity,
-                        snapshot.account.quantities[i],
-                        rel_tol=1e-12,
-                        abs_tol=1e-12,
-                    )
+                if (exact != 0 and quantity == 0.0) or (
+                    quantity != snapshot.account.quantities[i]
                 ):
                     raise ValueError(
                         "native exact and reporting quantities materially disagree"

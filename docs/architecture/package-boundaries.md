@@ -76,7 +76,7 @@ trade_rl/
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py,prequential.py}
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -426,6 +426,8 @@ The journal may wrap an observation-only Gym wrapper, but validates that the und
 このownerはv1のstrict loaderとscenario-v2 loaderが共有するprivate verified-input / checkpoint routinesも持つ。v1は全financial contextの一致を維持し、v2は別ownerでscenario-specific validationを済ませてから同じverified checkpoint loadへ進む。
 
 `forecasts/controller.py` exposes `CostAwareForecastIntentController.decide_for_position` for direct calls and the cost-aware Ridge / LightGBM adapter path. Adapters call it only when `one_way_switch_cost` is configured and the observation includes `intent_gross_budget`; other observations keep the intent-only controller call. The controller stays independent of execution, risk and replay. Canonical replay supplies filled quantity/weight and an optional matching cached target, then applies its existing minimum-hold, hard-risk, execution and accounting stages.
+
+`forecasts/prequential.py` owns causal prequential forecast packets for a downstream allocator. `PrequentialSchedule` fixes an expanding-window refit calendar (`first_fit_time`, `refit_interval_days`, optional `activation_delay_hours`); `PrequentialForecastSource` lazily fits one frozen vintage per scheduled cutoff through the existing `build_causal_forecast_training_set` and a small `PrequentialForecastFitter` protocol (`RidgeForecastFitter`; optional `LightGBMForecastFitter`), and serves `ForecastPacket(symbol, horizon_hours, decision_time, log point_forecast, vintage residual_variance, vintage_id, fit_time, fit_cutoff, max_training_label_available_at, digests)`. `ForecastPacket` enforces `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` at construction; the vintage residual variance is the sample-weighted in-sample squared residual of the training rows, so a caller can convert log to simple expectation with `expm1(mu + 0.5 * s2)`. The module reads only the decision-row features and cutoff-bounded training rows, owns no account, ledger, or order logic, does not import evaluation, simulation or risk, and persists nothing. Unusable decision features yield `None` (caller treats it as no forecast); a non-dataset decision time, an unavailable decision row, or a vintage whose labels were not strictly earlier than its fit time raises.
 
 `forecasts/ridge_artifact.py` owns write-once publication and verified loading for the existing immutable `RidgeForecastModel`. Its single canonical JSON payload binds declared dataset, fit scope, cutoff, model, source, and runtime metadata; loading requires both the external digest and caller-supplied typed binding. It uses the shared `trade_rl.artifacts` canonical encoding and atomic directory publication primitives. It does not fit a model or claim that declared metadata independently proves how a historical fit was produced. LightGBM persistence and evaluation remain outside this module.
 

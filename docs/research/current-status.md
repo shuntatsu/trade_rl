@@ -331,13 +331,16 @@ execution cost・native shared book・terminal clockで比較する
 
 追加の第四armには現行の `RidgeForecastStrategy` と
 `CostAwareForecastIntentController` を **実際に使用**する。
-従来の汎用 `SingleSymbolPortfolioPolicyAdapter` はexact Fractionのfloat変換と
-native表示用quantityのbitwise完全一致を必要とし、小数建玉で反例があるため
+従来の汎用 `SingleSymbolPortfolioPolicyAdapter` はexact Fractionの
+通常のfloat変換とnative表示用quantityの完全一致を要求し、
+nativeの保守的なfloat射影では小数建玉の反例がある。
 **その既存検証を緩めず**、この人工試験では
-`_ExactQuantityCostAwareRidgePolicy` がnative exact-quantityを正本に
-符号を計算し、表示用quantityとの差を微小な報告精度の範囲で検査してから
-同じ `RidgeForecastStrategy.decide`・同じ離散intent→target weightを通す。
-新しいbridgeは不正な大量差分・未約定注文・連続でないclockを拒否し、
+`_ExactQuantityCostAwareRidgePolicy` が
+`simulation.quantities.parse_quantity/project_quantity` の既存正本で
+canonicalなexact数量を読む。報告用quantityとの照合も許容誤差ではなく
+**nativeの保守的float射影との厳密一致**を要求し、同じ
+`RidgeForecastStrategy.decide`・同じ離散intent→target weightを通す。
+新しいbridgeは不正な数量差分・未約定注文・連続でないclockを拒否し、
 failure時はpoisonされる。これは従来adapterの完全同一runtime経路ではなく、
 本4方式の新規bounded bridgeである。Ridgeモデルの係数・平均・尺度・fit cutoff等は
 人工検証用に固定し、canonical hex浮動小数点から作るdigestで本人申告モデルを

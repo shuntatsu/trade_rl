@@ -330,8 +330,16 @@ execution cost・native shared book・terminal clockで比較する
 既存FourFamily comparatorの固定arm名・既存Run artifactは変更しない。
 
 追加の第四armには現行の `RidgeForecastStrategy` と
-`CostAwareForecastIntentController`、`SingleSymbolPortfolioPolicyAdapter` を
-**実際に使用**する。Ridgeモデルの係数・平均・尺度・fit cutoff等は
+`CostAwareForecastIntentController` を **実際に使用**する。
+従来の汎用 `SingleSymbolPortfolioPolicyAdapter` はexact Fractionのfloat変換と
+native表示用quantityのbitwise完全一致を必要とし、小数建玉で反例があるため
+**その既存検証を緩めず**、この人工試験では
+`_ExactQuantityCostAwareRidgePolicy` がnative exact-quantityを正本に
+符号を計算し、表示用quantityとの差を微小な報告精度の範囲で検査してから
+同じ `RidgeForecastStrategy.decide`・同じ離散intent→target weightを通す。
+新しいbridgeは不正な大量差分・未約定注文・連続でないclockを拒否し、
+failure時はpoisonされる。これは従来adapterの完全同一runtime経路ではなく、
+本4方式の新規bounded bridgeである。Ridgeモデルの係数・平均・尺度・fit cutoff等は
 人工検証用に固定し、canonical hex浮動小数点から作るdigestで本人申告モデルを
 照合する。これは実Datasetに対して実際にfitされたforecastではなく、
 外部source・forecast vintage・手数料校正の独立証明でもない。

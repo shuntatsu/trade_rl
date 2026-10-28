@@ -144,7 +144,7 @@ class RidgeVintageArtifact:
     fit_cutoff_index: int
     synthetic_fit_completed_index: int
     activation_index: int
-    fit_cpu_seconds: float
+    fit_elapsed_seconds: float
     unit_signal_prediction: float
 
     def to_mapping(self) -> dict[str, object]:
@@ -156,7 +156,7 @@ class RidgeVintageArtifact:
             "feature_indices": list(self.model.feature_indices),
             "feature_mean": self.model.feature_mean.tolist(),
             "feature_scale": self.model.feature_scale.tolist(),
-            "fit_cpu_seconds": self.fit_cpu_seconds,
+            "fit_elapsed_seconds": self.fit_elapsed_seconds,
             "fit_cutoff_index": self.fit_cutoff_index,
             "fit_cutoff_ns": int(self.model.fit_cutoff.astype(np.int64)),
             "fixture_dataset_id": self.fixture_dataset_id,
@@ -184,7 +184,7 @@ class RidgeVintageArtifact:
             "feature_indices",
             "feature_mean",
             "feature_scale",
-            "fit_cpu_seconds",
+            "fit_elapsed_seconds",
             "fit_cutoff_index",
             "fit_cutoff_ns",
             "fixture_dataset_id",
@@ -267,9 +267,18 @@ class RidgeVintageArtifact:
         cutoff_index = integer("fit_cutoff_index")
         completed_index = integer("synthetic_fit_completed_index")
         activation_index = integer("activation_index")
-        if not 1 <= cutoff_index <= completed_index < activation_index:
+        if not (
+            1 <= cutoff_index < _N_BARS
+            and cutoff_index <= completed_index <= _STOP_INDEX - 2
+            and _START_INDEX <= activation_index <= _STOP_INDEX - 2
+            and completed_index < activation_index
+        ):
             raise ValueError("Ridge artifact fit and activation indexes are invalid")
         cutoff_ns = integer("fit_cutoff_ns")
+        if cutoff_ns != _fixture_timestamp_ns(cutoff_index):
+            raise ValueError(
+                "fit cutoff index and timestamp do not match fixture clock"
+            )
         model = RidgeForecastModel(
             feature_indices=indices,
             feature_mean=np.asarray(vector("feature_mean"), dtype=np.float64),
@@ -307,9 +316,9 @@ class RidgeVintageArtifact:
         )
         if artifact_digest != expected_digest:
             raise ValueError("Ridge artifact content digest mismatch")
-        fit_cpu_seconds = number("fit_cpu_seconds")
-        if fit_cpu_seconds < 0.0:
-            raise ValueError("fit_cpu_seconds must be non-negative")
+        fit_elapsed_seconds = number("fit_elapsed_seconds")
+        if fit_elapsed_seconds < 0.0:
+            raise ValueError("fit_elapsed_seconds must be non-negative")
         return cls(
             model=model,
             vintage_id=str(vintage_id),
@@ -321,7 +330,7 @@ class RidgeVintageArtifact:
             fit_cutoff_index=cutoff_index,
             synthetic_fit_completed_index=completed_index,
             activation_index=activation_index,
-            fit_cpu_seconds=fit_cpu_seconds,
+            fit_elapsed_seconds=fit_elapsed_seconds,
             unit_signal_prediction=unit_signal_prediction,
         )
 
@@ -389,10 +398,14 @@ def _deployment_recipe_digest() -> str:
 
 
 def _datetime_at(index: int) -> datetime:
-    raw = _BASE_TIMESTAMP + index * np.timedelta64(1, "h")
+    raw = np.datetime64(_fixture_timestamp_ns(index), "ns")
     return datetime.fromisoformat(np.datetime_as_string(raw, unit="ns")).replace(
         tzinfo=UTC
     )
+
+
+def _fixture_timestamp_ns(index: int) -> int:
+    return int((_BASE_TIMESTAMP + index * np.timedelta64(1, "h")).astype(np.int64))
 
 
 def _default_bound() -> BoundObjectiveClock:
@@ -675,7 +688,7 @@ def _fit_vintage(
     *,
     fixture_dataset_id: str,
 ) -> RidgeVintageArtifact:
-    training_started = time.perf_counter()
+    fit_started = time.perf_counter()
     fit_cutoff = dataset.timestamps[entry.fit_cutoff_index].astype("datetime64[ns]")
     model = fit_ridge_forecast(
         dataset,
@@ -685,7 +698,7 @@ def _fit_vintage(
         horizon_hours=_HORIZON_HOURS,
         alpha=_RIDGE_ALPHA,
     )
-    elapsed = time.perf_counter() - training_started
+    elapsed_seconds = time.perf_counter() - fit_started
     training = build_causal_forecast_training_set(
         dataset,
         feature_indices=_FEATURE_INDICES,
@@ -727,7 +740,7 @@ def _fit_vintage(
         fit_cutoff_index=entry.fit_cutoff_index,
         synthetic_fit_completed_index=entry.fit_completed_index,
         activation_index=entry.activation_index,
-        fit_cpu_seconds=elapsed,
+        fit_elapsed_seconds=elapsed_seconds,
         unit_signal_prediction=unit_signal_prediction,
     )
 

@@ -50,20 +50,21 @@ def test_default_harness_runs_two_vintages_on_one_native_account() -> None:
     ]
     assert fills
     assert all(event.execution_price is not None for event in fills)
-    gross_fill_notional = math.fsum(abs(event.filled_notional) for event in fills)
+    gross_fill_notional = math.fsum(
+        abs(event.filled_quantity * float(event.execution_price)) for event in fills
+    )
+    signed_fill_cash_flow = math.fsum(
+        event.filled_quantity * float(event.execution_price) for event in fills
+    )
     expected_fee = gross_fill_notional * 0.001
     expected_spread_cost = gross_fill_notional * 0.0005
     expected_total_cost = expected_fee + expected_spread_cost
-    expected_cash = (
-        1_000.0
-        - math.fsum(event.filled_quantity * event.execution_price for event in fills)
-        - expected_total_cost
-    )
+    expected_cash = 1_000.0 - signed_fill_cash_flow - expected_total_cost
     assert ledger.final_total_cost == pytest.approx(expected_total_cost)
     assert ledger.final_cash == pytest.approx(expected_cash)
     assert ledger.final_portfolio_value == pytest.approx(expected_cash)
     assert 0.0 <= ledger.final_max_drawdown <= spec.bound.objective.maximum_drawdown
-    assert all(event.fit_cpu_seconds >= 0.0 for event in result.fit_events)
+    assert all(event.fit_elapsed_seconds >= 0.0 for event in result.fit_events)
 
     activation_snapshot = result.decisions[8]
     preceding_interval = next(
@@ -111,6 +112,14 @@ def test_vintage_artifact_roundtrip_and_fail_closed_identity_checks() -> None:
 
     restored = outer_refit.RidgeVintageArtifact.from_mapping(payload)
     assert restored.to_mapping() == artifact.to_mapping()
+
+    mismatched_cutoff_index = dict(payload)
+    mismatched_cutoff_index["fit_cutoff_index"] = artifact.fit_cutoff_index - 1
+    with pytest.raises(
+        ValueError,
+        match="fit cutoff index and timestamp do not match fixture clock",
+    ):
+        outer_refit.RidgeVintageArtifact.from_mapping(mismatched_cutoff_index)
 
     wrong_source = dict(payload)
     wrong_source["coordinator_source_sha256"] = "f" * 64

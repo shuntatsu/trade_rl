@@ -33,9 +33,10 @@ synthetic readiness and activation indexes, and a deterministic unit-signal
 prediction. Artifacts can be serialized and strictly reconstructed in memory;
 this module does not publish durable files. The coordinator source SHA covers
 this module only; it is not a dependency-closure attestation. Exact-head
-package/source closure remains a separate verification gate. Fit CPU duration
-is separately recorded as an observation and does not establish model
-readiness at any real wall-clock time.
+package/source closure remains a separate verification gate. Fit timing is
+reported as `fit_elapsed_seconds`, a measured wall elapsed duration from
+`perf_counter`; it is not CPU time and does not establish model readiness at
+any real wall-clock time.
 
 The regressions check multiple actual canonical fits, causal future-tail
 invariance, malformed schedules and artifact identities, fail-closed repeated

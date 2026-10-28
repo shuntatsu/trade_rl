@@ -110,6 +110,89 @@ def _environment(*, insolvency_gap: bool = False) -> SharedPortfolioGymEnv:
     )
 
 
+def _trace_environment(
+    *, observer: Any | None = None, borrow_unavailable: bool = False
+) -> SharedPortfolioGymEnv:
+    close = np.full((6, 2), 100.0, dtype=np.float64)
+    volume = np.full_like(close, 1_000_000.0)
+    volume[1, :] = 2.0
+    zeros = np.zeros_like(close)
+    borrow_available = np.ones_like(close, dtype=np.bool_)
+    if borrow_unavailable:
+        borrow_available[:, 1] = False
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        6
+    ) * np.timedelta64(1, "h")
+    dataset = MarketDataset(
+        dataset_id="e" * 64,
+        symbols=("AAA", "BBB"),
+        timestamps=timestamps,
+        features=np.arange(12, dtype=np.float32).reshape(6, 2, 1),
+        global_features=np.arange(6, dtype=np.float32).reshape(6, 1),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=volume,
+        funding_rate=zeros.copy(),
+        funding_due=None,
+        borrow_rate=zeros.copy(),
+        borrow_available=borrow_available,
+        tradable=np.ones((6, 2), dtype=np.bool_),
+        feature_available=np.ones((6, 2, 1), dtype=np.bool_),
+        feature_names=("literal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        fee_rate=zeros.copy(),
+        maker_fee_rate=zeros.copy(),
+        taker_fee_rate=zeros.copy(),
+        spread_rate=zeros.copy(),
+        contract_multipliers=np.ones(2, dtype=np.float64),
+    )
+    bound = BoundObjectiveClock(
+        ObjectiveContract(
+            capital=CapitalContract("shared_portfolio", "USDT", (1_000.0,)),
+            evaluation_start=_START,
+            evaluation_stop_exclusive=_START + timedelta(hours=5),
+            terminal_valuation="settled",
+            economics_digest="a" * 64,
+            risk_digest="b" * 64,
+            deployment_recipe_digest="c" * 64,
+            maximum_drawdown=0.20,
+        ),
+        FinancialClockContract(
+            decision_interval_seconds=3_600,
+            execution_interval_seconds=3_600,
+            reward_interval_seconds=3_600,
+            economic_horizon_seconds=5 * 3_600,
+            rollout_steps=1,
+            gamma=1.0,
+            gae_lambda=0.95,
+            reward_schema="equity_delta_v1",
+        ),
+    )
+    return SharedPortfolioGymEnv(
+        dataset,
+        start_index=0,
+        stop_index=5,
+        bound=bound,
+        target_abs_weights=(0.5, 0.5),
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            fee_rate=0.01,
+            max_participation_rate=0.5,
+        ),
+        risk_config=PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=None,
+            drawdown_start=0.20,
+            drawdown_stop=0.20,
+        ),
+        execution_observer=observer,
+    )
+
+
 def _events(root: Path) -> list[dict[str, Any]]:
     return [
         json.loads(path.read_text(encoding="utf-8"))
@@ -225,6 +308,134 @@ def test_observation_only_gym_wrapper_preserves_actions_and_source_targets(
     )
     assert step_result["target_weights"] == [0.5]
     assert step_result["effective_hold_symbols"] == []
+
+
+def test_journal_records_risk_and_native_execution_trace_without_changing_observer(
+    tmp_path: Path,
+) -> None:
+    observed: list[Any] = []
+    root = tmp_path / "trace-journal"
+    journal = PortfolioEpisodeJournalWrapper(
+        _trace_environment(observer=observed.append),
+        root=root,
+        declared_context_digest="f" * 64,
+    )
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema"] == "shared_portfolio_episode_journal_v2"
+    assert (
+        "proposal_and_approved_targets_with_native_execution_events"
+        in manifest["recorded_content"]
+    )
+    journal.reset(seed=29)
+
+    actions = (
+        np.asarray([ACTION_LONG, ACTION_LONG], dtype=np.int64),
+        np.asarray([ACTION_HOLD, ACTION_HOLD], dtype=np.int64),
+        np.asarray([ACTION_HOLD, ACTION_HOLD], dtype=np.int64),
+        np.asarray([ACTION_HOLD, ACTION_HOLD], dtype=np.int64),
+    )
+    infos: list[dict[str, object]] = []
+    for action in actions:
+        _, _, terminated, truncated, info = journal.step(action)
+        infos.append(info)
+        assert truncated is False
+        if terminated:
+            break
+
+    assert terminated is True
+    assert len(infos) == 4
+    assert len(observed) == 5
+    assert [item.next_index for item in observed] == [1, 2, 3, 4, 5]
+    first_trace = infos[0]["decision_trace"]
+    assert isinstance(first_trace, dict)
+    first_transition = first_trace["transitions"][0]
+    assert isinstance(first_transition, dict)
+    assert first_trace["schema"] == "shared_portfolio_decision_trace_v1"
+    assert first_trace["raw_action_codes"] == [ACTION_LONG, ACTION_LONG]
+    assert first_trace["proposal_weights"] == [0.5, 0.5]
+    assert first_transition["approved_weights"] == [0.25, 0.25]
+    assert first_transition["reasons"] == ["max_gross"]
+    assert first_transition["was_constrained"] is True
+    first_execution = first_transition["execution_observation"]
+    assert isinstance(first_execution, dict)
+    first_events = first_execution["order_events"]
+    assert isinstance(first_events, list)
+    assert [
+        event.canonical_payload() for event in observed[0].order_events
+    ] == first_events
+    partials = [
+        event for event in first_events if event["event_type"] == "partial_fill"
+    ]
+    assert len(partials) == 2
+    partial_order_ids = {event["order_id"] for event in partials}
+    assert {event["filled_quantity"] for event in partials} == {1.0}
+    assert {event["remaining_quantity"] for event in partials} == {1.5}
+    first_account_delta = first_trace["account_delta"]
+    assert first_account_delta["equity_before"] == 1_000.0
+    assert first_account_delta["equity_after"] == 998.0
+    assert first_account_delta["equity_delta"] == -2.0
+
+    hold_trace = infos[1]["decision_trace"]
+    assert isinstance(hold_trace, dict)
+    hold_execution = hold_trace["transitions"][0]["execution_observation"]
+    cancellations = hold_execution["terminal_order_reasons"]
+    assert {item["order_id"] for item in cancellations} == partial_order_ids
+    assert {item["reason"] for item in cancellations} == {"superseded"}
+
+    terminal_trace = infos[-1]["decision_trace"]
+    assert isinstance(terminal_trace, dict)
+    terminal_transitions = terminal_trace["transitions"]
+    assert len(terminal_transitions) == 2
+    close_transition = terminal_transitions[1]
+    assert close_transition["kind"] == "terminal_settlement"
+    close_events = close_transition["execution_observation"]["order_events"]
+    close_order_ids = {
+        event["order_id"] for event in close_events if event["event_type"] == "filled"
+    }
+    assert close_order_ids.isdisjoint(partial_order_ids)
+    assert any(
+        event["event_type"] == "filled" and event["filled_quantity"] == -1.0
+        for event in close_events
+    )
+    assert terminal_trace["account_delta"]["equity_after"] == 996.0
+    assert infos[-1]["terminal_state"]["exact_quantities"] == ("0", "0")
+
+    # Mutating the returned Gym info must not rewrite the already persisted event.
+    first_transition["approved_weights"][0] = 999.0
+    persisted_event = next(
+        event
+        for event in _events(root)
+        if event["event"] == "step_result" and event["data"]["step_index"] == 0
+    )
+    persisted = persisted_event["data"]
+    assert persisted["decision_trace"]["transitions"][0]["approved_weights"] == [
+        0.25,
+        0.25,
+    ]
+    assert persisted_event["schema"] == "shared_portfolio_episode_journal_v2"
+    assert (
+        json.loads(json.dumps(infos[-1]["decision_trace"]))
+        == infos[-1]["decision_trace"]
+    )
+
+    rejection_root = tmp_path / "rejection-journal"
+    rejection_journal = PortfolioEpisodeJournalWrapper(
+        _trace_environment(borrow_unavailable=True),
+        root=rejection_root,
+        declared_context_digest="0" * 64,
+    )
+    rejection_journal.reset(seed=31)
+    _, _, _, _, rejection_info = rejection_journal.step(
+        np.asarray([ACTION_FLAT, ACTION_SHORT], dtype=np.int64)
+    )
+    rejection_trace = rejection_info["decision_trace"]
+    rejection_events = rejection_trace["transitions"][0]["execution_observation"][
+        "order_events"
+    ]
+    assert any(
+        event["event_type"] == "rejected" and event["reason"] == "borrow_unavailable"
+        for event in rejection_events
+    )
 
 
 def test_dummy_vec_env_records_invalid_episode_before_auto_reset(

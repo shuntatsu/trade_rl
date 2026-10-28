@@ -104,6 +104,29 @@ def _native_ledger(
     ):
         raise ValueError("paired decision snapshot is inconsistent with the Dataset")
     observation = pair.baseline_snapshot
+    if (
+        not np.array_equal(
+            np.asarray(observation.features, dtype=np.float64),
+            dataset.features[idx].astype(np.float64),
+        )
+        or not np.array_equal(
+            np.asarray(observation.feature_available, dtype=np.bool_),
+            dataset.feature_available[idx],
+        )
+        or not np.array_equal(
+            np.asarray(observation.feature_staleness, dtype=np.float64),
+            dataset.resolved_array("feature_staleness")[idx].astype(np.float64),
+        )
+        or not np.array_equal(
+            np.asarray(observation.global_features, dtype=np.float64),
+            dataset.global_features[idx].astype(np.float64),
+        )
+        or not np.array_equal(
+            np.asarray(observation.global_feature_available, dtype=np.bool_),
+            dataset.resolved_array("global_feature_available")[idx],
+        )
+    ):
+        raise ValueError("paired decision snapshot differs from source Dataset row")
     if any(not ready for row in observation.feature_available for ready in row) or any(
         not ready for ready in observation.global_feature_available
     ):
@@ -167,6 +190,33 @@ def _native_ledger(
     if native[0] != native[1]:
         raise ValueError("paired arm clock/capital contract differs")
     start, stop, capital = native[0]
+    baseline_evidence = pair.baseline_result.ledger_evidence
+    assert baseline_evidence is not None
+    interval_rows = baseline_evidence.to_mapping()["intervals"]
+    if not isinstance(interval_rows, tuple):
+        raise ValueError("native interval evidence must be a tuple")
+    offset = idx - start
+    current_row = interval_rows[offset - 1] if offset else interval_rows[0]
+    if not isinstance(current_row, dict):
+        raise ValueError("native boundary ledger interval must be a mapping")
+    phase = "after" if offset else "before"
+    if (
+        observation.account.exact_quantities
+        != current_row[f"exact_quantities_{phase}"]
+        or not math.isclose(
+            observation.account.cash,
+            float(current_row[f"cash_{phase}"]),
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        )
+        or not math.isclose(
+            observation.account.portfolio_value,
+            float(current_row[f"portfolio_value_{phase}"]),
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        )
+    ):
+        raise ValueError("paired decision account differs from native boundary ledger")
     delta = (
         pair.candidate_result.book.portfolio_value
         - pair.baseline_result.book.portfolio_value

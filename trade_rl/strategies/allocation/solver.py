@@ -1,17 +1,26 @@
-"""Exact convex solver for one cost-aware long/short allocation decision.
+"""Convex solver for one cost-aware long/short allocation decision.
 
 Maximizes ``mu.w - (gamma / 2) w'Sigma w - sum_i c_i |w_i - w0_i|`` subject to
 ``lo_i <= w_i <= hi_i`` and ``sum_i |w_i| <= gross_max``.
 
 The objective is strongly convex (``Sigma`` is positive definite) with a
-separable L1 transaction-cost term. It is solved by cyclic coordinate descent
-whose one-dimensional steps are exact (soft-threshold style: the minimizer of a
-convex piecewise-quadratic is a kink, a sign-region vertex, or a box bound).
-The coupling gross constraint is handled by an exact Lagrangian L1 multiplier
-found by bisection (the dual is concave, so the constraint value is monotone in
-the multiplier). Non-convergence, non-finite values and any constraint
-violation raise :class:`AllocationSolverError`; callers must fail closed.
-Pure NumPy, deterministic, no random state.
+separable L1 transaction-cost term, so the optimum is unique. It is computed by
+cyclic coordinate descent whose one-dimensional steps are exact (the minimizer
+of a convex piecewise quadratic is a kink, a sign-region vertex, or a box
+bound), accelerated by an active-set Newton step: coordinates sitting on a kink
+or bound are frozen, the remaining coordinates solve the smooth stationarity
+system for their current sign pattern, and an exact piecewise-quadratic line
+search along that direction guarantees a monotone objective decrease. The
+coupling gross constraint is handled by an L1 Lagrange multiplier found by
+bisection (the gross exposure of the multiplier-penalized optimum is continuous
+and non-increasing in the multiplier).
+
+The result is *tolerance-accurate and certified*, not symbolically exact: a
+solution is returned only after a KKT optimality certificate (the subgradient
+condition, including the box normal cone and gross complementary slackness)
+passes within ``kkt_tol``. Non-convergence, non-finite values, any constraint
+violation and any failed certificate raise :class:`AllocationSolverError`;
+callers must fail closed. Pure NumPy, deterministic, no random state.
 """
 
 from __future__ import annotations
@@ -22,6 +31,8 @@ from dataclasses import dataclass
 import numpy as np
 
 _FEASIBILITY_TOLERANCE = 1e-9
+_GROSS_SLACK_TOLERANCE = 1e-10
+_SNAP_TOLERANCE = 1e-11
 _MAX_LAMBDA_DOUBLINGS = 200
 _MAX_BISECTIONS = 200
 
@@ -36,12 +47,18 @@ class AllocationSolverError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class AllocationSolution:
-    """Solved weights and the audit scalars of the solve."""
+    """Solved weights and the audit scalars of the solve.
+
+    ``kkt_residual`` is the largest per-coordinate violation of the subgradient
+    optimality condition divided by the problem's gradient scale; it never
+    exceeds the ``kkt_tol`` the solve was asked to certify.
+    """
 
     weights: np.ndarray
     objective: float
     iterations: int
     gross_multiplier: float
+    kkt_residual: float = 0.0
 
 
 def _finite_vector(value: object, *, name: str, size: int) -> np.ndarray:
@@ -122,6 +139,175 @@ def _minimize_coordinate(
     return best_x
 
 
+def kkt_residual(
+    weights: np.ndarray,
+    *,
+    expected_returns: np.ndarray,
+    covariance: np.ndarray,
+    current_weights: np.ndarray,
+    costs: np.ndarray,
+    gamma: float,
+    low: np.ndarray,
+    high: np.ndarray,
+    multiplier: float,
+) -> float:
+    """Largest violation of the subgradient optimality condition (absolute units).
+
+    Stationarity of the penalized problem requires, per coordinate,
+    ``0 in g_i + c_i d|w_i - w0_i| + multiplier d|w_i| + N_box_i(w_i)`` with
+    ``g = gamma Sigma w - mu``. Each set is an interval (a point away from its
+    kink, a symmetric interval on it, a half line on an active bound); the
+    residual is the distance from ``-g_i`` to their sum.
+    """
+
+    gradient = gamma * (covariance @ weights) - expected_returns
+    delta = weights - current_weights
+    on_anchor = np.abs(delta) <= _SNAP_TOLERANCE
+    anchor_sign = np.where(on_anchor, 0.0, np.sign(delta))
+    cost_low = np.where(on_anchor, -costs, anchor_sign * costs)
+    cost_high = np.where(on_anchor, costs, anchor_sign * costs)
+    if multiplier > 0.0:
+        on_zero = np.abs(weights) <= _SNAP_TOLERANCE
+        zero_sign = np.where(on_zero, 0.0, np.sign(weights))
+        level_low = np.where(on_zero, -multiplier, zero_sign * multiplier)
+        level_high = np.where(on_zero, multiplier, zero_sign * multiplier)
+    else:
+        level_low = level_high = np.zeros_like(weights)
+    at_high = weights >= high - _SNAP_TOLERANCE
+    at_low = weights <= low + _SNAP_TOLERANCE
+    normal_low = np.where(at_low & ~at_high, -np.inf, 0.0)
+    normal_high = np.where(at_high & ~at_low, np.inf, 0.0)
+    lower = cost_low + level_low + normal_low
+    upper = cost_high + level_high + normal_high
+    target = -gradient
+    violation = np.maximum(np.maximum(lower - target, target - upper), 0.0)
+    return float(np.max(violation))
+
+
+def _line_search(
+    weights: np.ndarray,
+    direction: np.ndarray,
+    alpha_max: float,
+    *,
+    expected_returns: np.ndarray,
+    covariance: np.ndarray,
+    current_weights: np.ndarray,
+    costs: np.ndarray,
+    gamma: float,
+    multiplier: float,
+) -> np.ndarray:
+    """Exact minimization of the convex piecewise quadratic loss along a ray.
+
+    The directional derivative is non-decreasing and piecewise linear in the
+    step, so the minimizer is found by walking the kink-delimited segments and
+    comparing derivative signs. Loss *values* are deliberately not compared:
+    along a flat valley the improvement is far below the floating-point
+    resolution of the loss itself.
+    """
+
+    curvature = gamma * float(direction @ (covariance @ direction))
+    if not curvature > 0.0 or not alpha_max > 0.0:
+        return weights
+    smooth_slope = -float(expected_returns @ direction) + gamma * float(
+        weights @ (covariance @ direction)
+    )
+    points = {0.0, alpha_max}
+    for i in np.flatnonzero(direction):
+        kinks = [current_weights[i]]
+        if multiplier > 0.0:
+            kinks.append(0.0)
+        for kink in kinks:
+            alpha = float((kink - weights[i]) / direction[i])
+            if 0.0 < alpha < alpha_max:
+                points.add(alpha)
+    ordered = sorted(points)
+    step = alpha_max
+    for left, right in zip(ordered[:-1], ordered[1:], strict=True):
+        middle = weights + 0.5 * (left + right) * direction
+        slope = smooth_slope + float(
+            np.sum(costs * np.sign(middle - current_weights) * direction)
+        )
+        if multiplier > 0.0:
+            slope += multiplier * float(np.sum(np.sign(middle) * direction))
+        stationary = -slope / curvature
+        if stationary <= left:
+            step = left
+            break
+        if stationary < right:
+            step = stationary
+            break
+    if step <= 0.0:
+        return weights
+    return weights + step * direction
+
+
+def _newton_step(
+    weights: np.ndarray,
+    *,
+    expected_returns: np.ndarray,
+    covariance: np.ndarray,
+    current_weights: np.ndarray,
+    costs: np.ndarray,
+    gamma: float,
+    low: np.ndarray,
+    high: np.ndarray,
+    multiplier: float,
+) -> np.ndarray:
+    """Active-set Newton extrapolation with a monotone exact line search.
+
+    Coordinates on a kink or a bound are frozen; the free coordinates solve the
+    stationarity system of the current sign pattern. The returned point never
+    has a larger loss than ``weights`` and stays inside the box.
+    """
+
+    on_bound = (weights >= high - _SNAP_TOLERANCE) | (weights <= low + _SNAP_TOLERANCE)
+    on_anchor = np.abs(weights - current_weights) <= _SNAP_TOLERANCE
+    on_zero = (
+        (np.abs(weights) <= _SNAP_TOLERANCE)
+        if multiplier > 0.0
+        else np.zeros_like(on_bound)
+    )
+    frozen = on_bound | on_anchor | on_zero
+    free = ~frozen
+    if not np.any(free):
+        return weights
+    anchor_sign = np.sign(weights - current_weights)
+    level_sign = np.sign(weights) if multiplier > 0.0 else np.zeros_like(weights)
+    right_hand_side = (
+        expected_returns[free]
+        - gamma * (covariance[np.ix_(free, frozen)] @ weights[frozen])
+        - costs[free] * anchor_sign[free]
+        - multiplier * level_sign[free]
+    )
+    try:
+        solved = np.linalg.solve(
+            gamma * covariance[np.ix_(free, free)], right_hand_side
+        )
+    except np.linalg.LinAlgError:
+        return weights
+    if not np.all(np.isfinite(solved)):
+        return weights
+    direction = np.zeros_like(weights)
+    direction[free] = solved - weights[free]
+    alpha_max = 1.0
+    for i in np.flatnonzero(direction):
+        if direction[i] > 0.0:
+            alpha_max = min(alpha_max, float((high[i] - weights[i]) / direction[i]))
+        else:
+            alpha_max = min(alpha_max, float((low[i] - weights[i]) / direction[i]))
+    return _line_search(
+        weights,
+        direction,
+        max(alpha_max, 0.0),
+        expected_returns=expected_returns,
+        covariance=covariance,
+        current_weights=current_weights,
+        costs=costs,
+        gamma=gamma,
+        multiplier=multiplier,
+    )
+
+
 def _coordinate_descent(
     *,
     expected_returns: np.ndarray,
@@ -139,10 +325,10 @@ def _coordinate_descent(
     weights = start.copy()
     n_assets = weights.shape[0]
     for iteration in range(1, max_iter + 1):
-        largest_change = 0.0
+        before = weights.copy()
         for i in range(n_assets):
             cross = float(covariance[i] @ weights - covariance[i, i] * weights[i])
-            updated = _minimize_coordinate(
+            weights[i] = _minimize_coordinate(
                 gamma * float(covariance[i, i]),
                 float(expected_returns[i]) - gamma * cross,
                 float(current_weights[i]),
@@ -151,8 +337,21 @@ def _coordinate_descent(
                 float(low[i]),
                 float(high[i]),
             )
-            largest_change = max(largest_change, abs(updated - float(weights[i])))
-            weights[i] = updated
+        # The Newton extrapolation runs *before* the stopping test so that slow
+        # creeping along an ill-conditioned valley (tiny sweep changes far from
+        # the optimum) cannot be mistaken for convergence.
+        weights = _newton_step(
+            weights,
+            expected_returns=expected_returns,
+            covariance=covariance,
+            current_weights=current_weights,
+            costs=costs,
+            gamma=gamma,
+            low=low,
+            high=high,
+            multiplier=multiplier,
+        )
+        largest_change = float(np.max(np.abs(weights - before)))
         if not math.isfinite(largest_change):
             raise AllocationSolverError("non_finite", "coordinate step is not finite")
         if largest_change <= tol:
@@ -174,13 +373,21 @@ def solve_cost_aware_allocation(
     long_only: bool = False,
     max_iter: int = 2_000,
     tol: float = 1e-10,
+    kkt_tol: float = 1e-8,
 ) -> AllocationSolution:
-    """Solve one allocation exactly or raise :class:`AllocationSolverError`."""
+    """Solve one allocation to a certified tolerance or raise.
+
+    ``tol`` is the largest coordinate change that ends a descent sweep;
+    ``kkt_tol`` bounds the final subgradient residual relative to the gradient
+    scale ``max(|mu|, c, gamma * max Sigma_ii * w_max)``. The returned weights are
+    feasible within ``1e-9`` and satisfy that certificate.
+    """
 
     gamma = _positive_finite(gamma, name="gamma")
     w_max = _positive_finite(w_max, name="w_max")
     gross_max = _positive_finite(gross_max, name="gross_max")
     tol = _positive_finite(tol, name="tol")
+    kkt_tol = _positive_finite(kkt_tol, name="kkt_tol")
     if type(long_only) is not bool:
         raise TypeError("long_only must be a boolean")
     if type(max_iter) is not int or max_iter < 1:
@@ -216,6 +423,11 @@ def solve_cost_aware_allocation(
     low = np.full(n_assets, 0.0 if long_only else -w_max)
     high = np.full(n_assets, w_max)
     start = np.clip(w0, low, high)
+    scale = max(
+        float(np.max(np.abs(mu))),
+        float(np.max(cost_vector)),
+        gamma * float(np.max(np.diag(sigma))) * w_max,
+    )
 
     def solve(multiplier: float, warm: np.ndarray) -> tuple[np.ndarray, int]:
         return _coordinate_descent(
@@ -250,9 +462,11 @@ def solve_cost_aware_allocation(
             )
         best = candidate
         for _ in range(_MAX_BISECTIONS):
-            if upper - lower <= 1e-15 * (1.0 + upper):
+            if gross_max - float(np.abs(best).sum()) <= _GROSS_SLACK_TOLERANCE:
                 break
             middle = 0.5 * (lower + upper)
+            if not lower < middle < upper:
+                break  # the multiplier bracket reached floating-point resolution
             candidate, used = solve(middle, best)
             iterations += used
             if float(np.abs(candidate).sum()) <= gross_max:
@@ -271,8 +485,33 @@ def solve_cost_aware_allocation(
     if gross > gross_max:
         weights = weights * (gross_max / gross)
     weights = np.clip(weights, low, high)
-    if float(np.abs(weights).sum()) > gross_max + _FEASIBILITY_TOLERANCE:
+    gross = float(np.abs(weights).sum())
+    if gross > gross_max + _FEASIBILITY_TOLERANCE:
         raise AllocationSolverError("constraint_violation", "gross limit exceeded")
+    slackness = multiplier * max(gross_max - gross, 0.0) / scale
+    if not slackness <= kkt_tol:
+        raise AllocationSolverError(
+            "kkt_violation",
+            f"gross complementary slackness {slackness:.3e} exceeds {kkt_tol:.3e}",
+        )
+    residual = (
+        kkt_residual(
+            weights,
+            expected_returns=mu,
+            covariance=sigma,
+            current_weights=w0,
+            costs=cost_vector,
+            gamma=gamma,
+            low=low,
+            high=high,
+            multiplier=multiplier,
+        )
+        / scale
+    )
+    if not math.isfinite(residual) or residual > kkt_tol:
+        raise AllocationSolverError(
+            "kkt_violation", f"optimality residual {residual:.3e} exceeds {kkt_tol:.3e}"
+        )
     objective = allocation_objective(
         weights,
         expected_returns=mu,
@@ -288,6 +527,7 @@ def solve_cost_aware_allocation(
         objective=objective,
         iterations=iterations,
         gross_multiplier=multiplier,
+        kkt_residual=residual,
     )
 
 
@@ -295,5 +535,6 @@ __all__ = [
     "AllocationSolution",
     "AllocationSolverError",
     "allocation_objective",
+    "kkt_residual",
     "solve_cost_aware_allocation",
 ]

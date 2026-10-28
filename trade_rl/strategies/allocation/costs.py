@@ -9,9 +9,13 @@ def one_way_cost_rate(cost: ExecutionCostConfig) -> float:
     """Return the deterministic one-way proportional cost of a full-notional trade.
 
     This mirrors the executor's unit cost for the configured order type:
-    ``multiplier * (fee + venue fee + spread factor * spread)``. Participation
-    dependent impact, random slippage and per-row dataset fee/spread overrides are
-    not included; pass explicit ``cost_rates`` to the allocator to model them.
+    ``multiplier * (fee + venue fee + spread factor * spread)``. The result is a
+    **lower bound** on the executor's realized cost for the same profile: the
+    participation dependent impact and random slippage are not included, and
+    per-row dataset fee/spread overrides are ignored (they can move the realized
+    cost either way). The allocator therefore trades slightly more than a fully
+    cost-aware one would. Pass explicit, larger ``cost_rates`` to model this, and
+    state the bound whenever results are reported.
     """
 
     if not isinstance(cost, ExecutionCostConfig):

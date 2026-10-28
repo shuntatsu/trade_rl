@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pytest
@@ -207,6 +207,61 @@ def test_covariance_makes_equal_signals_diversify() -> None:
     assert positive.max() < 0.7
 
 
+def _correlated_returns(seed: int, correlation: float) -> np.ndarray:
+    """Assets A and B share a common factor; asset C is independent."""
+
+    rng = np.random.default_rng(seed)
+    factor = rng.normal(0.0, 0.02, size=N_DAYS)
+    own = np.sqrt(1.0 - correlation)
+    shared = np.sqrt(correlation)
+    return np.column_stack(
+        (
+            shared * factor + own * rng.normal(0.0, 0.02, size=N_DAYS),
+            shared * factor + own * rng.normal(0.0, 0.02, size=N_DAYS),
+            rng.normal(0.0, 0.02, size=N_DAYS),
+        )
+    )
+
+
+def test_correlated_assets_are_diversified_with_the_full_covariance() -> None:
+    """Equal signals: the offsetting off-diagonal terms must tilt away from A/B."""
+
+    returns = _correlated_returns(seed=17, correlation=0.8)
+    mu = (0.0005, 0.0005, 0.0005)
+    decision_day = 80
+    policy = _policy(
+        _ConstantSource(mu),
+        cost=0.0,
+        gamma=5.0,
+        w_max=5.0,
+        gross_max=50.0,
+        shrinkage=0.0,
+        min_trade_fraction=0.0,
+    )
+    result = _replay(_dataset(returns), policy, stop_day=decision_day + 2)
+    proposal = np.asarray(
+        next(
+            d.proposal_weights for d in result.decisions if d.index == decision_day * 24
+        )
+    )
+    # Reference: the unconstrained optimum (gamma Sigma)^-1 mu of the same EWMA
+    # covariance of the daily returns observed up to the decision day.
+    sigma = ewma_covariance(
+        returns[:decision_day],
+        halflife_periods=60.0,
+        shrinkage=0.0,
+        variance_floor=1e-8,
+    )
+    expected = np.linalg.solve(5.0 * sigma, np.asarray(mu))
+    assert np.all(np.abs(expected) < 5.0)  # no constraint binds in the reference
+    np.testing.assert_allclose(proposal, expected, rtol=1e-6, atol=1e-8)
+    # Economically: the independent asset receives the largest weight and a
+    # diagonal-only covariance (which would give nearly equal weights) is rejected.
+    assert proposal[2] > proposal[0] and proposal[2] > proposal[1]
+    diagonal_only = np.asarray(mu) / (5.0 * np.diag(sigma))
+    assert np.abs(proposal - diagonal_only).max() > 0.05
+
+
 def test_solver_failure_holds_current_quantities_and_places_no_orders(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -300,35 +355,97 @@ def test_retargets_only_on_the_decision_schedule() -> None:
     assert all(index % 24 == 0 for index in rebalance_indexes)
 
 
-def test_future_prices_cannot_change_past_decisions() -> None:
-    base = _noise(seed=21)
-    cut_day = 50
+def _perturb_after(dataset: MarketDataset, last_unchanged_bar: int) -> MarketDataset:
+    """Return a copy whose every market array differs strictly after the bar."""
 
-    def forecast(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
-        day = snapshot.timestamp_ns // (24 * 3_600 * 1_000_000_000)
-        phase = (day % 5) - 2
-        return (0.002 * phase, -0.001 * phase, 0.0015)
-
-    perturbed = base.copy()
-    perturbed[cut_day:] = np.random.default_rng(99).normal(
-        0.05, 0.2, size=perturbed[cut_day:].shape
+    rng = np.random.default_rng(1234)
+    first = last_unchanged_bar + 1
+    close = dataset.close.copy()
+    n_rows = close.shape[0] - first
+    close[first:] *= np.exp(rng.normal(0.0, 0.03, size=(n_rows, close.shape[1])))
+    open_price = dataset.open.copy()
+    open_price[first:] = np.vstack((close[first - 1], close[first:-1]))
+    funding = dataset.funding_rate.copy()
+    funding[first:] = rng.normal(0.001, 0.002, size=funding[first:].shape)
+    return replace(
+        dataset,
+        close=close,
+        open=open_price,
+        high=np.maximum(open_price, close) * 1.01,
+        low=np.minimum(open_price, close) * 0.99,
+        volume=np.where(
+            np.arange(close.shape[0])[:, None] >= first, 1e11, dataset.volume
+        ),
+        funding_rate=funding,
     )
-    perturbed = np.clip(perturbed, -0.5, 0.9)
-    first = _policy(_CallableSource(forecast))
-    second = _policy(_CallableSource(forecast))
-    result_a = _replay(_dataset(base), first)
-    result_b = _replay(_dataset(perturbed), second)
-    horizon = cut_day * 24
-    decisions_a = [d for d in result_a.decisions if d.index < horizon]
-    decisions_b = [d for d in result_b.decisions if d.index < horizon]
-    assert len(decisions_a) == len(decisions_b) == horizon
-    for left, right in zip(decisions_a, decisions_b, strict=True):
-        assert left.proposal_weights == right.proposal_weights
-        assert left.requested_hold_symbols == right.requested_hold_symbols
-    records_a = [r for r in first.records if r.index < horizon]
-    records_b = [r for r in second.records if r.index < horizon]
-    assert records_a == records_b
+
+
+def _phase_forecast(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+    day = snapshot.timestamp_ns // (24 * 3_600 * 1_000_000_000)
+    phase = (day % 5) - 2
+    return (0.002 * phase, -0.001 * phase, 0.0015)
+
+
+def _decisions_through_bar_are_identical(
+    base: MarketDataset,
+    changed: MarketDataset,
+    bar: int,
+    make_source: Callable[[MarketDataset], ExpectedReturnSource],
+) -> bool:
+    first = _policy(make_source(base))
+    second = _policy(make_source(changed))
+    result_a = _replay(base, first)
+    result_b = _replay(changed, second)
+    # The perturbed future may legitimately end the replay early; only decisions
+    # up to the unchanged bar are compared (and they must all exist).
+    left_by_index = {d.index: d for d in result_a.decisions}
+    right_by_index = {d.index: d for d in result_b.decisions}
+    for index in range(bar + 1):
+        left, right = left_by_index[index], right_by_index[index]
+        if (
+            left.proposal_weights != right.proposal_weights
+            or left.requested_hold_symbols != right.requested_hold_symbols
+        ):
+            return False
+    records_a = [r for r in first.records if r.index <= bar]
+    records_b = [r for r in second.records if r.index <= bar]
     assert any(r.outcome == "rebalance" for r in records_a)
+    return records_a == records_b
+
+
+@pytest.mark.parametrize("last_unchanged_bar", [1176, 1199, 1200, 1201, 1223, 1224])
+def test_everything_strictly_after_a_bar_cannot_change_decisions_up_to_it(
+    last_unchanged_bar: int,
+) -> None:
+    """Perturb every array from the very next bar (incl. the next daily mark)."""
+
+    bar = last_unchanged_bar
+    base = _dataset(_noise(seed=21))
+    changed = _perturb_after(base, bar)
+    assert np.array_equal(base.close[: bar + 1], changed.close[: bar + 1])
+    assert not np.array_equal(base.close[bar + 1], changed.close[bar + 1])
+    assert _decisions_through_bar_are_identical(
+        base, changed, bar, lambda _: _CallableSource(_phase_forecast)
+    )
+
+
+def test_the_look_ahead_check_detects_a_one_day_forward_leak() -> None:
+    """Sensitivity guard: a source peeking one daily mark ahead must be caught."""
+
+    class _Peek:
+        def __init__(self, dataset: MarketDataset) -> None:
+            self._dataset = dataset
+
+        def expected_simple_returns(
+            self, snapshot: PortfolioDecisionSnapshot
+        ) -> tuple[float, ...]:
+            ahead = min(snapshot.index + 24, self._dataset.close.shape[0] - 1)
+            move = self._dataset.close[ahead] / self._dataset.close[snapshot.index] - 1
+            return tuple(float(value) / 10.0 for value in move)
+
+    base = _dataset(_noise(seed=21))
+    changed = _perturb_after(base, 1199)  # first changed bar 1200 = next mark of 1176
+    assert not _decisions_through_bar_are_identical(base, changed, 1199, _Peek)
 
 
 def test_warmup_marks_seed_the_covariance_before_the_first_snapshot() -> None:

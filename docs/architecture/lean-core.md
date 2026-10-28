@@ -67,7 +67,6 @@ authorization、financial ledger、winner ruleを加えない。
 - `CsvMarketDataSource` はISO日時本体のfractionをnanosecondまで整数で保持し、integer epochは従来どおり `abs(value) >= 10^12` をmillisecond、それ未満をsecondとして正確に変換する。日時本体のnanosecond範囲外とnon-zero sub-nanosecond fractionは拒否する。小数秒を含むtimezone offsetはmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあるoffsetは拒否する（余分な桁がすべてzeroなら値は失われない）。`RawMarketSeries` のtyped datetime配列もshared helperの整数演算でnsへ正確に変換し、1ns遅れた `available_at` を同時刻へ丸めず後段へ渡す。時系列順序は隣接値を直接比較し、Datasetのperiod deltaが正のint64 nanosecondsへ収まらない入力は拒否する。
 - `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` はshared data helperのexact integer arithmeticで検証するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
 - supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
-- prequential forecast packet（`strategies/forecasts/prequential.py`）はこの同じtraining builderだけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 - forecast training builderへ渡す`fit_cutoff`と、`CausalForecastTrainingSet`へ直接渡す`label_end_times`は、`data._timestamps`のshared helperを通し、元のdatetime64 unitと正のmultiplier metadataから正確な整数演算でns値を求めてからsigned-nanosecond範囲を確認する。multiplierが0以下のmetadata、`NaT`、範囲外へのwrap、nanosecond未満の端数はscopeやmaturity比較より前に拒否し、正確に表現できるfixed-duration unitとcalendar `Y` / `M` unitを受け入れる。cast後の逆変換一致だけをoverflow判定には使わない。
 - Ridge / LightGBM model constructorも同じlossless cutoff normalizerを使う。両strategy adapterは、保存済みobservation timestampが`NaT`の場合と`fit_cutoff > observation.timestamp`の場合に、feature fallbackやpredictionより前に拒否し、同時刻は許す。これはmodelの宣言fit cutoffに対するas-of floorであり、modelの生成・配布時刻、vintage、decision時点での実運用可能性を証明しない。`StrategyObservation`構築前のtimestamp変換で既にwrapされた入力時刻も復元できない。
 - `LeanCandidateConfig`と`CandidateRunConfig`のtyped `datetime64` 値も同じshared helperで正確に正規化する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。ISO文字列のparse semanticsは変えない。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
@@ -874,6 +873,10 @@ the journal chain only and must not claim raw-source financial validation.
 Even `PAPER_SCREEN_PASSED` retains `production_eligible=false`: observed paper
 marks, cost assumptions and public depth do not establish live fill guarantees,
 intraminute drawdown, optimal returns or private-account suitability.
+
+## Prequential forecast availability
+
+Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
 ## 非目標
 

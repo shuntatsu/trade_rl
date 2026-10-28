@@ -50,7 +50,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "3773ebe7a803bed530e8ca7f21fa48327cf3ef8df56656a31d76a031333a4fa3"
+      "sha256": "baa9714d6bb07b35b619003e479ca8377040612339f604e4ea38b2bbc726bc2a"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -60,7 +60,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "14c4cccfc42fa0bdcde3dd0dd07ff591f70da7cf5fb830cd9694fe4075604480"
+      "sha256": "57d4b29e563816657c4e744bf5f672b104a94f55d07abe77f4ee00fae689d6e4"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -543,6 +543,32 @@
       "variables": [],
       "tests": [
         "tests/strategies/test_portfolio_policy_adapter.py"
+      ]
+    },
+    {
+      "id": "cost-aware-allocation-policy",
+      "symbol": "trade_rl.strategies.allocation.cost_aware.CostAwareAllocationPolicy",
+      "kind": "class",
+      "source_sha256": "bf8d106b89f18d87b8857b7ee8a755050425ba7bc74737bb7ff738e9f53f3db7",
+      "label_ja": "費用控除後の多銘柄allocator",
+      "description_ja": "caller供給の期待単純収益、decision時刻以前のmarkだけから作るEWMA共分散、L1 costによるno-trade regionを使い、固定schedule（既定は毎日00:00 UTC）でだけtarget weightを提案します。schedule外・入力不備・solver失敗では全symbolをexact-quantity HOLDにします。口座もP&L ledgerも持たず、forecast sourceの中身は契約の外です。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_cost_aware_allocator.py",
+        "tests/strategies/test_allocation_solver.py",
+        "tests/architecture/test_allocation_boundary.py"
+      ]
+    },
+    {
+      "id": "buy-and-hold-portfolio-policy",
+      "symbol": "trade_rl.strategies.allocation.buy_and_hold.BuyAndHoldPortfolioPolicy",
+      "kind": "class",
+      "source_sha256": "990bc67e79fa357395732d192d2119a8f1796dcd3e2d9d5ce88bf54b9e4ed2f0",
+      "label_ja": "等weight buy-and-hold対照",
+      "description_ja": "最初のdecisionで等weightを取り、以後はexact quantityを保持します。任意の固定bar間隔rebalanceは既定で無効です。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_buy_and_hold_policy.py"
       ]
     },
     {

@@ -13,6 +13,7 @@ import math
 import subprocess
 from collections import Counter
 from collections.abc import Callable, Mapping
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any, cast
@@ -604,13 +605,74 @@ def _git_head() -> str | None:
     return completed.stdout.strip() or None
 
 
+def load_dataset(path: str) -> MarketDataset:
+    """Picklable loader so worker processes can read the verified Dataset themselves."""
+
+    from trade_rl.data.artifacts.publication import (
+        load_published_market_dataset_artifact,
+    )
+
+    return load_published_market_dataset_artifact(path)[1]
+
+
+def _replay_scenario(
+    dataset: MarketDataset,
+    protocol: DevStudyProtocol,
+    scenario: str,
+    sources: Mapping[int, PrequentialForecastSource],
+    *,
+    start_index: int,
+    stop_index: int,
+    say: Progress,
+) -> dict[str, ReplayOutcome]:
+    outcomes: dict[str, ReplayOutcome] = {}
+    for arm in protocol.arms:
+        say(f"replay {arm} / {scenario}")
+        outcomes[arm] = run_replay(
+            dataset,
+            protocol,
+            arm,
+            scenario,
+            sources,
+            start_index=start_index,
+            stop_index=stop_index,
+        )
+    return outcomes
+
+
+def _scenario_worker(
+    loader: Callable[[], MarketDataset],
+    protocol: DevStudyProtocol,
+    scenario: str,
+    start_index: int,
+    stop_index: int,
+) -> dict[str, ReplayOutcome]:
+    dataset = loader()
+    sources = build_forecast_sources(dataset, protocol)
+    return _replay_scenario(
+        dataset,
+        protocol,
+        scenario,
+        sources,
+        start_index=start_index,
+        stop_index=stop_index,
+        say=lambda message: print(message, flush=True),
+    )
+
+
 def run_study(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
     *,
     progress: Progress | None = None,
+    parallel_loader: Callable[[], MarketDataset] | None = None,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
-    """Run every arm in every scenario; return the result mapping and equity arrays."""
+    """Run every arm in every scenario; return the result mapping and equity arrays.
+
+    With ``parallel_loader`` (a picklable zero-argument callable returning the same
+    Dataset) each scenario runs in its own process; results are identical to the
+    sequential path because every replay is deterministic and independent.
+    """
 
     say = progress or (lambda message: None)
     if dataset.dataset_id != protocol.dataset_id:
@@ -627,23 +689,47 @@ def run_study(
     stop_index = _row_of(dataset, protocol.evaluation_end)
     sources = build_forecast_sources(dataset, protocol)
 
-    say("causality probe")
-    causality = causality_probe(dataset, protocol, sources, start_index=start_index)
-    say(f"causality probe passed={causality['passed']}")
-
-    outcomes: dict[tuple[str, str], ReplayOutcome] = {}
-    for scenario in protocol.scenarios:
-        for arm in protocol.arms:
-            say(f"replay {arm} / {scenario}")
-            outcomes[(arm, scenario)] = run_replay(
+    by_scenario: dict[str, dict[str, ReplayOutcome]] = {}
+    if parallel_loader is not None:
+        with ProcessPoolExecutor(max_workers=len(protocol.scenarios)) as pool:
+            futures = {
+                scenario: pool.submit(
+                    _scenario_worker,
+                    parallel_loader,
+                    protocol,
+                    scenario,
+                    start_index,
+                    stop_index,
+                )
+                for scenario in protocol.scenarios
+            }
+            say("causality probe")
+            causality = causality_probe(
+                dataset, protocol, sources, start_index=start_index
+            )
+            say(f"causality probe passed={causality['passed']}")
+            for scenario, future in futures.items():
+                by_scenario[scenario] = future.result()
+                say(f"scenario {scenario} complete")
+    else:
+        say("causality probe")
+        causality = causality_probe(dataset, protocol, sources, start_index=start_index)
+        say(f"causality probe passed={causality['passed']}")
+        for scenario in protocol.scenarios:
+            by_scenario[scenario] = _replay_scenario(
                 dataset,
                 protocol,
-                arm,
                 scenario,
                 sources,
                 start_index=start_index,
                 stop_index=stop_index,
+                say=say,
             )
+    outcomes: dict[tuple[str, str], ReplayOutcome] = {
+        (arm, scenario): outcome
+        for scenario, per_arm in by_scenario.items()
+        for arm, outcome in per_arm.items()
+    }
     arms_table: dict[str, dict[str, dict[str, Any]]] = {
         arm: {
             scenario: outcomes[(arm, scenario)].summary

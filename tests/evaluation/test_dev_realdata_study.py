@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -527,6 +528,7 @@ def test_cli_smoke_writes_once_and_refuses_overwrite(
         str(out),
         "--summary-path",
         str(summary),
+        "--sequential",
     ]
     assert study_cli.main(argv) == 0
     assert (out / "equity.npz").is_file() and (out / "full_results.json").is_file()
@@ -541,3 +543,24 @@ def test_snapshot_type_is_the_real_replay_snapshot() -> None:
     # The adapter reads only symbols and timestamp_ns from the replay snapshot.
     fields = PortfolioDecisionSnapshot.__dataclass_fields__
     assert "symbols" in fields and "timestamp_ns" in fields
+
+
+def test_parallel_scenarios_match_the_sequential_study(tmp_path: Path) -> None:
+    from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
+
+    identified = synthetic_market().with_content_identity()
+    root = tmp_path / "dataset"
+    publish_market_dataset_artifact(root, identified)
+    protocol = small_protocol(dataset_id=identified.dataset_id)
+    sequential, _ = runner.run_study(identified, protocol)
+    parallel, _ = runner.run_study(
+        identified,
+        protocol,
+        parallel_loader=partial(runner.load_dataset, str(root)),
+    )
+    drop = ("git_head",)
+    assert json.dumps(
+        {k: v for k, v in sequential.items() if k not in drop}, sort_keys=True
+    ) == json.dumps(
+        {k: v for k, v in parallel.items() if k not in drop}, sort_keys=True
+    )

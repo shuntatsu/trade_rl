@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ import numpy as np
 
 from trade_rl.data.artifacts.publication import load_published_market_dataset_artifact
 from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
-from trade_rl.evaluation.dev_realdata_study.runner import run_study
+from trade_rl.evaluation.dev_realdata_study.runner import load_dataset, run_study
 
 _SUMMARY_DROP = ("protocol",)
 
@@ -43,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--summary-path", type=Path, required=True)
+    parser.add_argument(
+        "--sequential",
+        action="store_true",
+        help="run scenarios in this process instead of one process per scenario",
+    )
     return parser
 
 
@@ -56,7 +62,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     _, dataset = load_published_market_dataset_artifact(args.dataset)
     results, equity = run_study(
-        dataset, PROTOCOL, progress=lambda message: print(message, flush=True)
+        dataset,
+        PROTOCOL,
+        progress=lambda message: print(message, flush=True),
+        parallel_loader=None
+        if args.sequential
+        else partial(load_dataset, str(args.dataset)),
     )
     with (output_dir / "equity.npz").open("xb") as stream:
         np.savez_compressed(stream, **equity)

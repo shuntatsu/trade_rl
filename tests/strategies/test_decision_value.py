@@ -88,22 +88,32 @@ def _model() -> LinearDecisionValueModel:
         execution_policy_digest="a" * 64,
         reference_policy_digest="b" * 64,
         target_abs_weights=(0.4, 0.4),
-        candidate_actions=((ACTION_HOLD, ACTION_HOLD), (ACTION_LONG, ACTION_HOLD),
-                           (ACTION_SHORT, ACTION_HOLD)),
+        candidate_actions=(
+            (ACTION_HOLD, ACTION_HOLD),
+            (ACTION_LONG, ACTION_HOLD),
+            (ACTION_SHORT, ACTION_HOLD),
+        ),
         fit_cutoff_ns=1_770_000_000_000_000_000,
         evaluation_start_ns=1_770_100_000_000_000_000,
         ridge_penalty=1e-4,
         training_rows=18,
         overlap_groups=1,
-        coefficients=((-0.001, 0.010, 0.0, 0.0, 0.0, 0.0),
-                      (-0.001, -0.010, 0.0, 0.0, 0.0, 0.0)),
+        coefficients=(
+            (-0.001, 0.010, 0.0, 0.0, 0.0, 0.0),
+            (-0.001, -0.010, 0.0, 0.0, 0.0, 0.0),
+        ),
     )
 
 
-def test_action_head_prefers_hold_without_positive_increment_and_keeps_quantity_hold() -> None:
+def test_action_head_prefers_hold_without_positive_increment_and_keeps_quantity_hold() -> (
+    None
+):
     policy = LinearDecisionValuePolicy(_model())
-    for signal, expected in ((0.0, ACTION_HOLD), (0.7, ACTION_LONG),
-                             (-0.7, ACTION_SHORT)):
+    for signal, expected in (
+        (0.0, ACTION_HOLD),
+        (0.7, ACTION_LONG),
+        (-0.7, ACTION_SHORT),
+    ):
         snapshot = _snapshot(signal=signal)
         assert policy.decide_action(snapshot) == (expected, ACTION_HOLD)
         proposal = policy.decide_portfolio(snapshot)
@@ -130,9 +140,7 @@ def test_model_rejects_unsupported_input_instead_of_faking_safe_profit() -> None
     with pytest.raises(ValueError, match="evaluation"):
         policy.decide_action(replace(snapshot, timestamp_ns=1_769_000_000_000_000_000))
     with pytest.raises(ValueError, match="pending"):
-        policy.decide_action(
-            replace(snapshot, active_orders=(_pending_order(),))
-        )
+        policy.decide_action(replace(snapshot, active_orders=(_pending_order(),)))
     with pytest.raises(ValueError, match="candidate"):
         policy.value_for_action(snapshot, (ACTION_LONG, ACTION_SHORT))
 
@@ -164,16 +172,18 @@ def test_serialization_preserves_action_and_fails_closed_on_tamper(
     payload, digest = serialize_linear_decision_value(model)
     path = tmp_path / "synthetic-linear-value.json"
     path.write_text(payload, encoding="utf-8")
-    restored = load_linear_decision_value(path.read_text(encoding="utf-8"),
-                                          expected_sha256=digest)
+    restored = load_linear_decision_value(
+        path.read_text(encoding="utf-8"), expected_sha256=digest
+    )
     assert restored == model
     for signal in (-1.0, 0.0, 0.8):
-        assert LinearDecisionValuePolicy(restored).decide_action(_snapshot(signal=signal)) == (
-            LinearDecisionValuePolicy(model).decide_action(_snapshot(signal=signal))
-        )
+        assert LinearDecisionValuePolicy(restored).decide_action(
+            _snapshot(signal=signal)
+        ) == (LinearDecisionValuePolicy(model).decide_action(_snapshot(signal=signal)))
     with pytest.raises(ValueError, match="digest"):
-        load_linear_decision_value(payload.replace("-0.001", "0.9000"),
-                                   expected_sha256=digest)
+        load_linear_decision_value(
+            payload.replace("-0.001", "0.9000"), expected_sha256=digest
+        )
     with pytest.raises(ValueError, match="digest"):
         load_linear_decision_value(payload, expected_sha256="c" * 64)
     with pytest.raises(ValueError, match="canonical"):
@@ -185,9 +195,14 @@ def test_invalid_model_schema_or_coefficients_are_rejected() -> None:
     with pytest.raises(ValueError, match="finite"):
         replace(model, coefficients=((float("nan"),) * 6,) * 2)
     with pytest.raises(ValueError, match="candidate"):
-        replace(model, candidate_actions=((ACTION_HOLD, ACTION_HOLD),
-                                          (ACTION_LONG, ACTION_HOLD),
-                                          (ACTION_LONG, ACTION_HOLD)))
+        replace(
+            model,
+            candidate_actions=(
+                (ACTION_HOLD, ACTION_HOLD),
+                (ACTION_LONG, ACTION_HOLD),
+                (ACTION_LONG, ACTION_HOLD),
+            ),
+        )
     with pytest.raises(ValueError, match="dimension|coefficients"):
         replace(model, coefficients=((1.0,), (1.0,)))
     with pytest.raises(ValueError, match="synthetic"):

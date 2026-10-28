@@ -93,8 +93,11 @@ def _settled_label_eligible(
         raise RuntimeError("paired replay must retain native ledger evidence")
     book = result.book
     mapping = result.ledger_evidence.to_mapping()
+    intervals = mapping["intervals"]
+    if not isinstance(intervals, (tuple, list)):
+        raise RuntimeError("native ledger intervals must be an ordered sequence")
     return (
-        len(mapping["intervals"]) == expected_intervals
+        len(intervals) == expected_intervals
         and not book.insolvent
         and book.termination_reason is None
         and all(quantity == 0 for quantity in book.exact_quantities)
@@ -112,7 +115,7 @@ def run_paired_portfolio_action(
     baseline_action: tuple[int, ...],
     candidate_action: tuple[int, ...],
     target_abs_weights: tuple[float, ...],
-    initial_capital: float,
+    initial_capital: object,
     execution_cost: ExecutionCostConfig,
     risk: PreTradeRisk,
     market_order_profile: MarketOrderProfile | None = None,

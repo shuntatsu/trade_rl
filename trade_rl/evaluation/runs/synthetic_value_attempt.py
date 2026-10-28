@@ -35,6 +35,7 @@ from trade_rl.strategies.decision_value import (
 )
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
+    PortfolioPolicy,
     PortfolioTargetProposal,
 )
 from trade_rl.strategies.portfolio_adapter import CashPortfolioPolicy
@@ -65,7 +66,7 @@ class SyntheticValueAttemptConfig:
     risk_config: PreTradeRiskConfig
     start_index: int
     stop_index: int
-    initial_capital: float
+    initial_capital: object
     fixed_action: tuple[int, ...]
 
 
@@ -305,7 +306,7 @@ def run_synthetic_value_attempt(
             execution_policy_digest=config.execution_cost.execution_policy_digest,
             reference_policy_digest=model.reference_policy_digest,
         )
-        policies = (
+        policies: tuple[PortfolioPolicy, PortfolioPolicy, PortfolioPolicy] = (
             CashPortfolioPolicy(symbols=config.dataset.symbols),
             _FixedEntryPolicy(config.fixed_action, model.target_abs_weights),
             LinearDecisionValuePolicy(model, runtime_context=runtime),

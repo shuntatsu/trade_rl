@@ -27,6 +27,7 @@ from trade_rl.evaluation.runs.synthetic_value_costaware_attempt import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.quantities import parse_quantity, project_quantity
 from trade_rl.strategies.decision_value import (
     LinearDecisionValueModel,
     serialize_linear_decision_value,
@@ -543,9 +544,12 @@ def test_cost_aware_v2_exact_quantity_bridge_preserves_native_account_state() ->
     observed = capturer.observed
     assert observed is not None
     assert Fraction(observed.account.exact_quantities[0]) > 0
+    assert project_quantity(
+        parse_quantity(observed.account.exact_quantities[0])
+    ) == observed.account.quantities[0]
 
-    # The native BookState exact quantity is authoritative; a native floating
-    # view may differ by a few ULPs. Do not weaken the legacy portfolio adapter.
+    # Native conservative projection is the authority, not float(Fraction),
+    # and a tolerance must not permit a forged reporting view.
     adapter = _ExactQuantityCostAwareRidgePolicy(market, config, (0.4, 0.4))
     proposal = adapter.decide_portfolio(observed)
     assert proposal.target_weights == (0.4, 0.0)

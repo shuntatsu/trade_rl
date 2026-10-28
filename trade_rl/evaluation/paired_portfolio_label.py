@@ -103,6 +103,11 @@ def _native_ledger(
         or pair.baseline_snapshot.global_feature_names != dataset.global_feature_names
     ):
         raise ValueError("paired decision snapshot is inconsistent with the Dataset")
+    observation = pair.baseline_snapshot
+    if any(not ready for row in observation.feature_available for ready in row) or any(
+        not ready for ready in observation.global_feature_available
+    ):
+        raise ValueError("unavailable decision feature must not enter a fit sample")
     native: list[tuple[int, int, float]] = []
     for arm in (pair.baseline_result, pair.candidate_result):
         evidence = arm.ledger_evidence

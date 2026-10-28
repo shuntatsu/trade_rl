@@ -76,7 +76,7 @@ trade_rl/
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py,prequential.py}
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -623,6 +623,10 @@ schema contract used by inference bundle publication.
 Transport receipts also bind the actual checkout and workflow revision. A
 failed producer job may supply a completed checkpoint, but its failure status
 must remain visible; a success conclusion is not an evidence-integrity oracle.
+
+## Prequential forecast packet boundary
+
+`forecasts/prequential.py` owns causal prequential forecast packets for a downstream allocator. `PrequentialSchedule` fixes an expanding-window refit calendar (`first_fit_time`, `refit_interval_days`, optional `activation_delay_hours`); `PrequentialForecastSource` lazily fits one frozen vintage per scheduled cutoff through the existing `build_causal_forecast_training_set` and a small `PrequentialForecastFitter` protocol (`RidgeForecastFitter`; optional `LightGBMForecastFitter`), and serves `ForecastPacket(symbol, horizon_hours, decision_time, log point_forecast, vintage residual_variance, vintage_id, fit_time, fit_cutoff, max_training_label_available_at, digests)`. `ForecastPacket` enforces `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` at construction; the vintage residual variance is the sample-weighted in-sample squared residual of the training rows, so a caller can convert log to simple expectation with `expm1(mu + 0.5 * s2)`. The source builds the causal training set itself and hands a fitter only that frozen `CausalForecastTrainingSet` (never the `MarketDataset`), so a fitter cannot read rows after the cutoff; training residuals and every served point forecast go through the same `fitter.predict_rows` path and `model.predict` must agree with it. The module reads only the decision-row features and cutoff-bounded training rows, owns no account, ledger, or order logic, does not import evaluation, simulation or risk, and persists nothing. Unusable decision features yield `None` (caller treats it as no forecast); a non-dataset decision time, an unavailable decision row, or a vintage whose labels were not strictly earlier than its fit time raises.
 
 ## Dependency direction
 

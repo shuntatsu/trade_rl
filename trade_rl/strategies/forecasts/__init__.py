@@ -9,6 +9,15 @@ from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
 )
+from trade_rl.strategies.forecasts.prequential import (
+    ForecastPacket,
+    ForecastVintage,
+    LightGBMForecastFitter,
+    PrequentialForecastFitter,
+    PrequentialForecastSource,
+    PrequentialSchedule,
+    RidgeForecastFitter,
+)
 from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
@@ -28,9 +37,16 @@ __all__ = [
     "CausalForecastTrainingSet",
     "ForecastIntentConfig",
     "ForecastIntentController",
+    "ForecastPacket",
+    "ForecastVintage",
+    "LightGBMForecastFitter",
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
+    "PrequentialForecastFitter",
+    "PrequentialForecastSource",
+    "PrequentialSchedule",
     "RidgeForecastArtifactBinding",
+    "RidgeForecastFitter",
     "RidgeForecastModel",
     "RidgeForecastStrategy",
     "build_causal_forecast_training_set",

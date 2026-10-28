@@ -874,6 +874,10 @@ Even `PAPER_SCREEN_PASSED` retains `production_eligible=false`: observed paper
 marks, cost assumptions and public depth do not establish live fill guarantees,
 intraminute drawdown, optimal returns or private-account suitability.
 
+## Prequential forecast availability
+
+Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
+
 ## 非目標
 
 Lean coreが保証しないもの:

@@ -410,10 +410,13 @@ def test_label_batch_groups_overlapping_paths_and_blocks() -> None:
     first = _sample(fit_cutoff=cutoff)
     second_market = replace(_dataset(rise=-10), dataset_id="2" * 64)
     second = _sample(market=second_market, fit_cutoff=cutoff)
+    original_third = _dataset()
+    assert original_third.available_at is not None
     third_market = replace(
-        _dataset(),
+        original_third,
         dataset_id="3" * 64,
-        timestamps=_dataset().timestamps + np.timedelta64(31, "D"),
+        timestamps=original_third.timestamps + np.timedelta64(31, "D"),
+        available_at=original_third.available_at + np.timedelta64(31, "D"),
     )
     third = _sample(
         market=third_market,
@@ -455,7 +458,10 @@ def test_unavailable_feature_value_is_not_exposed_to_future_training() -> None:
     future_values = np.asarray(market.features).copy()
     future_values[1, 0, 0] = 999999.0
     masked_market = replace(
-        market, feature_available=unavailable, features=future_values
+        market,
+        feature_available=unavailable,
+        feature_staleness=None,
+        features=future_values,
     )
     paired = _paired(market=masked_market)
     with pytest.raises(ValueError, match="unavailable decision feature"):

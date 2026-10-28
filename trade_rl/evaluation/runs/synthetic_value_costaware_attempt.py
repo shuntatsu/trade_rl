@@ -263,7 +263,6 @@ def _preflight_cost_aware(
     )
 
 
-
 class _ExactQuantityCostAwareRidgePolicy:
     """Portfolio bridge for the existing Ridge+cost-aware controller.
 
@@ -324,7 +323,10 @@ class _ExactQuantityCostAwareRidgePolicy:
                 or snapshot.global_feature_names != self._global_feature_names
             ):
                 raise ValueError("cost-aware policy symbol/feature roster mismatch")
-            if snapshot.account.insolvent or snapshot.account.termination_reason is not None:
+            if (
+                snapshot.account.insolvent
+                or snapshot.account.termination_reason is not None
+            ):
                 raise ValueError("cost-aware policy cannot run after termination")
             if snapshot.active_orders:
                 raise ValueError("pending orders are unsupported by cost-aware v2")
@@ -349,7 +351,9 @@ class _ExactQuantityCostAwareRidgePolicy:
                         raise ValueError("noncanonical native exact position quantity")
                     quantity = float(exact)
                 except (ValueError, ZeroDivisionError, OverflowError) as error:
-                    raise ValueError("cost-aware exact position quantity is invalid") from error
+                    raise ValueError(
+                        "cost-aware exact position quantity is invalid"
+                    ) from error
                 if (
                     not math.isfinite(quantity)
                     or (exact != 0 and quantity == 0.0)
@@ -360,7 +364,9 @@ class _ExactQuantityCostAwareRidgePolicy:
                         abs_tol=1e-12,
                     )
                 ):
-                    raise ValueError("native exact and reporting quantities materially disagree")
+                    raise ValueError(
+                        "native exact and reporting quantities materially disagree"
+                    )
                 current = (
                     PositionIntent.LONG
                     if exact > 0
@@ -368,9 +374,8 @@ class _ExactQuantityCostAwareRidgePolicy:
                     if exact < 0
                     else PositionIntent.FLAT
                 )
-                if (
-                    not all(snapshot.feature_available[i])
-                    or not all(snapshot.global_feature_available)
+                if not all(snapshot.feature_available[i]) or not all(
+                    snapshot.global_feature_available
                 ):
                     raise ValueError("cost-aware prediction feature is unavailable")
                 obs = StrategyObservation(

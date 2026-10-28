@@ -342,6 +342,8 @@ class _ExactQuantityCostAwareRidgePolicy:
                 raw_exact = snapshot.account.exact_quantities[i]
                 try:
                     exact = Fraction(raw_exact)
+                    if str(exact) != raw_exact:
+                        raise ValueError("noncanonical native exact position quantity")
                     quantity = float(exact)
                 except (ValueError, ZeroDivisionError, OverflowError) as error:
                     raise ValueError("cost-aware exact position quantity is invalid") from error

@@ -337,18 +337,14 @@ def test_label_must_mature_strictly_before_fit(bad_cutoff: str) -> None:
 def test_late_settlement_receipt_blocks_preceding_fit() -> None:
     with pytest.raises(ValueError, match="matur|cutoff"):
         _sample(
-            settlement_record_available_at=np.datetime64(
-                "2026-01-01T12:00:00", "ns"
-            )
+            settlement_record_available_at=np.datetime64("2026-01-01T12:00:00", "ns")
         )
 
 
 def test_observation_arriving_after_decision_is_not_a_causal_feature() -> None:
     with pytest.raises(ValueError, match="observation|decision"):
         _sample(
-            observation_record_available_at=np.datetime64(
-                "2026-01-01T02:00:00", "ns"
-            )
+            observation_record_available_at=np.datetime64("2026-01-01T02:00:00", "ns")
         )
 
 
@@ -398,12 +394,8 @@ def test_sample_batch_groups_overlapping_paths_and_blocks_duplicate_or_mixed_vin
     )
     third = _sample(
         market=third_market,
-        observation_record_available_at=np.datetime64(
-            "2026-02-01T01:00:00", "ns"
-        ),
-        settlement_record_available_at=np.datetime64(
-            "2026-02-01T07:30:00", "ns"
-        ),
+        observation_record_available_at=np.datetime64("2026-02-01T01:00:00", "ns"),
+        settlement_record_available_at=np.datetime64("2026-02-01T07:30:00", "ns"),
         fit_cutoff=cutoff,
     )
     batch = build_synthetic_paired_label_batch(

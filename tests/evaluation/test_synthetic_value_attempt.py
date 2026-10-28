@@ -152,9 +152,7 @@ def test_native_three_arm_comparison_persists_and_strictly_reloads(
         assert (root / "arms" / family / "record.json").is_file()
         observed.append(family)
 
-    published = run_synthetic_value_attempt(
-        root, config, on_arm_completed=after_arm
-    )
+    published = run_synthetic_value_attempt(root, config, on_arm_completed=after_arm)
     assert observed == ["cash", "fixed_long", "linear_value"]
     assert published.root == root
     loaded = load_synthetic_value_attempt(
@@ -176,9 +174,7 @@ def test_native_three_arm_comparison_persists_and_strictly_reloads(
         )
         assert row["ledger"]["terminal_exact_quantities"] == ["0", "0"]
 
-    cash, fixed, value = (
-        float(row["terminal_equity"]) for row in loaded.arms
-    )
+    cash, fixed, value = (float(row["terminal_equity"]) for row in loaded.arms)
     assert cash == pytest.approx(1_000.0)
     if expected_action == _CASH:
         assert value == pytest.approx(cash)
@@ -209,9 +205,7 @@ def test_failure_after_durable_arm_keeps_raw_row_and_blocks_completion(
             raise RuntimeError("deliberate observer failure")
 
     with pytest.raises(RuntimeError, match="deliberate observer failure"):
-        run_synthetic_value_attempt(
-            root, config, on_arm_completed=fail_after_long
-        )
+        run_synthetic_value_attempt(root, config, on_arm_completed=fail_after_long)
     assert (root / "arms" / "cash" / "record.json").is_file()
     assert (root / "arms" / "fixed_long" / "record.json").is_file()
     assert not (root / "arms" / "linear_value" / "record.json").exists()
@@ -261,14 +255,10 @@ def test_preflight_rejects_cost_or_source_mismatch_before_reserving(
         )
     assert not root.exists()
     with pytest.raises(ValueError, match="synthetic"):
-        run_synthetic_value_attempt(
-            root, replace(config, source_scope="real_market")
-        )
+        run_synthetic_value_attempt(root, replace(config, source_scope="real_market"))
     assert not root.exists()
     with pytest.raises(ValueError, match="dataset"):
-        run_synthetic_value_attempt(
-            root, replace(config, expected_dataset_id="b" * 64)
-        )
+        run_synthetic_value_attempt(root, replace(config, expected_dataset_id="b" * 64))
     assert not root.exists()
 
 
@@ -281,7 +271,9 @@ def test_tampered_row_or_complete_marker_is_rejected_by_strict_loader(
     result = run_synthetic_value_attempt(root, config)
     row_path = root / "arms" / "fixed_long" / "record.json"
     original = row_path.read_text()
-    row_path.write_text(original.replace('"valid_endpoint":true', '"valid_endpoint":false'))
+    row_path.write_text(
+        original.replace('"valid_endpoint":true', '"valid_endpoint":false')
+    )
     with pytest.raises(ValueError, match="digest|tamper|valid"):
         load_synthetic_value_attempt(
             root,

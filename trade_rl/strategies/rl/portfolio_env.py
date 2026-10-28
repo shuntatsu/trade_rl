@@ -254,15 +254,8 @@ class SharedPortfolioGymEnv(gym.Env):
         self._session: SharedPortfolioSession | None = None
         self._episode_done = True
         self._episode_poisoned = False
-        self._seen_terminal_order_ids: set[str] = set()
         self._capturing_execution_observations: (
-            list[
-                tuple[
-                    StatefulExecutionObservation,
-                    tuple[tuple[str, str], ...],
-                ]
-            ]
-            | None
+            list[StatefulExecutionObservation] | None
         ) = None
 
     def reset(
@@ -283,10 +276,10 @@ class SharedPortfolioGymEnv(gym.Env):
             risk=PreTradeRisk(self.risk_config),
             market_order_profile=self.market_order_profile,
             settle_terminal_position=True,
-            execution_observer=self._observe_execution,
+            execution_observer=self.execution_observer,
+            execution_trace_observer=self._capture_execution_trace,
         )
         self._session = session
-        self._seen_terminal_order_ids.clear()
         self._episode_done = False
         self._episode_poisoned = False
         observation = self._encode_snapshot(self._snapshot())
@@ -309,12 +302,7 @@ class SharedPortfolioGymEnv(gym.Env):
         intervals_advanced = 0
         effective_holds: tuple[int, ...] = ()
         mutated = False
-        execution_observations: list[
-            tuple[
-                StatefulExecutionObservation,
-                tuple[tuple[str, str], ...],
-            ]
-        ] = []
+        execution_observations: list[StatefulExecutionObservation] = []
         transitions: list[dict[str, object]] = []
         self._capturing_execution_observations = execution_observations
         try:
@@ -408,23 +396,14 @@ class SharedPortfolioGymEnv(gym.Env):
         finally:
             self._capturing_execution_observations = None
 
-    def _observe_execution(self, observation: StatefulExecutionObservation) -> None:
-        """Forward the caller observer once, then retain this native interval."""
-
-        if self.execution_observer is not None:
-            self.execution_observer(observation)
+    def _capture_execution_trace(
+        self, observation: StatefulExecutionObservation
+    ) -> None:
+        """Retain the native interval facts using archive-suffix semantics."""
         capture = self._capturing_execution_observations
         if capture is None:
             raise RuntimeError("execution trace capture is not active")
-        new_terminal_reasons = tuple(
-            (order_id, reason)
-            for order_id, reason in observation.terminal_order_reasons
-            if order_id not in self._seen_terminal_order_ids
-        )
-        self._seen_terminal_order_ids.update(
-            order_id for order_id, _ in new_terminal_reasons
-        )
-        capture.append((observation, new_terminal_reasons))
+        capture.append(observation)
 
     @staticmethod
     def _decision_trace_transition(
@@ -432,17 +411,12 @@ class SharedPortfolioGymEnv(gym.Env):
         kind: str,
         start_index: int,
         risk_target: RiskConstrainedTarget,
-        execution_observations: list[
-            tuple[
-                StatefulExecutionObservation,
-                tuple[tuple[str, str], ...],
-            ]
-        ],
+        execution_observations: list[StatefulExecutionObservation],
         expected_observation_count: int,
     ) -> dict[str, object]:
         if len(execution_observations) != expected_observation_count:
             raise RuntimeError("native execution trace observation count is invalid")
-        observation, new_terminal_reasons = execution_observations[-1]
+        observation = execution_observations[-1]
         if observation.next_index != start_index + 1:
             raise RuntimeError("native execution trace index is inconsistent")
         proposal_weights = risk_target.proposal_weights
@@ -475,7 +449,7 @@ class SharedPortfolioGymEnv(gym.Env):
                 ],
                 "terminal_order_reasons": [
                     {"order_id": order_id, "reason": reason}
-                    for order_id, reason in new_terminal_reasons
+                    for order_id, reason in observation.terminal_order_reasons
                 ],
             },
         }

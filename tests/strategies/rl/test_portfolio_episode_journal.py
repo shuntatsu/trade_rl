@@ -16,6 +16,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.clock import FinancialClockContract
 from trade_rl.simulation.objectives.contract import CapitalContract, ObjectiveContract
+from trade_rl.simulation.orders.model import TerminalOrderArchive
 from trade_rl.strategies.rl.portfolio_env import (
     ACTION_FLAT,
     ACTION_HOLD,
@@ -382,6 +383,10 @@ def test_journal_records_risk_and_native_execution_trace_without_changing_observ
     cancellations = hold_execution["terminal_order_reasons"]
     assert {item["order_id"] for item in cancellations} == partial_order_ids
     assert {item["reason"] for item in cancellations} == {"superseded"}
+    assert {
+        order_id for order_id, _ in observed[1].terminal_order_reasons
+    } == partial_order_ids
+    assert observed[2].terminal_order_reasons == observed[1].terminal_order_reasons
     no_op_execution = infos[2]["decision_trace"]["transitions"][0][
         "execution_observation"
     ]
@@ -456,6 +461,25 @@ def test_journal_records_risk_and_native_execution_trace_without_changing_observ
         event["event_type"] == "rejected" and event["reason"] == "borrow_unavailable"
         for event in rejection_events
     )
+
+
+def test_default_trace_capture_does_not_iterate_cumulative_terminal_archive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _trace_environment()
+    env.reset(seed=29)
+    env.step(np.asarray([ACTION_LONG, ACTION_LONG], dtype=np.int64))
+    env.step(np.asarray([ACTION_HOLD, ACTION_HOLD], dtype=np.int64))
+
+    def fail_full_iteration(_archive: TerminalOrderArchive) -> object:
+        raise AssertionError("default trace capture iterated cumulative archive")
+
+    monkeypatch.setattr(TerminalOrderArchive, "__iter__", fail_full_iteration)
+    _, _, _, _, info = env.step(np.asarray([ACTION_HOLD, ACTION_HOLD], dtype=np.int64))
+
+    trace = info["decision_trace"]
+    execution = trace["transitions"][0]["execution_observation"]
+    assert execution["terminal_order_reasons"] == []
 
 
 def test_dummy_vec_env_records_invalid_episode_before_auto_reset(

@@ -49,10 +49,12 @@ GAE lambda、reward schemaを検証し、discountを経過時間から計算す�
 両contractを結ぶ。`terminal_profit_aligned` は `equity_delta_v1` と `gamma == 1.0`
 の代数的条件だけを示し、実環境でのreward parityを証明しない。
 
-これらはopt-in declarationsであり、現行PPO/replayに結線されていない。generic PPOの
-従来reward `log1p(interval_net_return)`、`gamma=0.99`、
-`settle_terminal_position=False` の既定は変わらない。新しいtraining objective、Study
-authorization、financial ledger、winner ruleを加えない。
+これらはopt-in declarationsであり、宣言そのものは台帳検算・Study認可・profitabilityを
+証明しない。現行のopt-in `SharedPortfolioGymEnv` は `BoundObjectiveClock` を要求し、
+`fit_shared_portfolio_ppo` は金融clockとgamma-one equity-delta rewardを接続する。
+ただしlegacy単銘柄PPOの従来reward `log1p(interval_net_return)`、`gamma=0.99`、
+`settle_terminal_position=False` の既定は変わらない。これらの接続も新しいfinancial
+ledger、winner rule、実市場学習・収益性の証拠を成立させない。
 
 ## Data contract
 

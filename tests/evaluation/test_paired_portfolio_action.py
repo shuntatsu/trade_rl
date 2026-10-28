@@ -234,3 +234,19 @@ def test_reference_factory_must_return_independent_actors() -> None:
     actor = _EnterThenHold()
     with pytest.raises(ValueError, match="distinct"):
         _paired(factory=lambda: actor)
+
+
+def test_unsettled_terminal_keeps_raw_arms_but_blocks_label() -> None:
+    market = _dataset()
+    volume = np.asarray(market.volume).copy()
+    volume[-1, 0] = 0.0  # no capacity to liquidate the held AAA unit
+    blocked = replace(market, volume=volume)
+    paired = _paired(market=blocked)
+
+    assert not paired.eligible_for_label
+    assert paired.delta_per_initial_capital is None
+    assert paired.baseline_result.book.exact_quantities != (0, 0)
+    assert paired.candidate_result.book.exact_quantities == (0, 0)
+    assert paired.baseline_result.ledger_evidence is not None
+    retained = paired.baseline_result.ledger_evidence.to_mapping()
+    assert retained["active_order_remainders"]

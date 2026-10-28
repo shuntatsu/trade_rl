@@ -16,8 +16,10 @@ from trade_rl.strategies.forecasts.prequential import (
     PrequentialSchedule,
     RidgeForecastFitter,
 )
-from trade_rl.strategies.forecasts.ridge import fit_ridge_forecast
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
+    build_causal_forecast_training_set,
+)
 
 START = np.datetime64("2026-01-01T00:00:00", "ns")
 HOUR = np.timedelta64(1, "h")
@@ -271,9 +273,9 @@ def test_no_fit_uses_a_cutoff_after_the_requested_decision_time() -> None:
     class SpyFitter:
         identity = inner.identity
 
-        def fit(self, dataset, **kwargs):  # type: ignore[no-untyped-def]
-            calls.append(kwargs["fit_cutoff"])
-            return inner.fit(dataset, **kwargs)
+        def fit(self, training):  # type: ignore[no-untyped-def]
+            calls.append(training.fit_cutoff)
+            return inner.fit(training)
 
         def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
             return inner.predict_rows(model, features)
@@ -312,6 +314,32 @@ def test_future_perturbation_leaves_earlier_packets_byte_identical(
     assert baseline.packet(0, later) != mutated.packet(0, later)
 
 
+def _weighted_standardization(
+    training: CausalForecastTrainingSet,
+) -> tuple[np.ndarray, np.ndarray]:
+    x, w = training.features, training.sample_weights
+    mean = (w[:, None] * x).sum(axis=0) / w.sum()
+    scale = np.sqrt((w[:, None] * (x - mean) ** 2).sum(axis=0) / w.sum())
+    return mean, scale
+
+
+def _lstsq_ridge(
+    training: CausalForecastTrainingSet, alpha: float
+) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    """Weighted ridge via an augmented least-squares system (independent oracle)."""
+
+    y, w = training.labels, training.sample_weights
+    mean, scale = _weighted_standardization(training)
+    z = (training.features - mean) / scale
+    y_mean = float((w * y).sum() / w.sum())
+    root = np.sqrt(w)
+    n_features = z.shape[1]
+    design = np.vstack([z * root[:, None], np.sqrt(alpha) * np.eye(n_features)])
+    target = np.concatenate([(y - y_mean) * root, np.zeros(n_features)])
+    coefficients, *_ = np.linalg.lstsq(design, target, rcond=None)
+    return y_mean, coefficients, mean, scale
+
+
 def test_residual_variance_matches_an_independent_computation() -> None:
     dataset = market()
     cutoff = START + 50 * DAY
@@ -321,28 +349,19 @@ def test_residual_variance_matches_an_independent_computation() -> None:
     training = build_causal_forecast_training_set(
         dataset, feature_indices=(0, 1), fit_cutoff=cutoff, horizon_hours=24
     )
-    model = fit_ridge_forecast(
-        dataset,
-        feature_indices=(0, 1),
-        fit_cutoff=cutoff,
-        horizon_hours=24,
-        alpha=10.0,
-    )
-    residuals = np.array(
-        [
-            label - model.predict(np.array(row))
-            for row, label in zip(training.features, training.labels, strict=True)
-        ]
-    )
+    intercept, coefficients, mean, scale = _lstsq_ridge(training, alpha=10.0)
+    fitted = intercept + ((training.features - mean) / scale) @ coefficients
+    residuals = training.labels - fitted
     expected = float(
         np.dot(training.sample_weights, residuals**2) / training.sample_weights.sum()
     )
-    assert packet.residual_variance == pytest.approx(expected, rel=1e-9)
+    assert packet.residual_variance == pytest.approx(expected, rel=1e-8)
     row = int((cutoff - START) / HOUR)
-    assert packet.point_forecast == pytest.approx(
-        model.predict(np.asarray(dataset.features[row, 1, :], dtype=np.float64)),
-        rel=1e-9,
+    decision_features = np.asarray(dataset.features[row, 1, :], dtype=np.float64)
+    expected_forecast = float(
+        intercept + ((decision_features - mean) / scale) @ coefficients
     )
+    assert packet.point_forecast == pytest.approx(expected_forecast, rel=1e-8)
     assert packet.n_training_samples == training.n_samples
 
 
@@ -358,15 +377,9 @@ def test_custom_fitter_protocol_is_supported() -> None:
     class ConstantFitter:
         identity = "constant-mean"
 
-        def fit(self, dataset, **kwargs):  # type: ignore[no-untyped-def]
-            training = build_causal_forecast_training_set(
-                dataset,
-                feature_indices=kwargs["feature_indices"],
-                fit_cutoff=kwargs["fit_cutoff"],
-                horizon_hours=kwargs["horizon_hours"],
-            )
+        def fit(self, training):  # type: ignore[no-untyped-def]
             mean = float(np.average(training.labels, weights=training.sample_weights))
-            return ConstantModel(kwargs["fit_cutoff"], mean)
+            return ConstantModel(training.fit_cutoff, mean)
 
         def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
             return np.full(features.shape[0], model.value)
@@ -395,16 +408,17 @@ def test_fitter_with_wrong_cutoff_or_nonfinite_rows_is_rejected() -> None:
     class WrongCutoff:
         identity = "wrong"
 
-        def fit(self, dataset, **kwargs):  # type: ignore[no-untyped-def]
-            kwargs["fit_cutoff"] = kwargs["fit_cutoff"] - HOUR
-            return inner.fit(dataset, **kwargs)
+        def fit(self, training):  # type: ignore[no-untyped-def]
+            return replace(inner.fit(training), fit_cutoff=training.fit_cutoff - HOUR)
 
         def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
             return inner.predict_rows(model, features)
 
-    class NanRows(WrongCutoff):
-        def fit(self, dataset, **kwargs):  # type: ignore[no-untyped-def]
-            return inner.fit(dataset, **kwargs)
+    class NanRows:
+        identity = "nan"
+
+        def fit(self, training):  # type: ignore[no-untyped-def]
+            return inner.fit(training)
 
         def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
             return np.full(features.shape[0], np.nan)
@@ -413,6 +427,124 @@ def test_fitter_with_wrong_cutoff_or_nonfinite_rows_is_rejected() -> None:
         source(market(), fitter=WrongCutoff()).packet(0, START + 30 * DAY)
     with pytest.raises(ValueError, match="finite prediction"):
         source(market(), fitter=NanRows()).packet(0, START + 30 * DAY)
+
+
+class RecordingFitter:
+    """Ridge fitter that records exactly what the source hands it."""
+
+    identity = "recording-ridge"
+
+    def __init__(self) -> None:
+        self.inner = RidgeForecastFitter(alpha=10.0)
+        self.received: list[object] = []
+        self.batches: list[np.ndarray] = []
+
+    def fit(self, training):  # type: ignore[no-untyped-def]
+        self.received.append(training)
+        return self.inner.fit(training)
+
+    def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
+        self.batches.append(np.array(features))
+        return self.inner.predict_rows(model, features)
+
+
+def test_fitter_receives_only_the_causal_training_set_never_the_dataset() -> None:
+    dataset = market()
+    recorder = RecordingFitter()
+    source(dataset, fitter=recorder).vintage_for(START + 30 * DAY)
+    (training,) = recorder.received
+    assert isinstance(training, CausalForecastTrainingSet)
+    expected = build_causal_forecast_training_set(
+        dataset, feature_indices=(0, 1), fit_cutoff=START + 20 * DAY, horizon_hours=24
+    )
+    assert training.fit_cutoff == START + 20 * DAY
+    np.testing.assert_array_equal(training.features, expected.features)
+    np.testing.assert_array_equal(training.labels, expected.labels)
+    np.testing.assert_array_equal(training.sample_weights, expected.sample_weights)
+    assert np.all(training.label_end_times < training.fit_cutoff)
+    # No attribute leads back to the dataset or to rows beyond the cutoff.
+    assert not any(
+        isinstance(getattr(training, name), MarketDataset)
+        for name in training.__slots__
+    )
+    assert not hasattr(training, "dataset")
+
+
+def test_peeking_fitter_inputs_are_invariant_to_post_cutoff_data() -> None:
+    cutoff_row = 20 * 24
+    clean, perturbed = RecordingFitter(), RecordingFitter()
+    source(market(), fitter=clean).vintage_for(START + 20 * DAY)
+    # Prices and features after the cutoff row are replaced wholesale.
+    source(market(mutate_after=cutoff_row), fitter=perturbed).vintage_for(
+        START + 20 * DAY
+    )
+    (a,) = clean.received
+    (b,) = perturbed.received
+    for name in ("features", "labels", "label_end_times", "sample_weights"):
+        assert getattr(a, name).tobytes() == getattr(b, name).tobytes(), name
+
+
+def test_legacy_dataset_taking_fitter_cannot_run() -> None:
+    inner = RidgeForecastFitter(alpha=10.0)
+
+    class DatasetFitter:
+        identity = "legacy"
+
+        def fit(  # type: ignore[no-untyped-def]
+            self,
+            dataset,
+            *,
+            feature_indices,
+            fit_symbol_indices,
+            fit_cutoff,
+            horizon_hours,
+        ):
+            raise AssertionError("fitters must not be handed the dataset")
+
+        def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
+            return inner.predict_rows(model, features)
+
+    with pytest.raises(TypeError):
+        source(market(), fitter=DatasetFitter()).packet(0, START + 30 * DAY)
+
+
+def test_point_forecast_and_residuals_share_the_predict_rows_path() -> None:
+    dataset = market()
+    spy = RecordingFitter()
+    decision = START + 30 * DAY
+    src = source(dataset, fitter=spy)
+    packet = src.packet(1, decision)
+    assert packet is not None
+    row = int((decision - START) / HOUR)
+    decision_features = np.asarray(dataset.features[row, 1, :], dtype=np.float64)
+    (training,) = spy.received
+    assert isinstance(training, CausalForecastTrainingSet)
+    # The residual batch and the decision row both go through predict_rows.
+    np.testing.assert_array_equal(spy.batches[0], training.features)
+    np.testing.assert_array_equal(spy.batches[-1], decision_features.reshape(1, -1))
+    model = src.vintage_for(decision).model
+    assert packet.point_forecast == float(
+        spy.inner.predict_rows(model, decision_features.reshape(1, -1))[0]
+    )
+    assert packet.point_forecast == pytest.approx(
+        model.predict(decision_features), rel=1e-12
+    )
+
+
+def test_model_predict_and_fitter_predict_rows_must_agree() -> None:
+    inner = RidgeForecastFitter(alpha=10.0)
+
+    class Inconsistent:
+        identity = "inconsistent"
+
+        def fit(self, training):  # type: ignore[no-untyped-def]
+            return inner.fit(training)
+
+        def predict_rows(self, model, features):  # type: ignore[no-untyped-def]
+            return inner.predict_rows(model, features) + 1e-3
+
+    with pytest.raises(ValueError, match="disagree"):
+        source(market(), fitter=Inconsistent()).packet(0, START + 30 * DAY)
 
 
 def test_unusable_decision_inputs_fail_closed() -> None:
@@ -440,17 +572,21 @@ def test_unusable_decision_inputs_fail_closed() -> None:
     assert packets[1] is None
 
 
-def test_lagged_availability_requires_activation_delay() -> None:
+def test_lagged_availability_activation_delay_only_covers_label_availability() -> None:
     dataset = market(available_lag_hours=1)
     decision = START + 30 * DAY
+    # Labels become available exactly at the cutoff, so a zero delay fails closed.
     with pytest.raises(ValueError, match="strictly before the fit time"):
         source(dataset).vintage_for(decision)
+    # A one-hour activation delay makes the vintage fit-able and servable...
     delayed = source(dataset, sched=schedule(activation_delay_hours=1))
     vintage = delayed.vintage_for(decision)
     assert vintage.fit_cutoff == START + 20 * DAY
     assert vintage.fit_time == START + 20 * DAY + HOUR
     assert vintage.max_training_label_available_at == START + 20 * DAY
-    # A bar whose availability lags its timestamp is never a decision row.
+    # ...but the delay does not make a decision row available earlier: a bar
+    # whose availability lags its timestamp is never a decision row, and the
+    # packet fails closed instead of serving look-ahead features.
     with pytest.raises(ValueError, match="decision row is not available"):
         delayed.packet(0, decision)
 

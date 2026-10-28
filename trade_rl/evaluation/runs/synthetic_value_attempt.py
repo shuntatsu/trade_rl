@@ -320,7 +320,7 @@ def run_synthetic_value_attempt(
                 policy,
                 start_index=config.start_index,
                 stop_index=config.stop_index,
-                initial_capital=float(config.initial_capital),
+                initial_capital=float(cast(float, config.initial_capital)),
                 execution_cost=config.execution_cost,
                 risk=PreTradeRisk(config.risk_config),
                 settle_terminal_position=True,

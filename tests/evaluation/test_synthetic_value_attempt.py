@@ -17,7 +17,6 @@ from trade_rl.evaluation.runs.synthetic_value_costaware_attempt import (
     run_synthetic_cost_aware_attempt,
     synthetic_ridge_fixture_digest,
 )
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel
 from trade_rl.evaluation.runs.synthetic_value_attempt import (
     SyntheticValueAttemptConfig,
     load_synthetic_value_attempt,
@@ -29,6 +28,7 @@ from trade_rl.strategies.decision_value import (
     LinearDecisionValueModel,
     serialize_linear_decision_value,
 )
+from trade_rl.strategies.forecasts.ridge import RidgeForecastModel
 from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
     ACTION_LONG,

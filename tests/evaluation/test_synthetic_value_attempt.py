@@ -11,16 +11,16 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.runs.synthetic_value_attempt import (
+    SyntheticValueAttemptConfig,
+    load_synthetic_value_attempt,
+    run_synthetic_value_attempt,
+)
 from trade_rl.evaluation.runs.synthetic_value_costaware_attempt import (
     SyntheticCostAwareAttemptConfig,
     load_synthetic_cost_aware_attempt,
     run_synthetic_cost_aware_attempt,
     synthetic_ridge_fixture_digest,
-)
-from trade_rl.evaluation.runs.synthetic_value_attempt import (
-    SyntheticValueAttemptConfig,
-    load_synthetic_value_attempt,
-    run_synthetic_value_attempt,
 )
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -359,12 +359,8 @@ def test_four_arm_cost_aware_v2_native_ledger_and_v1_backward_compatibility(
         assert (root / rel).is_file()
         observed.append(family)
 
-    published = run_synthetic_cost_aware_attempt(
-        root, config, on_arm_completed=capture
-    )
-    assert observed == [
-        "cash", "fixed_long", "linear_value", "cost_aware_ridge"
-    ]
+    published = run_synthetic_cost_aware_attempt(root, config, on_arm_completed=capture)
+    assert observed == ["cash", "fixed_long", "linear_value", "cost_aware_ridge"]
     assert (root / "three_arm_v1/complete/record.json").is_file()
     assert (root / "complete/record.json").is_file()
     loaded = load_synthetic_cost_aware_attempt(
@@ -426,9 +422,7 @@ def test_cost_aware_v2_rejects_wrong_model_and_cost_proxy_before_reserving(
         )
     assert not root.exists()
     with pytest.raises(ValueError, match="cost|proxy"):
-        run_synthetic_cost_aware_attempt(
-            root, replace(config, one_way_switch_cost=0.0)
-        )
+        run_synthetic_cost_aware_attempt(root, replace(config, one_way_switch_cost=0.0))
     assert not root.exists()
     with pytest.raises(ValueError, match="fit.cutoff|future"):
         run_synthetic_cost_aware_attempt(

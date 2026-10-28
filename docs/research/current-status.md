@@ -248,7 +248,7 @@ labelへ変換せず、native結果は保持する。reference policyのhidden s
 学習rowへ渡さない。複数rowの重複は拒否し、時系列が重なるlabelは同groupへ束ねる。
 参照policy digestとreceipt時刻は呼出側の宣言であり、真正な外部sourceやactor
 内部状態の検証ではないため、このmoduleから**実市場fitは認可されない**。
-[TD2 Draft PR #1028](https://github.com/shuntatsu/trade_rl/pull/1028) は
+[TD2 draft review](https://github.com/shuntatsu/trade_rl/pull/1028) は
 TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビューが必要である。
 
 これは[#1025](https://github.com/shuntatsu/trade_rl/issues/1025) TD1のsoftware準備であり、

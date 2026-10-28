@@ -381,8 +381,7 @@ def test_invalid_settlement_never_becomes_fit_sample() -> None:
         _sample(market=blocked, paired=pair)
 
 
-def test_sample_batch_groups_overlapping_paths_and_blocks_duplicate_or_mixed_vintage(
-) -> None:
+def test_label_batch_groups_overlapping_paths_and_blocks() -> None:
     cutoff = np.datetime64("2026-03-01T00:00:00", "ns")
     first = _sample(fit_cutoff=cutoff)
     second_market = replace(_dataset(rise=-10), dataset_id="2" * 64)

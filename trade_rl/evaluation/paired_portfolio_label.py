@@ -201,8 +201,7 @@ def _native_ledger(
         raise ValueError("native boundary ledger interval must be a mapping")
     phase = "after" if offset else "before"
     if (
-        observation.account.exact_quantities
-        != current_row[f"exact_quantities_{phase}"]
+        observation.account.exact_quantities != current_row[f"exact_quantities_{phase}"]
         or not math.isclose(
             observation.account.cash,
             float(current_row[f"cash_{phase}"]),

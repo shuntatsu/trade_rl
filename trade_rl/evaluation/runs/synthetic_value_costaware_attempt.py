@@ -11,6 +11,7 @@ import hashlib
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
@@ -41,7 +42,9 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
 )
-from trade_rl.strategies.portfolio_adapter import SingleSymbolPortfolioPolicyAdapter
+from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot, PortfolioTargetProposal
+from trade_rl.strategies.position_intent import PositionIntent
 
 _FAMILIES = ("cash", "fixed_long", "linear_value", "cost_aware_ridge")
 _STARTED = "synthetic_cost_aware_attempt_started_v2"
@@ -257,29 +260,156 @@ def _preflight_cost_aware(
     )
 
 
+
+class _ExactQuantityCostAwareRidgePolicy:
+    """Portfolio bridge for the existing Ridge+cost-aware controller.
+
+    The legacy generic adapter intentionally rejects even a one-ULP difference
+    between exact fractional quantity and its native float reporting view.
+    Here we verify a bounded reporting projection without changing that adapter
+    or the native BookState. Target intent semantics remain the adapter's:
+    LONG/SHORT -> signed budget, FLAT -> zero, with hard risk downstream.
+    """
+
+    __slots__ = (
+        "_symbols",
+        "_feature_names",
+        "_global_feature_names",
+        "_budgets",
+        "_strategies",
+        "_last_index",
+        "_last_timestamp_ns",
+        "_agent_stop_index",
+        "_poisoned",
+    )
+
+    def __init__(
+        self,
+        dataset: MarketDataset,
+        config: SyntheticCostAwareAttemptConfig,
+        target_abs_weights: tuple[float, ...],
+    ) -> None:
+        self._symbols = tuple(dataset.symbols)
+        self._feature_names = tuple(dataset.feature_names)
+        self._global_feature_names = tuple(dataset.global_feature_names)
+        self._budgets = target_abs_weights
+        self._strategies = tuple(
+            RidgeForecastStrategy(
+                config.forecast_model,
+                entry_threshold=config.entry_threshold,
+                exit_threshold=config.exit_threshold,
+                one_way_switch_cost=config.one_way_switch_cost,
+            )
+            for _ in self._symbols
+        )
+        self._last_index: int | None = None
+        self._last_timestamp_ns: int | None = None
+        self._agent_stop_index: int | None = None
+        self._poisoned = False
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        if self._poisoned:
+            raise RuntimeError("cost-aware policy is poisoned after a decision failure")
+        try:
+            if type(snapshot) is not PortfolioDecisionSnapshot:
+                raise TypeError("cost-aware policy requires a portfolio snapshot")
+            if (
+                snapshot.symbols != self._symbols
+                or snapshot.feature_names != self._feature_names
+                or snapshot.global_feature_names != self._global_feature_names
+            ):
+                raise ValueError("cost-aware policy symbol/feature roster mismatch")
+            if snapshot.account.insolvent or snapshot.account.termination_reason is not None:
+                raise ValueError("cost-aware policy cannot run after termination")
+            if snapshot.active_orders:
+                raise ValueError("pending orders are unsupported by cost-aware v2")
+            if self._last_index is not None and (
+                snapshot.index != self._last_index + 1
+                or self._last_timestamp_ns is None
+                or snapshot.timestamp_ns <= self._last_timestamp_ns
+                or snapshot.agent_stop_index != self._agent_stop_index
+            ):
+                raise ValueError("cost-aware policy decision clock is not contiguous")
+            timestamp = np.datetime64(snapshot.timestamp_ns, "ns")
+            if np.isnat(timestamp):
+                raise ValueError("cost-aware decision timestamp must not be NaT")
+            targets: list[float] = []
+            for i, (strategy, budget) in enumerate(
+                zip(self._strategies, self._budgets, strict=True)
+            ):
+                raw_exact = snapshot.account.exact_quantities[i]
+                try:
+                    exact = Fraction(raw_exact)
+                    quantity = float(exact)
+                except (ValueError, ZeroDivisionError, OverflowError) as error:
+                    raise ValueError("cost-aware exact position quantity is invalid") from error
+                if (
+                    not math.isfinite(quantity)
+                    or (exact != 0 and quantity == 0.0)
+                    or not math.isclose(
+                        quantity,
+                        snapshot.account.quantities[i],
+                        rel_tol=1e-12,
+                        abs_tol=1e-12,
+                    )
+                ):
+                    raise ValueError("native exact and reporting quantities materially disagree")
+                current = (
+                    PositionIntent.LONG
+                    if exact > 0
+                    else PositionIntent.SHORT
+                    if exact < 0
+                    else PositionIntent.FLAT
+                )
+                if (
+                    not all(snapshot.feature_available[i])
+                    or not all(snapshot.global_feature_available)
+                ):
+                    raise ValueError("cost-aware prediction feature is unavailable")
+                obs = StrategyObservation(
+                    index=snapshot.index,
+                    timestamp=timestamp,
+                    symbol=self._symbols[i],
+                    features=np.asarray(snapshot.features[i], dtype=np.float64),
+                    feature_available=np.asarray(
+                        snapshot.feature_available[i], dtype=np.bool_
+                    ),
+                    feature_staleness=np.asarray(
+                        snapshot.feature_staleness[i], dtype=np.float32
+                    ),
+                    global_features=np.asarray(
+                        snapshot.global_features, dtype=np.float64
+                    ),
+                    global_feature_available=np.asarray(
+                        snapshot.global_feature_available, dtype=np.bool_
+                    ),
+                    current_intent=current,
+                    current_weight=snapshot.account.weights[i],
+                    current_position_quantity=quantity,
+                    intent_gross_budget=budget,
+                )
+                intent = strategy.decide(obs)
+                if not isinstance(intent, PositionIntent):
+                    raise TypeError("cost-aware Ridge returned a non-intent action")
+                targets.append(float(int(intent)) * budget)
+            proposal = PortfolioTargetProposal(target_weights=tuple(targets))
+        except BaseException:
+            self._poisoned = True
+            raise
+        self._last_index = snapshot.index
+        self._last_timestamp_ns = snapshot.timestamp_ns
+        self._agent_stop_index = snapshot.agent_stop_index
+        return proposal
+
+
 def _cost_aware_policy(
     dataset: MarketDataset,
     config: SyntheticCostAwareAttemptConfig,
     target_abs_weights: tuple[float, ...],
-) -> SingleSymbolPortfolioPolicyAdapter:
-    forecast = config.forecast_model
-
-    def make_strategy() -> RidgeForecastStrategy:
-        return RidgeForecastStrategy(
-            forecast,
-            entry_threshold=config.entry_threshold,
-            exit_threshold=config.exit_threshold,
-            one_way_switch_cost=config.one_way_switch_cost,
-        )
-
-    # The existing adapter creates a separate RidgeForecastStrategy per symbol.
-    return SingleSymbolPortfolioPolicyAdapter(
-        symbols=tuple(dataset.symbols),
-        feature_names=tuple(dataset.feature_names),
-        global_feature_names=tuple(dataset.global_feature_names),
-        intent_gross_budgets=target_abs_weights,
-        strategy_factories=tuple(make_strategy for _ in dataset.symbols),
-    )
+) -> _ExactQuantityCostAwareRidgePolicy:
+    return _ExactQuantityCostAwareRidgePolicy(dataset, config, target_abs_weights)
 
 
 def _v2_rows(

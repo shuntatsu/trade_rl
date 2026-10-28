@@ -855,10 +855,15 @@ the endpoint is settled, flat, order-free, non-insolvent, and has no
 termination reason. It does not establish all objective/risk/digest checks or
 study admission. A stop cannot prevent a larger realized drawdown after a
 price gap. The existing native insolvency path floors terminal cash/equity at
-zero; the adapter adds no reward clipping but does not establish debt-loss
-semantics below -100% of fixed initial capital. Insolvent episodes remain
-invalid rather than being filtered. This adapter is not a trainer and
-establishes no learned-policy or economic result.
+zero by default; the opt-in native `retain_debt` mode preserves signed terminal
+cash while keeping existing return fields bounded near -100% for finite
+log-return reporting. The adapter adds no reward clipping but does not establish
+debt-loss semantics below -100% of fixed initial capital unless its caller uses
+that native mode and reads terminal `BookState` equity. Insolvent episodes
+remain invalid rather than being filtered. This adapter is not a trainer and
+establishes no learned-policy or economic result. See
+[`insolvency-valuation.md`](insolvency-valuation.md) for the native accounting
+contract.
 
 ### GYM-002 — forward observation-transform binding
 

@@ -329,11 +329,20 @@ class MarketExecutor:
         *,
         rule_stress: ExecutionRuleStress | None = None,
         market_order_profile: MarketOrderProfile | None = None,
+        insolvency_valuation: str = "floor_zero",
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
     ) -> None:
+        if not isinstance(insolvency_valuation, str) or insolvency_valuation not in {
+            "floor_zero",
+            "retain_debt",
+        }:
+            raise ValueError(
+                "insolvency_valuation must be 'floor_zero' or 'retain_debt'"
+            )
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        self._insolvency_valuation = insolvency_valuation
         if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
             raise ValueError(
                 "isolated margin requires a per-symbol collateral ledger; "
@@ -351,6 +360,7 @@ class MarketExecutor:
                 ExecutionRuleStress,
                 MarketOrderProfile | None,
                 tuple[str, ...],
+                str,
             ]
             | None
         ) = None
@@ -378,6 +388,10 @@ class MarketExecutor:
         self._rng = np.random.default_rng(self.cost.random_seed)
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
+
+    @property
+    def insolvency_valuation(self) -> str:
+        return self._insolvency_valuation
 
     def _base_rule_array(
         self,
@@ -649,7 +663,9 @@ class MarketExecutor:
         return result
 
     def _flatten_after_termination(self, book: BookState, prices: np.ndarray) -> None:
-        value = max(book.portfolio_value, 0.0)
+        value = book.portfolio_value
+        if self.insolvency_valuation == "floor_zero":
+            value = max(value, 0.0)
         book.quantities = np.zeros_like(book.quantities)
         book.mark_prices = prices.copy()
         book.cash = value
@@ -954,6 +970,7 @@ class MarketExecutor:
             self.rule_stress,
             self.market_order_profile,
             trigger_fraction_snapshot,
+            self.insolvency_valuation,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -964,6 +981,7 @@ class MarketExecutor:
             and previous_inputs[1] is self.rule_stress
             and previous_inputs[2] is self.market_order_profile
             and previous_inputs[3] == trigger_fraction_snapshot
+            and previous_inputs[4] == self.insolvency_valuation
         ):
             return cached_digest
 
@@ -986,6 +1004,15 @@ class MarketExecutor:
             )
         else:
             digest = self.cost.execution_policy_digest
+
+        if self.insolvency_valuation == "retain_debt":
+            digest = content_digest(
+                {
+                    "base_policy_digest": digest,
+                    "insolvency_valuation": self.insolvency_valuation,
+                    "schema_version": "insolvency_valuation_execution_policy_v1",
+                }
+            )
 
         self._execution_policy_digest_cache_inputs = cache_inputs
         self._execution_policy_digest_cache = digest

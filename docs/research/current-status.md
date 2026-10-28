@@ -235,6 +235,26 @@ expected-return source is caller supplied; no forecast model, data, replay resul
 selection is part of this change. It is not a profitability claim and changes no existing
 economic criterion.
 
+## Issue #810 P2: development real-data walk-forward study (NO_WINNER; 2026-10-29)
+
+`trade_rl.evaluation.dev_realdata_study` ran the preregistered P2 study once on the local development Dataset (5 USDT-perpetual symbols, 1h bars 2021-01..2026-08, zero fees baked in, costs applied by the replay: fee 0.05%/side, spread 0.02%, impact 0.01%, participation cap 5%). Pooled Ridge (alpha 10, 56 `1h__` non-funding features, expanding window, 30-day refit) gave 24h and 72h log forecasts; the cost-aware allocator (gamma 5, w_max 0.5, gross 0.95) traded daily at 00:00 UTC inside one continuous 10,000 USDT shared-account replay per arm and scenario over 2023-01-01..2026-08-01, settled flat at the end. The frozen protocol (all parameters, arm roster, selection rule, recorded deviations) is `dev_realdata_study/protocol.py`; the compact result is `report/dev-realdata-study-p2-20261029.json`.
+
+Result: **NO_WINNER**. Terminal net profit / max drawdown (%):
+
+| Arm | base | cost x2 | +1 bar latency |
+| --- | ---: | ---: | ---: |
+| CASH | 0.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 |
+| equal-weight buy-and-hold | +95.9 / 63.4 | +95.7 / 63.4 | +95.9 / 63.4 |
+| allocator 24h long/short | -50.4 / 58.8 | -71.1 / 76.0 | -56.7 / 64.3 |
+| allocator 72h long/short | -19.7 / 53.1 | -65.0 / 66.5 | -63.8 / 67.5 (invalid) |
+| allocator 24h long-only | +22.4 / 49.7 | -7.1 / 55.2 | +66.5 / 53.2 |
+
+Every allocator arm breached the 20% drawdown gate (worst 55% to 76%), and none beat CASH under both base and cost x2 together with the gate. The 72h latency row failed the preregistered terminal-flat check (about 11 USDT of position left at the end), so that arm is invalid; the cash-flow identity itself reconciled. All other replays reconciled against raw fills to under 1e-9 USDT, and the real-data future-perturbation causality probe passed. No allocator decision ended as a fail-closed HOLD (0 of 1,308 per arm/scenario). Equal-weight buy-and-hold beat every allocator arm in the base scenario; the 20-day block-bootstrap CIs of daily excess versus CASH and versus buy-and-hold include zero for every allocator arm (Bonferroni over 7 comparisons per scenario).
+
+What this does and does not show (base scenario, USDT on 10,000 capital). Forecast |mu| (about 0.36% per day) exceeded the one-way cost (0.07%) on about 86% of days, so the allocator traded almost every day (turnover 677 to 1,090 over 3.6 years). Gross price P&L / execution cost / funding: 24h long/short +158 / 5,097 / -99; 72h long/short +4,648 / 6,304 / -309; 24h long-only +9,275 / 6,075 / -958; buy-and-hold +14,753 / 24 / -5,143. Execution cost exceeded the gross price P&L of both long/short arms and consumed about two thirds of the long-only arm's. The allocator cost `c_i` (fee + spread) is a lower bound because participation impact is charged by the executor but not modelled by the allocator. Funding was a drag on the long-biased arms. The long-only arm's latency row is far better than base (+66.5% versus +22.4%) while its cost x2 row is negative, which indicates high sensitivity to execution assumptions rather than robustness.
+
+Limits: this is development evidence only and never a WINNER. The 2023-2026 data were already seen by the earlier breakeven diagnostic, so it is not confirmatory; one fixed configuration per arm was run once, with no tuning. Costs are fixed assumptions, not calibrated to realized execution; XRP lacks 120 bars in 2022 (non-tradable, forward-filled marks); 4h/1d features are aggregated from 1h and unused here; features are the 1h roster only. Confirmatory evaluation would need the unused window and a separate authorization.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

@@ -73,6 +73,7 @@ trade_rl/
 │   ├── portfolio_observation.py
 │   ├── portfolio_adapter.py
 │   ├── portfolio_policy_codec.py
+│   ├── decision_value.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
@@ -82,6 +83,7 @@ trade_rl/
     ├── replay.py
     ├── paired_portfolio_action.py
     ├── paired_portfolio_label.py
+    ├── decision_value_fit.py
     ├── portfolio_inference.py
     ├── bot.py
     ├── metrics.py

@@ -238,7 +238,18 @@ native ledger prefixが一致しなければ失敗し、random slippageをv1で�
 HOLDはexact quantity request、terminal処理は既存ownerのままとし、ラベルは両armの
 決済済み・非insolvent・無残注文の正常終端でのみ有効とする。失敗・insolvencyを成功
 labelへ変換せず、native結果は保持する。reference policyのhidden stateが一致する証明や、
-training label maturity・prequential fit・結果保存のone-shot authorityはまだない。
+実市場のsource/PIT evidence・prequential fit・結果保存のone-shot authorityはまだない。
+
+後続のopt-in `evaluation/paired_portfolio_label.py` は**人工データ専用**として、
+決定時のsnapshotとnative ledgerのDataset/execution identity・申告した行動の一致を
+照合し、終端時刻・市場入力のavailable-at・明示的な人工settlement receiptの
+最大時刻よりもfit cutoffを厳密に後へ置く。条件を満たさないラベルは拒否する。
+符号付き実現差額と決定時snapshotを保持し、未来価格経路やnative BookStateは
+学習rowへ渡さない。複数rowの重複は拒否し、時系列が重なるlabelは同groupへ束ねる。
+参照policy digestとreceipt時刻は呼出側の宣言であり、真正な外部sourceやactor
+内部状態の検証ではないため、このmoduleから**実市場fitは認可されない**。
+[TD2 Draft PR #1028](https://github.com/shuntatsu/trade_rl/pull/1028) は
+TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビューが必要である。
 
 これは[#1025](https://github.com/shuntatsu/trade_rl/issues/1025) TD1のsoftware準備であり、
 [#1027](https://github.com/shuntatsu/trade_rl/pull/1027)に実装・合成反証を載せる。

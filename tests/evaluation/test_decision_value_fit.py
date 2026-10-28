@@ -18,7 +18,11 @@ from trade_rl.evaluation.paired_portfolio_label import (
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.strategies.decision_value import LinearDecisionValuePolicy
+from trade_rl.strategies.decision_value import (
+    LinearDecisionValueModel,
+    LinearDecisionValuePolicy,
+    LinearDecisionValueRuntimeContext,
+)
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioTargetProposal,
@@ -107,6 +111,19 @@ class _AlwaysLong:
         return portfolio_action_to_proposal(_LONG, snapshot, (0.4, 0.4))
 
 
+def _policy(
+    model: LinearDecisionValueModel, market: MarketDataset
+) -> LinearDecisionValuePolicy:
+    context = LinearDecisionValueRuntimeContext(
+        source_scope="synthetic_only",
+        feature_config_digest=market.feature_config_digest,
+        normalization_digest=market.normalization_digest,
+        execution_policy_digest=model.execution_policy_digest,
+        reference_policy_digest=model.reference_policy_digest,
+    )
+    return LinearDecisionValuePolicy(model, runtime_context=context)
+
+
 def _native(market: MarketDataset, policy: object) -> float:
     result = run_shared_portfolio_replay(
         market,
@@ -191,7 +208,7 @@ def test_real_small_fit_replays_frozen_policy_on_separate_synthetic_periods() ->
     always_long_values = []
     for signal, move in ((0.0, 0.0), (0.8, 0.018), (-0.8, -0.018)):
         market = _market(signal=signal, move=move, day="2026-03-03", tag="unused-toy")
-        policy = LinearDecisionValuePolicy(model)
+        policy = _policy(model, market)
         learned = _native(market, policy)
         cash = _native(market, _Hold())
         always_long = _native(market, _AlwaysLong())
@@ -210,18 +227,18 @@ def test_real_small_fit_replays_frozen_policy_on_separate_synthetic_periods() ->
     good_tail = _market(signal=0.8, move=0.018, day="2026-03-03", tag="good-tail")
 
     class _Capture:
-        def __init__(self) -> None:
-            self.first = None
+        def __init__(self, market: MarketDataset) -> None:
+            self.actor = _policy(model, market)
+            self.first: tuple[int, ...] | None = None
 
         def decide_portfolio(
             self, snapshot: PortfolioDecisionSnapshot
         ) -> PortfolioTargetProposal:
-            actor = LinearDecisionValuePolicy(model)
             if self.first is None:
-                self.first = actor.decide_action(snapshot)
-            return actor.decide_portfolio(snapshot)
+                self.first = self.actor.decide_action(snapshot)
+            return self.actor.decide_portfolio(snapshot)
 
-    first, second = _Capture(), _Capture()
+    first, second = _Capture(good_tail), _Capture(bad_tail)
     good = _native(good_tail, first)
     bad = _native(bad_tail, second)
     assert first.first == second.first == _LONG

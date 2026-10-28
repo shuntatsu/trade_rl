@@ -63,7 +63,9 @@ class _OneDecisionOverride:
         self._intervention_index = intervention_index
         self._action = action
         self._target_abs_weights = target_abs_weights
-        self.prefix: list[tuple[PortfolioDecisionSnapshot, PortfolioTargetProposal]] = []
+        self.prefix: list[
+            tuple[PortfolioDecisionSnapshot, PortfolioTargetProposal]
+        ] = []
         self.intervention_snapshot: PortfolioDecisionSnapshot | None = None
 
     def decide_portfolio(
@@ -215,7 +217,10 @@ def run_paired_portfolio_action(
 
     baseline_result = replay(baseline)
     candidate_result = replay(candidate)
-    if baseline.intervention_snapshot is None or candidate.intervention_snapshot is None:
+    if (
+        baseline.intervention_snapshot is None
+        or candidate.intervention_snapshot is None
+    ):
         raise RuntimeError("paired replay did not reach the intervention decision")
     if (
         len(baseline.prefix) != intervention_index - start_index

@@ -353,9 +353,7 @@ def test_two_matching_but_forged_decision_snapshots_are_not_admitted() -> None:
     pair = _paired(market=market)
     snapshot = pair.baseline_snapshot
 
-    forged_feature = replace(
-        snapshot, features=((12345.0,), snapshot.features[1])
-    )
+    forged_feature = replace(snapshot, features=((12345.0,), snapshot.features[1]))
     forged_pair = replace(
         pair, baseline_snapshot=forged_feature, candidate_snapshot=forged_feature
     )

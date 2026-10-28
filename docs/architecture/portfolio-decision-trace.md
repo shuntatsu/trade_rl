@@ -29,8 +29,11 @@ The trace contains:
 - Each transition's `execution_observation`, copied from the same native
   execution observation delivered to the optional caller observer. It includes
   canonical order events, active remainder quantities, and terminal order
-  reasons. Native order IDs, event sequence, processing index, and timestamp
-  remain attached to each event.
+  reasons newly present in the native terminal-order archive for that episode.
+  The native observation itself may expose its cumulative archive; the trace
+  records each terminal order ID once per episode, in archive order, and starts
+  a fresh delta at reset. Native order IDs, event sequence, processing index,
+  and timestamp remain attached to each event.
 - `account_delta`, containing cash and equity before and after the Gym step,
   the equity change, and exact quantity strings before and after. Terminal
   settlement intervals are included in this step-level delta.
@@ -45,10 +48,12 @@ facts rather than duplicating observations or the full portfolio book.
 
 The environment composes internal capture with the existing optional observer.
 For each native interval it calls the caller's observer once, then retains that
-same observation for the step trace. A step that includes terminal settlement
-can therefore contain multiple transitions and execution observations. The
-capture checks that each native interval produced exactly one observation at
-the expected next index.
+same unmodified observation for the step trace while serializing only terminal
+archive entries not already recorded in the episode. This preserves interval-
+local trace facts without changing the native observer's cumulative archive
+contract. A step that includes terminal settlement can therefore contain
+multiple transitions and execution observations. The capture checks that each
+native interval produced exactly one observation at the expected next index.
 
 Observer or trace-capture errors propagate through the existing fail-closed
 path. After possible native mutation, the environment and session are poisoned

@@ -368,6 +368,7 @@ def test_journal_records_risk_and_native_execution_trace_without_changing_observ
     ]
     assert len(partials) == 2
     partial_order_ids = {event["order_id"] for event in partials}
+    assert {event["requested_quantity"] for event in partials} == {2.5}
     assert {event["filled_quantity"] for event in partials} == {1.0}
     assert {event["remaining_quantity"] for event in partials} == {1.5}
     first_account_delta = first_trace["account_delta"]
@@ -381,6 +382,10 @@ def test_journal_records_risk_and_native_execution_trace_without_changing_observ
     cancellations = hold_execution["terminal_order_reasons"]
     assert {item["order_id"] for item in cancellations} == partial_order_ids
     assert {item["reason"] for item in cancellations} == {"superseded"}
+    no_op_execution = infos[2]["decision_trace"]["transitions"][0][
+        "execution_observation"
+    ]
+    assert no_op_execution["terminal_order_reasons"] == []
 
     terminal_trace = infos[-1]["decision_trace"]
     assert isinstance(terminal_trace, dict)
@@ -393,10 +398,12 @@ def test_journal_records_risk_and_native_execution_trace_without_changing_observ
         event["order_id"] for event in close_events if event["event_type"] == "filled"
     }
     assert close_order_ids.isdisjoint(partial_order_ids)
-    assert any(
-        event["event_type"] == "filled" and event["filled_quantity"] == -1.0
-        for event in close_events
-    )
+    terminal_fills = [
+        event for event in close_events if event["event_type"] == "filled"
+    ]
+    assert len(terminal_fills) == 2
+    assert {event["symbol_index"] for event in terminal_fills} == {0, 1}
+    assert {event["filled_quantity"] for event in terminal_fills} == {-1.0}
     assert terminal_trace["account_delta"]["equity_after"] == 996.0
     assert infos[-1]["terminal_state"]["exact_quantities"] == ("0", "0")
 
@@ -417,6 +424,19 @@ def test_journal_records_risk_and_native_execution_trace_without_changing_observ
         json.loads(json.dumps(infos[-1]["decision_trace"]))
         == infos[-1]["decision_trace"]
     )
+
+    # Native order IDs can be deterministic across episodes; a reset starts a
+    # fresh archive delta and must record the same terminal facts again.
+    journal.reset(seed=29)
+    journal.step(np.asarray([ACTION_LONG, ACTION_LONG], dtype=np.int64))
+    _, _, _, _, fresh_cancel_info = journal.step(
+        np.asarray([ACTION_HOLD, ACTION_HOLD], dtype=np.int64)
+    )
+    fresh_cancel_reasons = fresh_cancel_info["decision_trace"]["transitions"][0][
+        "execution_observation"
+    ]["terminal_order_reasons"]
+    assert {item["order_id"] for item in fresh_cancel_reasons} == partial_order_ids
+    assert {item["reason"] for item in fresh_cancel_reasons} == {"superseded"}
 
     rejection_root = tmp_path / "rejection-journal"
     rejection_journal = PortfolioEpisodeJournalWrapper(

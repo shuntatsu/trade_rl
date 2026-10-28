@@ -98,9 +98,7 @@ class _FixedEntryPolicy:
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
         codes = (
-            (ACTION_HOLD,) * len(snapshot.symbols)
-            if self._entered
-            else self._action
+            (ACTION_HOLD,) * len(snapshot.symbols) if self._entered else self._action
         )
         self._entered = True
         return portfolio_action_to_proposal(codes, snapshot, self._weights)
@@ -189,7 +187,8 @@ def _preflight(
         type(config.fixed_action) is not tuple
         or decode_portfolio_action_codes(
             config.fixed_action, n_symbols=dataset.n_symbols
-        ) not in model.candidate_actions[1:]
+        )
+        not in model.candidate_actions[1:]
     ):
         raise ValueError("fixed action must be a declared non-HOLD candidate")
     source_times = dataset.resolved_array("available_at")

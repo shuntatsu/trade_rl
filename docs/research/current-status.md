@@ -265,8 +265,12 @@ TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビュ�
 市場の将来pathやevaluation/replayからfutureの情報を読み込まない。
 推定値が正の固定marginを超えないときはquantity-preserving HOLDを返し、
 pending注文、欠損feature、roster不一致、fit cutoff以前の推論は明示的に拒否する。
-推論後のhard risk、pending reconciliation、約定、fee/funding、BookStateは従来の
-simulation ownerが扱い、推定価値はその会計を置き換えない。
+推論時は `LinearDecisionValueRuntimeContext` のsynthetic source scopeと
+feature/normalizer/execution/reference-policyの申告digestがfit済みmodelと
+一致することを必須とする。callerの申告だけで市場sourceやactual executorが
+独立認証されたとは扱わない。推論後のhard risk、pending reconciliation、
+約定、fee/funding、BookStateは従来のsimulation ownerが扱い、
+推定価値はその会計を置き換えない。
 
 `evaluation/decision_value_fit.py` は `SyntheticPairedLabelBatch` だけを受け、
 成熟済みの符号付きnative終端口座差額をfixed penaltyのRidgeで一度だけfitし、

@@ -21,6 +21,8 @@ class BuyAndHoldPortfolioPolicy:
     The default budget leaves 1% cash because entry costs are paid from equity: a
     book invested at exactly the pre-trade gross limit would sit slightly above it
     and the shared risk layer would keep trimming it instead of holding.
+    After account termination (insolvency or a termination reason) the policy holds
+    every quantity instead of raising, matching the allocator's fail-closed hold.
     The policy owns no account; the shared portfolio session owns fills and P&L.
     Instances carry replay state and must not be reused across replays.
     """
@@ -78,9 +80,14 @@ class BuyAndHoldPortfolioPolicy:
             raise ValueError("snapshot timestamps must increase between decisions")
         self._last_timestamp_ns = snapshot.timestamp_ns
         account = snapshot.account
-        if account.insolvent or account.termination_reason is not None:
-            raise ValueError("buy-and-hold is unavailable after account termination")
         n_symbols = len(self._symbols)
+        hold_all = PortfolioTargetProposal(
+            target_weights=account.weights,
+            hold_current_quantity_symbols=tuple(range(n_symbols)),
+        )
+        if account.insolvent or account.termination_reason is not None:
+            # Fail closed like the allocator: never open or add after termination.
+            return hold_all
         if self._first_index is None:
             self._first_index = snapshot.index
             return self._equal_weights(n_symbols)
@@ -89,10 +96,7 @@ class BuyAndHoldPortfolioPolicy:
             and (snapshot.index - self._first_index) % self._rebalance_every_bars == 0
         ):
             return self._equal_weights(n_symbols)
-        return PortfolioTargetProposal(
-            target_weights=account.weights,
-            hold_current_quantity_symbols=tuple(range(n_symbols)),
-        )
+        return hold_all
 
     def _equal_weights(self, n_symbols: int) -> PortfolioTargetProposal:
         return PortfolioTargetProposal(

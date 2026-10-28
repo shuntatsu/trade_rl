@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -13,6 +15,10 @@ from tests.strategies.test_cost_aware_allocator import (
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.allocation.buy_and_hold import BuyAndHoldPortfolioPolicy
+from trade_rl.strategies.portfolio import (
+    PortfolioDecisionSnapshot,
+    PortfolioTargetProposal,
+)
 
 
 def _run(
@@ -111,3 +117,35 @@ def test_roster_mismatch_and_non_increasing_time_are_rejected() -> None:
         run_shared_portfolio_replay(
             dataset, policy, start_index=0, stop_index=48, initial_capital=CAPITAL
         )
+
+
+@pytest.mark.parametrize("mode", ["insolvent", "terminated"])
+def test_terminated_account_holds_instead_of_raising_or_trading(mode: str) -> None:
+    """Fail closed like the allocator, even on the very first decision."""
+
+    seen: list[PortfolioDecisionSnapshot] = []
+
+    class _Capture:
+        def decide_portfolio(
+            self, snapshot: PortfolioDecisionSnapshot
+        ) -> PortfolioTargetProposal:
+            seen.append(snapshot)
+            return BuyAndHoldPortfolioPolicy(symbols=SYMBOLS).decide_portfolio(snapshot)
+
+    run_shared_portfolio_replay(
+        _dataset(_noise(seed=2)),
+        _Capture(),
+        start_index=0,
+        stop_index=24,
+        initial_capital=CAPITAL,
+    )
+    base = seen[0]
+    account = (
+        replace(base.account, insolvent=True)
+        if mode == "insolvent"
+        else replace(base.account, termination_reason="max_drawdown")
+    )
+    dead = replace(base, account=account)
+    proposal = BuyAndHoldPortfolioPolicy(symbols=SYMBOLS).decide_portfolio(dead)
+    assert proposal.target_weights == account.weights
+    assert proposal.hold_current_quantity_symbols == (0, 1, 2)

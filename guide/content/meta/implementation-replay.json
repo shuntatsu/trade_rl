@@ -49,7 +49,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "baa9714d6bb07b35b619003e479ca8377040612339f604e4ea38b2bbc726bc2a"
+      "sha256": "d4a7e91e2726a80e51752a1d8a8d168edec5ff129a6df47f17661158dc73e864"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -59,7 +59,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "57d4b29e563816657c4e744bf5f672b104a94f55d07abe77f4ee00fae689d6e4"
+      "sha256": "c8c475ffd07e160d9abeb1561893820aba936dcad9478ad75e2630325e7809cd"
     },
     {
       "path": "docs/architecture/research-assurance.md",

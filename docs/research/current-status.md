@@ -227,7 +227,8 @@ Issue #810のP4にある残差PPO比較armとzero-residual parityはこのscreen
 buy-and-hold control for the P2 net-of-fee non-RL line (causal forecast packets ->
 cost-aware allocation -> one continuous shared-account walk-forward, compared with
 CASH and buy-and-hold). The allocator maximizes `mu.w - (gamma/2) w'Sigma w - sum c_i |dw_i|`
-under weight and gross limits with an exact coordinate-descent solver, uses an EWMA
+under weight and gross limits with a tolerance-accurate solver (coordinate descent with
+active-set Newton steps; a solution is accepted only after a KKT optimality check), uses an EWMA
 covariance of decision-time marks at or before the decision time, retargets only on its
 daily schedule, and holds exact quantities whenever an input or the solver fails. The
 expected-return source is caller supplied; no forecast model, data, replay result or

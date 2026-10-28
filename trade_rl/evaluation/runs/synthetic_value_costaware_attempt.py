@@ -32,11 +32,11 @@ from trade_rl.evaluation.runs.synthetic_value_attempt import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.decision_value import LinearDecisionValueModel
 from trade_rl.strategies.forecasts.controller import (
     CostAwareForecastIntentController,
     ForecastIntentConfig,
 )
-from trade_rl.strategies.decision_value import LinearDecisionValueModel
 from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
 from trade_rl.strategies.portfolio_adapter import SingleSymbolPortfolioPolicyAdapter
 

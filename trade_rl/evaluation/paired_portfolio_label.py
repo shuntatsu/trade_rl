@@ -73,8 +73,10 @@ def _time_ns(value: np.datetime64, *, field: str) -> int:
 
 
 def _digest(value: str, *, field: str) -> str:
-    if type(value) is not str or len(value) != 64 or any(
-        character not in "0123456789abcdef" for character in value
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
     ):
         raise ValueError(f"{field} must be a lowercase SHA-256 digest")
     return value
@@ -164,11 +166,8 @@ def _native_ledger(
         pair.candidate_result.book.portfolio_value
         - pair.baseline_result.book.portfolio_value
     ) / capital
-    if (
-        not math.isfinite(delta)
-        or not math.isclose(
-            delta, pair.delta_per_initial_capital, rel_tol=0.0, abs_tol=1e-12
-        )
+    if not math.isfinite(delta) or not math.isclose(
+        delta, pair.delta_per_initial_capital, rel_tol=0.0, abs_tol=1e-12
     ):
         raise ValueError("paired native equity delta does not match the ledger")
     return start, stop, delta
@@ -199,8 +198,7 @@ def _validate_intervention_actions(
         if (
             actual.index != pair.intervention_index
             or actual.proposal_weights != expected.target_weights
-            or actual.requested_hold_symbols
-            != expected.hold_current_quantity_symbols
+            or actual.requested_hold_symbols != expected.hold_current_quantity_symbols
         ):
             raise ValueError("declared action differs from native intervention")
     return baseline, candidate
@@ -343,7 +341,8 @@ def build_synthetic_paired_label_batch(
         if current_roster != roster:
             raise ValueError("incompatible action/feature/economic roster in batch")
         if not (
-            sample.decision_time_ns == sample.observation.timestamp_ns
+            sample.decision_time_ns
+            == sample.observation.timestamp_ns
             < sample.terminal_time_ns
             <= sample.label_first_available_ns
         ):

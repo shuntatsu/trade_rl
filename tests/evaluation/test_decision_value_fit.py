@@ -37,8 +37,11 @@ _CANDIDATES = (_HOLD, _LONG, _SHORT)
 _COST = replace(ExecutionCostConfig.zero(), fee_rate=0.001, spread_rate=0.0002)
 _RISK = PreTradeRisk(
     PreTradeRiskConfig(
-        max_gross=0.5, max_abs_weight=0.5, max_turnover=None,
-        drawdown_start=0.20, drawdown_stop=0.20,
+        max_gross=0.5,
+        max_abs_weight=0.5,
+        max_turnover=None,
+        drawdown_start=0.20,
+        drawdown_stop=0.20,
     )
 )
 _TRAIN_FIT = np.datetime64("2026-02-01T00:00:00", "ns")
@@ -48,9 +51,16 @@ _EVALUATE = np.datetime64("2026-03-01T00:00:00", "ns")
 def _market(*, signal: float, move: float, day: str, tag: str) -> MarketDataset:
     # One observable synthetic signal, followed by a deliberately known trend.
     marks = np.array(
-        [100, 100, 100, 100 * (1 + move / 3),
-         100 * (1 + 2 * move / 3), 100 * (1 + move),
-         100 * (1 + move), 100 * (1 + move)],
+        [
+            100,
+            100,
+            100,
+            100 * (1 + move / 3),
+            100 * (1 + 2 * move / 3),
+            100 * (1 + move),
+            100 * (1 + move),
+            100 * (1 + move),
+        ],
         dtype=np.float64,
     )
     closes = np.column_stack((marks, np.full(8, 200.0)))
@@ -120,8 +130,10 @@ def _fit_batch():
     for magnitude in (0.018, 0.020, 0.022):
         for signal in (-1.0, 0.0, 1.0):
             market = _market(
-                signal=signal, move=signal * magnitude,
-                day="2026-01-01", tag=f"train-{magnitude}-{signal}"
+                signal=signal,
+                move=signal * magnitude,
+                day="2026-01-01",
+                tag=f"train-{magnitude}-{signal}",
             )
             for action in (_LONG, _SHORT):
                 pair = run_paired_portfolio_action(
@@ -143,7 +155,8 @@ def _fit_batch():
                 assert isinstance(execution_digest, str)
                 samples.append(
                     build_synthetic_paired_label(
-                        market, pair,
+                        market,
+                        pair,
                         baseline_action=_HOLD,
                         candidate_action=action,
                         target_abs_weights=(0.4, 0.4),
@@ -166,7 +179,9 @@ def _fit_batch():
 def test_real_small_fit_replays_frozen_policy_on_separate_synthetic_periods() -> None:
     batch = _fit_batch()
     assert len(batch.samples) == 18
-    assert batch.group_ids == (0,) * 18  # correlated windows, NOT 18 independent markets
+    assert (
+        batch.group_ids == (0,) * 18
+    )  # correlated windows, NOT 18 independent markets
     model = fit_synthetic_linear_decision_value(batch, candidate_actions=_CANDIDATES)
     assert model.training_rows == 18
     assert model.overlap_groups == 1
@@ -193,11 +208,14 @@ def test_real_small_fit_replays_frozen_policy_on_separate_synthetic_periods() ->
     # A change to the *future* payoff cannot alter the already frozen action.
     bad_tail = _market(signal=0.8, move=-0.018, day="2026-03-03", tag="bad-tail")
     good_tail = _market(signal=0.8, move=0.018, day="2026-03-03", tag="good-tail")
+
     class _Capture:
         def __init__(self) -> None:
             self.first = None
 
-        def decide_portfolio(self, snapshot: PortfolioDecisionSnapshot) -> PortfolioTargetProposal:
+        def decide_portfolio(
+            self, snapshot: PortfolioDecisionSnapshot
+        ) -> PortfolioTargetProposal:
             actor = LinearDecisionValuePolicy(model)
             if self.first is None:
                 self.first = actor.decide_action(snapshot)
@@ -214,16 +232,25 @@ def test_fit_fail_closed_when_maturity_or_action_roster_is_forged() -> None:
     batch = _fit_batch()
     with pytest.raises(ValueError, match="matur|cutoff"):
         fit_synthetic_linear_decision_value(
-            replace(batch, samples=(replace(batch.samples[0],
-                     label_first_available_ns=batch.fit_cutoff_ns),)
-                    + batch.samples[1:]),
+            replace(
+                batch,
+                samples=(
+                    replace(
+                        batch.samples[0], label_first_available_ns=batch.fit_cutoff_ns
+                    ),
+                )
+                + batch.samples[1:],
+            ),
             candidate_actions=_CANDIDATES,
         )
     with pytest.raises(ValueError, match="candidate|coverage"):
         fit_synthetic_linear_decision_value(batch, candidate_actions=(_HOLD, _LONG))
     with pytest.raises(ValueError, match="reference|digest"):
         fit_synthetic_linear_decision_value(
-            replace(batch, samples=(replace(batch.samples[0],
-                     reference_policy_digest="f" * 64),) + batch.samples[1:]),
+            replace(
+                batch,
+                samples=(replace(batch.samples[0], reference_policy_digest="f" * 64),)
+                + batch.samples[1:],
+            ),
             candidate_actions=_CANDIDATES,
         )

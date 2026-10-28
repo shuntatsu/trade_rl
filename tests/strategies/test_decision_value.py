@@ -206,9 +206,9 @@ def test_serialization_preserves_action_and_fails_closed_on_tamper(
     )
     assert restored == model
     for signal in (-1.0, 0.0, 0.8):
-        assert _policy(restored).decide_action(
-            _snapshot(signal=signal)
-        ) == (_policy(model).decide_action(_snapshot(signal=signal)))
+        assert _policy(restored).decide_action(_snapshot(signal=signal)) == (
+            _policy(model).decide_action(_snapshot(signal=signal))
+        )
     with pytest.raises(ValueError, match="digest"):
         load_linear_decision_value(
             payload.replace("-0.001", "0.9"), expected_sha256=digest

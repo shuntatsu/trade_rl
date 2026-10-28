@@ -7,8 +7,10 @@ dataset identity, training provenance, or economic results.
 
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -26,9 +28,12 @@ from trade_rl.strategies.portfolio_policy_codec import (
 _SCHEMA = "issue810_portfolio_action_probabilities_v1"
 _SB3_VERSION = "2.3.2"
 _TORCH_VERSION = "2.4.1"
-# The pinned PyPI package metadata is 2.4.1; its locked Windows CPU wheel
-# exposes the local build label 2.4.1+cpu in torch.__version__.
-_TORCH_RUNTIME_VERSIONS = {_TORCH_VERSION, f"{_TORCH_VERSION}+cpu"}
+# The pinned package metadata is exactly 2.4.1. Runtime builds may append a
+# valid PEP 440 local label, such as +cpu or +cu121.
+_TORCH_RUNTIME_VERSION_PATTERN = re.compile(
+    rf"{re.escape(_TORCH_VERSION)}(?:\+[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)?",
+    re.IGNORECASE,
+)
 _ACTIONS = (
     ("HOLD", ACTION_HOLD),
     ("SHORT", ACTION_SHORT),
@@ -69,17 +74,19 @@ def _load_pinned_runtime() -> _Runtime:
         )
 
     try:
-        import gymnasium
-        import torch
-        from stable_baselines3 import PPO
-        from stable_baselines3.common.distributions import MultiCategoricalDistribution
+        gymnasium: Any = importlib.import_module("gymnasium")
+        torch: Any = importlib.import_module("torch")
+        stable_baselines3: Any = importlib.import_module("stable_baselines3")
+        distributions: Any = importlib.import_module(
+            "stable_baselines3.common.distributions"
+        )
     except ImportError:
         raise RuntimeError(
             "the locked train-sb3 runtime could not be imported"
         ) from None
 
     torch_runtime_version = str(torch.__version__)
-    if torch_runtime_version not in _TORCH_RUNTIME_VERSIONS:
+    if _TORCH_RUNTIME_VERSION_PATTERN.fullmatch(torch_runtime_version) is None:
         raise RuntimeError(
             "torch runtime build does not match the locked 2.4.1 package: "
             f"found {torch_runtime_version!r}"
@@ -87,8 +94,8 @@ def _load_pinned_runtime() -> _Runtime:
     return _Runtime(
         torch=torch,
         multi_discrete_type=gymnasium.spaces.MultiDiscrete,
-        ppo_type=PPO,
-        multi_categorical_type=MultiCategoricalDistribution,
+        ppo_type=stable_baselines3.PPO,
+        multi_categorical_type=distributions.MultiCategoricalDistribution,
         stable_baselines3_version=stable_baselines3_version,
         torch_version=torch_version,
         torch_runtime_version=torch_runtime_version,

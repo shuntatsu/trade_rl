@@ -297,7 +297,11 @@ def test_rejects_invalid_probability_rows(
 
 @pytest.mark.parametrize(
     ("package", "wrong_version"),
-    [("stable-baselines3", "2.3.1"), ("torch", "2.4.0")],
+    [
+        ("stable-baselines3", "2.3.1"),
+        ("torch", "2.4.0"),
+        ("torch", "2.4.1+cu121"),
+    ],
 )
 def test_rejects_unpinned_dependency_versions_before_inference(
     model: PPO,
@@ -330,3 +334,56 @@ def test_rejects_unpinned_dependency_versions_before_inference(
             {"state": np.zeros(3, dtype=np.float32)},
             ordered_symbols=("BTCUSDT", "ETHUSDT"),
         )
+
+
+@pytest.mark.parametrize(
+    "runtime_version",
+    ["2.4.1", "2.4.1+cpu", "2.4.1+cu121"],
+)
+def test_accepts_pinned_torch_runtime_with_valid_local_build_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_version: str,
+) -> None:
+    probe = _probe()
+    monkeypatch.setattr(torch, "__version__", runtime_version)
+    monkeypatch.setattr(
+        probe.importlib.metadata,
+        "version",
+        lambda package: {
+            "stable-baselines3": "2.3.2",
+            "torch": "2.4.1",
+        }[package],
+    )
+
+    runtime = probe._load_pinned_runtime()
+
+    assert runtime.torch_version == "2.4.1"
+    assert runtime.torch_runtime_version == runtime_version
+
+
+@pytest.mark.parametrize(
+    "runtime_version",
+    [
+        "2.4.0+cu121",
+        "2.5.0+cpu",
+        "2.4.1rc1+cu121",
+        "2.4.1+cu121?",
+    ],
+)
+def test_rejects_mismatched_or_invalid_torch_runtime_versions(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_version: str,
+) -> None:
+    probe = _probe()
+    monkeypatch.setattr(torch, "__version__", runtime_version)
+    monkeypatch.setattr(
+        probe.importlib.metadata,
+        "version",
+        lambda package: {
+            "stable-baselines3": "2.3.2",
+            "torch": "2.4.1",
+        }[package],
+    )
+
+    with pytest.raises(RuntimeError, match="runtime build does not match"):
+        probe._load_pinned_runtime()

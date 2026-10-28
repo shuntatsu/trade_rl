@@ -10,6 +10,7 @@ import pytest
 from trade_rl.strategies.decision_value import (
     LinearDecisionValueModel,
     LinearDecisionValuePolicy,
+    LinearDecisionValueRuntimeContext,
     load_linear_decision_value,
     serialize_linear_decision_value,
 )
@@ -105,10 +106,38 @@ def _model() -> LinearDecisionValueModel:
     )
 
 
+def _context(model: LinearDecisionValueModel) -> LinearDecisionValueRuntimeContext:
+    return LinearDecisionValueRuntimeContext(
+        source_scope="synthetic_only",
+        feature_config_digest=model.feature_config_digest,
+        normalization_digest=model.normalization_digest,
+        execution_policy_digest=model.execution_policy_digest,
+        reference_policy_digest=model.reference_policy_digest,
+    )
+
+
+def _policy(model: LinearDecisionValueModel) -> LinearDecisionValuePolicy:
+    return LinearDecisionValuePolicy(model, runtime_context=_context(model))
+
+
+def test_runtime_binding_rejects_different_economics_or_source_scope() -> None:
+    model = _model()
+    context = _context(model)
+    with pytest.raises(ValueError, match="execution_policy_digest"):
+        LinearDecisionValuePolicy(
+            model,
+            runtime_context=replace(context, execution_policy_digest="f" * 64),
+        )
+    with pytest.raises(ValueError, match="synthetic"):
+        replace(context, source_scope="real_market")
+    with pytest.raises(TypeError):
+        LinearDecisionValuePolicy(model)
+
+
 def test_action_head_prefers_hold_without_positive_increment_and_keeps_quantity_hold() -> (
     None
 ):
-    policy = LinearDecisionValuePolicy(_model())
+    policy = _policy(_model())
     for signal, expected in (
         (0.0, ACTION_HOLD),
         (0.7, ACTION_LONG),
@@ -129,7 +158,7 @@ def test_action_head_prefers_hold_without_positive_increment_and_keeps_quantity_
 
 
 def test_model_rejects_unsupported_input_instead_of_faking_safe_profit() -> None:
-    policy = LinearDecisionValuePolicy(_model())
+    policy = _policy(_model())
     snapshot = _snapshot()
     with pytest.raises(ValueError, match="feature"):
         policy.decide_action(replace(snapshot, feature_available=((False,), (True,))))
@@ -177,9 +206,9 @@ def test_serialization_preserves_action_and_fails_closed_on_tamper(
     )
     assert restored == model
     for signal in (-1.0, 0.0, 0.8):
-        assert LinearDecisionValuePolicy(restored).decide_action(
+        assert _policy(restored).decide_action(
             _snapshot(signal=signal)
-        ) == (LinearDecisionValuePolicy(model).decide_action(_snapshot(signal=signal)))
+        ) == (_policy(model).decide_action(_snapshot(signal=signal)))
     with pytest.raises(ValueError, match="digest"):
         load_linear_decision_value(
             payload.replace("-0.001", "0.9"), expected_sha256=digest

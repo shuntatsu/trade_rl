@@ -72,7 +72,9 @@ def fit_synthetic_linear_decision_value(
             or sample.feature_config_digest != feature_digest
             or sample.normalization_digest != normalizer_digest
         ):
-            raise ValueError("synthetic batch source, feature, action or digest mismatch")
+            raise ValueError(
+                "synthetic batch source, feature, action or digest mismatch"
+            )
         if (
             sample.fit_cutoff_ns != batch.fit_cutoff_ns
             or sample.decision_time_ns >= batch.fit_cutoff_ns

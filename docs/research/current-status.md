@@ -221,6 +221,20 @@ Issue #810のP4にある残差PPO比較armとzero-residual parityはこのscreen
 
 元のNONRL 48-cell gateは別の評価で、registryは1 interrupted・47 unattempted・0 completeの未完了状態を保つ。このM34 screenはそのgateを完了させず、screen結果はforward profitability、winner、future persistence、live order authorizationを確立しない。今回の一度の結果を再実行・retuneしていない。別の試行を始める場合は新しいprotocol、result-blind review、実行許可が必要となる。
 
+## Issue #810 P2: cost-aware multi-symbol allocator seam (software only; 2026-10-29)
+
+`trade_rl.strategies.allocation` adds a `PortfolioPolicy` allocator and an equal-weight
+buy-and-hold control for the P2 net-of-fee non-RL line (causal forecast packets ->
+cost-aware allocation -> one continuous shared-account walk-forward, compared with
+CASH and buy-and-hold). The allocator maximizes `mu.w - (gamma/2) w'Sigma w - sum c_i |dw_i|`
+under weight and gross limits with a tolerance-accurate solver (coordinate descent with
+active-set Newton steps; a solution is accepted only after a KKT optimality check), uses an EWMA
+covariance of decision-time marks at or before the decision time, retargets only on its
+daily schedule, and holds exact quantities whenever an input or the solver fails. The
+expected-return source is caller supplied; no forecast model, data, replay result or
+selection is part of this change. It is not a profitability claim and changes no existing
+economic criterion.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。

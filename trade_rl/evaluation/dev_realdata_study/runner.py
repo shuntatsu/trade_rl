@@ -235,6 +235,7 @@ class BuiltArm:
 
     policy: Any
     adapter: Any | None
+    forecast_interval_hours: int | None = None
 
 
 ArmBuilder = Callable[[str, MarketDataset, DevStudyProtocol, Any], BuiltArm]
@@ -421,6 +422,8 @@ def reconcile_ledger(
         "execution_costs": float(cost),
         "funding_pnl": float(funding),
         "borrow_cost": float(borrow),
+        "dividend_pnl": float(dividend),
+        "cash_interest_pnl": float(interest),
         "independent_terminal_equity": float(expected),
         "ledger_final_cash": ledger.final_cash,
         "ledger_final_equity": final_equity,
@@ -517,6 +520,9 @@ def run_replay(
     costs = float(diagnostics.total_cost)
     funding = float(diagnostics.funding_pnl)
     years = float(performance["years"])
+    dividend = cast(float, reconciliation["dividend_pnl"])
+    interest = cast(float, reconciliation["cash_interest_pnl"])
+    borrow = float(diagnostics.borrow_cost)
     summary: dict[str, object] = {
         "arm": arm,
         "scenario": scenario,
@@ -524,8 +530,12 @@ def run_replay(
         "net_pnl_usdt": net_pnl,
         "execution_costs_usdt": costs,
         "funding_pnl_usdt": funding,
-        "borrow_cost_usdt": float(diagnostics.borrow_cost),
-        "gross_price_pnl_usdt": net_pnl + costs - funding,
+        "borrow_cost_usdt": borrow,
+        "dividend_pnl_usdt": dividend,
+        "cash_interest_pnl_usdt": interest,
+        "gross_price_pnl_usdt": (
+            net_pnl + costs - funding + borrow - dividend - interest
+        ),
         "fees_plus_funding_paid_usdt": costs - funding,
         "turnover_total": float(diagnostics.turnover_total),
         "turnover_per_year": float(diagnostics.turnover_total) / years,
@@ -537,11 +547,20 @@ def run_replay(
     if built.adapter is not None:
         history = np.asarray(built.adapter.history, dtype=np.float64)
         cost_rate = protocol.fee_rate + protocol.spread_rate
+        interval_hours = (
+            built.forecast_interval_hours or protocol.decision_interval_hours
+        )
+        days_per_interval = interval_hours / 24.0
+        mean_abs_mu = float(np.mean(np.abs(history)))
+        median_abs_mu = float(np.median(np.abs(history)))
         summary["forecast"] = {
             "decision_calls": built.adapter.calls,
             "null_packets": built.adapter.null_packets,
-            "mean_abs_mu_per_day": float(np.mean(np.abs(history))),
-            "median_abs_mu_per_day": float(np.median(np.abs(history))),
+            "decision_interval_hours": interval_hours,
+            "mean_abs_mu_per_interval": mean_abs_mu,
+            "median_abs_mu_per_interval": median_abs_mu,
+            "mean_abs_mu_per_day": mean_abs_mu / days_per_interval,
+            "median_abs_mu_per_day": median_abs_mu / days_per_interval,
             "share_abs_mu_above_one_way_cost": float(
                 np.mean(np.abs(history) > cost_rate)
             ),
@@ -617,6 +636,19 @@ def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
     ] + [(d.index, d.proposal_weights, d.target_weights) for d in result.decisions]
 
 
+def _pre_cut_has_trades(result: SharedCashPortfolioReplayResult) -> bool:
+    """Read interval fills/positions, never a positional slice of mixed trace rows."""
+
+    ledger = result.ledger_evidence
+    if ledger is None:
+        raise ValueError("causality probe requires ledger evidence")
+    return any(
+        any(event.filled_quantity != 0 for event in interval.order_events)
+        or any(Fraction(quantity) != 0 for quantity in interval.exact_quantities_after)
+        for interval in ledger.intervals.intervals
+    )
+
+
 def causality_probe(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
@@ -664,16 +696,12 @@ def causality_probe(
             execution_cost=scenario_cost(protocol, scenario),
             capture_ledger_evidence=True,
         )
-        traces.append((_trace(result), built.adapter))
-    real_trace, real_adapter = traces[0]
-    perturbed_trace, perturbed_adapter = traces[1]
+        traces.append((_trace(result), built.adapter, _pre_cut_has_trades(result)))
+    real_trace, real_adapter, traded = traces[0]
+    perturbed_trace, perturbed_adapter, _ = traces[1]
     real_history = [] if real_adapter is None else real_adapter.history
     perturbed_history = [] if perturbed_adapter is None else perturbed_adapter.history
     identical = real_trace == perturbed_trace and real_history == perturbed_history
-    traded = any(
-        any(Fraction(q) != 0 for q in cast(tuple[str, ...], row[1]))
-        for row in real_trace[: len(real_trace) // 2]
-    )
     return {
         "passed": bool(identical and (traded or not expect_trades)),
         "identical_pre_cut_trace": bool(identical),

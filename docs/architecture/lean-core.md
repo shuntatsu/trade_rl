@@ -694,7 +694,9 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 - **Source scope契約**: `source_scope` は従来の `"synthetic_only"` に加え、事前認可ダイジェストを要求する `"real_development"` を明示的に許容する。scopeの不一致や未認可の実データ実行はfail-closedで拒否される。
 - **事前認可ダイジェスト**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定、および既消費開示文言を含む完全な仕様からSHA-256ダイジェストを導出し、プロトコル内の `real_scope_authorization_digest` と完全一致することを事前検証する。
-- **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
+- **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B1c 保守的線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
+- **保守的意思決定価値モデルと不確実性割引 (B1c)**: `ConservativeLinearDecisionValueModel`（`schema_version="conservative_linear_decision_value_v2"`）は、候補行動ごとの回帰係数ベクトルに加え、重なり群の自由度 `max(1, groups - 1)` で調整された残差共分散行列 `covariance_matrices`、不確実性ペナルティ重み `uncertainty_penalty_weight`、および片道切替コスト `one_way_switch_cost` を保持する。ポリシー `ConservativeLinearDecisionValuePolicy` は、予測標準誤差 `se = sqrt(x' Sigma_k x)` を用いた下側信頼限界（LCB: `mean - lambda * se - c * extra_turnover`）により不確実性と切替ターンオーバーを保守的に割り引く。
+- **In-flight注文状態表現と二重注文抑止**: `encode_decision_value_state_v2` は `[1.0, features, global_features, actual_weights, pending_order_weights]` の順序で状態を符号化し、未約定のactive ordersを拒絶せずpending weightsとして受け入れる。`ConservativeLinearDecisionValuePolicy` は、アクティブ注文が存在する場合に口座ウェイトと未約定ウェイトの和 `w_effective = w_account + w_pending` を計算し、提案目標ウェイトが実効ウェイトと近接する銘柄（`abs(w_target - w_effective) <= 1e-6`）を自動的に `hold_current_quantity_symbols` へ追加して目標ウェイトを現在の口座ウェイトに固定することで、レイテンシ下での重複注文・ churn をネイティブに抑止する。
 - **因果性プローブと台帳突合**: 各ブロックの評価開始直前に、未来データ（t+1以降）を無作為摂動させたデータセット上での意思決定が元データセットと完全一致することを確認する因果性プローブ（Causality Perturbation Probe）を実行する。また、各ブロックの全アーム・全シナリオについて、台帳の注文・約定・資産推移・手数料・終端清算が整合していることを検証する（Ledger Evidence Reconciliation）。
 - **Write-once出力**: 結果は `write_decision_value_dev_study_bundle` により一度だけ `protocol.json`、`result.json`、`summary.md` として書き出され、既存ファイルの上書きを防止する。
 

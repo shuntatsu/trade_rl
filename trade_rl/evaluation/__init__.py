@@ -35,6 +35,9 @@ from trade_rl.evaluation.decision_value_dev_study import (
     default_2024q1_decision_value_dev_protocol,
     run_decision_value_dev_study,
 )
+from trade_rl.evaluation.decision_value_fit import (
+    fit_conservative_linear_decision_value,
+)
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.gates import resolve_gate
 from trade_rl.evaluation.metrics import (
@@ -113,6 +116,7 @@ __all__ = [
     "default_2024q1_decision_value_dev_protocol",
     "evaluate_capacity_grid",
     "evaluate_performance",
+    "fit_conservative_linear_decision_value",
     "moving_block_mean_test",
     "resolve_gate",
     "run_decision_value_dev_study",

@@ -688,6 +688,16 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 `AdaptiveProfitConfig`はfinite・nonnegativeなthresholdと、nonnegative integerのfeature index / max holdingを要求し、booleanも拒否する。entryはpositiveで対応exitより大きいことを要求する。zero regime thresholdによるtrend固定と、zero protective thresholdによるexit無効化は明示的な有効設定として維持する。NaNでprotective comparisonを黙って無効にする設定はreplay前に拒否する。
 
+### Direct decision-value study contract
+
+`trade_rl.evaluation.decision_value_dev_study` は、事前固定されたプロトコルと実開発データに対する直接的意思決定価値学習（Direct Decision-Value Learning）の研究検証契約を定義する。
+
+- **Source scope契約**: `source_scope` は従来の `"synthetic_only"` に加え、事前認可ダイジェストを要求する `"real_development"` を明示的に許容する。scopeの不一致や未認可の実データ実行はfail-closedで拒否される。
+- **事前認可ダイジェスト**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定、および既消費開示文言を含む完全な仕様からSHA-256ダイジェストを導出し、プロトコル内の `real_scope_authorization_digest` と完全一致することを事前検証する。
+- **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
+- **因果性プローブと台帳突合**: 各ブロックの評価開始直前に、未来データ（t+1以降）を無作為摂動させたデータセット上での意思決定が元データセットと完全一致することを確認する因果性プローブ（Causality Perturbation Probe）を実行する。また、各ブロックの全アーム・全シナリオについて、台帳の注文・約定・資産推移・手数料・終端清算が整合していることを検証する（Ledger Evidence Reconciliation）。
+- **Write-once出力**: 結果は `write_decision_value_dev_study_bundle` により一度だけ `protocol.json`、`result.json`、`summary.md` として書き出され、既存ファイルの上書きを防止する。
+
 ## Artifact and evidence rules
 
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。

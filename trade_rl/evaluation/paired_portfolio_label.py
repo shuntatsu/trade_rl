@@ -21,6 +21,8 @@ from trade_rl.strategies.portfolio_policy_codec import (
     portfolio_action_to_proposal,
 )
 
+_ALLOWED_SOURCE_SCOPES = ("synthetic_only", "real_development")
+
 
 @dataclass(frozen=True, slots=True)
 class SyntheticPairedLabel:
@@ -270,12 +272,15 @@ def build_synthetic_paired_label(
     observation_record_available_at: np.datetime64,
     settlement_record_available_at: np.datetime64,
     fit_cutoff: np.datetime64,
+    source_scope: str = "synthetic_only",
 ) -> SyntheticPairedLabel:
-    """Admit one completed native synthetic label only after it truly matures.
+    """Admit one completed native paired label only after it truly matures.
 
-    The two arrival times are explicit synthetic fixture assumptions, not
-    historical source receipts. No market-data training is admitted by this API.
+    The two arrival times are explicit fixture/declared assumptions, not
+    historical source receipts.
     """
+    if source_scope not in _ALLOWED_SOURCE_SCOPES:
+        raise ValueError("source_scope must be synthetic_only or real_development")
     if not isinstance(dataset, MarketDataset):
         raise TypeError("dataset must be a MarketDataset")
     if not isinstance(pair, PairedPortfolioActionResult):
@@ -325,7 +330,7 @@ def build_synthetic_paired_label(
     if maturity >= cutoff:
         raise ValueError("label maturity must be strictly before fit cutoff")
     return SyntheticPairedLabel(
-        source_scope="synthetic_only",
+        source_scope=source_scope,
         dataset_id=dataset.dataset_id,
         feature_config_digest=dataset.feature_config_digest,
         normalization_digest=dataset.normalization_digest,
@@ -363,6 +368,10 @@ def build_synthetic_paired_label_batch(
     first = samples[0]
     if not isinstance(first, SyntheticPairedLabel):
         raise TypeError("samples must contain SyntheticPairedLabel rows")
+    if first.source_scope not in _ALLOWED_SOURCE_SCOPES:
+        raise ValueError(
+            "only synthetic or real_development paired labels with matching source_scope may be batched"
+        )
     roster = (
         first.observation.symbols,
         first.observation.feature_names,
@@ -377,8 +386,10 @@ def build_synthetic_paired_label_batch(
     for sample in samples:
         if not isinstance(sample, SyntheticPairedLabel):
             raise TypeError("samples must contain SyntheticPairedLabel rows")
-        if sample.source_scope != "synthetic_only":
-            raise ValueError("only synthetic paired labels may be batched")
+        if sample.source_scope != first.source_scope:
+            raise ValueError(
+                "only synthetic or real_development paired labels with matching source_scope may be batched"
+            )
         if sample.reference_policy_digest != ref:
             raise ValueError("reference_policy_digest does not match the batch")
         if sample.fit_cutoff_ns != cutoff or sample.label_first_available_ns >= cutoff:

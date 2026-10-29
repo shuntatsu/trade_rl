@@ -248,8 +248,14 @@ def build_allocator(
     long_only: bool,
     decision_interval_hours: int | None = None,
     decision_anchor_hour_utc: int | None = None,
+    cost_penalty_multiple: float = 1.0,
+    vol_target_annual: float | None = None,
 ) -> CostAwareAllocationPolicy:
-    """The protocol's cost-aware allocator around any expected-return source."""
+    """The protocol's cost-aware allocator around any expected-return source.
+
+    ``cost_penalty_multiple`` (kappa) and ``vol_target_annual`` are the Phase 3
+    mechanisms; their defaults reproduce the PR-C / Phase 2 allocator exactly.
+    """
 
     interval_hours = (
         protocol.decision_interval_hours
@@ -285,6 +291,8 @@ def build_allocator(
         min_history_periods=protocol.min_history_periods,
         warmup_timestamps_ns=stamps,
         warmup_mark_prices=prices,
+        cost_penalty_multiple=cost_penalty_multiple,
+        vol_target_annual=vol_target_annual,
     )
 
 
@@ -560,6 +568,22 @@ def run_replay(
             "outcomes": dict(sorted(outcomes.items())),
             "fail_closed_reasons": dict(sorted(reasons.items())),
         }
+        targeted = [r for r in records if getattr(r, "ex_ante_vol", None) is not None]
+        if targeted:
+            scales = np.asarray([r.vol_scale for r in targeted], dtype=np.float64)
+            ex_ante = np.asarray([r.ex_ante_vol for r in targeted], dtype=np.float64)
+            final = np.asarray([r.final_vol for r in targeted], dtype=np.float64)
+            summary["vol_target"] = {
+                "n_decisions": len(targeted),
+                "n_scaled_below_one": int(np.sum(scales < 1.0)),
+                "mean_scale": float(scales.mean()),
+                "min_scale": float(scales.min()),
+                "mean_ex_ante_vol": float(ex_ante.mean()),
+                "mean_final_vol": float(final.mean()),
+                "final_vol_p50_p90_p99_max": [
+                    float(v) for v in np.quantile(final, [0.5, 0.9, 0.99, 1.0])
+                ],
+            }
     return ReplayOutcome(arm, scenario, equity, times, summary)
 
 
@@ -617,6 +641,17 @@ def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
     ] + [(d.index, d.proposal_weights, d.target_weights) for d in result.decisions]
 
 
+def _split_trace(
+    trace: list[tuple[object, ...]], result: SharedCashPortfolioReplayResult
+) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+    """Interval rows and decision rows of :func:`_trace`, by explicit count."""
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    n_intervals = len(ledger.intervals.intervals)
+    return trace[:n_intervals], trace[n_intervals:]
+
+
 def causality_probe(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
@@ -641,6 +676,13 @@ def causality_probe(
     arm roster (the Phase 2 trials) reuse the probe; ``sources_builder`` builds the
     per-dataset sources for the perturbed copy and defaults to
     :func:`build_forecast_sources`.
+
+    Naming caveat (semantics unchanged, kept for the PR-C rule):
+    ``pre_cut_trace_has_trades`` is true when any nonzero exact quantity is held after
+    any row in the first ``len(trace) // 2`` rows of the concatenated trace. That
+    half is the hourly interval rows, so the flag tests that a POSITION IS HELD during
+    them, not that an order was filled; ``pre_cut_interval_rows_have_trades`` is the
+    same test with an explicit interval/decision split and is a diagnostic only.
     """
 
     build = arm_builder or build_arm
@@ -653,6 +695,7 @@ def causality_probe(
         perturbed = perturb_future(dataset, after_index=cut_index)
         perturbed_pair = (perturbed, make_sources(perturbed, protocol))
     traces = []
+    results: list[SharedCashPortfolioReplayResult] = []
     for data, source_map in ((dataset, sources), perturbed_pair):
         built = build(arm, data, protocol, source_map)
         result = run_shared_portfolio_replay(
@@ -665,7 +708,9 @@ def causality_probe(
             capture_ledger_evidence=True,
         )
         traces.append((_trace(result), built.adapter))
+        results.append(result)
     real_trace, real_adapter = traces[0]
+    real_result = results[0]
     perturbed_trace, perturbed_adapter = traces[1]
     real_history = [] if real_adapter is None else real_adapter.history
     perturbed_history = [] if perturbed_adapter is None else perturbed_adapter.history
@@ -674,12 +719,22 @@ def causality_probe(
         any(Fraction(q) != 0 for q in cast(tuple[str, ...], row[1]))
         for row in real_trace[: len(real_trace) // 2]
     )
+    # Diagnostic with an explicit split (the ``len // 2`` slice above is the PR-C
+    # rule, kept unchanged): any non-zero quantity in ANY pre-cut interval row.
+    interval_rows, decision_rows = _split_trace(real_trace, real_result)
+    traded_any_interval = any(
+        any(Fraction(q) != 0 for q in cast(tuple[str, ...], row[1]))
+        for row in interval_rows
+    )
     return {
         "passed": bool(identical and (traded or not expect_trades)),
         "identical_pre_cut_trace": bool(identical),
         "pre_cut_trace_has_trades": bool(traded),
+        "pre_cut_interval_rows_have_trades": bool(traded_any_interval),
         "cut": cut_text,
         "n_trace_rows": len(real_trace),
+        "n_interval_rows": len(interval_rows),
+        "n_decision_rows": len(decision_rows),
         "n_decisions": len(real_history),
     }
 

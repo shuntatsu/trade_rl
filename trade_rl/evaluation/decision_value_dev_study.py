@@ -22,6 +22,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.decision_value_fit import (
+    fit_conservative_linear_decision_value,
     fit_synthetic_linear_decision_value,
     fit_synthetic_shallow_decision_value,
 )
@@ -39,6 +40,7 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.quantities import project_quantity
 from trade_rl.strategies.decision_value import (
+    ConservativeLinearDecisionValuePolicy,
     LinearDecisionValuePolicy,
     LinearDecisionValueRuntimeContext,
 )
@@ -531,6 +533,7 @@ class DecisionValueBlockResult:
     wall_clock_seconds: float
     b0_model_intercept: float
     b1_model_coefficients_sha256: str
+    b1c_model_coefficients_sha256: str
     b2_model_coefficients_sha256: str
     causality_probe_passed: bool
     ledger_evidence_reconciled: bool
@@ -547,6 +550,7 @@ class DecisionValueBlockResult:
             "wall_clock_seconds": self.wall_clock_seconds,
             "b0_model_intercept": self.b0_model_intercept,
             "b1_model_coefficients_sha256": self.b1_model_coefficients_sha256,
+            "b1c_model_coefficients_sha256": self.b1c_model_coefficients_sha256,
             "b2_model_coefficients_sha256": self.b2_model_coefficients_sha256,
             "causality_probe_passed": self.causality_probe_passed,
             "ledger_evidence_reconciled": self.ledger_evidence_reconciled,
@@ -794,6 +798,7 @@ def _format_markdown_summary(
         "fixed_long",
         "cost_aware_ridge",
         "linear_value",
+        "conservative_linear_value",
         "shallow_value",
     ):
         arm_metrics = result.aggregate_metrics.get(arm, {})
@@ -941,9 +946,16 @@ def run_decision_value_dev_study(
         )
         overlap_groups = len(set(batch.group_ids))
 
-        # 4. Fit B1 (Linear) and B2 (Shallow)
+        # 4. Fit B1 (Linear), B1c (Conservative Linear), and B2 (Shallow)
         b1_model = fit_synthetic_linear_decision_value(
             batch, candidate_actions=protocol.study_plan.candidate_actions
+        )
+        switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
+        b1c_model = fit_conservative_linear_decision_value(
+            batch,
+            candidate_actions=protocol.study_plan.candidate_actions,
+            uncertainty_penalty_weight=1.0,
+            one_way_switch_cost=switch_cost,
         )
         b2_model = fit_synthetic_shallow_decision_value(
             batch, candidate_actions=protocol.study_plan.candidate_actions
@@ -951,6 +963,9 @@ def run_decision_value_dev_study(
 
         b1_coef_sha256 = hashlib.sha256(
             canonical_json_bytes([list(row) for row in b1_model.coefficients])
+        ).hexdigest()
+        b1c_coef_sha256 = hashlib.sha256(
+            canonical_json_bytes([list(row) for row in b1c_model.coefficients])
         ).hexdigest()
         b2_coef_sha256 = hashlib.sha256(
             canonical_json_bytes([list(row) for row in b2_model.coefficients])
@@ -976,6 +991,13 @@ def run_decision_value_dev_study(
             execution_policy_digest=b1_model.execution_policy_digest,
             reference_policy_digest=b1_model.reference_policy_digest,
         )
+        b1c_runtime_ctx = LinearDecisionValueRuntimeContext(
+            source_scope="real_development",
+            feature_config_digest=dataset.feature_config_digest,
+            normalization_digest=dataset.normalization_digest,
+            execution_policy_digest=b1c_model.execution_policy_digest,
+            reference_policy_digest=b1c_model.reference_policy_digest,
+        )
         b2_runtime_ctx = LinearDecisionValueRuntimeContext(
             source_scope="real_development",
             feature_config_digest=dataset.feature_config_digest,
@@ -984,6 +1006,9 @@ def run_decision_value_dev_study(
             reference_policy_digest=b2_model.reference_policy_digest,
         )
         pol_b1 = LinearDecisionValuePolicy(b1_model, runtime_context=b1_runtime_ctx)
+        pol_b1c = ConservativeLinearDecisionValuePolicy(
+            b1c_model, runtime_context=b1c_runtime_ctx
+        )
         pol_b2 = ShallowDecisionValuePolicy(b2_model, runtime_context=b2_runtime_ctx)
 
         # Build initial snapshot using SharedPortfolioSession to get valid BookState
@@ -1050,12 +1075,19 @@ def run_decision_value_dev_study(
         b1_probe_ok = pol_b1.decide_action(snap_clean) == pol_b1.decide_action(
             snap_perturbed
         )
+        b1c_probe_ok = (
+            pol_b1c.decide_action(snap_clean) == pol_b1c.decide_action(snap_perturbed)
+            and pol_b1c.decide_portfolio(snap_clean).target_weights
+            == pol_b1c.decide_portfolio(snap_perturbed).target_weights
+        )
         b2_probe_ok = pol_b2.decide_action(snap_clean) == pol_b2.decide_action(
             snap_perturbed
         )
-        causality_probe_passed = bool(b0_probe_ok and b1_probe_ok and b2_probe_ok)
+        causality_probe_passed = bool(
+            b0_probe_ok and b1_probe_ok and b1c_probe_ok and b2_probe_ok
+        )
 
-        # 6. Evaluate 5 arms across 3 scenarios
+        # 6. Evaluate 6 arms across 3 scenarios
         scenarios: tuple[tuple[str, ExecutionCostConfig], ...] = (
             ("base", protocol.base_execution_cost),
             (
@@ -1101,6 +1133,7 @@ def run_decision_value_dev_study(
                     ),
                 ),
                 ("linear_value", _LatencyAwareDecisionValuePolicy(pol_b1)),
+                ("conservative_linear_value", pol_b1c),
                 ("shallow_value", _LatencyAwareDecisionValuePolicy(pol_b2)),
             )
 
@@ -1178,6 +1211,7 @@ def run_decision_value_dev_study(
                 wall_clock_seconds=block_wall_clock,
                 b0_model_intercept=float(b0_model.intercept),
                 b1_model_coefficients_sha256=b1_coef_sha256,
+                b1c_model_coefficients_sha256=b1c_coef_sha256,
                 b2_model_coefficients_sha256=b2_coef_sha256,
                 causality_probe_passed=causality_probe_passed,
                 ledger_evidence_reconciled=ledger_all_reconciled,
@@ -1193,6 +1227,7 @@ def run_decision_value_dev_study(
         "fixed_long",
         "cost_aware_ridge",
         "linear_value",
+        "conservative_linear_value",
         "shallow_value",
     )
     scenario_names = ("base", "cost_x2", "latency_1bar")
@@ -1232,7 +1267,7 @@ def run_decision_value_dev_study(
         verdict = "INVALID / BLOCKED"
         verdict_reason = "Observed maximum drawdown exceeded 20% limit"
     else:
-        # Check if B1 or B2 outperforms all baselines (cash, fixed_long, B0) across all scenarios
+        # Check if B1, B1c, or B2 outperforms all baselines (cash, fixed_long, B0) across all scenarios
         def outperforms_all_baselines(candidate_arm: str) -> bool:
             for scen in scenario_names:
                 c_ret = aggregate_metrics[candidate_arm][scen]
@@ -1249,20 +1284,30 @@ def run_decision_value_dev_study(
             )
 
         b1_winner = outperforms_all_baselines("linear_value")
+        b1c_winner = outperforms_all_baselines("conservative_linear_value")
         b2_winner = outperforms_all_baselines("shallow_value")
 
-        if b1_winner or b2_winner:
+        if b1_winner or b1c_winner or b2_winner:
             verdict = "DEVELOPMENT_IMPROVED"
-            winner = "B1 (linear_value)" if b1_winner else "B2 (shallow_value)"
-            verdict_reason = f"{winner} outperformed cash, fixed_long, and cost_aware_ridge across all scenarios"
-        elif improves_over_ridge("linear_value") or improves_over_ridge(
-            "shallow_value"
+            winners = []
+            if b1_winner:
+                winners.append("B1 (linear_value)")
+            if b1c_winner:
+                winners.append("B1c (conservative_linear_value)")
+            if b2_winner:
+                winners.append("B2 (shallow_value)")
+            winner_str = " and ".join(winners)
+            verdict_reason = f"{winner_str} outperformed cash, fixed_long, and cost_aware_ridge across all scenarios"
+        elif (
+            improves_over_ridge("linear_value")
+            or improves_over_ridge("conservative_linear_value")
+            or improves_over_ridge("shallow_value")
         ):
             verdict = "INCONCLUSIVE"
             verdict_reason = "Decision-value head improved over cost_aware_ridge in some scenarios but did not dominate all controls"
         else:
             verdict = "NO_IMPROVEMENT"
-            verdict_reason = "Neither linear_value nor shallow_value outperformed baselines across evaluation scenarios"
+            verdict_reason = "Neither linear_value, conservative_linear_value, nor shallow_value outperformed baselines across evaluation scenarios"
 
     result = DecisionValueDevStudyResult(
         schema_version="decision_value_dev_study_result_v1",

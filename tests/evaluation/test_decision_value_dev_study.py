@@ -534,6 +534,10 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         assert b.ledger_evidence_reconciled
         assert b.training_rows > 0
         assert b.paired_replay_runs > 0
+        assert len(b.b1c_model_coefficients_sha256) == 64
+        assert len(b.arms) == 18
+
+    assert "conservative_linear_value" in result.aggregate_metrics
 
     assert (out_dir / "protocol.json").is_file()
     assert (out_dir / "result.json").is_file()

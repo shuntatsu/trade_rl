@@ -51,6 +51,7 @@ EXPECTED_PUBLIC_API = (
     "default_2024q1_decision_value_dev_protocol",
     "evaluate_capacity_grid",
     "evaluate_performance",
+    "fit_conservative_linear_decision_value",
     "moving_block_mean_test",
     "resolve_gate",
     "run_decision_value_dev_study",

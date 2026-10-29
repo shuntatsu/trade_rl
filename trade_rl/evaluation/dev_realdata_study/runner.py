@@ -171,15 +171,33 @@ def build_forecast_sources(
 
 
 def warmup_marks(
-    dataset: MarketDataset, protocol: DevStudyProtocol
+    dataset: MarketDataset,
+    protocol: DevStudyProtocol,
+    *,
+    decision_interval_hours: int | None = None,
+    decision_anchor_hour_utc: int | None = None,
 ) -> tuple[tuple[int, ...], tuple[tuple[float, ...], ...]]:
-    """Scheduled-instant marks strictly before the evaluation start (fit-period data)."""
+    """Scheduled-instant marks strictly before the evaluation start (fit-period data).
+
+    The schedule defaults to the protocol's daily 00:00 UTC cadence; a trial with its
+    own cadence passes the interval and anchor so the marks lie on its schedule.
+    """
 
     stamps = _timestamps_ns(dataset)
     start = _ns(protocol.covariance_warmup_start)
     end = _ns(protocol.evaluation_start)
-    interval = protocol.decision_interval_hours * _NS_PER_HOUR
-    anchor = protocol.decision_anchor_hour_utc * _NS_PER_HOUR
+    interval_hours = (
+        protocol.decision_interval_hours
+        if decision_interval_hours is None
+        else decision_interval_hours
+    )
+    anchor_hour = (
+        protocol.decision_anchor_hour_utc
+        if decision_anchor_hour_utc is None
+        else decision_anchor_hour_utc
+    )
+    interval = interval_hours * _NS_PER_HOUR
+    anchor = anchor_hour * _NS_PER_HOUR
     marks = dataset.resolved_array("mark_price")
     chosen = [
         row
@@ -208,9 +226,66 @@ def scenario_cost(protocol: DevStudyProtocol, scenario: str) -> ExecutionCostCon
 
 
 @dataclass
-class _Arm:
+class BuiltArm:
+    """A fresh policy for one replay plus its forecast diagnostics (if any).
+
+    ``adapter`` is any object exposing ``calls``, ``null_packets`` and ``history``
+    (per-decision expected-return vectors); it feeds the shared forecast summary.
+    """
+
     policy: Any
-    adapter: PrequentialSimpleReturnSource | None
+    adapter: Any | None
+
+
+ArmBuilder = Callable[[str, MarketDataset, DevStudyProtocol, Any], BuiltArm]
+
+
+def build_allocator(
+    dataset: MarketDataset,
+    protocol: DevStudyProtocol,
+    forecast_source: Any,
+    *,
+    long_only: bool,
+    decision_interval_hours: int | None = None,
+    decision_anchor_hour_utc: int | None = None,
+) -> CostAwareAllocationPolicy:
+    """The protocol's cost-aware allocator around any expected-return source."""
+
+    interval_hours = (
+        protocol.decision_interval_hours
+        if decision_interval_hours is None
+        else decision_interval_hours
+    )
+    anchor_hour = (
+        protocol.decision_anchor_hour_utc
+        if decision_anchor_hour_utc is None
+        else decision_anchor_hour_utc
+    )
+    symbols = dataset.symbols
+    stamps, prices = warmup_marks(
+        dataset,
+        protocol,
+        decision_interval_hours=interval_hours,
+        decision_anchor_hour_utc=anchor_hour,
+    )
+    base_cost = scenario_cost(protocol, SCENARIO_BASE)
+    return CostAwareAllocationPolicy(
+        symbols=symbols,
+        forecast_source=forecast_source,
+        cost_rates=one_way_cost_rates(base_cost, n_symbols=len(symbols)),
+        gamma=protocol.gamma,
+        ewma_halflife_days=protocol.ewma_halflife_days,
+        shrinkage=protocol.shrinkage,
+        w_max=protocol.w_max,
+        gross_max=protocol.gross_max,
+        long_only=long_only,
+        min_trade_fraction=protocol.min_trade_fraction,
+        decision_interval_hours=interval_hours,
+        decision_anchor_hour_utc=anchor_hour,
+        min_history_periods=protocol.min_history_periods,
+        warmup_timestamps_ns=stamps,
+        warmup_mark_prices=prices,
+    )
 
 
 def build_arm(
@@ -218,14 +293,14 @@ def build_arm(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
     sources: Mapping[int, PrequentialForecastSource],
-) -> _Arm:
+) -> BuiltArm:
     """Fresh policy instance for one replay (policies hold replay state)."""
 
     symbols = dataset.symbols
     if arm == ARM_CASH:
-        return _Arm(ZeroWeightPolicy(symbols), None)
+        return BuiltArm(ZeroWeightPolicy(symbols), None)
     if arm == ARM_BUY_AND_HOLD:
-        return _Arm(
+        return BuiltArm(
             BuyAndHoldPortfolioPolicy(
                 symbols=symbols, gross_budget=protocol.buy_and_hold_gross_budget
             ),
@@ -239,26 +314,8 @@ def build_arm(
     adapter = PrequentialSimpleReturnSource(
         sources[horizon], decision_interval_hours=protocol.decision_interval_hours
     )
-    stamps, prices = warmup_marks(dataset, protocol)
-    base_cost = scenario_cost(protocol, SCENARIO_BASE)
-    policy = CostAwareAllocationPolicy(
-        symbols=symbols,
-        forecast_source=adapter,
-        cost_rates=one_way_cost_rates(base_cost, n_symbols=len(symbols)),
-        gamma=protocol.gamma,
-        ewma_halflife_days=protocol.ewma_halflife_days,
-        shrinkage=protocol.shrinkage,
-        w_max=protocol.w_max,
-        gross_max=protocol.gross_max,
-        long_only=long_only,
-        min_trade_fraction=protocol.min_trade_fraction,
-        decision_interval_hours=protocol.decision_interval_hours,
-        decision_anchor_hour_utc=protocol.decision_anchor_hour_utc,
-        min_history_periods=protocol.min_history_periods,
-        warmup_timestamps_ns=stamps,
-        warmup_mark_prices=prices,
-    )
-    return _Arm(policy, adapter)
+    policy = build_allocator(dataset, protocol, adapter, long_only=long_only)
+    return BuiltArm(policy, adapter)
 
 
 def reconcile_ledger(
@@ -322,6 +379,18 @@ def reconcile_ledger(
         Fraction(value) == 0 for value in ledger.terminal_exact_quantities
     )
     final_equity = ledger.final_portfolio_value
+    final_marks = dataset.resolved_array("mark_price")[intervals[-1].next_index]
+    residual_quantities = {
+        dataset.symbols[index]: str(value)
+        for index, value in enumerate(ledger.terminal_exact_quantities)
+        if Fraction(value) != 0
+    }
+    residual_notional = sum(
+        abs(float(Fraction(value)))
+        * float(final_marks[index])
+        * float(multipliers[index])
+        for index, value in enumerate(ledger.terminal_exact_quantities)
+    )
     cash_residual = float(Fraction(ledger.final_cash) - expected)
     equity_residual = float(Fraction(final_equity) - expected)
     totals_residual = max(
@@ -341,6 +410,8 @@ def reconcile_ledger(
     return {
         "passed": passed,
         "terminal_flat": terminal_flat,
+        "terminal_residual_quantities": residual_quantities,
+        "terminal_residual_notional_usdt": float(residual_notional),
         "intervals_chained": chained,
         "termination_reason": ledger.termination_reason,
         "n_intervals": len(intervals),
@@ -421,12 +492,13 @@ def run_replay(
     protocol: DevStudyProtocol,
     arm: str,
     scenario: str,
-    sources: Mapping[int, PrequentialForecastSource],
+    sources: Any,
     *,
     start_index: int,
     stop_index: int,
+    arm_builder: ArmBuilder | None = None,
 ) -> ReplayOutcome:
-    built = build_arm(arm, dataset, protocol, sources)
+    built = (arm_builder or build_arm)(arm, dataset, protocol, sources)
     result = run_shared_portfolio_replay(
         dataset,
         built.policy,
@@ -475,6 +547,9 @@ def run_replay(
             ),
             "one_way_cost": cost_rate,
         }
+    overlay_summary = getattr(built.policy, "overlay_summary", None)
+    if callable(overlay_summary):
+        summary["overlay"] = overlay_summary()
     records = getattr(built.policy, "records", None)
     if records is not None:
         outcomes = Counter(record.outcome for record in records)
@@ -545,15 +620,16 @@ def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
 def causality_probe(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
-    sources: Mapping[int, PrequentialForecastSource],
+    sources: Any,
     *,
     start_index: int,
     arm: str = ARM_ALLOCATOR_24H,
     scenario: str = SCENARIO_BASE,
     cut: str | None = None,
     expect_trades: bool = True,
-    perturbed_pair: tuple[MarketDataset, Mapping[int, PrequentialForecastSource]]
-    | None = None,
+    perturbed_pair: tuple[MarketDataset, Any] | None = None,
+    arm_builder: ArmBuilder | None = None,
+    sources_builder: Callable[[MarketDataset, DevStudyProtocol], Any] | None = None,
 ) -> dict[str, object]:
     """Replay one arm to the cut on real and future-perturbed data.
 
@@ -561,19 +637,24 @@ def causality_probe(
     bit-identical: nothing after the cut may influence what happened before it.
     The defaults (allocator-24h, base scenario, ``protocol.causality_cut``) are the
     probe embedded in :func:`run_study`; the other parameters serve
-    :func:`causality_probe_matrix`.
+    :func:`causality_probe_matrix`. ``arm_builder`` / ``sources_builder`` let another
+    arm roster (the Phase 2 trials) reuse the probe; ``sources_builder`` builds the
+    per-dataset sources for the perturbed copy and defaults to
+    :func:`build_forecast_sources`.
     """
 
+    build = arm_builder or build_arm
+    make_sources = sources_builder or build_forecast_sources
     cut_text = protocol.causality_cut if cut is None else cut
     cut_index = _row_of(dataset, cut_text)
     if cut_index <= start_index + 48:
         raise ValueError("causality cut must leave a meaningful pre-cut window")
     if perturbed_pair is None:
         perturbed = perturb_future(dataset, after_index=cut_index)
-        perturbed_pair = (perturbed, build_forecast_sources(perturbed, protocol))
+        perturbed_pair = (perturbed, make_sources(perturbed, protocol))
     traces = []
     for data, source_map in ((dataset, sources), perturbed_pair):
-        built = build_arm(arm, data, protocol, source_map)
+        built = build(arm, data, protocol, source_map)
         result = run_shared_portfolio_replay(
             data,
             built.policy,
@@ -606,21 +687,28 @@ def causality_probe(
 def causality_probe_matrix(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
-    sources: Mapping[int, PrequentialForecastSource],
+    sources: Any,
     *,
     start_index: int,
     cut: str,
+    arms: tuple[str, ...] | None = None,
+    arm_builder: ArmBuilder | None = None,
+    sources_builder: Callable[[MarketDataset, DevStudyProtocol], Any] | None = None,
+    expect_trades: bool | None = None,
 ) -> dict[str, dict[str, dict[str, object]]]:
     """Run the future-perturbation probe for every arm in every scenario.
 
     A short pre-cut window is enough: each probe replays the arm twice (real and
     future-perturbed data) and requires bit-identical pre-cut traces. CASH is
-    allowed to stay flat, so it only needs an identical trace.
+    allowed to stay flat, so it only needs an identical trace (``expect_trades``
+    defaults to "every arm but CASH"). ``arms``,
+    ``arm_builder`` and ``sources_builder`` default to the PR-C roster.
     """
 
+    make_sources = sources_builder or build_forecast_sources
     cut_index = _row_of(dataset, cut)
     perturbed = perturb_future(dataset, after_index=cut_index)
-    perturbed_pair = (perturbed, build_forecast_sources(perturbed, protocol))
+    perturbed_pair = (perturbed, make_sources(perturbed, protocol))
     return {
         arm: {
             scenario: causality_probe(
@@ -631,12 +719,16 @@ def causality_probe_matrix(
                 arm=arm,
                 scenario=scenario,
                 cut=cut,
-                expect_trades=arm != ARM_CASH,
+                expect_trades=(
+                    arm != ARM_CASH if expect_trades is None else expect_trades
+                ),
                 perturbed_pair=perturbed_pair,
+                arm_builder=arm_builder,
+                sources_builder=sources_builder,
             )
             for scenario in protocol.scenarios
         }
-        for arm in protocol.arms
+        for arm in (protocol.arms if arms is None else arms)
     }
 
 
@@ -876,9 +968,12 @@ def run_study(
 
 
 __all__ = [
+    "ArmBuilder",
+    "BuiltArm",
     "PrequentialSimpleReturnSource",
     "ReplayOutcome",
     "ZeroWeightPolicy",
+    "build_allocator",
     "build_arm",
     "build_forecast_sources",
     "causality_probe",

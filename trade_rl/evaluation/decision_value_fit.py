@@ -34,6 +34,7 @@ _FIXED_RIDGE_PENALTY = 1e-4
 class _TrainingSet:
     """Validated B1/B2 shared population: identical rows, labels and masks."""
 
+    source_scope: str
     codes: tuple[tuple[int, ...], ...]
     symbols: tuple[str, ...]
     feature_names: tuple[str, ...]
@@ -61,6 +62,10 @@ def _collect_training(
     if not batch.samples or len(batch.group_ids) != len(batch.samples):
         raise ValueError("batch training rows or overlap group identity are invalid")
     first = batch.samples[0]
+    if first.source_scope not in ("synthetic_only", "real_development"):
+        raise ValueError(
+            "only synthetic or real_development training samples with matching source_scope are supported"
+        )
     n_symbols = len(first.observation.symbols)
     codes = tuple(
         decode_portfolio_action_codes(action, n_symbols=n_symbols)
@@ -83,8 +88,10 @@ def _collect_training(
     group = -1
     group_end = -(2**63)
     for i, sample in enumerate(batch.samples):
-        if sample.source_scope != "synthetic_only":
-            raise ValueError("only synthetic training samples are supported")
+        if sample.source_scope != first.source_scope:
+            raise ValueError(
+                "only synthetic or real_development training samples with matching source_scope are supported"
+            )
         if (
             sample.observation.symbols != symbols
             or sample.observation.feature_names != feature_names
@@ -135,6 +142,7 @@ def _collect_training(
     if batch.evaluation_start_ns <= batch.fit_cutoff_ns:
         raise ValueError("evaluation must begin after the fit cutoff")
     return _TrainingSet(
+        source_scope=first.source_scope,
         codes=codes,
         symbols=symbols,
         feature_names=feature_names,
@@ -181,7 +189,7 @@ def fit_synthetic_linear_decision_value(
     )
     return LinearDecisionValueModel(
         schema_version="synthetic_linear_decision_value_v1",
-        source_scope="synthetic_only",
+        source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
         global_feature_names=t.global_names,
@@ -217,7 +225,7 @@ def fit_synthetic_shallow_decision_value(
     )
     return ShallowDecisionValueModel(
         schema_version="synthetic_shallow_decision_value_v1",
-        source_scope="synthetic_only",
+        source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
         global_feature_names=t.global_names,

@@ -424,6 +424,26 @@ headごとの固定Ridgeを1回だけfitし、B1の入力を含む。`decision_v
 software確認であり、実市場のedge、独立標本、G4/G5、unused/final、live、
 M34/NONRL48/fee-only PPOの既存判定を変更しない。
 
+## Issue #1025: direct decision-value learning development study (TD5, bot-development-2024q1)
+
+`evaluation/decision_value_dev_study.py` は、既消費のTier D実データ `data/bot-development-2024q1/dataset`（Dataset ID `7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、artifact digest `96361d309652557382d8b74b96dac661d7ae568cb78db957e9032b71329d550c`）上で、事前認可digest（`51bd5f663ccaae7eaf5c4fbe10e599254dc57db74af5fb889e941105317f91ff`）および凍結protocol（digest `5f91e85ac538fc2502f30edb371fac126341e45fe432373b024939adfb757847`）に基づくTD5の開発検証を実行した。
+
+本検証は、実データに対して `source_scope="real_development"` を適用し、時系列順の3ブロック構成（block_1: [985, 1344]、block_2: [1369, 1728]、block_3: [1753, 2183]）、5アーム（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `shallow_value` [B2]）、および3ストレスシナリオ（`base`, `cost_x2`, `latency_1bar`）による完全台帳リプレイ（計11,880回のpaired replay）を実施した。
+
+各ブロックでcausality perturbation probe（t+1以降の価格摂動による過去意思決定の不変性検証）およびledger evidence reconciliation（台帳の全約定・資産推移・手数料の完全整合）が `PASSED` を記録した。総実行時間は773.30秒。
+
+総合評価結果（Aggregate Net Returns）:
+- `cash`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%
+- `fixed_long`: base +14.9392%, cost_x2 +14.6955%, latency_1bar +14.4848%
+- `cost_aware_ridge`: base -14.9667%, cost_x2 -17.0373%, latency_1bar -14.7359%
+- `linear_value`: base -13.4270%, cost_x2 -19.3331%, latency_1bar -13.1922%
+- `shallow_value`: base -44.6004%, cost_x2 -48.0316%, latency_1bar -44.5459%
+
+判定（Verdict）: `INCONCLUSIVE`
+判定理由: `linear_value` は `base`（-13.4270% vs -14.9667%）および `latency_1bar`（-13.1922% vs -14.7359%）において `cost_aware_ridge` に対する改善を示し、block_2（-4.9829% vs -9.8729%）やblock_3（-2.2010% vs -2.9422%）でも優位であったが、対照群である `fixed_long`（+14.9392%）および `cash`（+0.0000%）を上回ることはできず、また `shallow_value` は過大なターンオーバーにより大幅なマイナスとなった。
+
+本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
+
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
 Tier D / Tier Uの消費・retry境界は[Research assuranceのRESEARCH-001](../architecture/research-assurance.md#research-001--one-way-evidence-use)に従う。Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetを現在のpublic loaderで読み、Dataset identity・scalar・aliasを確認した。これはloader/source適合の確認であり、NONRL 48-cell比較やP&Lの証拠ではない。2026-10-14のTier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageの12 fitは計画されていたが、保持されたprovenanceから完了は確認できない。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなり、supervisorは177秒で`FAILED`になった。native比較は0 / 48 armsで、全armが未着手。このattemptではnative replayとP&Lを実行していない。attemptとprovenanceは保持され、科学的parameterは変更されていない。同じ既消費Datasetと同じ科学的設定は、process-tree samplerを修正した後にTier D technical retryへ再利用でき、harness failureだけでdataを永久retireしない。

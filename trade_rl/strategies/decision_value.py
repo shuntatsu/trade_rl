@@ -105,7 +105,10 @@ class LinearDecisionValueModel:
     coefficients: tuple[tuple[float, ...], ...]
 
     def __post_init__(self) -> None:
-        if self.schema_version != _SCHEMA or self.source_scope != "synthetic_only":
+        if self.schema_version != _SCHEMA or self.source_scope not in (
+            "synthetic_only",
+            "real_development",
+        ):
             raise ValueError("only the versioned synthetic linear model is supported")
         if any(
             type(value) is not tuple
@@ -188,7 +191,7 @@ class LinearDecisionValueRuntimeContext:
     reference_policy_digest: str
 
     def __post_init__(self) -> None:
-        if self.source_scope != "synthetic_only":
+        if self.source_scope not in ("synthetic_only", "real_development"):
             raise ValueError("synthetic-only runtime context is required")
         for field_name in (
             "feature_config_digest",

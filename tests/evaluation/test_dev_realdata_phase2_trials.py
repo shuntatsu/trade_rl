@@ -234,6 +234,7 @@ def test_daily_panel_rejects_a_missing_daily_bar(market: MarketDataset) -> None:
 # --- causality: future perturbation leaves every signal unchanged ----------
 
 CUT = "2021-10-20T00:00:00"
+MATRIX_CUT = "2021-10-18T00:00:00"
 
 
 @pytest.fixture(scope="module")
@@ -588,7 +589,7 @@ def test_t8_decides_only_on_mondays_at_midnight(market: MarketDataset) -> None:
 
 @pytest.fixture(scope="module")
 def phase2(market: MarketDataset) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
-    return study.run_phase2(market, small_protocol())
+    return study.run_phase2(market, small_protocol(), matrix_cut=MATRIX_CUT)
 
 
 def test_every_arm_and_scenario_is_reported(
@@ -635,6 +636,25 @@ def test_every_arm_and_scenario_is_reported(
     assert "t7_blend_dd_overlay" in results["arms"]
     assert "overlay" in results["arms"]["t7_blend_dd_overlay"]["base"]
     assert len(equity) >= 2 * len(SCENARIOS) * (len(ALL_ARMS) - 1)
+    # The PR-C causality matrix runs for every trial in every scenario.
+    for arm in TRIAL_ARMS:
+        if arm == "t5_lightgbm24" and not LIGHTGBM_INSTALLED:
+            continue
+        cells = results["causality_matrix"][arm]
+        assert set(cells) == set(SCENARIOS)
+        assert all(cell["identical_pre_cut_trace"] for cell in cells.values())
+        assert results["validity_detail"][arm]["causality_matrix_passed"] is True
+    # Terminal-flat status and any residual are reported, never hidden.
+    for arm in ALL_ARMS:
+        if arm == "t5_lightgbm24" and not LIGHTGBM_INSTALLED:
+            continue
+        for scenario in SCENARIOS:
+            reconciliation = results["arms"][arm][scenario]["reconciliation"]
+            assert "terminal_residual_quantities" in reconciliation
+            assert reconciliation["terminal_residual_notional_usdt"] >= 0.0
+            if reconciliation["terminal_flat"]:
+                assert reconciliation["terminal_residual_quantities"] == {}
+                assert reconciliation["terminal_residual_notional_usdt"] == 0.0
 
 
 def test_a_failed_trial_is_recorded_and_never_selected(
@@ -755,6 +775,8 @@ def test_cli_smoke_writes_once_and_refuses_overwrite(
         str(out),
         "--summary-path",
         str(summary),
+        "--causality-matrix-cut",
+        MATRIX_CUT,
         "--sequential",
     ]
     assert trial_cli.main(argv) == 0
@@ -762,6 +784,13 @@ def test_cli_smoke_writes_once_and_refuses_overwrite(
     written = json.loads(summary.read_text(encoding="utf-8"))
     assert written["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
     assert written["registry_digest"] == registry_digest()
+    metadata = written["run_metadata"]
+    assert metadata["started_utc"] <= metadata["finished_utc"]
+    assert metadata["sequential"] is True and "--sequential" in metadata["argv"]
+    assert set(metadata["output_sha256"]) == {"equity.npz", "full_results.json"}
+    assert json.loads((out / "run_metadata.json").read_text("utf-8")) == metadata
+    first_row = written["arms"]["t1_tsmom"]["base"]
+    assert "terminal_residual_notional_usdt" in first_row
     assert set(written["arms"]) == set(ALL_ARMS)
     row = written["arms"]["t1_tsmom"]["base"]
     for name in (
@@ -790,7 +819,13 @@ def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:
     loader = partial(runner.load_dataset, str(root))
     with ProcessPoolExecutor(max_workers=1) as pool:
         remote = pool.submit(
-            study._arm_worker, loader, protocol, "t3_funding_carry", start, stop
+            study._arm_worker,
+            loader,
+            protocol,
+            "t3_funding_carry",
+            start,
+            stop,
+            MATRIX_CUT,
         ).result()
     local = study.run_arm(
         identified,
@@ -799,8 +834,10 @@ def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:
         start_index=start,
         stop_index=stop,
         say=lambda message: None,
+        matrix_cut=MATRIX_CUT,
     )
-    assert remote.failures == {} and remote.probe == local.probe
+    assert remote.failures == {}
+    assert remote.probe_matrix == local.probe_matrix and remote.probe == local.probe
     for scenario in SCENARIOS:
         assert np.array_equal(
             remote.outcomes[scenario].equity, local.outcomes[scenario].equity

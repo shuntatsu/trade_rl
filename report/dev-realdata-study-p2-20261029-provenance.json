@@ -1,0 +1,276 @@
+{
+  "causality_probe_all_arms": {
+    "all_passed": true,
+    "cut": "2023-03-01T00:00:00",
+    "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+    "elapsed_seconds": 182.6,
+    "evaluation_start": "2023-01-01T00:00:00",
+    "matrix": {
+      "allocator_24h_long_only": {
+        "base": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "cost_x2": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "latency_1bar": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        }
+      },
+      "allocator_24h_long_short": {
+        "base": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "cost_x2": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "latency_1bar": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        }
+      },
+      "allocator_72h_long_short": {
+        "base": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "cost_x2": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "latency_1bar": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 59,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        }
+      },
+      "cash": {
+        "base": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 0,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": false
+        },
+        "cost_x2": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 0,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": false
+        },
+        "latency_1bar": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 0,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": false
+        }
+      },
+      "equal_weight_buy_and_hold": {
+        "base": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 0,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "cost_x2": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 0,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        },
+        "latency_1bar": {
+          "cut": "2023-03-01T00:00:00",
+          "identical_pre_cut_trace": true,
+          "n_decisions": 0,
+          "n_trace_rows": 2832,
+          "passed": true,
+          "pre_cut_trace_has_trades": true
+        }
+      }
+    },
+    "started_local": "2026-10-29T11:49:08+0900"
+  },
+  "dataset_rebuild": {
+    "artifact_digest": "9f00e17c2f3de700f3a9ff08d41dea312ff61c143d85514b73e0cd84e03cd381",
+    "build_policy_digest": "3d82d2daf28a341d333f8121b79221853dd379c8861ac7d80c03fd202e4e1a03",
+    "builder": "python -m trade_rl.evaluation.dev_realdata_study.dataset_build",
+    "command": "python -m trade_rl.evaluation.dev_realdata_study.dataset_build --archive-root data/breakeven-2020-2026/vision --exchange-info-dir data/bot-development-2024q1/exchange-info --output-dir data/dev-5sym-2021-2026-rebuild",
+    "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+    "derived_incomplete_windows": {
+      "XRPUSDT:1d": 5,
+      "XRPUSDT:4h": 30
+    },
+    "gap_report_missing": {
+      "XRPUSDT:1d": {
+        "expected_bars": 2038,
+        "funding_events_in_missing_bars": 14,
+        "missing_bars": 5,
+        "present_bars": 2033
+      },
+      "XRPUSDT:1h": {
+        "expected_bars": 48912,
+        "funding_events_in_missing_bars": 14,
+        "missing_bars": 120,
+        "present_bars": 48792
+      },
+      "XRPUSDT:4h": {
+        "expected_bars": 12228,
+        "funding_events_in_missing_bars": 14,
+        "missing_bars": 30,
+        "present_bars": 12198
+      }
+    },
+    "matches_study_artifact_digest": true,
+    "matches_study_dataset_id": true,
+    "n_bars": 48912,
+    "n_features": 167,
+    "network": "none",
+    "raw_source_roster_digest": "ef2780f0891bbd996f83819a4c0b0124b01dc1addf2bb336c0ac97ef51a13164",
+    "source_archive_count": 670,
+    "source_digest": "cb7072eae9045f11cbabca007f9cd7829a368520b17a286533747eacf1079f42"
+  },
+  "latency_72h_terminal_residual": {
+    "arm": "allocator_72h_long_short",
+    "cash_identity_residual": -1.539231555304258e-11,
+    "cause": "allocator min-trade rule left a sub-minimum-notional dust short; the executor applies minimum notional to the closing order and has no reduce-only exemption",
+    "diagnostic_replay": "the single replay was re-executed with ledger capture for diagnosis only; it is not a study run and no reported number changed",
+    "replay_rerun": false,
+    "residual_position": "0.006 ETHUSDT short, 11.17 USDT at the final mark (0.3% of terminal equity)",
+    "runner_bug": false,
+    "scenario": "latency_1bar",
+    "terminal_exact_quantities": [
+      "0",
+      "-3/500",
+      "0",
+      "0",
+      "0"
+    ],
+    "terminal_orders": "buy 0.006 ETHUSDT submitted in both reserved terminal intervals; rejected both times with reason below_minimum_notional (ETHUSDT minimum notional 20 USDT)"
+  },
+  "note": "Post-hoc provenance recorded after review of PR #1037. Nothing here changes the study result, label or protocol digest. Times are the local file mtimes of the outputs (UTC+09:00); the run start time and CLI arguments were not recorded.",
+  "run_record": {
+    "claim_limit": "The repository cannot show how many times the study was executed; the executions above are what local files show.",
+    "earlier_full_execution": {
+      "description": "A complete earlier execution of the same protocol (same protocol_digest) on code before the allocator-solver hardening was merged; it was not reported and was superseded by the run above. Recorded from local scratch files that are not in the repository.",
+      "git_head": "d11f031066a1f7081062f063d711833dad10fbab",
+      "label": "NO_WINNER",
+      "outputs_written_at": "2026-10-29T07:55:39+09:00",
+      "protocol_digest": "7adc12e842cb8f574bcd3bd502182d9ffdd19dcc7d1a9b59cbc99ab6f4626558",
+      "summary_sha256": "0790e98c652ed23c0a9fb6008eebfe9166a7f26710c79b75fe8625eab5a24fe9",
+      "terminal_net_profit_pct": {
+        "allocator_24h_long_only": {
+          "base": 13.1,
+          "cost_x2": -13.9,
+          "latency_1bar": 34.6
+        },
+        "allocator_24h_long_short": {
+          "base": -44.4,
+          "cost_x2": -76.2,
+          "latency_1bar": -53.5
+        },
+        "allocator_72h_long_short": {
+          "base": -60.3,
+          "cost_x2": -60.7,
+          "latency_1bar": -25.2
+        },
+        "cash": {
+          "base": 0.0,
+          "cost_x2": 0.0,
+          "latency_1bar": 0.0
+        },
+        "equal_weight_buy_and_hold": {
+          "base": 95.9,
+          "cost_x2": 95.7,
+          "latency_1bar": 95.9
+        }
+      }
+    },
+    "other": "A local empty output directory from a still earlier attempt holds no results. No protocol parameter was changed between executions; the numeric differences come from merged allocator code changes, and the label was NO_WINNER in both.",
+    "reported_run": {
+      "committed_summary_sha256": "c17223cf823d0a3c201a37952295744b797f0511879f3d3231119c62f3d58cbd",
+      "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+      "equity_npz_sha256": "8396d899b53cf530bb8a28aa8e867208caf91d03b30c9983a7a503ab9e15957b",
+      "full_results_json_sha256": "570dcf5936cdd8ed9d03642732ae77f4bf8004d19f6cf1cb9a3cc7b88c42c0ad",
+      "git_head": "fe36b7c115f8d92811cfbf6eaebdc64e81fa5e72",
+      "outputs_written_at": "2026-10-29T08:19:41+09:00",
+      "protocol_digest": "7adc12e842cb8f574bcd3bd502182d9ffdd19dcc7d1a9b59cbc99ab6f4626558"
+    },
+    "reported_terminal_net_profit_pct": {
+      "allocator_24h_long_only": {
+        "base": 22.4,
+        "cost_x2": -7.1,
+        "latency_1bar": 66.5
+      },
+      "allocator_24h_long_short": {
+        "base": -50.4,
+        "cost_x2": -71.0,
+        "latency_1bar": -56.7
+      },
+      "allocator_72h_long_short": {
+        "base": -19.7,
+        "cost_x2": -65.0,
+        "latency_1bar": -63.8
+      },
+      "cash": {
+        "base": 0.0,
+        "cost_x2": 0.0,
+        "latency_1bar": 0.0
+      },
+      "equal_weight_buy_and_hold": {
+        "base": 95.9,
+        "cost_x2": 95.7,
+        "latency_1bar": 95.9
+      }
+    }
+  },
+  "schema_version": "dev_realdata_study_p2_provenance_v1"
+}

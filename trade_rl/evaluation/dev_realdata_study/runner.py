@@ -379,6 +379,18 @@ def reconcile_ledger(
         Fraction(value) == 0 for value in ledger.terminal_exact_quantities
     )
     final_equity = ledger.final_portfolio_value
+    final_marks = dataset.resolved_array("mark_price")[intervals[-1].next_index]
+    residual_quantities = {
+        dataset.symbols[index]: str(value)
+        for index, value in enumerate(ledger.terminal_exact_quantities)
+        if Fraction(value) != 0
+    }
+    residual_notional = sum(
+        abs(float(Fraction(value)))
+        * float(final_marks[index])
+        * float(multipliers[index])
+        for index, value in enumerate(ledger.terminal_exact_quantities)
+    )
     cash_residual = float(Fraction(ledger.final_cash) - expected)
     equity_residual = float(Fraction(final_equity) - expected)
     totals_residual = max(
@@ -398,6 +410,8 @@ def reconcile_ledger(
     return {
         "passed": passed,
         "terminal_flat": terminal_flat,
+        "terminal_residual_quantities": residual_quantities,
+        "terminal_residual_notional_usdt": float(residual_notional),
         "intervals_chained": chained,
         "termination_reason": ledger.termination_reason,
         "n_intervals": len(intervals),
@@ -610,6 +624,10 @@ def causality_probe(
     *,
     start_index: int,
     arm: str = ARM_ALLOCATOR_24H,
+    scenario: str = SCENARIO_BASE,
+    cut: str | None = None,
+    expect_trades: bool = True,
+    perturbed_pair: tuple[MarketDataset, Any] | None = None,
     arm_builder: ArmBuilder | None = None,
     sources_builder: Callable[[MarketDataset, DevStudyProtocol], Any] | None = None,
 ) -> dict[str, object]:
@@ -617,49 +635,100 @@ def causality_probe(
 
     Every decision, quantity, cash and equity value up to the cut must be
     bit-identical: nothing after the cut may influence what happened before it.
-    ``arm_builder`` / ``sources_builder`` let another arm roster (the Phase 2
-    trials) reuse the probe; ``sources_builder`` builds the per-dataset sources
-    for the perturbed copy and defaults to :func:`build_forecast_sources`.
+    The defaults (allocator-24h, base scenario, ``protocol.causality_cut``) are the
+    probe embedded in :func:`run_study`; the other parameters serve
+    :func:`causality_probe_matrix`. ``arm_builder`` / ``sources_builder`` let another
+    arm roster (the Phase 2 trials) reuse the probe; ``sources_builder`` builds the
+    per-dataset sources for the perturbed copy and defaults to
+    :func:`build_forecast_sources`.
     """
 
     build = arm_builder or build_arm
     make_sources = sources_builder or build_forecast_sources
-    cut = _row_of(dataset, protocol.causality_cut)
-    if cut <= start_index + 48:
+    cut_text = protocol.causality_cut if cut is None else cut
+    cut_index = _row_of(dataset, cut_text)
+    if cut_index <= start_index + 48:
         raise ValueError("causality cut must leave a meaningful pre-cut window")
-    perturbed = perturb_future(dataset, after_index=cut)
+    if perturbed_pair is None:
+        perturbed = perturb_future(dataset, after_index=cut_index)
+        perturbed_pair = (perturbed, make_sources(perturbed, protocol))
     traces = []
-    for data, source_map in (
-        (dataset, sources),
-        (perturbed, make_sources(perturbed, protocol)),
-    ):
+    for data, source_map in ((dataset, sources), perturbed_pair):
         built = build(arm, data, protocol, source_map)
         result = run_shared_portfolio_replay(
             data,
             built.policy,
             start_index=start_index,
-            stop_index=cut,
+            stop_index=cut_index,
             initial_capital=protocol.initial_capital,
-            execution_cost=scenario_cost(protocol, SCENARIO_BASE),
+            execution_cost=scenario_cost(protocol, scenario),
             capture_ledger_evidence=True,
         )
         traces.append((_trace(result), built.adapter))
     real_trace, real_adapter = traces[0]
     perturbed_trace, perturbed_adapter = traces[1]
-    history_real = [] if real_adapter is None else real_adapter.history
-    history_perturbed = [] if perturbed_adapter is None else perturbed_adapter.history
-    identical = real_trace == perturbed_trace and history_real == history_perturbed
+    real_history = [] if real_adapter is None else real_adapter.history
+    perturbed_history = [] if perturbed_adapter is None else perturbed_adapter.history
+    identical = real_trace == perturbed_trace and real_history == perturbed_history
     traded = any(
         any(Fraction(q) != 0 for q in cast(tuple[str, ...], row[1]))
         for row in real_trace[: len(real_trace) // 2]
     )
     return {
-        "passed": bool(identical and traded),
+        "passed": bool(identical and (traded or not expect_trades)),
         "identical_pre_cut_trace": bool(identical),
         "pre_cut_trace_has_trades": bool(traded),
-        "cut": protocol.causality_cut,
+        "cut": cut_text,
         "n_trace_rows": len(real_trace),
-        "n_decisions": len(history_real),
+        "n_decisions": len(real_history),
+    }
+
+
+def causality_probe_matrix(
+    dataset: MarketDataset,
+    protocol: DevStudyProtocol,
+    sources: Any,
+    *,
+    start_index: int,
+    cut: str,
+    arms: tuple[str, ...] | None = None,
+    arm_builder: ArmBuilder | None = None,
+    sources_builder: Callable[[MarketDataset, DevStudyProtocol], Any] | None = None,
+    expect_trades: bool | None = None,
+) -> dict[str, dict[str, dict[str, object]]]:
+    """Run the future-perturbation probe for every arm in every scenario.
+
+    A short pre-cut window is enough: each probe replays the arm twice (real and
+    future-perturbed data) and requires bit-identical pre-cut traces. CASH is
+    allowed to stay flat, so it only needs an identical trace (``expect_trades``
+    defaults to "every arm but CASH"). ``arms``,
+    ``arm_builder`` and ``sources_builder`` default to the PR-C roster.
+    """
+
+    make_sources = sources_builder or build_forecast_sources
+    cut_index = _row_of(dataset, cut)
+    perturbed = perturb_future(dataset, after_index=cut_index)
+    perturbed_pair = (perturbed, make_sources(perturbed, protocol))
+    return {
+        arm: {
+            scenario: causality_probe(
+                dataset,
+                protocol,
+                sources,
+                start_index=start_index,
+                arm=arm,
+                scenario=scenario,
+                cut=cut,
+                expect_trades=(
+                    arm != ARM_CASH if expect_trades is None else expect_trades
+                ),
+                perturbed_pair=perturbed_pair,
+                arm_builder=arm_builder,
+                sources_builder=sources_builder,
+            )
+            for scenario in protocol.scenarios
+        }
+        for arm in (protocol.arms if arms is None else arms)
     }
 
 
@@ -908,6 +977,7 @@ __all__ = [
     "build_arm",
     "build_forecast_sources",
     "causality_probe",
+    "causality_probe_matrix",
     "equity_path",
     "feature_indices",
     "perturb_future",

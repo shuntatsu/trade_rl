@@ -51,6 +51,9 @@ from trade_rl.evaluation.dev_realdata_study.trials import (
 
 Progress = Callable[[str], None]
 
+# Same short pre-cut window as the PR-C ``causality_probe_matrix`` provenance run.
+PROBE_MATRIX_CUT = "2023-03-01T00:00:00"
+
 
 def make_context(dataset: MarketDataset, protocol: DevStudyProtocol) -> TrialContext:
     """Module-level so the causality probe can build sources for a perturbed copy."""
@@ -66,6 +69,7 @@ class ArmRun:
     outcomes: dict[str, runner.ReplayOutcome]
     failures: dict[str, dict[str, str]]
     probe: dict[str, object] | None
+    probe_matrix: dict[str, dict[str, object]] | None = None
 
 
 def _failure(exc: BaseException) -> dict[str, str]:
@@ -85,12 +89,14 @@ def run_arm(
     start_index: int,
     stop_index: int,
     say: Progress,
+    matrix_cut: str = PROBE_MATRIX_CUT,
 ) -> ArmRun:
     """All scenarios and the causality probe for one arm; failures are recorded."""
 
     outcomes: dict[str, runner.ReplayOutcome] = {}
     failures: dict[str, dict[str, str]] = {}
     probe: dict[str, object] | None = None
+    probe_matrix: dict[str, dict[str, object]] | None = None
     context = make_context(dataset, protocol)
     for scenario in protocol.scenarios:
         say(f"replay {arm} / {scenario}")
@@ -117,13 +123,30 @@ def run_arm(
                 context,
                 start_index=start_index,
                 arm=arm,
+                expect_trades=False,
                 arm_builder=build_phase2_arm,
                 sources_builder=make_context,
             )
         except Exception as exc:
             failures["causality_probe"] = _failure(exc)
             say(f"FAILED {arm} causality probe: {type(exc).__name__}: {exc}")
-    return ArmRun(arm, outcomes, failures, probe)
+        say(f"causality matrix {arm}")
+        try:
+            probe_matrix = runner.causality_probe_matrix(
+                dataset,
+                protocol,
+                context,
+                start_index=start_index,
+                cut=matrix_cut,
+                arms=(arm,),
+                expect_trades=False,
+                arm_builder=build_phase2_arm,
+                sources_builder=make_context,
+            )[arm]
+        except Exception as exc:
+            failures["causality_matrix"] = _failure(exc)
+            say(f"FAILED {arm} causality matrix: {type(exc).__name__}: {exc}")
+    return ArmRun(arm, outcomes, failures, probe, probe_matrix)
 
 
 def _arm_worker(
@@ -132,6 +155,7 @@ def _arm_worker(
     arm: str,
     start_index: int,
     stop_index: int,
+    matrix_cut: str,
 ) -> ArmRun:
     dataset = loader()
     return run_arm(
@@ -141,6 +165,7 @@ def _arm_worker(
         start_index=start_index,
         stop_index=stop_index,
         say=lambda message: print(message, flush=True),
+        matrix_cut=matrix_cut,
     )
 
 
@@ -163,6 +188,7 @@ def run_phase2(
     parallel_loader: Callable[[], MarketDataset] | None = None,
     max_workers: int = 8,
     arms: tuple[str, ...] = ALL_ARMS,
+    matrix_cut: str = PROBE_MATRIX_CUT,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Run the PR-C arms and the eight registered trials; return results and equity.
 
@@ -180,11 +206,18 @@ def run_phase2(
 
     runs: dict[str, ArmRun] = {}
     if parallel_loader is not None:
-        heavy_first = sorted(arms, key=lambda arm: arm in CONTROL_ARMS)
+        # Buy-and-hold has the longest single replays: start the controls first.
+        heavy_first = sorted(arms, key=lambda arm: arm not in CONTROL_ARMS)
         with ProcessPoolExecutor(max_workers=max_workers) as pool:
             futures = {
                 arm: pool.submit(
-                    _arm_worker, parallel_loader, protocol, arm, start_index, stop_index
+                    _arm_worker,
+                    parallel_loader,
+                    protocol,
+                    arm,
+                    start_index,
+                    stop_index,
+                    matrix_cut,
                 )
                 for arm in heavy_first
             }
@@ -203,6 +236,7 @@ def run_phase2(
                 start_index=start_index,
                 stop_index=stop_index,
                 say=say,
+                matrix_cut=matrix_cut,
             )
     return assemble(dataset, protocol, runs)
 
@@ -248,9 +282,13 @@ def assemble(
             not arms_table[arm][s]["terminated"] for s in scenarios
         )
         needs_probe = arm not in CONTROL_ARMS
-        probe_ok = (not needs_probe) or (
-            run.probe is not None and bool(run.probe["passed"])
+        matrix_ok = (not needs_probe) or (
+            run.probe_matrix is not None
+            and all(bool(cell["passed"]) for cell in run.probe_matrix.values())
         )
+        probe_ok = (
+            (not needs_probe) or (run.probe is not None and bool(run.probe["passed"]))
+        ) and matrix_ok
         validity[arm] = bool(complete and reconciled and no_termination and probe_ok)
         validity_detail[arm] = {
             "all_scenarios_ran": complete,
@@ -258,6 +296,12 @@ def assemble(
             "no_termination_all_scenarios": no_termination,
             "causality_probe_passed": (
                 None if not needs_probe else (run.probe or {}).get("passed", False)
+            ),
+            "causality_matrix_passed": (
+                None
+                if not needs_probe
+                else run.probe_matrix is not None
+                and all(bool(cell["passed"]) for cell in run.probe_matrix.values())
             ),
             "scenarios_failing_reconciliation": [
                 s
@@ -354,6 +398,10 @@ def assemble(
             arm: runs[arm].probe for arm in ALL_ARMS if arm not in CONTROL_ARMS
         },
         "failures": {arm: runs[arm].failures for arm in ALL_ARMS if runs[arm].failures},
+        "causality_matrix": {
+            arm: runs[arm].probe_matrix for arm in ALL_ARMS if arm not in CONTROL_ARMS
+        },
+        "causality_matrix_cut": PROBE_MATRIX_CUT,
         "validity": validity,
         "validity_detail": validity_detail,
         "arms": arms_table,
@@ -417,6 +465,12 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
             )
             row["ledger_reconciled"] = summary["reconciliation"]["passed"]
             row["terminal_flat"] = summary["reconciliation"]["terminal_flat"]
+            row["terminal_residual_quantities"] = summary["reconciliation"][
+                "terminal_residual_quantities"
+            ]
+            row["terminal_residual_notional_usdt"] = summary["reconciliation"][
+                "terminal_residual_notional_usdt"
+            ]
             row["mean_gross_exposure"] = summary["exposure"]["mean_gross_exposure"]
             row["mean_net_exposure"] = summary["exposure"]["mean_net_exposure"]
             forecast = summary.get("forecast")
@@ -441,6 +495,8 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
         "validity": results["validity"],
         "validity_detail": results["validity_detail"],
         "causality_probes": results["causality_probes"],
+        "causality_matrix": results["causality_matrix"],
+        "causality_matrix_cut": results["causality_matrix_cut"],
         "failures": results["failures"],
         "arms": rows,
         "bootstrap": results["bootstrap"],

@@ -17,6 +17,7 @@ from trade_rl.strategies.decision_value import (
     encode_decision_value_state_v2,
     load_conservative_linear_decision_value,
     load_linear_decision_value,
+    preserve_posture_aware_proposal,
     serialize_conservative_linear_decision_value,
     serialize_linear_decision_value,
 )
@@ -479,8 +480,12 @@ def test_conservative_policy_uncertainty_and_hold_suppression() -> None:
     )
     snap_inflight = replace(snap, active_orders=(ord_inflight,))
     proposal = pol_low.decide_portfolio(snap_inflight)
-    assert 0 in proposal.hold_current_quantity_symbols
-    assert proposal.target_weights[0] == 0.0
+    # Under posture-aware in-flight preservation (TD7):
+    # Target weight is set to effective weight (0.4) so target_delta == active_residual,
+    # and symbol 0 is NOT in hold_symbols so reconcile_target keeps the in-flight order intact
+    # without issuing duplicate orders or canceling the pending order.
+    assert proposal.target_weights[0] == pytest.approx(0.4)
+    assert 0 not in proposal.hold_current_quantity_symbols
 
 
 def test_conservative_serialization_and_tamper(tmp_path: Path) -> None:
@@ -513,3 +518,84 @@ def test_conservative_serialization_and_tamper(tmp_path: Path) -> None:
         load_conservative_linear_decision_value(payload, expected_sha256="c" * 64)
     with pytest.raises(ValueError, match="canonical"):
         load_conservative_linear_decision_value(payload + "\n", expected_sha256=digest)
+
+
+def test_preserve_posture_aware_proposal_contracts() -> None:
+    snap_flat = _snapshot(signal=0.0)
+    targets = (0.25, 0.25)
+
+    # 1. Flat entry: from flat with LONG candidate -> proposes target weight 0.25, no hold
+    p1 = preserve_posture_aware_proposal(
+        (ACTION_LONG, ACTION_HOLD), snap_flat, targets, all_scores_non_positive=False
+    )
+    assert p1.target_weights == pytest.approx((0.25, 0.0))
+    assert 0 not in p1.hold_current_quantity_symbols
+    assert 1 in p1.hold_current_quantity_symbols
+
+    # 2. In-flight order preservation: pending order for 0.25 active -> keep target at 0.25, not in hold_symbols
+    ord_inflight = PortfolioPendingOrderSnapshot(
+        symbol_index=0,
+        order_type="market",
+        time_in_force="gtc",
+        requested_quantity=2.5,
+        remaining_quantity=2.5,
+        status="submitted",
+        submit_index=0,
+        eligible_index=1,
+        last_processed_index=None,
+        trigger_index=None,
+        expiry_index=None,
+        reduce_only=False,
+        submission_reference_price=100.0,
+    )
+    snap_inflight = replace(snap_flat, active_orders=(ord_inflight,))
+    p2 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD),
+        snap_inflight,
+        targets,
+        all_scores_non_positive=False,
+    )
+    assert p2.target_weights[0] == pytest.approx(0.25)
+    assert 0 not in p2.hold_current_quantity_symbols
+
+    # 3. Micro-rebalancing drift suppression: position filled (exact_quantity="2.5"), no pending order -> hold symbol 0
+    snap_holding = replace(
+        snap_flat,
+        account=replace(
+            snap_flat.account,
+            exact_quantities=("2.5", "0"),
+            quantities=(2.5, 0.0),
+            weights=(0.26, 0.0),  # drifted due to mark price move
+        ),
+    )
+    p3 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD), snap_holding, targets, all_scores_non_positive=False
+    )
+    assert p3.target_weights[0] == pytest.approx(0.26)
+    assert 0 in p3.hold_current_quantity_symbols
+
+    # 4. Cash exit from losing position when all scores are non-positive
+    # Initial capital = 1000.0, current portfolio_value = 950.0 (5% loss)
+    snap_losing = replace(
+        snap_flat,
+        account=replace(
+            snap_flat.account,
+            portfolio_value=950.0,
+            exact_quantities=("2.5", "0"),
+            quantities=(2.5, 0.0),
+            weights=(0.26, 0.0),
+        ),
+    )
+    p4 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD), snap_losing, targets, all_scores_non_positive=True
+    )
+    assert p4.target_weights[0] == pytest.approx(0.0)  # Exits to cash!
+    assert 0 not in p4.hold_current_quantity_symbols
+
+    # 5. Holding cash when already flat and all scores non-positive
+    p5 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD), snap_flat, targets, all_scores_non_positive=True
+    )
+    assert p5.target_weights == pytest.approx((0.0, 0.0))
+    assert 0 in p5.hold_current_quantity_symbols
+    assert 1 in p5.hold_current_quantity_symbols

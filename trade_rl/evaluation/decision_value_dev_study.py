@@ -43,6 +43,7 @@ from trade_rl.strategies.decision_value import (
     ConservativeLinearDecisionValuePolicy,
     LinearDecisionValuePolicy,
     LinearDecisionValueRuntimeContext,
+    preserve_posture_aware_proposal,
 )
 from trade_rl.strategies.decision_value_shallow import (
     ShallowDecisionValuePolicy,
@@ -64,8 +65,10 @@ from trade_rl.strategies.portfolio_observation import (
     build_portfolio_decision_snapshot,
 )
 from trade_rl.strategies.portfolio_policy_codec import (
+    ACTION_FLAT,
     ACTION_HOLD,
     ACTION_LONG,
+    ACTION_SHORT,
     portfolio_action_to_proposal,
 )
 
@@ -367,24 +370,24 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
     horizon_bars = 24
     terminal_reserve_bars = 1
     candidate_actions = (
-        (0, 0),  # (HOLD, HOLD)
-        (1, 1),  # (FLAT, FLAT)
-        (2, 0),  # (LONG, HOLD)
-        (3, 0),  # (SHORT, HOLD)
-        (0, 2),  # (HOLD, LONG)
-        (0, 3),  # (HOLD, SHORT)
-        (2, 2),  # (LONG, LONG)
-        (3, 3),  # (SHORT, SHORT)
-        (2, 3),  # (LONG, SHORT)
-        (3, 2),  # (SHORT, LONG)
+        (ACTION_HOLD, ACTION_HOLD),
+        (ACTION_FLAT, ACTION_FLAT),
+        (ACTION_LONG, ACTION_HOLD),
+        (ACTION_SHORT, ACTION_HOLD),
+        (ACTION_HOLD, ACTION_LONG),
+        (ACTION_HOLD, ACTION_SHORT),
+        (ACTION_LONG, ACTION_LONG),
+        (ACTION_SHORT, ACTION_SHORT),
+        (ACTION_LONG, ACTION_SHORT),
+        (ACTION_SHORT, ACTION_LONG),
     )
     fee_rate = 0.0005
     spread_rate = 0.0002
     impact_rate = 0.0001
     max_participation_rate = 0.05
     risk_config = PreTradeRiskConfig(
-        max_gross=0.50,
-        max_abs_weight=0.25,
+        max_gross=0.60,
+        max_abs_weight=0.30,
         max_turnover=1.0,
         drawdown_start=0.15,
         drawdown_stop=0.20,
@@ -600,6 +603,35 @@ class _HoldQuantityPolicy:
         )
 
 
+class _WarmupReferencePolicy:
+    """Warmup action on bar 0 (t - 1), followed by exact-quantity HOLD."""
+
+    __slots__ = ("_warmup_action", "_target_abs_weights", "_entered")
+
+    def __init__(
+        self,
+        *,
+        warmup_action: tuple[int, ...],
+        target_abs_weights: tuple[float, ...],
+    ) -> None:
+        self._warmup_action = warmup_action
+        self._target_abs_weights = target_abs_weights
+        self._entered = False
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        if not self._entered:
+            self._entered = True
+            return portfolio_action_to_proposal(
+                self._warmup_action, snapshot, self._target_abs_weights
+            )
+        return PortfolioTargetProposal(
+            snapshot.account.weights,
+            hold_current_quantity_symbols=tuple(range(len(snapshot.symbols))),
+        )
+
+
 class _FixedEntryPolicy:
     """One fixed entry on the first decision bar, followed by exact-quantity HOLD."""
 
@@ -618,11 +650,17 @@ class _FixedEntryPolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        codes = (
-            (ACTION_HOLD,) * len(snapshot.symbols) if self._entered else self._action
+        if not self._entered:
+            self._entered = True
+            return portfolio_action_to_proposal(
+                self._action, snapshot, self._target_abs_weights
+            )
+        return preserve_posture_aware_proposal(
+            (ACTION_HOLD,) * len(snapshot.symbols),
+            snapshot,
+            self._target_abs_weights,
+            all_scores_non_positive=False,
         )
-        self._entered = True
-        return portfolio_action_to_proposal(codes, snapshot, self._target_abs_weights)
 
 
 class _CostAwareRidgePortfolioPolicy:
@@ -790,8 +828,8 @@ def _format_markdown_summary(
         "",
         "## Aggregate Net Returns by Arm and Scenario",
         "",
-        "| Arm | Base | Cost x2 | Latency 1 bar |",
-        "|---|---|---|---|",
+        "| Arm | Base | Cost x2 | Latency 1 bar | Latency 2 bars |",
+        "|---|---|---|---|---|",
     ]
     for arm in (
         "cash",
@@ -805,7 +843,10 @@ def _format_markdown_summary(
         base_r = arm_metrics.get("base", 0.0)
         c2_r = arm_metrics.get("cost_x2", 0.0)
         lat_r = arm_metrics.get("latency_1bar", 0.0)
-        lines.append(f"| `{arm}` | {base_r:+.4%} | {c2_r:+.4%} | {lat_r:+.4%} |")
+        lat2_r = arm_metrics.get("latency_2bar", 0.0)
+        lines.append(
+            f"| `{arm}` | {base_r:+.4%} | {c2_r:+.4%} | {lat_r:+.4%} | {lat2_r:+.4%} |"
+        )
     lines.extend(
         [
             "",
@@ -901,19 +942,47 @@ def run_decision_value_dev_study(
 
         for t in intervention_indices:
             for cand_action in non_hold_candidates:
-                pair = run_paired_portfolio_action(
-                    dataset,
-                    reference_policy_factory=_HoldQuantityPolicy,
-                    start_index=t,
-                    stop_index=t + protocol.study_plan.horizon_bars,
-                    intervention_index=t,
-                    baseline_action=protocol.study_plan.candidate_actions[0],
-                    candidate_action=cand_action,
-                    target_abs_weights=protocol.target_abs_weights,
-                    initial_capital=protocol.study_plan.initial_capital,
-                    execution_cost=protocol.base_execution_cost,
-                    risk=PreTradeRisk(protocol.risk_config),
-                )
+                if all(a == ACTION_FLAT for a in cand_action) and t > 0:
+                    warmup_act = (
+                        (ACTION_LONG,) * len(dataset.symbols)
+                        if (t // block.train_step) % 2 == 0
+                        else (ACTION_SHORT,) * len(dataset.symbols)
+                    )
+                    w_action = warmup_act
+
+                    def make_warmup() -> _WarmupReferencePolicy:
+                        return _WarmupReferencePolicy(
+                            warmup_action=w_action,
+                            target_abs_weights=protocol.target_abs_weights,
+                        )
+
+                    pair = run_paired_portfolio_action(
+                        dataset,
+                        reference_policy_factory=make_warmup,
+                        start_index=t - 1,
+                        stop_index=t + protocol.study_plan.horizon_bars,
+                        intervention_index=t,
+                        baseline_action=protocol.study_plan.candidate_actions[0],
+                        candidate_action=cand_action,
+                        target_abs_weights=protocol.target_abs_weights,
+                        initial_capital=protocol.study_plan.initial_capital,
+                        execution_cost=protocol.base_execution_cost,
+                        risk=PreTradeRisk(protocol.risk_config),
+                    )
+                else:
+                    pair = run_paired_portfolio_action(
+                        dataset,
+                        reference_policy_factory=_HoldQuantityPolicy,
+                        start_index=t,
+                        stop_index=t + protocol.study_plan.horizon_bars,
+                        intervention_index=t,
+                        baseline_action=protocol.study_plan.candidate_actions[0],
+                        candidate_action=cand_action,
+                        target_abs_weights=protocol.target_abs_weights,
+                        initial_capital=protocol.study_plan.initial_capital,
+                        execution_cost=protocol.base_execution_cost,
+                        risk=PreTradeRisk(protocol.risk_config),
+                    )
                 paired_replay_runs += 2  # Baseline + Candidate
                 label = build_synthetic_paired_label(
                     dataset,
@@ -1087,7 +1156,7 @@ def run_decision_value_dev_study(
             b0_probe_ok and b1_probe_ok and b1c_probe_ok and b2_probe_ok
         )
 
-        # 6. Evaluate 6 arms across 3 scenarios
+        # 6. Evaluate 6 arms across 4 scenarios
         scenarios: tuple[tuple[str, ExecutionCostConfig], ...] = (
             ("base", protocol.base_execution_cost),
             (
@@ -1102,6 +1171,10 @@ def run_decision_value_dev_study(
             (
                 "latency_1bar",
                 replace(protocol.base_execution_cost, order_latency_bars=1),
+            ),
+            (
+                "latency_2bar",
+                replace(protocol.base_execution_cost, order_latency_bars=2),
             ),
         )
 
@@ -1132,9 +1205,9 @@ def run_decision_value_dev_study(
                         one_way_switch_cost=switch_cost,
                     ),
                 ),
-                ("linear_value", _LatencyAwareDecisionValuePolicy(pol_b1)),
+                ("linear_value", pol_b1),
                 ("conservative_linear_value", pol_b1c),
-                ("shallow_value", _LatencyAwareDecisionValuePolicy(pol_b2)),
+                ("shallow_value", pol_b2),
             )
 
             for arm_name, policy in arm_policies:
@@ -1230,7 +1303,7 @@ def run_decision_value_dev_study(
         "conservative_linear_value",
         "shallow_value",
     )
-    scenario_names = ("base", "cost_x2", "latency_1bar")
+    scenario_names = ("base", "cost_x2", "latency_1bar", "latency_2bar")
     aggregate_metrics: dict[str, dict[str, float]] = {arm: {} for arm in arm_names}
     aggregate_max_dd: dict[str, dict[str, float]] = {arm: {} for arm in arm_names}
 

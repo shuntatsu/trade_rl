@@ -64,7 +64,23 @@ before any real-data result; see ``DEVIATIONS``):
     Phase 2 later deflates by the total number of configurations it has run.
 12. Validity includes a real-data causality probe (future prices/features after
     2023-07-01 perturbed; allocator-24h decisions and fills before that instant
-    must be identical) plus ledger reconciliation of every replay.
+    must be identical) plus ledger reconciliation of every replay. The embedded
+    probe covers allocator-24h in the base scenario over 2023-01..2023-07 only and
+    is applied as the global validity gate; ``runner.causality_probe_matrix``
+    (added after the run) extends the same test to every arm and scenario.
+13. The terminal-flat requirement is enforced by ``runner.reconcile_ledger``
+    (part of the replay ``validity`` gate), not by a field of this frozen
+    protocol; it is a runner validity rule, not a preregistered parameter.
+
+Dataset build policy (recorded AFTER the first run, not part of the protocol
+digest): the study Dataset is reproduced offline by
+``dev_realdata_study.dataset_build`` under ``DATASET_BUILD_POLICY`` (missing 1h
+bars are non-tradable rows with forward-filled marks and no funding accrual;
+4h/1d bars are aggregated from complete 1h windows and a window touching a gap
+is an ``available_at = range end`` placeholder, so recursive higher-clock
+features stay unavailable afterwards). ``DevStudyProtocol`` and therefore
+``protocol_digest`` are deliberately unchanged by that addition so the committed
+result still matches this file.
 """
 
 from __future__ import annotations

@@ -23,6 +23,7 @@ from trade_rl.evaluation.dev_realdata_study.metrics import (
 )
 from trade_rl.evaluation.dev_realdata_study.protocol import (
     ARM_ALLOCATOR_24H,
+    ARM_ALLOCATOR_72H,
     ARM_BUY_AND_HOLD,
     ARM_CASH,
     ARMS,
@@ -451,6 +452,71 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
     )
     assert report["passed"] is False
     assert report["identical_pre_cut_trace"] is False
+
+
+def test_causality_probe_matrix_covers_every_arm_and_scenario(
+    market: MarketDataset,
+) -> None:
+    protocol = small_protocol()
+    sources = runner.build_forecast_sources(market, protocol)
+    matrix = runner.causality_probe_matrix(
+        market,
+        protocol,
+        sources,
+        start_index=runner._row_of(market, protocol.evaluation_start),
+        cut="2022-03-15T00:00:00",
+    )
+    assert set(matrix) == set(protocol.arms)
+    for arm, per_scenario in matrix.items():
+        assert set(per_scenario) == set(protocol.scenarios)
+        for report in per_scenario.values():
+            assert report["passed"] is True
+            assert report["identical_pre_cut_trace"] is True
+            assert report["cut"] == "2022-03-15T00:00:00"
+            if arm == ARM_CASH:
+                assert report["pre_cut_trace_has_trades"] is False
+            else:
+                assert report["pre_cut_trace_has_trades"] is True
+
+
+def test_causality_probe_matrix_catches_a_leak_in_a_non_default_arm(
+    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Leaky:
+        horizon_hours = 72
+
+        def __init__(self, dataset: MarketDataset) -> None:
+            self._close = dataset.close
+            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+
+        def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
+            row = int(
+                np.searchsorted(self._stamps, int(decision_time.astype(np.int64)))
+            )
+            future = float(
+                np.log(
+                    self._close[row + 72, symbol_index] / self._close[row, symbol_index]
+                )
+            )
+            return SimpleNamespace(point_forecast=future, residual_variance=0.0)
+
+    protocol = small_protocol()
+    clean = runner.build_forecast_sources(market, protocol)
+    monkeypatch.setattr(
+        runner,
+        "build_forecast_sources",
+        lambda dataset, protocol: {24: clean[24], 72: Leaky(dataset)},
+    )
+    matrix = runner.causality_probe_matrix(
+        market,
+        protocol,
+        runner.build_forecast_sources(market, protocol),
+        start_index=runner._row_of(market, protocol.evaluation_start),
+        cut="2022-03-15T00:00:00",
+    )
+    assert matrix[ARM_ALLOCATOR_24H][SCENARIO_BASE]["passed"] is True
+    assert matrix[ARM_ALLOCATOR_72H][SCENARIO_BASE]["passed"] is False
+    assert matrix[ARM_ALLOCATOR_72H][SCENARIO_LATENCY]["passed"] is False
 
 
 def test_policies_are_fresh_per_replay(market: MarketDataset) -> None:

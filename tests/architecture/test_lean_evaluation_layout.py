@@ -83,6 +83,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "dev_realdata_study/metrics.py",
         "dev_realdata_study/runner.py",
         "dev_realdata_study/cli.py",
+        "dev_realdata_study/dataset_build.py",
         "paper/__init__.py",
         "paper/store.py",
         "paper/account.py",

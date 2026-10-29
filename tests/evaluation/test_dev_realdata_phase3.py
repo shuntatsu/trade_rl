@@ -864,3 +864,79 @@ def test_default_protocol_is_the_unchanged_pr_c_protocol() -> None:
     assert PROTOCOL.dataset_id.startswith("0b95547145a8")
     assert study.phase3_protocol(PROTOCOL).bonferroni_comparisons == 21
     assert study.phase3_protocol(PROTOCOL).candidate_arms == CANDIDATE_POOL
+
+
+# --- committed evidence -----------------------------------------------------------
+
+
+def _report(name: str) -> Any:
+    return json.loads((REPO_ROOT / "report" / name).read_text("utf-8"))
+
+
+def test_committed_result_and_provenance_are_consistent() -> None:
+    result = _report("issue810-phase3-trial-results-20261029.json")
+    provenance = _report("issue810-phase3-trial-provenance-20261029.json")
+    assert result["schema_version"] == phase3_registry.RESULT_SCHEMA
+    assert result["registry_digest"] == registry_digest()
+    assert result["roster_digest"] == roster_digest()
+    assert result["base_protocol_digest"] == registry_payload()["base_protocol_digest"]
+    assert result["label"] in {LABEL_POST_HOC_PROMISING, LABEL_NO_WINNER}
+    assert result["label"] == result["label_pr_c_probe_rule"]
+    assert tuple(result["arms"]) == ALL_ARMS
+    assert result["failures"] == {}
+    for arm in ALL_ARMS:
+        for scenario in SCENARIOS:
+            row = result["arms"][arm][scenario]
+            assert row["ledger_reconciled"] is True and row["terminal_flat"] is True
+            assert row["terminal_residual_quantities"] == {}
+            assert row["terminal_residual_notional_usdt"] == 0.0
+    # every probe and matrix cell is recorded and identical
+    for arm in ALL_ARMS:
+        if arm == ARM_CASH:
+            continue
+        assert result["causality_probes"][arm]["identical_pre_cut_trace"] is True
+        cells = result["causality_matrix"][arm]
+        assert set(cells) == set(SCENARIOS)
+        assert all(c["identical_pre_cut_trace"] for c in cells.values())
+    # both labels are recomputed from the committed rows and validity
+    protocol = study.phase3_protocol(PROTOCOL)
+    for key, validity_key, rule in (
+        ("selection_pr_c_probe_rule", "validity_pr_c_probe_rule", study.RULE_PR_C),
+        ("selection_amended_rule", "validity_amended_rule", study.RULE_AMENDED),
+    ):
+        recomputed = study._select(result["arms"], result[validity_key], protocol, rule)
+        assert recomputed == result[key]
+    # the re-run baselines reproduce the committed Phase 2 numbers exactly
+    assert result["phase2_reproduction_check"]["all_bit_identical"] is True
+    # provenance: two executions, code head and summary digest recorded
+    assert provenance["execution_count"] == 2
+    ledger = [row["event"] for row in provenance["execution_ledger_verbatim"]]
+    assert ledger == ["started", "failed", "started", "finished"]
+    first, second = provenance["executions"]
+    assert first["status"] == "incomplete_infrastructure_failure"
+    assert second["status"] == "completed" and second["reported"] is True
+    assert (
+        second["result_summary_sha256"]
+        == hashlib.sha256(
+            (
+                REPO_ROOT / "report" / "issue810-phase3-trial-results-20261029.json"
+            ).read_bytes()
+        ).hexdigest()
+    )
+    assert (
+        result["run_metadata"]["git_head"]
+        == provenance["code_head_for_every_execution"]
+    )
+    assert first["code_head"] == second["code_head"]
+    assert provenance["classification"].startswith("POST_HOC_EXPLORATORY")
+    overlap = provenance["execution_1_vs_execution_2_overlap_check"]
+    complete_in_first = [a for a, v in overlap.items() if isinstance(v, dict)]
+    assert complete_in_first == first["arms_with_results"]
+    assert all(all(overlap[a].values()) for a in complete_in_first)
+
+
+def test_committed_p3_7_is_a_control_and_never_the_selected_arm() -> None:
+    result = _report("issue810-phase3-trial-results-20261029.json")
+    assert result["selected_arm_pr_c_probe_rule"] != PASSIVE_COMPARATOR_ARM
+    assert result["selected_arm_amended_rule"] != PASSIVE_COMPARATOR_ARM
+    assert PASSIVE_COMPARATOR_ARM not in result["selection_pr_c_probe_rule"]["arms"]

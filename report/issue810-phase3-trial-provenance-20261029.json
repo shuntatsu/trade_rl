@@ -1,0 +1,184 @@
+{
+  "classification": "POST_HOC_EXPLORATORY: the roster was chosen after the Phase 2 results on the same development data; it is not preregistered. The only public pre-run record is the Issue #810 comment in registry public_pre_run_record.",
+  "code_head_for_every_execution": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
+  "dataset": {
+    "artifact_digest": "9f00e17c2f3de700f3a9ff08d41dea312ff61c143d85514b73e0cd84e03cd381",
+    "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+    "path_local": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\dataset (read-only, gitignored)"
+  },
+  "execution_1_vs_execution_2_overlap_check": {
+    "cash": "execution 1 FAILED_TO_RUN (MemoryError)",
+    "equal_weight_buy_and_hold": "execution 1 FAILED_TO_RUN (MemoryError)",
+    "p3_1_t4_kappa3": "execution 1 FAILED_TO_RUN (MemoryError)",
+    "p3_2_t4_kappa3_vt12": "execution 1 FAILED_TO_RUN (MemoryError)",
+    "p3_3_t2_vt12": {
+      "causality_matrix_identical": true,
+      "equity_arrays_identical": true,
+      "probes_identical": true,
+      "replay_summaries_identical": true
+    },
+    "p3_4_t6_kappa3_vt12": "execution 1 FAILED_TO_RUN (MemoryError)",
+    "p3_5_t4_weekly_vt12": "execution 1 FAILED_TO_RUN (MemoryError)",
+    "p3_6_zblend_t2t4_kappa3_vt12": {
+      "causality_matrix_identical": true,
+      "equity_arrays_identical": true,
+      "probes_identical": true,
+      "replay_summaries_identical": true
+    },
+    "p3_7_ew_bh_vt12": {
+      "causality_matrix_identical": true,
+      "equity_arrays_identical": true,
+      "probes_identical": true,
+      "replay_summaries_identical": true
+    },
+    "p3_8_zblend_t2t4_longonly_kappa3_vt12": {
+      "causality_matrix_identical": true,
+      "equity_arrays_identical": true,
+      "probes_identical": true,
+      "replay_summaries_identical": true
+    }
+  },
+  "execution_count": 2,
+  "execution_ledger_verbatim": [
+    {
+      "argv": [
+        "C:\\dev\\trade_rl\\.claude\\worktrees\\agent-a36e70fb8cf94b2f0\\trade_rl\\evaluation\\dev_realdata_study\\phase3_cli.py",
+        "--dataset",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/dataset",
+        "--output-dir",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/study-p3",
+        "--summary-path",
+        "report/issue810-phase3-trial-results-20261029.json",
+        "--execution-ledger",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/p3-execution-ledger.jsonl",
+        "--phase2-results",
+        "report/issue810-phase2-trial-results-20261029.json",
+        "--workers",
+        "10"
+      ],
+      "event": "started",
+      "git_head": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
+      "output_dir": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\study-p3",
+      "utc": "2026-10-29T12:38:58+00:00"
+    },
+    {
+      "error": "'terminal_net_profit_pct'",
+      "error_type": "KeyError",
+      "event": "failed",
+      "utc": "2026-10-29T12:45:34+00:00"
+    },
+    {
+      "argv": [
+        "C:\\dev\\trade_rl\\.claude\\worktrees\\agent-a36e70fb8cf94b2f0\\trade_rl\\evaluation\\dev_realdata_study\\phase3_cli.py",
+        "--dataset",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/dataset",
+        "--output-dir",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/study-p3-exec2",
+        "--summary-path",
+        "report/issue810-phase3-trial-results-20261029.json",
+        "--execution-ledger",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/p3-execution-ledger.jsonl",
+        "--phase2-results",
+        "report/issue810-phase2-trial-results-20261029.json",
+        "--workers",
+        "5"
+      ],
+      "event": "started",
+      "git_head": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
+      "output_dir": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\study-p3-exec2",
+      "utc": "2026-10-29T12:46:19+00:00"
+    },
+    {
+      "event": "finished",
+      "label": "POST_HOC_PROMISING",
+      "output_sha256": {
+        "equity.npz": "a9c8873f018fbe811b29b6a7651ae28b7060f1470f787ea83ae2c5ba0cdf49fa",
+        "full_results.json": "97f0e72efab6b9e0eec1c3cfece31a1a5169286b21ed365218a736c05f8ba199"
+      },
+      "utc": "2026-10-29T13:25:43+00:00"
+    }
+  ],
+  "executions": [
+    {
+      "arms_with_results": [
+        "p3_3_t2_vt12",
+        "p3_6_zblend_t2t4_kappa3_vt12",
+        "p3_7_ew_bh_vt12",
+        "p3_8_zblend_t2t4_longonly_kappa3_vt12"
+      ],
+      "code_head": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
+      "failed_utc": "2026-10-29T12:45:34+00:00",
+      "failure": "MemoryError while worker processes loaded the dataset (10 parallel workers on a shared 32 GB machine); six of ten arms had no result rows: cash, equal_weight_buy_and_hold, p3_1_t4_kappa3, p3_2_t4_kappa3_vt12, p3_4_t6_kappa3_vt12, p3_5_t4_weekly_vt12. The CLI then raised a KeyError in its post-run Phase 2 reproduction check (it assumed the baselines had run) before writing the summary file. full_results.json, equity.npz and run_metadata.json were written.",
+      "id": 1,
+      "kind": "full",
+      "output_dir_local": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\study-p3",
+      "output_sha256": {
+        "equity.npz": "7a8e407598b5bf0b75bead7bc8156eea98acca5aa52517f17ce25ca47f9cf6c1",
+        "full_results.json": "0ec42df8d3646a12ef16d76bda6d1bcf8ac05239cdd4fe00fdeef4e799601845",
+        "run_metadata.json": "4cd4cd61760617e1edebcde827caec87c0ba5a176c4ce634507078a1d401cecf"
+      },
+      "started_utc": "2026-10-29T12:38:58+00:00",
+      "status": "incomplete_infrastructure_failure",
+      "superseded_by": 2,
+      "what_was_seen": "The log showed progress lines and a Python traceback only. After the failure the full_results.json of execution 1 was opened and the per-arm base/cost x2/latency terminal net profit of its four complete arms (P3-3, P3-6, P3-7, P3-8), the failure messages and the labels (POST_HOC_PROMISING under both rules, selected arm P3-6, computed on four of eight arms only) were read BEFORE execution 2 was launched. Execution 2 was launched with the same code head and no change to any parameter, rule or arm; only the worker count changed (10 -> 5) to fit memory.",
+      "workers": 10
+    },
+    {
+      "argv": [
+        "C:\\dev\\trade_rl\\.claude\\worktrees\\agent-a36e70fb8cf94b2f0\\trade_rl\\evaluation\\dev_realdata_study\\phase3_cli.py",
+        "--dataset",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/dataset",
+        "--output-dir",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/study-p3-exec2",
+        "--summary-path",
+        "report/issue810-phase3-trial-results-20261029.json",
+        "--execution-ledger",
+        "C:/dev/trade_rl/data/dev-5sym-2021-2026/p3-execution-ledger.jsonl",
+        "--phase2-results",
+        "report/issue810-phase2-trial-results-20261029.json",
+        "--workers",
+        "5"
+      ],
+      "code_head": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
+      "finished_utc": "2026-10-29T13:25:43+00:00",
+      "id": 2,
+      "kind": "full",
+      "label": "POST_HOC_PROMISING",
+      "output_dir_local": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\study-p3-exec2",
+      "output_sha256": {
+        "equity.npz": "a9c8873f018fbe811b29b6a7651ae28b7060f1470f787ea83ae2c5ba0cdf49fa",
+        "full_results.json": "97f0e72efab6b9e0eec1c3cfece31a1a5169286b21ed365218a736c05f8ba199"
+      },
+      "reported": true,
+      "result_summary_sha256": "e761dfba8047e3c93aad5b3096e0c06ee430a6e2ea548eb85ca6235c6bbe8bb2",
+      "started_utc": "2026-10-29T12:46:19+00:00",
+      "status": "completed",
+      "workers": 5
+    }
+  ],
+  "implementation_decisions_not_in_public_record": [
+    "periods_per_year = 8760 / decision_interval_hours for VT (365 daily, 52.14 weekly); the public record writes 365 for a daily Sigma",
+    "P3-7 keeps the drifted composition and re-sets gross each day; it is a control (never selected)",
+    "P3-5 mu x7 on the Ridge 24h all-feature source; Monday 00:00 UTC anchor",
+    "z-blend(T2,T4): T6 construction with two components, scaled by T4's trailing std",
+    "validity includes the causality matrix in both rules (stricter than Phase 2's primary rule; can only invalidate)",
+    "BLEND_MIN_POOLED_OBSERVATIONS = 30 (also unregistered in Phase 2)"
+  ],
+  "issue": 810,
+  "ordering_evidence": {
+    "execution_1_started_utc": "2026-10-29T12:38:58+00:00",
+    "note": "The registry JSON, all Phase 3 code and its synthetic tests were committed and pushed (a938fe33e) before execution 1 started; no real-data output existed before execution 1. The dataset was not opened for any Phase 3 purpose before execution 1 (unit tests use synthetic markets; only the dataset receipt metadata file was read to confirm the artifact digest).",
+    "registry_json_commit": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
+    "registry_json_pushed_utc_approx": "2026-10-29T12:38:50Z"
+  },
+  "partial_or_dry_real_data_runs": "none: no timing probe, dry run, single-arm run or partial run on real data was made apart from executions 1 and 2",
+  "public_pre_run_record": {
+    "correction": "'each run once' was not literally true: there were two executions of the full study (execution 1 failed on memory, see executions); the roster arms and parameters were not changed between them",
+    "created_utc": "2026-10-29T10:10:07Z",
+    "edit_note": "edited only to correct the Bonferroni arm count to 21",
+    "edited_utc": "2026-10-29T10:10:19Z",
+    "text_stated": "each config run once, all reported",
+    "url": "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6493851921"
+  },
+  "schema_version": "dev_realdata_phase3_trial_provenance_v1"
+}

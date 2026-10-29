@@ -512,6 +512,27 @@ def test_a_non_identical_causality_cell_is_invalid(
     assert "causality_matrix_missing" in out["invalid_reasons"][ARM_FS1_A]
 
 
+def test_a_summary_without_allocator_decisions_is_invalid_not_a_silent_pass(
+    roster: tuple[Any, dict[str, fs1.ArmRun]],
+) -> None:
+    def mutate(runs: dict[str, fs1.ArmRun]) -> None:
+        for scenario in ("base", "latency_1bar"):
+            del runs[ARM_FS1_A].outcomes[scenario].summary["allocator_decisions"]
+        del runs[ARM_FS1_C].outcomes["base"].summary["allocator_decisions"]
+
+    out = assemble(roster, mutate)
+    assert "allocator_decisions_missing_base" in out["invalid_reasons"][ARM_FS1_A]
+    assert (
+        "allocator_decisions_missing_latency_1bar" in out["invalid_reasons"][ARM_FS1_A]
+    )
+    assert out["labels"][ARM_FS1_A]["label"] == "FORWARD_INVALID"
+    # the passive control is held to the same rule, which invalidates every candidate
+    assert "allocator_decisions_missing_base" in out["invalid_reasons"][ARM_FS1_C]
+    assert out["labels"][ARM_FS1_B]["label"] == "FORWARD_INVALID"
+    # CASH has no allocator and is not required to expose decisions
+    assert not any("allocator" in r for r in out["invalid_reasons"]["cash"])
+
+
 @pytest.mark.parametrize("control", ["cash", ARM_FS1_C])
 def test_an_invalid_control_invalidates_every_candidate(
     roster: tuple[Any, dict[str, fs1.ArmRun]], control: str
@@ -680,3 +701,121 @@ def test_cli_has_no_tunable_parameters() -> None:
         "sealed_code_sha",
         "output",
     }
+
+
+# --- LOW-6: load errors and write races end as refusals, never partial output ----------
+
+
+def test_a_dataset_load_error_is_a_refusal_and_leaves_no_output(
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(path: Path) -> MarketDataset:
+        raise OSError("artifact unreadable")
+
+    monkeypatch.setattr(fs1, "_environment", lambda: make_env(dataset, loader=broken))
+    out = tmp_path / "result.json"
+    with pytest.raises(seal.Fs1Refusal) as caught:
+        fs1.run_fs1(**run_kwargs(dataset, out))
+    assert caught.value.reasons == ("dataset_load_failed",)
+    assert "OSError: artifact unreadable" in caught.value.detail
+    assert not out.exists()
+
+
+def test_a_failure_while_scoring_removes_the_claimed_output(
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def explode(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        assert out.exists(), "the output path is claimed before scoring starts"
+        raise RuntimeError("scoring bug")
+
+    monkeypatch.setattr(fs1, "_environment", lambda: make_env(dataset))
+    monkeypatch.setattr(fs1, "score_fs1", explode)
+    out = tmp_path / "result.json"
+    with pytest.raises(RuntimeError, match="scoring bug"):
+        fs1.run_fs1(**run_kwargs(dataset, out))
+    assert not out.exists()
+
+
+def test_a_concurrent_writer_is_refused_before_scoring_and_never_overwritten(
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "result.json"
+    real_exists = Path.exists
+    loads: list[int] = []
+
+    def loader(path: Path) -> MarketDataset:
+        loads.append(1)
+        return dataset
+
+    # The pre-check sees no file (the race window); the file then appears.
+    monkeypatch.setattr(
+        Path, "exists", lambda self: False if self == out else real_exists(self)
+    )
+    monkeypatch.setattr(fs1, "_environment", lambda: make_env(dataset, loader=loader))
+    kwargs = run_kwargs(dataset, out)
+    out.write_text("someone else's result", encoding="utf-8")
+    with pytest.raises(seal.Fs1Refusal) as caught:
+        fs1.run_fs1(**kwargs)
+    assert caught.value.reasons == ("output_exists",)
+    assert loads == []
+    assert out.read_text(encoding="utf-8") == "someone else's result"
+
+
+def test_cli_turns_a_load_error_into_exit_two_with_a_clear_message(
+    dataset: MarketDataset,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def broken(path: Path) -> MarketDataset:
+        raise ValueError("digest mismatch in artifact")
+
+    monkeypatch.setattr(fs1, "_environment", lambda: make_env(dataset, loader=broken))
+    raw, digest = manifest_for(dataset)
+    manifest = tmp_path / "manifest.json"
+    out = tmp_path / "out" / "result.json"
+    args = cli_args(
+        tmp_path,
+        **{
+            "--manifest": str(manifest),
+            "--manifest-sha256": digest,
+            "--params-digest": SYN.digest(),
+            "--output": str(out),
+        },
+    )
+    manifest.write_bytes(raw)  # cli_args wrote a placeholder; use the real manifest
+    assert cli.main(args) == 2
+    error = capsys.readouterr().err
+    assert "dataset_load_failed" in error and "digest mismatch in artifact" in error
+    assert not out.exists()
+
+
+def test_cli_turns_a_write_race_into_exit_two(
+    dataset: MarketDataset,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    raw, digest = manifest_for(dataset)
+    manifest = tmp_path / "manifest.json"
+    out = tmp_path / "out" / "result.json"
+    out.parent.mkdir()
+    out.write_text("first writer", encoding="utf-8")
+    real_exists = Path.exists
+    monkeypatch.setattr(
+        Path, "exists", lambda self: False if self == out else real_exists(self)
+    )
+    monkeypatch.setattr(fs1, "_environment", lambda: make_env(dataset))
+    args = cli_args(
+        tmp_path,
+        **{
+            "--manifest": str(manifest),
+            "--manifest-sha256": digest,
+            "--params-digest": SYN.digest(),
+            "--output": str(out),
+        },
+    )
+    manifest.write_bytes(raw)
+    assert cli.main(args) == 2
+    assert "output_exists" in capsys.readouterr().err
+    assert out.read_text(encoding="utf-8") == "first writer"

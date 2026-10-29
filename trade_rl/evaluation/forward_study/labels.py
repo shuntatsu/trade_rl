@@ -56,7 +56,7 @@ class CandidateLabel:
     invalid_reasons: tuple[str, ...]
     passive_status: str | None
     edge_claim_supported: bool
-    survives_bonferroni_k2: bool | None
+    survives_bonferroni_k2: bool | None  # None only for FORWARD_INVALID
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -97,6 +97,8 @@ def classify_candidate(
         reasons.append("missing_excess_vs_cash_ci")
     if not _finite(evidence.excess_vs_passive_ci_low):
         reasons.append("missing_excess_vs_passive_ci")
+    if not _finite(evidence.excess_vs_cash_bonferroni_low):
+        reasons.append("missing_excess_vs_cash_bonferroni_ci")
     if reasons:
         return CandidateLabel(
             LABEL_INVALID, (), tuple(dict.fromkeys(reasons)), None, False, None
@@ -115,7 +117,8 @@ def classify_candidate(
     assert passive_low is not None
     passive = PASSIVE_BETTER if passive_low > 0.0 else PASSIVE_NOT_BETTER
     bonferroni = evidence.excess_vs_cash_bonferroni_low
-    survives = None if not _finite(bonferroni) else bool(bonferroni > 0.0)  # type: ignore[operator]
+    assert bonferroni is not None
+    survives = bool(bonferroni > 0.0)
     label = LABEL_FAIL if failed else LABEL_PASS
     return CandidateLabel(
         label,

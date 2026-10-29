@@ -378,22 +378,71 @@ def test_code_identity_ignores_ignored_files_and_requires_the_pinned_root(
     )
 
 
-def test_code_identity_is_unavailable_outside_a_repository_and_from_a_foreign_copy(
-    tmp_path: Path,
-) -> None:
+def test_code_identity_is_unavailable_outside_a_repository(tmp_path: Path) -> None:
     assert seal.current_code_identity(tmp_path) == CodeIdentity(None, False)
-    # the module file must be the tracked file of the repository that contains it
-    repo, _, _ = make_repo(tmp_path / "other")
-    assert seal.current_code_identity(None, root_commit="f" * 40) == CodeIdentity(
+
+
+def test_a_foreign_copy_of_the_module_is_refused_even_with_the_right_root_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Isolates the module-location check: the root commit matches, the path does not."""
+
+    repo, root, head = make_repo(tmp_path / "repo")
+    foreign = repo / "vendor" / "copy" / "pkg" / "seal.py"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("# a copy of the module inside a trade_rl-like repo\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "vendor copy")
+    head = git(repo, "rev-parse", "HEAD")
+    assert seal.current_code_identity(repo, root_commit=root) == CodeIdentity(
+        head, True
+    )
+
+    monkeypatch.setattr(seal, "__file__", str(foreign))
+    assert foreign.resolve().parents[3] == repo.resolve()
+    # root commit is right and the tree is clean, but this file is not the repository's
+    # tracked trade_rl/evaluation/forward_study/seal.py
+    assert seal.current_code_identity(None, root_commit=root) == CodeIdentity(
         None, False
     )
-    assert seal.current_code_identity(repo, root_commit="f" * 40).git_head is None
+
+    # control: the same module file at the tracked location is accepted
+    tracked = repo / "trade_rl" / "evaluation" / "forward_study" / "seal.py"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_text("# tracked copy\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "tracked location")
+    head = git(repo, "rev-parse", "HEAD")
+    monkeypatch.setattr(seal, "__file__", str(tracked))
+    assert seal.current_code_identity(None, root_commit=root) == CodeIdentity(
+        head, True
+    )
 
 
-def test_the_real_checkout_reports_the_pinned_root_or_is_unavailable() -> None:
+def test_the_real_checkout_identity_matches_git_when_history_is_available() -> None:
+    root = Path(__file__).resolve().parents[2]
+
+    def real_git(*args: str) -> str | None:
+        try:
+            done = subprocess.run(
+                ["git", *args], cwd=root, capture_output=True, text=True, check=True
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return done.stdout
+
+    roots = real_git("rev-list", "--max-parents=0", "HEAD")
+    if roots is None or seal.TRADE_RL_ROOT_COMMIT not in roots.split():
+        pytest.skip(
+            "not a full git checkout of the trade_rl repository (shallow or no git)"
+        )
     identity = seal.current_code_identity()
-    assert identity.git_head is None or len(identity.git_head) == 40
-    assert len(seal.TRADE_RL_ROOT_COMMIT) == 40
+    head = real_git("rev-parse", "HEAD")
+    status = real_git("status", "--porcelain", "--untracked-files=all")
+    assert head is not None and status is not None
+    assert identity.git_head == head.strip()
+    # reports a dirty tree as dirty (and a clean one as clean); never silently clean
+    assert identity.tracked_tree_clean == (status.strip() == "")
 
 
 def test_manifest_round_trip_is_canonical_and_strict() -> None:

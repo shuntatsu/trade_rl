@@ -84,9 +84,6 @@ def test_bonferroni_is_reported_separately_from_the_unadjusted_label() -> None:
     # The headline flag needs the family-wise bound too: PASS + BETTER + Bonferroni.
     assert result.passive_status == "BETTER_THAN_PASSIVE"
     assert result.edge_claim_supported is False
-    missing = label(evidence(excess_vs_cash_bonferroni_low=None))
-    assert missing.label == "FORWARD_PASS" and missing.survives_bonferroni_k2 is None
-    assert missing.edge_claim_supported is False
 
 
 def test_the_headline_edge_claim_needs_pass_passive_and_bonferroni_together() -> None:
@@ -156,3 +153,15 @@ def test_the_label_vocabulary_has_no_winner() -> None:
     mapping = label(evidence()).to_mapping()
     assert mapping["label"] in FS1_REGISTRY.labels
     assert "WINNER" not in str(mapping)
+
+
+@pytest.mark.parametrize("bad", [None, math.nan, math.inf])
+def test_a_missing_bonferroni_bound_is_invalid_like_every_other_missing_number(
+    bad: float | None,
+) -> None:
+    result = label(evidence(excess_vs_cash_bonferroni_low=bad))
+    assert result.label == "FORWARD_INVALID"
+    assert "missing_excess_vs_cash_bonferroni_ci" in result.invalid_reasons
+    assert result.survives_bonferroni_k2 is None
+    assert result.edge_claim_supported is False
+    assert result.failed_falsifiers == ()

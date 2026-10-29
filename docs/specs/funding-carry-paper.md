@@ -308,8 +308,12 @@ control database, retries a denied request, or counts toward the economic screen
 `collector-heartbeat.json` beside the journal (states `starting`, `cycle_started`,
 `cycle_completed`, `sleeping`, `finished`, `rejected`; at most every 15 seconds,
 with the last committed command time). The heartbeat file is not part of the
-protocol, the source roster or the replay. A heartbeat write error halts the
-collector like any other error.
+protocol, the source roster or the replay. A heartbeat write error (typically a
+Windows sharing violation while a scanner or the check reads the file) is retried
+with exponential backoff and then tolerated; it halts the collector, with the real
+cause recorded, only when no heartbeat has been written for 120 seconds, which is
+before the 150-second stale limit would fire. A supervisor additionally writes a
+best-effort `supervisor-heartbeat.json`, whose I/O errors never stop it.
 
 Every non-terminal end must leave the single permanent `collection-failure.json`,
 which is created exclusively so the first recorded cause is kept:
@@ -321,11 +325,29 @@ which is created exclusively so the first recorded cause is kept:
   control handler for close, logoff and shutdown (`CollectorConsoleClosed`);
   both write only the marker, because the process may be gone within seconds;
 * `cli check` (stateless, safe from an independent scheduled task): after the
-  frozen start, a heartbeat older than 150 seconds, a corrupt heartbeat, or no
-  heartbeat 180 seconds after start writes `CollectorHeartbeatStale` or
-  `CollectorNeverStarted`; before the start it only reports;
+  frozen start, a heartbeat older than the stale limit (default 150 s, accepted
+  range up to the frozen 180 s gap, as for `supervise`), or no valid heartbeat 180
+  seconds after start, writes `CollectorHeartbeatStale` or `CollectorNeverStarted`;
+  before the start it only reports. While a live supervisor is relaunching a child
+  inside its own startup grace (default 300 s, at most 900 s) the stale limit is
+  deferred and the state is `relaunch_in_progress`, because a relaunched child
+  replays the whole journal before its first heartbeat; the deferral needs a fresh
+  supervisor status, a child that has not yet beaten since its launch, and the
+  grace not yet spent. `check` exit codes: 0 healthy (including `not_started`,
+  `running`, `relaunch_in_progress` and a terminal state); 3 a failure marker exists
+  or was just written (`halted`, `failed_stale`, `failed_never_started`); 5 unhealthy
+  without a marker (`stale_before_start`, `heartbeat_invalid`), which writes nothing
+  and needs a human look;
 * `cli supervise`, which writes the marker for a hang, a death inside a cycle, an
   unrecoverable gap, a refused or early-exited child and a restart loop.
+
+Only one collector may own a root. A second `cli run`, a supervisor started
+while its predecessor's child is still alive, and `attempt2 launch` against a live
+collector must not damage the screen: each detects the held `collector.sqlite`
+lock (the supervisor and `launch` probe it before spawning, and a child that loses
+the race exits with code 4) and ends with exit code 4, outcome `lock_contention`,
+without writing any failure marker, heartbeat or journal event. Exit 2 stays a
+real refusal and is recorded as `CollectorRefused`.
 
 Hard process death (`taskkill /f`, power loss, machine sleep) cannot run any
 in-process hook; only `check` or `supervise` can record it, which is why one of
@@ -415,10 +437,18 @@ first; nothing here proves the comment exists or says what it should say.
 
    Without a supervisor, `start "" /b <PYTHON> -m trade_rl.evaluation.paper.cli run
    --root <ROOT> --protocol-sha256 <DIGEST> > <LOG> 2>&1` still gets the heartbeat
-   and failure records, but nothing relaunches it. Exit code 3 from `check`,
-   `supervise` or `launch` means a failure marker exists or was just written;
-   alert on it, do not clear it, and do not start a replacement into the same root.
-7. Monitor: `cli check` each minute (exit 0 healthy, 3 failed); `cli status` for
+   and failure records, but nothing relaunches it. Exit codes: 3 from `check`,
+   `supervise` or `launch` means a failure marker exists or was just written; alert
+   on it, do not clear it, and do not start a replacement into the same root. Exit 4
+   from `run`, `supervise` or `launch` means another live collector already owns the
+   root: nothing was written, the owner is undisturbed, and the right action is to do
+   nothing (this is the normal outcome of restarting the Task Scheduler job while the
+   previous child survives). Exit 5 from `check` means unhealthy with no marker (a
+   stale heartbeat before the start, or an unreadable heartbeat inside the start
+   grace); investigate, because the next `check` after the start will write a
+   marker. Exit 2 is a refusal or error that wrote no marker from `run`/`check`.
+7. Monitor: `cli check` each minute (exit 0 healthy, 3 marker written or present,
+   5 degraded without a marker); `cli status` for
    journal-chain-only progress; daily free-space and log-size checks; compare the
    supervisor log with the heartbeat. Operational status is not economic evidence.
 8. Terminal: no earlier than close plus 180 seconds the supervisor reports

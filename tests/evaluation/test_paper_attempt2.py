@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import socket
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
@@ -100,13 +101,25 @@ def test_lineage_constants_match_the_recorded_attempt_one_facts():
         "reason_codes": ["observation_gap"],
         "last_observed_at": "2026-09-17T23:11:01.134389+00:00",
     }
-    status = (REPO / "docs/research/current-status.md").read_text(encoding="utf-8")
-    for fact in (
-        ATTEMPT_ONE_PROTOCOL_SHA256,
-        ATTEMPT_ONE_FINAL_TIP_SHA256,
-        ATTEMPT_ONE_LAST_OBSERVED_AT,
-    ):
-        assert fact in status
+    status = " ".join(
+        (REPO / "docs/research/current-status.md").read_text(encoding="utf-8").split()
+    )
+    # Parse the values the status document binds for attempt 2 and compare each one
+    # with the constants, instead of searching for loose substrings.
+    sentence = re.search(
+        r"attempt 2 and must bind attempt 1's protocol SHA-256 `([0-9a-f]{64})`, "
+        r"final journal tip `([0-9a-f]{64})`, and exact last observation time "
+        r"`([^`]+)` with disposition `([a-z_]+)` and reason `([a-z_]+)`",
+        status,
+    )
+    assert sentence is not None
+    protocol, tip, observed, disposition, reason = sentence.groups()
+    predecessor = lineage["predecessor"]
+    assert protocol == predecessor["protocol_sha256"] == ATTEMPT_ONE_PROTOCOL_SHA256
+    assert tip == predecessor["final_tip_sha256"] == ATTEMPT_ONE_FINAL_TIP_SHA256
+    assert observed == predecessor["last_observed_at"] == ATTEMPT_ONE_LAST_OBSERVED_AT
+    assert disposition == predecessor["disposition"]
+    assert [reason] == predecessor["reason_codes"]
     operations.validate_attempt_lineage(lineage, sealed_at=NOW)
 
 
@@ -521,3 +534,49 @@ def test_cli_plan_prints_and_writes_only_the_requested_draft(tmp_path, capsys):
     assert not (tmp_path / "attempt2").exists()
     assert attempt2.main(args) == 2
     assert json.loads(capsys.readouterr().err)["error_type"] == "FileExistsError"
+
+
+# --------------------------------------------- live collector contention (M1)
+
+
+def test_launch_refuses_a_root_owned_by_a_live_collector_and_writes_nothing(tmp_path):
+    from trade_rl.evaluation.paper.supervisor import PaperCollector
+
+    digest = seal(tmp_path)["protocol_sha256"]
+    root = tmp_path / "attempt2"
+    recorder = Recorder()
+    with PaperCollector(root, expected_protocol_sha256=digest):
+        before = sorted(path.name for path in root.iterdir())
+        assert refusal_of(lambda **kw: launch(tmp_path, digest, recorder, **kw)) == [
+            "collector_already_running"
+        ]
+        assert sorted(path.name for path in root.iterdir()) == before
+    assert recorder.calls == []
+    assert not (root / "collection-failure.json").exists()
+    # Once the owner is gone the same launch is accepted.
+    outcome, recorder = launch(tmp_path, digest)
+    assert outcome["exit_code"] == 0
+
+
+def test_launch_cli_maps_a_live_collector_to_exit_four(tmp_path, capsys, monkeypatch):
+    def contended(*_a, **_k):
+        raise Attempt2Refusal(["collector_already_running"])
+
+    monkeypatch.setattr(attempt2, "launch_attempt2", contended)
+    code = attempt2.main(
+        [
+            "launch",
+            "--root",
+            str(tmp_path / "x"),
+            "--start-at",
+            START.isoformat(),
+            "--protocol-sha256",
+            "a" * 64,
+            "--log-file",
+            str(tmp_path / "x.log"),
+        ]
+    )
+    assert code == 4
+    assert json.loads(capsys.readouterr().err)["refused"] == [
+        "collector_already_running"
+    ]

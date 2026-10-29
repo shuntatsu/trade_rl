@@ -21,6 +21,7 @@ from tests.evaluation.test_paper_supervisor import collector, setup
 from tests.integrations.test_binance_forward import NOW
 from trade_rl.evaluation.paper import operations, watchdog
 from trade_rl.evaluation.paper.control import CollectionControl
+from trade_rl.evaluation.paper.lock import CollectorLockHeld, collector_lock_held
 from trade_rl.evaluation.paper.supervisor import write_collection_failure
 from trade_rl.evaluation.paper.watchdog import (
     CollectorTerminated,
@@ -33,8 +34,10 @@ from trade_rl.evaluation.paper.watchdog import (
     install_termination_handlers,
     popen_launcher,
     read_heartbeat,
+    read_supervisor_heartbeat,
     supervise_collector,
     write_heartbeat,
+    write_supervisor_heartbeat,
 )
 
 START = NOW + timedelta(seconds=1)
@@ -759,3 +762,339 @@ def test_popen_child_wraps_a_real_short_lived_process(tmp_path):
     assert live.poll() is None and live.wait(0.05) is None
     live.kill()
     assert live.wait(30) is not None
+
+
+# --------------------------------------------------- lock contention (M1)
+
+
+def test_lock_probe_is_non_destructive_and_sees_a_real_second_collector(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed = setup(tmp_path, monkeypatch)
+    assert collector_lock_held(root) is False  # no lock file yet: never created
+    assert not (root / "collector.sqlite").exists()
+    with collector(root, digest, clock, feed):
+        assert collector_lock_held(root) is True
+        with pytest.raises(CollectorLockHeld, match="another collector"):
+            with collector(root, digest, clock, feed):
+                pass
+    assert not (root / "collection-failure.json").exists()
+    assert collector_lock_held(root) is False
+    assert (root / "collector.sqlite").exists()
+    with collector(root, digest, clock, feed) as reopened:
+        assert reopened.cycle()["phase"] == "waiting"  # the probe left no lock behind
+
+
+def test_second_collector_process_exits_four_and_writes_no_marker(
+    tmp_path, monkeypatch, capsys
+):
+    from trade_rl.evaluation.paper import cli
+
+    root, digest, clock, feed = setup(tmp_path, monkeypatch)
+    with collector(root, digest, clock, feed):
+        before = journal_fingerprint(root)
+        code = cli.main(["run", "--root", str(root), "--protocol-sha256", digest])
+        assert code == 4
+    assert json.loads(capsys.readouterr().err)["error_type"] == "CollectorLockHeld"
+    assert not (root / "collection-failure.json").exists()
+    assert not (root / "collector-heartbeat.json").exists()
+    assert journal_fingerprint(root) == before
+
+
+def test_supervisor_refuses_a_live_collector_without_spawning_or_marking(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed = setup(tmp_path, monkeypatch)
+    harness = Harness(root, digest, [lambda c, p: pytest.fail("must not spawn")])
+    with collector(root, digest, clock, feed):
+        beat(root, digest, harness.clock, last=START)
+        before = journal_fingerprint(root)
+        result = harness.run()
+    assert (result["outcome"], result["exit_code"]) == ("lock_contention", 4)
+    assert not harness.children
+    assert not (root / "collection-failure.json").exists()
+    assert journal_fingerprint(root) == before
+    assert read_heartbeat(root, digest).state == "cycle_completed"  # untouched
+
+
+def test_child_losing_a_startup_lock_race_is_contention_not_a_refusal(sealed):
+    root, digest = sealed
+    harness = Harness(root, digest, [lambda c, p: 4, lambda c, p: 4])
+    result = harness.run()
+    assert (result["outcome"], result["exit_code"]) == ("lock_contention", 4)
+    assert len(harness.children) == 1
+    assert not (root / "collection-failure.json").exists()
+
+
+def test_supervisor_restart_with_a_surviving_child_does_not_invalidate_it(
+    tmp_path, monkeypatch
+):
+    """A dead supervisor leaves its child alive; the next supervisor must back off."""
+    root, digest, clock, feed = setup(tmp_path, monkeypatch)
+    with collector(root, digest, clock, feed):
+        for _ in range(2):
+            harness = Harness(root, digest, [lambda c, p: 2])
+            assert harness.run()["outcome"] == "lock_contention"
+    assert not (root / "collection-failure.json").exists()
+
+
+# ------------------------------------------- relaunch vs stale check (L1)
+
+
+def supervisor_beat(root, digest, **overrides):
+    values = dict(
+        protocol_sha256=digest,
+        state="monitoring",
+        pid=77,
+        at=START,
+        child_launched_at=START,
+        startup_grace_seconds=300.0,
+        poll_seconds=5.0,
+    )
+    values.update(overrides)
+    assert write_supervisor_heartbeat(root, **values)
+
+
+def test_check_defers_to_a_live_supervisors_relaunch_grace_only(sealed):
+    root, digest = sealed
+    last_beat = START + timedelta(seconds=10)
+    beat(root, digest, WallClock(last_beat), cycles=9)
+    launched = last_beat + timedelta(seconds=20)
+    now = launched + timedelta(seconds=140)  # heartbeat 160 s old, replay running
+    supervisor_beat(
+        root, digest, at=now - timedelta(seconds=5), child_launched_at=launched
+    )
+    report = check_collection(root, protocol_sha256=digest, clock=WallClock(now))
+    assert report["state"] == "relaunch_in_progress" and report["healthy"]
+    assert report["severity"] == "healthy"
+    assert not (root / "collection-failure.json").exists()
+    # The deferral ends when the supervisor's own grace is spent ...
+    late = launched + timedelta(seconds=301)
+    supervisor_beat(root, digest, at=late, child_launched_at=launched)
+    assert (
+        check_collection(root, protocol_sha256=digest, clock=WallClock(late))["state"]
+        == "failed_stale"
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        dict(state="stopped"),
+        dict(at=START - timedelta(seconds=500)),  # supervisor itself is dead
+        dict(child_launched_at=None),
+        dict(startup_grace_seconds=901.0),  # beyond the bounded maximum
+    ],
+)
+def test_check_does_not_defer_for_a_dead_stopped_or_unbounded_supervisor(
+    sealed, overrides
+):
+    root, digest = sealed
+    beat(root, digest, WallClock(START + timedelta(seconds=10)))
+    now = START + timedelta(seconds=200)
+    values = dict(
+        at=now - timedelta(seconds=5), child_launched_at=now - timedelta(seconds=30)
+    )
+    values.update(overrides)
+    supervisor_beat(root, digest, **values)
+    report = check_collection(root, protocol_sha256=digest, clock=WallClock(now))
+    assert report["state"] == "failed_stale" and report["severity"] == "failed"
+
+
+def test_check_does_not_defer_once_the_relaunched_child_has_beaten(sealed):
+    root, digest = sealed
+    now = START + timedelta(seconds=400)
+    beat(root, digest, WallClock(now - timedelta(seconds=200)))  # old, child beat
+    supervisor_beat(
+        root,
+        digest,
+        at=now,
+        child_launched_at=now - timedelta(seconds=250),
+    )
+    beat(root, digest, WallClock(now - timedelta(seconds=160)))  # after the launch
+    assert (
+        check_collection(root, protocol_sha256=digest, clock=WallClock(now))["state"]
+        == "failed_stale"
+    )
+
+
+def test_supervisor_publishes_its_own_state_for_the_check(sealed):
+    root, digest = sealed
+    seen = []
+
+    def child_script(child, polls):
+        if polls == 1:
+            assert read_supervisor_heartbeat(root, digest).state == "launching"
+            harness.beat(last=START)
+            return None
+        seen.append(read_supervisor_heartbeat(root, digest))
+        harness.beat(state="finished", last=START)
+        return 0
+
+    harness = Harness(root, digest, [child_script])
+    harness.run()
+    during = seen[0]
+    assert during.state == "monitoring" and during.child_launched_at is not None
+    assert during.startup_grace_seconds == 300 and during.poll_seconds == 5
+    assert read_supervisor_heartbeat(root, digest).state == "stopped"
+    assert read_supervisor_heartbeat(root, "e" * 64) is None
+    (root / "supervisor-heartbeat.json").write_bytes(b"junk")
+    assert read_supervisor_heartbeat(root, digest) is None
+    with pytest.raises(ValueError, match="grace"):
+        WatchdogPolicy(startup_grace_seconds=901)
+
+
+def test_supervisor_heartbeat_io_errors_never_stop_the_supervisor(sealed, monkeypatch):
+    root, digest = sealed
+    real = watchdog.os.replace
+
+    def locked(source, target):
+        if Path(target).name == "supervisor-heartbeat.json":
+            raise PermissionError("antivirus holds the status file")
+        return real(source, target)
+
+    monkeypatch.setattr(watchdog.os, "replace", locked)
+
+    def finishes(child, polls):
+        harness.beat(state="finished", last=START)
+        return 0
+
+    harness = Harness(root, digest, [finishes])
+    assert harness.run()["outcome"] == "finished"
+    assert read_supervisor_heartbeat(root, digest) is None
+    assert not write_supervisor_heartbeat(
+        root / "missing",
+        protocol_sha256=digest,
+        state="monitoring",
+        pid=1,
+        at=START,
+        child_launched_at=None,
+        startup_grace_seconds=300.0,
+        poll_seconds=5.0,
+    )
+
+
+# --------------------------------------------- check bounds and codes (L2)
+
+
+def test_check_stale_limit_is_bounded_like_the_supervisor(sealed):
+    root, digest = sealed
+    clock = WallClock(START + timedelta(days=1))
+    for bad in (0, -1, 180.5, 1e9):
+        with pytest.raises(ValueError, match="within the frozen gap limit"):
+            check_collection(
+                root, protocol_sha256=digest, clock=clock, stale_seconds=bad
+            )
+    assert not (root / "collection-failure.json").exists()
+    report = check_collection(
+        root, protocol_sha256=digest, clock=clock, stale_seconds=180
+    )
+    assert report["state"] == "failed_never_started"
+
+
+def test_check_exit_codes_separate_marker_from_degraded_states(
+    tmp_path, capsys, monkeypatch
+):
+    from trade_rl.evaluation.paper import cli
+
+    root, digest, _clock, _feed = setup(tmp_path, monkeypatch)
+    wall = WallClock(NOW)
+    original = watchdog.check_collection
+    monkeypatch.setattr(
+        cli, "check_collection", lambda *a, **k: original(*a, clock=wall, **k)
+    )
+    args = ["check", "--root", str(root), "--protocol-sha256", digest]
+
+    def run():
+        code = cli.main(args)
+        return code, json.loads(capsys.readouterr().out)
+
+    assert run()[0] == 0  # not started: healthy
+    beat(root, digest, wall)
+    wall.value = NOW + timedelta(seconds=0.9)
+    monkeypatch.setattr(
+        cli,
+        "check_collection",
+        lambda *a, **k: original(*a, clock=wall, **{**k, "stale_seconds": 0.1}),
+    )
+    code, report = run()
+    assert (code, report["state"], report["severity"]) == (
+        5,
+        "stale_before_start",
+        "degraded",
+    )
+    assert not (root / "collection-failure.json").exists()  # exit 5 wrote no marker
+    wall.value = START + timedelta(seconds=300)
+    code, report = run()
+    assert (code, report["state"], report["failure_written"]) == (
+        3,
+        "failed_stale",
+        True,
+    )
+    code, report = run()
+    assert (code, report["state"], report["failure_written"]) == (3, "halted", False)
+
+
+def test_unreadable_heartbeat_inside_the_start_grace_is_degraded_not_a_marker(sealed):
+    root, digest = sealed
+    (root / "collector-heartbeat.json").write_bytes(b"\x00torn")
+    report = check_collection(
+        root, protocol_sha256=digest, clock=WallClock(START + timedelta(seconds=60))
+    )
+    assert (report["state"], report["severity"]) == ("heartbeat_invalid", "degraded")
+    assert not (root / "collection-failure.json").exists()
+
+
+# ------------------------------------------- heartbeat write tolerance (L3)
+
+
+def test_heartbeat_write_errors_are_tolerated_until_they_persist(sealed, monkeypatch):
+    root, digest = sealed
+    clock = WallClock(START)
+    writer = HeartbeatWriter(root, digest, clock=clock, pid=1, give_up_seconds=120)
+    real = watchdog.write_heartbeat
+    failing = {"on": False}
+
+    def flaky(*args, **kwargs):
+        if failing["on"]:
+            raise PermissionError("sharing violation")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(watchdog, "write_heartbeat", flaky)
+    writer("starting", None)
+    failing["on"] = True
+    for _ in range(5):  # 75 s of misses: tolerated, collector keeps running
+        clock.value += timedelta(seconds=15)
+        writer("sleeping", None)
+    assert writer.missed == 5
+    failing["on"] = False
+    clock.value += timedelta(seconds=15)
+    writer("sleeping", None)
+    assert writer.missed == 0 and read_heartbeat(root, digest).written_at == clock.value
+    failing["on"] = True
+    with pytest.raises(PermissionError):
+        for _ in range(10):  # persisting past the 120 s window finally halts
+            clock.value += timedelta(seconds=15)
+            writer("sleeping", None)
+    with pytest.raises(ValueError, match="give-up"):
+        HeartbeatWriter(root, digest, give_up_seconds=0)
+
+
+def test_programming_errors_in_the_heartbeat_are_never_swallowed(sealed):
+    root, digest = sealed
+    with pytest.raises(ValueError, match="state"):
+        HeartbeatWriter(root, digest, clock=WallClock())("bogus", None)
+
+
+def test_control_schema_is_read_through_the_control_module(sealed):
+    from trade_rl.evaluation.paper import control
+
+    root, digest = sealed
+    assert watchdog.has_incomplete_cycle is control.incomplete_cycle_exists
+    assert control.incomplete_cycle_exists(root) is False
+    owner = CollectionControl(root, digest)
+    cycle = owner.begin(START)
+    assert control.incomplete_cycle_exists(root) is True
+    owner.finish(cycle)
+    owner.close()
+    assert control.incomplete_cycle_exists(root) is False

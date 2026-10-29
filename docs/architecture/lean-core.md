@@ -865,7 +865,10 @@ kept. A supervisor may relaunch only a child that died between cycles, inside th
 frozen 180-second gap including a launch margin, with no marker, no unacknowledged
 cycle and a bounded restart count. It never resumes an interrupted cycle, retries a
 failed source request or edits the journal; a hard kill during acquisition therefore
-still ends the screen. The attempt-2 tooling is plan-only until an explicit seal
+still ends the screen. A duplicate or restarted launch against a live collector is
+detected through the collector lock and ends as non-destructive contention (exit 4,
+no marker). The external check defers its stale limit only while a live supervisor
+is inside the bounded startup grace of a relaunched child. The attempt-2 tooling is plan-only until an explicit seal
 and, separately, an explicit network launch, both gated by an Issue #810
 authorization URL; they do not prove authorization or establish profitability.
 

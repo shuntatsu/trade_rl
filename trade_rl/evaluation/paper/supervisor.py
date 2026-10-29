@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
 import time
 import uuid
@@ -15,16 +14,17 @@ from types import TracebackType
 from typing import Any
 
 from trade_rl._validation import require_aware_datetime
-from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import timestamp
 from trade_rl.evaluation.paper.control import CollectionControl
 from trade_rl.evaluation.paper.engine import EvidenceRef, PaperEngine, PaperSettings
+from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_failure
+from trade_rl.evaluation.paper.lock import acquire_collector_lock
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.integrations.binance.forward import capture_forward_snapshot
 from trade_rl.integrations.binance.forward_rules import capture_forward_rules
 
 _SCHEMA = "paper_public_collection_v1"
-_FAILURE = "collection-failure.json"
+_FAILURE = FAILURE_NAME
 
 
 def _now() -> datetime:
@@ -56,44 +56,6 @@ def seal_collection(
             research_plan=research_plan,
         ),
     )
-
-
-def write_collection_failure(
-    root: Path,
-    *,
-    protocol_sha256: str,
-    error_type: str,
-    error: str,
-    extra: dict[str, Any] | None = None,
-    clock: Callable[[], datetime] = _now,
-) -> dict[str, Any] | None:
-    """Create the permanent failure marker once; return None if one already exists.
-
-    The marker is the single operational fact that rejects a screen. It is written
-    exclusively and fsynced, never replaced, so the first recorded cause is kept.
-    The collector, the watchdog and the termination hooks all use this one writer.
-    """
-    failure = Path(root) / _FAILURE
-    if failure.exists() or failure.is_symlink():
-        return None
-    record: dict[str, Any] = dict(
-        schema="paper_collection_failure_v1",
-        protocol_sha256=protocol_sha256,
-        recorded_at=clock().isoformat(),
-        error_type=error_type,
-        error=error[:2000],
-        production_eligible=False,
-    )
-    if extra:
-        record.update(extra)
-    try:
-        with failure.open("xb") as stream:
-            stream.write(canonical_json_bytes(record))
-            stream.flush()
-            os.fsync(stream.fileno())
-    except FileExistsError:
-        return None
-    return record
 
 
 class PaperCollector:
@@ -145,16 +107,7 @@ class PaperCollector:
         self.close_at = timestamp(protocol["settings"]["close_at"])
         if timestamp(study["created_at"]) >= self.start_at:
             raise ValueError("collection was not sealed before start")
-        lock_path = self.root / "collector.sqlite"
-        if lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file()):
-            raise ValueError("collector lock must be a regular file")
-        connection = sqlite3.connect(lock_path, timeout=0, isolation_level=None)
-        try:
-            connection.execute("BEGIN EXCLUSIVE")
-        except sqlite3.OperationalError as error:
-            connection.close()
-            raise RuntimeError("another collector holds this collection") from error
-        self._lock = connection
+        self._lock = acquire_collector_lock(self.root)
         try:
             self._guard()
             self.engine = PaperEngine(self.root, expected_protocol_sha256=self.digest)

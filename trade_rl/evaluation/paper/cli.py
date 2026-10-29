@@ -13,6 +13,7 @@ from typing import Any
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import timestamp
 from trade_rl.evaluation.paper.assessment import evaluate_paper_study
+from trade_rl.evaluation.paper.lock import CollectorLockHeld
 from trade_rl.evaluation.paper.operations import (
     collect_until_finished,
     collection_status,
@@ -22,6 +23,9 @@ from trade_rl.evaluation.paper.supervisor import PaperCollector
 from trade_rl.evaluation.paper.watchdog import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     DEFAULT_STALE_SECONDS,
+    EXIT_DEGRADED,
+    EXIT_FAILED,
+    EXIT_LOCK_HELD,
     CollectorTerminated,
     ExitGuard,
     HeartbeatWriter,
@@ -58,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             )
     watch = commands.add_parser(
         "check",
-        help="Stateless heartbeat check; after the start a stale heartbeat records a failure",
+        help="Stateless heartbeat check (exit 0 healthy, 3 marker, 5 degraded)",
     )
     watch.add_argument("--root", type=Path, required=True)
     watch.add_argument("--protocol-sha256", required=True)
@@ -102,7 +106,11 @@ def main(argv: list[str] | None = None) -> int:
                 stale_seconds=args.stale_seconds,
             )
             _print(report)
-            return 0 if report["healthy"] else 3
+            # 0 healthy; 3 a failure marker exists or was just written;
+            # 5 unhealthy but no marker written (nothing has been lost yet).
+            if report["severity"] == "healthy":
+                return 0
+            return EXIT_FAILED if report["severity"] == "failed" else EXIT_DEGRADED
         elif args.command == "supervise":
             outcome = supervise_collector(
                 args.root,
@@ -156,6 +164,21 @@ def main(argv: list[str] | None = None) -> int:
             _print(result)
             return 0 if result["decision"] == "PAPER_SCREEN_PASSED" else 1
         return 0
+    except CollectorLockHeld as held:
+        # Another live collector owns the root. This process wrote no marker and
+        # touched nothing, so the owner's screen is undisturbed.
+        print(
+            json.dumps(
+                dict(
+                    error_type="CollectorLockHeld",
+                    error=str(held),
+                    production_eligible=False,
+                )
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return EXIT_LOCK_HELD
     except CollectorTerminated as terminated:
         # The collector context already recorded the permanent failure marker.
         print(

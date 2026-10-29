@@ -33,12 +33,14 @@ from trade_rl.evaluation.forward_study.seal import (
     current_code_identity,
 )
 from trade_rl.evaluation.paper.account import PaperSettings, timestamp
+from trade_rl.evaluation.paper.lock import collector_lock_held
 from trade_rl.evaluation.paper.operations import (
     screen_plan,
     seal_paper_study,
     validate_attempt_lineage,
 )
 from trade_rl.evaluation.paper.watchdog import (
+    EXIT_LOCK_HELD,
     ChildProcess,
     WatchdogPolicy,
     popen_launcher,
@@ -60,6 +62,9 @@ TERMINAL_GRACE_SECONDS = 180
 MINIMUM_SEAL_NOTICE = timedelta(minutes=5)
 SCREEN_SLOTS = SCREEN_DAYS * 24 * 60 + TERMINAL_GRACE_SECONDS // 60 + 1
 CAPACITY_HEADROOM = 1.25
+
+
+ALREADY_RUNNING = "collector_already_running"
 
 
 class Attempt2Refusal(ValueError):
@@ -421,6 +426,10 @@ def launch_attempt2(
             reasons.append("start_not_in_future")
     if reasons:
         raise Attempt2Refusal(reasons)
+    if collector_lock_held(root_path):
+        # A live collector already owns this root (for example the survivor of a
+        # supervisor restart). Refuse without writing anything or any marker.
+        raise Attempt2Refusal([ALREADY_RUNNING])
     return supervise(
         root_path,
         protocol_sha256=protocol_sha256,
@@ -494,7 +503,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
             flush=True,
         )
-        return 2
+        return EXIT_LOCK_HELD if refusal.reasons == [ALREADY_RUNNING] else 2
     except Exception as error:
         print(
             json.dumps(

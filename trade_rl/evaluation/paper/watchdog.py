@@ -17,7 +17,6 @@ Heartbeats and failure markers are operational facts, not financial evidence.
 
 from __future__ import annotations
 
-import contextlib
 import ctypes
 import hashlib
 import json
@@ -35,7 +34,9 @@ from typing import Any, Protocol
 
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import timestamp
-from trade_rl.evaluation.paper.supervisor import write_collection_failure
+from trade_rl.evaluation.paper.control import incomplete_cycle_exists
+from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_failure
+from trade_rl.evaluation.paper.lock import collector_lock_held
 
 HEARTBEAT_NAME = "collector-heartbeat.json"
 HEARTBEAT_SCHEMA = "paper_collector_heartbeat_v1"
@@ -46,7 +47,17 @@ HEARTBEAT_STATES = frozenset(
 )
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 DEFAULT_STALE_SECONDS = 150.0
-_FAILURE = "collection-failure.json"
+# A heartbeat miss only matters once it persists; stop tolerating write errors
+# before the 150 s stale limit so the collector then halts with the real cause.
+HEARTBEAT_WRITE_GIVE_UP_SECONDS = 120.0
+SUPERVISOR_HEARTBEAT_NAME = "supervisor-heartbeat.json"
+SUPERVISOR_HEARTBEAT_SCHEMA = "paper_supervisor_heartbeat_v1"
+MAXIMUM_STARTUP_GRACE_SECONDS = 900.0
+EXIT_OK = 0
+EXIT_FAILED = 3  # a failure marker exists or was just written
+EXIT_LOCK_HELD = 4  # another live collector owns the root; nothing was written
+EXIT_DEGRADED = 5  # check only: unhealthy but no marker written yet
+_FAILURE = FAILURE_NAME
 _CONSOLE_EVENTS = {
     2: "CTRL_CLOSE_EVENT",
     5: "CTRL_LOGOFF_EVENT",
@@ -107,9 +118,12 @@ def write_heartbeat(
     at: datetime,
     last_command_at: datetime | None,
     cycles: int,
-    attempts: int = 20,
+    attempts: int = 8,
 ) -> None:
-    """Atomically replace the heartbeat; a reader never sees a partial file."""
+    """Atomically replace the heartbeat; a reader never sees a partial file.
+
+    A Windows sharing violation is retried with exponential backoff (about 2.5 s
+    in total) before the error is raised to the caller."""
     if state not in HEARTBEAT_STATES:
         raise ValueError("unsupported heartbeat state")
     record = dict(
@@ -140,7 +154,7 @@ def write_heartbeat(
             # Windows refuses to replace a file another process is reading.
             if attempt == attempts - 1:
                 raise
-            time.sleep(0.02)
+            time.sleep(min(1.0, 0.05 * 2**attempt))
 
 
 def read_heartbeat(root: Path, protocol_sha256: str) -> Heartbeat | None:
@@ -190,7 +204,14 @@ def read_heartbeat(root: Path, protocol_sha256: str) -> Heartbeat | None:
 
 
 class HeartbeatWriter:
-    """Callable handed to the cadence loop; remembers the last committed command."""
+    """Callable handed to the cadence loop; remembers the last committed command.
+
+    A write error is tolerated (after the backoff in :func:`write_heartbeat`) until
+    nothing has been written successfully for ``give_up_seconds``; only then is it
+    raised so the collector halts durably with the real cause. A transient Windows
+    sharing violation therefore cannot end a 90-day screen, while a persistent one
+    ends it before the external stale check would.
+    """
 
     def __init__(
         self,
@@ -199,46 +220,155 @@ class HeartbeatWriter:
         *,
         clock: Callable[[], datetime] = _now,
         pid: int | None = None,
+        give_up_seconds: float = HEARTBEAT_WRITE_GIVE_UP_SECONDS,
     ) -> None:
+        if not give_up_seconds > 0:
+            raise ValueError("heartbeat give-up window must be positive")
         self.root = Path(root)
         self.digest = protocol_sha256
         self.clock = clock
         self.pid = os.getpid() if pid is None else pid
+        self.give_up_seconds = give_up_seconds
         self.cycles = 0
+        self.missed = 0
         self._last_command: datetime | None = None
+        self._last_success = clock()
 
     def __call__(self, state: str, status: dict[str, Any] | None = None) -> None:
         if status is not None and status.get("last_command_at") is not None:
             self._last_command = timestamp(status["last_command_at"])
         if state == "cycle_completed" or state in TERMINAL_STATES:
             self.cycles += 1
-        write_heartbeat(
-            self.root,
-            protocol_sha256=self.digest,
-            state=state,
-            pid=self.pid,
-            at=self.clock(),
-            last_command_at=self._last_command,
-            cycles=self.cycles,
-        )
+        at = self.clock()
+        try:
+            write_heartbeat(
+                self.root,
+                protocol_sha256=self.digest,
+                state=state,
+                pid=self.pid,
+                at=at,
+                last_command_at=self._last_command,
+                cycles=self.cycles,
+            )
+        except OSError:
+            self.missed += 1
+            if (at - self._last_success).total_seconds() > self.give_up_seconds:
+                raise
+            return
+        self.missed = 0
+        self._last_success = at
 
 
-def has_incomplete_cycle(root: Path) -> bool:
-    """Read-only probe: a dead collector left a cycle that was never acknowledged."""
-    path = root / "collection-control.sqlite"
-    if path.is_symlink():
-        raise ValueError("collection control must be a regular file")
-    if not path.exists():
+@dataclass(frozen=True)
+class SupervisorHeartbeat:
+    state: str
+    pid: int
+    written_at: datetime
+    child_launched_at: datetime | None
+    startup_grace_seconds: float
+    poll_seconds: float
+
+
+def write_supervisor_heartbeat(
+    root: Path,
+    *,
+    protocol_sha256: str,
+    state: str,
+    pid: int,
+    at: datetime,
+    child_launched_at: datetime | None,
+    startup_grace_seconds: float,
+    poll_seconds: float,
+) -> bool:
+    """Best-effort atomic write; returns False instead of raising on I/O errors.
+
+    The supervisor must never die because its own status file is momentarily locked.
+    """
+    record = dict(
+        schema=SUPERVISOR_HEARTBEAT_SCHEMA,
+        protocol_sha256=protocol_sha256,
+        state=state,
+        pid=pid,
+        written_at=at.isoformat(),
+        child_launched_at=None
+        if child_launched_at is None
+        else child_launched_at.isoformat(),
+        startup_grace_seconds=startup_grace_seconds,
+        poll_seconds=poll_seconds,
+        production_eligible=False,
+    )
+    target = root / SUPERVISOR_HEARTBEAT_NAME
+    temporary = root / (SUPERVISOR_HEARTBEAT_NAME + ".tmp")
+    try:
+        if target.is_symlink():
+            return False
+        with temporary.open("wb") as stream:
+            stream.write(canonical_json_bytes(record))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except OSError:
         return False
-    with contextlib.closing(
-        sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
-    ) as connection:
-        return (
-            connection.execute(
-                "SELECT 1 FROM cycles WHERE complete=0 LIMIT 1"
-            ).fetchone()
-            is not None
+    return True
+
+
+def read_supervisor_heartbeat(
+    root: Path, protocol_sha256: str
+) -> SupervisorHeartbeat | None:
+    """Return None when absent or unusable; this file only ever defers a check."""
+    path = root / SUPERVISOR_HEARTBEAT_NAME
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        record = json.loads(path.read_bytes())
+        if (
+            record["schema"] != SUPERVISOR_HEARTBEAT_SCHEMA
+            or record["protocol_sha256"] != protocol_sha256
+            or record["state"] not in {"launching", "monitoring", "stopped"}
+        ):
+            return None
+        launched = record["child_launched_at"]
+        return SupervisorHeartbeat(
+            state=record["state"],
+            pid=int(record["pid"]),
+            written_at=timestamp(record["written_at"]),
+            child_launched_at=None if launched is None else timestamp(launched),
+            startup_grace_seconds=float(record["startup_grace_seconds"]),
+            poll_seconds=float(record["poll_seconds"]),
         )
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _relaunch_in_progress(
+    root: Path, protocol_sha256: str, heartbeat: Heartbeat, now: datetime
+) -> bool:
+    """True while a live supervisor is inside the startup grace of a fresh child.
+
+    A relaunched child replays the whole journal before its first heartbeat, which
+    can legitimately outlast the 150 s stale limit but not the supervisor's own
+    grace. Deferring is bounded: the supervisor must itself be alive (fresh status),
+    the child must not have beaten since its launch, and the grace must not have
+    run out.
+    """
+    supervisor = read_supervisor_heartbeat(root, protocol_sha256)
+    if (
+        supervisor is None
+        or supervisor.state == "stopped"
+        or supervisor.child_launched_at is None
+        or supervisor.startup_grace_seconds > MAXIMUM_STARTUP_GRACE_SECONDS
+    ):
+        return False
+    alive_for = max(30.0, 3 * supervisor.poll_seconds)
+    return (
+        (now - supervisor.written_at).total_seconds() <= alive_for
+        and heartbeat.written_at < supervisor.child_launched_at
+        and (now - supervisor.child_launched_at).total_seconds()
+        <= supervisor.startup_grace_seconds
+    )
+
+
+has_incomplete_cycle = incomplete_cycle_exists
 
 
 def _failure_present(root: Path) -> bool:
@@ -270,6 +400,14 @@ def _record_failure(
     return written is not None
 
 
+def _finish(
+    report: dict[str, Any], state: str, severity: str, **extra: Any
+) -> dict[str, Any]:
+    return dict(
+        report, state=state, severity=severity, healthy=severity == "healthy", **extra
+    )
+
+
 def check_collection(
     root: str | Path,
     *,
@@ -280,13 +418,19 @@ def check_collection(
     """Stateless liveness check, safe to run from an independent scheduled task.
 
     After the frozen start a stale or missing heartbeat writes the permanent failure
-    marker; before start it only reports, because nothing has been lost yet. The
-    journal and control database are not modified or even opened for writing.
+    marker; before start it only reports, because nothing has been lost yet. While a
+    live supervisor is relaunching a child inside its startup grace (journal replay),
+    a stale heartbeat is reported as ``relaunch_in_progress`` instead. The journal and
+    control database are not modified or even opened for writing.
+
+    ``severity`` is ``healthy``, ``degraded`` (unhealthy, no marker written) or
+    ``failed`` (a marker exists or was just written); the CLI maps them to exit
+    codes 0, 5 and 3.
     """
     root = Path(root).absolute()
-    if stale_seconds <= 0:
-        raise ValueError("stale limit must be positive")
     window = read_protocol_window(root, protocol_sha256)
+    if not 0 < stale_seconds <= window.maximum_gap_seconds:
+        raise ValueError("stale limit must be positive and within the frozen gap limit")
     now = clock()
     report: dict[str, Any] = dict(
         schema=CHECK_SCHEMA,
@@ -300,7 +444,7 @@ def check_collection(
         heartbeat_pid=None,
     )
     if _failure_present(root):
-        return dict(report, state="halted", healthy=False)
+        return _finish(report, "halted", "failed")
     try:
         heartbeat = read_heartbeat(root, protocol_sha256)
         invalid = False
@@ -319,17 +463,12 @@ def check_collection(
                 clock=clock,
                 detail=dict(heartbeat_invalid=invalid),
             )
-            return dict(
-                report,
-                state="failed_never_started",
-                healthy=False,
-                failure_written=written,
+            return _finish(
+                report, "failed_never_started", "failed", failure_written=written
             )
-        return dict(
-            report,
-            state="not_started" if not invalid else "heartbeat_invalid_before_start",
-            healthy=not invalid,
-        )
+        if invalid:
+            return _finish(report, "heartbeat_invalid", "degraded")
+        return _finish(report, "not_started", "healthy")
     age = (now - heartbeat.written_at).total_seconds()
     report.update(
         heartbeat_age_seconds=age,
@@ -337,11 +476,13 @@ def check_collection(
         heartbeat_pid=heartbeat.pid,
     )
     if heartbeat.state in TERMINAL_STATES:
-        return dict(report, state=heartbeat.state, healthy=True)
+        return _finish(report, heartbeat.state, "healthy")
     if age <= stale_seconds:
-        return dict(report, state="running", healthy=True)
+        return _finish(report, "running", "healthy")
     if not started:
-        return dict(report, state="stale_before_start", healthy=False)
+        return _finish(report, "stale_before_start", "degraded")
+    if _relaunch_in_progress(root, protocol_sha256, heartbeat, now):
+        return _finish(report, "relaunch_in_progress", "healthy")
     written = _record_failure(
         root,
         protocol_sha256,
@@ -354,7 +495,7 @@ def check_collection(
             heartbeat_age_seconds=age,
         ),
     )
-    return dict(report, state="failed_stale", healthy=False, failure_written=written)
+    return _finish(report, "failed_stale", "failed", failure_written=written)
 
 
 class ExitGuard:
@@ -557,6 +698,8 @@ class WatchdogPolicy:
                 raise ValueError(f"{name} must be positive")
         if self.restart_delay_seconds < 0 or self.max_restarts < 0:
             raise ValueError("restart settings must not be negative")
+        if self.startup_grace_seconds > MAXIMUM_STARTUP_GRACE_SECONDS:
+            raise ValueError("startup grace exceeds the bounded maximum")
 
 
 def supervise_collector(
@@ -580,8 +723,22 @@ def supervise_collector(
     if policy.stale_seconds > window.maximum_gap_seconds:
         raise ValueError("stale limit cannot exceed the frozen observation-gap limit")
     restarts = 0
+    launched_at: datetime | None = None
+
+    def status_beat(state: str) -> None:
+        write_supervisor_heartbeat(
+            root,
+            protocol_sha256=protocol_sha256,
+            state=state,
+            pid=os.getpid(),
+            at=clock(),
+            child_launched_at=launched_at,
+            startup_grace_seconds=policy.startup_grace_seconds,
+            poll_seconds=policy.poll_seconds,
+        )
 
     def finish(outcome: str, exit_code: int, **extra: Any) -> dict[str, Any]:
+        status_beat("stopped")
         result = dict(
             schema="paper_collector_supervision_v1",
             outcome=outcome,
@@ -609,18 +766,29 @@ def supervise_collector(
             detail=detail,
         )
         return finish(
-            "failed", 3, error_type=error_type, failure_written=written, detail=detail
+            "failed",
+            EXIT_FAILED,
+            error_type=error_type,
+            failure_written=written,
+            detail=detail,
         )
 
     while True:
         if _failure_present(root):
-            return finish("halted", 3)
+            return finish("halted", EXIT_FAILED)
         before = heartbeat_or_none()
         if before is not None and before.state in TERMINAL_STATES:
             return finish("already_terminal", 0, heartbeat_state=before.state)
+        if collector_lock_held(root):
+            # A live collector (for example the survivor of a supervisor restart)
+            # owns this root. Spawning would only collide; recording a failure
+            # would invalidate a healthy screen. Refuse without writing a marker.
+            publish(dict(event="collector_lock_held"))
+            return finish("lock_contention", EXIT_LOCK_HELD)
+        started = launched_at = clock()
+        status_beat("launching")
         child = launch()
-        launched_at = clock()
-        publish(dict(event="launched", pid=child.pid, at=launched_at.isoformat()))
+        publish(dict(event="launched", pid=child.pid, at=started.isoformat()))
         hung = False
         code: int | None = None
         while True:
@@ -628,9 +796,10 @@ def supervise_collector(
             if code is not None:
                 break
             now = clock()
+            status_beat("monitoring")
             heartbeat = heartbeat_or_none()
-            if heartbeat is None or heartbeat.written_at < launched_at:
-                limit, reference = policy.startup_grace_seconds, launched_at
+            if heartbeat is None or heartbeat.written_at < started:
+                limit, reference = policy.startup_grace_seconds, started
             else:
                 limit, reference = policy.stale_seconds, heartbeat.written_at
             if (now - reference).total_seconds() > limit:
@@ -647,7 +816,7 @@ def supervise_collector(
             return fail_result
         publish(dict(event="child_exited", exit_code=code, pid=child.pid))
         if _failure_present(root):
-            return finish("halted", 3, child_exit_code=code)
+            return finish("halted", EXIT_FAILED, child_exit_code=code)
         last = heartbeat_or_none()
         if last is not None and last.state in TERMINAL_STATES:
             return finish(
@@ -663,6 +832,10 @@ def supervise_collector(
                 "collector exited 0 without a terminal state",
                 detail,
             )
+        if code == EXIT_LOCK_HELD:
+            # Lost a start-up race for the lock to another live collector. Not a
+            # collector refusal: write nothing and leave the owner undisturbed.
+            return finish("lock_contention", EXIT_LOCK_HELD, child_exit_code=code)
         if code == 2:
             return fail(
                 "CollectorRefused",

@@ -2194,7 +2194,10 @@
   "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
   "failures": {},
   "git_head": "36774b5e1075f6ce89247d2645c804fe59e5cfac",
-  "label": "DEVELOPMENT_PROMISING",
+  "label": "NO_WINNER",
+  "label_amended_rule": "DEVELOPMENT_PROMISING",
+  "label_note": "primary label = PR-C probe rule (execution 1); the amended rule changed validity after execution 1 had started, see the provenance JSON",
+  "label_preregistered_rule": "NO_WINNER",
   "notes": [
     "development evidence only; never a WINNER",
     "the evaluation period was already used by the PR-C study and the breakeven diagnostic; this is not confirmatory",
@@ -2202,6 +2205,12 @@
     "fail_closed_hold_count counts allocator decisions that ended as a fail-closed HOLD",
     "Bonferroni intervals use level 0.05 / 13 (5 PR-C arms plus 8 trials)"
   ],
+  "post_hoc_annotation": {
+    "applied_by": "trade_rl.evaluation.dev_realdata_study.trial_labels",
+    "original_label_field": "DEVELOPMENT_PROMISING",
+    "original_result_sha256": "fcd95177ff4b14cf976c0e8def600579f4ab8195e4e0d67fc7820e15b5a19d7b",
+    "replay_metrics_changed": false
+  },
   "registry_digest": "d3cfc7278205e263f960ce2b32a82c8f43daa95f30366b0d83426a07f782b0ee",
   "run_metadata": {
     "argv": [
@@ -2227,7 +2236,9 @@
     "workers": 10
   },
   "schema_version": "dev_realdata_phase2_trial_results_v1",
-  "selection": {
+  "selected_arm_amended_rule": "t1_tsmom",
+  "selected_arm_preregistered_rule": null,
+  "selection_amended_rule": {
     "arms": {
       "allocator_24h_long_only": {
         "base_terminal_net_profit_pct": 22.4185989728406,
@@ -2320,6 +2331,114 @@
     },
     "label": "DEVELOPMENT_PROMISING",
     "selected_arm": "t1_tsmom"
+  },
+  "selection_preregistered_rule": {
+    "arms": {
+      "allocator_24h_long_only": {
+        "base_terminal_net_profit_pct": 22.4185989728406,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 55.19644168725469
+      },
+      "allocator_24h_long_short": {
+        "base_terminal_net_profit_pct": -50.369797488610345,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 75.97639094331943
+      },
+      "allocator_72h_long_short": {
+        "base_terminal_net_profit_pct": -19.652595619888093,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": false,
+        "worst_max_drawdown_pct": 67.47865089326108
+      },
+      "t1_tsmom": {
+        "base_terminal_net_profit_pct": 10.383586655101773,
+        "beats_cash_base_and_cost_x2": true,
+        "eligible": false,
+        "risk_gate_passed": true,
+        "valid": false,
+        "worst_max_drawdown_pct": 2.9709932056330546
+      },
+      "t2_xsmom": {
+        "base_terminal_net_profit_pct": 46.58547467309262,
+        "beats_cash_base_and_cost_x2": true,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 21.94264671551428
+      },
+      "t3_funding_carry": {
+        "base_terminal_net_profit_pct": -12.89608660851349,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": false,
+        "worst_max_drawdown_pct": 24.38407675629496
+      },
+      "t4_ridge24_all_features": {
+        "base_terminal_net_profit_pct": 250.4901327428404,
+        "beats_cash_base_and_cost_x2": true,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 45.79959724770896
+      },
+      "t5_lightgbm24": {
+        "base_terminal_net_profit_pct": -26.494463802268996,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 54.10894862882092
+      },
+      "t6_blend": {
+        "base_terminal_net_profit_pct": 61.53005763141379,
+        "beats_cash_base_and_cost_x2": true,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 43.12102113741968
+      },
+      "t7_blend_dd_overlay": {
+        "base_terminal_net_profit_pct": -21.228642541417198,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 24.68971128818901
+      },
+      "t8_blend_weekly": {
+        "base_terminal_net_profit_pct": 48.29565192401715,
+        "beats_cash_base_and_cost_x2": true,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 53.70755622988796
+      }
+    },
+    "label": "NO_WINNER",
+    "rule": "pr_c_probe_rule_requires_pre_cut_trades (execution 1)",
+    "selected_arm": null,
+    "validity": {
+      "allocator_24h_long_only": true,
+      "allocator_24h_long_short": true,
+      "allocator_72h_long_short": false,
+      "t1_tsmom": false,
+      "t2_xsmom": true,
+      "t3_funding_carry": false,
+      "t4_ridge24_all_features": true,
+      "t5_lightgbm24": true,
+      "t6_blend": true,
+      "t7_blend_dd_overlay": true,
+      "t8_blend_weekly": true
+    }
   },
   "status": "development_evidence_only",
   "trial_arms": [

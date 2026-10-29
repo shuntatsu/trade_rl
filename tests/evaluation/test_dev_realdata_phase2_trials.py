@@ -333,15 +333,52 @@ def test_real_replay_causality_probe_passes_for_registered_trials(
         study.make_context(market, protocol),
         start_index=runner._row_of(market, protocol.evaluation_start),
         arm=arm,
+        expect_trades=False,
         arm_builder=sources.build_phase2_arm,
         sources_builder=study.make_context,
     )
-    if arm == "t8_blend_weekly":
-        # Weekly decisions, no Ridge24 history yet in the pre-cut window: the
-        # probe must still be identical, trades are not required to exist.
-        assert report["identical_pre_cut_trace"] is True
-    else:
-        assert report["identical_pre_cut_trace"] is True
+    assert report["identical_pre_cut_trace"] is True
+    assert report["passed"] is True
+
+
+def test_trial_probe_rule_does_not_require_pre_cut_trades(
+    market: MarketDataset,
+) -> None:
+    """Pins the amended rule: a non-trading arm passes iff its traces are identical.
+
+    CASH never trades, so under the PR-C default (expect_trades=True) it fails while
+    the trace is still identical; with expect_trades=False (the rule the Phase 2 study
+    applies to every trial) the same replay passes.
+    """
+
+    protocol = small_protocol()
+    start = runner._row_of(market, protocol.evaluation_start)
+    context = study.make_context(market, protocol)
+    common: dict[str, Any] = {
+        "start_index": start,
+        "arm": ARM_CASH,
+        "arm_builder": sources.build_phase2_arm,
+        "sources_builder": study.make_context,
+    }
+    strict = runner.causality_probe(market, protocol, context, **common)
+    amended = runner.causality_probe(
+        market, protocol, context, expect_trades=False, **common
+    )
+    assert strict["identical_pre_cut_trace"] is True
+    assert strict["pre_cut_trace_has_trades"] is False and strict["passed"] is False
+    assert amended["pre_cut_trace_has_trades"] is False and amended["passed"] is True
+    # The study applies the amended rule to every trial probe it records.
+    outcome = study.run_arm(
+        market,
+        protocol,
+        "t3_funding_carry",
+        start_index=start,
+        stop_index=runner._row_of(market, protocol.evaluation_end),
+        say=lambda message: None,
+        matrix_cut=MATRIX_CUT,
+    )
+    assert outcome.probe is not None
+    assert outcome.probe["passed"] == outcome.probe["identical_pre_cut_trace"]
 
 
 # --- T4/T5 sources ---------------------------------------------------------
@@ -844,17 +881,28 @@ def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:
         )
 
 
+def _report(name: str) -> Any:
+    return json.loads((REPO_ROOT / "report" / name).read_text("utf-8"))
+
+
+def test_registry_digest_is_frozen() -> None:
+    assert (
+        registry_digest()
+        == "d3cfc7278205e263f960ce2b32a82c8f43daa95f30366b0d83426a07f782b0ee"
+    )
+    # Frozen text; corrected by the provenance erratum, not edited.
+    assert registry_payload()["registered_before"] == (
+        "the PR-C result and every T1-T8 result"
+    )
+
+
 def test_committed_result_and_provenance_are_consistent() -> None:
-    report = REPO_ROOT / "report"
-    result = json.loads(
-        (report / "issue810-phase2-trial-results-20261029.json").read_text("utf-8")
-    )
-    provenance = json.loads(
-        (report / "issue810-phase2-trial-provenance-20261029.json").read_text("utf-8")
-    )
+    result = _report("issue810-phase2-trial-results-20261029.json")
+    provenance = _report("issue810-phase2-trial-provenance-20261029.json")
     assert result["registry_digest"] == registry_digest()
     assert provenance["registry_digest"] == registry_digest()
     assert result["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
+    assert result["label"] == result["label_preregistered_rule"]
     assert set(result["arms"]) == set(ALL_ARMS)
     assert result["failures"] == {}
     for arm in TRIAL_ARMS:
@@ -864,11 +912,70 @@ def test_committed_result_and_provenance_are_consistent() -> None:
             row = result["arms"][arm][scenario]
             assert "terminal_residual_notional_usdt" in row
             assert "fail_closed_hold_count" in row
-    selected = result["selection"]["selected_arm"]
-    if result["label"] == LABEL_NO_WINNER:
-        assert selected is None
-    else:
-        assert result["selection"]["arms"][selected]["eligible"] is True
     full = [e for e in provenance["executions"] if e["kind"] == "full"]
     assert len(full) == provenance["real_data_execution_count"]["full_executions"]
     assert result["run_metadata"]["git_head"]
+    erratum = provenance["registry_erratum"]
+    assert "21:43:33Z" in erratum["stage_1_headline_specs"]
+    assert "AFTER the PR-C result" in erratum["stage_2_implementation_details"]
+    ids = {item["id"] for item in provenance["declared_deviations_and_clarifications"]}
+    assert ids >= {"L1", "L2", "L3"}
+
+
+def test_both_labels_are_computed_by_code_from_committed_evidence() -> None:
+    from trade_rl.evaluation.dev_realdata_study import trial_labels
+
+    result = _report("issue810-phase2-trial-results-20261029.json")
+    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
+    both = trial_labels.labels_under_both_rules(result, execution1)
+    primary = both["label_preregistered_rule"]
+    amended = both["label_amended_rule"]
+    assert result["label_preregistered_rule"] == primary["label"] == LABEL_NO_WINNER
+    assert result["label_amended_rule"] == amended["label"] == LABEL_PROMISING
+    assert amended["selected_arm"] == result["selected_arm_amended_rule"] == "t1_tsmom"
+    assert primary["selected_arm"] is None
+    # The PR-C-rule recomputation reproduces execution 1's own recorded outcome.
+    assert execution1["label"] == primary["label"]
+    for arm in CANDIDATE_POOL:
+        assert execution1["validity"][arm] == primary["validity"][arm]
+        assert (
+            execution1["selection"]["arms"][arm]["eligible"]
+            == primary["arms"][arm]["eligible"]
+        )
+    assert primary["arms"]["t1_tsmom"]["valid"] is False
+    assert amended["arms"]["t1_tsmom"]["eligible"] is True
+    assert result["selection_amended_rule"]["selected_arm"] == "t1_tsmom"
+    assert result["post_hoc_annotation"]["replay_metrics_changed"] is False
+
+
+def test_execution_one_replay_metrics_match_the_committed_result() -> None:
+    result = _report("issue810-phase2-trial-results-20261029.json")
+    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
+    names = (
+        "terminal_net_profit_pct",
+        "max_drawdown_pct",
+        "sharpe_daily",
+        "turnover_total",
+        "execution_costs_usdt",
+        "funding_pnl_usdt",
+        "n_trades",
+    )
+    for arm in ALL_ARMS:
+        for scenario in SCENARIOS:
+            for name in names:
+                assert (
+                    execution1["arms"][arm][scenario][name]
+                    == result["arms"][arm][scenario][name]
+                )
+
+
+def test_label_flips_only_through_the_probe_trade_requirement() -> None:
+    from trade_rl.evaluation.dev_realdata_study import trial_labels
+
+    result = _report("issue810-phase2-trial-results-20261029.json")
+    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
+    patched = json.loads(json.dumps(execution1))
+    patched["causality_probes"]["t1_tsmom"]["passed"] = True
+    both = trial_labels.labels_under_both_rules(result, patched)
+    assert both["label_preregistered_rule"]["label"] == LABEL_PROMISING
+    assert both["label_preregistered_rule"]["selected_arm"] == "t1_tsmom"

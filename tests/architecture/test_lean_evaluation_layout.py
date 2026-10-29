@@ -96,6 +96,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "dev_realdata_study/trial_sources.py",
         "dev_realdata_study/trial_study.py",
         "dev_realdata_study/trial_cli.py",
+        "dev_realdata_study/trial_labels.py",
         "dev_realdata_study/dataset_build.py",
         "paper/__init__.py",
         "paper/store.py",

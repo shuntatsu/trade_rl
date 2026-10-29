@@ -1,14 +1,27 @@
 """Frozen Phase 2 trial registry for the Issue #810 development real-data study.
 
-The eight trials T1-T8 were fixed on 2026-10-29 BEFORE the PR-C (#1037) result
-existed, and the implementation decisions below were fixed after PR-C but before
-any T1-T8 result. This module is committed, together with its JSON export
-(``report/issue810-phase2-trial-registry-20261029.json``), before the first real
-data run. The PR-C result is context only: nothing here is tuned to it.
+Provenance of the registry, in two stages (git alone does not establish the first):
+
+1. Headline specs of T1-T8 were recorded in the planner's notes before the PR-C run
+   started (a local planner log, 2026-10-28 about 21:43Z, not in git and not publicly
+   verifiable). The PR-C worker started about 21:59Z; the PR-C result commit is
+   4526c5170 (about 23:21Z) and the PR-C result comment on #810 about 23:38Z.
+2. The implementation details (the constant k of T1, the z-scoring of T6, how the T7
+   overlay is applied, the T8 mu scaling, the T6 warmup, ...) were pinned in the
+   worker instructions AFTER the PR-C result was known and BEFORE any T1-T8 result.
+   The first public record of this module and of the registry JSON
+   (``report/issue810-phase2-trial-registry-20261029.json``) is commit ebada213d.
+
+The frozen registry JSON and its digest are not edited; its ``registered_before``
+text is corrected by the erratum in
+``report/issue810-phase2-trial-provenance-20261029.json``. The PR-C result is
+context for the trial choice, so the trials were designed in knowledge of PR-C's
+overtrading outcome. This module was committed before the first real-data run.
 
 Same data, period, capital, costs, scenarios, metrics, selection rule and allocator
 parameters as PR-C (:data:`~trade_rl.evaluation.dev_realdata_study.protocol.PROTOCOL`)
-unless a trial states otherwise. Each trial is one fixed configuration, run once,
+unless a trial states otherwise. Each trial is one fixed configuration (two full executions replayed it
+identically; see the provenance JSON),
 and reported whether it succeeds, fails the gate or fails to run.
 
 Trials (expected-return sources, all feeding the same cost-aware allocator):

@@ -2,6 +2,29 @@
   "base_protocol_digest": "7adc12e842cb8f574bcd3bd502182d9ffdd19dcc7d1a9b59cbc99ab6f4626558",
   "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
   "dataset_path_local": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\dataset (local, read-only, gitignored)",
+  "declared_deviations_and_clarifications": [
+    {
+      "id": "L1",
+      "text": "T1 constant k: the registered formula mu = 2*s*(0.20/ann_vol)*one_way_cost gives mean |mu| 0.00031 per day and median 0.00037 per day, about 0.45x and 0.53x the one-way cost (0.0007), not the plan text 'median |mu| ~ 2x one-way cost'. 0.20/ann_vol is below 1 whenever annualised vol exceeds 20%. Consequence: only 2.5% of decisions have |mu| above the one-way cost, and T1 averaged 5.8% gross exposure with 24 trades. The registered formula was run as written, not recalibrated."
+    },
+    {
+      "id": "L2",
+      "text": "Funding timing: the funding rate of a due row (for example the 00:00 settlement) is treated as known at the 00:00 decision, under this dataset's available_at == timestamp convention (the independent reviewer checked all 48,912 x 5 rows)."
+    },
+    {
+      "id": "L3",
+      "text": "Unregistered constant: BlendSource requires at least 30 finite pooled observations for the T1 and T3 trailing std (the Ridge24 minimum of 10 daily dates is registered). The 30 is not in the frozen constants."
+    },
+    {
+      "id": "L5",
+      "text": "T2 is a high-turnover signal (2,278 trades, turnover 57.6 in the base scenario, |mu| above the one-way cost on 70% of decisions); only T1 and T3 are low-turnover signals, T7 mostly sits flat after its latch, and T6/T8 trade less than the PR-C arms."
+    }
+  ],
+  "execution_1_outcomes": {
+    "label": "NO_WINNER",
+    "replay_metrics_identical_to_execution_2": "checked by tests/evaluation/test_dev_realdata_phase2_trials.py against the committed execution-1 summary",
+    "summary_file": "report/issue810-phase2-trial-execution1-summary-20261029.json (unmodified execution-1 summary, sha256 51b55ce911231d0b771fb70d702acc7fd87d87fbeee930eeaa6aac39831482d0)"
+  },
   "executions": [
     {
       "argv": [
@@ -18,7 +41,7 @@
         "8"
       ],
       "code_head_at_launch": "c7b798d15edc5e72cd3bfbf3ef4ae16a340dcaf4",
-      "differences_from_execution_2": "All 39 arm x scenario replay metrics (terminal profit, max drawdown, Sharpe, turnover, costs, funding, trade counts) are bit-identical to execution 2. Differences: (a) it lacked the terminal-residual fields, run metadata and the per-scenario causality matrix; (b) its per-arm causality probe required pre-cut trades, so T1 (which does not trade before 2023-07-01) was marked invalid and the label was NO_WINNER. The rule change in (b) (a no-trade trial is judged on identical decisions and traces, as PR-C does for CASH) was made in the code while this execution was still running, before any T1-T8 result had been read; it was motivated by the trades requirement mislabelling low-turnover signals such as T3, and by a synthetic-test failure.",
+      "differences_from_execution_2": "All 39 arm x scenario replay metrics are bit-identical to execution 2 (checked by a test against the committed execution-1 summary). Differences: (a) no terminal-residual fields, run metadata or per-scenario causality matrix; (b) its per-arm probe required pre-cut trades, so T1 (no trades before 2023-07-01) was marked invalid and the label was NO_WINNER. See probe_rule_amendment.",
       "finished_utc_approx": "2026-10-29T04:28:36Z",
       "git_head_recorded_in_result": "36774b5e1075f6ce89247d2645c804fe59e5cfac (read at completion, after later commits; trade_rl code differs from launch only by the PR-C merge, the terminal-residual fields, the causality matrix, run metadata, and the validity rule below)",
       "id": 1,
@@ -52,12 +75,13 @@
       "id": 2,
       "kind": "full",
       "label": "DEVELOPMENT_PROMISING",
-      "note": "The committed result is this execution. trade_rl code at launch equals the final head except runner.py line endings and the later merges of origin/main (no trade_rl study code differs).",
+      "note": "The committed result keeps this execution's replay metrics. The JSON was annotated after the fact (trial_labels.py) with both labels; replay metrics are unchanged. trade_rl study code at launch equals the final head except runner.py line endings and later merges of origin/main.",
       "output_dir_local": "C:\\dev\\trade_rl\\data\\dev-5sym-2021-2026\\study-p2-trials-final",
       "output_sha256": {
         "equity.npz": "923d7026ffe85d446902125aa8d33240b78459e288b45cda4b8535a56d6af869",
         "full_results.json": "aa353d332d3c3683013295a744746973ab9f80a975567900136fc7e3ec95ec0d",
-        "report/issue810-phase2-trial-results-20261029.json": "fcd95177ff4b14cf976c0e8def600579f4ab8195e4e0d67fc7820e15b5a19d7b",
+        "report/issue810-phase2-trial-results-20261029.json (after the post-hoc label annotation)": "a1713f458306643971dc2cdbf6d6b8a4e30e938e8b90c796900b0391fc2b4256",
+        "report/issue810-phase2-trial-results-20261029.json (as produced by the run, before the post-hoc label annotation)": "fcd95177ff4b14cf976c0e8def600579f4ab8195e4e0d67fc7820e15b5a19d7b",
         "run_metadata.json": "92741d76ef8c3a9e078e6642fc3fceb8f1fdf94ddb8d2a10f50cf369ccfcef2d"
       },
       "python": "3.12.10",
@@ -69,21 +93,21 @@
     {
       "id": 3,
       "kind": "partial_diagnostic",
-      "scope": "allocator-free timing probe: buy-and-hold, CASH and T3 base scenario replayed 2023-01-01..2023-03-01 only (timing; no result used)",
+      "scope": "timing probe: CASH, buy-and-hold and the T3 allocator arm, base scenario, 2023-01-01..2023-03-01 only; its printed terminal net profits (CASH 0.0%, buy-and-hold +28.5%, T3 0.0%) were seen before the probe-rule amendment",
       "status": "completed",
       "timing": "during execution 1 (between its launch and completion); clock time not recorded"
     },
     {
       "id": 4,
       "kind": "partial_diagnostic",
-      "scope": "buy-and-hold and T3 base scenario replayed 2023-01-01..2023-09-01 only (timing; no result used)",
+      "scope": "timing probe: buy-and-hold and the T3 allocator arm, base scenario, 2023-01-01..2023-09-01 only; printed terminal net profits (buy-and-hold +24.6%, T3 -9.3%) were seen (after the probe-rule amendment)",
       "status": "completed",
       "timing": "during execution 1 (between its launch and completion); clock time not recorded"
     },
     {
       "id": 5,
       "kind": "partial_diagnostic",
-      "scope": "buy-and-hold base scenario over the full window, stopped by a 240 s faulthandler timeout to locate the slow loop (it was the replay loop itself); no result used",
+      "scope": "aborted: buy-and-hold base scenario over the full window, stopped by a 240 s faulthandler timeout to locate the slow loop; it printed no result",
       "status": "aborted",
       "timing": "during execution 1 (between its launch and completion); clock time not recorded"
     }
@@ -91,14 +115,34 @@
   "issue": 810,
   "notes": [
     "execution 1 was started before the PR-C review follow-up merge; it was not killed (a stop request was denied) and was allowed to finish",
-    "no hyper-parameter, trial definition or selection rule was changed between execution 1 and 2; the only behavioural change is the causality-probe trade requirement described above",
+    "no trial definition, hyper-parameter or selection-rule threshold was changed between execution 1 and 2; the only behavioural change is the probe rule in probe_rule_amendment",
+    "partial executions 3 and 4 produced real-data results (T3 and buy-and-hold); the earlier statement that no result was used is retracted",
     "synthetic-data test executions are not counted"
   ],
+  "probe_rule_amendment": {
+    "changed_while": "execution 1 was running; its outputs had not been read",
+    "effect": "the label flips: NO_WINNER under the PR-C rule (primary), DEVELOPMENT_PROMISING (T1) under the amended rule. Both are computed by code in trial_labels.py from the committed metrics plus the committed execution-1 probe outcomes.",
+    "observations_before_the_change_as_far_as_the_transcript_shows": [
+      "a partial real-data timing probe (execution 3, 2023-01-01..2023-03-01) printed T3 base terminal net profit 0.0%, which looks like no trading in that window",
+      "a synthetic-data test failed because trials that do not trade in a short window have causality_matrix passed=False under the trade requirement",
+      "the reasoning that the T3 |mu| (about 3e-4 per day) is below the one-way cost (7e-4), so T3 might not trade"
+    ],
+    "rule_in_execution_1": "PR-C rule: a per-arm causality probe passes only if the pre-cut decisions and traces are identical AND the arm traded before the cut (the registry text states no trade requirement; the requirement is inherited from the PR-C runner).",
+    "rule_in_execution_2": "amended: identical decisions (per-decision expected-return vectors) and identical traces; trades are not required (as PR-C already allows for CASH).",
+    "what_the_real_data_later_showed": "T3 DID trade before the 2023-07-01 cut (pre_cut_trace_has_trades=true); the only trial without pre-cut trades is T1 (mean |mu| 0.45x the one-way cost, 2.5% of decisions above it). No T1 replay or probe output had been seen when the change was made. It cannot be excluded that the amendment was influenced by the partial T3 observation, and a non-trading T1 was foreseeable from the registered formula (not computed beforehand)."
+  },
   "real_data_execution_count": {
     "full_executions": 2,
     "note": "every real-data execution is listed below; synthetic-data unit tests are not real-data executions",
     "partial_diagnostic_executions": 3
   },
   "registry_digest": "d3cfc7278205e263f960ce2b32a82c8f43daa95f30366b0d83426a07f782b0ee",
+  "registry_erratum": {
+    "consequence": "the trials were chosen with knowledge of the PR-C outcome (overtrading); the registry is a pre-run commitment of the exact configurations, not a pre-PR-C pre-registration verifiable from git.",
+    "first_public_record": "commit ebada213d (2026-10-29 11:28 JST), which precedes the first real-data run of this study",
+    "frozen_text_not_edited": "report/issue810-phase2-trial-registry-20261029.json and its digest are unchanged; its registered_before field ('the PR-C result and every T1-T8 result') overstates what git shows.",
+    "stage_1_headline_specs": "The headline specs of T1-T8 were recorded in the planner notes before the PR-C run started. External record: a local planner log, T1-T8 written at 2026-10-28T21:43:33Z; the PR-C worker launched about 21:59Z. This record is not in git and is not publicly verifiable.",
+    "stage_2_implementation_details": "The implementation details (constant k of T1, z-scoring and warmup of T6, how the T7 overlay is applied, the T8 mu x7, the funding window and the T2 scaling) were pinned in the worker instructions AFTER the PR-C result was known (result commit 4526c5170 about 2026-10-28T23:21Z; #810 result comment about 23:38Z) and BEFORE any T1-T8 result."
+  },
   "schema_version": "dev_realdata_phase2_trial_provenance_v1"
 }

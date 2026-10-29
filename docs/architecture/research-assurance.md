@@ -25,8 +25,8 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 ### Declarative financial objective and clock
 
-`trade_rl.simulation.objectives` declares the P0 financial objective without wiring it
-into current training or replay. Its canonical endpoint is one realized
+`trade_rl.simulation.objectives` declares the P0 financial objective without
+owning a ledger or calculating future expected profitability. Its canonical endpoint is one realized
 after-cost terminal-equity delta, net of explicitly declared external cash
 flows and divided by fixed total initial capital. Independent books contribute
 their capital and terminal values to the same capital-weighted sum; a shared
@@ -37,10 +37,11 @@ The objective interval is UTC-normalized and half-open. A bound clock requires
 its exact elapsed duration to equal the declared finite horizon; decision,
 execution and reward intervals must align, and gamma / GAE values must be
 finite and in range. `terminal_profit_aligned` is only an algebraic declaration
-for equity-delta rewards with gamma one. None of these declarations verifies
-that a PPO environment uses them, changes the historical PPO defaults, or
-authorizes a Study. Any future reward/runtime integration remains a separate
-mechanism change with its own result-blind oracle.
+for equity-delta rewards with gamma one. The opt-in `SharedPortfolioGymEnv` requires the bound objective/clock and
+gamma-one equity-delta reward; `fit_shared_portfolio_ppo` checks its bound clock.
+This connection does not itself prove actual reward/ledger parity, economic
+learnability, Study authorization, or real-data profitability. The historical
+per-symbol PPO defaults are unchanged; G0–G2 independent oracles still apply.
 
 ## G0: Research Question Validity
 

@@ -776,3 +776,20 @@ def test_the_public_cli_reports_a_refusal_with_exit_code_two(
     assert code == 2
     error = capsys.readouterr().err
     assert "authorization_malformed" in error and "output_exists" in error
+
+
+def test_a_planner_disagreement_stops_the_run_before_any_request(
+    world: Scenario, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import trade_rl.integrations.binance as binance
+
+    real = binance.plan_binance_vision_cache
+
+    def drifted(**kwargs: Any) -> Any:
+        found = real(**kwargs)
+        return SimpleNamespace(urls=found.urls[:-1])
+
+    monkeypatch.setattr(binance, "plan_binance_vision_cache", drifted)
+    root = tmp_path / "drift"
+    assert refusal(world, root).reasons == ("plan_differs_from_maintained_planner",)
+    assert not root.exists() and world.requests == []

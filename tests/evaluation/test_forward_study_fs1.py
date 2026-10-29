@@ -294,13 +294,13 @@ def test_a_dataset_without_verified_identity_is_refused(
 def test_a_dataset_with_edited_arrays_is_refused(
     dataset: MarketDataset, tmp_path: Path
 ) -> None:
-    tampered_close = dataset.close.copy()
-    tampered_close[100] *= 1.5
+    tampered_volume = dataset.volume.copy()
+    tampered_volume[100] *= 1.5
     # The dataset type itself rejects an edit that keeps the sealed identity ...
     with pytest.raises(ValueError, match="dataset_id does not match"):
-        replace(dataset, close=tampered_close)
+        replace(dataset, volume=tampered_volume)
     # ... and an edit that drops the identity payload is refused by the evaluator.
-    stripped = replace(dataset, close=tampered_close, identity_payload_json=None)
+    stripped = replace(dataset, volume=tampered_volume, identity_payload_json=None)
     assert "dataset_identity_unverified" in refuse_dataset(dataset, stripped, tmp_path)
 
 

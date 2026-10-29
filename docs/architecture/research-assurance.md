@@ -836,7 +836,9 @@ anything about other configurations.
      and `manifest_bytes_from_dataset` writes the dataset seal manifest (dataset id,
      symbols, first and last timestamp, bar count, build-policy digest, source
      archive digests, fetch authorization, UTC fetch time, UTC seal time). The
-     manifest SHA-256 is recorded in the seal record before scoring.
+     manifest SHA-256 is recorded in the seal record before scoring. Steps 3-4 are
+     performed by the single documented tool described in *FS1 acquisition procedure*
+     below, never by an ad-hoc script.
 * **Settlement.** The final scored row is the 2027-05-01T00:00Z endpoint that closes the
   2027-04-30T23:00Z bar. Scoring requires the wall clock at or after the scoring end
   plus a 24 h settlement margin (2027-05-02T00:00Z), and the manifest's recorded fetch
@@ -854,6 +856,90 @@ anything about other configurations.
   private factory that tests replace. There is no durable cross-path scoring ledger, so
   a second run with a new output path is possible; deterministic inputs give the same
   labels, and any second result file is a protocol violation to be reported.
+
+#### FS1 acquisition procedure
+
+The acquisition, dataset build, seal manifest and seal-record text are produced by one
+documented tool, `trade_rl.evaluation.forward_acquisition`, so that no ad-hoc or
+monkeypatched script ever builds the FS1 dataset. It lives outside
+`evaluation/forward_study/` on purpose: the scoring package never imports a network
+client, and the tool imports neither the replay, the strategies nor `forward_study.fs1`.
+The tool changes no registry value or digest and scores nothing. As of this record **no
+data has been fetched**, and the data-fetch authorization is still pending.
+
+1. **Plan (default, offline).**
+   `python -m trade_rl.evaluation.forward_acquisition acquire --authorization <Issue #810 comment URL> --output-root <new dir>`
+   without `--allow-network` checks the authorization pattern, that the output root does
+   not exist and that the registry's build policy is the one the tool implements, then
+   prints the exact request list and ranges and exits 0. It creates nothing, reads no
+   development input, and imports no network client (a subprocess test pins that, also
+   for every pre-flight refusal and the seal-record printer). The plan is 760 monthly
+   archives (5 symbols, 1h klines and `fundingRate`, 2021-01..2027-04); 670 of them
+   (2021-01..2026-07, before the development data end) are reused read-only, 90
+   (2026-08..2027-04: warm-up only `[2026-08-01, 2026-11-01)`, scored
+   `[2026-11-01, 2027-05-01)`) are the ones to fetch, each with its official `.CHECKSUM`
+   file, plus one REST request for the exchange rules.
+2. **Authorized run.** Only after the user's Issue #810 data-fetch authorization comment:
+   `... acquire --authorization <URL> --output-root <new dir> --allow-network --dev-archive-root <dir> --dev-source-evidence <source-evidence.json> --dev-dataset <published development Dataset>`.
+   Every refusal knowable before the first request is collected and raised together and
+   nothing is created: the authorization pattern; an existing output root; any build
+   policy deviation (the policy must hash to the digest the tool was written against and
+   each field must be one the tool can build; `build_policy_*` reasons); a registry that
+   differs from the frozen digest; the wall clock before the scoring end plus the 24 h
+   settlement margin (`settlement_not_reached`: a manifest fetched earlier would be
+   refused by the scoring evaluator, and the final monthly archive does not exist
+   earlier); a trade_rl checkout that is unavailable or dirty (the builder commit is
+   provenance); and the development reuse proof below.
+3. **Development reuse by identity (never refetched).** The published development Dataset
+   is loaded read-only and must be identity-verified, equal the pinned development
+   `dataset_id` and artifact digest (copies of `dataset_build.STUDY_*`, pinned equal by a
+   test); its identity payload binds `raw_source_roster_digest`; the evidence file's
+   roster must hash to it and list exactly the planned development archives; and every
+   local archive must equal its roster SHA-256 and size (`dev_*` reasons). Only then are
+   the files copied into the new transport cache.
+4. **Fetch, verify, build.** The tool fetches only the 90 archives, their `.CHECKSUM`
+   files and the exchange rules, through the maintained transport; refuses a missing
+   archive (`fetch_failed`), an unexpected or missing cache member (`archives_*`) and an
+   archive that does not equal its official checksum (`archive_checksum_*`); builds the
+   dataset offline (`allow_network=False`) under `FS1_BUILD_POLICY` (`non_tradable_rows`,
+   4h/1d aggregated from complete 1h windows, zero baked-in costs, the frozen exchange
+   snapshot applied statically); and refuses a gap the policy does not admit
+   (`gap_*`: an irregular timeline, or less than the registry's tradable fraction per
+   symbol over `[2026-08-01, 2027-05-01)`; a few missing bars stay non-tradable rows).
+   That guard reads only timestamps and tradable flags, never a price, return, feature
+   or funding value, and decides nothing about any arm.
+5. **Outputs (the manifest is written last).** The root holds `vision-cache/`,
+   `exchange-info/`, `dataset/` (the published artifact that `--dataset` takes),
+   `acquisition-receipt.json` and `fs1-dataset-seal-manifest.json`. The manifest is the
+   strict seal manifest (`manifest_bytes_from_dataset`): dataset id, symbols, first and
+   last timestamp, bar count, build-policy digest, the fetch authorization, `fetched_utc`
+   (the clock reading before the first request) and `sealed_utc`; its `source_manifest`
+   maps every archive URL to its SHA-256 and binds, under `fs1:` keys, the receipt, the
+   exchange-rule payload, the dataset artifact digest and the development roster digest.
+   The receipt carries what the manifest format has no field for: the builder commit and
+   clean-tree flag, the exact command line, the exchange snapshot, the development reuse
+   identity, the archive roster with its origin, the gap report and
+   `economic_replay_executed: false`. A refusal after the fetch leaves a partial root with
+   no manifest; it is inspected and removed by hand, and a new run needs a new root (the
+   tool never deletes and never reuses a root).
+6. **Seal record.** `... seal-record --output-root <dir> --sealed-code-sha <sha>` prints
+   (and never posts) the Markdown body of the Issue #810 seal comment after checking the
+   manifest and receipt against the frozen registry and each other: the sealed code
+   commit, `FROZEN_PARAMS_DIGEST`, the build-policy digest, the manifest SHA-256,
+   `fetched_utc`, the authorization URL, the scoring-allowed time (2027-05-02T00:00Z),
+   the builder commit and command, the exchange snapshot, the scoring command with the
+   G4 authorization left as a placeholder, and two procedure notes. **LOW-A:** pre-seal
+   Revision 2 above is covered by the independent-review receipt of the #1049 change.
+   **LOW-B:** a hard kill of the scoring process can leave a zero-byte claimed output
+   file; it is reported on Issue #810 and removed by hand, never silently, and a
+   non-empty output is never removed or replaced.
+
+Limits: the checks are procedural for what no digest can pin (a concrete run's compliance
+with the build policy rests on the receipt's builder commit and command, as G1 says); the
+authorization is a recorded URL, not a verified GitHub identity; the `.CHECKSUM` format
+and the live endpoints are exercised only against fixtures until the authorized run; and
+the tool authorizes nothing: scoring still needs the seal, the manifest, the clock and the
+separate G4 scoring authorization.
 
 ### G2 — FS1 independent oracles and the sealed evaluator
 

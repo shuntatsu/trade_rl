@@ -139,15 +139,14 @@ def test_pending_prefix_and_native_money_oracle() -> None:
     assert paired.eligible_for_label
 
     # Independent hand money check (no production account formula used):
-    # entry: +1 AAA at 100 on bar 1, remaining +3 AAA in-flight preserved and fills at 100 on bar 2.
-    # total entry: 4 AAA at 100; fee+spread = 400 * .0012 = .48;
-    # baseline closes 4 at 110: proceeds 440, cost 440 * .0012 = .528;
-    # candidate flattens at 100: proceeds 100, cost .12.
-    entry_cost = 400.0 * (_FEE + _SPREAD)
+    # Entry +1 AAA at 100 on bar 1, with another +3 pending.
+    # Quantity-HOLD cancels the remaining +3 and keeps the *filled* 1 AAA.
+    # Baseline closes 1 at 110: proceeds 110; candidate exits 1 at 100.
+    entry_cost = 100.0 * (_FEE + _SPREAD)
     candidate_entry_cost = 100.0 * (_FEE + _SPREAD)
-    baseline_close_cost = 440.0 * (_FEE + _SPREAD)
+    baseline_close_cost = 110.0 * (_FEE + _SPREAD)
     candidate_close_cost = 100.0 * (_FEE + _SPREAD)
-    expected_baseline = _CAPITAL - 400.0 - entry_cost + 440.0 - baseline_close_cost
+    expected_baseline = _CAPITAL - 100.0 - entry_cost + 110.0 - baseline_close_cost
     expected_candidate = _CAPITAL - candidate_entry_cost - candidate_close_cost
     assert paired.baseline_result.book.portfolio_value == pytest.approx(
         expected_baseline, abs=1e-8

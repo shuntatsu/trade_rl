@@ -79,7 +79,7 @@ class _OneDecisionOverride:
             self.prefix.append((snapshot, proposal))
         elif snapshot.index == self._intervention_index:
             self.intervention_snapshot = snapshot
-            if snapshot.active_orders:
+            if snapshot.active_orders and any(code != 0 for code in self._action):
                 return preserve_posture_aware_proposal(
                     self._action, snapshot, self._target_abs_weights
                 )

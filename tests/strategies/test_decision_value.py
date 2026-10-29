@@ -533,7 +533,8 @@ def test_preserve_posture_aware_proposal_contracts() -> None:
     assert 0 not in p1.hold_current_quantity_symbols
     assert 1 in p1.hold_current_quantity_symbols
 
-    # 2. In-flight order preservation: pending order for 0.25 active -> keep target at 0.25, not in hold_symbols
+    # 2. Explicit HOLD means exact-quantity maintenance, so pending entries
+    # are canceled. A repeated directional LONG preserves them (checked below).
     ord_inflight = PortfolioPendingOrderSnapshot(
         symbol_index=0,
         order_type="market",
@@ -556,8 +557,16 @@ def test_preserve_posture_aware_proposal_contracts() -> None:
         targets,
         all_scores_non_positive=False,
     )
-    assert p2.target_weights[0] == pytest.approx(0.25)
-    assert 0 not in p2.hold_current_quantity_symbols
+    assert p2.target_weights[0] == pytest.approx(0.0)
+    assert 0 in p2.hold_current_quantity_symbols
+    kept_entry = preserve_posture_aware_proposal(
+        (ACTION_LONG, ACTION_HOLD),
+        snap_inflight,
+        targets,
+        all_scores_non_positive=False,
+    )
+    assert kept_entry.target_weights[0] == pytest.approx(0.25)
+    assert 0 not in kept_entry.hold_current_quantity_symbols
 
     # 3. Micro-rebalancing drift suppression: position filled (exact_quantity="2.5"), no pending order -> hold symbol 0
     snap_holding = replace(

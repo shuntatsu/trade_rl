@@ -13,7 +13,6 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass, fields
-from fractions import Fraction
 from typing import Any, cast
 
 import numpy as np
@@ -24,6 +23,9 @@ from trade_rl.strategies.decision_value import (
     compute_effective_posture_weights,
     compute_posture_cost_adjustment,
     encode_decision_value_state,
+    encode_decision_value_state_v2,
+    incremental_scenario_cost_adjustment,
+    is_native_flat_without_pending,
     preserve_posture_aware_proposal,
 )
 from trade_rl.strategies.portfolio import (
@@ -33,12 +35,11 @@ from trade_rl.strategies.portfolio import (
 from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_FLAT,
     ACTION_HOLD,
-    ACTION_LONG,
-    ACTION_SHORT,
     decode_portfolio_action_codes,
 )
 
 _SCHEMA = "synthetic_shallow_decision_value_v1"
+_SCHEMA_POSTURE = "synthetic_shallow_decision_value_v2"
 _POSITIVE_EDGE = 1e-12
 HIDDEN_UNITS = 8
 HIDDEN_SEED = 20261029
@@ -92,7 +93,10 @@ class ShallowDecisionValueModel:
     input_scales: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
-        if self.schema_version != _SCHEMA or self.source_scope not in (
+        if self.schema_version not in (
+            _SCHEMA,
+            _SCHEMA_POSTURE,
+        ) or self.source_scope not in (
             "synthetic_only",
             "real_development",
         ):
@@ -145,7 +149,10 @@ class ShallowDecisionValueModel:
         if self.candidate_actions[0] != (ACTION_HOLD,) * n:
             raise ValueError("first candidate must be joint HOLD")
         state_width = (
-            1 + n * len(self.feature_names) + len(self.global_feature_names) + n
+            1
+            + n * len(self.feature_names)
+            + len(self.global_feature_names)
+            + n * (2 if self.schema_version == _SCHEMA_POSTURE else 1)
         )
         if self.hidden_weights != fixed_hidden_weights(state_width):
             raise ValueError("hidden layer differs from the fixed declared layer")
@@ -229,12 +236,21 @@ class ShallowDecisionValuePolicy:
     def _basis(self, snapshot: PortfolioDecisionSnapshot) -> np.ndarray:
         if snapshot.timestamp_ns < self.model.evaluation_start_ns:
             raise ValueError("policy decision precedes evaluation start")
-        state = encode_decision_value_state(
-            snapshot,
-            symbols=self.model.symbols,
-            feature_names=self.model.feature_names,
-            global_feature_names=self.model.global_feature_names,
-            allow_active_orders=self.allow_active_orders,
+        state = (
+            encode_decision_value_state_v2(
+                snapshot,
+                symbols=self.model.symbols,
+                feature_names=self.model.feature_names,
+                global_feature_names=self.model.global_feature_names,
+            )
+            if self.model.schema_version == _SCHEMA_POSTURE
+            else encode_decision_value_state(
+                snapshot,
+                symbols=self.model.symbols,
+                feature_names=self.model.feature_names,
+                global_feature_names=self.model.global_feature_names,
+                allow_active_orders=self.allow_active_orders,
+            )
         )
         raw_x = state[1:]
         if self._input_means is not None and self._input_scales is not None:
@@ -249,76 +265,53 @@ class ShallowDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
-        n_symbols = len(self.model.symbols)
-        if action == (ACTION_FLAT,) * n_symbols:
+        # Trained labels are signed native deltas against quantity-HOLD.
+        # Every state therefore has structural Q(HOLD, HOLD) == 0.
+        if action == (ACTION_FLAT,) * len(
+            snapshot.symbols
+        ) and is_native_flat_without_pending(snapshot):
+            return 0.0
+        if action == self.model.candidate_actions[0]:
             return 0.0
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
         )
-        if action == self.model.candidate_actions[0]:
-            if all(abs(w) <= 1e-6 for w in w_eff):
-                return 0.0
-            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
-            for cand in self.model.candidate_actions[1:]:
-                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
-                cand_dir = tuple(
-                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
-                    for c in cand_codes
-                )
-                if cand_dir == d_eff:
-                    return self.value_for_action(snapshot, cand)
-            return 0.0
-
         k = self.model.candidate_actions.index(action) - 1
         basis = self._basis(snapshot)
         raw_val = float(basis @ self._coefs[k])
         if not math.isfinite(raw_val):
             raise ValueError("predicted decision value must be finite")
-        adj_cost = compute_posture_cost_adjustment(
-            action,
-            w_eff,
-            self.model.target_abs_weights,
-            eval_one_way_cost=self.eval_one_way_cost,
-            train_one_way_cost=self.train_one_way_cost,
+        adj_cost = (
+            incremental_scenario_cost_adjustment(
+                action,
+                snapshot,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
+            if self.model.schema_version == _SCHEMA_POSTURE
+            else compute_posture_cost_adjustment(
+                action,
+                w_eff,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
         )
         return float(raw_val - adj_cost)
 
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
-        w_eff = compute_effective_posture_weights(
-            snapshot, self.model.target_abs_weights
-        )
-        is_invested = any(abs(w) > 1e-6 for w in w_eff) or any(
-            Fraction(q) != 0 for q in snapshot.account.exact_quantities
-        )
-        n_symbols = len(self.model.symbols)
-        flat_action = (ACTION_FLAT,) * n_symbols
-        hold_action = (ACTION_HOLD,) * n_symbols
-
-        best_index = -1
+        """Choose a positive increment over HOLD, including a learned FLAT."""
+        best = self.model.candidate_actions[0]
         best_score = _POSITIVE_EDGE
-        for index in range(1, len(self.model.candidate_actions)):
-            action = self.model.candidate_actions[index]
-            if action == flat_action:
-                continue
+        for action in self.model.candidate_actions[1:]:
             score = self.value_for_action(snapshot, action)
             if score > best_score:
                 best_score = score
-                best_index = index
-
-        if best_index != -1:
-            return self.model.candidate_actions[best_index], False
-
-        all_non_positive = True
-        if is_invested:
-            if flat_action in self.model.candidate_actions:
-                chosen = flat_action
-            else:
-                chosen = hold_action
-        else:
-            chosen = hold_action
-        return chosen, all_non_positive
+                best = action
+        return best, False
 
     def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
         chosen, _ = self._select_best_action(snapshot)

@@ -26,12 +26,13 @@ from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_FLAT,
     ACTION_HOLD,
     ACTION_LONG,
-    ACTION_SHORT,
     decode_portfolio_action_codes,
 )
 
 _SCHEMA = "synthetic_linear_decision_value_v1"
+_SCHEMA_POSTURE = "synthetic_linear_decision_value_v2"
 _CONSERVATIVE_SCHEMA = "conservative_linear_decision_value_v2"
+_CONSERVATIVE_SCHEMA_POSTURE = "conservative_linear_decision_value_v3"
 _POSITIVE_EDGE = 1e-12
 
 
@@ -196,7 +197,10 @@ class LinearDecisionValueModel:
     coefficients: tuple[tuple[float, ...], ...]
 
     def __post_init__(self) -> None:
-        if self.schema_version != _SCHEMA or self.source_scope not in (
+        if self.schema_version not in (
+            _SCHEMA,
+            _SCHEMA_POSTURE,
+        ) or self.source_scope not in (
             "synthetic_only",
             "real_development",
         ):
@@ -257,7 +261,7 @@ class LinearDecisionValueModel:
             1
             + len(self.symbols) * len(self.feature_names)
             + len(self.global_feature_names)
-            + len(self.symbols)
+            + len(self.symbols) * (2 if self.schema_version == _SCHEMA_POSTURE else 1)
         )
         if (
             type(self.coefficients) is not tuple
@@ -361,6 +365,52 @@ def compute_posture_cost_adjustment(
     return float(eval_c * turnover_diff + extra_train_diff)
 
 
+def is_native_flat_without_pending(snapshot: PortfolioDecisionSnapshot) -> bool:
+    """On an empty book, FLAT and quantity-HOLD are the same native action."""
+    return not snapshot.active_orders and all(
+        Fraction(q) == 0 for q in snapshot.account.exact_quantities
+    )
+
+
+def incremental_scenario_cost_adjustment(
+    action: tuple[int, ...],
+    snapshot: PortfolioDecisionSnapshot,
+    target_abs_weights: tuple[float, ...],
+    *,
+    eval_one_way_cost: float,
+    train_one_way_cost: float,
+) -> float:
+    """First-order *stress delta only* for a state-conditioned native label.
+
+    The native training label already includes train-time fills/fees. It is
+    incorrect to add a synthetic sunk-entry discount to the learned value.
+    A different fee stress can add only the incremental one-decision turnover
+    estimate, not re-charge the training fee. The actual replay remains
+    authoritative for the realized cost under all scenarios.
+    """
+    delta = _finite(eval_one_way_cost, field="eval_one_way_cost") - _finite(
+        train_one_way_cost, field="train_one_way_cost"
+    )
+    if abs(delta) <= 1e-15:
+        return 0.0
+    targets = []
+    for i, code in enumerate(
+        decode_portfolio_action_codes(action, n_symbols=len(snapshot.symbols))
+    ):
+        current = float(snapshot.account.weights[i])
+        targets.append(
+            current
+            if code == ACTION_HOLD
+            else 0.0
+            if code == ACTION_FLAT
+            else float(target_abs_weights[i]) * (1.0 if code == ACTION_LONG else -1.0)
+        )
+    return delta * sum(
+        abs(target - actual)
+        for target, actual in zip(targets, snapshot.account.weights, strict=True)
+    )
+
+
 def preserve_posture_aware_proposal(
     action: tuple[int, ...],
     snapshot: PortfolioDecisionSnapshot,
@@ -419,6 +469,14 @@ def preserve_posture_aware_proposal(
         )
         has_inflight[i] = bool(sym_orders) and (waiting or meaningful_partial)
 
+    # An all-HOLD decision requests exact quantities. Downstream native risk
+    # retains authority to reduce an unsafe portfolio.
+    if all(code == ACTION_HOLD for code in codes) and not all_scores_non_positive:
+        return PortfolioTargetProposal(
+            target_weights=tuple(snapshot.account.weights),
+            hold_current_quantity_symbols=tuple(range(n)),
+        )
+
     target_weights = [0.0] * n
     hold_symbols: set[int] = set()
 
@@ -440,7 +498,9 @@ def preserve_posture_aware_proposal(
         if all_scores_non_positive:
             d_star = 0
         elif code == ACTION_HOLD:
-            d_star = d_eff
+            target_weights[i] = w_act
+            hold_symbols.add(i)
+            continue
         elif code == ACTION_FLAT:
             d_star = 0
         elif code == ACTION_LONG:
@@ -530,6 +590,13 @@ class LinearDecisionValuePolicy:
     def _features(self, snapshot: PortfolioDecisionSnapshot) -> np.ndarray:
         if snapshot.timestamp_ns < self.model.evaluation_start_ns:
             raise ValueError("policy decision precedes evaluation start")
+        if self.model.schema_version == _SCHEMA_POSTURE:
+            return encode_decision_value_state_v2(
+                snapshot,
+                symbols=self.model.symbols,
+                feature_names=self.model.feature_names,
+                global_feature_names=self.model.global_feature_names,
+            )
         return encode_decision_value_state(
             snapshot,
             symbols=self.model.symbols,
@@ -543,76 +610,53 @@ class LinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
-        n_symbols = len(self.model.symbols)
-        if action == (ACTION_FLAT,) * n_symbols:
+        # Trained labels are signed native deltas against quantity-HOLD.
+        # Every state therefore has structural Q(HOLD, HOLD) == 0.
+        if action == (ACTION_FLAT,) * len(
+            snapshot.symbols
+        ) and is_native_flat_without_pending(snapshot):
+            return 0.0
+        if action == self.model.candidate_actions[0]:
             return 0.0
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
         )
-        if action == self.model.candidate_actions[0]:
-            if all(abs(w) <= 1e-6 for w in w_eff):
-                return 0.0
-            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
-            for cand in self.model.candidate_actions[1:]:
-                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
-                cand_dir = tuple(
-                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
-                    for c in cand_codes
-                )
-                if cand_dir == d_eff:
-                    return self.value_for_action(snapshot, cand)
-            return 0.0
-
         k = self.model.candidate_actions.index(action) - 1
         features = self._features(snapshot)
         raw_val = float(features @ self._coefs[k])
         if not math.isfinite(raw_val):
             raise ValueError("predicted decision value must be finite")
-        adj_cost = compute_posture_cost_adjustment(
-            action,
-            w_eff,
-            self.model.target_abs_weights,
-            eval_one_way_cost=self.eval_one_way_cost,
-            train_one_way_cost=self.train_one_way_cost,
+        adj_cost = (
+            incremental_scenario_cost_adjustment(
+                action,
+                snapshot,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
+            if self.model.schema_version == _SCHEMA_POSTURE
+            else compute_posture_cost_adjustment(
+                action,
+                w_eff,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
         )
         return float(raw_val - adj_cost)
 
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
-        w_eff = compute_effective_posture_weights(
-            snapshot, self.model.target_abs_weights
-        )
-        is_invested = any(abs(w) > 1e-6 for w in w_eff) or any(
-            Fraction(q) != 0 for q in snapshot.account.exact_quantities
-        )
-        n_symbols = len(self.model.symbols)
-        flat_action = (ACTION_FLAT,) * n_symbols
-        hold_action = (ACTION_HOLD,) * n_symbols
-
-        best_index = -1
+        """Choose a positive increment over HOLD, including a learned FLAT."""
+        best = self.model.candidate_actions[0]
         best_score = _POSITIVE_EDGE
-        for index in range(1, len(self.model.candidate_actions)):
-            action = self.model.candidate_actions[index]
-            if action == flat_action:
-                continue
+        for action in self.model.candidate_actions[1:]:
             score = self.value_for_action(snapshot, action)
             if score > best_score:
                 best_score = score
-                best_index = index
-
-        if best_index != -1:
-            return self.model.candidate_actions[best_index], False
-
-        all_non_positive = True
-        if is_invested:
-            if flat_action in self.model.candidate_actions:
-                chosen = flat_action
-            else:
-                chosen = hold_action
-        else:
-            chosen = hold_action
-        return chosen, all_non_positive
+                best = action
+        return best, False
 
     def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
         chosen, _ = self._select_best_action(snapshot)
@@ -725,7 +769,10 @@ class ConservativeLinearDecisionValueModel:
     covariance_matrices: tuple[tuple[tuple[float, ...], ...], ...]
 
     def __post_init__(self) -> None:
-        if self.schema_version != _CONSERVATIVE_SCHEMA or self.source_scope not in (
+        if self.schema_version not in (
+            _CONSERVATIVE_SCHEMA,
+            _CONSERVATIVE_SCHEMA_POSTURE,
+        ) or self.source_scope not in (
             "synthetic_only",
             "real_development",
         ):
@@ -892,22 +939,11 @@ class ConservativeLinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
+        if action == (ACTION_FLAT,) * len(
+            snapshot.symbols
+        ) and is_native_flat_without_pending(snapshot):
+            return 0.0
         if action == self.model.candidate_actions[0]:
-            w_eff = compute_effective_posture_weights(
-                snapshot, self.model.target_abs_weights
-            )
-            if all(abs(w) <= 1e-6 for w in w_eff):
-                return 0.0
-            n_symbols = len(self.model.symbols)
-            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
-            for cand in self.model.candidate_actions[1:]:
-                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
-                cand_dir = tuple(
-                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
-                    for c in cand_codes
-                )
-                if cand_dir == d_eff:
-                    return self.predictive_std_for_action(snapshot, cand)
             return 0.0
         k = self.model.candidate_actions.index(action) - 1
         features = self._features(snapshot)
@@ -919,36 +955,37 @@ class ConservativeLinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
-        n_symbols = len(self.model.symbols)
-        if action == (ACTION_FLAT,) * n_symbols:
+        # Trained labels are signed native deltas against quantity-HOLD.
+        # Every state therefore has structural Q(HOLD, HOLD) == 0.
+        if action == (ACTION_FLAT,) * len(
+            snapshot.symbols
+        ) and is_native_flat_without_pending(snapshot):
+            return 0.0
+        if action == self.model.candidate_actions[0]:
             return 0.0
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
         )
-        if action == self.model.candidate_actions[0]:
-            if all(abs(w) <= 1e-6 for w in w_eff):
-                return 0.0
-            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
-            for cand in self.model.candidate_actions[1:]:
-                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
-                cand_dir = tuple(
-                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
-                    for c in cand_codes
-                )
-                if cand_dir == d_eff:
-                    return self.conservative_value_for_action(snapshot, cand)
-            return 0.0
-
         k = self.model.candidate_actions.index(action) - 1
         features = self._features(snapshot)
         mean_val = float(features @ self._coefs[k])
         se = self.predictive_std_for_action(snapshot, action)
-        adj_cost = compute_posture_cost_adjustment(
-            action,
-            w_eff,
-            self.model.target_abs_weights,
-            eval_one_way_cost=self.eval_one_way_cost,
-            train_one_way_cost=self.train_one_way_cost,
+        adj_cost = (
+            incremental_scenario_cost_adjustment(
+                action,
+                snapshot,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
+            if self.model.schema_version == _CONSERVATIVE_SCHEMA_POSTURE
+            else compute_posture_cost_adjustment(
+                action,
+                w_eff,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
         )
         return float(mean_val - self.model.uncertainty_penalty_weight * se - adj_cost)
 
@@ -960,39 +997,15 @@ class ConservativeLinearDecisionValuePolicy:
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
-        w_eff = compute_effective_posture_weights(
-            snapshot, self.model.target_abs_weights
-        )
-        is_invested = any(abs(w) > 1e-6 for w in w_eff) or any(
-            Fraction(q) != 0 for q in snapshot.account.exact_quantities
-        )
-        n_symbols = len(self.model.symbols)
-        flat_action = (ACTION_FLAT,) * n_symbols
-        hold_action = (ACTION_HOLD,) * n_symbols
-
-        best_index = -1
+        """Choose a positive increment over HOLD, including a learned FLAT."""
+        best = self.model.candidate_actions[0]
         best_score = _POSITIVE_EDGE
-        for index in range(1, len(self.model.candidate_actions)):
-            action = self.model.candidate_actions[index]
-            if action == flat_action:
-                continue
+        for action in self.model.candidate_actions[1:]:
             score = self.conservative_value_for_action(snapshot, action)
             if score > best_score:
                 best_score = score
-                best_index = index
-
-        if best_index != -1:
-            return self.model.candidate_actions[best_index], False
-
-        all_non_positive = True
-        if is_invested:
-            if flat_action in self.model.candidate_actions:
-                chosen = flat_action
-            else:
-                chosen = hold_action
-        else:
-            chosen = hold_action
-        return chosen, all_non_positive
+                best = action
+        return best, False
 
     def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
         chosen, _ = self._select_best_action(snapshot)
@@ -1056,7 +1069,10 @@ def load_conservative_linear_decision_value(
     if set(value) != expected_fields:
         raise ValueError("model payload fields differ from the declared schema")
     raw = cast(dict[str, Any], value)
-    if raw.get("schema_version") != _CONSERVATIVE_SCHEMA:
+    if raw.get("schema_version") not in (
+        _CONSERVATIVE_SCHEMA,
+        _CONSERVATIVE_SCHEMA_POSTURE,
+    ):
         raise ValueError("unsupported model artifact schema")
     try:
         model = ConservativeLinearDecisionValueModel(

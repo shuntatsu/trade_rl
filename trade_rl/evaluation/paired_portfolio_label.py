@@ -249,7 +249,7 @@ def _validate_intervention_actions(
         if offset >= len(decisions):
             raise ValueError("native arm did not record its intervention")
         actual = decisions[offset]
-        if pair.baseline_snapshot.active_orders:
+        if pair.baseline_snapshot.active_orders and any(code != 0 for code in action):
             expected = preserve_posture_aware_proposal(
                 action, pair.baseline_snapshot, target_abs_weights
             )

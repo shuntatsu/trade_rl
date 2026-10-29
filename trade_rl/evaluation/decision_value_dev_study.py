@@ -20,14 +20,21 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.artifacts.publication import load_published_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.decision_value_fit import (
     fit_conservative_linear_decision_value,
     fit_synthetic_linear_decision_value,
     fit_synthetic_shallow_decision_value,
 )
+from trade_rl.evaluation.decision_value_ledger_oracle import (
+    verify_paired_economic_ledger,
+)
 from trade_rl.evaluation.decision_value_plan import DecisionValueStudyPlan
-from trade_rl.evaluation.paired_portfolio_action import run_paired_portfolio_action
+from trade_rl.evaluation.paired_portfolio_action import (
+    PairedPortfolioActionResult,
+    run_paired_portfolio_action,
+)
 from trade_rl.evaluation.paired_portfolio_label import (
     SyntheticPairedLabel,
     build_synthetic_paired_label,
@@ -75,6 +82,13 @@ from trade_rl.strategies.portfolio_policy_codec import (
 )
 from trade_rl.strategies.position_intent import PositionIntent
 
+# Historical studies preserve the old source/clock contract. New studies must
+# explicitly elect a versioned reference with predecision position/order coverage.
+TRAINING_REFERENCE_LEGACY = "flat_start_v1"
+TRAINING_REFERENCE_POSTURE = "causal_posture_v2"
+POSTURE_START_LEAD_BARS = 4
+POSTURE_TRAINING_LATENCY_BARS = 2
+
 DEFAULT_SCENARIOS: tuple[tuple[str, float, int], ...] = (
     ("base", 1.0, 0),
     ("cost_x2", 2.0, 0),
@@ -96,22 +110,14 @@ def _verify_ledger_reconciliation(
     replay_res: SharedCashPortfolioReplayResult,
     *,
     expected_intervals: int,
+    dataset: MarketDataset,
+    initial_capital: float,
 ) -> bool:
-    ledger = replay_res.ledger_evidence
-    if ledger is None:
-        return False
-    iv = ledger.intervals
-    if len(iv.intervals) != expected_intervals:
-        return False
-    book = replay_res.book
-    return (
-        math.isclose(iv.final_portfolio_value, float(book.portfolio_value))
-        and math.isclose(iv.final_cash, float(book.cash))
-        and math.isclose(iv.final_total_cost, float(book.total_cost))
-        and math.isclose(iv.final_funding_pnl, float(book.funding_pnl))
-        and math.isclose(iv.final_borrow_cost, float(book.borrow_cost))
-        and math.isclose(iv.final_turnover_total, float(book.turnover_total))
-        and math.isclose(iv.final_max_drawdown, float(book.max_drawdown))
+    return verify_paired_economic_ledger(
+        replay_res,
+        dataset,
+        expected_intervals=expected_intervals,
+        initial_capital=initial_capital,
     )
 
 
@@ -195,10 +201,15 @@ def compute_real_scope_authorization_digest(
     value_ridge_penalty: float = 10.0,
     uncertainty_penalty_weight: float = 1.0,
     scenarios: tuple[tuple[str, float, int], ...] = DEFAULT_SCENARIOS,
+    training_reference_mode: str = TRAINING_REFERENCE_LEGACY,
 ) -> str:
     """Canonical lowercase SHA-256 digest of the pre-authorization specification."""
     payload = {
-        "schema_version": "decision_value_real_scope_authorization_v1",
+        "schema_version": (
+            "decision_value_real_scope_authorization_v2"
+            if training_reference_mode == TRAINING_REFERENCE_POSTURE
+            else "decision_value_real_scope_authorization_v1"
+        ),
         "dataset_id": dataset_id,
         "expected_artifact_digest": expected_artifact_digest,
         "symbols": list(symbols),
@@ -237,6 +248,13 @@ def compute_real_scope_authorization_digest(
             for name, cost_mult, lat in scenarios
         ],
     }
+    if training_reference_mode == TRAINING_REFERENCE_POSTURE:
+        payload["training_reference_mode"] = training_reference_mode
+        payload["training_reference_schedule"] = "6bar_anchor_posture_v2"
+        payload["training_order_latency_bars"] = POSTURE_TRAINING_LATENCY_BARS
+        payload["unexcited_state_prior_std"] = 1e-3
+    elif training_reference_mode != TRAINING_REFERENCE_LEGACY:
+        raise ValueError("unknown training_reference_mode")
     return content_digest(payload)
 
 
@@ -260,6 +278,7 @@ class DecisionValueDevStudyProtocol:
     value_ridge_penalty: float = 10.0
     uncertainty_penalty_weight: float = 1.0
     scenarios: tuple[tuple[str, float, int], ...] = DEFAULT_SCENARIOS
+    training_reference_mode: str = TRAINING_REFERENCE_LEGACY
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_plan, DecisionValueStudyPlan):
@@ -268,11 +287,25 @@ class DecisionValueDevStudyProtocol:
             raise ValueError("study_plan data_scope must be real_development")
         require_sha256(self.dataset_id, field="dataset_id")
         require_sha256(self.expected_artifact_digest, field="expected_artifact_digest")
+        if self.training_reference_mode not in (
+            TRAINING_REFERENCE_LEGACY,
+            TRAINING_REFERENCE_POSTURE,
+        ):
+            raise ValueError("unregistered training reference mode")
         if type(self.blocks) is not tuple or not (1 <= len(self.blocks) <= 3):
             raise ValueError("protocol must specify between 1 and 3 blocks")
         for block in self.blocks:
             if not isinstance(block, DecisionValueBlockSpec):
                 raise TypeError("blocks must contain DecisionValueBlockSpec instances")
+            if self.training_reference_mode == TRAINING_REFERENCE_POSTURE and (
+                block.train_start_index < POSTURE_START_LEAD_BARS
+                or block.train_step % 6 != 0
+                or block.train_start_index % 6 != 0
+            ):
+                raise ValueError(
+                    "causal_posture_v2 requires >=4 warmup bars and 6-bar "
+                    "anchored training samples"
+                )
             if (
                 block.train_stop_index + self.study_plan.horizon_bars
                 >= block.fit_cutoff_index
@@ -370,6 +403,7 @@ class DecisionValueDevStudyProtocol:
             value_ridge_penalty=self.value_ridge_penalty,
             uncertainty_penalty_weight=self.uncertainty_penalty_weight,
             scenarios=self.scenarios,
+            training_reference_mode=self.training_reference_mode,
         )
         if self.study_plan.real_scope_authorization_digest != expected_digest:
             raise ValueError(
@@ -377,8 +411,12 @@ class DecisionValueDevStudyProtocol:
             )
 
     def to_mapping(self) -> dict[str, object]:
-        return {
-            "schema_version": "decision_value_dev_study_protocol_v1",
+        payload: dict[str, object] = {
+            "schema_version": (
+                "decision_value_dev_study_protocol_v2"
+                if self.training_reference_mode == TRAINING_REFERENCE_POSTURE
+                else "decision_value_dev_study_protocol_v1"
+            ),
             "study_plan": {
                 "data_scope": self.study_plan.data_scope,
                 "account_mode": self.study_plan.account_mode,
@@ -432,6 +470,9 @@ class DecisionValueDevStudyProtocol:
                 for name, cost_mult, lat in self.scenarios
             ],
         }
+        if self.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+            payload["training_reference_mode"] = self.training_reference_mode
+        return payload
 
     @property
     def protocol_digest(self) -> str:
@@ -582,6 +623,54 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
     )
 
 
+def upgrade_posture_aware_dev_protocol_v2(
+    protocol: DecisionValueDevStudyProtocol,
+) -> DecisionValueDevStudyProtocol:
+    """Derive an *unrun* independent version of the frozen legacy protocol.
+
+    The old signed preregistration digest remains unchanged. New economic
+    evaluation requires another result-blind authorization; this helper does
+    not open unused/real data or claim an economic result.
+    """
+    if protocol.training_reference_mode != TRAINING_REFERENCE_LEGACY:
+        raise ValueError("source protocol must be the legacy study")
+    digest = compute_real_scope_authorization_digest(
+        dataset_id=protocol.dataset_id,
+        expected_artifact_digest=protocol.expected_artifact_digest,
+        symbols=protocol.study_plan.symbols,
+        initial_capital=protocol.study_plan.initial_capital,
+        target_abs_weights=protocol.target_abs_weights,
+        horizon_bars=protocol.study_plan.horizon_bars,
+        terminal_reserve_bars=protocol.study_plan.terminal_reserve_bars,
+        candidate_actions=protocol.study_plan.candidate_actions,
+        fee_rate=protocol.study_plan.fee_rate,
+        spread_rate=protocol.study_plan.spread_rate,
+        impact_rate=protocol.base_execution_cost.impact_rate,
+        max_participation_rate=protocol.base_execution_cost.max_participation_rate,
+        risk_config=protocol.risk_config,
+        blocks=protocol.blocks,
+        ridge_feature_indices=protocol.ridge_feature_indices,
+        ridge_horizon_hours=protocol.ridge_horizon_hours,
+        ridge_alpha=protocol.ridge_alpha,
+        ridge_entry_threshold=protocol.ridge_entry_threshold,
+        ridge_exit_threshold=protocol.ridge_exit_threshold,
+        prior_usage_disclosure=protocol.prior_usage_disclosure,
+        learner_roster=protocol.study_plan.learner_roster,
+        value_ridge_penalty=protocol.value_ridge_penalty,
+        uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
+        scenarios=protocol.scenarios,
+        training_reference_mode=TRAINING_REFERENCE_POSTURE,
+    )
+    return replace(
+        protocol,
+        training_reference_mode=TRAINING_REFERENCE_POSTURE,
+        study_plan=replace(
+            protocol.study_plan,
+            real_scope_authorization_digest=digest,
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DecisionValueArmMetrics:
     """Metrics for one arm under one scenario in one block."""
@@ -632,9 +721,10 @@ class DecisionValueBlockResult:
     causality_probe_passed: bool
     ledger_evidence_reconciled: bool
     arms: tuple[DecisionValueArmMetrics, ...]
+    training_posture_counts: dict[str, int] | None = None
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "block_id": self.block_id,
             "paired_replay_runs": self.paired_replay_runs,
             "paired_transitions": self.paired_transitions,
@@ -650,6 +740,9 @@ class DecisionValueBlockResult:
             "ledger_evidence_reconciled": self.ledger_evidence_reconciled,
             "arms": [arm.to_mapping() for arm in self.arms],
         }
+        if self.training_posture_counts is not None:
+            payload["training_posture_counts"] = self.training_posture_counts
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -665,9 +758,10 @@ class DecisionValueDevStudyResult:
     blocks: tuple[DecisionValueBlockResult, ...]
     aggregate_metrics: dict[str, dict[str, float]]
     total_wall_clock_seconds: float
+    training_reference_mode: str = TRAINING_REFERENCE_LEGACY
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "protocol_digest": self.protocol_digest,
             "dataset_id": self.dataset_id,
@@ -678,6 +772,116 @@ class DecisionValueDevStudyResult:
             "aggregate_metrics": self.aggregate_metrics,
             "total_wall_clock_seconds": self.total_wall_clock_seconds,
         }
+        if self.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+            payload["training_reference_mode"] = self.training_reference_mode
+            payload["validity_status"] = "software_only_no_G4_authorization"
+        return payload
+
+
+def _reference_continuation_action(
+    snapshot: PortfolioDecisionSnapshot,
+) -> tuple[int, ...]:
+    """Maintain a prior entry/exit until filled, without changing HOLD semantics."""
+    from trade_rl.strategies.decision_value import compute_pending_order_weights
+
+    pending = compute_pending_order_weights(snapshot)
+    codes: list[int] = []
+    for actual, residual in zip(snapshot.account.weights, pending, strict=True):
+        effective = actual + residual
+        if effective > 1e-8:
+            codes.append(ACTION_LONG)
+        elif effective < -1e-8:
+            codes.append(ACTION_SHORT)
+        elif abs(residual) > 1e-8:
+            codes.append(ACTION_FLAT)
+        else:
+            codes.append(ACTION_HOLD)
+    return tuple(codes)
+
+
+class _CausalPostureReferencePolicy:
+    """Time-indexed causal reference with flat, filled long/short and pending states.
+
+    Every actor has the same immutable policy recipe. It does not inspect the
+    future market, the candidate action, or the suffix outcome. Prefixes are
+    replayed from t-4, rather than manufacturing a non-causal account snapshot.
+    """
+
+    __slots__ = ("_target_abs_weights",)
+
+    def __init__(self, target_abs_weights: tuple[float, ...]) -> None:
+        self._target_abs_weights = target_abs_weights
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        n = len(snapshot.symbols)
+        action = (ACTION_HOLD,) * n
+        if snapshot.index % 6 == 3:
+            phase = ((snapshot.index + 3) // 6) % 4
+            if phase == 1:
+                action = tuple(
+                    ACTION_LONG if i % 2 == 0 else ACTION_SHORT for i in range(n)
+                )
+            elif phase == 2:
+                action = tuple(
+                    ACTION_SHORT if i % 2 == 0 else ACTION_LONG for i in range(n)
+                )
+        elif snapshot.index % 6 == 5 and ((snapshot.index + 1) // 6) % 4 == 3:
+            action = (ACTION_LONG,) * n
+        if action == (ACTION_HOLD,) * n and snapshot.active_orders:
+            action = _reference_continuation_action(snapshot)
+        return preserve_posture_aware_proposal(
+            action,
+            snapshot,
+            self._target_abs_weights,
+        )
+
+
+def _training_execution_cost(
+    protocol: DecisionValueDevStudyProtocol,
+) -> ExecutionCostConfig:
+    if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+        return replace(
+            protocol.base_execution_cost,
+            order_latency_bars=POSTURE_TRAINING_LATENCY_BARS,
+        )
+    return protocol.base_execution_cost
+
+
+def _training_pair(
+    dataset: MarketDataset,
+    protocol: DecisionValueDevStudyProtocol,
+    t: int,
+    action: tuple[int, ...],
+) -> PairedPortfolioActionResult:
+    """Same-prefix native comparison with explicitly versioned reference."""
+    mode = protocol.training_reference_mode
+    if mode == TRAINING_REFERENCE_POSTURE:
+        if t < POSTURE_START_LEAD_BARS or t % 6 != 0:
+            raise ValueError("causal_posture_v2 decision must use 6-bar anchor")
+        start_index = t - POSTURE_START_LEAD_BARS
+    else:
+        start_index = t
+
+    def make_reference() -> PortfolioPolicy:
+        if mode == TRAINING_REFERENCE_POSTURE:
+            return _CausalPostureReferencePolicy(protocol.target_abs_weights)
+        return _HoldQuantityPolicy(protocol.target_abs_weights)
+
+    return run_paired_portfolio_action(
+        dataset,
+        reference_policy_factory=make_reference,
+        start_index=start_index,
+        stop_index=t + protocol.study_plan.horizon_bars,
+        intervention_index=t,
+        baseline_action=protocol.study_plan.candidate_actions[0],
+        candidate_action=action,
+        target_abs_weights=protocol.target_abs_weights,
+        initial_capital=protocol.study_plan.initial_capital,
+        execution_cost=_training_execution_cost(protocol),
+        risk=PreTradeRisk(protocol.risk_config),
+    )
 
 
 class _HoldQuantityPolicy:
@@ -694,11 +898,15 @@ class _HoldQuantityPolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
+        action = (
+            _reference_continuation_action(snapshot)
+            if snapshot.active_orders
+            else (ACTION_HOLD,) * len(snapshot.symbols)
+        )
         return preserve_posture_aware_proposal(
-            (ACTION_HOLD,) * len(snapshot.symbols),
+            action,
             snapshot,
             self._target_abs_weights,
-            all_scores_non_positive=False,
         )
 
 
@@ -877,6 +1085,7 @@ def _format_markdown_summary(
         f"- **Artifact Digest**: `{result.actual_artifact_digest}`",
         f"- **Protocol Digest**: `{result.protocol_digest}`",
         f"- **Total Wall Clock Time**: {result.total_wall_clock_seconds:.2f} seconds",
+        f"- **Evidence scope**: {result.training_reference_mode} (development software; not G4/G5 authorization)",
         f"- **Prior Usage Disclosure**: {protocol.prior_usage_disclosure}",
         "",
         "## Aggregate Net Returns by Arm and Scenario",
@@ -932,6 +1141,7 @@ def run_decision_value_dev_study(
     *,
     actual_artifact_digest: str | None = None,
     output_dir: str | Path | None = None,
+    artifact_root: str | Path | None = None,
 ) -> DecisionValueDevStudyResult:
     """Execute the bounded real-development study under strict contracts."""
     study_start_time = time.perf_counter()
@@ -941,19 +1151,44 @@ def run_decision_value_dev_study(
         raise TypeError("dataset must be a MarketDataset")
     if not isinstance(protocol, DecisionValueDevStudyProtocol):
         raise TypeError("protocol must be a DecisionValueDevStudyProtocol")
-    if dataset.dataset_id != protocol.dataset_id:
-        raise ValueError(
-            f"dataset dataset_id {dataset.dataset_id} differs from protocol {protocol.dataset_id}"
+    if output_dir is not None and Path(output_dir).exists():
+        raise FileExistsError(f"output_dir already exists: {output_dir}")
+    if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+        # Only a canonical published artifact is accepted as future evidence.
+        # A supplied Dataset ID or self-declared digest cannot attest raw bytes.
+        if artifact_root is None:
+            raise ValueError("causal_posture_v2 requires a verified artifact_root")
+        artifact, verified_dataset = load_published_market_dataset_artifact(
+            artifact_root
         )
-    resolved_artifact_digest = (
-        actual_artifact_digest
-        if actual_artifact_digest is not None
-        else protocol.expected_artifact_digest
-    )
-    if resolved_artifact_digest != protocol.expected_artifact_digest:
-        raise ValueError(
-            f"actual_artifact_digest {resolved_artifact_digest} differs from expected {protocol.expected_artifact_digest}"
+        if (
+            not dataset.identity_verified
+            or verified_dataset.dataset_id != protocol.dataset_id
+            or dataset.dataset_id != verified_dataset.dataset_id
+            or artifact.artifact_digest != protocol.expected_artifact_digest
+        ):
+            raise ValueError("verified artifact identity differs from the study")
+        if (
+            actual_artifact_digest is not None
+            and actual_artifact_digest != artifact.artifact_digest
+        ):
+            raise ValueError("actual_artifact_digest differs from verified artifact")
+        dataset = verified_dataset
+        resolved_artifact_digest = artifact.artifact_digest
+    else:
+        if dataset.dataset_id != protocol.dataset_id:
+            raise ValueError(
+                f"dataset dataset_id {dataset.dataset_id} differs from protocol {protocol.dataset_id}"
+            )
+        resolved_artifact_digest = (
+            actual_artifact_digest
+            if actual_artifact_digest is not None
+            else protocol.expected_artifact_digest
         )
+        if resolved_artifact_digest != protocol.expected_artifact_digest:
+            raise ValueError(
+                f"actual_artifact_digest {resolved_artifact_digest} differs from expected {protocol.expected_artifact_digest}"
+            )
     if tuple(dataset.symbols) != protocol.study_plan.symbols:
         raise ValueError("dataset symbols do not match study_plan symbols")
     for block in protocol.blocks:
@@ -986,12 +1221,19 @@ def run_decision_value_dev_study(
         )
 
         # 2. Collect paired action interventions for B1/B2
-        ref_digest = content_digest(
-            {
-                "policy": "in_flight_preserving_hold_quantity_v1",
-                "target_abs_weights": [float(w) for w in protocol.target_abs_weights],
-            }
-        )
+        reference_identity: dict[str, object] = {
+            "policy": (
+                "causal_6bar_posture_reference_v2"
+                if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
+                else "in_flight_preserving_hold_quantity_v1"
+            ),
+            "target_abs_weights": [float(w) for w in protocol.target_abs_weights],
+        }
+        if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+            reference_identity["training_order_latency_bars"] = (
+                POSTURE_TRAINING_LATENCY_BARS
+            )
+        ref_digest = content_digest(reference_identity)
         samples: list[SyntheticPairedLabel] = []
         intervention_indices = range(
             block.train_start_index, block.train_stop_index + 1, block.train_step
@@ -999,25 +1241,30 @@ def run_decision_value_dev_study(
         non_hold_candidates = protocol.study_plan.candidate_actions[1:]
         paired_replay_runs = 0
 
+        train_execution = _training_execution_cost(protocol)
+        posture_counts = {"flat": 0, "long": 0, "short": 0, "pending": 0}
+        counted_times: set[int] = set()
         for t in intervention_indices:
             for cand_action in non_hold_candidates:
-                if all(a == ACTION_FLAT for a in cand_action):
+                if (
+                    protocol.training_reference_mode == TRAINING_REFERENCE_LEGACY
+                    and all(a == ACTION_FLAT for a in cand_action)
+                ):
                     continue
-                pair = run_paired_portfolio_action(
-                    dataset,
-                    reference_policy_factory=lambda: _HoldQuantityPolicy(
-                        protocol.target_abs_weights
-                    ),
-                    start_index=t,
-                    stop_index=t + protocol.study_plan.horizon_bars,
-                    intervention_index=t,
-                    baseline_action=protocol.study_plan.candidate_actions[0],
-                    candidate_action=cand_action,
-                    target_abs_weights=protocol.target_abs_weights,
-                    initial_capital=protocol.study_plan.initial_capital,
-                    execution_cost=protocol.base_execution_cost,
-                    risk=PreTradeRisk(protocol.risk_config),
-                )
+                pair = _training_pair(dataset, protocol, t, cand_action)
+                if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+                    obs = pair.baseline_snapshot
+                    if t not in counted_times:
+                        counted_times.add(t)
+                        quantities = [Fraction(q) for q in obs.account.exact_quantities]
+                        if obs.active_orders:
+                            posture_counts["pending"] += 1
+                        if any(q > 0 for q in quantities):
+                            posture_counts["long"] += 1
+                        if any(q < 0 for q in quantities):
+                            posture_counts["short"] += 1
+                        if not obs.active_orders and all(q == 0 for q in quantities):
+                            posture_counts["flat"] += 1
                 paired_replay_runs += 2  # Baseline + Candidate
                 label = build_synthetic_paired_label(
                     dataset,
@@ -1027,7 +1274,7 @@ def run_decision_value_dev_study(
                     target_abs_weights=protocol.target_abs_weights,
                     reference_policy_digest=ref_digest,
                     expected_execution_policy_digest=(
-                        protocol.base_execution_cost.execution_policy_digest
+                        train_execution.execution_policy_digest
                     ),
                     observation_record_available_at=dataset.timestamps[t],
                     settlement_record_available_at=(
@@ -1038,7 +1285,21 @@ def run_decision_value_dev_study(
                 )
                 samples.append(label)
 
-        paired_transitions = paired_replay_runs * protocol.study_plan.horizon_bars
+        if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE and any(
+            value == 0 for value in posture_counts.values()
+        ):
+            raise ValueError(
+                f"posture training coverage is incomplete: {posture_counts}"
+            )
+        # All candidates (including all-FLAT) share the same decision states.
+        paired_transitions = paired_replay_runs * (
+            protocol.study_plan.horizon_bars
+            + (
+                POSTURE_START_LEAD_BARS
+                if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
+                else 0
+            )
+        )
         training_rows = len(samples)
 
         # 3. Build paired label batch
@@ -1050,11 +1311,13 @@ def run_decision_value_dev_study(
         )
         overlap_groups = len(set(batch.group_ids))
 
+        posture_aware = protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
         # 4. Fit B1 (Linear), B1c (Conservative Linear), and B2 (Shallow)
         b1_model = fit_synthetic_linear_decision_value(
             batch,
             candidate_actions=protocol.study_plan.candidate_actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            posture_aware=posture_aware,
         )
         train_switch_cost = (
             protocol.study_plan.fee_rate
@@ -1067,11 +1330,13 @@ def run_decision_value_dev_study(
             ridge_penalty=protocol.value_ridge_penalty,
             uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
             one_way_switch_cost=train_switch_cost,
+            posture_aware=posture_aware,
         )
         b2_model = fit_synthetic_shallow_decision_value(
             batch,
             candidate_actions=protocol.study_plan.candidate_actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            posture_aware=posture_aware,
         )
 
         b1_coef_sha256 = hashlib.sha256(
@@ -1100,23 +1365,12 @@ def run_decision_value_dev_study(
         samples_pert: list[SyntheticPairedLabel] = []
         for t in intervention_indices:
             for cand_action in non_hold_candidates:
-                if all(a == ACTION_FLAT for a in cand_action):
+                if (
+                    protocol.training_reference_mode == TRAINING_REFERENCE_LEGACY
+                    and all(a == ACTION_FLAT for a in cand_action)
+                ):
                     continue
-                pair_pert = run_paired_portfolio_action(
-                    dataset_perturbed,
-                    reference_policy_factory=lambda: _HoldQuantityPolicy(
-                        protocol.target_abs_weights
-                    ),
-                    start_index=t,
-                    stop_index=t + protocol.study_plan.horizon_bars,
-                    intervention_index=t,
-                    baseline_action=protocol.study_plan.candidate_actions[0],
-                    candidate_action=cand_action,
-                    target_abs_weights=protocol.target_abs_weights,
-                    initial_capital=protocol.study_plan.initial_capital,
-                    execution_cost=protocol.base_execution_cost,
-                    risk=PreTradeRisk(protocol.risk_config),
-                )
+                pair_pert = _training_pair(dataset_perturbed, protocol, t, cand_action)
                 label_pert = build_synthetic_paired_label(
                     dataset_perturbed,
                     pair_pert,
@@ -1125,7 +1379,7 @@ def run_decision_value_dev_study(
                     target_abs_weights=protocol.target_abs_weights,
                     reference_policy_digest=ref_digest,
                     expected_execution_policy_digest=(
-                        protocol.base_execution_cost.execution_policy_digest
+                        train_execution.execution_policy_digest
                     ),
                     observation_record_available_at=dataset_perturbed.timestamps[t],
                     settlement_record_available_at=(
@@ -1148,6 +1402,7 @@ def run_decision_value_dev_study(
             batch_pert,
             candidate_actions=protocol.study_plan.candidate_actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            posture_aware=posture_aware,
         )
         b1c_pert = fit_conservative_linear_decision_value(
             batch_pert,
@@ -1155,11 +1410,13 @@ def run_decision_value_dev_study(
             ridge_penalty=protocol.value_ridge_penalty,
             uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
             one_way_switch_cost=train_switch_cost,
+            posture_aware=posture_aware,
         )
         b2_pert = fit_synthetic_shallow_decision_value(
             batch_pert,
             candidate_actions=protocol.study_plan.candidate_actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            posture_aware=posture_aware,
         )
 
         b1_pert_sha256 = hashlib.sha256(
@@ -1384,7 +1641,10 @@ def run_decision_value_dev_study(
 
                 expected_intervals = block.eval_stop_index - block.eval_start_index
                 if not _verify_ledger_reconciliation(
-                    replay_res, expected_intervals=expected_intervals
+                    replay_res,
+                    expected_intervals=expected_intervals,
+                    dataset=dataset,
+                    initial_capital=protocol.study_plan.initial_capital,
                 ):
                     ledger_all_reconciled = False
 
@@ -1431,6 +1691,11 @@ def run_decision_value_dev_study(
                 causality_probe_passed=causality_probe_passed,
                 ledger_evidence_reconciled=ledger_all_reconciled,
                 arms=tuple(arms_metrics),
+                training_posture_counts=(
+                    posture_counts
+                    if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
+                    else None
+                ),
             )
         )
 
@@ -1525,7 +1790,12 @@ def run_decision_value_dev_study(
             verdict_reason = "Neither linear_value, conservative_linear_value, nor shallow_value outperformed baselines across evaluation scenarios"
 
     result = DecisionValueDevStudyResult(
-        schema_version="decision_value_dev_study_result_v1",
+        schema_version=(
+            "decision_value_dev_study_result_v2"
+            if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
+            else "decision_value_dev_study_result_v1"
+        ),
+        training_reference_mode=protocol.training_reference_mode,
         protocol_digest=protocol.protocol_digest,
         dataset_id=dataset.dataset_id,
         actual_artifact_digest=resolved_artifact_digest,

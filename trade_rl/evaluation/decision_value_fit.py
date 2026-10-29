@@ -325,6 +325,7 @@ def fit_synthetic_linear_decision_value(
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
     ridge_penalty: float = 1.0,
+    posture_aware: bool = False,
 ) -> LinearDecisionValueModel:
     """Fit one fixed state-action Ridge head for each non-HOLD joint candidate.
 
@@ -334,11 +335,24 @@ def fit_synthetic_linear_decision_value(
     pen = _finite(ridge_penalty, field="ridge_penalty")
     if pen <= 0.0:
         raise ValueError("ridge_penalty must be positive and finite")
-    t = _collect_training(batch, candidate_actions=candidate_actions)
+    t = _collect_training(
+        batch,
+        candidate_actions=candidate_actions,
+        encoder=(
+            encode_decision_value_state_v2
+            if posture_aware
+            else encode_decision_value_state
+        ),
+    )
     n_symbols = len(t.symbols)
-    width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + n_symbols
+    width = (
+        1
+        + n_symbols * len(t.feature_names)
+        + len(t.global_names)
+        + (2 if posture_aware else 1) * n_symbols
+    )
     d_feat = width - 1
-    unexcited = tuple(range(d_feat - n_symbols, d_feat))
+    unexcited = tuple(range(d_feat - (2 if posture_aware else 1) * n_symbols, d_feat))
     fitted = tuple(
         _fit_standardized_ridge(
             d,
@@ -355,7 +369,11 @@ def fit_synthetic_linear_decision_value(
         )
     )
     return LinearDecisionValueModel(
-        schema_version="synthetic_linear_decision_value_v1",
+        schema_version=(
+            "synthetic_linear_decision_value_v2"
+            if posture_aware
+            else "synthetic_linear_decision_value_v1"
+        ),
         source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
@@ -380,14 +398,28 @@ def fit_synthetic_shallow_decision_value(
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
     ridge_penalty: float = SHALLOW_RIDGE_PENALTY,
+    posture_aware: bool = False,
 ) -> ShallowDecisionValueModel:
     """B2: same population as B1, fixed hidden layer, one fixed Ridge per head."""
     pen = _finite(ridge_penalty, field="ridge_penalty")
     if pen <= 0.0:
         raise ValueError("ridge_penalty must be positive and finite")
-    t = _collect_training(batch, candidate_actions=candidate_actions)
+    t = _collect_training(
+        batch,
+        candidate_actions=candidate_actions,
+        encoder=(
+            encode_decision_value_state_v2
+            if posture_aware
+            else encode_decision_value_state
+        ),
+    )
     n_symbols = len(t.symbols)
-    state_width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + n_symbols
+    state_width = (
+        1
+        + n_symbols * len(t.feature_names)
+        + len(t.global_names)
+        + (2 if posture_aware else 1) * n_symbols
+    )
     hidden = fixed_hidden_weights(state_width)
     expanded_width = state_width + len(hidden)
 
@@ -425,7 +457,11 @@ def fit_synthetic_shallow_decision_value(
         fitted.append(tuple(float(x) for x in coefs))
 
     return ShallowDecisionValueModel(
-        schema_version="synthetic_shallow_decision_value_v1",
+        schema_version=(
+            "synthetic_shallow_decision_value_v2"
+            if posture_aware
+            else "synthetic_shallow_decision_value_v1"
+        ),
         source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
@@ -456,6 +492,7 @@ def fit_conservative_linear_decision_value(
     uncertainty_penalty_weight: float = 1.0,
     one_way_switch_cost: float = 0.0,
     unexcited_prior_std: float = 1e-3,
+    posture_aware: bool = False,
 ) -> ConservativeLinearDecisionValueModel:
     """Fit conservative linear action-value head with uncertainty covariance.
 
@@ -490,6 +527,16 @@ def fit_conservative_linear_decision_value(
     width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + 2 * n_symbols
     d_feat = width - 1
     unexcited = tuple(range(d_feat - 2 * n_symbols, d_feat))
+    if posture_aware:
+        # Avoid disguising unobserved postures as estimated uncertainty.
+        # V3 must have observed both settled and pending state variations.
+        for design in t.rows:
+            if len(design) < 3:
+                raise ValueError("posture_v2 requires training for every candidate")
+            state = np.stack(design)[:, -2 * n_symbols :]
+            variation = np.ptp(state, axis=0)
+            if not np.all(variation > 1e-8):
+                raise ValueError("posture_v2 lacks filled/pending state coverage")
     coefficients_list: list[tuple[float, ...]] = []
     covariances_list: list[tuple[tuple[float, ...], ...]] = []
 
@@ -513,7 +560,11 @@ def fit_conservative_linear_decision_value(
         covariances_list.append(cov)
 
     return ConservativeLinearDecisionValueModel(
-        schema_version="conservative_linear_decision_value_v2",
+        schema_version=(
+            "conservative_linear_decision_value_v3"
+            if posture_aware
+            else "conservative_linear_decision_value_v2"
+        ),
         source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -11,8 +12,10 @@ from trade_rl.evaluation.paired_portfolio_label import (
     SyntheticPairedLabelBatch,
 )
 from trade_rl.strategies.decision_value import (
+    ConservativeLinearDecisionValueModel,
     LinearDecisionValueModel,
     encode_decision_value_state,
+    encode_decision_value_state_v2,
 )
 from trade_rl.strategies.decision_value_shallow import (
     RIDGE_PENALTY as SHALLOW_RIDGE_PENALTY,
@@ -34,6 +37,7 @@ _FIXED_RIDGE_PENALTY = 1e-4
 class _TrainingSet:
     """Validated B1/B2 shared population: identical rows, labels and masks."""
 
+    source_scope: str
     codes: tuple[tuple[int, ...], ...]
     symbols: tuple[str, ...]
     feature_names: tuple[str, ...]
@@ -52,6 +56,7 @@ def _collect_training(
     batch: SyntheticPairedLabelBatch,
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
+    encoder: Callable[..., np.ndarray] = encode_decision_value_state,
 ) -> _TrainingSet:
     """Shared validation for every value head; no model-specific row dropping."""
     if not isinstance(batch, SyntheticPairedLabelBatch):
@@ -61,6 +66,10 @@ def _collect_training(
     if not batch.samples or len(batch.group_ids) != len(batch.samples):
         raise ValueError("batch training rows or overlap group identity are invalid")
     first = batch.samples[0]
+    if first.source_scope not in ("synthetic_only", "real_development"):
+        raise ValueError(
+            "only synthetic or real_development training samples with matching source_scope are supported"
+        )
     n_symbols = len(first.observation.symbols)
     codes = tuple(
         decode_portfolio_action_codes(action, n_symbols=n_symbols)
@@ -83,8 +92,10 @@ def _collect_training(
     group = -1
     group_end = -(2**63)
     for i, sample in enumerate(batch.samples):
-        if sample.source_scope != "synthetic_only":
-            raise ValueError("only synthetic training samples are supported")
+        if sample.source_scope != first.source_scope:
+            raise ValueError(
+                "only synthetic or real_development training samples with matching source_scope are supported"
+            )
         if (
             sample.observation.symbols != symbols
             or sample.observation.feature_names != feature_names
@@ -123,7 +134,7 @@ def _collect_training(
             group_end = max(group_end, sample.terminal_time_ns)
         if batch.group_ids[i] != group:
             raise ValueError("overlap group contract differs from actual label windows")
-        vector = encode_decision_value_state(
+        vector = encoder(
             sample.observation,
             symbols=symbols,
             feature_names=feature_names,
@@ -135,6 +146,7 @@ def _collect_training(
     if batch.evaluation_start_ns <= batch.fit_cutoff_ns:
         raise ValueError("evaluation must begin after the fit cutoff")
     return _TrainingSet(
+        source_scope=first.source_scope,
         codes=codes,
         symbols=symbols,
         feature_names=feature_names,
@@ -181,7 +193,7 @@ def fit_synthetic_linear_decision_value(
     )
     return LinearDecisionValueModel(
         schema_version="synthetic_linear_decision_value_v1",
-        source_scope="synthetic_only",
+        source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
         global_feature_names=t.global_names,
@@ -217,7 +229,7 @@ def fit_synthetic_shallow_decision_value(
     )
     return ShallowDecisionValueModel(
         schema_version="synthetic_shallow_decision_value_v1",
-        source_scope="synthetic_only",
+        source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
         global_feature_names=t.global_names,
@@ -237,7 +249,86 @@ def fit_synthetic_shallow_decision_value(
     )
 
 
+def fit_conservative_linear_decision_value(
+    batch: SyntheticPairedLabelBatch,
+    *,
+    candidate_actions: tuple[tuple[int, ...], ...],
+    uncertainty_penalty_weight: float = 1.0,
+    one_way_switch_cost: float = 0.0,
+) -> ConservativeLinearDecisionValueModel:
+    """Fit conservative linear action-value head with uncertainty covariance.
+
+    Uses design matrix from encode_decision_value_state_v2 (including in-flight state)
+    and estimates group-degrees-of-freedom adjusted residual covariance per candidate head.
+    """
+    if isinstance(uncertainty_penalty_weight, bool) or not isinstance(
+        uncertainty_penalty_weight, (int, float)
+    ):
+        raise TypeError("uncertainty_penalty_weight must be a finite real")
+    if (
+        not math.isfinite(uncertainty_penalty_weight)
+        or uncertainty_penalty_weight < 0.0
+    ):
+        raise ValueError("uncertainty_penalty_weight must be non-negative and finite")
+    if isinstance(one_way_switch_cost, bool) or not isinstance(
+        one_way_switch_cost, (int, float)
+    ):
+        raise TypeError("one_way_switch_cost must be a finite real")
+    if not math.isfinite(one_way_switch_cost) or one_way_switch_cost < 0.0:
+        raise ValueError("one_way_switch_cost must be non-negative and finite")
+
+    t = _collect_training(
+        batch,
+        candidate_actions=candidate_actions,
+        encoder=encode_decision_value_state_v2,
+    )
+    coefficients_list: list[tuple[float, ...]] = []
+    covariances_list: list[tuple[tuple[float, ...], ...]] = []
+    dof = max(1, t.groups - 1)
+
+    for d, v in zip(t.rows, t.values, strict=True):
+        if len(d) < 3:
+            raise ValueError("insufficient fixed candidate coverage for Ridge")
+        matrix = np.stack(d)
+        target = np.asarray(v, dtype=np.float64)
+        gram = matrix.T @ matrix + _FIXED_RIDGE_PENALTY * np.eye(matrix.shape[1])
+        coefficients = np.linalg.solve(gram, matrix.T @ target)
+        residuals = target - matrix @ coefficients
+        sigma2 = max(1e-12, float(residuals @ residuals) / dof)
+        inv_gram = np.linalg.inv(gram)
+        cov = sigma2 * inv_gram
+        cov = 0.5 * (cov + cov.T)
+        if not np.isfinite(coefficients).all() or not np.isfinite(cov).all():
+            raise ValueError("fit produced non-finite values or covariance")
+        coefficients_list.append(tuple(float(value) for value in coefficients))
+        covariances_list.append(tuple(tuple(float(val) for val in row) for row in cov))
+
+    return ConservativeLinearDecisionValueModel(
+        schema_version="conservative_linear_decision_value_v2",
+        source_scope=t.source_scope,
+        symbols=t.symbols,
+        feature_names=t.feature_names,
+        global_feature_names=t.global_names,
+        feature_config_digest=t.feature_digest,
+        normalization_digest=t.normalizer_digest,
+        execution_policy_digest=t.cost_digest,
+        reference_policy_digest=t.ref_digest,
+        target_abs_weights=t.joint_weights,
+        candidate_actions=t.codes,
+        fit_cutoff_ns=batch.fit_cutoff_ns,
+        evaluation_start_ns=batch.evaluation_start_ns,
+        ridge_penalty=_FIXED_RIDGE_PENALTY,
+        uncertainty_penalty_weight=float(uncertainty_penalty_weight),
+        one_way_switch_cost=float(one_way_switch_cost),
+        training_rows=len(batch.samples),
+        overlap_groups=t.groups,
+        coefficients=tuple(coefficients_list),
+        covariance_matrices=tuple(covariances_list),
+    )
+
+
 __all__ = [
+    "fit_conservative_linear_decision_value",
     "fit_synthetic_linear_decision_value",
     "fit_synthetic_shallow_decision_value",
 ]

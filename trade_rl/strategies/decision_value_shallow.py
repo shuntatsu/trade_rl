@@ -84,7 +84,10 @@ class ShallowDecisionValueModel:
     coefficients: tuple[tuple[float, ...], ...]
 
     def __post_init__(self) -> None:
-        if self.schema_version != _SCHEMA or self.source_scope != "synthetic_only":
+        if self.schema_version != _SCHEMA or self.source_scope not in (
+            "synthetic_only",
+            "real_development",
+        ):
             raise ValueError("only the versioned synthetic shallow model is supported")
         for roster in (self.symbols, self.feature_names, self.global_feature_names):
             if type(roster) is not tuple:

@@ -160,7 +160,12 @@ def arm_invalid_reasons(
         if needs_probe and int(summary["n_trades"]) < registry.min_trades:  # type: ignore[call-overload]
             reasons.append(f"too_few_trades_{scenario}")
         decisions = summary.get("allocator_decisions")
-        if isinstance(decisions, Mapping) and int(decisions["n_decisions"]) > 0:
+        if needs_probe and not isinstance(decisions, Mapping):
+            # A candidate or passive control must expose its decision records; without
+            # them the fail-closed guard could not run, so the arm is not a valid
+            # measurement (never a silent pass).
+            reasons.append(f"allocator_decisions_missing_{scenario}")
+        elif isinstance(decisions, Mapping) and int(decisions["n_decisions"]) > 0:
             fraction = int(decisions["fail_closed_hold_count"]) / int(
                 decisions["n_decisions"]
             )
@@ -474,6 +479,12 @@ def run_fs1(
 ) -> dict[str, Any]:
     """Authorize, load, verify, score once and write the result (write-once).
 
+    The output path is claimed atomically (``open(..., "xb")``) after authorization and
+    before the dataset is read, so a concurrent writer is refused (``output_exists``)
+    before any scoring and a computed result can never be lost to a write race. If
+    loading, verification or scoring fails, the claimed file is removed: no partial
+    output remains.
+
     Always uses the frozen registry and digest, the real wall clock and the real git
     checkout. A refusal is raised before the dataset is read and before anything is
     written.
@@ -501,14 +512,29 @@ def run_fs1(
         reasons.append("output_exists")
     if reasons or permit is None:
         raise Fs1Refusal(tuple(dict.fromkeys(reasons)))
-    dataset = env.load_dataset(dataset_path)
-    result = score_fs1(permit, dataset, progress=progress)
-    payload = (
-        json.dumps(_json_safe(result), sort_keys=True, indent=2, allow_nan=False) + "\n"
-    ).encode("utf-8")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("xb") as stream:
+    try:
+        stream = output_path.open("xb")
+    except FileExistsError:
+        raise Fs1Refusal(("output_exists",)) from None
+    try:
+        try:
+            dataset = env.load_dataset(dataset_path)
+        except Exception as exc:
+            raise Fs1Refusal(
+                ("dataset_load_failed",), f"{type(exc).__name__}: {exc}"[:300]
+            ) from exc
+        result = score_fs1(permit, dataset, progress=progress)
+        payload = (
+            json.dumps(_json_safe(result), sort_keys=True, indent=2, allow_nan=False)
+            + "\n"
+        ).encode("utf-8")
         stream.write(payload)
+    except BaseException:
+        stream.close()
+        output_path.unlink(missing_ok=True)
+        raise
+    stream.close()
     return result
 
 

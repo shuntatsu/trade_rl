@@ -788,8 +788,12 @@ anything about other configurations.
   0.5% of equity; kappa 3 and VT12 (`sqrt(w' Sigma w * 365)` cap at 12%, applied to the
   solved target before the minimum-trade rule) for FS1-A, VT12 only for FS1-B.
 * **Data scope:** development data through 2026-08-01 (the end of the consumed
-  development window) is the only data that exists at registration. Bars from
-  2026-08-01 to 2026-11-01 (and any later bars before the scoring start) may enter
+  development window) is the only data this study holds or has used at
+  registration. Exchange bars for 2026-08-01..2026-10-30 already exist, but this
+  study has not fetched them, fetching them needs the user's separate
+  authorization, and no constant was chosen with reference to them (author
+  attestation). Bars from 2026-08-01 to 2026-11-01 (and any later bars before the
+  scoring start) may enter
   features, forecasts and the covariance warm-up **only if separately authorized, and
   are never scored**: the replay starts at the 2026-11-01 row. The Ridge forecast
   sources refit every 30 days from the scoring start, expanding from the first
@@ -882,6 +886,11 @@ labels and refuses as specified; it says nothing about the real window.
 **Pre-seal revision log.** FS1 is not sealed, so the frozen digest may change, but only
 with a record here and no data in existence.
 
+* Revision 2 (2026-10-30, follow-ups from the result-blind review): no change to the
+  params digest, the falsifiers, the thresholds or the arms. A missing Bonferroni bound
+  now makes the candidate `FORWARD_INVALID` like every other missing number, a
+  candidate summary without `allocator_decisions` is invalid, and a dataset-load failure
+  or output write race is reported as a refusal with no partial output.
 * Revision 1 (2026-10-30, first review): the params digest changed from
   `2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283` to the digest
   above. Reasons: the dataset build policy is pinned in the registry (finding L4); a
@@ -890,11 +899,15 @@ with a record here and no data in existence.
   also requires `survives_bonferroni_k2` (L9); the falsifiers, thresholds and the
   meaning of `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` did not change.
 
-**Gate state of this record:** G0/G1 independent result-blind review NOT ESTABLISHED
-(pending); G2 machine oracles implemented, final-HEAD CI pending; G3 not applicable
-(no forward evidence exists); G4 NOT ESTABLISHED; G5 NOT ESTABLISHED. Scoring may not
-start until the seal record, the dataset manifest, the scoring end date and both
-user authorizations exist.
+**Gate state of this record:** G0, G1 and G2 were recorded ESTABLISHED by the
+result-blind independent review 5702477777 of the FS1 design change at head
+51b8b435a (a design and code review only: it does not seal FS1 and does not replace
+CI, the seal record or the user's authorizations). The FS1 seal record, the
+data-fetch authorization and the G4 scoring authorization are pending; the sealed
+code commit is a later commit that the future Issue #810 seal record will name. G3 is
+not applicable (no forward evidence exists); G4 NOT ESTABLISHED; G5 NOT ESTABLISHED.
+Scoring may not start until the seal record, the dataset manifest, the scoring end
+date plus the settlement margin and both user authorizations exist.
 
 ## AI adversarial review
 

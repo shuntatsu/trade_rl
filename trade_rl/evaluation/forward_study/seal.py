@@ -21,7 +21,8 @@ Preconditions (reason codes):
   ``manifest_fetched_before_settlement`` - the dataset seal manifest is absent,
   malformed, not the one recorded in the seal record, for another window/roster or
   construction policy, or records a fetch before the data had settled;
-* ``output_exists`` - FS1 is scored once; the result file is write-once.
+* ``output_exists`` - FS1 is scored once; the result file is write-once;
+* ``dataset_load_failed`` - the dataset could not be loaded (nothing is written).
 
 Dataset checks that need the loaded arrays live in :func:`dataset_problems`.
 """
@@ -62,9 +63,11 @@ TRADE_RL_ROOT_COMMIT: Final = "8e7a42170d7504d7b41c5555e99754f9c56d8adb"
 class Fs1Refusal(RuntimeError):
     """FS1 will not be scored; ``reasons`` lists every unmet precondition."""
 
-    def __init__(self, reasons: tuple[str, ...]) -> None:
-        super().__init__("FS1 scoring refused: " + ", ".join(reasons))
+    def __init__(self, reasons: tuple[str, ...], detail: str = "") -> None:
+        suffix = f" ({detail})" if detail else ""
+        super().__init__("FS1 scoring refused: " + ", ".join(reasons) + suffix)
         self.reasons = reasons
+        self.detail = detail
 
 
 def _utc(text: str) -> datetime:

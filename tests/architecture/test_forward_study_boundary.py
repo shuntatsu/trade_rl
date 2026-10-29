@@ -164,10 +164,24 @@ def test_the_design_record_and_registry_export_are_in_the_current_docs() -> None
     assert "report/issue810-fs1-registry-20261030.json" in boundaries
     section = status[status.index("## Issue #810 FS1") :]
     for required in (
-        "G0-G2 review of the design and code is pending",
+        "G0, G1 and G2 were recorded ESTABLISHED by the result-blind independent review",
+        "5702477777",
+        "seal record, the data-fetch authorization and the G4 scoring authorization are pending",
         "no economic result exists",
         "fetching",
         "single G4 scoring run",
+        "at or after 2027-05-02T00:00Z",
     ):
         assert required in section
+    assert "pending (NOT ESTABLISHED" not in section
+    assert "after 2027-05-01T00:00Z" not in section
+    flat = " ".join(assurance.split())
+    state = flat[flat.index("**Gate state of this record:**") :]
+    for required in (
+        "G0, G1 and G2 were recorded ESTABLISHED by the result-blind independent review 5702477777",
+        "The FS1 seal record, the data-fetch authorization and the G4 scoring authorization are pending",
+        "later commit that the future Issue #810 seal record will name",
+    ):
+        assert required in state
+    assert "G0/G1 independent result-blind review NOT ESTABLISHED" not in flat
     assert re.search(r"authoriz", section)

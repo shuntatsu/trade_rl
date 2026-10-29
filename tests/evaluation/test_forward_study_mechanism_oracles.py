@@ -336,7 +336,8 @@ def test_policy_decisions_match_the_pure_reference_pipeline(
             [marks[t + 1][i] / marks[t][i] - 1.0 for i in range(3)]
             for t in range(len(marks) - 1)
         ]
-        cov = ref_ewma_covariance(returns, halflife * 24.0 / 24.0, 0.2, 1e-8)
+        # one decision per day, so the halflife in periods equals the halflife in days
+        cov = ref_ewma_covariance(returns, halflife, 0.2, 1e-8)
         call = captured[solved]
         solved += 1
         # kappa multiplies the optimizer's cost vector only: 3 * (0.0005 + 0.0002).

@@ -52,7 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             progress=lambda message: print(message, flush=True),
         )
     except Fs1Refusal as refusal:
-        print(f"refused: {', '.join(refusal.reasons)}", file=sys.stderr)
+        detail = f" ({refusal.detail})" if refusal.detail else ""
+        print(f"refused: {', '.join(refusal.reasons)}{detail}", file=sys.stderr)
         return 2
     labels = {arm: row["label"] for arm, row in result["labels"].items()}
     print(f"labels={labels}")

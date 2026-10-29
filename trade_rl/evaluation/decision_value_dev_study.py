@@ -1173,14 +1173,11 @@ def run_decision_value_dev_study(
         ).hexdigest()
 
         b1_fit_ok = b1_coef_sha256 == b1_pert_sha256
-        b1c_fit_ok = (
-            b1c_coef_sha256 == b1c_pert_sha256
-            and np.allclose(
-                b1c_model.covariance_matrices,
-                b1c_pert.covariance_matrices,
-                rtol=0.0,
-                atol=1e-12,
-            )
+        b1c_fit_ok = b1c_coef_sha256 == b1c_pert_sha256 and np.allclose(
+            b1c_model.covariance_matrices,
+            b1c_pert.covariance_matrices,
+            rtol=0.0,
+            atol=1e-12,
         )
         b2_fit_ok = b2_coef_sha256 == b2_pert_sha256
 

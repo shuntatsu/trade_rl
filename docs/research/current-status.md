@@ -511,27 +511,29 @@ TD6では、レイテンシ下の未約定注文（in-flight order）を明示�
 
 本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
 
-### TD7: Posture-aware decision-value learning (6-arm development study)
+### TD7: Posture-aware decision-value learning and audit remediation (6-arm development study, #1025)
 
-TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入し、同一データセット上で6アーム4シナリオ比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2] × `base`, `cost_x2`, `latency_1bar`, `latency_2bar`）を実施した。
+TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入した。さらに、厳格な監査により特定された18件の構造的バグ（未約定注文の取り消しループ、微小ダスト退出時のValueError、薄型SVDによるランク切断正則化、重なり共分散のPSD Gram行列計算、非励起状態座標に対する事前分散、浅層モデルの入力標準化によるリミットサイクル抑止、符号付きサンクコスト調整の整合化、厳格な因果性摂動プローブ、全金融変数の台帳突合検証）を網羅的に是正した。
 
-各ブロックで因果性プローブおよび台帳突合が `PASSED` を記録した（総実行時間 746.62秒）。
+同一データセット（`data/bot-development-2024q1/dataset`）上で是正後の6アーム4シナリオ比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2] × `base`, `cost_x2`, `latency_1bar`, `latency_2bar`）を再実行した。
+
+全3ブロックで因果性摂動プローブ（`fit_cutoff_index` 以降の摂動とB0/B1/B1c/B2の再学習・係数SHA-256一致検証および決定不変性）および全主要金融変数の台帳突合が `PASSED` を記録した（総実行時間 2171.87秒）。
 
 総合評価結果（Aggregate Net Returns）:
 - `cash`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%, latency_2bar +0.0000%
 - `fixed_long`: base +16.0339%, cost_x2 +15.7885%, latency_1bar +15.5232%, latency_2bar +14.9689%
-- `cost_aware_ridge`: base -14.9667%, cost_x2 -17.0373%, latency_1bar -14.7359%, latency_2bar +0.0000%
-- `linear_value`: base -12.7714%, cost_x2 -22.4730%, latency_1bar -12.5079%, latency_2bar -13.7480%
-- `conservative_linear_value`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%, latency_2bar +0.0000%
-- `shallow_value`: base -41.7586%, cost_x2 -46.6702%, latency_1bar -41.7079%, latency_2bar -33.5419%
+- `cost_aware_ridge`: base -15.2323%, cost_x2 -15.9646%, latency_1bar -14.9821%, latency_2bar -12.4778%
+- `linear_value`: base -17.9891%, cost_x2 -23.4239%, latency_1bar -17.7219%, latency_2bar -13.6709%
+- `conservative_linear_value`: base -19.0036%, cost_x2 -28.9643%, latency_1bar -19.0075%, latency_2bar +1.3076%
+- `shallow_value`: base -16.9076%, cost_x2 -24.1307%, latency_1bar -16.6395%, latency_2bar -15.3654%
 
 ブロック別挙動の比較:
-- `block_1`: `cost_aware_ridge` は `base` で -2.7916%（cost 1490.01）、`linear_value` は -4.3329%（cost 3800.72）であったのに対し、`conservative_linear_value` は不確実性割引により無益なエントリーを回避し、Net Return +0.0000%（cost 0.00、drawdown 0.0000%）を維持した。また、`latency_2bar` において `preserve_posture_aware_proposal` により進行中注文がキャンセルされずに保護され、`fixed_long` は +7.7200%、`linear_value` は -3.1426%（cost 2238.52）で整然と完了した。
-- `block_2`: 市場上昇局面において `fixed_long`（+11.5364%）が伸びる一方、`cost_aware_ridge` は -9.8729% と損失を出したが、`linear_value` は -3.5019% と `cost_aware_ridge` を大きく上回った。`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）でドローダウンをゼロに抑えた。
-- `block_3`: 下落局面において `fixed_long`（-3.5498%）、`linear_value`（-5.5118%）、`cost_aware_ridge`（-2.9422%）がマイナスとなる中、`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）で資本を保全した。
+- `block_1`: `cost_aware_ridge` は `base` で -2.7040%（cost 1457.19）、`linear_value` は -5.9206%（cost 4051.62）、`conservative_linear_value` は -4.1480%（cost 6113.15）であった。`latency_2bar` では `preserve_posture_aware_proposal` により進行中注文がキャンセルされずに正しく執行され、`cost_aware_ridge` が -0.6255%、`linear_value` が -4.7780%、`conservative_linear_value` が +0.0000%（cost 0.00、drawdown 0.0000%）を維持した。
+- `block_2`: 市場上昇局面において `fixed_long`（+11.5364%）が上昇する中、`cost_aware_ridge` は -10.2514%、`linear_value` は -7.4740%、`conservative_linear_value` は -6.6051%、`shallow_value` は -4.4278% となった。特筆すべき点として、`latency_2bar` において `conservative_linear_value` は +1.3076%（cost 388.87、drawdown 2.2862%）を達成し、対照群（`cost_aware_ridge` -8.5843%、`linear_value` -5.0518%、`cash` +0.0000%）を有意に上回った。
+- `block_3`: 下落局面において `fixed_long`（-3.5498%）、`cost_aware_ridge`（-2.9249%）、`linear_value`（-5.7865%）、`shallow_value`（-7.4589%）がマイナスとなる中、`latency_2bar` では `conservative_linear_value` が +0.0000%（cost 0.00、drawdown 0.0000%）で資本を保全した。
 
 判定（Verdict）: `INCONCLUSIVE`
-判定理由: `linear_value` は `base`（-12.7714% vs -14.9667%）および `latency_1bar`（-12.5079% vs -14.7359%）において `cost_aware_ridge` に対する改善を示し、block_2（-3.5019% vs -9.8729%）でも顕著な優位性を示したが、対照群である `fixed_long`（+16.0339%）および `cash`（+0.0000%）を全シナリオで上回ることはできなかった。一方で、B1c（`conservative_linear_value`）は2バーレイテンシを含む全4シナリオでドローダウン0%・コスト0の強固な資本保全特性（fail-closed conservative behavior）を実証し、姿勢認識プロポーザルによりレイテンシ下での二重注文および未約定注文キャンセルの問題が解消された。
+判定理由: `conservative_linear_value`（B1c）は、高遅延（`latency_2bar`）環境において +1.3076% の累積リターンを達成し、同シナリオ下で `cost_aware_ridge`（-12.4778%）、`linear_value`（-13.6709%）、および `cash`（+0.0000%）を上回る改善を示した。また、浅層モデル（B2）も特徴量標準化と非励起座標のゼロ感度化により、旧実装で見られた極端な損失（-40%超）から -16.9076% へと大幅に安定化した。しかし、全シナリオで `fixed_long`（+16.0339%）および `cash`（+0.0000%）を一貫して支配するまでには至らなかったため、判定は `INCONCLUSIVE` となる。是正された姿勢認識プロポーザルにより、2バーレイテンシ下での自己キャンセル（ping-pong）、小口残余注文の誤認識、および微小ダスト退出時のクラッシュは完全に根絶された。
 
 本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
 

@@ -493,7 +493,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         fee_rate=fee_rate,
         spread_rate=spread_rate,
         max_policy_improvements=1,
-        learner_roster=("linear", "shallow"),
+        learner_roster=("linear", "conservative_linear", "shallow"),
         real_scope_authorization_digest=auth_digest,
     )
 
@@ -568,3 +568,67 @@ def test_study_preflight_rejections() -> None:
             proto,
             actual_artifact_digest="f" * 64,
         )
+
+
+def test_paired_portfolio_action_latency_2bar_preservation() -> None:
+    from trade_rl.evaluation.decision_value_dev_study import _HoldQuantityPolicy
+
+    dataset = _compact_market(60)
+    cost_lat2 = replace(_COST, order_latency_bars=2)
+    pair = run_paired_portfolio_action(
+        dataset,
+        reference_policy_factory=lambda: _HoldQuantityPolicy(
+            target_abs_weights=(0.25, 0.25)
+        ),
+        start_index=10,
+        stop_index=25,
+        intervention_index=10,
+        baseline_action=_HOLD,
+        candidate_action=_LONG,
+        target_abs_weights=(0.25, 0.25),
+        initial_capital=100_000.0,
+        execution_cost=cost_lat2,
+        risk=_RISK,
+    )
+    assert pair.eligible_for_label
+    assert pair.delta_per_initial_capital is not None
+    assert pair.delta_per_initial_capital != 0.0
+
+
+def test_cost_aware_ridge_policy_latency_2bar_fills() -> None:
+    from trade_rl.evaluation.decision_value_dev_study import (
+        _CostAwareRidgePortfolioPolicy,
+    )
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+    from trade_rl.strategies.forecasts.ridge import fit_ridge_forecast
+
+    dataset = _compact_market(60)
+    cost_lat2 = replace(_COST, order_latency_bars=2)
+    model = fit_ridge_forecast(
+        dataset,
+        feature_indices=(0, 1),
+        fit_cutoff=dataset.timestamps[30],
+        horizon_hours=4,
+        alpha=1.0,
+    )
+    policy = _CostAwareRidgePortfolioPolicy(
+        dataset=dataset,
+        model=model,
+        target_abs_weights=(0.25, 0.25),
+        entry_threshold=0.0001,
+        exit_threshold=0.00005,
+        one_way_switch_cost=0.0008,
+    )
+    replay_res = run_shared_portfolio_replay(
+        dataset,
+        policy,
+        start_index=30,
+        stop_index=55,
+        initial_capital=100_000.0,
+        execution_cost=cost_lat2,
+        risk=_RISK,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    assert replay_res.book.turnover_total > 0.0
+    assert replay_res.ledger_evidence is not None

@@ -20,6 +20,7 @@ from trade_rl.evaluation.replay import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.decision_value import preserve_posture_aware_proposal
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioPolicy,
@@ -78,6 +79,10 @@ class _OneDecisionOverride:
             self.prefix.append((snapshot, proposal))
         elif snapshot.index == self._intervention_index:
             self.intervention_snapshot = snapshot
+            if snapshot.active_orders:
+                return preserve_posture_aware_proposal(
+                    self._action, snapshot, self._target_abs_weights
+                )
             return portfolio_action_to_proposal(
                 self._action, snapshot, self._target_abs_weights
             )

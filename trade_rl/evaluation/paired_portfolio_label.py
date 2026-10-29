@@ -15,6 +15,7 @@ import numpy as np
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.paired_portfolio_action import PairedPortfolioActionResult
+from trade_rl.strategies.decision_value import preserve_posture_aware_proposal
 from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot
 from trade_rl.strategies.portfolio_policy_codec import (
     decode_portfolio_action_codes,
@@ -248,9 +249,14 @@ def _validate_intervention_actions(
         if offset >= len(decisions):
             raise ValueError("native arm did not record its intervention")
         actual = decisions[offset]
-        expected = portfolio_action_to_proposal(
-            action, pair.baseline_snapshot, target_abs_weights
-        )
+        if pair.baseline_snapshot.active_orders:
+            expected = preserve_posture_aware_proposal(
+                action, pair.baseline_snapshot, target_abs_weights
+            )
+        else:
+            expected = portfolio_action_to_proposal(
+                action, pair.baseline_snapshot, target_abs_weights
+            )
         if (
             actual.index != pair.intervention_index
             or actual.proposal_weights != expected.target_weights

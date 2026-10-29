@@ -9,7 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, fields
+from fractions import Fraction
 from numbers import Real
 from typing import Any, cast
 
@@ -27,7 +28,6 @@ from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_LONG,
     ACTION_SHORT,
     decode_portfolio_action_codes,
-    portfolio_action_to_proposal,
 )
 
 _SCHEMA = "synthetic_linear_decision_value_v1"
@@ -97,11 +97,13 @@ def encode_decision_value_state(
     symbols: tuple[str, ...],
     feature_names: tuple[str, ...],
     global_feature_names: tuple[str, ...],
+    allow_active_orders: bool = False,
 ) -> np.ndarray:
     """Encode only decision-time features and actual portfolio weights.
 
     This v1 head has no orders/pending-state representation. Reject such
-    snapshots rather than silently extrapolating an unsupported state.
+    snapshots rather than silently extrapolating an unsupported state, unless
+    allow_active_orders is explicitly opted in by the policy runtime.
     """
     if not isinstance(observation, PortfolioDecisionSnapshot):
         raise TypeError("observation must be PortfolioDecisionSnapshot")
@@ -113,7 +115,7 @@ def encode_decision_value_state(
         raise ValueError("decision feature or symbol roster differs from the model")
     if observation.account.insolvent or observation.account.termination_reason:
         raise ValueError("decision account has already terminated")
-    if observation.active_orders:
+    if observation.active_orders and not allow_active_orders:
         raise ValueError("pending orders are unsupported by linear value v1")
     if any(not value for row in observation.feature_available for value in row) or any(
         not value for value in observation.global_feature_available
@@ -291,6 +293,74 @@ class LinearDecisionValueRuntimeContext:
             require_sha256(getattr(self, field_name), field=field_name)
 
 
+def compute_effective_posture_weights(
+    snapshot: PortfolioDecisionSnapshot,
+    target_abs_weights: tuple[float, ...],
+) -> tuple[float, ...]:
+    """Calculate effective settled + genuinely in-flight portfolio weights."""
+    if not isinstance(snapshot, PortfolioDecisionSnapshot):
+        raise TypeError("snapshot must be a PortfolioDecisionSnapshot")
+    n = len(snapshot.symbols)
+    if len(target_abs_weights) != n:
+        raise ValueError("target_abs_weights length must match symbols length")
+    total_pend = (
+        compute_pending_order_weights(snapshot)
+        if snapshot.active_orders
+        else (0.0,) * n
+    )
+    effective: list[float] = [0.0] * n
+    for i in range(n):
+        sym_orders = [o for o in snapshot.active_orders if o.symbol_index == i]
+        waiting = any(
+            o.status in ("submitted", "latency_wait", "triggered")
+            or o.last_processed_index is None
+            or o.eligible_index > snapshot.index
+            for o in sym_orders
+        )
+        meaningful_partial = abs(float(total_pend[i])) > max(
+            1e-4, 0.02 * float(target_abs_weights[i])
+        )
+        has_inflight = bool(sym_orders) and (waiting or meaningful_partial)
+        w_act = float(snapshot.account.weights[i])
+        w_total_eff = w_act + float(total_pend[i])
+        if has_inflight and abs(w_total_eff) <= 1e-6:
+            effective[i] = 0.0
+        else:
+            effective[i] = w_act + (float(total_pend[i]) if has_inflight else 0.0)
+    return tuple(effective)
+
+
+def compute_posture_cost_adjustment(
+    action: tuple[int, ...],
+    effective_weights: tuple[float, ...],
+    target_abs_weights: tuple[float, ...],
+    *,
+    eval_one_way_cost: float,
+    train_one_way_cost: float,
+) -> float:
+    """Signed incremental turnover switching and sunk-cost adjustment relative to flat start."""
+    eval_c = _finite(eval_one_way_cost, field="eval_one_way_cost")
+    train_c = _finite(train_one_way_cost, field="train_one_way_cost")
+    n = len(target_abs_weights)
+    codes = decode_portfolio_action_codes(action, n_symbols=n)
+    targets: list[float] = []
+    for i, code in enumerate(codes):
+        if code == ACTION_HOLD:
+            targets.append(effective_weights[i])
+        elif code == ACTION_FLAT:
+            targets.append(0.0)
+        elif code == ACTION_LONG:
+            targets.append(float(target_abs_weights[i]))
+        else:  # ACTION_SHORT
+            targets.append(-float(target_abs_weights[i]))
+
+    turnover_diff = sum(
+        abs(t - e) for t, e in zip(targets, effective_weights, strict=True)
+    ) - sum(abs(t) for t in targets)
+    extra_train_diff = 2.0 * (eval_c - train_c) * sum(abs(t) for t in targets)
+    return float(eval_c * turnover_diff + extra_train_diff)
+
+
 def preserve_posture_aware_proposal(
     action: tuple[int, ...],
     snapshot: PortfolioDecisionSnapshot,
@@ -301,61 +371,122 @@ def preserve_posture_aware_proposal(
     """Posture-aware proposal helper preserving in-flight orders and suppressing churn."""
     if not isinstance(snapshot, PortfolioDecisionSnapshot):
         raise TypeError("snapshot must be a PortfolioDecisionSnapshot")
+    if snapshot.account.insolvent or snapshot.account.termination_reason is not None:
+        raise ValueError("decision account has already terminated")
     n = len(snapshot.symbols)
-    if len(action) != n:
-        raise ValueError("action length must match symbols length")
-    if len(target_abs_weights) != n:
+    if type(target_abs_weights) is not tuple or len(target_abs_weights) != n:
         raise ValueError("target_abs_weights length must match symbols length")
-    pending_weights = (
+    for w in target_abs_weights:
+        if _finite(w, field="target weight") < 0.0:
+            raise ValueError("target weights must be non-negative")
+    codes = decode_portfolio_action_codes(action, n_symbols=n)
+
+    peak = float(snapshot.account.peak_value)
+    dd = (
+        max(0.0, 1.0 - float(snapshot.account.portfolio_value) / peak)
+        if peak > 0.0
+        else 0.0
+    )
+    start = snapshot.risk.drawdown_start
+    stop = snapshot.risk.drawdown_stop
+    if dd <= start:
+        risk_scale = 1.0
+    elif dd >= stop or stop == start:
+        risk_scale = 0.0
+    else:
+        risk_scale = 1.0 - (dd - start) / (stop - start)
+
+    max_abs_cap = snapshot.risk.max_abs_weight * risk_scale
+    max_gross_cap = snapshot.risk.max_gross * risk_scale
+
+    total_pend = (
         compute_pending_order_weights(snapshot)
         if snapshot.active_orders
         else (0.0,) * n
     )
+
+    has_inflight: list[bool] = [False] * n
+    for i in range(n):
+        sym_orders = [o for o in snapshot.active_orders if o.symbol_index == i]
+        waiting = any(
+            o.status in ("submitted", "latency_wait", "triggered")
+            or o.last_processed_index is None
+            or o.eligible_index > snapshot.index
+            for o in sym_orders
+        )
+        meaningful_partial = abs(float(total_pend[i])) > max(
+            1e-4, 0.02 * float(target_abs_weights[i])
+        )
+        has_inflight[i] = bool(sym_orders) and (waiting or meaningful_partial)
+
     target_weights = [0.0] * n
     hold_symbols: set[int] = set()
 
-    for i in range(n):
-        w_act = snapshot.account.weights[i]
-        w_pend = pending_weights[i]
-        w_eff = w_act + w_pend
-        d_eff = 1 if w_eff > 1e-6 else (-1 if w_eff < -1e-6 else 0)
+    for i, code in enumerate(codes):
+        w_act = float(snapshot.account.weights[i])
+        exact_qty = Fraction(snapshot.account.exact_quantities[i])
+        d_act = 1 if exact_qty > 0 else (-1 if exact_qty < 0 else 0)
+        w_total_eff = w_act + float(total_pend[i])
+
+        if has_inflight[i] and abs(w_total_eff) <= 1e-6:
+            flattening_inflight = True
+            d_eff = 0
+            w_eff = 0.0
+        else:
+            flattening_inflight = False
+            w_eff = w_act + (float(total_pend[i]) if has_inflight[i] else 0.0)
+            d_eff = 1 if w_eff > 1e-6 else (-1 if w_eff < -1e-6 else 0)
 
         if all_scores_non_positive:
-            if d_eff != 0:
-                # Cash exit: flatten losing position to cash
-                target_weights[i] = 0.0
-            else:
-                # Stay in cash
-                target_weights[i] = w_act
-                hold_symbols.add(i)
-            continue
-
-        act = action[i]
-        if act == ACTION_LONG:
-            d_star = 1
-        elif act == ACTION_SHORT:
-            d_star = -1
-        elif act == ACTION_FLAT:
             d_star = 0
-        else:  # ACTION_HOLD
+        elif code == ACTION_HOLD:
             d_star = d_eff
+        elif code == ACTION_FLAT:
+            d_star = 0
+        elif code == ACTION_LONG:
+            d_star = 1
+        else:  # ACTION_SHORT
+            d_star = -1
 
         if d_star == 0:
-            target_weights[i] = 0.0
-            if abs(w_act) <= 1e-6 and abs(w_pend) <= 1e-12:
-                hold_symbols.add(i)
-        elif d_star == d_eff:
-            # Maintaining same posture
-            if abs(w_pend) > 1e-12:
-                # In-flight order active: preserve target as w_eff without hold_symbols
-                target_weights[i] = w_eff
+            if flattening_inflight or d_act != 0:
+                target_weights[i] = 0.0
             else:
-                # Already filled in this posture: hold current quantity to suppress micro-rebalance churn
+                target_weights[i] = w_act
+                sym_orders = [o for o in snapshot.active_orders if o.symbol_index == i]
+                if not sym_orders:
+                    hold_symbols.add(i)
+        elif d_star == d_eff:
+            if has_inflight[i] and abs(w_eff) <= max_abs_cap + 1e-12:
+                target_weights[i] = w_eff
+            elif d_act == d_star:
                 target_weights[i] = w_act
                 hold_symbols.add(i)
+            else:
+                target_weights[i] = min(
+                    float(target_abs_weights[i]), max_abs_cap
+                ) * float(d_star)
         else:
-            # New entry or reversal
-            target_weights[i] = float(d_star) * target_abs_weights[i]
+            target_weights[i] = min(float(target_abs_weights[i]), max_abs_cap) * float(
+                d_star
+            )
+
+    gross = sum(abs(w) for w in target_weights)
+    if gross > max_gross_cap + 1e-12 and gross > 0.0:
+        held_gross = sum(abs(target_weights[i]) for i in hold_symbols)
+        free_gross = sum(
+            abs(target_weights[i]) for i in range(n) if i not in hold_symbols
+        )
+        if held_gross <= max_gross_cap + 1e-12 and free_gross > 0.0:
+            free_scale = max(0.0, max_gross_cap - held_gross) / free_gross
+            for i in range(n):
+                if i not in hold_symbols:
+                    target_weights[i] *= free_scale
+        else:
+            hold_symbols.clear()
+            scale = max_gross_cap / gross
+            for i in range(n):
+                target_weights[i] *= scale
 
     return PortfolioTargetProposal(
         target_weights=tuple(target_weights),
@@ -371,6 +502,9 @@ class LinearDecisionValuePolicy:
         model: LinearDecisionValueModel,
         *,
         runtime_context: LinearDecisionValueRuntimeContext,
+        allow_active_orders: bool = False,
+        eval_one_way_cost: float = 0.0,
+        train_one_way_cost: float = 0.0,
     ) -> None:
         if not isinstance(model, LinearDecisionValueModel):
             raise TypeError("model must be LinearDecisionValueModel")
@@ -386,58 +520,110 @@ class LinearDecisionValuePolicy:
             if getattr(model, field_name) != getattr(runtime_context, field_name):
                 raise ValueError(f"runtime {field_name} differs from fitted model")
         self.model = model
+        self.allow_active_orders = allow_active_orders
+        self.eval_one_way_cost = _finite(eval_one_way_cost, field="eval_one_way_cost")
+        self.train_one_way_cost = _finite(
+            train_one_way_cost, field="train_one_way_cost"
+        )
+        self._coefs = [np.asarray(row, dtype=np.float64) for row in model.coefficients]
 
-    def _scores(self, snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+    def _features(self, snapshot: PortfolioDecisionSnapshot) -> np.ndarray:
         if snapshot.timestamp_ns < self.model.evaluation_start_ns:
             raise ValueError("policy decision precedes evaluation start")
-        features = encode_decision_value_state(
+        return encode_decision_value_state(
             snapshot,
             symbols=self.model.symbols,
             feature_names=self.model.feature_names,
             global_feature_names=self.model.global_feature_names,
+            allow_active_orders=self.allow_active_orders,
         )
-        values = [0.0]
-        for row in self.model.coefficients:
-            value = float(features @ np.asarray(row, dtype=np.float64))
-            if not math.isfinite(value):
-                raise ValueError("predicted decision value must be finite")
-            values.append(value)
-        return tuple(values)
 
     def value_for_action(
         self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
-        return self._scores(snapshot)[self.model.candidate_actions.index(action)]
+        n_symbols = len(self.model.symbols)
+        if action == (ACTION_FLAT,) * n_symbols:
+            return 0.0
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        if action == self.model.candidate_actions[0]:
+            if all(abs(w) <= 1e-6 for w in w_eff):
+                return 0.0
+            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
+            for cand in self.model.candidate_actions[1:]:
+                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
+                cand_dir = tuple(
+                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
+                    for c in cand_codes
+                )
+                if cand_dir == d_eff:
+                    return self.value_for_action(snapshot, cand)
+            return 0.0
+
+        k = self.model.candidate_actions.index(action) - 1
+        features = self._features(snapshot)
+        raw_val = float(features @ self._coefs[k])
+        if not math.isfinite(raw_val):
+            raise ValueError("predicted decision value must be finite")
+        adj_cost = compute_posture_cost_adjustment(
+            action,
+            w_eff,
+            self.model.target_abs_weights,
+            eval_one_way_cost=self.eval_one_way_cost,
+            train_one_way_cost=self.train_one_way_cost,
+        )
+        return float(raw_val - adj_cost)
+
+    def _select_best_action(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> tuple[tuple[int, ...], bool]:
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        is_invested = any(abs(w) > 1e-6 for w in w_eff) or any(
+            Fraction(q) != 0 for q in snapshot.account.exact_quantities
+        )
+        n_symbols = len(self.model.symbols)
+        flat_action = (ACTION_FLAT,) * n_symbols
+        hold_action = (ACTION_HOLD,) * n_symbols
+
+        best_index = -1
+        best_score = _POSITIVE_EDGE
+        for index in range(1, len(self.model.candidate_actions)):
+            action = self.model.candidate_actions[index]
+            if action == flat_action:
+                continue
+            score = self.value_for_action(snapshot, action)
+            if score > best_score:
+                best_score = score
+                best_index = index
+
+        if best_index != -1:
+            return self.model.candidate_actions[best_index], False
+
+        all_non_positive = True
+        if is_invested:
+            if flat_action in self.model.candidate_actions:
+                chosen = flat_action
+            else:
+                chosen = hold_action
+        else:
+            chosen = hold_action
+        return chosen, all_non_positive
 
     def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
-        scores = self._scores(snapshot)
-        best = 0
-        best_edge = _POSITIVE_EDGE
-        for index in range(1, len(scores)):
-            if scores[index] > best_edge:
-                best = index
-                best_edge = scores[index]
-        return self.model.candidate_actions[best]
+        chosen, _ = self._select_best_action(snapshot)
+        return chosen
 
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        snap_to_score = (
-            replace(snapshot, active_orders=()) if snapshot.active_orders else snapshot
-        )
-        scores = self._scores(snap_to_score)
-        best = 0
-        best_edge = _POSITIVE_EDGE
-        for index in range(1, len(scores)):
-            if scores[index] > best_edge:
-                best = index
-                best_edge = scores[index]
-        all_non_positive = best == 0
-        action = self.model.candidate_actions[best]
+        chosen, all_non_positive = self._select_best_action(snapshot)
         return preserve_posture_aware_proposal(
-            action,
+            chosen,
             snapshot,
             self.model.target_abs_weights,
             all_scores_non_positive=all_non_positive,
@@ -658,6 +844,9 @@ class ConservativeLinearDecisionValuePolicy:
         model: ConservativeLinearDecisionValueModel,
         *,
         runtime_context: LinearDecisionValueRuntimeContext,
+        allow_active_orders: bool = True,
+        eval_one_way_cost: float | None = None,
+        train_one_way_cost: float | None = None,
     ) -> None:
         if not isinstance(model, ConservativeLinearDecisionValueModel):
             raise TypeError("model must be ConservativeLinearDecisionValueModel")
@@ -673,6 +862,16 @@ class ConservativeLinearDecisionValuePolicy:
             if getattr(model, field_name) != getattr(runtime_context, field_name):
                 raise ValueError(f"runtime {field_name} differs from fitted model")
         self.model = model
+        self.eval_one_way_cost = (
+            model.one_way_switch_cost
+            if eval_one_way_cost is None
+            else _finite(eval_one_way_cost, field="eval_one_way_cost")
+        )
+        self.train_one_way_cost = (
+            model.one_way_switch_cost
+            if train_one_way_cost is None
+            else _finite(train_one_way_cost, field="train_one_way_cost")
+        )
         self._coefs = [np.asarray(row, dtype=np.float64) for row in model.coefficients]
         self._covs = [
             np.asarray(m, dtype=np.float64) for m in model.covariance_matrices
@@ -694,6 +893,21 @@ class ConservativeLinearDecisionValuePolicy:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
         if action == self.model.candidate_actions[0]:
+            w_eff = compute_effective_posture_weights(
+                snapshot, self.model.target_abs_weights
+            )
+            if all(abs(w) <= 1e-6 for w in w_eff):
+                return 0.0
+            n_symbols = len(self.model.symbols)
+            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
+            for cand in self.model.candidate_actions[1:]:
+                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
+                cand_dir = tuple(
+                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
+                    for c in cand_codes
+                )
+                if cand_dir == d_eff:
+                    return self.predictive_std_for_action(snapshot, cand)
             return 0.0
         k = self.model.candidate_actions.index(action) - 1
         features = self._features(snapshot)
@@ -705,60 +919,91 @@ class ConservativeLinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
-        if action == self.model.candidate_actions[0]:
+        n_symbols = len(self.model.symbols)
+        if action == (ACTION_FLAT,) * n_symbols:
             return 0.0
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        if action == self.model.candidate_actions[0]:
+            if all(abs(w) <= 1e-6 for w in w_eff):
+                return 0.0
+            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
+            for cand in self.model.candidate_actions[1:]:
+                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
+                cand_dir = tuple(
+                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
+                    for c in cand_codes
+                )
+                if cand_dir == d_eff:
+                    return self.conservative_value_for_action(snapshot, cand)
+            return 0.0
+
         k = self.model.candidate_actions.index(action) - 1
         features = self._features(snapshot)
         mean_val = float(features @ self._coefs[k])
         se = self.predictive_std_for_action(snapshot, action)
-        pending_weights = compute_pending_order_weights(snapshot)
-        effective_weights = tuple(
-            w_s + w_p
-            for w_s, w_p in zip(snapshot.account.weights, pending_weights, strict=True)
+        adj_cost = compute_posture_cost_adjustment(
+            action,
+            w_eff,
+            self.model.target_abs_weights,
+            eval_one_way_cost=self.eval_one_way_cost,
+            train_one_way_cost=self.train_one_way_cost,
         )
-        proposal = portfolio_action_to_proposal(
-            action, snapshot, self.model.target_abs_weights
-        )
-        extra_switch_turnover = max(
-            0.0,
-            sum(
-                abs(t - e)
-                for t, e in zip(proposal.target_weights, effective_weights, strict=True)
-            )
-            - sum(abs(t) for t in proposal.target_weights),
-        )
-        return (
-            mean_val
-            - self.model.uncertainty_penalty_weight * se
-            - self.model.one_way_switch_cost * extra_switch_turnover
-        )
+        return float(mean_val - self.model.uncertainty_penalty_weight * se - adj_cost)
 
-    def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
-        best = 0
-        best_edge = _POSITIVE_EDGE
+    def value_for_action(
+        self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
+    ) -> float:
+        return self.conservative_value_for_action(snapshot, action)
+
+    def _select_best_action(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> tuple[tuple[int, ...], bool]:
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        is_invested = any(abs(w) > 1e-6 for w in w_eff) or any(
+            Fraction(q) != 0 for q in snapshot.account.exact_quantities
+        )
+        n_symbols = len(self.model.symbols)
+        flat_action = (ACTION_FLAT,) * n_symbols
+        hold_action = (ACTION_HOLD,) * n_symbols
+
+        best_index = -1
+        best_score = _POSITIVE_EDGE
         for index in range(1, len(self.model.candidate_actions)):
             action = self.model.candidate_actions[index]
+            if action == flat_action:
+                continue
             score = self.conservative_value_for_action(snapshot, action)
-            if score > best_edge:
-                best = index
-                best_edge = score
-        return self.model.candidate_actions[best]
+            if score > best_score:
+                best_score = score
+                best_index = index
+
+        if best_index != -1:
+            return self.model.candidate_actions[best_index], False
+
+        all_non_positive = True
+        if is_invested:
+            if flat_action in self.model.candidate_actions:
+                chosen = flat_action
+            else:
+                chosen = hold_action
+        else:
+            chosen = hold_action
+        return chosen, all_non_positive
+
+    def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
+        chosen, _ = self._select_best_action(snapshot)
+        return chosen
 
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        best = 0
-        best_edge = _POSITIVE_EDGE
-        for index in range(1, len(self.model.candidate_actions)):
-            action = self.model.candidate_actions[index]
-            score = self.conservative_value_for_action(snapshot, action)
-            if score > best_edge:
-                best = index
-                best_edge = score
-        all_non_positive = best == 0
-        action = self.model.candidate_actions[best]
+        chosen, all_non_positive = self._select_best_action(snapshot)
         return preserve_posture_aware_proposal(
-            action,
+            chosen,
             snapshot,
             self.model.target_abs_weights,
             all_scores_non_positive=all_non_positive,
@@ -850,7 +1095,9 @@ __all__ = [
     "LinearDecisionValueModel",
     "LinearDecisionValuePolicy",
     "LinearDecisionValueRuntimeContext",
+    "compute_effective_posture_weights",
     "compute_pending_order_weights",
+    "compute_posture_cost_adjustment",
     "encode_decision_value_state",
     "encode_decision_value_state_v2",
     "load_conservative_linear_decision_value",

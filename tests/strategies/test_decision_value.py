@@ -14,6 +14,7 @@ from trade_rl.strategies.decision_value import (
     LinearDecisionValuePolicy,
     LinearDecisionValueRuntimeContext,
     compute_pending_order_weights,
+    compute_posture_cost_adjustment,
     encode_decision_value_state_v2,
     load_conservative_linear_decision_value,
     load_linear_decision_value,
@@ -599,3 +600,256 @@ def test_preserve_posture_aware_proposal_contracts() -> None:
     assert p5.target_weights == pytest.approx((0.0, 0.0))
     assert 0 in p5.hold_current_quantity_symbols
     assert 1 in p5.hold_current_quantity_symbols
+
+
+def test_preserve_posture_aware_proposal_dust_weight_exit() -> None:
+    snap_flat = _snapshot(signal=0.0)
+    targets = (0.25, 0.25)
+    # Book has sub-lot dust weight (e.g. 1e-7) from precision rounding
+    snap_dust = replace(
+        snap_flat,
+        account=replace(
+            snap_flat.account,
+            exact_quantities=("1/1000000000", "0"),
+            quantities=(1e-9, 0.0),
+            weights=(1e-7, 0.0),
+        ),
+    )
+    # With all_scores_non_positive=True, dust must exit cleanly to 0.0 without ValueError
+    prop = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD),
+        snap_dust,
+        targets,
+        all_scores_non_positive=True,
+    )
+    assert prop.target_weights[0] == pytest.approx(0.0)
+    assert 0 not in prop.hold_current_quantity_symbols
+
+    # Also with ACTION_FLAT
+    from trade_rl.strategies.portfolio_policy_codec import ACTION_FLAT
+
+    prop_flat = preserve_posture_aware_proposal(
+        (ACTION_FLAT, ACTION_HOLD),
+        snap_dust,
+        targets,
+        all_scores_non_positive=False,
+    )
+    assert prop_flat.target_weights[0] == pytest.approx(0.0)
+    assert 0 not in prop_flat.hold_current_quantity_symbols
+
+
+def test_preserve_posture_aware_proposal_sublot_remainder() -> None:
+    snap_flat = _snapshot(signal=0.0)
+    targets = (0.25, 0.25)
+    # Position is settled for 2.5 units (0.25 weight)
+    # Pending order has tiny sub-lot remainder (e.g. 1e-8 remaining, negligible notional)
+    ord_crumb = PortfolioPendingOrderSnapshot(
+        symbol_index=0,
+        order_type="market",
+        time_in_force="gtc",
+        requested_quantity=2.5,
+        remaining_quantity=1e-8,
+        status="partially_filled",
+        submit_index=0,
+        eligible_index=1,
+        last_processed_index=1,
+        trigger_index=None,
+        expiry_index=None,
+        reduce_only=False,
+        submission_reference_price=100.0,
+    )
+    snap_crumb = replace(
+        snap_flat,
+        account=replace(
+            snap_flat.account,
+            exact_quantities=("2.5", "0"),
+            quantities=(2.5, 0.0),
+            weights=(0.25, 0.0),
+        ),
+        active_orders=(ord_crumb,),
+    )
+    # Under ACTION_HOLD, sub-lot crumb should not block holding the settled position
+    prop = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD),
+        snap_crumb,
+        targets,
+        all_scores_non_positive=False,
+    )
+    assert prop.target_weights[0] == pytest.approx(0.25)
+    assert 0 in prop.hold_current_quantity_symbols
+
+
+def test_preserve_posture_aware_proposal_latency_2bar_lifecycle() -> None:
+    targets = (0.25, 0.25)
+    snap = _snapshot(signal=0.0)
+
+    # Bar 0: Flat -> Enter LONG (order submitted for 2.5 qty)
+    p0 = preserve_posture_aware_proposal(
+        (ACTION_LONG, ACTION_HOLD), snap, targets, all_scores_non_positive=False
+    )
+    assert p0.target_weights == (0.25, 0.0)
+    assert 0 not in p0.hold_current_quantity_symbols
+
+    # Bar 1: Order is in-flight (status='latency_wait', remaining=2.5)
+    # Model decides ACTION_LONG again: must keep target 0.25 alive, NOT cancel
+    ord_inflight = PortfolioPendingOrderSnapshot(
+        symbol_index=0,
+        order_type="market",
+        time_in_force="gtc",
+        requested_quantity=2.5,
+        remaining_quantity=2.5,
+        status="latency_wait",
+        submit_index=0,
+        eligible_index=2,
+        last_processed_index=None,
+        trigger_index=None,
+        expiry_index=None,
+        reduce_only=False,
+        submission_reference_price=100.0,
+    )
+    snap1 = replace(snap, index=1, active_orders=(ord_inflight,))
+    p1 = preserve_posture_aware_proposal(
+        (ACTION_LONG, ACTION_HOLD), snap1, targets, all_scores_non_positive=False
+    )
+    assert p1.target_weights[0] == pytest.approx(0.25)
+    assert 0 not in p1.hold_current_quantity_symbols
+
+    # Bar 2: Order fills. Position = 2.5 qty, weight = 0.25. Model holds.
+    snap2 = replace(
+        snap,
+        index=2,
+        remaining_decisions=4,
+        active_orders=(),
+        account=replace(
+            snap.account,
+            exact_quantities=("2.5", "0"),
+            quantities=(2.5, 0.0),
+            weights=(0.25, 0.0),
+        ),
+    )
+    p2 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD), snap2, targets, all_scores_non_positive=False
+    )
+    assert p2.target_weights[0] == pytest.approx(0.25)
+    assert 0 in p2.hold_current_quantity_symbols
+
+    # Bar 3: Model decides to exit to cash (all_scores_non_positive=True).
+    # Generates exit order targeting 0.0.
+    p3 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD), snap2, targets, all_scores_non_positive=True
+    )
+    assert p3.target_weights[0] == pytest.approx(0.0)
+    assert 0 not in p3.hold_current_quantity_symbols
+
+    # Bar 4: Exit order in-flight (status='latency_wait', remaining=-2.5)
+    ord_exit_inflight = PortfolioPendingOrderSnapshot(
+        symbol_index=0,
+        order_type="market",
+        time_in_force="gtc",
+        requested_quantity=-2.5,
+        remaining_quantity=-2.5,
+        status="latency_wait",
+        submit_index=3,
+        eligible_index=5,
+        last_processed_index=None,
+        trigger_index=None,
+        expiry_index=None,
+        reduce_only=True,
+        submission_reference_price=100.0,
+    )
+    snap4 = replace(
+        snap2,
+        index=4,
+        remaining_decisions=2,
+        active_orders=(ord_exit_inflight,),
+    )
+    p4 = preserve_posture_aware_proposal(
+        (ACTION_HOLD, ACTION_HOLD), snap4, targets, all_scores_non_positive=True
+    )
+    assert p4.target_weights[0] == pytest.approx(0.0)
+    assert 0 not in p4.hold_current_quantity_symbols
+
+
+def test_signed_sunk_cost_hysteresis() -> None:
+    targets = (0.25, 0.25)
+    cost = 0.0008
+
+    # 1. Continuing held position: effective_weights = (0.25, 0.0), action = HOLD
+    adj_hold = compute_posture_cost_adjustment(
+        (ACTION_HOLD, ACTION_HOLD),
+        (0.25, 0.0),
+        targets,
+        eval_one_way_cost=cost,
+        train_one_way_cost=cost,
+    )
+
+    # 2. Entering from flat: effective_weights = (0.0, 0.0), action = LONG
+    adj_enter = compute_posture_cost_adjustment(
+        (ACTION_LONG, ACTION_HOLD),
+        (0.0, 0.0),
+        targets,
+        eval_one_way_cost=cost,
+        train_one_way_cost=cost,
+    )
+
+    # 3. Reversing from short: effective_weights = (-0.25, 0.0), action = LONG
+    adj_reverse = compute_posture_cost_adjustment(
+        (ACTION_LONG, ACTION_HOLD),
+        (-0.25, 0.0),
+        targets,
+        eval_one_way_cost=cost,
+        train_one_way_cost=cost,
+    )
+
+    # Transaction cost penalty is lowest for continuing held position (negative = cost bonus),
+    # zero for entering from flat, and highest for reversing through zero (positive penalty)
+    assert adj_hold < adj_enter < adj_reverse
+    val = 0.010
+    assert (val - adj_hold) > (val - adj_enter) > (val - adj_reverse)
+
+
+def test_policy_action_value_portfolio_consistency_with_active_orders() -> None:
+    model = _model()
+    ctx = LinearDecisionValueRuntimeContext(
+        source_scope="synthetic_only",
+        feature_config_digest=model.feature_config_digest,
+        normalization_digest=model.normalization_digest,
+        execution_policy_digest=model.execution_policy_digest,
+        reference_policy_digest=model.reference_policy_digest,
+    )
+    pol = LinearDecisionValuePolicy(
+        model,
+        runtime_context=ctx,
+        allow_active_orders=True,
+        eval_one_way_cost=0.001,
+        train_one_way_cost=0.001,
+    )
+    snap = _snapshot(signal=0.8)
+    ord_active = PortfolioPendingOrderSnapshot(
+        symbol_index=0,
+        order_type="market",
+        time_in_force="gtc",
+        requested_quantity=2.0,
+        remaining_quantity=2.0,
+        status="latency_wait",
+        submit_index=1,
+        eligible_index=3,
+        last_processed_index=None,
+        trigger_index=None,
+        expiry_index=None,
+        reduce_only=False,
+        submission_reference_price=100.0,
+    )
+    snap_active = replace(snap, active_orders=(ord_active,))
+
+    best_action = pol.decide_action(snap_active)
+    best_val = pol.value_for_action(snap_active, best_action)
+    for act in model.candidate_actions:
+        assert best_val >= pol.value_for_action(snap_active, act)
+
+    proposal = pol.decide_portfolio(snap_active)
+    # Check proposal matches best_action direction
+    if best_action[0] == ACTION_LONG:
+        assert proposal.target_weights[0] > 0
+    elif best_action[0] == ACTION_SHORT:
+        assert proposal.target_weights[0] < 0

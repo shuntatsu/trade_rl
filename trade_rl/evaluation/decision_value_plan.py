@@ -19,6 +19,7 @@ from trade_rl.strategies.portfolio_policy_codec import (
 
 DataScope = Literal["synthetic_only", "real_development"]
 _ALLOWED_SCOPES = ("synthetic_only", "real_development")
+_ALLOWED_LEARNERS = ("linear", "conservative_linear", "shallow")
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,11 +85,13 @@ class DecisionValueStudyPlan:
             raise ValueError("candidate actions must be unique")
         if (
             type(self.learner_roster) is not tuple
-            or not 1 <= len(self.learner_roster) <= 2
-            or any(name not in ("linear", "shallow") for name in self.learner_roster)
+            or not 1 <= len(self.learner_roster) <= 3
+            or any(name not in _ALLOWED_LEARNERS for name in self.learner_roster)
             or len(set(self.learner_roster)) != len(self.learner_roster)
         ):
-            raise ValueError("learner roster is at most linear and shallow once each")
+            raise ValueError(
+                "learner roster is at most linear, conservative_linear, and shallow once each"
+            )
         digest = self.real_scope_authorization_digest
         if self.data_scope == "real_development":
             if (

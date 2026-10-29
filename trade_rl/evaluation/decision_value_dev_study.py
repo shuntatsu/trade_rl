@@ -34,15 +34,17 @@ from trade_rl.evaluation.paired_portfolio_label import (
     build_synthetic_paired_label_batch,
 )
 from trade_rl.evaluation.replay import (
+    SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.quantities import project_quantity
+from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
 from trade_rl.strategies.decision_value import (
     ConservativeLinearDecisionValuePolicy,
     LinearDecisionValuePolicy,
     LinearDecisionValueRuntimeContext,
+    compute_effective_posture_weights,
     preserve_posture_aware_proposal,
 )
 from trade_rl.strategies.decision_value_shallow import (
@@ -53,6 +55,7 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioPolicy,
@@ -69,12 +72,47 @@ from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
     ACTION_LONG,
     ACTION_SHORT,
-    portfolio_action_to_proposal,
+)
+from trade_rl.strategies.position_intent import PositionIntent
+
+DEFAULT_SCENARIOS: tuple[tuple[str, float, int], ...] = (
+    ("base", 1.0, 0),
+    ("cost_x2", 2.0, 0),
+    ("latency_1bar", 1.0, 1),
+    ("latency_2bar", 1.0, 2),
 )
 
-_REFERENCE_POLICY_DIGEST = hashlib.sha256(
-    b"hold_current_quantity_reference_policy_v1"
-).hexdigest()
+
+def _finite(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field} must be a number")
+    val = float(value)
+    if not math.isfinite(val):
+        raise ValueError(f"{field} must be finite")
+    return val
+
+
+def _verify_ledger_reconciliation(
+    replay_res: SharedCashPortfolioReplayResult,
+    *,
+    expected_intervals: int,
+) -> bool:
+    ledger = replay_res.ledger_evidence
+    if ledger is None:
+        return False
+    iv = ledger.intervals
+    if len(iv.intervals) != expected_intervals:
+        return False
+    book = replay_res.book
+    return (
+        math.isclose(iv.final_portfolio_value, float(book.portfolio_value))
+        and math.isclose(iv.final_cash, float(book.cash))
+        and math.isclose(iv.final_total_cost, float(book.total_cost))
+        and math.isclose(iv.final_funding_pnl, float(book.funding_pnl))
+        and math.isclose(iv.final_borrow_cost, float(book.borrow_cost))
+        and math.isclose(iv.final_turnover_total, float(book.turnover_total))
+        and math.isclose(iv.final_max_drawdown, float(book.max_drawdown))
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +191,10 @@ def compute_real_scope_authorization_digest(
     ridge_entry_threshold: float,
     ridge_exit_threshold: float,
     prior_usage_disclosure: str,
+    learner_roster: tuple[str, ...] = ("linear", "conservative_linear", "shallow"),
+    value_ridge_penalty: float = 10.0,
+    uncertainty_penalty_weight: float = 1.0,
+    scenarios: tuple[tuple[str, float, int], ...] = DEFAULT_SCENARIOS,
 ) -> str:
     """Canonical lowercase SHA-256 digest of the pre-authorization specification."""
     payload = {
@@ -183,6 +225,17 @@ def compute_real_scope_authorization_digest(
         "ridge_entry_threshold": float(ridge_entry_threshold),
         "ridge_exit_threshold": float(ridge_exit_threshold),
         "prior_usage_disclosure": prior_usage_disclosure,
+        "learner_roster": list(learner_roster),
+        "value_ridge_penalty": float(value_ridge_penalty),
+        "uncertainty_penalty_weight": float(uncertainty_penalty_weight),
+        "scenarios": [
+            {
+                "name": name,
+                "cost_multiplier": float(cost_mult),
+                "order_latency_bars": int(lat),
+            }
+            for name, cost_mult, lat in scenarios
+        ],
     }
     return content_digest(payload)
 
@@ -204,6 +257,9 @@ class DecisionValueDevStudyProtocol:
     ridge_entry_threshold: float
     ridge_exit_threshold: float
     prior_usage_disclosure: str
+    value_ridge_penalty: float = 10.0
+    uncertainty_penalty_weight: float = 1.0
+    scenarios: tuple[tuple[str, float, int], ...] = DEFAULT_SCENARIOS
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_plan, DecisionValueStudyPlan):
@@ -278,6 +334,16 @@ class DecisionValueDevStudyProtocol:
             or not self.prior_usage_disclosure.strip()
         ):
             raise ValueError("prior_usage_disclosure must be a non-empty string")
+        pen = _finite(self.value_ridge_penalty, field="value_ridge_penalty")
+        if pen <= 0.0:
+            raise ValueError("value_ridge_penalty must be positive and finite")
+        unc_w = _finite(
+            self.uncertainty_penalty_weight, field="uncertainty_penalty_weight"
+        )
+        if unc_w < 0.0:
+            raise ValueError(
+                "uncertainty_penalty_weight must be non-negative and finite"
+            )
 
         expected_digest = compute_real_scope_authorization_digest(
             dataset_id=self.dataset_id,
@@ -300,6 +366,10 @@ class DecisionValueDevStudyProtocol:
             ridge_entry_threshold=self.ridge_entry_threshold,
             ridge_exit_threshold=self.ridge_exit_threshold,
             prior_usage_disclosure=self.prior_usage_disclosure,
+            learner_roster=self.study_plan.learner_roster,
+            value_ridge_penalty=self.value_ridge_penalty,
+            uncertainty_penalty_weight=self.uncertainty_penalty_weight,
+            scenarios=self.scenarios,
         )
         if self.study_plan.real_scope_authorization_digest != expected_digest:
             raise ValueError(
@@ -351,6 +421,16 @@ class DecisionValueDevStudyProtocol:
             "ridge_entry_threshold": self.ridge_entry_threshold,
             "ridge_exit_threshold": self.ridge_exit_threshold,
             "prior_usage_disclosure": self.prior_usage_disclosure,
+            "value_ridge_penalty": self.value_ridge_penalty,
+            "uncertainty_penalty_weight": self.uncertainty_penalty_weight,
+            "scenarios": [
+                {
+                    "name": name,
+                    "cost_multiplier": float(cost_mult),
+                    "order_latency_bars": int(lat),
+                }
+                for name, cost_mult, lat in self.scenarios
+            ],
         }
 
     @property
@@ -372,10 +452,10 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
     candidate_actions = (
         (ACTION_HOLD, ACTION_HOLD),
         (ACTION_FLAT, ACTION_FLAT),
-        (ACTION_LONG, ACTION_HOLD),
-        (ACTION_SHORT, ACTION_HOLD),
-        (ACTION_HOLD, ACTION_LONG),
-        (ACTION_HOLD, ACTION_SHORT),
+        (ACTION_LONG, ACTION_FLAT),
+        (ACTION_SHORT, ACTION_FLAT),
+        (ACTION_FLAT, ACTION_LONG),
+        (ACTION_FLAT, ACTION_SHORT),
         (ACTION_LONG, ACTION_LONG),
         (ACTION_SHORT, ACTION_SHORT),
         (ACTION_LONG, ACTION_SHORT),
@@ -438,6 +518,10 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         "previously consumed in bot-development-2024q1 and bot-cash-control-2024q1; "
         "not eligible for G5 unused validation or live trading promotion."
     )
+    value_ridge_penalty = 10.0
+    uncertainty_penalty_weight = 1.0
+    scenarios = DEFAULT_SCENARIOS
+    learner_roster = ("linear", "conservative_linear", "shallow")
     auth_digest = compute_real_scope_authorization_digest(
         dataset_id=dataset_id,
         expected_artifact_digest=expected_artifact_digest,
@@ -459,6 +543,10 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         ridge_entry_threshold=ridge_entry_threshold,
         ridge_exit_threshold=ridge_exit_threshold,
         prior_usage_disclosure=prior_usage_disclosure,
+        learner_roster=learner_roster,
+        value_ridge_penalty=value_ridge_penalty,
+        uncertainty_penalty_weight=uncertainty_penalty_weight,
+        scenarios=scenarios,
     )
     study_plan = DecisionValueStudyPlan(
         data_scope="real_development",
@@ -471,7 +559,7 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         fee_rate=fee_rate,
         spread_rate=spread_rate,
         max_policy_improvements=1,
-        learner_roster=("linear", "shallow"),
+        learner_roster=learner_roster,
         real_scope_authorization_digest=auth_digest,
     )
     return DecisionValueDevStudyProtocol(
@@ -488,6 +576,9 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         ridge_entry_threshold=ridge_entry_threshold,
         ridge_exit_threshold=ridge_exit_threshold,
         prior_usage_disclosure=prior_usage_disclosure,
+        value_ridge_penalty=value_ridge_penalty,
+        uncertainty_penalty_weight=uncertainty_penalty_weight,
+        scenarios=scenarios,
     )
 
 
@@ -590,45 +681,24 @@ class DecisionValueDevStudyResult:
 
 
 class _HoldQuantityPolicy:
-    """Quantity-preserving HOLD reference policy."""
+    """Posture-aware and in-flight-preserving HOLD reference policy."""
 
-    __slots__ = ()
-
-    def decide_portfolio(
-        self, snapshot: PortfolioDecisionSnapshot
-    ) -> PortfolioTargetProposal:
-        return PortfolioTargetProposal(
-            snapshot.account.weights,
-            hold_current_quantity_symbols=tuple(range(len(snapshot.symbols))),
-        )
-
-
-class _WarmupReferencePolicy:
-    """Warmup action on bar 0 (t - 1), followed by exact-quantity HOLD."""
-
-    __slots__ = ("_warmup_action", "_target_abs_weights", "_entered")
+    __slots__ = ("_target_abs_weights",)
 
     def __init__(
         self,
-        *,
-        warmup_action: tuple[int, ...],
-        target_abs_weights: tuple[float, ...],
+        target_abs_weights: tuple[float, ...] = (0.25, 0.25),
     ) -> None:
-        self._warmup_action = warmup_action
         self._target_abs_weights = target_abs_weights
-        self._entered = False
 
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        if not self._entered:
-            self._entered = True
-            return portfolio_action_to_proposal(
-                self._warmup_action, snapshot, self._target_abs_weights
-            )
-        return PortfolioTargetProposal(
-            snapshot.account.weights,
-            hold_current_quantity_symbols=tuple(range(len(snapshot.symbols))),
+        return preserve_posture_aware_proposal(
+            (ACTION_HOLD,) * len(snapshot.symbols),
+            snapshot,
+            self._target_abs_weights,
+            all_scores_non_positive=False,
         )
 
 
@@ -652,8 +722,11 @@ class _FixedEntryPolicy:
     ) -> PortfolioTargetProposal:
         if not self._entered:
             self._entered = True
-            return portfolio_action_to_proposal(
-                self._action, snapshot, self._target_abs_weights
+            return preserve_posture_aware_proposal(
+                self._action,
+                snapshot,
+                self._target_abs_weights,
+                all_scores_non_positive=False,
             )
         return preserve_posture_aware_proposal(
             (ACTION_HOLD,) * len(snapshot.symbols),
@@ -685,7 +758,6 @@ class _CostAwareRidgePortfolioPolicy:
         exit_threshold: float,
         one_way_switch_cost: float,
     ) -> None:
-
         self._symbols = tuple(dataset.symbols)
         self._budgets = target_abs_weights
         self._strategies = tuple(
@@ -704,9 +776,6 @@ class _CostAwareRidgePortfolioPolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        from trade_rl.strategies.interface import StrategyObservation
-        from trade_rl.strategies.position_intent import PositionIntent
-
         if (
             snapshot.account.insolvent
             or snapshot.account.termination_reason is not None
@@ -716,18 +785,17 @@ class _CostAwareRidgePortfolioPolicy:
         if np.isnat(timestamp):
             raise ValueError("decision timestamp must not be NaT")
 
-        targets: list[float] = []
+        effective_weights = compute_effective_posture_weights(snapshot, self._budgets)
+        actions: list[int] = []
         for i, (strategy, budget) in enumerate(
             zip(self._strategies, self._budgets, strict=True)
         ):
-            raw_exact = snapshot.account.exact_quantities[i]
-            exact = Fraction(raw_exact)
-            quantity = project_quantity(exact)
+            w_eff = effective_weights[i]
             current = (
                 PositionIntent.LONG
-                if exact > 0
+                if w_eff > 1e-6
                 else PositionIntent.SHORT
-                if exact < 0
+                if w_eff < -1e-6
                 else PositionIntent.FLAT
             )
             obs = StrategyObservation(
@@ -746,36 +814,21 @@ class _CostAwareRidgePortfolioPolicy:
                     snapshot.global_feature_available, dtype=np.bool_
                 ),
                 current_intent=current,
-                current_weight=snapshot.account.weights[i],
-                current_position_quantity=quantity,
+                current_weight=w_eff,
                 intent_gross_budget=budget,
             )
             intent = strategy.decide(obs)
-            targets.append(float(int(intent)) * budget)
+            if intent == PositionIntent.LONG:
+                actions.append(ACTION_LONG)
+            elif intent == PositionIntent.SHORT:
+                actions.append(ACTION_SHORT)
+            else:
+                actions.append(ACTION_FLAT)
 
         self._last_index = snapshot.index
         self._last_timestamp_ns = snapshot.timestamp_ns
         self._agent_stop_index = snapshot.agent_stop_index
-        return PortfolioTargetProposal(target_weights=tuple(targets))
-
-
-class _LatencyAwareDecisionValuePolicy:
-    """Wrap a frozen decision value policy to mask pending orders under latency stress."""
-
-    __slots__ = ("_policy",)
-
-    def __init__(
-        self, policy: LinearDecisionValuePolicy | ShallowDecisionValuePolicy
-    ) -> None:
-        self._policy = policy
-
-    def decide_portfolio(
-        self, snapshot: PortfolioDecisionSnapshot
-    ) -> PortfolioTargetProposal:
-        if snapshot.active_orders:
-            clean_snapshot = replace(snapshot, active_orders=())
-            return self._policy.decide_portfolio(clean_snapshot)
-        return self._policy.decide_portfolio(snapshot)
+        return preserve_posture_aware_proposal(tuple(actions), snapshot, self._budgets)
 
 
 def _perturb_after(dataset: MarketDataset, last_unchanged_bar: int) -> MarketDataset:
@@ -816,7 +869,7 @@ def _format_markdown_summary(
 ) -> str:
     """Generate human-readable Markdown summary of the study results."""
     lines = [
-        "# TD5 Development Study Report: Direct Decision-Value Learning on Real Market Data",
+        "# Decision Value Development Study Report (#1025)",
         "",
         f"- **Verdict**: `{result.verdict}`",
         f"- **Reason**: {result.verdict_reason}",
@@ -933,6 +986,12 @@ def run_decision_value_dev_study(
         )
 
         # 2. Collect paired action interventions for B1/B2
+        ref_digest = content_digest(
+            {
+                "policy": "in_flight_preserving_hold_quantity_v1",
+                "target_abs_weights": [float(w) for w in protocol.target_abs_weights],
+            }
+        )
         samples: list[SyntheticPairedLabel] = []
         intervention_indices = range(
             block.train_start_index, block.train_stop_index + 1, block.train_step
@@ -942,47 +1001,23 @@ def run_decision_value_dev_study(
 
         for t in intervention_indices:
             for cand_action in non_hold_candidates:
-                if all(a == ACTION_FLAT for a in cand_action) and t > 0:
-                    warmup_act = (
-                        (ACTION_LONG,) * len(dataset.symbols)
-                        if (t // block.train_step) % 2 == 0
-                        else (ACTION_SHORT,) * len(dataset.symbols)
-                    )
-                    w_action = warmup_act
-
-                    def make_warmup() -> _WarmupReferencePolicy:
-                        return _WarmupReferencePolicy(
-                            warmup_action=w_action,
-                            target_abs_weights=protocol.target_abs_weights,
-                        )
-
-                    pair = run_paired_portfolio_action(
-                        dataset,
-                        reference_policy_factory=make_warmup,
-                        start_index=t - 1,
-                        stop_index=t + protocol.study_plan.horizon_bars,
-                        intervention_index=t,
-                        baseline_action=protocol.study_plan.candidate_actions[0],
-                        candidate_action=cand_action,
-                        target_abs_weights=protocol.target_abs_weights,
-                        initial_capital=protocol.study_plan.initial_capital,
-                        execution_cost=protocol.base_execution_cost,
-                        risk=PreTradeRisk(protocol.risk_config),
-                    )
-                else:
-                    pair = run_paired_portfolio_action(
-                        dataset,
-                        reference_policy_factory=_HoldQuantityPolicy,
-                        start_index=t,
-                        stop_index=t + protocol.study_plan.horizon_bars,
-                        intervention_index=t,
-                        baseline_action=protocol.study_plan.candidate_actions[0],
-                        candidate_action=cand_action,
-                        target_abs_weights=protocol.target_abs_weights,
-                        initial_capital=protocol.study_plan.initial_capital,
-                        execution_cost=protocol.base_execution_cost,
-                        risk=PreTradeRisk(protocol.risk_config),
-                    )
+                if all(a == ACTION_FLAT for a in cand_action):
+                    continue
+                pair = run_paired_portfolio_action(
+                    dataset,
+                    reference_policy_factory=lambda: _HoldQuantityPolicy(
+                        protocol.target_abs_weights
+                    ),
+                    start_index=t,
+                    stop_index=t + protocol.study_plan.horizon_bars,
+                    intervention_index=t,
+                    baseline_action=protocol.study_plan.candidate_actions[0],
+                    candidate_action=cand_action,
+                    target_abs_weights=protocol.target_abs_weights,
+                    initial_capital=protocol.study_plan.initial_capital,
+                    execution_cost=protocol.base_execution_cost,
+                    risk=PreTradeRisk(protocol.risk_config),
+                )
                 paired_replay_runs += 2  # Baseline + Candidate
                 label = build_synthetic_paired_label(
                     dataset,
@@ -990,7 +1025,7 @@ def run_decision_value_dev_study(
                     baseline_action=protocol.study_plan.candidate_actions[0],
                     candidate_action=cand_action,
                     target_abs_weights=protocol.target_abs_weights,
-                    reference_policy_digest=_REFERENCE_POLICY_DIGEST,
+                    reference_policy_digest=ref_digest,
                     expected_execution_policy_digest=(
                         protocol.base_execution_cost.execution_policy_digest
                     ),
@@ -1011,23 +1046,32 @@ def run_decision_value_dev_study(
             tuple(samples),
             fit_cutoff=fit_cutoff,
             evaluation_start=eval_start,
-            expected_reference_policy_digest=_REFERENCE_POLICY_DIGEST,
+            expected_reference_policy_digest=ref_digest,
         )
         overlap_groups = len(set(batch.group_ids))
 
         # 4. Fit B1 (Linear), B1c (Conservative Linear), and B2 (Shallow)
         b1_model = fit_synthetic_linear_decision_value(
-            batch, candidate_actions=protocol.study_plan.candidate_actions
+            batch,
+            candidate_actions=protocol.study_plan.candidate_actions,
+            ridge_penalty=protocol.value_ridge_penalty,
         )
-        switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
+        train_switch_cost = (
+            protocol.study_plan.fee_rate
+            + protocol.study_plan.spread_rate
+            + protocol.base_execution_cost.impact_rate
+        )
         b1c_model = fit_conservative_linear_decision_value(
             batch,
             candidate_actions=protocol.study_plan.candidate_actions,
-            uncertainty_penalty_weight=1.0,
-            one_way_switch_cost=switch_cost,
+            ridge_penalty=protocol.value_ridge_penalty,
+            uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
+            one_way_switch_cost=train_switch_cost,
         )
         b2_model = fit_synthetic_shallow_decision_value(
-            batch, candidate_actions=protocol.study_plan.candidate_actions
+            batch,
+            candidate_actions=protocol.study_plan.candidate_actions,
+            ridge_penalty=protocol.value_ridge_penalty,
         )
 
         b1_coef_sha256 = hashlib.sha256(
@@ -1040,8 +1084,8 @@ def run_decision_value_dev_study(
             canonical_json_bytes([list(row) for row in b2_model.coefficients])
         ).hexdigest()
 
-        # 5. Causality perturbation probe
-        dataset_perturbed = _perturb_after(dataset, block.eval_start_index)
+        # 5. Causality perturbation probe (Bug D1)
+        dataset_perturbed = _perturb_after(dataset, block.fit_cutoff_index)
         b0_perturbed = fit_ridge_forecast(
             dataset_perturbed,
             feature_indices=protocol.ridge_feature_indices,
@@ -1052,6 +1096,93 @@ def run_decision_value_dev_study(
         b0_fit_ok = np.allclose(
             b0_model.coefficients, b0_perturbed.coefficients
         ) and math.isclose(b0_model.intercept, b0_perturbed.intercept)
+
+        samples_pert: list[SyntheticPairedLabel] = []
+        for t in intervention_indices:
+            for cand_action in non_hold_candidates:
+                if all(a == ACTION_FLAT for a in cand_action):
+                    continue
+                pair_pert = run_paired_portfolio_action(
+                    dataset_perturbed,
+                    reference_policy_factory=lambda: _HoldQuantityPolicy(
+                        protocol.target_abs_weights
+                    ),
+                    start_index=t,
+                    stop_index=t + protocol.study_plan.horizon_bars,
+                    intervention_index=t,
+                    baseline_action=protocol.study_plan.candidate_actions[0],
+                    candidate_action=cand_action,
+                    target_abs_weights=protocol.target_abs_weights,
+                    initial_capital=protocol.study_plan.initial_capital,
+                    execution_cost=protocol.base_execution_cost,
+                    risk=PreTradeRisk(protocol.risk_config),
+                )
+                label_pert = build_synthetic_paired_label(
+                    dataset_perturbed,
+                    pair_pert,
+                    baseline_action=protocol.study_plan.candidate_actions[0],
+                    candidate_action=cand_action,
+                    target_abs_weights=protocol.target_abs_weights,
+                    reference_policy_digest=ref_digest,
+                    expected_execution_policy_digest=(
+                        protocol.base_execution_cost.execution_policy_digest
+                    ),
+                    observation_record_available_at=dataset_perturbed.timestamps[t],
+                    settlement_record_available_at=(
+                        dataset_perturbed.timestamps[
+                            t + protocol.study_plan.horizon_bars
+                        ]
+                    ),
+                    fit_cutoff=fit_cutoff,
+                    source_scope="real_development",
+                )
+                samples_pert.append(label_pert)
+
+        batch_pert = build_synthetic_paired_label_batch(
+            tuple(samples_pert),
+            fit_cutoff=fit_cutoff,
+            evaluation_start=eval_start,
+            expected_reference_policy_digest=ref_digest,
+        )
+        b1_pert = fit_synthetic_linear_decision_value(
+            batch_pert,
+            candidate_actions=protocol.study_plan.candidate_actions,
+            ridge_penalty=protocol.value_ridge_penalty,
+        )
+        b1c_pert = fit_conservative_linear_decision_value(
+            batch_pert,
+            candidate_actions=protocol.study_plan.candidate_actions,
+            ridge_penalty=protocol.value_ridge_penalty,
+            uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
+            one_way_switch_cost=train_switch_cost,
+        )
+        b2_pert = fit_synthetic_shallow_decision_value(
+            batch_pert,
+            candidate_actions=protocol.study_plan.candidate_actions,
+            ridge_penalty=protocol.value_ridge_penalty,
+        )
+
+        b1_pert_sha256 = hashlib.sha256(
+            canonical_json_bytes([list(row) for row in b1_pert.coefficients])
+        ).hexdigest()
+        b1c_pert_sha256 = hashlib.sha256(
+            canonical_json_bytes([list(row) for row in b1c_pert.coefficients])
+        ).hexdigest()
+        b2_pert_sha256 = hashlib.sha256(
+            canonical_json_bytes([list(row) for row in b2_pert.coefficients])
+        ).hexdigest()
+
+        b1_fit_ok = b1_coef_sha256 == b1_pert_sha256
+        b1c_fit_ok = (
+            b1c_coef_sha256 == b1c_pert_sha256
+            and np.allclose(
+                b1c_model.covariance_matrices,
+                b1c_pert.covariance_matrices,
+                rtol=0.0,
+                atol=1e-12,
+            )
+        )
+        b2_fit_ok = b2_coef_sha256 == b2_pert_sha256
 
         b1_runtime_ctx = LinearDecisionValueRuntimeContext(
             source_scope="real_development",
@@ -1074,16 +1205,6 @@ def run_decision_value_dev_study(
             execution_policy_digest=b2_model.execution_policy_digest,
             reference_policy_digest=b2_model.reference_policy_digest,
         )
-        pol_b1 = LinearDecisionValuePolicy(b1_model, runtime_context=b1_runtime_ctx)
-        pol_b1c = ConservativeLinearDecisionValuePolicy(
-            b1c_model, runtime_context=b1c_runtime_ctx
-        )
-        pol_b2 = ShallowDecisionValuePolicy(b2_model, runtime_context=b2_runtime_ctx)
-
-        # Build initial snapshot using SharedPortfolioSession to get valid BookState
-        from trade_rl.simulation.stateful.portfolio_session import (
-            SharedPortfolioSession,
-        )
 
         session_clean = SharedPortfolioSession(
             dataset,
@@ -1093,15 +1214,6 @@ def run_decision_value_dev_study(
             execution_cost=protocol.base_execution_cost,
             risk=PreTradeRisk(protocol.risk_config),
         )
-        session_perturbed = SharedPortfolioSession(
-            dataset_perturbed,
-            start_index=block.eval_start_index,
-            stop_index=block.eval_stop_index,
-            initial_capital=protocol.study_plan.initial_capital,
-            execution_cost=protocol.base_execution_cost,
-            risk=PreTradeRisk(protocol.risk_config),
-        )
-
         snap_clean = build_portfolio_decision_snapshot(
             dataset,
             index=block.eval_start_index,
@@ -1110,81 +1222,130 @@ def run_decision_value_dev_study(
             active_orders=session_clean.active_orders,
             risk_config=protocol.risk_config,
         )
-        snap_perturbed = build_portfolio_decision_snapshot(
-            dataset_perturbed,
-            index=block.eval_start_index,
-            agent_stop_index=block.eval_stop_index,
-            book=session_perturbed.book,
-            active_orders=session_perturbed.active_orders,
-            risk_config=protocol.risk_config,
-        )
-        switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
+
         pol_b0_probe = _CostAwareRidgePortfolioPolicy(
             dataset=dataset,
             model=b0_model,
             target_abs_weights=protocol.target_abs_weights,
             entry_threshold=protocol.ridge_entry_threshold,
             exit_threshold=protocol.ridge_exit_threshold,
-            one_way_switch_cost=switch_cost,
+            one_way_switch_cost=train_switch_cost,
         )
         pol_b0_probe_perturbed = _CostAwareRidgePortfolioPolicy(
             dataset=dataset_perturbed,
-            model=b0_model,
+            model=b0_perturbed,
             target_abs_weights=protocol.target_abs_weights,
             entry_threshold=protocol.ridge_entry_threshold,
             exit_threshold=protocol.ridge_exit_threshold,
-            one_way_switch_cost=switch_cost,
+            one_way_switch_cost=train_switch_cost,
         )
         prop_b0_clean = pol_b0_probe.decide_portfolio(snap_clean)
-        prop_b0_perturbed = pol_b0_probe_perturbed.decide_portfolio(snap_perturbed)
+        prop_b0_pert = pol_b0_probe_perturbed.decide_portfolio(snap_clean)
         b0_probe_ok = b0_fit_ok and (
-            prop_b0_clean.target_weights == prop_b0_perturbed.target_weights
+            prop_b0_clean.target_weights == prop_b0_pert.target_weights
         )
 
-        b1_probe_ok = pol_b1.decide_action(snap_clean) == pol_b1.decide_action(
-            snap_perturbed
+        pol_b1_clean = LinearDecisionValuePolicy(
+            b1_model,
+            runtime_context=b1_runtime_ctx,
+            allow_active_orders=True,
+            eval_one_way_cost=train_switch_cost,
+            train_one_way_cost=train_switch_cost,
         )
-        b1c_probe_ok = (
-            pol_b1c.decide_action(snap_clean) == pol_b1c.decide_action(snap_perturbed)
-            and pol_b1c.decide_portfolio(snap_clean).target_weights
-            == pol_b1c.decide_portfolio(snap_perturbed).target_weights
+        pol_b1_pert_policy = LinearDecisionValuePolicy(
+            b1_pert,
+            runtime_context=b1_runtime_ctx,
+            allow_active_orders=True,
+            eval_one_way_cost=train_switch_cost,
+            train_one_way_cost=train_switch_cost,
         )
-        b2_probe_ok = pol_b2.decide_action(snap_clean) == pol_b2.decide_action(
-            snap_perturbed
+        b1_probe_ok = b1_fit_ok and (
+            pol_b1_clean.decide_portfolio(snap_clean).target_weights
+            == pol_b1_pert_policy.decide_portfolio(snap_clean).target_weights
         )
+
+        pol_b1c_clean = ConservativeLinearDecisionValuePolicy(
+            b1c_model,
+            runtime_context=b1c_runtime_ctx,
+            allow_active_orders=True,
+            eval_one_way_cost=train_switch_cost,
+            train_one_way_cost=train_switch_cost,
+        )
+        pol_b1c_pert_policy = ConservativeLinearDecisionValuePolicy(
+            b1c_pert,
+            runtime_context=b1c_runtime_ctx,
+            allow_active_orders=True,
+            eval_one_way_cost=train_switch_cost,
+            train_one_way_cost=train_switch_cost,
+        )
+        b1c_probe_ok = b1c_fit_ok and (
+            pol_b1c_clean.decide_portfolio(snap_clean).target_weights
+            == pol_b1c_pert_policy.decide_portfolio(snap_clean).target_weights
+        )
+
+        pol_b2_clean = ShallowDecisionValuePolicy(
+            b2_model,
+            runtime_context=b2_runtime_ctx,
+            allow_active_orders=True,
+            eval_one_way_cost=train_switch_cost,
+            train_one_way_cost=train_switch_cost,
+        )
+        pol_b2_pert_policy = ShallowDecisionValuePolicy(
+            b2_pert,
+            runtime_context=b2_runtime_ctx,
+            allow_active_orders=True,
+            eval_one_way_cost=train_switch_cost,
+            train_one_way_cost=train_switch_cost,
+        )
+        b2_probe_ok = b2_fit_ok and (
+            pol_b2_clean.decide_portfolio(snap_clean).target_weights
+            == pol_b2_pert_policy.decide_portfolio(snap_clean).target_weights
+        )
+
         causality_probe_passed = bool(
             b0_probe_ok and b1_probe_ok and b1c_probe_ok and b2_probe_ok
         )
 
-        # 6. Evaluate 6 arms across 4 scenarios
-        scenarios: tuple[tuple[str, ExecutionCostConfig], ...] = (
-            ("base", protocol.base_execution_cost),
-            (
-                "cost_x2",
-                replace(
-                    protocol.base_execution_cost,
-                    fee_rate=protocol.base_execution_cost.fee_rate * 2.0,
-                    spread_rate=protocol.base_execution_cost.spread_rate * 2.0,
-                    impact_rate=protocol.base_execution_cost.impact_rate * 2.0,
-                ),
-            ),
-            (
-                "latency_1bar",
-                replace(protocol.base_execution_cost, order_latency_bars=1),
-            ),
-            (
-                "latency_2bar",
-                replace(protocol.base_execution_cost, order_latency_bars=2),
-            ),
-        )
+        # 6. Evaluate 6 arms across scenarios
+        scenarios: list[tuple[str, ExecutionCostConfig, float]] = []
+        for s_name, cost_mult, lat_bars in protocol.scenarios:
+            s_cost = replace(
+                protocol.base_execution_cost,
+                fee_rate=protocol.base_execution_cost.fee_rate * cost_mult,
+                spread_rate=protocol.base_execution_cost.spread_rate * cost_mult,
+                impact_rate=protocol.base_execution_cost.impact_rate * cost_mult,
+                order_latency_bars=lat_bars,
+            )
+            scen_switch_cost = s_cost.fee_rate + s_cost.spread_rate + s_cost.impact_rate
+            scenarios.append((s_name, s_cost, scen_switch_cost))
 
         arms_metrics: list[DecisionValueArmMetrics] = []
         ledger_all_reconciled = True
         eval_replay_runs = 0
 
-        for scen_name, scen_cost in scenarios:
-            # Policy builders for each arm (fresh instances per scenario)
-            switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
+        for scen_name, scen_cost, scen_switch_cost in scenarios:
+            pol_b1_eval = LinearDecisionValuePolicy(
+                b1_model,
+                runtime_context=b1_runtime_ctx,
+                allow_active_orders=True,
+                eval_one_way_cost=scen_switch_cost,
+                train_one_way_cost=train_switch_cost,
+            )
+            pol_b1c_eval = ConservativeLinearDecisionValuePolicy(
+                b1c_model,
+                runtime_context=b1c_runtime_ctx,
+                allow_active_orders=True,
+                eval_one_way_cost=scen_switch_cost,
+                train_one_way_cost=train_switch_cost,
+            )
+            pol_b2_eval = ShallowDecisionValuePolicy(
+                b2_model,
+                runtime_context=b2_runtime_ctx,
+                allow_active_orders=True,
+                eval_one_way_cost=scen_switch_cost,
+                train_one_way_cost=train_switch_cost,
+            )
+
             arm_policies: tuple[tuple[str, PortfolioPolicy], ...] = (
                 ("cash", CashPortfolioPolicy(symbols=dataset.symbols)),
                 (
@@ -1202,12 +1363,12 @@ def run_decision_value_dev_study(
                         target_abs_weights=protocol.target_abs_weights,
                         entry_threshold=protocol.ridge_entry_threshold,
                         exit_threshold=protocol.ridge_exit_threshold,
-                        one_way_switch_cost=switch_cost,
+                        one_way_switch_cost=scen_switch_cost,
                     ),
                 ),
-                ("linear_value", pol_b1),
-                ("conservative_linear_value", pol_b1c),
-                ("shallow_value", pol_b2),
+                ("linear_value", pol_b1_eval),
+                ("conservative_linear_value", pol_b1c_eval),
+                ("shallow_value", pol_b2_eval),
             )
 
             for arm_name, policy in arm_policies:
@@ -1224,27 +1385,11 @@ def run_decision_value_dev_study(
                     capture_ledger_evidence=True,
                 )
 
-                # Reconcile ledger evidence
-                ledger = replay_res.ledger_evidence
-                if ledger is None:
+                expected_intervals = block.eval_stop_index - block.eval_start_index
+                if not _verify_ledger_reconciliation(
+                    replay_res, expected_intervals=expected_intervals
+                ):
                     ledger_all_reconciled = False
-                else:
-                    iv = ledger.intervals
-                    reconciled = (
-                        math.isclose(
-                            iv.final_portfolio_value,
-                            float(replay_res.book.portfolio_value),
-                        )
-                        and math.isclose(
-                            iv.final_total_cost, float(replay_res.book.total_cost)
-                        )
-                        and math.isclose(
-                            iv.final_funding_pnl, float(replay_res.book.funding_pnl)
-                        )
-                        and math.isclose(iv.final_cash, float(replay_res.book.cash))
-                    )
-                    if not reconciled:
-                        ledger_all_reconciled = False
 
                 terminal_quantities = tuple(
                     str(q) for q in replay_res.book.exact_quantities

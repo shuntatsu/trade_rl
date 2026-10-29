@@ -131,6 +131,9 @@ def rekey_local_archives(
         destination = vision_cache_path(cache_root, url)
         destination.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(payload).hexdigest()
+        # ``acquired_at`` is fixed by the Binance cache sidecar schema. Here it is the
+        # local source file's mtime, NOT a download time (nothing is downloaded); it
+        # is not part of the dataset_id or artifact digest.
         evidence = {
             "acquired_at": datetime.fromtimestamp(
                 source.stat().st_mtime, UTC

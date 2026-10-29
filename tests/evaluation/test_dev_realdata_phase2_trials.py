@@ -842,3 +842,33 @@ def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:
         assert np.array_equal(
             remote.outcomes[scenario].equity, local.outcomes[scenario].equity
         )
+
+
+def test_committed_result_and_provenance_are_consistent() -> None:
+    report = REPO_ROOT / "report"
+    result = json.loads(
+        (report / "issue810-phase2-trial-results-20261029.json").read_text("utf-8")
+    )
+    provenance = json.loads(
+        (report / "issue810-phase2-trial-provenance-20261029.json").read_text("utf-8")
+    )
+    assert result["registry_digest"] == registry_digest()
+    assert provenance["registry_digest"] == registry_digest()
+    assert result["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
+    assert set(result["arms"]) == set(ALL_ARMS)
+    assert result["failures"] == {}
+    for arm in TRIAL_ARMS:
+        assert set(result["causality_matrix"][arm]) == set(SCENARIOS)
+        assert result["causality_probes"][arm]["identical_pre_cut_trace"] is True
+        for scenario in SCENARIOS:
+            row = result["arms"][arm][scenario]
+            assert "terminal_residual_notional_usdt" in row
+            assert "fail_closed_hold_count" in row
+    selected = result["selection"]["selected_arm"]
+    if result["label"] == LABEL_NO_WINNER:
+        assert selected is None
+    else:
+        assert result["selection"]["arms"][selected]["eligible"] is True
+    full = [e for e in provenance["executions"] if e["kind"] == "full"]
+    assert len(full) == provenance["real_data_execution_count"]["full_executions"]
+    assert result["run_metadata"]["git_head"]

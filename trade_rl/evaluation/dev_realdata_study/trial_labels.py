@@ -18,7 +18,11 @@ from dataclasses import replace
 from typing import Any
 
 from trade_rl.evaluation.dev_realdata_study.metrics import select_development_label
-from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
+from trade_rl.evaluation.dev_realdata_study.protocol import (
+    LABEL_NO_WINNER,
+    PROTOCOL,
+    DevStudyProtocol,
+)
 from trade_rl.evaluation.dev_realdata_study.trials import (
     CANDIDATE_POOL,
     CONTROL_ARMS,
@@ -30,9 +34,13 @@ RULE_AMENDED = "amended_probe_rule_identical_decisions_only"
 
 
 def _select(
-    result: Mapping[str, Any], validity: Mapping[str, bool], rule: str
+    result: Mapping[str, Any],
+    validity: Mapping[str, bool],
+    rule: str,
+    *,
+    protocol: DevStudyProtocol,
 ) -> dict[str, Any]:
-    scenarios = PROTOCOL.scenarios
+    scenarios = protocol.scenarios
     runnable = tuple(
         arm
         for arm in CANDIDATE_POOL
@@ -57,8 +65,14 @@ def _select(
             for arm in runnable
         },
         validity,
-        replace(PROTOCOL, candidate_arms=runnable),
+        replace(protocol, candidate_arms=runnable),
     )
+    # A candidate cannot be promoted when either control has not produced
+    # valid replay evidence, even though CASH's theoretical profit is zero.
+    invalid_controls = tuple(
+        arm for arm in CONTROL_ARMS if not result["validity"].get(arm, False)
+    )
+    diagnostic_only = result.get("status") == "diagnostic_only"
     rows: dict[str, Any] = dict(selection.rows)
     for arm in CANDIDATE_POOL:
         if arm not in runnable:
@@ -67,10 +81,25 @@ def _select(
                 "eligible": False,
                 "status": LABEL_FAILED_TO_RUN,
             }
+    if invalid_controls or diagnostic_only:
+        for row in rows.values():
+            row["eligible"] = False
+            row["blocked_reason"] = (
+                "invalid_control" if invalid_controls else "diagnostic_only"
+            )
+    blocked = bool(invalid_controls or diagnostic_only)
     return {
         "rule": rule,
-        "label": selection.label,
-        "selected_arm": selection.selected_arm,
+        "label": LABEL_NO_WINNER if blocked else selection.label,
+        "selected_arm": None if blocked else selection.selected_arm,
+        "invalid_controls": list(invalid_controls),
+        "selection_blocked_reason": (
+            "invalid_control"
+            if invalid_controls
+            else "diagnostic_only"
+            if diagnostic_only
+            else None
+        ),
         "validity": {arm: bool(validity.get(arm, False)) for arm in CANDIDATE_POOL},
         "arms": {arm: rows[arm] for arm in CANDIDATE_POOL},
     }
@@ -79,18 +108,26 @@ def _select(
 def pr_c_probe_passed(probe: Mapping[str, Any]) -> bool:
     """PR-C probe rule: identical pre-cut trace AND the arm traded before the cut."""
 
-    return bool(probe["identical_pre_cut_trace"] and probe["pre_cut_trace_has_trades"])
+    return bool(
+        probe.get("identical_pre_cut_trace", False)
+        and probe.get("pre_cut_trace_has_trades", False)
+    )
 
 
 def labels_under_both_rules(
-    result: Mapping[str, Any], execution1: Mapping[str, Any] | None = None
+    result: Mapping[str, Any],
+    execution1: Mapping[str, Any] | None = None,
+    *,
+    protocol: DevStudyProtocol = PROTOCOL,
 ) -> dict[str, Any]:
     """Recompute the selection under the PR-C probe rule and under the amended rule.
 
-    Replay validity (ran, reconciled, flat, no termination) is taken from ``result``;
-    only the probe rule differs. The PR-C-rule probe outcome comes from
-    ``execution1["causality_probes"]`` when given (a committed execution-1 summary)
-    and otherwise from the result's own per-arm probe records.
+    Replay and matrix validity are shared. Only the pre-cut-trade
+    requirement differs; a matrix failure never becomes valid through the
+    historical PR-C trade rule. The PR-C-rule probe evidence comes from
+    ``execution1["causality_probes"]`` when supplied, not its derived
+    ``passed`` flag. This is forward-looking hardening; committed historical
+    records remain unmodified.
     """
 
     probes = (
@@ -102,6 +139,7 @@ def labels_under_both_rules(
     for arm, detail in result["validity_detail"].items():
         replay_ok[arm] = bool(
             detail["all_scenarios_ran"]
+            and detail.get("complete_clock_coverage", True)
             and detail["ledger_reconciled_all_scenarios"]
             and detail["no_termination_all_scenarios"]
         )
@@ -113,11 +151,8 @@ def labels_under_both_rules(
                 or (
                     arm in probes
                     and probes[arm] is not None
-                    and (
-                        bool(probes[arm]["passed"])
-                        if execution1 is not None
-                        else pr_c_probe_passed(probes[arm])
-                    )
+                    and result["validity_detail"][arm]["causality_matrix_passed"]
+                    and pr_c_probe_passed(probes[arm])
                 )
             )
         )
@@ -125,13 +160,20 @@ def labels_under_both_rules(
     }
     amended_validity = {arm: bool(value) for arm, value in result["validity"].items()}
     return {
-        "label_pr_c_probe_rule": _select(result, pr_c_validity, RULE_PR_C),
-        "label_amended_rule": _select(result, amended_validity, RULE_AMENDED),
+        "label_pr_c_probe_rule": _select(
+            result, pr_c_validity, RULE_PR_C, protocol=protocol
+        ),
+        "label_amended_rule": _select(
+            result, amended_validity, RULE_AMENDED, protocol=protocol
+        ),
     }
 
 
 def with_both_labels(
-    result: Mapping[str, Any], execution1: Mapping[str, Any] | None = None
+    result: Mapping[str, Any],
+    execution1: Mapping[str, Any] | None = None,
+    *,
+    protocol: DevStudyProtocol = PROTOCOL,
 ) -> dict[str, Any]:
     """Return ``result`` with both labels; ``label`` is the PR-C probe rule label.
 
@@ -140,7 +182,7 @@ def with_both_labels(
     used as the headline.
     """
 
-    both = labels_under_both_rules(result, execution1)
+    both = labels_under_both_rules(result, execution1, protocol=protocol)
     out = {
         key: value for key, value in result.items() if key not in {"selection", "label"}
     }
@@ -166,10 +208,11 @@ def annotate_result(
     execution1: Mapping[str, Any] | None,
     *,
     original_sha256: str,
+    protocol: DevStudyProtocol = PROTOCOL,
 ) -> dict[str, Any]:
     """Post-hoc: ``with_both_labels`` plus a record of the unchanged original file."""
 
-    annotated = with_both_labels(result, execution1)
+    annotated = with_both_labels(result, execution1, protocol=protocol)
     annotated["post_hoc_annotation"] = {
         "applied_by": "trade_rl.evaluation.dev_realdata_study.trial_labels",
         "original_result_sha256": original_sha256,

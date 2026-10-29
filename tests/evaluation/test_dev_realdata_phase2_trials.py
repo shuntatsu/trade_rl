@@ -995,6 +995,9 @@ def test_label_flips_only_through_the_probe_trade_requirement() -> None:
     result = _report("issue810-phase2-trial-results-20261029.json")
     execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
     patched = json.loads(json.dumps(execution1))
+    # A change in the original primitive trade evidence, not only in its
+    # derived `passed` flag, is what changes the PR-C selection.
+    patched["causality_probes"]["t1_tsmom"]["pre_cut_trace_has_trades"] = True
     patched["causality_probes"]["t1_tsmom"]["passed"] = True
     both = trial_labels.labels_under_both_rules(result, patched)
     assert both["label_pr_c_probe_rule"]["label"] == LABEL_PROMISING

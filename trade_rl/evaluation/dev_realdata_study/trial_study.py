@@ -239,13 +239,15 @@ def run_phase2(
                 say=say,
                 matrix_cut=matrix_cut,
             )
-    return assemble(dataset, protocol, runs)
+    return assemble(dataset, protocol, runs, matrix_cut=matrix_cut)
 
 
 def assemble(
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
     runs: dict[str, ArmRun],
+    *,
+    matrix_cut: str = PROBE_MATRIX_CUT,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Validity, bootstrap, selection and the result mapping from finished arm runs."""
 
@@ -271,11 +273,19 @@ def assemble(
     def ran_everywhere(arm: str) -> bool:
         return all(scenario in runs[arm].outcomes for scenario in scenarios)
 
+    start_index = runner._row_of(dataset, protocol.evaluation_start)
+    stop_index = runner._row_of(dataset, protocol.evaluation_end)
+    expected_times = runner._timestamps_ns(dataset)[start_index : stop_index + 1]
     validity: dict[str, bool] = {}
     validity_detail: dict[str, dict[str, object]] = {}
     for arm in ALL_ARMS:
         run = runs[arm]
         complete = ran_everywhere(arm)
+        full_coverage = complete and all(
+            np.array_equal(run.outcomes[s].timestamps_ns, expected_times)
+            and run.outcomes[s].equity.shape == expected_times.shape
+            for s in scenarios
+        )
         reconciled = complete and all(
             bool(arms_table[arm][s]["reconciliation"]["passed"]) for s in scenarios
         )
@@ -290,9 +300,12 @@ def assemble(
         probe_ok = (
             (not needs_probe) or (run.probe is not None and bool(run.probe["passed"]))
         ) and matrix_ok
-        validity[arm] = bool(complete and reconciled and no_termination and probe_ok)
+        validity[arm] = bool(
+            complete and full_coverage and reconciled and no_termination and probe_ok
+        )
         validity_detail[arm] = {
             "all_scenarios_ran": complete,
+            "complete_clock_coverage": full_coverage,
             "ledger_reconciled_all_scenarios": reconciled,
             "no_termination_all_scenarios": no_termination,
             "causality_probe_passed": (
@@ -313,34 +326,56 @@ def assemble(
         }
 
     bootstrap: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
+    bootstrap_omissions: dict[str, dict[str, str]] = {}
     for scenario in scenarios:
-        daily: dict[str, np.ndarray] = {}
+        # A failed or early-terminated replay can have fewer hourly/daily rows.
+        # Only genuinely paired timestamps may enter the same bootstrap sample.
+        daily: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        omissions: dict[str, str] = {}
         for arm in ALL_ARMS:
             outcome = runs[arm].outcomes.get(scenario)
-            if outcome is not None:
-                _, values = daily_equity(outcome.timestamps_ns, outcome.equity)
-                daily[arm] = daily_returns(values)
+            if outcome is None:
+                continue
+            if outcome.summary["terminated"]:
+                omissions[arm] = "terminated"
+                continue
+            try:
+                dates, values = daily_equity(outcome.timestamps_ns, outcome.equity)
+            except ValueError:
+                omissions[arm] = "invalid_daily_equity"
+                continue
+            daily[arm] = (dates[1:], daily_returns(values))
+        bootstrap_omissions[scenario] = omissions
         if ARM_CASH not in daily or ARM_BUY_AND_HOLD not in daily:
             bootstrap[scenario] = {}
             continue
+        cash_dates, cash_returns = daily[ARM_CASH]
+        hold_dates, hold_returns = daily[ARM_BUY_AND_HOLD]
+        if not np.array_equal(cash_dates, hold_dates):
+            omissions[ARM_BUY_AND_HOLD] = "not_paired_with_controls"
+            bootstrap[scenario] = {}
+            continue
         indices = moving_block_indices(
-            len(daily[ARM_CASH]),
+            len(cash_returns),
             block=p2.bootstrap_block_days,
             resamples=p2.bootstrap_resamples,
             seed=p2.bootstrap_seed,
         )
         table: dict[str, dict[str, dict[str, float]]] = {}
-        for arm, series in daily.items():
+        for arm, (dates, series) in daily.items():
             if arm == ARM_CASH:
+                continue
+            if not np.array_equal(dates, cash_dates):
+                omissions[arm] = "not_paired_with_controls"
                 continue
             versus = {
                 "vs_cash": bootstrap_excess(
-                    series - daily[ARM_CASH], indices, p2
+                    series - cash_returns, indices, p2
                 ).to_mapping()
             }
             if arm != ARM_BUY_AND_HOLD:
                 versus["vs_equal_weight_buy_and_hold"] = bootstrap_excess(
-                    series - daily[ARM_BUY_AND_HOLD], indices, p2
+                    series - hold_returns, indices, p2
                 ).to_mapping()
             table[arm] = versus
         bootstrap[scenario] = table
@@ -380,7 +415,11 @@ def assemble(
 
     results: dict[str, Any] = {
         "schema_version": RESULT_SCHEMA,
-        "status": "development_evidence_only",
+        "status": (
+            "diagnostic_only"
+            if matrix_cut != PROBE_MATRIX_CUT
+            else "development_evidence_only"
+        ),
         "registry_digest": registry_digest(),
         "base_protocol_digest": protocol_digest(protocol),
         "dataset_id": dataset.dataset_id,
@@ -402,11 +441,13 @@ def assemble(
         "causality_matrix": {
             arm: runs[arm].probe_matrix for arm in ALL_ARMS if arm not in CONTROL_ARMS
         },
-        "causality_matrix_cut": PROBE_MATRIX_CUT,
+        "causality_matrix_cut": matrix_cut,
+        "nonregistered_causality_cut_override": matrix_cut != PROBE_MATRIX_CUT,
         "validity": validity,
         "validity_detail": validity_detail,
         "arms": arms_table,
         "bootstrap": bootstrap,
+        "bootstrap_omissions": bootstrap_omissions,
         "bonferroni_comparisons": p2.bonferroni_comparisons,
         "selection": selection_mapping,
         "label": selection.label,
@@ -427,7 +468,7 @@ def assemble(
         for scenario, outcome in run.outcomes.items():
             equity_arrays[f"{arm}__{scenario}__equity"] = outcome.equity
             equity_arrays[f"{arm}__{scenario}__timestamp_ns"] = outcome.timestamps_ns
-    return with_both_labels(results), equity_arrays
+    return with_both_labels(results, protocol=protocol), equity_arrays
 
 
 _SUMMARY_FIELDS = (
@@ -503,9 +544,13 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
         "causality_probes": results["causality_probes"],
         "causality_matrix": results["causality_matrix"],
         "causality_matrix_cut": results["causality_matrix_cut"],
+        "nonregistered_causality_cut_override": results[
+            "nonregistered_causality_cut_override"
+        ],
         "failures": results["failures"],
         "arms": rows,
         "bootstrap": results["bootstrap"],
+        "bootstrap_omissions": results["bootstrap_omissions"],
         "bonferroni_comparisons": results["bonferroni_comparisons"],
         "selection_pr_c_probe_rule": results["selection_pr_c_probe_rule"],
         "selection_amended_rule": results["selection_amended_rule"],

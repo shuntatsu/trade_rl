@@ -504,6 +504,7 @@ class DrawdownOverlayPolicy:
         self._anchor_ns = decision_anchor_hour_utc * _NS_PER_HOUR
         self._latch = DrawdownLatch(constants)
         self.scales: list[tuple[int, float]] = []
+        self._fail_closed_hold_preserved = 0
 
     @property
     def records(self) -> Any:
@@ -521,6 +522,7 @@ class DrawdownOverlayPolicy:
                 None if first_zero is None else str(np.datetime64(first_zero, "ns"))
             ),
             "latched_at_end": bool(self._latch.latched),
+            "n_fail_closed_hold_preserved": self._fail_closed_hold_preserved,
         }
 
     def decide_portfolio(
@@ -532,6 +534,17 @@ class DrawdownOverlayPolicy:
         account = snapshot.account
         scale = self._latch.update(account.portfolio_value, account.peak_value)
         self.scales.append((snapshot.timestamp_ns, scale))
+        # An allocator fail-closed decision means it cannot issue a safe target.
+        # The risk overlay must not silently turn exact-quantity HOLD into orders.
+        records = getattr(self._inner, "records", ())
+        latest = records[-1] if records else None
+        if (
+            latest is not None
+            and latest.timestamp_ns == snapshot.timestamp_ns
+            and latest.outcome == "fail_closed"
+        ):
+            self._fail_closed_hold_preserved += 1
+            return proposal
         if scale >= 1.0:
             return proposal
         budget = scale * self._gross_max
@@ -733,7 +746,9 @@ def build_phase2_arm(
         )
     elif spec.overlay is not None:
         raise ValueError(f"unknown overlay: {spec.overlay}")
-    return runner.BuiltArm(policy, source)
+    return runner.BuiltArm(
+        policy, source, forecast_interval_hours=spec.decision_interval_hours
+    )
 
 
 __all__ = [

@@ -140,6 +140,7 @@
     "started_local": "2026-10-29T11:49:08+0900"
   },
   "dataset_rebuild": {
+    "acquired_at_semantics": "the sidecar acquired_at field is the local source file mtime (the Binance cache schema fixes the field name); it is not a download time and is not part of dataset_id or artifact_digest",
     "artifact_digest": "9f00e17c2f3de700f3a9ff08d41dea312ff61c143d85514b73e0cd84e03cd381",
     "build_policy_digest": "3d82d2daf28a341d333f8121b79221853dd379c8861ac7d80c03fd202e4e1a03",
     "builder": "python -m trade_rl.evaluation.dev_realdata_study.dataset_build",
@@ -181,7 +182,7 @@
   "latency_72h_terminal_residual": {
     "arm": "allocator_72h_long_short",
     "cash_identity_residual": -1.539231555304258e-11,
-    "cause": "allocator min-trade rule left a sub-minimum-notional dust short; the executor applies minimum notional to the closing order and has no reduce-only exemption",
+    "cause": "allocator min-trade rule left a sub-minimum-notional dust short; the executor applied the ordinary minimum notional to the closing order. In this study's configuration (no market_order_profile / reduce_only_exits) there is no reduce-only exemption; ExecutionPlan.order_minimum_notional exempts reduce-only exits only when a market_order_profile with reduce_only_exits is set",
     "diagnostic_replay": "the single replay was re-executed with ledger capture for diagnosis only; it is not a study run and no reported number changed",
     "replay_rerun": false,
     "residual_position": "0.006 ETHUSDT short, 11.17 USDT at the final mark (0.3% of terminal equity)",
@@ -199,6 +200,13 @@
   "note": "Post-hoc provenance recorded after review of PR #1037. Nothing here changes the study result, label or protocol digest. Times are the local file mtimes of the outputs (UTC+09:00); the run start time and CLI arguments were not recorded.",
   "run_record": {
     "claim_limit": "The repository cannot show how many times the study was executed; the executions above are what local files show.",
+    "code_change_between_executions": {
+      "commits": "git log d11f03106..fe36b7c11: b52f21fbb (PR-B review fix), e0ae04690 (guide fingerprints), f7e38727b and fe36b7c11 (merges)",
+      "details": "solver: active-set Newton acceleration, exact line search, KKT optimality certificate required before a solution is accepted (previously tolerance-converged coordinate descent without a certificate); buy_and_hold holds instead of raising after account termination; cost-rate docstring states the lower bound; tests, docs and guide fingerprints",
+      "fitter_isolation_fix": "PR-A c23c2a3c1 was already contained in d11f03106 and is not part of the difference",
+      "kind": "review-driven correctness/hardening fix to the allocation solver, made independently of the study results",
+      "limit": "git does not show how far the earlier solver weights were from the optimum; the numeric differences are attributed to the solver change, not independently quantified"
+    },
     "earlier_full_execution": {
       "description": "A complete earlier execution of the same protocol (same protocol_digest) on code before the allocator-solver hardening was merged; it was not reported and was superseded by the run above. Recorded from local scratch files that are not in the repository.",
       "git_head": "d11f031066a1f7081062f063d711833dad10fbab",

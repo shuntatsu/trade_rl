@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-25 (JST)
+更新基準: 2026-10-28 (JST)
 
 ## 結論
 
@@ -19,12 +19,14 @@ Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34�
 
 `strategies/portfolio_adapter.py` は、その既存portfolio seamへexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy`を接続するopt-in adapterと、固定rosterの明示cash zero-target policyを提供する。filled sideはcurrent snapshotのexact quantityから導き、strategy callbackにはcurrent row/account factsと結果前に固定したper-symbol budgetを渡す。任意のlegacy strategy parity、cached-target/minimum-hold/pending-aware semantics、exact-quantity HOLD、joint PPO trainingは追加しない。hard risk・pending-order reconciliation・fill・cost・accountingは既存のshared portfolio session/native ownerが維持する。この実装はsoftware interface preparationであり、新しいfit/replay/選択、経済結果、Dataset/profile/fit provenance、profitability evidenceではない。
 
-P0 software declarations now identify fixed-initial-capital net-profit,
-account mode, finite financial clock, and exact evaluation-window binding in
-`trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do
-not read a ledger, connect a reward to PPO, change its legacy defaults, or
-produce training/replay evidence. The M34 screen classification and every
-existing economic criterion remain unchanged.
+P0 software declarations identify fixed-initial-capital net-profit, account
+mode, finite financial clock, and exact evaluation-window binding in
+`trade_rl.simulation.objectives`. They remain pure ledger-independent contracts.
+The opt-in `SharedPortfolioGymEnv` requires a bound objective/clock and uses
+gamma-one equity-delta reward, while `fit_shared_portfolio_ppo` checks the
+bound clock. This is a software runtime connection, not reward/ledger oracle,
+economic learnability, real-data training, Study authorization, or profitability
+evidence. Legacy per-symbol PPO defaults and the M34 classification are unchanged.
 
 `SharedPortfolioGymEnv` is now an opt-in joint Gym adapter over the same
 strategy-owned snapshot builder and simulation-owned `SharedPortfolioSession`.
@@ -249,13 +251,13 @@ Result: **NO_WINNER**. Terminal net profit / max drawdown (%):
 | allocator 72h long/short | -19.7 / 53.1 | -65.0 / 66.5 | -63.8 / 67.5 (invalid) |
 | allocator 24h long-only | +22.4 / 49.7 | -7.1 / 55.2 | +66.5 / 53.2 |
 
-Every allocator arm breached the 20% drawdown gate (worst 55% to 76%), and none beat CASH under both base and cost x2 together with the gate. The 72h latency row failed the runner's terminal-flat validity check (`runner.reconcile_ledger`; this is a runner rule, not a field of the frozen protocol) and is marked invalid, but the cash-flow identity itself reconciled (cash residual 1.5e-11 USDT). Root cause, diagnosed by re-running that one replay with ledger capture for diagnosis only (not a new study run; nothing in the result changed): the account ended with a 0.006 ETH short (11.17 USDT at the final mark, 0.3% of terminal equity) that the allocator's 0.5%-of-equity minimum-trade rule had left open as dust, and both terminal flatten orders were rejected by the executor with `below_minimum_notional` (ETHUSDT minimum notional 20 USDT from the frozen exchange-rule snapshot, applied to the closing order; the executor does not exempt reduce-only closes). It is an executor limit, not a ledger or runner error, so no replay was rerun and the label is unchanged: every allocator arm breaches the 20% drawdown gate in every scenario regardless. All other replays reconciled against raw fills to under 1e-9 USDT, and the real-data future-perturbation causality probe embedded in the run passed (it covers allocator-24h in the base scenario over 2023-01..2023-07 only; a post-hoc probe over every arm and scenario is recorded below). No allocator decision ended as a fail-closed HOLD (0 of 1,308 per arm/scenario). Equal-weight buy-and-hold beat every allocator arm in the base scenario; the 20-day block-bootstrap CIs of daily excess versus CASH include zero for every allocator arm and scenario, both unadjusted 95% and Bonferroni-adjusted (7 comparisons per scenario). Versus buy-and-hold only the Bonferroni-adjusted intervals all include zero: three unadjusted 95% intervals exclude zero, all on the negative side (annualized excess): 24h long/short under cost x2 [-1.08, -0.12], 72h long/short under cost x2 [-1.00, -0.07], and 72h long/short under +1 bar latency [-1.03, -0.04] (the last is from the invalid replay). No unadjusted interval is positive.
+Every allocator arm breached the 20% drawdown gate (worst 55% to 76%), and none beat CASH under both base and cost x2 together with the gate. The 72h latency row failed the runner's terminal-flat validity check (`runner.reconcile_ledger`; this is a runner rule, not a field of the frozen protocol) and is marked invalid, but the cash-flow identity itself reconciled (cash residual 1.5e-11 USDT). Root cause, diagnosed by re-running that one replay with ledger capture for diagnosis only (not a new study run; nothing in the result changed): the account ended with a 0.006 ETH short (11.17 USDT at the final mark, 0.3% of terminal equity) that the allocator's 0.5%-of-equity minimum-trade rule had left open as dust, and both terminal flatten orders were rejected by the executor with `below_minimum_notional` (ETHUSDT minimum notional 20 USDT from the frozen exchange-rule snapshot, applied to the closing order; in this study's configuration (no `market_order_profile` / `reduce_only_exits`) the executor does not exempt reduce-only closes from the ordinary minimum notional, whereas `ExecutionPlan.order_minimum_notional` does exempt them when such a profile is set). It is an executor limit, not a ledger or runner error, so no replay was rerun and the label is unchanged: every allocator arm breaches the 20% drawdown gate in every scenario regardless. All other replays reconciled against raw fills to under 1e-9 USDT, and the real-data future-perturbation causality probe embedded in the run passed (it covers allocator-24h in the base scenario over 2023-01..2023-07 only; a post-hoc probe over every arm and scenario is recorded below). No allocator decision ended as a fail-closed HOLD (0 of 1,308 per arm/scenario). Equal-weight buy-and-hold beat every allocator arm in the base scenario; the 20-day block-bootstrap CIs of daily excess versus CASH include zero for every allocator arm and scenario, both unadjusted 95% and Bonferroni-adjusted (7 comparisons per scenario). Versus buy-and-hold only the Bonferroni-adjusted intervals all include zero: three unadjusted 95% intervals exclude zero, all on the negative side (annualized excess): 24h long/short under cost x2 [-1.08, -0.12], 72h long/short under cost x2 [-1.00, -0.07], and 72h long/short under +1 bar latency [-1.03, -0.04] (the last is from the invalid replay). No unadjusted interval is positive.
 
 What this does and does not show (base scenario, USDT on 10,000 capital). Forecast |mu| (about 0.36% per day) exceeded the one-way cost (0.07%) on about 86% of days, so the allocator traded almost every day (turnover 677 to 1,090 over 3.6 years). Gross price P&L / execution cost / funding: 24h long/short +158 / 5,097 / -99; 72h long/short +4,648 / 6,304 / -309; 24h long-only +9,275 / 6,075 / -958; buy-and-hold +14,753 / 24 / -5,143. Execution cost exceeded the gross price P&L of both long/short arms and consumed about two thirds of the long-only arm's. The allocator cost `c_i` (fee + spread) is a lower bound because participation impact is charged by the executor but not modelled by the allocator. Funding was a drag on the long-biased arms. The long-only arm's latency row is far better than base (+66.5% versus +22.4%) while its cost x2 row is negative, which indicates high sensitivity to execution assumptions rather than robustness.
 
-Dataset provenance (added after independent review). The study Dataset (`dataset_id` 0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174, artifact digest 9f00e17c2f3de700f3a9ff08d41dea312ff61c143d85514b73e0cd84e03cd381) was first built by an uncommitted scratch script that monkeypatched the Binance source. That procedure is now committed as `python -m trade_rl.evaluation.dev_realdata_study.dataset_build --archive-root data/breakeven-2020-2026/vision --exchange-info-dir data/bot-development-2024q1/exchange-info --output-dir <new dir>` (offline, refuses a non-empty output, no replay), built on an explicit `BinanceGapPolicy` option of `build_binance_market_dataset` (default `STRICT`, unchanged behaviour) and a 1h-to-4h/1d aggregating transport. Pinned gap policy (`DATASET_BUILD_POLICY`, digest 3d82d2daf28a341d333f8121b79221853dd379c8861ac7d80c03fd202e4e1a03): a missing 1h bar is a non-tradable row with forward-filled marks and no funding accrual; 4h/1d bars are aggregated from complete 1h windows; a 4h/1d window touching a gap is a price-carried placeholder with `available_at` = range end, so recursive higher-clock features stay unavailable afterwards. Inputs: 670 local Binance Vision monthly archives (5 symbols x 1h klines and funding, 2021-01..2026-07; raw-source roster digest ef2780f0891bbd996f83819a4c0b0124b01dc1addf2bb336c0ac97ef51a13164, source-evidence digest cb7072eae9045f11cbabca007f9cd7829a368520b17a286533747eacf1079f42) plus the frozen current-snapshot exchange information of `data/bot-development-2024q1` (rules applied statically, not point-in-time); archives were re-keyed into the transport cache with a local SHA-256 sidecar because the official `.CHECKSUM` files are unavailable offline. The only gap is XRPUSDT: 120 missing 1h bars (2022-02-26..28, 2022-04-01..02), 30 incomplete 4h and 5 incomplete 1d windows; 14 funding events fall inside the 1h gaps and are not accrued on the 1h clock. Reproduction: a fresh offline build into a new directory gave the SAME `dataset_id` and artifact digest, so the committed builder is the same procedure and the study was not rerun. The committed protocol digest 7adc12e8... is unchanged (the build policy is a separate constant, committed after the run).
+Dataset provenance (added after independent review). The study Dataset (`dataset_id` 0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174, artifact digest 9f00e17c2f3de700f3a9ff08d41dea312ff61c143d85514b73e0cd84e03cd381) was first built by an uncommitted scratch script that monkeypatched the Binance source. That procedure is now committed as `python -m trade_rl.evaluation.dev_realdata_study.dataset_build --archive-root data/breakeven-2020-2026/vision --exchange-info-dir data/bot-development-2024q1/exchange-info --output-dir <new dir>` (offline, refuses a non-empty output, no replay), built on an explicit `BinanceGapPolicy` option of `build_binance_market_dataset` (default `STRICT`, unchanged behaviour) and a 1h-to-4h/1d aggregating transport. Pinned gap policy (`DATASET_BUILD_POLICY`, digest 3d82d2daf28a341d333f8121b79221853dd379c8861ac7d80c03fd202e4e1a03): a missing 1h bar is a non-tradable row with forward-filled marks and no funding accrual; 4h/1d bars are aggregated from complete 1h windows; a 4h/1d window touching a gap is a price-carried placeholder with `available_at` = range end, so recursive higher-clock features stay unavailable afterwards. Inputs: 670 local Binance Vision monthly archives (5 symbols x 1h klines and funding, 2021-01..2026-07; raw-source roster digest ef2780f0891bbd996f83819a4c0b0124b01dc1addf2bb336c0ac97ef51a13164, source-evidence digest cb7072eae9045f11cbabca007f9cd7829a368520b17a286533747eacf1079f42) plus the frozen current-snapshot exchange information of `data/bot-development-2024q1` (rules applied statically, not point-in-time); archives were re-keyed into the transport cache with a local SHA-256 sidecar (its `acquired_at` field holds the local source file's modification time, not a download time; the field name is fixed by the cache schema and the sidecar is not part of `dataset_id` or the artifact digest) because the official `.CHECKSUM` files are unavailable offline. The only gap is XRPUSDT: 120 missing 1h bars (2022-02-26..28, 2022-04-01..02), 30 incomplete 4h and 5 incomplete 1d windows; 14 funding events fall inside the 1h gaps and are not accrued on the 1h clock. Reproduction: a fresh offline build into a new directory gave the SAME `dataset_id` and artifact digest, so the committed builder is the same procedure and the study was not rerun. The committed protocol digest 7adc12e8... is unchanged (the build policy is a separate constant, committed after the run).
 
-Run record and extended causality probe. The committed summary records `git_head` fe36b7c11 and the protocol digest, but not start time, CLI arguments or the number of executions. `report/dev-realdata-study-p2-20261029-provenance.json` adds what local files show: the reported outputs' SHA-256 and write time (2026-10-29 08:19 UTC+09:00), and that the protocol was executed in full at least once before (head d11f03106, 07:55, same protocol digest, label NO_WINNER too) on code that predates the allocator-solver hardening; its numbers differed (for example allocator 24h long-only base +13.1% instead of +22.4%) and it was superseded, not selected. Thus "run once" is withdrawn: no protocol parameter was changed between executions and only the final run is reported, but the earlier execution was seen. The same file records a post-hoc causality probe for every arm and scenario (5 arms x 3 scenarios, evaluation start 2023-01-01, future perturbed after 2023-03-01, 59 daily decisions each): all 15 pre-cut traces were bit-identical to the unperturbed ones (`runner.causality_probe_matrix`; the run's embedded probe covered allocator-24h in the base scenario over 2023-01..2023-07 only).
+Run record and extended causality probe. The committed summary records `git_head` fe36b7c11 and the protocol digest, but not start time, CLI arguments or the number of executions. `report/dev-realdata-study-p2-20261029-provenance.json` adds what local files show: the reported outputs' SHA-256 and write time (2026-10-29 08:19 UTC+09:00), and that the protocol was executed in full at least once before (head d11f03106, 07:55, same protocol digest, label NO_WINNER too) on code that predates the allocator-solver hardening; its numbers differed (for example allocator 24h long-only base +13.1% instead of +22.4%) and it was superseded, not selected. The code that differs between the two executions (`git log d11f03106..fe36b7c11`) is the PR-B review fix `b52f21fbb`: the allocation solver was hardened (active-set Newton acceleration, exact line search, and a KKT optimality certificate before a solution is accepted; the previous solver returned tolerance-converged coordinate-descent results without a certificate), `buy_and_hold` now holds instead of raising after account termination, and the cost-rate docstring states the lower bound; the rest is tests, docs and guide fingerprints. The PR-A fitter-isolation fix (`c23c2a3c1`) was already in `d11f03106`. So the change was a review-driven correctness/hardening fix to solver accuracy, made independently of the study results (it addressed the #1036 review of the solver and is covered by synthetic-instance tests), but git alone does not show how far the earlier solver's weights were from the optimum, so the numeric differences are attributed to it, not independently quantified. Thus "run once" is withdrawn: no protocol parameter was changed between executions and only the final run is reported, but the earlier execution was seen. The same file records a post-hoc causality probe for every arm and scenario (5 arms x 3 scenarios, evaluation start 2023-01-01, future perturbed after 2023-03-01, 59 daily decisions each): all 15 pre-cut traces were bit-identical to the unperturbed ones (`runner.causality_probe_matrix`; the run's embedded probe covered allocator-24h in the base scenario over 2023-01..2023-07 only).
 
 Limits: this is development evidence only and never a WINNER. The 2023-2026 data were already seen by the earlier breakeven diagnostic, so it is not confirmatory; one fixed configuration per arm, no parameter was changed between runs (but see Run record: the study was executed more than once). Costs are fixed assumptions, not calibrated to realized execution; XRP lacks 120 bars in 2022 (non-tradable, forward-filled marks); 4h/1d features are aggregated from 1h and unused here; features are the 1h roster only. Confirmatory evaluation would need the unused window and a separate authorization.
 
@@ -264,6 +266,163 @@ Limits: this is development evidence only and never a WINNER. The 2023-2026 data
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
 
 receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
+## Issue #1025: native paired portfolio action comparison (software stage; 2026-10-28)
+
+`evaluation/paired_portfolio_action.py` は、同一Dataset・初期資本・hard risk・costと
+freshな別actorから同じprefixをnative replayし、1つのdecisionだけ異なる4-code joint
+actionへ差し替えるopt-in evaluation helperである。両armの観測・reference proposal・
+native ledger prefixが一致しなければ失敗し、random slippageをv1で拒否する。
+HOLDはexact quantity request、terminal処理は既存ownerのままとし、ラベルは両armの
+決済済み・非insolvent・無残注文の正常終端でのみ有効とする。失敗・insolvencyを成功
+labelへ変換せず、native結果は保持する。reference policyのhidden stateが一致する証明や、
+実市場のsource/PIT evidence・prequential fit・結果保存のone-shot authorityはまだない。
+
+後続のopt-in `evaluation/paired_portfolio_label.py` は**人工データ専用**として、
+決定時のsnapshotとnative ledgerのDataset/execution identity・申告した行動の一致を
+照合し、終端時刻・市場入力のavailable-at・明示的な人工settlement receiptの
+最大時刻よりもfit cutoffを厳密に後へ置く。条件を満たさないラベルは拒否する。
+符号付き実現差額と決定時snapshotを保持し、未来価格経路やnative BookStateは
+学習rowへ渡さない。複数rowの重複は拒否し、時系列が重なるlabelは同groupへ束ねる。
+参照policy digestとreceipt時刻は呼出側の宣言であり、真正な外部sourceやactor
+内部状態の検証ではないため、このmoduleから**実市場fitは認可されない**。
+[TD2 draft review](https://github.com/shuntatsu/trade_rl/pull/1028) は
+TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビューが必要である。
+
+これは[#1025](https://github.com/shuntatsu/trade_rl/issues/1025) TD1のsoftware準備であり、
+[#1027](https://github.com/shuntatsu/trade_rl/pull/1027)に実装・合成反証を載せる。
+実市場fit/replay、economic winner、unused/final、live注文は認可・実行していない。
+原NONRL48、M34 FAILED_SCREEN、既存fee-only PPO FAILEDは変更しない。
+
+## Issue #1025: synthetic linear decision-value software head (2026-10-29)
+
+`strategies/decision_value.py` は、事前固定したjoint HOLD/LONG/SHORT等の
+**有限candidate roster**のうち、HOLDを増分価値0として、それ以外のcandidateを
+独立の線形headで順位付けする opt-in `LinearDecisionValuePolicy` を提供する。
+入力はdecision時点で観測されたfeature/global featureと実際の口座weightのみであり、
+市場の将来pathやevaluation/replayからfutureの情報を読み込まない。
+推定値が正の固定marginを超えないときはquantity-preserving HOLDを返し、
+pending注文、欠損feature、roster不一致、fit cutoff以前の推論は明示的に拒否する。
+推論時は `LinearDecisionValueRuntimeContext` のsynthetic source scopeと
+feature/normalizer/execution/reference-policyの申告digestがfit済みmodelと
+一致することを必須とする。callerの申告だけで市場sourceやactual executorが
+独立認証されたとは扱わない。推論後のhard risk、pending reconciliation、
+約定、fee/funding、BookStateは従来のsimulation ownerが扱い、
+推定価値はその会計を置き換えない。
+
+`evaluation/decision_value_fit.py` は `SyntheticPairedLabelBatch` だけを受け、
+成熟済みの符号付きnative終端口座差額をfixed penaltyのRidgeで一度だけfitし、
+重複・不正vintage・action/mask/source schemaをrejectする。候補actionを後から
+広げない。既存候補やハイパーパラメータの利益結果選択は行わない。
+`LinearDecisionValueModel` のJSONはversioned・canonicalで、読み込みには
+外部から渡されたtrusted SHA-256 digestの一致が必須であるが、
+これはartifactsのone-shot publication/外部source attestationではない。
+
+この経路は**人工データ専用**の学習可能性software preparationである。
+強い取引可能signalを意図的に与える合成oracleへのfitと、別の人工時系列における
+native account E2Eの成否は、実市場のedge、独立市場標本、G4/G5、
+unused/finalデータの確認、live注文、PPO/非RL経済gateを証明しない。
+特にtraining中の重なるlabelは独立した標本として数えず、
+current modelは完全なactor hidden state、unknown action、pending-order価値、
+symbol間の高次joint interaction、実行経済recipeの外部検証を保証しない。
+[TD3 review](https://github.com/shuntatsu/trade_rl/pull/1031) は
+[TD2 review](https://github.com/shuntatsu/trade_rl/pull/1028) および
+[TD1 review](https://github.com/shuntatsu/trade_rl/pull/1027) の上に積んだDraftであり、
+それぞれのexact HEAD independent reviewと統合後の再検証が未了である。
+
+## Issue #1025: synthetic write-once native value comparison (TD4a software)
+
+`evaluation/runs/synthetic_value_attempt.py` は、人工データだけを対象にした
+**別のopt-in attempt**である。既存四方式比較の固定family名を流用せず、
+`cash / fixed_long / linear_value` を固定順に、同一のsource・capital・risk・
+execution cost・clockを持つ別々のnative shared-book上で実行する。
+fixed_longは最初の一度だけ入って、その後はexact quantity HOLDする単純controlであり、
+既存のcost-aware forecast方式に代わる基準ではない。推定値・実現収益は
+native ledgerのaccountingを上書きしない。
+
+各armのraw native ledger・費用・終端資産・flat/未約定/insolvency判定を、
+次arm開始前に書き込み、失敗でも既に完了したarm行とfailure recordを残す。
+fixed rosterが全件正常決済できた場合だけresult/complete markerを生成し、
+結果とarm行のdigest・source/model/実行recipe一致をstrict reloadで検証する。
+同じattempt rootへのtechnical rerunを拒否する。Datasetは64行以下の
+**非published identity**の二銘柄人工fixtureへ限定し、インメモリ全フィールドdigestで
+実行途中の変化を検出する。ただし、このdigestとdataset_idは外部原データの
+認証ではなく、source実バイト一式を単独で復元する外部snapshot artifactでもない。
+同じデータを再現するには別にfixture/sourceが必要である。
+
+これは**TD4の限定的なsoftware persistence/comparison substep**である。
+本研究で必要なcost-aware controllerとの正式比較、全joint16-action、
+training/closed-loopの多期間妥当性・部分約定/latency/funding/注文競合の
+全反証、厳密な事前登録run budget、G4研究実行認可、unused/final、
+liveを達成しない。[TD4a Draft review](https://github.com/shuntatsu/trade_rl/pull/1032)
+を先行するTD1/TD2/TD3へstackし、各段階の異なるモデルによる独立レビューと
+exact-HEAD統合を必須とする。M34/NONRL48/fee-only PPOの既存判定は不変。
+
+## Issue #1025: cost-aware Ridge comparator in a separate synthetic v2 attempt (TD4b)
+
+`evaluation/runs/synthetic_value_costaware_attempt.py` は、既存TD4aの
+`cash / fixed_long / linear_value` の **write-once v1試行をそのままネスト**し、
+新たな `cost_aware_ridge` を同一人工Dataset・初期資本・hard risk・
+execution cost・native shared book・terminal clockで比較する
+**別のv2 schemaを持つopt-in attempt** である。旧v1 writer/reader・
+既存FourFamily comparatorの固定arm名・既存Run artifactは変更しない。
+
+追加の第四armには現行の `RidgeForecastStrategy` と
+`CostAwareForecastIntentController` を **実際に使用**する。
+従来の汎用 `SingleSymbolPortfolioPolicyAdapter` はexact Fractionの
+通常のfloat変換とnative表示用quantityの完全一致を要求し、
+nativeの保守的なfloat射影では小数建玉の反例がある。
+**その既存検証を緩めず**、この人工試験では
+`_ExactQuantityCostAwareRidgePolicy` が
+`simulation.quantities.parse_quantity/project_quantity` の既存正本で
+canonicalなexact数量を読む。報告用quantityとの照合も許容誤差ではなく
+**nativeの保守的float射影との厳密一致**を要求し、同じ
+`RidgeForecastStrategy.decide`・同じ離散intent→target weightを通す。
+新しいbridgeは不正な数量差分・未約定注文・連続でないclockを拒否し、
+failure時はpoisonされる。これは従来adapterの完全同一runtime経路ではなく、
+本4方式の新規bounded bridgeである。Ridgeモデルの係数・平均・尺度・fit cutoff等は
+人工検証用に固定し、canonical hex浮動小数点から作るdigestで本人申告モデルを
+照合する。これは実Datasetに対して実際にfitされたforecastではなく、
+外部source・forecast vintage・手数料校正の独立証明でもない。
+cost-awareの単方向switch cost proxyは、この小試験で
+`execution fee_rate + spread_rate` と一致させ、追加のimpact・別maker/taker
+料金・funding等の不整合な設定は **事前に拒否** する。旧3方式の
+native ledgerと新たな第四armのraw ledgerをそれぞれ保存し、
+途中失敗や人工signalが逆行して生じた損失も公開条件から除外しない。
+
+v2結果はネストしたv1結果と第四armのrecord digest、Ridge fixture bytes、
+source/modelの宣言を外部から渡すSHA-256で再照合する。
+未決済・callback失敗・改ざん・同一rootの再実行はfailure/拒否であり、
+complete markerは4方式の正常終端をstrict-reloadした場合だけ作成する。
+ただしこのcontent-addressed readerもroot/source実バイト一式の
+再公開、独立source証明、producer identityの真正性を自動保証しない。
+
+これは **TD4の限定的な人工データsoftware mechanism確認**に過ぎない。
+frozen Ridge forecastを含むため、直接学習器とcost-aware方式の真の
+out-of-sample比較・独立training/selection/evaluation分割、16 joint actions、
+多数銘柄・期間・stochastic/partial fill/funding・stressを満たさない。
+試行からwinnerを選ばず、実市場fit、G4/G5、unused/final、live注文はしない。
+[TD4b review](https://github.com/shuntatsu/trade_rl/pull/1033) は
+TD1/TD2/TD3/TD4aにstackしたDraftで、各段階の別configured-model
+exact-head reviewとmain基準の再検証を待つ。M34/NONRL48/PPO fee-only
+の既存判定を変更しない。
+
+## Issue #1025: typed plan contract and shallow B2 head (TD0/TD3, software only)
+
+`evaluation/decision_value_plan.py` の `DecisionValueStudyPlan` は、data scope、
+shared_portfolio口座、資本、horizon/terminal reserve、joint候補（先頭は全銘柄HOLD）、
+非zeroのfee+spread、policy improvement回数（1回）、learner roster（linear/shallowを各最大1回）を
+全て必須にする純粋な検証であり、何も起動しない。`real_development` は別の認可digestが
+ない限り拒否し、synthetic planに実認可を持たせない。
+
+`strategies/decision_value_shallow.py` はB1（線形）と同じstate encoder・候補roster・runtime
+context・margin規則で動くB2の浅い非線形headである。固定seedのtanh隠れ層（保存・再検証対象）と
+headごとの固定Ridgeを1回だけfitし、B1の入力を含む。`decision_value_fit.py` はB1/B2が同一の
+検証済みrow・label・groupを使う共通収集経路を持ち、モデルごとに行を落とさない。
+勝率と金額の分離（高勝率・負の期待損益で参入しない）、共有gross上限の下でのjoint行動が
+単銘柄効果の和にならないことをsynthetic native testで固定した。これらは人工データ上の
+software確認であり、実市場のedge、独立標本、G4/G5、unused/final、live、
+M34/NONRL48/fee-only PPOの既存判定を変更しない。
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 

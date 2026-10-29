@@ -271,3 +271,38 @@ def test_fit_fail_closed_when_maturity_or_action_roster_is_forged() -> None:
             ),
             candidate_actions=_CANDIDATES,
         )
+
+
+def test_fit_standardized_ridge_and_affine_folding() -> None:
+    from trade_rl.evaluation.decision_value_fit import _fit_standardized_ridge
+
+    n = 100
+    p = 6
+    rng = np.random.default_rng(20261029)
+    x = rng.normal(size=(n, p))
+    x[:, 0] = 1.0  # bias
+    x[:, 3] = 1.0  # constant feature
+    w_true = np.array([0.5, 1.2, -0.8, 0.0, 0.4, -0.3])
+    y = x @ w_true + rng.normal(scale=0.01, size=n)
+
+    intervals = [(i * 6, i * 6 + 24) for i in range(n)]
+    rows = [x[i] for i in range(n)]
+    labels = [float(v) for v in y]
+
+    coefs, cov = _fit_standardized_ridge(
+        rows, labels, penalty=1e-4, intervals=intervals, compute_covariance=True
+    )
+    assert len(coefs) == p
+    assert cov is not None
+    assert len(cov) == p
+    assert len(cov[0]) == p
+
+    # Constant feature 3 must have zero weight
+    assert coefs[3] == pytest.approx(0.0)
+
+    # For any new test point with constant feature = 1.0, prediction and variance must match standardized computation
+    x_test = np.array([1.0, 0.5, -0.2, 1.0, 0.8, -0.1])
+    pred = float(x_test @ np.asarray(coefs))
+    quad = float(x_test @ np.asarray(cov) @ x_test)
+    assert quad > 0.0
+    assert abs(pred - float(x_test @ w_true)) < 0.05

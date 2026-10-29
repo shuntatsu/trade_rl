@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -50,6 +50,7 @@ class _TrainingSet:
     groups: int
     rows: list[list[np.ndarray]]
     values: list[list[float]]
+    intervals: list[list[tuple[int, int]]]
 
 
 def _collect_training(
@@ -88,6 +89,7 @@ def _collect_training(
     index = {action: i for i, action in enumerate(codes)}
     rows: list[list[np.ndarray]] = [[] for _ in codes[1:]]
     values: list[list[float]] = [[] for _ in codes[1:]]
+    intervals: list[list[tuple[int, int]]] = [[] for _ in codes[1:]]
     used: set[tuple[str, int, tuple[int, ...]]] = set()
     group = -1
     group_end = -(2**63)
@@ -134,8 +136,14 @@ def _collect_training(
             group_end = max(group_end, sample.terminal_time_ns)
         if batch.group_ids[i] != group:
             raise ValueError("overlap group contract differs from actual label windows")
+        obs_to_encode = (
+            replace(sample.observation, active_orders=())
+            if sample.observation.active_orders
+            and encoder is encode_decision_value_state
+            else sample.observation
+        )
         vector = encoder(
-            sample.observation,
+            obs_to_encode,
             symbols=symbols,
             feature_names=feature_names,
             global_feature_names=global_names,
@@ -143,6 +151,7 @@ def _collect_training(
         head = index[sample.candidate_action] - 1
         rows[head].append(vector)
         values[head].append(float(sample.label_delta))
+        intervals[head].append((sample.decision_time_ns, sample.terminal_time_ns))
     if batch.evaluation_start_ns <= batch.fit_cutoff_ns:
         raise ValueError("evaluation must begin after the fit cutoff")
     return _TrainingSet(
@@ -159,7 +168,94 @@ def _collect_training(
         groups=group + 1,
         rows=rows,
         values=values,
+        intervals=intervals,
     )
+
+
+def _fit_standardized_ridge(
+    design: list[np.ndarray],
+    labels: list[float],
+    penalty: float,
+    intervals: list[tuple[int, int]] | None = None,
+    *,
+    compute_covariance: bool = False,
+) -> tuple[tuple[float, ...], tuple[tuple[float, ...], ...] | None]:
+    if len(design) < 3:
+        raise ValueError("insufficient fixed candidate coverage for Ridge")
+    matrix = np.stack(design)
+    target = np.asarray(labels, dtype=np.float64)
+    n_samples, p_total = matrix.shape
+
+    # Non-bias feature standardization and constant collinearity removal
+    feat_matrix = matrix[:, 1:]
+    means = np.mean(feat_matrix, axis=0)
+    stds = np.std(feat_matrix, axis=0)
+    active_mask = stds >= 1e-8
+    active_indices = np.where(active_mask)[0]
+    k_active = len(active_indices)
+    p_eff = 1 + k_active
+
+    z_matrix = np.empty((n_samples, p_eff), dtype=np.float64)
+    z_matrix[:, 0] = 1.0
+    if k_active > 0:
+        z_matrix[:, 1:] = (
+            feat_matrix[:, active_indices] - means[active_indices]
+        ) / stds[active_indices]
+
+    gram = z_matrix.T @ z_matrix + penalty * np.eye(p_eff)
+    beta = np.linalg.solve(gram, z_matrix.T @ target)
+    if not np.isfinite(beta).all():
+        raise ValueError("fit produced non-finite action values")
+
+    # Affine folding matrix A: z_eff = A @ x
+    a_matrix = np.zeros((p_eff, p_total), dtype=np.float64)
+    a_matrix[0, 0] = 1.0
+    for m in range(k_active):
+        col = 1 + active_indices[m]
+        mu = means[active_indices[m]]
+        s = stds[active_indices[m]]
+        a_matrix[1 + m, 0] = -mu / s
+        a_matrix[1 + m, col] = 1.0 / s
+
+    coefficients = a_matrix.T @ beta
+    if not np.isfinite(coefficients).all():
+        raise ValueError("fit produced non-finite action values")
+
+    cov_matrix: tuple[tuple[float, ...], ...] | None = None
+    if compute_covariance:
+        residuals = target - z_matrix @ beta
+        ssr = float(residuals @ residuals)
+
+        # Average overlap multiplicity m_bar across intervals
+        if intervals is not None and len(intervals) == n_samples:
+            multiplicities: list[int] = []
+            for i in range(n_samples):
+                d_i, t_i = intervals[i]
+                m_i = sum(
+                    1
+                    for j in range(n_samples)
+                    if max(d_i, intervals[j][0]) < min(t_i, intervals[j][1])
+                )
+                multiplicities.append(m_i)
+            m_bar = float(np.mean(multiplicities))
+        else:
+            m_bar = 1.0
+
+        m_bar = max(1.0, m_bar)
+        n_eff = n_samples / m_bar
+        dof = max(1.0, n_eff - p_eff)
+        sigma2 = max(1e-12, (ssr / dof) * m_bar)
+
+        inv_gram = np.linalg.inv(gram)
+        cov_beta = sigma2 * inv_gram
+        cov_beta = 0.5 * (cov_beta + cov_beta.T)
+        cov_w = a_matrix.T @ cov_beta @ a_matrix
+        cov_w = 0.5 * (cov_w + cov_w.T)
+        if not np.isfinite(cov_w).all():
+            raise ValueError("fit produced non-finite covariance")
+        cov_matrix = tuple(tuple(float(val) for val in row) for row in cov_w)
+
+    return tuple(float(val) for val in coefficients), cov_matrix
 
 
 def _ridge(
@@ -188,8 +284,8 @@ def fit_synthetic_linear_decision_value(
     """
     t = _collect_training(batch, candidate_actions=candidate_actions)
     fitted = tuple(
-        _ridge(d, v, _FIXED_RIDGE_PENALTY)
-        for d, v in zip(t.rows, t.values, strict=True)
+        _fit_standardized_ridge(d, v, _FIXED_RIDGE_PENALTY, iv)[0]
+        for d, v, iv in zip(t.rows, t.values, t.intervals, strict=True)
     )
     return LinearDecisionValueModel(
         schema_version="synthetic_linear_decision_value_v1",
@@ -284,24 +380,14 @@ def fit_conservative_linear_decision_value(
     )
     coefficients_list: list[tuple[float, ...]] = []
     covariances_list: list[tuple[tuple[float, ...], ...]] = []
-    dof = max(1, t.groups - 1)
 
-    for d, v in zip(t.rows, t.values, strict=True):
-        if len(d) < 3:
-            raise ValueError("insufficient fixed candidate coverage for Ridge")
-        matrix = np.stack(d)
-        target = np.asarray(v, dtype=np.float64)
-        gram = matrix.T @ matrix + _FIXED_RIDGE_PENALTY * np.eye(matrix.shape[1])
-        coefficients = np.linalg.solve(gram, matrix.T @ target)
-        residuals = target - matrix @ coefficients
-        sigma2 = max(1e-12, float(residuals @ residuals) / dof)
-        inv_gram = np.linalg.inv(gram)
-        cov = sigma2 * inv_gram
-        cov = 0.5 * (cov + cov.T)
-        if not np.isfinite(coefficients).all() or not np.isfinite(cov).all():
-            raise ValueError("fit produced non-finite values or covariance")
-        coefficients_list.append(tuple(float(value) for value in coefficients))
-        covariances_list.append(tuple(tuple(float(val) for val in row) for row in cov))
+    for d, v, iv in zip(t.rows, t.values, t.intervals, strict=True):
+        coefs, cov = _fit_standardized_ridge(
+            d, v, _FIXED_RIDGE_PENALTY, iv, compute_covariance=True
+        )
+        assert cov is not None
+        coefficients_list.append(coefs)
+        covariances_list.append(cov)
 
     return ConservativeLinearDecisionValueModel(
         schema_version="conservative_linear_decision_value_v2",

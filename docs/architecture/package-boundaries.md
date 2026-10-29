@@ -45,6 +45,7 @@ trade_rl/
 │       ├── forward_evidence.py
 │       ├── forward_rules.py
 │       ├── market_order_profile.py
+│       ├── derived_klines.py
 │       └── dataset.py
 ├── risk/
 │   ├── inputs.py
@@ -98,6 +99,7 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
+    ├── dev_realdata_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,cli.py,dataset_build.py}
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
     ├── ppo_normalization_replication.py
@@ -710,6 +712,10 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 同じexact HEADのactive submitted marked `### Disposition: BLOCKED` が一つでもあれば承認より優先し、後続の同一actorによる承認でも消去しない。保留・曖昧・dismissed・古いHEAD・不整合なreceiptはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みsoftwareレビューはIntegratorによるマージ・クローズの対象となる。このGeneric receiptは `Independent Research Review` の4h PPO smoke専用review/triggerやG4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。
 
 `tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、(1) targetをdataとして読むpacket生成job、(2) Gemini secretを持たずexact reviewed SHAへ固定command setを実行するCore / PPO Runtime / Human Guide verification jobs、(3) canonical packetだけを受け取るfresh secret-bearing review jobを分離する。review jobはtarget checkoutやtarget-generated executable artifactをauthorityとして受け取らず、trusted runner/workflow identity、request/tag identity、packet digest、trusted verification job identity、Gemini request/response identityをreviewer-run attestationへbindする。Gemini API key/model selectionはworkflow configurationであり、concrete model versionはprovenanceとして記録するがproduction trading/runtime schemaやvalidator allow-listへ固定しない。
+
+## Development real-data study boundary
+
+`evaluation/dev_realdata_study/` は Issue #810 P2 の development-only real-data walk-forward study だけを所有する。`protocol.py` は事前固定した全parameter・5 arm roster・3 scenario・selection ruleの定数とSHA-256 digestを持ち、実データ実行の前にcommitする。`runner.py` は `strategies/forecasts/prequential.py` の causal packet を log→simple return に写す adapter、`strategies/allocation/` の policy、armごと・scenarioごとに1回の連続 `run_shared_portfolio_replay`（terminal flat settle、ledger capture）、raw fill からの独立 ledger reconciliation、未来perturbation causality probeを束ねる。`metrics.py` は equity-path metrics、20日block bootstrap、`DEVELOPMENT_PROMISING` / `NO_WINNER` だけを返す選定ruleを持つ。このpackageは `WINNER` を出さず、unused-future窓を開かず、account・P&L ledger・fill modelを持たず、`trade_rl.evaluation` の公開APIを拡張しない。CLI (`python -m trade_rl.evaluation.dev_realdata_study`) は新規出力のみを書き、既存出力を上書きしない。`dataset_build.py` は同study用Datasetをlocalの Binance Vision archiveだけから作る **offline・opt-in** builder（`python -m trade_rl.evaluation.dev_realdata_study.dataset_build`）で、networkへ出ず、非空の出力先を拒否し、economic replayを実行しない。gap policy (`non_tradable_rows`: 欠損1h barはnon-tradable row・forward-fill mark・funding非計上、4h/1d barは完全な1h windowからaggregate、欠損windowは `available_at=range end` のplaceholderにして再帰的な上位clock featureを以降unavailable化) と入力rosterを `DATASET_BUILD_POLICY` とそのdigestとしてreceiptへ固定する。gap許容は `integrations/binance/dataset.py` の明示的な `BinanceGapPolicy` option（default `STRICT` = 従来どおり欠損barを拒否）と `integrations/binance/derived_klines.py` の1h→4h/1d aggregation transportが所有し、monkeypatchは使わない。
 
 ## Public API policy
 

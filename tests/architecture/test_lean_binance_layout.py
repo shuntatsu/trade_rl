@@ -86,6 +86,7 @@ def test_binance_adapter_is_a_responsibility_package() -> None:
         "forward_evidence.py",
         "forward_rules.py",
         "market_order_profile.py",
+        "derived_klines.py",
     ):
         assert (BINANCE / name).is_file(), name
 

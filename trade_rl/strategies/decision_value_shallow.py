@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from typing import Any, cast
 
 import numpy as np
@@ -21,6 +21,7 @@ from trade_rl._validation import require_sha256, require_unique_non_empty
 from trade_rl.strategies.decision_value import (
     LinearDecisionValueRuntimeContext,
     encode_decision_value_state,
+    preserve_posture_aware_proposal,
 )
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
@@ -29,7 +30,6 @@ from trade_rl.strategies.portfolio import (
 from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
     decode_portfolio_action_codes,
-    portfolio_action_to_proposal,
 )
 
 _SCHEMA = "synthetic_shallow_decision_value_v1"
@@ -204,8 +204,21 @@ class ShallowDecisionValuePolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        return portfolio_action_to_proposal(
-            self.decide_action(snapshot), snapshot, self.model.target_abs_weights
+        snap_to_score = (
+            replace(snapshot, active_orders=()) if snapshot.active_orders else snapshot
+        )
+        scores = self._scores(snap_to_score)
+        best, best_edge = 0, _POSITIVE_EDGE
+        for index in range(1, len(scores)):
+            if scores[index] > best_edge:
+                best, best_edge = index, scores[index]
+        all_non_positive = best == 0
+        action = self.model.candidate_actions[best]
+        return preserve_posture_aware_proposal(
+            action,
+            snapshot,
+            self.model.target_abs_weights,
+            all_scores_non_positive=all_non_positive,
         )
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from numbers import Real
 from typing import Any, cast
 
@@ -22,7 +22,10 @@ from trade_rl.strategies.portfolio import (
     PortfolioTargetProposal,
 )
 from trade_rl.strategies.portfolio_policy_codec import (
+    ACTION_FLAT,
     ACTION_HOLD,
+    ACTION_LONG,
+    ACTION_SHORT,
     decode_portfolio_action_codes,
     portfolio_action_to_proposal,
 )
@@ -288,6 +291,78 @@ class LinearDecisionValueRuntimeContext:
             require_sha256(getattr(self, field_name), field=field_name)
 
 
+def preserve_posture_aware_proposal(
+    action: tuple[int, ...],
+    snapshot: PortfolioDecisionSnapshot,
+    target_abs_weights: tuple[float, ...],
+    *,
+    all_scores_non_positive: bool = False,
+) -> PortfolioTargetProposal:
+    """Posture-aware proposal helper preserving in-flight orders and suppressing churn."""
+    if not isinstance(snapshot, PortfolioDecisionSnapshot):
+        raise TypeError("snapshot must be a PortfolioDecisionSnapshot")
+    n = len(snapshot.symbols)
+    if len(action) != n:
+        raise ValueError("action length must match symbols length")
+    if len(target_abs_weights) != n:
+        raise ValueError("target_abs_weights length must match symbols length")
+    pending_weights = (
+        compute_pending_order_weights(snapshot)
+        if snapshot.active_orders
+        else (0.0,) * n
+    )
+    target_weights = [0.0] * n
+    hold_symbols: set[int] = set()
+
+    for i in range(n):
+        w_act = snapshot.account.weights[i]
+        w_pend = pending_weights[i]
+        w_eff = w_act + w_pend
+        d_eff = 1 if w_eff > 1e-6 else (-1 if w_eff < -1e-6 else 0)
+
+        if all_scores_non_positive:
+            if d_eff != 0:
+                # Cash exit: flatten losing position to cash
+                target_weights[i] = 0.0
+            else:
+                # Stay in cash
+                target_weights[i] = w_act
+                hold_symbols.add(i)
+            continue
+
+        act = action[i]
+        if act == ACTION_LONG:
+            d_star = 1
+        elif act == ACTION_SHORT:
+            d_star = -1
+        elif act == ACTION_FLAT:
+            d_star = 0
+        else:  # ACTION_HOLD
+            d_star = d_eff
+
+        if d_star == 0:
+            target_weights[i] = 0.0
+            if abs(w_act) <= 1e-6 and abs(w_pend) <= 1e-12:
+                hold_symbols.add(i)
+        elif d_star == d_eff:
+            # Maintaining same posture
+            if abs(w_pend) > 1e-12:
+                # In-flight order active: preserve target as w_eff without hold_symbols
+                target_weights[i] = w_eff
+            else:
+                # Already filled in this posture: hold current quantity to suppress micro-rebalance churn
+                target_weights[i] = w_act
+                hold_symbols.add(i)
+        else:
+            # New entry or reversal
+            target_weights[i] = float(d_star) * target_abs_weights[i]
+
+    return PortfolioTargetProposal(
+        target_weights=tuple(target_weights),
+        hold_current_quantity_symbols=tuple(sorted(hold_symbols)),
+    )
+
+
 class LinearDecisionValuePolicy:
     """Synthetic-only PortfolioPolicy; hard risk and native execution stay downstream."""
 
@@ -349,8 +424,23 @@ class LinearDecisionValuePolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        return portfolio_action_to_proposal(
-            self.decide_action(snapshot), snapshot, self.model.target_abs_weights
+        snap_to_score = (
+            replace(snapshot, active_orders=()) if snapshot.active_orders else snapshot
+        )
+        scores = self._scores(snap_to_score)
+        best = 0
+        best_edge = _POSITIVE_EDGE
+        for index in range(1, len(scores)):
+            if scores[index] > best_edge:
+                best = index
+                best_edge = scores[index]
+        all_non_positive = best == 0
+        action = self.model.candidate_actions[best]
+        return preserve_posture_aware_proposal(
+            action,
+            snapshot,
+            self.model.target_abs_weights,
+            all_scores_non_positive=all_non_positive,
         )
 
 
@@ -657,29 +747,21 @@ class ConservativeLinearDecisionValuePolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        action = self.decide_action(snapshot)
-        proposal = portfolio_action_to_proposal(
-            action, snapshot, self.model.target_abs_weights
-        )
-        if not snapshot.active_orders:
-            return proposal
-        pending_weights = compute_pending_order_weights(snapshot)
-        effective_weights = tuple(
-            w_s + w_p
-            for w_s, w_p in zip(snapshot.account.weights, pending_weights, strict=True)
-        )
-        target_weights = list(proposal.target_weights)
-        hold_symbols = set(proposal.hold_current_quantity_symbols)
-        for i in range(len(self.model.symbols)):
-            if (
-                i not in hold_symbols
-                and abs(proposal.target_weights[i] - effective_weights[i]) <= 1e-6
-            ):
-                hold_symbols.add(i)
-                target_weights[i] = snapshot.account.weights[i]
-        return PortfolioTargetProposal(
-            target_weights=tuple(target_weights),
-            hold_current_quantity_symbols=tuple(sorted(hold_symbols)),
+        best = 0
+        best_edge = _POSITIVE_EDGE
+        for index in range(1, len(self.model.candidate_actions)):
+            action = self.model.candidate_actions[index]
+            score = self.conservative_value_for_action(snapshot, action)
+            if score > best_edge:
+                best = index
+                best_edge = score
+        all_non_positive = best == 0
+        action = self.model.candidate_actions[best]
+        return preserve_posture_aware_proposal(
+            action,
+            snapshot,
+            self.model.target_abs_weights,
+            all_scores_non_positive=all_non_positive,
         )
 
 
@@ -773,6 +855,7 @@ __all__ = [
     "encode_decision_value_state_v2",
     "load_conservative_linear_decision_value",
     "load_linear_decision_value",
+    "preserve_posture_aware_proposal",
     "serialize_conservative_linear_decision_value",
     "serialize_linear_decision_value",
 ]

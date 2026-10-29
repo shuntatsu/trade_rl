@@ -195,10 +195,23 @@ def collect_until_finished(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
     publish: Callable[[dict[str, Any]], None],
+    heartbeat: Callable[[str, dict[str, Any] | None], None] | None = None,
+    heartbeat_interval_seconds: float = 60,
 ) -> dict[str, Any]:
-    """Do not retry exceptions, fabricate missed slots, or extend the deadline."""
+    """Do not retry exceptions, fabricate missed slots, or extend the deadline.
+
+    ``heartbeat`` is an operational liveness hook only; it sees no market data, can
+    not alter a slot, and a failure to write it halts the collector like any error.
+    """
+    if heartbeat_interval_seconds <= 0:
+        raise ValueError("heartbeat interval must be positive")
     end = collector.close_at + timedelta(seconds=180)
     previous: datetime | None = None
+    last_status: dict[str, Any] | None = None
+
+    def beat(state: str) -> None:
+        if heartbeat is not None:
+            heartbeat(state, last_status)
 
     def read_clock() -> datetime:
         nonlocal previous
@@ -208,19 +221,25 @@ def collect_until_finished(
         previous = at
         return at
 
+    beat("starting")
     while True:
         read_clock()
+        beat("cycle_started")
         result = collector.cycle()
         if result["status"]["quality_failures"] and result["status"]["terminal_flat"]:
             result = dict(result, phase="rejected")
         publish(result)
+        last_status = result["status"]
         if result["phase"] in {"finished", "rejected"}:
+            beat(result["phase"])
             return result
+        beat("cycle_completed")
         now = read_clock()
         slot = max(0, math.floor((now - collector.start_at).total_seconds() / 60) + 1)
         due = min(end, collector.start_at + timedelta(seconds=slot * 60))
         while (remaining := (due - read_clock()).total_seconds()) > 0:
-            sleep(min(60, remaining))
+            sleep(min(60, heartbeat_interval_seconds, remaining))
+            beat("sleeping")
 
 
 def collection_status(

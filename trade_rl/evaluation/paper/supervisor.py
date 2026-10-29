@@ -58,6 +58,44 @@ def seal_collection(
     )
 
 
+def write_collection_failure(
+    root: Path,
+    *,
+    protocol_sha256: str,
+    error_type: str,
+    error: str,
+    extra: dict[str, Any] | None = None,
+    clock: Callable[[], datetime] = _now,
+) -> dict[str, Any] | None:
+    """Create the permanent failure marker once; return None if one already exists.
+
+    The marker is the single operational fact that rejects a screen. It is written
+    exclusively and fsynced, never replaced, so the first recorded cause is kept.
+    The collector, the watchdog and the termination hooks all use this one writer.
+    """
+    failure = Path(root) / _FAILURE
+    if failure.exists() or failure.is_symlink():
+        return None
+    record: dict[str, Any] = dict(
+        schema="paper_collection_failure_v1",
+        protocol_sha256=protocol_sha256,
+        recorded_at=clock().isoformat(),
+        error_type=error_type,
+        error=error[:2000],
+        production_eligible=False,
+    )
+    if extra:
+        record.update(extra)
+    try:
+        with failure.open("xb") as stream:
+            stream.write(canonical_json_bytes(record))
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError:
+        return None
+    return record
+
+
 class PaperCollector:
     """Use as a context manager. Any collection failure permanently halts I/O."""
 
@@ -170,18 +208,14 @@ class PaperCollector:
         failure = self.root / _FAILURE
         if failure.exists() or failure.is_symlink():
             return
-        record = dict(
-            schema="paper_collection_failure_v1",
+        record = write_collection_failure(
+            self.root,
             protocol_sha256=self.digest,
-            recorded_at=_now().isoformat(),
             error_type=type(error).__name__,
-            error=str(error)[:2000],
-            production_eligible=False,
+            error=str(error),
         )
-        with failure.open("xb") as stream:
-            stream.write(canonical_json_bytes(record))
-            stream.flush()
-            os.fsync(stream.fileno())
+        if record is None:
+            return
         # Reconcile a possibly committed-but-unacknowledged event first. Never
         # use changed source to append financial events or invent a fresh mark.
         if (

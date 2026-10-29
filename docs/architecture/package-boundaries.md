@@ -109,7 +109,7 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py,operations.py,watchdog.py,attempt2.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -194,9 +194,16 @@ the ninety-day economic screen, runs sixty-second slots and exposes explicitly
 chain-only operational status. `paper/assessment.py` excludes a running collector,
 replays the pinned event tip and all financial inputs, audits control/source
 rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
-run, status and write-once evaluation commands. The account/engine expose due
-announced funding for previously held exact quantities, including after exits.
-These operations contain no production routing.
+run, status, check, supervise and write-once evaluation commands. The account/engine
+expose due announced funding for previously held exact quantities, including after
+exits. `paper/watchdog.py` owns only operational liveness: the atomic collector
+heartbeat, exit/signal/console failure hooks, the stateless stale check and the
+child supervisor. It never opens the journal, control writer or market surfaces; it
+reads the control database read-only and creates failure markers through the one
+`supervisor.write_collection_failure` writer. `paper/attempt2.py` composes the
+existing lineage validator, `screen_plan`, `seal_paper_study`, FS1's authorization
+pattern and the supervisor into plan/seal/launch gates for the successor attempt
+with no network import. These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

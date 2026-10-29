@@ -296,3 +296,144 @@ not claim financial replay validation. `evaluate` excludes a running collector,
 checks source/runtime, rebuilds the account and applies the frozen screen to the
 externally pinned protocol and final tip. A passed paper screen always retains
 `production_eligible=false`. Failure evidence and unresolved positions survive.
+
+### Collector liveness and silent-death records
+
+Attempt 1 ended with no failure marker, no shutdown reason and no restart; this
+section defines what every end of the collector must now leave behind. It is
+operational evidence only: nothing here reads market data, edits the journal or
+control database, retries a denied request, or counts toward the economic screen.
+
+`python -m trade_rl.evaluation.paper.cli run` writes an atomic
+`collector-heartbeat.json` beside the journal (states `starting`, `cycle_started`,
+`cycle_completed`, `sleeping`, `finished`, `rejected`; at most every 15 seconds,
+with the last committed command time). The heartbeat file is not part of the
+protocol, the source roster or the replay. A heartbeat write error halts the
+collector like any other error.
+
+Every non-terminal end must leave the single permanent `collection-failure.json`,
+which is created exclusively so the first recorded cause is kept:
+
+* the collector context manager (any exception, `KeyboardInterrupt`, or a
+  `SIGTERM`/`SIGBREAK` turned into `CollectorTerminated`), which may additionally
+  append the existing non-trading gap command;
+* an `atexit` guard (`CollectorExitedUnfinished`) and, on Windows, a console
+  control handler for close, logoff and shutdown (`CollectorConsoleClosed`);
+  both write only the marker, because the process may be gone within seconds;
+* `cli check` (stateless, safe from an independent scheduled task): after the
+  frozen start, a heartbeat older than 150 seconds, a corrupt heartbeat, or no
+  heartbeat 180 seconds after start writes `CollectorHeartbeatStale` or
+  `CollectorNeverStarted`; before the start it only reports;
+* `cli supervise`, which writes the marker for a hang, a death inside a cycle, an
+  unrecoverable gap, a refused or early-exited child and a restart loop.
+
+Hard process death (`taskkill /f`, power loss, machine sleep) cannot run any
+in-process hook; only `check` or `supervise` can record it, which is why one of
+them must always be running. Watchdog-written markers do not append a journal gap
+and do not flatten positions: unresolved quantities and the last real marks
+survive as evidence and the screen is rejected.
+
+The supervisor relaunches a child only when relaunching cannot lose or invent
+evidence: no failure marker, no terminal heartbeat, child exit code neither 0 nor
+2, no unacknowledged cycle in the control database, the projected observation gap
+(time since the last committed command plus a 60-second launch margin) still
+within the frozen 180 seconds, and at most five relaunches. A death inside a
+cycle is never resumed, because the control record deliberately halts reopening;
+a transient network error is not retried either, because the collector halts on
+any source failure. The 90-day screen therefore still ends on the first such
+event. Startup replays the entire journal, so relaunch latency grows with the
+journal; measure it before relying on the margin.
+
+### Attempt 2 operator runbook
+
+Attempt 2 is prepared offline but is neither sealed nor started. The preserved
+attempt-1 root is read-only evidence and is never resumed, backfilled or edited.
+`python -m trade_rl.evaluation.paper.attempt2` has three commands, each of which
+refuses unless `--authorization` is an Issue #810 comment URL
+(`https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>`). The URL
+shape is all that code can check, so a human must post the authorization comment
+first; nothing here proves the comment exists or says what it should say.
+
+1. Human prerequisites, before any command:
+   * post the Issue #810 authorization comment naming the intended UTC start;
+   * obtain a fresh result-blind review that resolves the preserved attempt-1 root
+     with its v1 reader and confirms protocol, event chain, final tip, last
+     observation and elapsed gap, and checks for an unreported earlier attempt;
+     the lineage values are assertions until that review exists;
+   * create a dedicated detached worktree of the merged commit and a private locked
+     environment; keep it unmodified until the screen ends (the sealed
+     implementation and runtime digests are rechecked before every acquisition);
+   * on the collection machine disable sleep and hibernation, postpone automatic
+     restarts and updates for 90 days, keep clock synchronisation on (a clock step
+     backwards halts collection), and use stable power and network.
+2. Storage and runtime check (the screen needs 129,604 sixty-second slots, 90 days
+   plus the 180-second grace, without interruption). Measure the bytes per
+   observation read-only from the preserved attempt-1 root (total bytes, including
+   rule captures, divided by its 188 observations) and add a safety margin. The
+   plan multiplies that rate by the slot count and a 1.25 headroom factor and
+   compares it with free space on the target volume; `seal` refuses unless the
+   result is `ok`. Also reserve enough memory and time for journal replay on a
+   restart, which is not measurable offline.
+3. Plan (no side effects; `--output` writes a new draft file once):
+
+   ```
+   python -m trade_rl.evaluation.paper.attempt2 plan --root <NEW_ROOT> \
+     --start-at <FUTURE_UTC_ISO> --authorization <COMMENT_URL> \
+     --bytes-per-observation <MEASURED_RATE> --output <NEW_DRAFT.json>
+   ```
+
+   The draft binds the exact attempt-1 lineage, the fixed `carry_paper_screen_v2`
+   plan, the checkout commit, and the implementation and runtime digests, and lists
+   `seal_blockers`. The start must be at least five minutes after the wall clock.
+4. Seal (offline) with the same arguments and `seal`. It refuses a dirty or
+   unidentifiable checkout, an existing root, a missing authorization, a start not
+   at least five minutes in the future at seal time, and insufficient storage. It
+   prints `protocol_sha256`; record that digest, and post it with the start time.
+5. Launch (the only networked step, and only with `--allow-network`):
+
+   ```
+   python -m trade_rl.evaluation.paper.attempt2 launch --root <ROOT> \
+     --start-at <SAME_START> --authorization <COMMENT_URL> --allow-network \
+     --protocol-sha256 <DIGEST> --log-file <PATH_OUTSIDE_ROOT>
+   ```
+
+   It re-verifies the root and runs the supervisor in the foreground, so run it
+   under Windows Task Scheduler (see below) well before the start; the collector
+   waits for the start. A first launch after the start is refused as a late start.
+   After the start, `launch` is accepted only to restart a supervisor for a verified
+   root whose collector has already written a heartbeat.
+6. Windows Task Scheduler recipe (PowerShell; `python.exe` is the locked
+   environment's interpreter). Task A runs the launch command at startup with
+   restart-on-failure, no execution time limit and no idle stop. Task B runs
+   `cli check` every minute under the same account:
+
+   ```
+   $a = New-ScheduledTaskAction -Execute <PYTHON> -WorkingDirectory <CHECKOUT> -Argument '-m trade_rl.evaluation.paper.attempt2 launch ...'
+   $s = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+   Register-ScheduledTask -TaskName carry-a2-supervisor -Action $a -Settings $s -Trigger (New-ScheduledTaskTrigger -AtStartup) -User <ACCOUNT> -RunLevel Limited
+   ```
+
+   Without a supervisor, `start "" /b <PYTHON> -m trade_rl.evaluation.paper.cli run
+   --root <ROOT> --protocol-sha256 <DIGEST> > <LOG> 2>&1` still gets the heartbeat
+   and failure records, but nothing relaunches it. Exit code 3 from `check`,
+   `supervise` or `launch` means a failure marker exists or was just written;
+   alert on it, do not clear it, and do not start a replacement into the same root.
+7. Monitor: `cli check` each minute (exit 0 healthy, 3 failed); `cli status` for
+   journal-chain-only progress; daily free-space and log-size checks; compare the
+   supervisor log with the heartbeat. Operational status is not economic evidence.
+8. Terminal: no earlier than close plus 180 seconds the supervisor reports
+   `finished` and the heartbeat is terminal. Run `cli status`, record the final
+   `tip` externally, then `cli evaluate --root <ROOT> --protocol-sha256 <DIGEST>
+   --expected-tip <TIP> --output <NEW_FILE>`. A pass retains
+   `production_eligible=false`.
+
+The screen is invalidated by any `collection-failure.json`; an observation gap over
+180 seconds; a first observation more than 180 seconds after start; a last
+observation outside close plus 120 to 180 seconds; an unacknowledged cycle or
+failed, missing or unconsumed capture; changed source or runtime identity; clock
+reversal; machine sleep or a lost network link that ends or stalls a cycle; any
+single source error (there is no retry); a late, missing, revised or out-of-order
+funding settlement; an unmatched hedge, drawdown at or above 10% or a stop; no
+funding receipt in a block; positions not flat at the end; any fill missing from
+the four instruments; and nonzero funding settled at or after close. Do not resume
+or repair a failed root; a further attempt needs a new lineage, review and seal.

@@ -858,6 +858,17 @@ the terminal observation window ends 180 seconds after the fixed close, includin
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.
 
+Collection liveness is separate from that evidence. The collector process writes an
+atomic heartbeat; every exit, signal or console-close path and the external stale
+check create the same permanent failure marker exclusively, so the first cause is
+kept. A supervisor may relaunch only a child that died between cycles, inside the
+frozen 180-second gap including a launch margin, with no marker, no unacknowledged
+cycle and a bounded restart count. It never resumes an interrupted cycle, retries a
+failed source request or edits the journal; a hard kill during acquisition therefore
+still ends the screen. The attempt-2 tooling is plan-only until an explicit seal
+and, separately, an explicit network launch, both gated by an Issue #810
+authorization URL; they do not prove authorization or establish profitability.
+
 New forward captures use `binance_forward_market_snapshot_v2`, explicitly binding
 100 requested depth levels per side for each spot/perpetual symbol. All returned
 levels are retained; more than the requested bound fails. The offline reader

@@ -1,3 +1,11 @@
+"""Contract tests for the Phase 3 mechanisms and the committed evidence.
+
+These check the declared contracts (kappa scales only the optimizer cost, VT scales
+the solved target, causality, fail-closed paths, pinned digests, committed-result
+consistency). They are NOT a result-blind G0-G2 review or G2 approval of any Phase 3
+mechanism: no such review took place before the economics were generated.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -940,3 +948,24 @@ def test_committed_p3_7_is_a_control_and_never_the_selected_arm() -> None:
     assert result["selected_arm_pr_c_probe_rule"] != PASSIVE_COMPARATOR_ARM
     assert result["selected_arm_amended_rule"] != PASSIVE_COMPARATOR_ARM
     assert PASSIVE_COMPARATOR_ARM not in result["selection_pr_c_probe_rule"]["arms"]
+
+
+def test_provenance_states_that_g0_g2_were_not_established() -> None:
+    provenance = _report("issue810-phase3-trial-provenance-20261029.json")
+    assurance = provenance["assurance"]
+    assert [assurance[g] for g in ("G0", "G1", "G2")] == ["NOT_ESTABLISHED"] * 3
+    text = " ".join(assurance["consequences"])
+    assert "development diagnostics only" in text
+    assert "NOT a G4 candidate" in text and "must not be frozen" in text
+    scope = provenance["scope_choices_disclosed_after_review"]
+    assert set(scope) == {
+        "selection_pool",
+        "causality_matrix_in_validity",
+        "p3_7_excluded_from_selection",
+        "pre_cut_trace_has_trades",
+    }
+    # the frozen registry and the result summary are untouched by the corrections
+    assert (
+        _report("issue810-phase3-trial-registry-20261029.json")["registry_digest"]
+        == registry_digest()
+    )

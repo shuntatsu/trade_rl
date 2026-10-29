@@ -1,4 +1,15 @@
 {
+  "assurance": {
+    "G0": "NOT_ESTABLISHED",
+    "G1": "NOT_ESTABLISHED",
+    "G2": "NOT_ESTABLISHED",
+    "consequences": [
+      "The Phase 3 numbers are development diagnostics only",
+      "The Phase 3 tests are contract tests of the mechanisms, not G2 approval",
+      "P3-6 is NOT a G4 candidate and must not be frozen or sealed for forward evaluation until a fresh result-blind G0-G2 review of the mechanisms is done in a new, separately authorized step"
+    ],
+    "reason": "No result-blind G0-G2 review (docs/architecture/research-assurance.md) of the kappa, VT12, z-blend(T2,T4), weekly P3-5 or vol-scaled passive-control mechanisms was recorded before the Phase 3 economics were generated (executions 1 and 2 at a938fe33e). The results are public, so no review done now can be result-blind, and none is manufactured retroactively. The independent software review of PR 1044 (BLOCKED at 9c0c963ca) was written after reading the results and states that it establishes no G0-G2 status."
+  },
   "classification": "POST_HOC_EXPLORATORY: the roster was chosen after the Phase 2 results on the same development data; it is not preregistered. The only public pre-run record is the Issue #810 comment in registry public_pre_run_record.",
   "code_head_for_every_execution": "a938fe33eaec591d7b65e8e3e7d8b8e0492ced83",
   "dataset": {
@@ -165,6 +176,7 @@
     "BLEND_MIN_POOLED_OBSERVATIONS = 30 (also unregistered in Phase 2)"
   ],
   "issue": 810,
+  "issue_comment_correction": "Issue comment 6498469164 wrote that P3-6's cost-x2 profit 'halves' next to the annualised excess figure. The two metrics are: cost-x2 terminal net profit +19.9%; cost-x2 annualised excess over CASH +5.7% (95% bootstrap [-5.2%, +17.9%]). The same comment's closing sentence about freezing P3-6 for a sealed forward evaluation is withdrawn (see assurance).",
   "ordering_evidence": {
     "execution_1_started_utc": "2026-10-29T12:38:58+00:00",
     "note": "The registry JSON, all Phase 3 code and its synthetic tests were committed and pushed (a938fe33e) before execution 1 started; no real-data output existed before execution 1. The dataset was not opened for any Phase 3 purpose before execution 1 (unit tests use synthetic markets; only the dataset receipt metadata file was read to confirm the artifact digest).",
@@ -180,5 +192,11 @@
     "text_stated": "each config run once, all reported",
     "url": "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6493851921"
   },
-  "schema_version": "dev_realdata_phase3_trial_provenance_v1"
+  "schema_version": "dev_realdata_phase3_trial_provenance_v1",
+  "scope_choices_disclosed_after_review": {
+    "causality_matrix_in_validity": "the public record says the PR-C probe rule with no amendments; the registry (note N7, committed before execution 1) adds the causality matrix to validity under both rules. It only tightens validity and every matrix cell is identical",
+    "p3_7_excluded_from_selection": "P3-7 is a control (vol-scaled passive comparator); it would also fail the drawdown gate (21.6%)",
+    "pre_cut_trace_has_trades": "the inherited PR-C check tests whether any nonzero position is held in the first half of the probe's concatenated trace, which equals the hourly interval rows; it checks holding a position, not trading. Semantics unchanged; every arm other than CASH made 340 to 4,378 trades in the base scenario",
+    "selection_pool": "the seven Phase 3 allocator arms; Phase 2 arms are excluded. Including them would not change the label or the selected arm: T1 (base +10.4%, drawdown 3.0%) would be the only Phase 2 arm eligible and P3-6's base profit is higher"
+  }
 }

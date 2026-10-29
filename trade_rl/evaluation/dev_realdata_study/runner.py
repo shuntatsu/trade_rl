@@ -676,6 +676,13 @@ def causality_probe(
     arm roster (the Phase 2 trials) reuse the probe; ``sources_builder`` builds the
     per-dataset sources for the perturbed copy and defaults to
     :func:`build_forecast_sources`.
+
+    Naming caveat (semantics unchanged, kept for the PR-C rule):
+    ``pre_cut_trace_has_trades`` is true when any nonzero exact quantity is held after
+    any row in the first ``len(trace) // 2`` rows of the concatenated trace. That
+    half is the hourly interval rows, so the flag tests that a POSITION IS HELD during
+    them, not that an order was filled; ``pre_cut_interval_rows_have_trades`` is the
+    same test with an explicit interval/decision split and is a diagnostic only.
     """
 
     build = arm_builder or build_arm

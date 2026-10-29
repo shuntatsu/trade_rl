@@ -101,6 +101,7 @@ trade_rl/
     ├── directional_study.py
     ├── ppo_risk_study.py
     ├── dev_realdata_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,cli.py,dataset_build.py,trials.py,trial_sources.py,trial_study.py,trial_cli.py,trial_labels.py,phase3_registry.py,phase3_sources.py,phase3_study.py,phase3_cli.py}
+    ├── forward_study/{__init__.py,__main__.py,registry.py,labels.py,seal.py,fs1.py,cli.py}
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
     ├── ppo_normalization_replication.py
@@ -699,6 +700,12 @@ Coordinationの耐久契約は次である。
 - `python -m tools.agent_repo task ...` はnetwork-freeなparse/digest/readiness/status/dashboard操作だけを持つ。GitHub claim/comment/mergeのwrite authorityはこのCLIへ埋め込まない。
 
 このlayerは複数Coordinator間のdistributed consensusを保証しない。v1のoperational invariantはactive Coordinatorが1つであることとし、Worker自身の完了主張やlabelだけをmerge authorityにしない。
+
+## Forward study FS1 boundary
+
+`evaluation/forward_study/` は Issue #810 の sealed forward study FS1 だけを所有する。`registry.py` はFS1-A/B/C + CASHのroster・scoring window・falsifier・validity guardの凍結値と `FROZEN_PARAMS_DIGEST`（JSON exportは `report/issue810-fs1-registry-20261030.json`）だけを持ち、dataset・clock・resultを読まない。`labels.py` は数値だけを受け取る純粋な `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` ruleで、`WINNER` を返さない。`seal.py` はscoring前提条件（scoring end date経過、Issue commentのauthorization reference、凍結params digest、checkout済みcode SHAとclean tree、dataset seal manifest、読み込んだdatasetのidentity・window・tradable割合）を全て集めて `Fs1Refusal` で拒否し、満たしたときだけ `ScoringPermit` を返す。`fs1.py` はpermitを必須とする唯一のscoring entrypointで、Phase 3 policy builderと `dev_realdata_study.runner` を変更せず再利用し、write-onceでresultを書く。`fs1.py` の公開 `run_fs1` はregistry・digest・clock・code identity・dataset loaderを引数に取らず、private factory `_environment`（frozen registry、実wall clock、`git`）だけがそれらを供給する（testsはこのfactoryをmonkeypatchする）。code identityは `git rev-parse --show-toplevel` が解決したtrade_rl repository（pinned root commit）の追跡済み `seal.py` であること、HEADがsealed SHAに一致すること、変更済み・未追跡fileがないことを要求する。scoringはscoring end + 24h settlement marginの後だけで、manifestはfetch時刻とpinned build-policy digestを持つ。`cli.py` (`python -m trade_rl.evaluation.forward_study`) は引数をそのまま渡すだけでseamを持たない。
+
+このpackageはnetworkへ出ず（`integrations` を import しない）、データを取得せず、`final_test` authorization chain・paper/live・RLを使わず、`trade_rl.evaluation` の公開APIを拡張しない。`dev_realdata_study`・`strategies`・`simulation`・`data` はこのpackageへ依存しない。account・P&L ledger・fill modelは持たない。実データのscoringはscoring end date後にuserが取得とscoring runを別々に認可するまで実行しない。Contractの詳細は `architecture/research-assurance.md` の FS1 section、状態は `research/current-status.md`。
 
 ## Repository integration boundary
 

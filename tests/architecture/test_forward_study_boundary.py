@@ -74,14 +74,43 @@ def test_registry_and_labels_are_pure_and_import_only_frozen_definitions() -> No
         assert top_level - set(sys.stdlib_module_names) <= {"trade_rl"}, name
 
 
-def test_only_the_cli_reads_the_wall_clock_and_only_the_seal_runs_git() -> None:
+def test_only_the_private_environment_reads_the_clock_and_only_the_seal_runs_git() -> (
+    None
+):
     for name in MODULES:
         source = (FORWARD / name).read_text(encoding="utf-8")
-        if name != "cli.py":
+        if name != "fs1.py":
             assert "datetime.now" not in source, name
         if name != "seal.py":
             assert "subprocess" not in source, name
-    assert "datetime.now(UTC)" in (FORWARD / "cli.py").read_text(encoding="utf-8")
+    fs1 = (FORWARD / "fs1.py").read_text(encoding="utf-8")
+    assert fs1.count("datetime.now(UTC)") == 1
+    tree = ast.parse(fs1)
+    environment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_environment"
+    )
+    assert "datetime.now(UTC)" in ast.unparse(environment)
+
+
+def test_public_entrypoints_expose_no_registry_digest_identity_or_loader_seams() -> (
+    None
+):
+    forbidden = {
+        "run_fs1": {"registry", "frozen_params_digest", "code_identity", "now"},
+        "main": {"registry", "frozen_params_digest", "code_identity", "clock"},
+        "authorize_scoring": {"registry", "frozen_params_digest"},
+    }
+    seen = set()
+    for name in ("fs1.py", "seal.py", "cli.py"):
+        tree = ast.parse((FORWARD / name).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in forbidden:
+                arguments = {a.arg for a in node.args.kwonlyargs + node.args.args}
+                assert not arguments & forbidden[node.name], (name, node.name)
+                seen.add(node.name)
+    assert seen == set(forbidden)
 
 
 def test_scoring_is_reachable_only_through_the_permit() -> None:

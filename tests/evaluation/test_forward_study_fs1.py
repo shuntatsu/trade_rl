@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 from collections.abc import Callable
 from dataclasses import replace
@@ -31,6 +32,7 @@ from trade_rl.evaluation.forward_study.registry import (
     ARM_FS1_A,
     ARM_FS1_B,
     ARM_FS1_C,
+    FROZEN_PARAMS_DIGEST,
     FS1_REGISTRY,
     Fs1Registry,
 )
@@ -66,47 +68,21 @@ def manifest_for(data: MarketDataset) -> tuple[bytes, str]:
     raw = seal.manifest_bytes_from_dataset(
         data,
         source_manifest={"synthetic.zip": "1" * 64},
-        build_policy_digest="2" * 64,
+        build_policy_digest=SYN.build_policy_digest(),
         authorization_reference=FETCH_AUTH,
-        sealed_utc="2027-05-01T12:00:00",
+        fetched_utc="2027-05-02T01:00:00",
+        sealed_utc="2027-05-02T02:00:00",
     )
     return raw, hashlib.sha256(raw).hexdigest()
 
 
-def kwargs_for(
-    data: MarketDataset, out: Path, loader: Callable[[], MarketDataset] | None = None
-) -> dict[str, Any]:
+def make_permit(data: MarketDataset) -> seal.ScoringPermit:
+    """A permit for the synthetic registry through the private factory."""
+
     raw, digest = manifest_for(data)
-    return {
-        "now": NOW,
-        "authorization": AUTH,
-        "expected_params_digest": SYN.digest(),
-        "sealed_code_sha": SHA,
-        "code_identity": seal.CodeIdentity(SHA, True),
-        "manifest_bytes": raw,
-        "expected_manifest_sha256": digest,
-        "dataset_loader": loader or (lambda: data),
-        "output_path": out,
-        "registry": SYN,
-        "frozen_params_digest": SYN.digest(),
-    }
-
-
-@pytest.fixture(scope="module")
-def scored(
-    dataset: MarketDataset, tmp_path_factory: pytest.TempPathFactory
-) -> tuple[dict[str, Any], Path]:
-    out = tmp_path_factory.mktemp("fs1") / "result.json"
-    result = fs1.run_fs1(**kwargs_for(dataset, out))
-    return result, out
-
-
-@pytest.fixture(scope="module")
-def roster(
-    dataset: MarketDataset,
-) -> tuple[Any, dict[str, fs1.ArmRun]]:
-    raw, digest = manifest_for(dataset)
-    permit = seal.authorize_scoring(
+    return seal._authorize(
+        registry=SYN,
+        frozen_params_digest=SYN.digest(),
         now=NOW,
         authorization=AUTH,
         expected_params_digest=SYN.digest(),
@@ -114,10 +90,67 @@ def roster(
         code_identity=seal.CodeIdentity(SHA, True),
         manifest_bytes=raw,
         expected_manifest_sha256=digest,
-        registry=SYN,
-        frozen_params_digest=SYN.digest(),
     )
-    return fs1.run_roster(permit, dataset)
+
+
+def make_env(
+    data: MarketDataset,
+    *,
+    clock: datetime = NOW,
+    identity: seal.CodeIdentity | None = None,
+    frozen: str | None = None,
+    loader: Callable[[Path], MarketDataset] | None = None,
+) -> fs1._Environment:
+    return fs1._Environment(
+        registry=SYN,
+        frozen_params_digest=frozen or SYN.digest(),
+        clock=lambda: clock,
+        code_identity=lambda: identity or seal.CodeIdentity(SHA, True),
+        load_dataset=loader or (lambda path: data),
+    )
+
+
+def run_kwargs(
+    data: MarketDataset,
+    out: Path,
+    *,
+    with_manifest: bool = True,
+    **overrides: Any,
+) -> dict[str, Any]:
+    raw, digest = manifest_for(data)
+    manifest = out.parent / "manifest.json"
+    if with_manifest:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_bytes(raw)
+    kwargs: dict[str, Any] = {
+        "authorization": AUTH,
+        "expected_params_digest": SYN.digest(),
+        "sealed_code_sha": SHA,
+        "manifest_path": manifest,
+        "expected_manifest_sha256": digest,
+        "dataset_path": out.parent / "dataset",
+        "output_path": out,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+@pytest.fixture(scope="module")
+def scored(
+    dataset: MarketDataset, tmp_path_factory: pytest.TempPathFactory
+) -> tuple[dict[str, Any], Path]:
+    out = tmp_path_factory.mktemp("fs1") / "result.json"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(fs1, "_environment", lambda: make_env(dataset))
+        result = fs1.run_fs1(**run_kwargs(dataset, out))
+    return result, out
+
+
+@pytest.fixture(scope="module")
+def roster(
+    dataset: MarketDataset,
+) -> tuple[Any, dict[str, fs1.ArmRun]]:
+    return fs1.run_roster(make_permit(dataset), dataset)
 
 
 # --- the scoring path on synthetic data ------------------------------------
@@ -160,7 +193,7 @@ def test_every_scenario_runs_on_one_continuous_account_over_the_whole_window(
     assert base["net_pnl_usdt"] != 0.0
 
 
-def test_the_real_data_causality_matrix_is_identical_for_every_non_cash_arm(
+def test_the_causality_matrix_is_identical_for_every_non_cash_arm_on_synthetic_data(
     scored: tuple[dict[str, Any], Path],
 ) -> None:
     result, _ = scored
@@ -193,18 +226,21 @@ def test_bootstrap_uses_the_frozen_pairing_and_level(
 
 
 def test_the_result_is_write_once_and_a_second_run_never_loads_data(
-    dataset: MarketDataset, scored: tuple[dict[str, Any], Path]
+    dataset: MarketDataset,
+    scored: tuple[dict[str, Any], Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, out = scored
     before = out.read_bytes()
     loads: list[int] = []
 
-    def loader() -> MarketDataset:
+    def loader(path: Path) -> MarketDataset:
         loads.append(1)
         return dataset
 
+    monkeypatch.setattr(fs1, "_environment", lambda: make_env(dataset, loader=loader))
     with pytest.raises(seal.Fs1Refusal) as caught:
-        fs1.run_fs1(**kwargs_for(dataset, out, loader))
+        fs1.run_fs1(**run_kwargs(dataset, out))
     assert caught.value.reasons == ("output_exists",)
     assert loads == [] and out.read_bytes() == before
 
@@ -213,86 +249,142 @@ def test_the_result_is_write_once_and_a_second_run_never_loads_data(
 
 
 @pytest.mark.parametrize(
-    ("override", "reason"),
+    ("kwargs_override", "env_override", "reason"),
     [
-        ({"now": datetime(2021, 11, 26, 23, tzinfo=UTC)}, "scoring_window_not_closed"),
-        ({"authorization": None}, "authorization_missing"),
-        ({"authorization": "ok"}, "authorization_malformed"),
-        ({"expected_params_digest": "0" * 64}, "params_digest_mismatch"),
-        ({"sealed_code_sha": "b" * 40}, "code_sha_mismatch"),
-        ({"code_identity": seal.CodeIdentity(SHA, False)}, "code_tree_dirty"),
-        ({"manifest_bytes": None}, "manifest_missing"),
-        ({"expected_manifest_sha256": "0" * 64}, "manifest_sha256_mismatch"),
-        ({"frozen_params_digest": "0" * 64}, "registry_digest_differs_from_frozen"),
+        (
+            {},
+            {"clock": datetime(2021, 11, 27, 23, tzinfo=UTC)},
+            "scoring_window_not_closed",
+        ),
+        (
+            {},
+            {"clock": datetime(2021, 11, 27, 0, tzinfo=UTC)},
+            "scoring_window_not_closed",
+        ),
+        ({"authorization": None}, {}, "authorization_missing"),
+        ({"authorization": "ok"}, {}, "authorization_malformed"),
+        (
+            {
+                "authorization": "https://github.com/shuntatsu/trade_rl/issues/811#issuecomment-1"
+            },
+            {},
+            "authorization_malformed",
+        ),
+        ({"expected_params_digest": "0" * 64}, {}, "params_digest_mismatch"),
+        ({"sealed_code_sha": "b" * 40}, {}, "code_sha_mismatch"),
+        ({}, {"identity": seal.CodeIdentity(SHA, False)}, "code_tree_dirty"),
+        ({}, {"identity": seal.CodeIdentity(None, False)}, "code_identity_unavailable"),
+        ({"with_manifest": False}, {}, "manifest_missing"),
+        ({"expected_manifest_sha256": "0" * 64}, {}, "manifest_sha256_mismatch"),
+        ({}, {"frozen": "0" * 64}, "registry_digest_differs_from_frozen"),
     ],
 )
 def test_each_refusal_path_stops_before_loading_or_writing(
     dataset: MarketDataset,
     tmp_path: Path,
-    override: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs_override: dict[str, Any],
+    env_override: dict[str, Any],
     reason: str,
 ) -> None:
     out = tmp_path / "never.json"
     loads: list[int] = []
 
-    def loader() -> MarketDataset:
+    def loader(path: Path) -> MarketDataset:
         loads.append(1)
         return dataset
 
-    kwargs = kwargs_for(dataset, out, loader)
-    if "sealed_code_sha" in override:
-        kwargs["code_identity"] = seal.CodeIdentity(SHA, True)
-    kwargs.update(override)
+    monkeypatch.setattr(
+        fs1, "_environment", lambda: make_env(dataset, loader=loader, **env_override)
+    )
     with pytest.raises(seal.Fs1Refusal) as caught:
-        fs1.run_fs1(**kwargs)
+        fs1.run_fs1(**run_kwargs(dataset, out, **kwargs_override))
     assert reason in caught.value.reasons
     assert loads == [] and not out.exists()
 
 
-def test_the_default_registry_cannot_be_scored_before_the_window_closes(
-    dataset: MarketDataset, tmp_path: Path
-) -> None:
-    """The real frozen registry with today's wall clock is refused (no seam used)."""
+def test_the_public_entrypoint_always_uses_the_frozen_registry_and_digest() -> None:
+    parameters = set(inspect.signature(fs1.run_fs1).parameters)
+    assert parameters == {
+        "authorization",
+        "expected_params_digest",
+        "sealed_code_sha",
+        "manifest_path",
+        "expected_manifest_sha256",
+        "dataset_path",
+        "output_path",
+        "progress",
+    }
+    env = fs1._environment()
+    assert env.registry is FS1_REGISTRY
+    assert env.frozen_params_digest == FROZEN_PARAMS_DIGEST
+    assert env.code_identity is seal.current_code_identity
+    assert env.clock().tzinfo is not None
 
+
+def test_the_real_registry_is_refused_by_the_real_entrypoint_before_the_window_closes(
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Synthetic arguments against the FROZEN registry: refused, nothing read."""
+
+    def no_read(path: Path) -> MarketDataset:
+        raise AssertionError("the dataset must not be read after a refusal")
+
+    real = fs1._environment()
+    monkeypatch.setattr(
+        fs1,
+        "_environment",
+        lambda: replace(
+            real,
+            clock=lambda: datetime(2026, 10, 30, tzinfo=UTC),
+            code_identity=lambda: seal.CodeIdentity(SHA, True),
+            load_dataset=no_read,
+        ),
+    )
     out = tmp_path / "frozen.json"
-    kwargs = kwargs_for(dataset, out)
-    for name in ("registry", "frozen_params_digest"):
-        del kwargs[name]
-    kwargs["now"] = datetime(2026, 10, 30, tzinfo=UTC)
     with pytest.raises(seal.Fs1Refusal) as caught:
-        fs1.run_fs1(**kwargs)
+        fs1.run_fs1(**run_kwargs(dataset, out))
     assert "scoring_window_not_closed" in caught.value.reasons
+    assert "params_digest_mismatch" in caught.value.reasons
     assert not out.exists()
 
 
 def refuse_dataset(
-    data: MarketDataset, loaded: MarketDataset, tmp_path: Path
+    data: MarketDataset,
+    loaded: MarketDataset,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[str, ...]:
     out = tmp_path / "dataset-refusal.json"
+    monkeypatch.setattr(
+        fs1, "_environment", lambda: make_env(data, loader=lambda path: loaded)
+    )
     with pytest.raises(seal.Fs1Refusal) as caught:
-        fs1.run_fs1(**kwargs_for(data, out, lambda: loaded))
+        fs1.run_fs1(**run_kwargs(data, out))
     assert not out.exists()
     return caught.value.reasons
 
 
 def test_a_dataset_that_is_not_the_sealed_one_is_refused(
-    dataset: MarketDataset, tmp_path: Path
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     other = synthetic_market(seed=22).with_content_identity()
-    assert "dataset_id_mismatch" in refuse_dataset(dataset, other, tmp_path)
+    assert "dataset_id_mismatch" in refuse_dataset(
+        dataset, other, tmp_path, monkeypatch
+    )
 
 
 def test_a_dataset_without_verified_identity_is_refused(
-    dataset: MarketDataset, tmp_path: Path
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     unverified = replace(dataset, identity_payload_json=None)
     assert "dataset_identity_unverified" in refuse_dataset(
-        dataset, unverified, tmp_path
+        dataset, unverified, tmp_path, monkeypatch
     )
 
 
 def test_a_dataset_with_edited_arrays_is_refused(
-    dataset: MarketDataset, tmp_path: Path
+    dataset: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tampered_volume = dataset.volume.copy()
     tampered_volume[100] *= 1.5
@@ -301,24 +393,15 @@ def test_a_dataset_with_edited_arrays_is_refused(
         replace(dataset, volume=tampered_volume)
     # ... and an edit that drops the identity payload is refused by the evaluator.
     stripped = replace(dataset, volume=tampered_volume, identity_payload_json=None)
-    assert "dataset_identity_unverified" in refuse_dataset(dataset, stripped, tmp_path)
+    assert "dataset_identity_unverified" in refuse_dataset(
+        dataset, stripped, tmp_path, monkeypatch
+    )
 
 
 def test_dataset_checks_cover_roster_window_cadence_and_tradability(
     dataset: MarketDataset,
 ) -> None:
-    raw, digest = manifest_for(dataset)
-    permit = seal.authorize_scoring(
-        now=NOW,
-        authorization=AUTH,
-        expected_params_digest=SYN.digest(),
-        sealed_code_sha=SHA,
-        code_identity=seal.CodeIdentity(SHA, True),
-        manifest_bytes=raw,
-        expected_manifest_sha256=digest,
-        registry=SYN,
-        frozen_params_digest=SYN.digest(),
-    )
+    permit = make_permit(dataset)
     assert seal.dataset_problems(permit, dataset) == ()
     swapped = replace(dataset, symbols=tuple(reversed(dataset.symbols)))
     assert "dataset_symbols_mismatch" in seal.dataset_problems(permit, swapped)
@@ -488,18 +571,7 @@ def test_a_lookahead_arm_is_caught_as_invalid_by_the_fs1_probe(
         return real_builder(arm, data, protocol, context, registry=registry)
 
     monkeypatch.setattr(fs1, "build_fs1_arm", leaky)
-    raw, digest = manifest_for(dataset)
-    permit = seal.authorize_scoring(
-        now=NOW,
-        authorization=AUTH,
-        expected_params_digest=SYN.digest(),
-        sealed_code_sha=SHA,
-        code_identity=seal.CodeIdentity(SHA, True),
-        manifest_bytes=raw,
-        expected_manifest_sha256=digest,
-        registry=SYN,
-        frozen_params_digest=SYN.digest(),
-    )
+    permit = make_permit(dataset)
     protocol, runs = fs1.run_roster(permit, dataset)
     out = fs1.assemble_result(runs, protocol, SYN)
     reasons = out["invalid_reasons"][ARM_FS1_A]
@@ -529,39 +601,49 @@ def cli_args(tmp_path: Path, **overrides: str) -> list[str]:
     return [item for pair in values.items() for item in pair]
 
 
-def test_cli_refuses_with_exit_code_two_and_reads_no_dataset(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    def loader() -> MarketDataset:
+def real_registry_env(monkeypatch: pytest.MonkeyPatch, clock: datetime) -> None:
+    """The frozen registry with a fake clock/git and a loader that must not run."""
+
+    def no_read(path: Path) -> MarketDataset:
         raise AssertionError("the dataset must not be read after a refusal")
 
-    code = cli.main(
-        cli_args(tmp_path),
-        clock=lambda: datetime(2026, 10, 30, tzinfo=UTC),
-        code_identity=seal.CodeIdentity(SHA, True),
-        dataset_loader=loader,
+    real = fs1._environment()
+    monkeypatch.setattr(
+        fs1,
+        "_environment",
+        lambda: replace(
+            real,
+            clock=lambda: clock,
+            code_identity=lambda: seal.CodeIdentity(SHA, True),
+            load_dataset=no_read,
+        ),
     )
-    assert code == 2
+
+
+def test_cli_refuses_with_exit_code_two_and_reads_no_dataset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    real_registry_env(monkeypatch, datetime(2026, 10, 30, tzinfo=UTC))
+    assert cli.main(cli_args(tmp_path)) == 2
     error = capsys.readouterr().err
     assert "scoring_window_not_closed" in error and "manifest" in error
     assert not (tmp_path / "out").exists()
 
 
 def test_cli_without_a_manifest_file_is_a_refusal_not_a_crash(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    real_registry_env(monkeypatch, NOW)
     args = cli_args(tmp_path, **{"--manifest": str(tmp_path / "missing.json")})
-    code = cli.main(
-        args,
-        clock=lambda: NOW,
-        code_identity=seal.CodeIdentity(SHA, True),
-        dataset_loader=lambda: (_ for _ in ()).throw(AssertionError("no read")),
-    )
-    assert code == 2
+    assert cli.main(args) == 2
     assert "manifest_missing" in capsys.readouterr().err
 
 
-def test_cli_passes_through_to_the_evaluator_and_prints_labels(
+def test_cli_passes_the_operator_values_through_and_prints_labels(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -573,15 +655,16 @@ def test_cli_passes_through_to_the_evaluator_and_prints_labels(
         return {"labels": {ARM_FS1_A: {"label": "FORWARD_FAIL"}}}
 
     monkeypatch.setattr(cli, "run_fs1", fake_run)
-    code = cli.main(
-        cli_args(tmp_path),
-        clock=lambda: NOW,
-        code_identity=seal.CodeIdentity(SHA, True),
-    )
-    assert code == 0
+    assert cli.main(cli_args(tmp_path)) == 0
     assert "FORWARD_FAIL" in capsys.readouterr().out
-    assert seen["authorization"] == AUTH and seen["now"] == NOW
-    assert seen["sealed_code_sha"] == SHA
+    assert seen["authorization"] == AUTH and seen["sealed_code_sha"] == SHA
+    assert seen["manifest_path"] == tmp_path / "manifest.json"
+    assert seen["output_path"] == tmp_path / "out" / "result.json"
+    assert set(seen) == set(inspect.signature(fs1.run_fs1).parameters)
+
+
+def test_cli_main_has_no_test_seams() -> None:
+    assert list(inspect.signature(cli.main).parameters) == ["argv"]
 
 
 def test_cli_has_no_tunable_parameters() -> None:

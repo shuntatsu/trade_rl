@@ -10,18 +10,11 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from pathlib import Path
 
-from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.dev_realdata_study.runner import load_dataset
 from trade_rl.evaluation.forward_study.fs1 import run_fs1
-from trade_rl.evaluation.forward_study.seal import (
-    CodeIdentity,
-    Fs1Refusal,
-    current_code_identity,
-)
+from trade_rl.evaluation.forward_study.seal import Fs1Refusal
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,28 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(
-    argv: Sequence[str] | None = None,
-    *,
-    clock: Callable[[], datetime] | None = None,
-    code_identity: CodeIdentity | None = None,
-    dataset_loader: Callable[[], MarketDataset] | None = None,
-) -> int:
-    """``clock`` / ``code_identity`` / ``dataset_loader`` are test seams only."""
+def main(argv: Sequence[str] | None = None) -> int:
+    """Parse the operator's values and call the sealed entrypoint (no seams here)."""
 
     args = build_parser().parse_args(argv)
-    manifest_bytes = args.manifest.read_bytes() if args.manifest.is_file() else None
-    loader = dataset_loader or (lambda: load_dataset(str(args.dataset)))
     try:
         result = run_fs1(
-            now=(clock or (lambda: datetime.now(UTC)))(),
             authorization=args.authorization,
             expected_params_digest=args.params_digest,
             sealed_code_sha=args.sealed_code_sha,
-            code_identity=code_identity or current_code_identity(),
-            manifest_bytes=manifest_bytes,
+            manifest_path=args.manifest,
             expected_manifest_sha256=args.manifest_sha256,
-            dataset_loader=loader,
+            dataset_path=args.dataset,
             output_path=args.output,
             progress=lambda message: print(message, flush=True),
         )

@@ -15,8 +15,10 @@ Order of precedence for one candidate arm:
 3. ``FORWARD_PASS`` otherwise.
 
 ``passive_status`` separately records whether the 95% lower bound of the excess over
-the vol-targeted passive control FS1-C (cost x2) is above zero; ``edge_claim_supported``
-is true only for ``FORWARD_PASS`` together with ``BETTER_THAN_PASSIVE``.
+the vol-targeted passive control FS1-C (cost x2) is above zero. ``FORWARD_PASS`` is only
+the minimum bar. The HEADLINE flag is ``edge_claim_supported``: true only for
+``FORWARD_PASS`` together with ``BETTER_THAN_PASSIVE`` and ``survives_bonferroni_k2``
+(the Bonferroni k=2 lower bound over CASH at cost x2 above zero).
 """
 
 from __future__ import annotations
@@ -120,7 +122,7 @@ def classify_candidate(
         tuple(failed),
         (),
         passive,
-        bool(label == LABEL_PASS and passive == PASSIVE_BETTER),
+        bool(label == LABEL_PASS and passive == PASSIVE_BETTER and survives is True),
         survives,
     )
 

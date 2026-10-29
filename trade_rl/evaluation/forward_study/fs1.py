@@ -25,7 +25,7 @@ import traceback
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -63,7 +63,8 @@ from trade_rl.evaluation.forward_study.seal import (
     CodeIdentity,
     Fs1Refusal,
     ScoringPermit,
-    authorize_scoring,
+    _authorize,
+    current_code_identity,
     require_permit,
     verify_dataset,
 )
@@ -433,36 +434,66 @@ def score_fs1(
     }
 
 
+@dataclass(frozen=True)
+class _Environment:
+    """Everything :func:`run_fs1` takes from outside the call: private and test-only."""
+
+    registry: Fs1Registry
+    frozen_params_digest: str
+    clock: Callable[[], datetime]
+    code_identity: Callable[[], CodeIdentity]
+    load_dataset: Callable[[Path], MarketDataset]
+
+
+def _environment() -> _Environment:
+    """Production wiring: the frozen registry and digest, the real clock and git.
+
+    Tests monkeypatch this factory; it is not a parameter of the public entrypoint, so a
+    caller of :func:`run_fs1` can never score a non-frozen registry.
+    """
+
+    return _Environment(
+        registry=FS1_REGISTRY,
+        frozen_params_digest=FROZEN_PARAMS_DIGEST,
+        clock=lambda: datetime.now(UTC),
+        code_identity=current_code_identity,
+        load_dataset=lambda path: runner.load_dataset(str(path)),
+    )
+
+
 def run_fs1(
     *,
-    now: datetime,
     authorization: str | None,
     expected_params_digest: str | None,
     sealed_code_sha: str | None,
-    code_identity: CodeIdentity,
-    manifest_bytes: bytes | None,
+    manifest_path: Path,
     expected_manifest_sha256: str | None,
-    dataset_loader: Callable[[], MarketDataset],
+    dataset_path: Path,
     output_path: Path,
-    registry: Fs1Registry = FS1_REGISTRY,
-    frozen_params_digest: str = FROZEN_PARAMS_DIGEST,
     progress: Progress | None = None,
 ) -> dict[str, Any]:
-    """Authorize, load, verify, score once and write the result (write-once)."""
+    """Authorize, load, verify, score once and write the result (write-once).
 
+    Always uses the frozen registry and digest, the real wall clock and the real git
+    checkout. A refusal is raised before the dataset is read and before anything is
+    written.
+    """
+
+    env = _environment()
     permit = None
     reasons: list[str] = []
+    manifest_bytes = manifest_path.read_bytes() if manifest_path.is_file() else None
     try:
-        permit = authorize_scoring(
-            now=now,
+        permit = _authorize(
+            registry=env.registry,
+            frozen_params_digest=env.frozen_params_digest,
+            now=env.clock(),
             authorization=authorization,
             expected_params_digest=expected_params_digest,
             sealed_code_sha=sealed_code_sha,
-            code_identity=code_identity,
+            code_identity=env.code_identity(),
             manifest_bytes=manifest_bytes,
             expected_manifest_sha256=expected_manifest_sha256,
-            registry=registry,
-            frozen_params_digest=frozen_params_digest,
         )
     except Fs1Refusal as refusal:
         reasons.extend(refusal.reasons)
@@ -470,7 +501,7 @@ def run_fs1(
         reasons.append("output_exists")
     if reasons or permit is None:
         raise Fs1Refusal(tuple(dict.fromkeys(reasons)))
-    dataset = dataset_loader()
+    dataset = env.load_dataset(dataset_path)
     result = score_fs1(permit, dataset, progress=progress)
     payload = (
         json.dumps(_json_safe(result), sort_keys=True, indent=2, allow_nan=False) + "\n"

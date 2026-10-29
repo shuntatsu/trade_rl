@@ -34,7 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Independent literal copy of the frozen digest: updating it is a deliberate re-seal.
 PINNED_PARAMS_DIGEST = (
-    "2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283"
+    "9350734ca6ba920ebfcb47cd7b81b633df5457bfcfe7da37eba6d96fab5f1c56"
 )
 
 
@@ -191,3 +191,33 @@ def test_registry_module_reads_no_clock_dataset_or_result() -> None:
         "load_published",
     ):
         assert forbidden not in source
+
+
+PINNED_BUILD_POLICY_DIGEST = (
+    "13d404e9a8b0a87d02cf7a90f9af2bbbad412d439dae42f730e4f416efd03a34"
+)
+
+
+def test_the_dataset_build_policy_is_pinned_and_part_of_the_params_digest() -> None:
+    assert FS1_REGISTRY.build_policy_digest() == PINNED_BUILD_POLICY_DIGEST
+    policy = FS1_REGISTRY.build_policy
+    assert policy["gap_policy"] == "non_tradable_rows"
+    assert policy["base_interval"] == "1h" and policy["market"] == "usds_m"
+    assert policy["start_time"] == "2021-01-01T00:00:00+00:00"
+    assert policy["end_time"] == "2027-05-01T00:00:00+00:00"
+    assert tuple(policy["symbols"]) == FS1_REGISTRY.symbols  # type: ignore[arg-type]
+    assert "dataset_build" in str(policy["builder"])
+    assert "never while scoring" in str(policy["network"])
+    changed = replace(
+        FS1_REGISTRY, build_policy={**policy, "gap_policy": "forward_fill_tradable"}
+    )
+    assert changed.build_policy_digest() != PINNED_BUILD_POLICY_DIGEST
+    assert changed.digest() != PINNED_PARAMS_DIGEST
+
+
+def test_the_settlement_margin_is_frozen_and_changes_the_digest() -> None:
+    assert FS1_REGISTRY.settlement_margin_hours == 24
+    assert (
+        replace(FS1_REGISTRY, settlement_margin_hours=0).digest()
+        != PINNED_PARAMS_DIGEST
+    )

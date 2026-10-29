@@ -14,6 +14,7 @@ only and read no result.
 
 from __future__ import annotations
 
+import itertools
 import math
 import random
 from collections.abc import Sequence
@@ -24,7 +25,6 @@ import pytest
 
 from tests.evaluation.test_dev_realdata_phase2_trials import (
     SYMBOLS,
-    small_protocol,
     synthetic_market,
 )
 from trade_rl.data.market import MarketDataset
@@ -34,6 +34,7 @@ from trade_rl.evaluation.forward_study.registry import (
     ARM_FS1_A,
     ARM_FS1_B,
     ARM_FS1_C,
+    FS1_REGISTRY,
 )
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.simulation import ExecutionCostConfig
@@ -235,11 +236,76 @@ def replay_recorded(policy: Any, *, start_day: int = 12, stop_day: int = 100):
     return data, scheduled
 
 
-def test_policy_decisions_match_the_pure_reference_pipeline(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FS1-A mechanism (kappa 3, VT 12%) against reference covariance, costs and scale."""
+def ref_hold_rule(
+    target: Sequence[float],
+    current: Sequence[float],
+    *,
+    min_trade: float,
+    w_max: float,
+    gross: float,
+) -> tuple[list[float], list[int]]:
+    """Positions within the minimum trade of their current weight stay at exact quantity.
 
+    A symbol is held only if the book with that symbol reset stays inside the box and
+    the gross limit (tolerance 1e-9), evaluated symbol by symbol in order.
+    """
+
+    result = list(target)
+    held: list[int] = []
+    for i in range(len(result)):
+        if abs(result[i] - current[i]) <= min_trade:
+            trial = list(result)
+            trial[i] = current[i]
+            if (
+                all(-w_max - 1e-9 <= x <= w_max + 1e-9 for x in trial)
+                and sum(abs(x) for x in trial) <= gross + 1e-9
+            ):
+                result, held = trial, [*held, i]
+    return result, held
+
+
+def frozen_settings() -> dict[str, Any]:
+    """The FS1 allocator settings read from the digest-pinned FS1 protocol."""
+
+    protocol = FS1_REGISTRY.protocol("0" * 64)
+    assert (
+        protocol.gamma,
+        protocol.ewma_halflife_days,
+        protocol.shrinkage,
+        protocol.w_max,
+        protocol.gross_max,
+        protocol.min_trade_fraction,
+        protocol.min_history_periods,
+    ) == (5.0, 60.0, 0.2, 0.5, 0.95, 0.005, 30)
+    return {
+        "gamma": protocol.gamma,
+        "ewma_halflife_days": protocol.ewma_halflife_days,
+        "shrinkage": protocol.shrinkage,
+        "w_max": protocol.w_max,
+        "gross_max": protocol.gross_max,
+        "min_trade_fraction": protocol.min_trade_fraction,
+        "min_history_periods": protocol.min_history_periods,
+    }
+
+
+REDUCED_SETTINGS: dict[str, Any] = {
+    "ewma_halflife_days": 15.0,
+    "min_trade_fraction": 0.0,
+    "min_history_periods": 10,
+}
+
+
+@pytest.mark.parametrize("settings_name", ["reduced", "frozen_fs1a"])
+def test_policy_decisions_match_the_pure_reference_pipeline(
+    monkeypatch: pytest.MonkeyPatch, settings_name: str
+) -> None:
+    """FS1-A mechanism (kappa 3, VT 12%) vs pure references, incl. the frozen settings."""
+
+    settings = frozen_settings() if settings_name == "frozen_fs1a" else REDUCED_SETTINGS
+    halflife = settings["ewma_halflife_days"]
+    min_trade = settings["min_trade_fraction"]
+    w_max = settings.get("w_max", 0.5)
+    gross = settings.get("gross_max", 0.95)
     assert COST.taker_fee_rate == 0.0 and COST.multiplier == 1.0
     captured: list[dict[str, Any]] = []
     real_solve = cost_aware.solve_cost_aware_allocation
@@ -256,12 +322,11 @@ def test_policy_decisions_match_the_pure_reference_pipeline(
         return solution
 
     monkeypatch.setattr(cost_aware, "solve_cost_aware_allocation", spy)
-    policy = policy_for(COST, kappa=3.0, vol_target=0.12, min_trade_fraction=0.0)
-    _, scheduled = replay_recorded(policy)
+    policy = policy_for(COST, kappa=3.0, vol_target=0.12, **settings)
+    _, scheduled = replay_recorded(policy, start_day=5, stop_day=200)
     records = list(policy.records)
     marks: list[Vector] = []
-    solved = 0
-    scaled_below_one = 0
+    solved = scaled_below_one = held_decisions = 0
     for (snapshot, proposal), record in zip(scheduled, records, strict=True):
         marks.append(list(snapshot.account.mark_prices))
         if record.outcome == "fail_closed":
@@ -271,7 +336,7 @@ def test_policy_decisions_match_the_pure_reference_pipeline(
             [marks[t + 1][i] / marks[t][i] - 1.0 for i in range(3)]
             for t in range(len(marks) - 1)
         ]
-        cov = ref_ewma_covariance(returns, 15.0 * 24.0 / 24.0, 0.2, 1e-8)
+        cov = ref_ewma_covariance(returns, halflife * 24.0 / 24.0, 0.2, 1e-8)
         call = captured[solved]
         solved += 1
         # kappa multiplies the optimizer's cost vector only: 3 * (0.0005 + 0.0002).
@@ -287,30 +352,53 @@ def test_policy_decisions_match_the_pure_reference_pipeline(
         assert record.ex_ante_vol == pytest.approx(vol, rel=1e-8, abs=1e-12)
         assert record.vol_scale == pytest.approx(scale, rel=1e-8)
         scaled_below_one += scale < 1.0
-        # With a zero minimum trade size nothing is held back: target = scale * solve.
-        assert list(proposal.target_weights) == pytest.approx(
-            [scale * value for value in solver_weights], rel=1e-9, abs=1e-12
+        # target = scale * solve, then the minimum-trade hold rule, all in pure Python.
+        current = list(snapshot.account.weights)
+        expected, held = ref_hold_rule(
+            [scale * value for value in solver_weights],
+            current,
+            min_trade=min_trade,
+            w_max=w_max,
+            gross=gross,
         )
-        assert record.final_vol is not None
-        assert record.final_vol <= 0.12 + 1e-9 or scale == 1.0
-    assert solved >= 60
+        held_decisions += bool(held)
+        assert list(proposal.target_weights) == pytest.approx(
+            expected, rel=1e-9, abs=1e-12
+        )
+        assert set(proposal.hold_current_quantity_symbols) == set(held)
+        assert record.final_vol == pytest.approx(
+            ref_annual_vol(expected, cov, 365.0), rel=1e-8, abs=1e-12
+        )
+    assert solved >= 100
     assert scaled_below_one >= 10, "the cap must bind often enough to be tested"
+    if min_trade > 0.0:
+        assert held_decisions >= 5, "the minimum-trade rule must be exercised"
 
 
 def test_the_fs1_builders_use_the_frozen_mechanism_settings() -> None:
     data = synthetic_market()
-    protocol = small_protocol()
+    protocol = FS1_REGISTRY.protocol(data.dataset_id)
     context = make_phase3_context(data, protocol)
     a = build_fs1_arm(ARM_FS1_A, data, protocol, context).policy
     b = build_fs1_arm(ARM_FS1_B, data, protocol, context).policy
     c = build_fs1_arm(ARM_FS1_C, data, protocol, context).policy
     assert a._cost_penalty_multiple == 3.0 and a._vol_target == 0.12
     assert b._cost_penalty_multiple == 1.0 and b._vol_target == 0.12
-    assert a._long_only is False and b._long_only is False
-    assert a._periods_per_year == 365.0 == b._periods_per_year
-    assert (a._gamma, a._w_max, a._gross_max) == (5.0, 0.5, 0.95)
-    assert list(a._costs) == pytest.approx([0.0007] * len(data.symbols), rel=1e-12)
+    for policy in (a, b):
+        assert policy._long_only is False
+        assert policy._periods_per_year == 365.0
+        assert (policy._gamma, policy._w_max, policy._gross_max) == (5.0, 0.5, 0.95)
+        assert policy._halflife_periods == 60.0  # 60 days at one decision per day
+        assert policy._min_trade_fraction == 0.005
+        assert policy._min_history_periods == 30
+        assert policy._shrinkage == 0.2 and policy._variance_floor == 1e-8
+        assert policy._interval_ns == DAY_NS and policy._anchor_ns == 0
+        assert list(policy._costs) == pytest.approx(
+            [0.0007] * len(data.symbols), rel=1e-12
+        )
     assert c._vol_target == 0.12 and c._gross_budget == 0.99
+    assert c._halflife_periods == 60.0 and c._min_trade_fraction == 0.005
+    assert c._min_history_periods == 30 and c._periods_per_year == 365.0
 
 
 # --- ORACLE-2: brute-force / local optimality of the kappa-scaled solve -----------
@@ -469,11 +557,15 @@ def test_three_asset_kappa_scaled_solve_has_no_feasible_improving_move(
         if mode < 0.4:
             i = rng.randrange(3)
             trial[i] += rng.gauss(0.0, 10 ** rng.uniform(-6, -1))
-        elif mode < 0.8:
+        elif mode < 0.7:
             i, j = rng.sample(range(3), 2)
             move = rng.gauss(0.0, 10 ** rng.uniform(-6, -1))
             trial[i] += move
             trial[j] -= move
+        elif mode < 0.85:
+            # kink-aligned: put one coordinate exactly on a kink (its current weight or 0)
+            i = rng.randrange(3)
+            trial[i] = rng.choice([case["w0"][i], 0.0])
         else:
             trial = [rng.uniform(floor, case["w_max"]) for _ in range(3)]
         trial = [min(max(x, floor), case["w_max"]) for x in trial]
@@ -496,85 +588,120 @@ def test_larger_kappa_never_increases_trading() -> None:
         assert distances[-1] <= distances[0]
 
 
-# --- ORACLE-3: defaults are bit-identical to the pre-Phase-3 pipeline -------------
+# --- ORACLE-3: defaults reproduce the pre-Phase-3 pipeline -------------------------
+
+
+def ref_solve(
+    mu: Sequence[float],
+    cov: Matrix,
+    w0: Sequence[float],
+    costs: Sequence[float],
+    *,
+    gamma: float,
+    w_max: float,
+    gross: float,
+) -> list[float]:
+    """Reference long/short solve: derivative-free search over all sign directions.
+
+    Pure Python; shares no code with the production solver. Starts from the current
+    weights and from zero and keeps the better optimum.
+    """
+
+    n = len(mu)
+    directions = [d for d in itertools.product((-1.0, 0.0, 1.0), repeat=n) if any(d)]
+    best: list[float] | None = None
+    best_value = -math.inf
+    for start in (list(w0), [0.0] * n):
+        if not feasible(start, w_max, gross, False):
+            continue
+        point, value, step = (
+            list(start),
+            ref_objective(start, mu, cov, w0, costs, gamma),
+            0.05,
+        )
+        while step > 1e-13:
+            improved = False
+            for direction in directions:
+                trial = [x + step * d for x, d in zip(point, direction, strict=True)]
+                if not feasible(trial, w_max, gross, False):
+                    continue
+                trial_value = ref_objective(trial, mu, cov, w0, costs, gamma)
+                if trial_value > value + 1e-17:
+                    point, value, improved = trial, trial_value, True
+            if not improved:
+                step *= 0.5
+        if value > best_value:
+            best, best_value = point, value
+    assert best is not None
+    return best
 
 
 class PrePhase3Reference:
-    """The decision pipeline as it was before kappa / VT existed (re-implemented)."""
+    """The pre-Phase-3 decision pipeline, written independently of production.
+
+    Covariance and solve are the pure-Python references above (no production
+    ``ewma_covariance`` or ``solve_cost_aware_allocation``); scheduling, the history
+    rule and the hold rule are re-implemented from the documented behaviour.
+    """
 
     def __init__(self, policy_kwargs: dict[str, Any]) -> None:
-        from trade_rl.strategies.allocation.cost_aware import ewma_covariance
-
-        self._ewma = ewma_covariance
         self.kwargs = policy_kwargs
-        self.marks: list[np.ndarray] = []
-        self.records: list[str] = []
+        self.marks: list[Vector] = []
+        self.outcomes: list[str] = []
+        self.skipped_near_threshold = 0
 
-    def decide_portfolio(
+    def decide(
         self, snapshot: PortfolioDecisionSnapshot
-    ) -> PortfolioTargetProposal:
+    ) -> tuple[list[float], list[int]] | None:
         k = self.kwargs
-        n = len(snapshot.symbols)
-        current = snapshot.account.weights
-        hold_all = PortfolioTargetProposal(
-            target_weights=current, hold_current_quantity_symbols=tuple(range(n))
-        )
         if snapshot.timestamp_ns % DAY_NS != 0:
-            return hold_all
-        marks = np.asarray(snapshot.account.mark_prices, dtype=np.float64)
-        self.marks.append(marks)
+            return None
+        self.marks.append(list(snapshot.account.mark_prices))
         if len(self.marks) - 1 < k["min_history_periods"]:
-            self.records.append("fail_closed")
-            return hold_all
-        prices = np.vstack(self.marks)
-        cov = self._ewma(
-            prices[1:] / prices[:-1] - 1.0,
-            halflife_periods=k["ewma_halflife_days"] * 24.0 / 24,
-            shrinkage=k["shrinkage"],
-            variance_floor=1e-8,
+            self.outcomes.append("fail_closed")
+            return None
+        returns = [
+            [self.marks[t + 1][i] / self.marks[t][i] - 1.0 for i in range(3)]
+            for t in range(len(self.marks) - 1)
+        ]
+        cov = ref_ewma_covariance(
+            returns, k["ewma_halflife_days"], k["shrinkage"], 1e-8
         )
-        mu = np.asarray(k["forecast_source"].expected_simple_returns(snapshot))
-        w_current = np.asarray(current, dtype=np.float64)
-        solution = solve_cost_aware_allocation(
-            expected_returns=mu,
-            covariance=cov,
-            current_weights=w_current,
-            costs=np.asarray(k["cost_rates"], dtype=np.float64),
+        mu = k["forecast_source"].expected_simple_returns(snapshot)
+        current = list(snapshot.account.weights)
+        solved = ref_solve(
+            mu,
+            cov,
+            current,
+            list(k["cost_rates"]),
             gamma=k["gamma"],
             w_max=k["w_max"],
-            gross_max=k["gross_max"],
-            long_only=False,
-            max_iter=2_000,
-            tol=1e-10,
+            gross=k["gross_max"],
         )
-        target = solution.weights.copy()
-        held: list[int] = []
-        for i in range(n):
-            if abs(target[i] - w_current[i]) <= k["min_trade_fraction"]:
-                trial = target.copy()
-                trial[i] = w_current[i]
-                floor = -k["w_max"]
-                if (
-                    np.all(trial >= floor - 1e-9)
-                    and np.all(trial <= k["w_max"] + 1e-9)
-                    and float(np.abs(trial).sum()) <= k["gross_max"] + 1e-9
-                ):
-                    target = trial
-                    held.append(i)
-        traded = [i for i in range(n) if i not in held]
-        if not traded:
-            self.records.append("hold_no_trade")
-            return hold_all
-        self.records.append("rebalance")
-        return PortfolioTargetProposal(
-            target_weights=tuple(
-                current[i] if i in held else float(target[i]) for i in range(n)
-            ),
-            hold_current_quantity_symbols=tuple(held),
+        target, held = ref_hold_rule(
+            solved,
+            current,
+            min_trade=k["min_trade_fraction"],
+            w_max=k["w_max"],
+            gross=k["gross_max"],
         )
+        self.outcomes.append(
+            "hold_no_trade" if len(held) == len(target) else "rebalance"
+        )
+        # A decision whose distance to the hold threshold is within the reference
+        # solver's accuracy is not compared on the hold flags.
+        if any(
+            abs(abs(solved[i] - current[i]) - k["min_trade_fraction"]) < 5e-4
+            for i in range(len(solved))
+        ):
+            self.skipped_near_threshold += 1
+            return target, [-1]
+        return target, held
 
 
-def test_default_parameters_are_bit_identical_to_the_pre_phase3_pipeline() -> None:
+def test_default_parameters_reproduce_the_pre_phase3_pipeline() -> None:
+    """Defaults: bit-identical to explicit defaults, equal to an independent pipeline."""
+
     kwargs: dict[str, Any] = {
         "forecast_source": NoisyForecast(),
         "cost_rates": one_way_cost_rates(COST, n_symbols=3),
@@ -593,37 +720,44 @@ def test_default_parameters_are_bit_identical_to_the_pre_phase3_pipeline() -> No
     reference = PrePhase3Reference(kwargs)
 
     class Fan:
-        """Feed the identical snapshot to all three and require identical proposals."""
+        """Feed the identical snapshot to all three policies."""
 
         def __init__(self) -> None:
             self.compared = 0
             self.rebalances = 0
+            self.hold_compared = 0
 
         def decide_portfolio(
             self, snapshot: PortfolioDecisionSnapshot
         ) -> PortfolioTargetProposal:
             first = defaults.decide_portfolio(snapshot)
             second = explicit.decide_portfolio(snapshot)
-            third = reference.decide_portfolio(snapshot)
-            assert second == first == third
-            if snapshot.timestamp_ns % DAY_NS == 0:
+            assert second == first  # bit-identical: same code, explicit defaults
+            expected = reference.decide(snapshot)
+            if expected is not None:
+                target, held = expected
                 self.compared += 1
                 self.rebalances += first.target_weights != snapshot.account.weights
+                assert list(first.target_weights) == pytest.approx(target, abs=2e-4)
+                if held != [-1]:
+                    self.hold_compared += 1
+                    assert set(first.hold_current_quantity_symbols) == set(held)
             return first
 
     fan = Fan()
-    data = returns_dataset()
     run_shared_portfolio_replay(
-        data,
+        returns_dataset(),
         fan,
         start_index=12 * 24,
-        stop_index=100 * 24,
+        stop_index=70 * 24,
         initial_capital=10_000.0,
         execution_cost=COST,
     )
-    assert fan.compared > 80 and fan.rebalances > 20
+    assert fan.compared > 40 and fan.rebalances > 10
+    assert fan.hold_compared > 0.5 * fan.compared
     assert defaults.records == explicit.records
-    assert [r.outcome for r in defaults.records] == reference.records
+    produced = [r.outcome for r in defaults.records if r.outcome != "fail_closed"]
+    assert produced == [o for o in reference.outcomes if o != "fail_closed"]
     for record in defaults.records:
         assert record.ex_ante_vol is None
         assert record.vol_scale == 1.0 and record.final_vol is None

@@ -9,15 +9,18 @@ points to, which this module cannot verify (no network, no GitHub identity check
 
 Preconditions (reason codes):
 
-* ``scoring_window_not_closed`` - the wall clock is before the scoring end;
-* ``authorization_missing`` / ``authorization_malformed`` - no GitHub Issue comment URL;
+* ``scoring_window_not_closed`` - the wall clock is before the scoring end plus the
+  settlement margin (the final bar must be complete and the data settled);
+* ``authorization_missing`` / ``authorization_malformed`` - no Issue #810 comment URL;
 * ``registry_digest_differs_from_frozen`` / ``params_digest_mismatch`` - the parameters
   are not the frozen ones, or differ from the digest in the seal record;
 * ``code_identity_unavailable`` / ``code_sha_mismatch`` / ``code_tree_dirty`` /
   ``sealed_code_sha_missing`` - the checked-out code is not the sealed commit;
 * ``manifest_missing`` / ``manifest_invalid`` / ``manifest_sha256_mismatch`` /
-  ``manifest_window_mismatch`` - the dataset seal manifest is absent, malformed, not the
-  one recorded in the seal record, or for another window/roster;
+  ``manifest_window_mismatch`` / ``manifest_build_policy_mismatch`` /
+  ``manifest_fetched_before_settlement`` - the dataset seal manifest is absent,
+  malformed, not the one recorded in the seal record, for another window/roster or
+  construction policy, or records a fetch before the data had settled;
 * ``output_exists`` - FS1 is scored once; the result file is write-once.
 
 Dataset checks that need the loaded arrays live in :func:`dataset_problems`.
@@ -30,7 +33,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -45,12 +48,15 @@ from trade_rl.evaluation.forward_study.registry import (
 )
 
 AUTHORIZATION_PATTERN: Final = re.compile(
-    r"^https://github\.com/shuntatsu/trade_rl/issues/[1-9][0-9]*#issuecomment-[1-9][0-9]*$"
+    r"^https://github\.com/shuntatsu/trade_rl/issues/810#issuecomment-[1-9][0-9]*$"
 )
 _SHA256: Final = re.compile(r"^[0-9a-f]{64}$")
 _GIT_SHA: Final = re.compile(r"^[0-9a-f]{40}$")
 _NS_PER_HOUR: Final = 3_600 * 1_000_000_000
 _PERMIT_TOKEN: Final = object()
+# The only root commit of the trade_rl repository: a checkout whose history does not
+# start here is not the sealed repository.
+TRADE_RL_ROOT_COMMIT: Final = "8e7a42170d7504d7b41c5555e99754f9c56d8adb"
 
 
 class Fs1Refusal(RuntimeError):
@@ -62,7 +68,10 @@ class Fs1Refusal(RuntimeError):
 
 
 def _utc(text: str) -> datetime:
-    return datetime.fromisoformat(text).replace(tzinfo=UTC)
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _ns(text: str) -> int:
@@ -82,6 +91,7 @@ class DatasetSealManifest:
     build_policy_digest: str
     source_manifest: dict[str, str]
     authorization_reference: str
+    fetched_utc: str
     sealed_utc: str
 
 
@@ -102,6 +112,7 @@ def parse_manifest(raw: bytes) -> DatasetSealManifest:
         "build_policy_digest",
         "source_manifest",
         "authorization_reference",
+        "fetched_utc",
         "sealed_utc",
     }
     if not isinstance(data, dict) or set(data) != expected:
@@ -121,7 +132,7 @@ def parse_manifest(raw: bytes) -> DatasetSealManifest:
     n_bars = data["n_bars"]
     if type(n_bars) is not int or n_bars < 2:
         raise ValueError("n_bars must be an integer of at least two")
-    for name in ("first_timestamp", "last_timestamp", "sealed_utc"):
+    for name in ("first_timestamp", "last_timestamp", "fetched_utc", "sealed_utc"):
         try:
             datetime.fromisoformat(data[name])
         except (TypeError, ValueError) as exc:
@@ -141,7 +152,7 @@ def parse_manifest(raw: bytes) -> DatasetSealManifest:
         raise ValueError("source_manifest must map source names to SHA-256 digests")
     reference = data["authorization_reference"]
     if not isinstance(reference, str) or not AUTHORIZATION_PATTERN.match(reference):
-        raise ValueError("authorization_reference must be a GitHub Issue comment URL")
+        raise ValueError("authorization_reference must be an Issue #810 comment URL")
     return DatasetSealManifest(
         schema_version=data["schema_version"],
         dataset_id=data["dataset_id"],
@@ -152,6 +163,7 @@ def parse_manifest(raw: bytes) -> DatasetSealManifest:
         build_policy_digest=data["build_policy_digest"],
         source_manifest=dict(sources),
         authorization_reference=reference,
+        fetched_utc=data["fetched_utc"],
         sealed_utc=data["sealed_utc"],
     )
 
@@ -162,6 +174,7 @@ def manifest_bytes_from_dataset(
     source_manifest: dict[str, str],
     build_policy_digest: str,
     authorization_reference: str,
+    fetched_utc: str,
     sealed_utc: str,
 ) -> bytes:
     """Canonical manifest bytes for a built dataset (the seal step, run before scoring).
@@ -181,6 +194,7 @@ def manifest_bytes_from_dataset(
         "build_policy_digest": build_policy_digest,
         "source_manifest": dict(sorted(source_manifest.items())),
         "authorization_reference": authorization_reference,
+        "fetched_utc": fetched_utc,
         "sealed_utc": sealed_utc,
     }
     raw = (
@@ -192,31 +206,60 @@ def manifest_bytes_from_dataset(
 
 @dataclass(frozen=True)
 class CodeIdentity:
-    """The checked-out code: HEAD commit and whether tracked files are unmodified."""
+    """The checked-out code: HEAD commit and whether the working tree is unmodified.
+
+    ``tracked_tree_clean`` is false when any tracked file is modified OR any
+    non-ignored untracked file exists.
+    """
 
     git_head: str | None
     tracked_tree_clean: bool
 
 
-def current_code_identity(repo_root: Path | None = None) -> CodeIdentity:
-    """Read ``git`` for the checkout that contains this package (no network)."""
+_UNAVAILABLE: Final = CodeIdentity(None, False)
 
-    root = repo_root or Path(__file__).resolve().parents[3]
+
+def current_code_identity(
+    repo_root: Path | None = None, *, root_commit: str = TRADE_RL_ROOT_COMMIT
+) -> CodeIdentity:
+    """Identify the trade_rl checkout this code runs from (no network).
+
+    Unavailable (``git_head`` None) unless: ``git rev-parse --show-toplevel`` resolves a
+    repository; with the default ``repo_root`` this very module file is the tracked
+    ``trade_rl/evaluation/forward_study/seal.py`` of that repository (so a non-editable
+    install, or a copy inside some other enclosing repository, is refused); and the
+    repository history contains ``root_commit``, the trade_rl root commit. Untracked
+    non-ignored files make the tree dirty.
+    """
+
+    module_file = Path(__file__).resolve()
+    start = repo_root or module_file.parents[3]
 
     def run(*args: str) -> str | None:
         try:
             completed = subprocess.run(
-                ["git", *args], cwd=root, capture_output=True, text=True, check=True
+                ["git", *args], cwd=start, capture_output=True, text=True, check=True
             )
         except (OSError, subprocess.CalledProcessError):
             return None
         return completed.stdout
 
+    toplevel_text = run("rev-parse", "--show-toplevel")
+    if toplevel_text is None or not toplevel_text.strip():
+        return _UNAVAILABLE
+    toplevel = Path(toplevel_text.strip()).resolve()
+    if repo_root is None:
+        expected = toplevel / "trade_rl" / "evaluation" / "forward_study" / "seal.py"
+        if module_file != expected.resolve():
+            return _UNAVAILABLE
+    roots = run("rev-list", "--max-parents=0", "HEAD")
+    if roots is None or root_commit not in roots.split():
+        return _UNAVAILABLE
     head = run("rev-parse", "HEAD")
-    status = run("status", "--porcelain", "--untracked-files=no")
-    if head is None or status is None:
-        return CodeIdentity(None, False)
-    return CodeIdentity(head.strip() or None, status.strip() == "")
+    status = run("status", "--porcelain", "--untracked-files=all")
+    if head is None or status is None or not head.strip():
+        return _UNAVAILABLE
+    return CodeIdentity(head.strip(), status.strip() == "")
 
 
 @dataclass(frozen=True)
@@ -242,8 +285,10 @@ def require_permit(permit: object) -> ScoringPermit:
     return permit
 
 
-def authorize_scoring(
+def _authorize(
     *,
+    registry: Fs1Registry,
+    frozen_params_digest: str,
     now: datetime,
     authorization: str | None,
     expected_params_digest: str | None,
@@ -251,15 +296,16 @@ def authorize_scoring(
     code_identity: CodeIdentity,
     manifest_bytes: bytes | None,
     expected_manifest_sha256: str | None,
-    registry: Fs1Registry = FS1_REGISTRY,
-    frozen_params_digest: str = FROZEN_PARAMS_DIGEST,
 ) -> ScoringPermit:
-    """Return a permit only if every precondition holds, else raise with all reasons."""
+    """Private factory behind :func:`authorize_scoring` (tests inject a registry here)."""
 
     reasons: list[str] = []
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be a timezone-aware datetime")
-    if now < _utc(registry.scoring_end):
+    earliest = _utc(registry.scoring_end) + timedelta(
+        hours=registry.settlement_margin_hours
+    )
+    if now < earliest:
         reasons.append("scoring_window_not_closed")
     if not authorization:
         reasons.append("authorization_missing")
@@ -300,6 +346,13 @@ def authorize_scoring(
         or _ns(manifest.first_timestamp) > _ns(registry.dataset_first_row_latest)
     ):
         reasons.append("manifest_window_mismatch")
+    if manifest is not None:
+        if manifest.build_policy_digest != registry.build_policy_digest():
+            reasons.append("manifest_build_policy_mismatch")
+        if _utc(manifest.fetched_utc) < earliest or _utc(manifest.sealed_utc) < _utc(
+            manifest.fetched_utc
+        ):
+            reasons.append("manifest_fetched_before_settlement")
 
     if reasons:
         raise Fs1Refusal(tuple(dict.fromkeys(reasons)))
@@ -313,6 +366,34 @@ def authorize_scoring(
         code_sha=sealed_code_sha,
         authorized_at_utc=now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         _token=_PERMIT_TOKEN,
+    )
+
+
+def authorize_scoring(
+    *,
+    now: datetime,
+    authorization: str | None,
+    expected_params_digest: str | None,
+    sealed_code_sha: str | None,
+    code_identity: CodeIdentity,
+    manifest_bytes: bytes | None,
+    expected_manifest_sha256: str | None,
+) -> ScoringPermit:
+    """Return a permit only if every precondition holds, else raise with all reasons.
+
+    Always checks the frozen registry and the frozen digest.
+    """
+
+    return _authorize(
+        registry=FS1_REGISTRY,
+        frozen_params_digest=FROZEN_PARAMS_DIGEST,
+        now=now,
+        authorization=authorization,
+        expected_params_digest=expected_params_digest,
+        sealed_code_sha=sealed_code_sha,
+        code_identity=code_identity,
+        manifest_bytes=manifest_bytes,
+        expected_manifest_sha256=expected_manifest_sha256,
     )
 
 
@@ -365,6 +446,7 @@ def verify_dataset(permit: ScoringPermit, dataset: MarketDataset) -> None:
 
 __all__ = [
     "AUTHORIZATION_PATTERN",
+    "TRADE_RL_ROOT_COMMIT",
     "CodeIdentity",
     "DatasetSealManifest",
     "Fs1Refusal",

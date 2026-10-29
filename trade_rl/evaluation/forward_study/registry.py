@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Final
 
 from trade_rl.evaluation.dev_realdata_study.phase3_registry import (
@@ -75,17 +75,47 @@ CLAIM_LIMITS: Final = (
     "one window of about 181 days: a single regime, about nine independent 20-day "
     "blocks; a FORWARD_FAIL from a wide interval means 'not demonstrated', not "
     "'proved zero edge', and a FORWARD_PASS is not a durable-edge or profitability claim",
-    "FORWARD_PASS only means: max drawdown within 20% in base and cost x2 AND the 95% "
-    "block-bootstrap lower bound of annualised daily excess over CASH at cost x2 is "
-    "positive; it supports the forecast/allocation mechanism only if the arm is also "
-    "BETTER_THAN_PASSIVE against FS1-C",
-    "Bonferroni k=2 over (FS1-A, FS1-B) is reported; per-arm labels are at the "
-    "unadjusted 95% level and a family-wise statement needs survives_bonferroni_k2",
+    "FORWARD_PASS is only the minimum bar: max drawdown within 20% in base and cost x2 "
+    "AND the 95% block-bootstrap lower bound of annualised daily excess over CASH at "
+    "cost x2 is positive. An arm can be FORWARD_PASS and NO_BETTER_THAN_PASSIVE",
+    "the HEADLINE flag is edge_claim_supported: true only for FORWARD_PASS together with "
+    "BETTER_THAN_PASSIVE (95% lower bound of the excess over FS1-C at cost x2 above zero) "
+    "and survives_bonferroni_k2 (Bonferroni k=2 lower bound over CASH at cost x2 above "
+    "zero). Without it the result supports no claim that the forecast or allocation "
+    "mechanism adds value",
     "CASH earns no yield; costs are the fixed assumptions of the frozen protocol "
     "(allocator c_i is a lower bound; participation impact is charged by the executor)",
     "this is not the final-evaluation authorization chain, creates no WINNER and does "
     "not establish deployment (G5) eligibility; no live or paper order is placed",
 )
+
+# Dataset construction required by FS1. Compliance of a concrete builder run with this
+# policy is procedural: the seal record names the builder commit and command. The
+# manifest must carry this policy's digest.
+FS1_BUILD_POLICY: Final[dict[str, object]] = {
+    "schema_version": "fs1_dataset_build_policy_v1",
+    "builder": "trade_rl.evaluation.dev_realdata_study.dataset_build gap policy and "
+    "4h/1d aggregation, run on the FS1 span",
+    "network": "only the separately authorized FS1 data fetch; never while scoring",
+    "market": "usds_m",
+    "symbols": list(SYMBOLS),
+    "base_interval": "1h",
+    "feature_timeframes": ["4h", "1d"],
+    "start_time": "2021-01-01T00:00:00+00:00",
+    "end_time": "2027-05-01T00:00:00+00:00",
+    "gap_policy": "non_tradable_rows",
+    "missing_base_bar": "non-tradable row (row_present=False), forward-filled marks",
+    "missing_base_bar_funding": "funding events inside a missing bar are not accrued",
+    "higher_clock_after_gap": (
+        "window with any missing 1h bar is a price-carried placeholder with "
+        "available_at=range end; recursive/rolling features touching it are unavailable"
+    ),
+    "higher_clock_source": "4h and 1d bars aggregated from complete 1h windows",
+    "exchange_information": "exchange-rule snapshot recorded in the seal record, "
+    "applied statically",
+    "economics_profile": "bot_overlay_only_assumptions_v1",
+    "baked_in_fees_and_spread": "zero; costs are applied by the replay",
+}
 
 PROTOCOL_NOTES: Final = (
     "FS1 reuses the Phase 3 arm builders, runner and metrics unchanged; only the "
@@ -167,6 +197,10 @@ class Fs1Registry:
         SCENARIO_LATENCY,
     )
     bonferroni_k: int = 2
+    settlement_margin_hours: int = 24
+    build_policy: dict[str, object] = field(
+        default_factory=lambda: dict(FS1_BUILD_POLICY)
+    )
     min_trades: int = 1
     max_fail_closed_fraction: float = 0.10
     min_tradable_fraction: float = 0.99
@@ -228,6 +262,8 @@ class Fs1Registry:
                         "bonferroni_k": self.bonferroni_k,
                     },
                     "reported_scenarios": self.reported_scenarios,
+                    "settlement_margin_hours": self.settlement_margin_hours,
+                    "build_policy": self.build_policy,
                     "validity_guards": {
                         "min_trades": self.min_trades,
                         "max_fail_closed_fraction": self.max_fail_closed_fraction,
@@ -246,6 +282,11 @@ class Fs1Registry:
     def digest(self) -> str:
         return payload_digest(self.payload())
 
+    def build_policy_digest(self) -> str:
+        """SHA-256 the dataset seal manifest must carry for its construction."""
+
+        return payload_digest(dict(self.build_policy))
+
 
 def payload_digest(payload: dict[str, Any]) -> str:
     raw = json.dumps(
@@ -258,7 +299,7 @@ FS1_REGISTRY: Final = Fs1Registry()
 
 # SHA-256 of ``FS1_REGISTRY.payload()`` at the FS1 seal commit (pinned by a test).
 FROZEN_PARAMS_DIGEST: Final = (
-    "2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283"
+    "9350734ca6ba920ebfcb47cd7b81b633df5457bfcfe7da37eba6d96fab5f1c56"
 )
 
 
@@ -284,9 +325,12 @@ def registry_json_bytes() -> bytes:
             "params digest above and, later, the dataset manifest SHA-256",
             "4 the user separately authorises (a) fetching the post-2026-08-31 data "
             "and (b) the single scoring run, each by an Issue #810 comment",
-            "5 the dataset manifest is recorded before scoring; scoring refuses on "
-            "any mismatch, before 2027-05-01T00:00:00Z, without an authorization "
-            "reference or when the output already exists",
+            "5 the seal record also names the dataset builder commit and command, the "
+            "exchange-rule snapshot and the UTC fetch time; the manifest carries the "
+            "build policy digest and the fetch time",
+            "6 the dataset manifest is recorded before scoring; scoring refuses on "
+            "any mismatch, before the scoring end plus the settlement margin, without "
+            "an Issue #810 authorization comment URL or when the output already exists",
         ],
     }
     return (
@@ -304,6 +348,7 @@ __all__ = [
     "DATASET_ID_PLACEHOLDER",
     "FROZEN_PARAMS_DIGEST",
     "FS1_ARMS",
+    "FS1_BUILD_POLICY",
     "FS1_ARM_IDS",
     "FS1_REGISTRY",
     "LABELS",

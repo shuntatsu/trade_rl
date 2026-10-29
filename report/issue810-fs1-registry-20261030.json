@@ -66,6 +66,34 @@
       "role": "passive_control"
     }
   ],
+  "build_policy": {
+    "baked_in_fees_and_spread": "zero; costs are applied by the replay",
+    "base_interval": "1h",
+    "builder": "trade_rl.evaluation.dev_realdata_study.dataset_build gap policy and 4h/1d aggregation, run on the FS1 span",
+    "economics_profile": "bot_overlay_only_assumptions_v1",
+    "end_time": "2027-05-01T00:00:00+00:00",
+    "exchange_information": "exchange-rule snapshot recorded in the seal record, applied statically",
+    "feature_timeframes": [
+      "4h",
+      "1d"
+    ],
+    "gap_policy": "non_tradable_rows",
+    "higher_clock_after_gap": "window with any missing 1h bar is a price-carried placeholder with available_at=range end; recursive/rolling features touching it are unavailable",
+    "higher_clock_source": "4h and 1d bars aggregated from complete 1h windows",
+    "market": "usds_m",
+    "missing_base_bar": "non-tradable row (row_present=False), forward-filled marks",
+    "missing_base_bar_funding": "funding events inside a missing bar are not accrued",
+    "network": "only the separately authorized FS1 data fetch; never while scoring",
+    "schema_version": "fs1_dataset_build_policy_v1",
+    "start_time": "2021-01-01T00:00:00+00:00",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "ADAUSDT"
+    ]
+  },
   "candidate_arms": [
     "fs1_a_zblend_t2t4_kappa3_vt12",
     "fs1_b_t2_vt12"
@@ -75,8 +103,8 @@
   "claim_limits": [
     "FS1 tests three configurations that were selected from public development results; it can falsify them out of sample but cannot re-select or tune them",
     "one window of about 181 days: a single regime, about nine independent 20-day blocks; a FORWARD_FAIL from a wide interval means 'not demonstrated', not 'proved zero edge', and a FORWARD_PASS is not a durable-edge or profitability claim",
-    "FORWARD_PASS only means: max drawdown within 20% in base and cost x2 AND the 95% block-bootstrap lower bound of annualised daily excess over CASH at cost x2 is positive; it supports the forecast/allocation mechanism only if the arm is also BETTER_THAN_PASSIVE against FS1-C",
-    "Bonferroni k=2 over (FS1-A, FS1-B) is reported; per-arm labels are at the unadjusted 95% level and a family-wise statement needs survives_bonferroni_k2",
+    "FORWARD_PASS is only the minimum bar: max drawdown within 20% in base and cost x2 AND the 95% block-bootstrap lower bound of annualised daily excess over CASH at cost x2 is positive. An arm can be FORWARD_PASS and NO_BETTER_THAN_PASSIVE",
+    "the HEADLINE flag is edge_claim_supported: true only for FORWARD_PASS together with BETTER_THAN_PASSIVE (95% lower bound of the excess over FS1-C at cost x2 above zero) and survives_bonferroni_k2 (Bonferroni k=2 lower bound over CASH at cost x2 above zero). Without it the result supports no claim that the forecast or allocation mechanism adds value",
     "CASH earns no yield; costs are the fixed assumptions of the frozen protocol (allocator c_i is a lower bound; participation impact is charged by the executor)",
     "this is not the final-evaluation authorization chain, creates no WINNER and does not establish deployment (G5) eligibility; no live or paper order is placed"
   ],
@@ -99,7 +127,7 @@
     "FORWARD_FAIL",
     "FORWARD_INVALID"
   ],
-  "params_digest": "2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283",
+  "params_digest": "9350734ca6ba920ebfcb47cd7b81b633df5457bfcfe7da37eba6d96fab5f1c56",
   "passive_arm": "fs1_c_ew_bh_vt12",
   "phase2_constants": {
     "blend_min_dates": 10,
@@ -213,8 +241,10 @@
     "2 a fresh result-blind G0-G2 review of the design record and code is recorded on the merging change before the seal",
     "3 the seal record on Issue #810 names the sealed code commit, the params digest above and, later, the dataset manifest SHA-256",
     "4 the user separately authorises (a) fetching the post-2026-08-31 data and (b) the single scoring run, each by an Issue #810 comment",
-    "5 the dataset manifest is recorded before scoring; scoring refuses on any mismatch, before 2027-05-01T00:00:00Z, without an authorization reference or when the output already exists"
+    "5 the seal record also names the dataset builder commit and command, the exchange-rule snapshot and the UTC fetch time; the manifest carries the build policy digest and the fetch time",
+    "6 the dataset manifest is recorded before scoring; scoring refuses on any mismatch, before the scoring end plus the settlement margin, without an Issue #810 authorization comment URL or when the output already exists"
   ],
+  "settlement_margin_hours": 24,
   "symbols": [
     "BTCUSDT",
     "ETHUSDT",

@@ -1,29 +1,32 @@
-"""Post-hoc side-by-side labels for the Phase 2 result (no new study run).
+"""Both Phase 2 labels, side by side, computed by code.
 
-Two full real-data executions exist. Execution 1 applied the PR-C causality-probe
-validity rule, which requires the arm to trade before the probe cut; execution 2
-applied an amended rule (identical decisions and traces, trades not required) that
-was changed in the code while execution 1 was still running. The two rules give
-different labels, so both are computed here by code from the committed replay
-metrics plus execution 1's recorded probe outcomes. The PR-C rule is primary.
+Two causality-probe validity rules exist. The PR-C probe rule (inherited from the
+PR-C runner, not stated in the registry text) requires the arm to trade before the
+probe cut; the amended rule (identical decisions and traces, trades not required)
+was introduced in the code while real-data execution 1 was still running. They give
+different labels, so ``labels_under_both_rules`` computes both from a result mapping:
+the replay metrics and validity parts, plus the per-arm probe outcomes (either the
+result's own ``causality_probes`` or a committed execution-1 summary). The PR-C
+probe rule label is primary (``label``); a fresh study run therefore never reports
+the amended label as its headline. Neither rule changes any replay metric.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from trade_rl.evaluation.dev_realdata_study.metrics import select_development_label
 from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
-from trade_rl.evaluation.dev_realdata_study.trial_study import phase2_protocol
 from trade_rl.evaluation.dev_realdata_study.trials import (
     CANDIDATE_POOL,
     CONTROL_ARMS,
     LABEL_FAILED_TO_RUN,
 )
 
-RULE_PR_C = "pr_c_probe_rule_requires_pre_cut_trades (execution 1)"
-RULE_AMENDED = "amended_probe_rule_identical_decisions_only (execution 2)"
+RULE_PR_C = "pr_c_probe_rule_requires_pre_cut_trades"
+RULE_AMENDED = "amended_probe_rule_identical_decisions_only"
 
 
 def _select(
@@ -54,7 +57,7 @@ def _select(
             for arm in runnable
         },
         validity,
-        _pool_protocol(runnable),
+        replace(PROTOCOL, candidate_arms=runnable),
     )
     rows: dict[str, Any] = dict(selection.rows)
     for arm in CANDIDATE_POOL:
@@ -73,23 +76,28 @@ def _select(
     }
 
 
-def _pool_protocol(runnable: tuple[str, ...]) -> Any:
-    from dataclasses import replace
+def pr_c_probe_passed(probe: Mapping[str, Any]) -> bool:
+    """PR-C probe rule: identical pre-cut trace AND the arm traded before the cut."""
 
-    return replace(phase2_protocol(PROTOCOL), candidate_arms=runnable)
+    return bool(probe["identical_pre_cut_trace"] and probe["pre_cut_trace_has_trades"])
 
 
 def labels_under_both_rules(
-    result: Mapping[str, Any], execution1: Mapping[str, Any]
+    result: Mapping[str, Any], execution1: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Recompute the selection under the PR-C rule and under the amended rule.
+    """Recompute the selection under the PR-C probe rule and under the amended rule.
 
-    ``result`` is the committed Phase 2 result (execution 2 metrics and validity
-    parts); ``execution1`` is the committed execution-1 summary (its per-arm probe
-    outcomes under the PR-C rule). Replay validity (ran, reconciled, flat, no
-    termination) is taken from ``result``; only the probe rule differs.
+    Replay validity (ran, reconciled, flat, no termination) is taken from ``result``;
+    only the probe rule differs. The PR-C-rule probe outcome comes from
+    ``execution1["causality_probes"]`` when given (a committed execution-1 summary)
+    and otherwise from the result's own per-arm probe records.
     """
 
+    probes = (
+        result["causality_probes"]
+        if execution1 is None
+        else execution1["causality_probes"]
+    )
     replay_ok: dict[str, bool] = {}
     for arm, detail in result["validity_detail"].items():
         replay_ok[arm] = bool(
@@ -102,45 +110,70 @@ def labels_under_both_rules(
             replay_ok[arm]
             and (
                 arm in CONTROL_ARMS
-                or bool(execution1["causality_probes"][arm]["passed"])
+                or (
+                    arm in probes
+                    and probes[arm] is not None
+                    and (
+                        bool(probes[arm]["passed"])
+                        if execution1 is not None
+                        else pr_c_probe_passed(probes[arm])
+                    )
+                )
             )
         )
         for arm in replay_ok
     }
     amended_validity = {arm: bool(value) for arm, value in result["validity"].items()}
     return {
-        "label_preregistered_rule": _select(result, pr_c_validity, RULE_PR_C),
+        "label_pr_c_probe_rule": _select(result, pr_c_validity, RULE_PR_C),
         "label_amended_rule": _select(result, amended_validity, RULE_AMENDED),
     }
 
 
+def with_both_labels(
+    result: Mapping[str, Any], execution1: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Return ``result`` with both labels; ``label`` is the PR-C probe rule label.
+
+    Any ``selection`` / ``label`` already in ``result`` (the amended-rule outcome of
+    the study's own selection step) is kept as ``selection_amended_rule`` and not
+    used as the headline.
+    """
+
+    both = labels_under_both_rules(result, execution1)
+    out = {
+        key: value for key, value in result.items() if key not in {"selection", "label"}
+    }
+    primary = both["label_pr_c_probe_rule"]
+    amended = both["label_amended_rule"]
+    out["selection_pr_c_probe_rule"] = primary
+    out["selection_amended_rule"] = amended
+    out["label_pr_c_probe_rule"] = primary["label"]
+    out["label_amended_rule"] = amended["label"]
+    out["selected_arm_pr_c_probe_rule"] = primary["selected_arm"]
+    out["selected_arm_amended_rule"] = amended["selected_arm"]
+    out["label"] = primary["label"]
+    out["label_note"] = (
+        "primary label = PR-C probe rule (arm must also trade before the probe cut); "
+        "the amended rule changed validity after real-data execution 1 had started, "
+        "see the provenance JSON"
+    )
+    return out
+
+
 def annotate_result(
     result: Mapping[str, Any],
-    execution1: Mapping[str, Any],
+    execution1: Mapping[str, Any] | None,
     *,
     original_sha256: str,
 ) -> dict[str, Any]:
-    """Return ``result`` with both labels side by side and the PR-C label primary."""
+    """Post-hoc: ``with_both_labels`` plus a record of the unchanged original file."""
 
-    both = labels_under_both_rules(result, execution1)
-    annotated = {key: value for key, value in result.items() if key != "selection"}
-    annotated["selection_amended_rule"] = result["selection"]
-    annotated["selection_preregistered_rule"] = both["label_preregistered_rule"]
-    annotated["label_preregistered_rule"] = both["label_preregistered_rule"]["label"]
-    annotated["label_amended_rule"] = both["label_amended_rule"]["label"]
-    annotated["selected_arm_preregistered_rule"] = both["label_preregistered_rule"][
-        "selected_arm"
-    ]
-    annotated["selected_arm_amended_rule"] = both["label_amended_rule"]["selected_arm"]
-    annotated["label"] = annotated["label_preregistered_rule"]
-    annotated["label_note"] = (
-        "primary label = PR-C probe rule (execution 1); the amended rule changed "
-        "validity after execution 1 had started, see the provenance JSON"
-    )
+    annotated = with_both_labels(result, execution1)
     annotated["post_hoc_annotation"] = {
         "applied_by": "trade_rl.evaluation.dev_realdata_study.trial_labels",
         "original_result_sha256": original_sha256,
-        "original_label_field": result["label"],
+        "original_label_field": result.get("label"),
         "replay_metrics_changed": False,
     }
     return annotated
@@ -151,4 +184,6 @@ __all__ = [
     "RULE_PR_C",
     "annotate_result",
     "labels_under_both_rules",
+    "pr_c_probe_passed",
+    "with_both_labels",
 ]

@@ -32,6 +32,7 @@ from trade_rl.evaluation.dev_realdata_study.protocol import (
     DevStudyProtocol,
     protocol_digest,
 )
+from trade_rl.evaluation.dev_realdata_study.trial_labels import with_both_labels
 from trade_rl.evaluation.dev_realdata_study.trial_sources import (
     TrialContext,
     build_phase2_arm,
@@ -426,7 +427,7 @@ def assemble(
         for scenario, outcome in run.outcomes.items():
             equity_arrays[f"{arm}__{scenario}__equity"] = outcome.equity
             equity_arrays[f"{arm}__{scenario}__timestamp_ns"] = outcome.timestamps_ns
-    return results, equity_arrays
+    return with_both_labels(results), equity_arrays
 
 
 _SUMMARY_FIELDS = (
@@ -487,6 +488,11 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
         "schema_version": results["schema_version"],
         "status": results["status"],
         "label": results["label"],
+        "label_pr_c_probe_rule": results["label_pr_c_probe_rule"],
+        "label_amended_rule": results["label_amended_rule"],
+        "selected_arm_pr_c_probe_rule": results["selected_arm_pr_c_probe_rule"],
+        "selected_arm_amended_rule": results["selected_arm_amended_rule"],
+        "label_note": results["label_note"],
         "registry_digest": results["registry_digest"],
         "base_protocol_digest": results["base_protocol_digest"],
         "dataset_id": results["dataset_id"],
@@ -501,7 +507,8 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
         "arms": rows,
         "bootstrap": results["bootstrap"],
         "bonferroni_comparisons": results["bonferroni_comparisons"],
-        "selection": results["selection"],
+        "selection_pr_c_probe_rule": results["selection_pr_c_probe_rule"],
+        "selection_amended_rule": results["selection_amended_rule"],
         "notes": results["notes"],
         "trial_arms": list(TRIAL_ARMS),
     }

@@ -2196,8 +2196,8 @@
   "git_head": "36774b5e1075f6ce89247d2645c804fe59e5cfac",
   "label": "NO_WINNER",
   "label_amended_rule": "DEVELOPMENT_PROMISING",
-  "label_note": "primary label = PR-C probe rule (execution 1); the amended rule changed validity after execution 1 had started, see the provenance JSON",
-  "label_preregistered_rule": "NO_WINNER",
+  "label_note": "primary label = PR-C probe rule (arm must also trade before the probe cut); the amended rule changed validity after real-data execution 1 had started, see the provenance JSON",
+  "label_pr_c_probe_rule": "NO_WINNER",
   "notes": [
     "development evidence only; never a WINNER",
     "the evaluation period was already used by the PR-C study and the breakeven diagnostic; this is not confirmatory",
@@ -2237,7 +2237,7 @@
   },
   "schema_version": "dev_realdata_phase2_trial_results_v1",
   "selected_arm_amended_rule": "t1_tsmom",
-  "selected_arm_preregistered_rule": null,
+  "selected_arm_pr_c_probe_rule": null,
   "selection_amended_rule": {
     "arms": {
       "allocator_24h_long_only": {
@@ -2330,9 +2330,23 @@
       }
     },
     "label": "DEVELOPMENT_PROMISING",
-    "selected_arm": "t1_tsmom"
+    "rule": "amended_probe_rule_identical_decisions_only",
+    "selected_arm": "t1_tsmom",
+    "validity": {
+      "allocator_24h_long_only": true,
+      "allocator_24h_long_short": true,
+      "allocator_72h_long_short": false,
+      "t1_tsmom": true,
+      "t2_xsmom": true,
+      "t3_funding_carry": false,
+      "t4_ridge24_all_features": true,
+      "t5_lightgbm24": true,
+      "t6_blend": true,
+      "t7_blend_dd_overlay": true,
+      "t8_blend_weekly": true
+    }
   },
-  "selection_preregistered_rule": {
+  "selection_pr_c_probe_rule": {
     "arms": {
       "allocator_24h_long_only": {
         "base_terminal_net_profit_pct": 22.4185989728406,
@@ -2424,7 +2438,7 @@
       }
     },
     "label": "NO_WINNER",
-    "rule": "pr_c_probe_rule_requires_pre_cut_trades (execution 1)",
+    "rule": "pr_c_probe_rule_requires_pre_cut_trades",
     "selected_arm": null,
     "validity": {
       "allocator_24h_long_only": true,

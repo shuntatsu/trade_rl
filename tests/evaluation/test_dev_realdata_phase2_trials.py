@@ -641,13 +641,17 @@ def test_every_arm_and_scenario_is_reported(
     ]
     assert results["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
     assert results["label"] != "WINNER"
+    assert results["label"] == results["label_pr_c_probe_rule"]
+    assert results["label_amended_rule"] in {LABEL_PROMISING, LABEL_NO_WINNER}
     assert results["registry_digest"] == registry_digest()
     assert results["bonferroni_comparisons"] == 13
     for arm in ALL_ARMS:
         if arm == "t5_lightgbm24" and not LIGHTGBM_INSTALLED:
             assert results["validity"][arm] is False
             assert results["arms"][arm]["base"]["status"] == LABEL_FAILED_TO_RUN
-            assert results["selection"]["arms"][arm]["eligible"] is False
+            assert (
+                results["selection_pr_c_probe_rule"]["arms"][arm]["eligible"] is False
+            )
             continue
         row = results["arms"][arm]["base"]
         assert row["net_pnl_usdt"] == pytest.approx(
@@ -656,7 +660,7 @@ def test_every_arm_and_scenario_is_reported(
             + row["funding_pnl_usdt"]
         )
         assert row["reconciliation"]["passed"] is True
-    assert set(results["selection"]["arms"]) == set(CANDIDATE_POOL)
+    assert set(results["selection_pr_c_probe_rule"]["arms"]) == set(CANDIDATE_POOL)
     assert set(results["bootstrap"]["base"]) >= set(ALL_ARMS) - {ARM_CASH} - (
         {"t5_lightgbm24"} if not LIGHTGBM_INSTALLED else set()
     )
@@ -732,7 +736,7 @@ def test_a_failed_trial_is_recorded_and_never_selected(
     assert selection.label == LABEL_PROMISING and selection.selected_arm != "t1_tsmom"
 
 
-def test_selection_over_the_eleven_candidates_applies_the_preregistered_rule() -> None:
+def test_selection_over_the_eleven_candidates_applies_the_pr_c_selection_rule() -> None:
     protocol = replace(
         study.phase2_protocol(small_protocol()), candidate_arms=CANDIDATE_POOL
     )
@@ -784,7 +788,10 @@ def test_assemble_marks_a_missing_arm_failed_and_ineligible(
     results, _ = study.assemble(market, protocol, runs)
     assert results["label"] == LABEL_NO_WINNER
     assert all(row["status"] == LABEL_FAILED_TO_RUN for row in results["trials"])
-    assert all(not row["eligible"] for row in results["selection"]["arms"].values())
+    assert all(
+        not row["eligible"]
+        for row in results["selection_pr_c_probe_rule"]["arms"].values()
+    )
     assert results["arms"]["t3_funding_carry"]["base"]["status"] == LABEL_FAILED_TO_RUN
 
 
@@ -902,7 +909,7 @@ def test_committed_result_and_provenance_are_consistent() -> None:
     assert result["registry_digest"] == registry_digest()
     assert provenance["registry_digest"] == registry_digest()
     assert result["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
-    assert result["label"] == result["label_preregistered_rule"]
+    assert result["label"] == result["label_pr_c_probe_rule"]
     assert set(result["arms"]) == set(ALL_ARMS)
     assert result["failures"] == {}
     for arm in TRIAL_ARMS:
@@ -928,9 +935,9 @@ def test_both_labels_are_computed_by_code_from_committed_evidence() -> None:
     result = _report("issue810-phase2-trial-results-20261029.json")
     execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
     both = trial_labels.labels_under_both_rules(result, execution1)
-    primary = both["label_preregistered_rule"]
+    primary = both["label_pr_c_probe_rule"]
     amended = both["label_amended_rule"]
-    assert result["label_preregistered_rule"] == primary["label"] == LABEL_NO_WINNER
+    assert result["label_pr_c_probe_rule"] == primary["label"] == LABEL_NO_WINNER
     assert result["label_amended_rule"] == amended["label"] == LABEL_PROMISING
     assert amended["selected_arm"] == result["selected_arm_amended_rule"] == "t1_tsmom"
     assert primary["selected_arm"] is None
@@ -951,22 +958,35 @@ def test_both_labels_are_computed_by_code_from_committed_evidence() -> None:
 def test_execution_one_replay_metrics_match_the_committed_result() -> None:
     result = _report("issue810-phase2-trial-results-20261029.json")
     execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
-    names = (
-        "terminal_net_profit_pct",
-        "max_drawdown_pct",
-        "sharpe_daily",
-        "turnover_total",
-        "execution_costs_usdt",
-        "funding_pnl_usdt",
-        "n_trades",
-    )
+    compared = 0
     for arm in ALL_ARMS:
         for scenario in SCENARIOS:
-            for name in names:
-                assert (
-                    execution1["arms"][arm][scenario][name]
-                    == result["arms"][arm][scenario][name]
-                )
+            first = execution1["arms"][arm][scenario]
+            final = result["arms"][arm][scenario]
+            shared = set(first) & set(final)
+            # every field both executions recorded (18 to 20 per row) must be equal
+            assert len(shared) >= 18
+            for name in shared:
+                assert first[name] == final[name], (arm, scenario, name)
+                compared += 1
+    assert compared >= 18 * len(ALL_ARMS) * len(SCENARIOS)
+
+
+def test_validity_sets_under_the_two_rules_differ_only_in_t1() -> None:
+    from trade_rl.evaluation.dev_realdata_study import trial_labels
+
+    result = _report("issue810-phase2-trial-results-20261029.json")
+    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
+    for evidence in (execution1, None):
+        both = trial_labels.labels_under_both_rules(result, evidence)
+        primary = both["label_pr_c_probe_rule"]["validity"]
+        amended = both["label_amended_rule"]["validity"]
+        assert {arm for arm in primary if primary[arm] != amended[arm]} == {"t1_tsmom"}
+        assert primary["t1_tsmom"] is False and amended["t1_tsmom"] is True
+    # Probe outcomes taken from execution 1 or from the result itself agree.
+    assert json.dumps(
+        trial_labels.labels_under_both_rules(result, execution1), sort_keys=True
+    ) == json.dumps(trial_labels.labels_under_both_rules(result, None), sort_keys=True)
 
 
 def test_label_flips_only_through_the_probe_trade_requirement() -> None:
@@ -977,5 +997,5 @@ def test_label_flips_only_through_the_probe_trade_requirement() -> None:
     patched = json.loads(json.dumps(execution1))
     patched["causality_probes"]["t1_tsmom"]["passed"] = True
     both = trial_labels.labels_under_both_rules(result, patched)
-    assert both["label_preregistered_rule"]["label"] == LABEL_PROMISING
-    assert both["label_preregistered_rule"]["selected_arm"] == "t1_tsmom"
+    assert both["label_pr_c_probe_rule"]["label"] == LABEL_PROMISING
+    assert both["label_pr_c_probe_rule"]["selected_arm"] == "t1_tsmom"

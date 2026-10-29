@@ -112,7 +112,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         stream.write(
             _json_bytes({**compact_phase2_summary(results), "run_metadata": metadata})
         )
-    print(f"label={results['label']} selected={results['selection']['selected_arm']}")
+    print(
+        f"label={results['label']} (PR-C probe rule, primary) "
+        f"amended_rule_label={results['label_amended_rule']}"
+    )
     return 0
 
 

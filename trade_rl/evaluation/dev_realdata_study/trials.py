@@ -8,7 +8,9 @@ Provenance of the registry, in two stages (git alone does not establish the firs
    4526c5170 (about 23:21Z) and the PR-C result comment on #810 about 23:38Z.
 2. The implementation details (the constant k of T1, the z-scoring of T6, how the T7
    overlay is applied, the T8 mu scaling, the T6 warmup, ...) were pinned in the
-   worker instructions AFTER the PR-C result was known and BEFORE any T1-T8 result.
+   worker instructions AFTER the PR-C result was known and BEFORE any T1-T8 result (like
+   stage 1, this is not publicly verifiable; git shows only that the first public
+   record is after 4526c5170 and before the first real-data run).
    The first public record of this module and of the registry JSON
    (``report/issue810-phase2-trial-registry-20261029.json``) is commit ebada213d.
 

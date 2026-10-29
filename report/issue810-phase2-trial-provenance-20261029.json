@@ -80,7 +80,7 @@
       "output_sha256": {
         "equity.npz": "923d7026ffe85d446902125aa8d33240b78459e288b45cda4b8535a56d6af869",
         "full_results.json": "aa353d332d3c3683013295a744746973ab9f80a975567900136fc7e3ec95ec0d",
-        "report/issue810-phase2-trial-results-20261029.json (after the post-hoc label annotation)": "a1713f458306643971dc2cdbf6d6b8a4e30e938e8b90c796900b0391fc2b4256",
+        "report/issue810-phase2-trial-results-20261029.json (after the post-hoc label annotation)": "840faffb1e6b047e45ee8d4eb899dca61ae77c50f921bb62ae2efe59d052c86b",
         "report/issue810-phase2-trial-results-20261029.json (as produced by the run, before the post-hoc label annotation)": "fcd95177ff4b14cf976c0e8def600579f4ab8195e4e0d67fc7820e15b5a19d7b",
         "run_metadata.json": "92741d76ef8c3a9e078e6642fc3fceb8f1fdf94ddb8d2a10f50cf369ccfcef2d"
       },
@@ -113,6 +113,10 @@
     }
   ],
   "issue": 810,
+  "label_reproduction": {
+    "command": "python -m trade_rl.evaluation.dev_realdata_study.trial_cli ... (a fresh run now emits both labels; label = PR-C probe rule label, label_amended_rule alongside)",
+    "post_hoc_for_the_committed_result": "trade_rl.evaluation.dev_realdata_study.trial_labels.annotate_result(original_result, execution1_summary, original_sha256=...) applied to the unmodified execution-2 summary; the PR-C-probe-rule label is identical whether the probe outcomes come from the execution-1 summary or from the result's own causality_probes (test-checked)"
+  },
   "notes": [
     "execution 1 was started before the PR-C review follow-up merge; it was not killed (a stop request was denied) and was allowed to finish",
     "no trial definition, hyper-parameter or selection-rule threshold was changed between execution 1 and 2; the only behavioural change is the probe rule in probe_rule_amendment",
@@ -142,7 +146,7 @@
     "first_public_record": "commit ebada213d (2026-10-29 11:28 JST), which precedes the first real-data run of this study",
     "frozen_text_not_edited": "report/issue810-phase2-trial-registry-20261029.json and its digest are unchanged; its registered_before field ('the PR-C result and every T1-T8 result') overstates what git shows.",
     "stage_1_headline_specs": "The headline specs of T1-T8 were recorded in the planner notes before the PR-C run started. External record: a local planner log, T1-T8 written at 2026-10-28T21:43:33Z; the PR-C worker launched about 21:59Z. This record is not in git and is not publicly verifiable.",
-    "stage_2_implementation_details": "The implementation details (constant k of T1, z-scoring and warmup of T6, how the T7 overlay is applied, the T8 mu x7, the funding window and the T2 scaling) were pinned in the worker instructions AFTER the PR-C result was known (result commit 4526c5170 about 2026-10-28T23:21Z; #810 result comment about 23:38Z) and BEFORE any T1-T8 result."
+    "stage_2_implementation_details": "The implementation details (constant k of T1, z-scoring and warmup of T6, how the T7 overlay is applied, the T8 mu x7, the funding window and the T2 scaling) were pinned in the worker instructions AFTER the PR-C result was known (result commit 4526c5170 about 2026-10-28T23:21Z; #810 result comment about 23:38Z) and BEFORE any T1-T8 result. Like stage 1, this timing is not publicly verifiable; git shows only that the first public record (ebada213d) is after the PR-C result commit and before the first real-data run."
   },
   "schema_version": "dev_realdata_phase2_trial_provenance_v1"
 }

@@ -51,6 +51,9 @@ from trade_rl.strategies.portfolio import (
 )
 
 _NS_PER_HOUR = 3_600 * 1_000_000_000
+# Minimum finite pooled observations for the T1/T3 trailing std in the blend. This
+# constant is not in the frozen registry; it is declared in the provenance JSON.
+BLEND_MIN_POOLED_OBSERVATIONS = 30
 _NS_PER_DAY = 24 * _NS_PER_HOUR
 
 
@@ -346,8 +349,12 @@ class BlendSource(_SeriesSource):
             return nothing
         ridge_history = np.vstack(ridge_rows)
         ridge_sigma = self._pooled_std(ridge_history, minimum=constants.blend_min_dates)
-        tsmom_sigma = self._pooled_std(self._tsmom[low : day + 1], minimum=30)
-        carry_sigma = self._pooled_std(self._carry[low : day + 1], minimum=30)
+        tsmom_sigma = self._pooled_std(
+            self._tsmom[low : day + 1], minimum=BLEND_MIN_POOLED_OBSERVATIONS
+        )
+        carry_sigma = self._pooled_std(
+            self._carry[low : day + 1], minimum=BLEND_MIN_POOLED_OBSERVATIONS
+        )
         if ridge_sigma is None or tsmom_sigma is None or carry_sigma is None:
             return nothing
         today = (
@@ -730,6 +737,7 @@ def build_phase2_arm(
 
 
 __all__ = [
+    "BLEND_MIN_POOLED_OBSERVATIONS",
     "SOURCE_REGISTRY",
     "BlendSource",
     "ConfiguredLightGBMFitter",

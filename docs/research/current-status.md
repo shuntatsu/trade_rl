@@ -958,6 +958,18 @@ their targeted synthetic tests pass. Overall G2 and an independent full
 source-to-ledger replay remain unestablished. No successor screen has been
 sealed.
 
+2026-10-30: attempt-2 operational tooling is prepared offline; nothing has been
+sealed, launched or collected, and no attempt-2 start time exists. User
+authorization (an Issue #810 comment) and a fresh result-blind review of the
+preserved attempt-1 root are still pending. The silent attempt-1 death is addressed
+operationally with a heartbeat, permanent failure records from exit, signal,
+console-close and stale-heartbeat paths, and a supervisor that relaunches only a
+child that died between cycles inside the frozen 180-second gap. A death inside a
+cycle, a hang or any source error still ends the screen by design, and the 90-day
+storage and journal-replay latency remain operator-measured. No economics, P&L or
+profitability evidence was produced. The runbook is in
+`docs/specs/funding-carry-paper.md`.
+
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
 engine rejected the unmatched hedge, actually flattened all four legs on the

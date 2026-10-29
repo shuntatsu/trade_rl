@@ -668,6 +668,155 @@ identity; a constant checkout SHA alone does not establish constant transport
 behavior. Terminated child processes must be reaped before evidence upload.
 
 
+## Research-specific contract: forward study FS1
+
+This contract applies only to the sealed forward study in
+`trade_rl.evaluation.forward_study` (Issue #810). It is a result-blind design record: the
+scoring window starts after the date of this record, so no return, drawdown, Sharpe
+or label of the window exists, and none may be generated before the preconditions
+below hold. The frozen parameters are `Fs1Registry` (`registry.py`), exported to
+`report/issue810-fs1-registry-20261030.json`; their SHA-256 digest is
+`2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283` (`FROZEN_PARAMS_DIGEST`,
+pinned by a test). Changing any frozen value is a new study (FS2), never an edit.
+
+### G0 — FS1 question, falsifiers, and claim scope
+
+**Question:** After fees, spread and participation costs, does the frozen configuration
+FS1-A (the Phase 3 P3-6 mechanism: z-blend of the T2 and T4 expected returns, kappa 3,
+12% volatility target, long/short) beat CASH, and does it beat the vol-targeted passive
+control FS1-C (the Phase 3 P3-7 mechanism: equal-weight buy-and-hold with the same 12%
+target), over 2026-11-01..2027-05-01 (181 days, final endpoint closing the last 2027-04-30
+bar)? FS1-B (the P3-3 mechanism: T2 + VT12) is the secondary arm. The roster is exactly
+CASH, FS1-A, FS1-B and FS1-C; no arm may be added, removed or retuned after this record.
+
+**Hypothesis and causal story.** Cross-sectional momentum (T2) and a Ridge forecast on
+the 1h/4h/1d features (T4) may each carry a small, slowly decaying cross-sectional
+signal in USDT-perpetual returns; a turnover penalty (kappa) keeps the book from paying
+more in costs than the signal earns, and an ex-ante volatility cap keeps the drawdown
+inside the 20% budget. Part of the Phase 3 development return was available from the
+volatility cap alone (the passive control), so beating CASH is the minimum bar and
+beating FS1-C is what would support a forecasting or allocation edge.
+
+**Falsifiers** (per candidate; frozen numbers in the registry):
+
+1. Maximum drawdown above 20% in the base **or** cost x2 scenario.
+2. The 95% percentile block-bootstrap lower bound (20-day moving blocks, 2000 resamples,
+   seed 0) of the annualised mean daily excess return over CASH at cost x2 is not above
+   zero.
+3. The same lower bound of the excess over FS1-C (cost x2) not above zero marks the arm
+   `NO_BETTER_THAN_PASSIVE`. This does not by itself make the arm `FORWARD_FAIL`, but
+   `edge_claim_supported` is true only for `FORWARD_PASS` together with
+   `BETTER_THAN_PASSIVE`.
+
+The +1 bar latency scenario is reported and enters validity, not the label.
+Bonferroni with k = 2 (FS1-A, FS1-B) is reported for every excess interval and
+summarised as `survives_bonferroni_k2`; the per-arm label uses the unadjusted 95%
+bound as specified, so a family-wise statement needs `survives_bonferroni_k2`.
+
+**Label vocabulary:** `FORWARD_PASS`, `FORWARD_FAIL`, `FORWARD_INVALID`. There is no
+`WINNER`, no profitability guarantee and no deployment label. `FORWARD_INVALID` is
+returned (never `FORWARD_FAIL`) when a measurement is not valid: a replay failed, the
+ledger does not reconcile or the account terminated, the equity path does not cover the
+whole window, an arm made fewer than one trade or more than 10% of its decisions
+fail-closed (pipeline degradation, not market evidence), the future-perturbation
+causality matrix is not identical, CASH is not exactly flat, or **any control (CASH,
+FS1-C) is invalid** (every candidate is then invalid; a broken baseline is never skipped).
+
+**Disclosure — selection contamination.** The Phase 2/3 development results are public.
+FS1-A, FS1-B and FS1-C were chosen from them (P3-6 and P3-3 were the only arms that
+passed the development rule; P3-7 is the passive comparator), after 21 development
+arms were compared on data already used by earlier studies. That selection is why a
+forward test is needed. FS1 can falsify the chosen configurations; it cannot re-select
+or tune them, and the Phase 3 development numbers are not evidence for FS1.
+
+**What FS1 can prove.** Whether, in one future regime, these three frozen
+configurations earned after-cost excess return inside the drawdown budget. **What it
+cannot prove:** a durable edge (one window of about 181 days is a single regime with
+about nine independent 20-day blocks, so a wide interval means 'not demonstrated', not
+'zero edge'); that the forecast adds value unless `BETTER_THAN_PASSIVE`; capacity,
+live execution quality or point-in-time source availability; deployment (G5) eligibility;
+anything about other configurations.
+
+### G1 — FS1 fixed mechanism, window, and seal
+
+* **Universe and clock:** BTCUSDT, ETHUSDT, BNBUSDT, XRPUSDT, ADAUSDT USDT-perpetuals,
+  1h bars, one decision per day at 00:00 UTC, orders eligible per the shared replay.
+* **Account:** one continuous shared 10,000 USDT account per arm and scenario, no reset
+  at refit boundaries, terminal positions settled flat at the final endpoint, funding
+  accrued by the replay. CASH is the all-zero book and earns no yield.
+* **Costs:** fee 0.05%/side, spread 0.02%, impact rate and 5% participation cap of the
+  development protocol. Stresses: cost x2 (fee and spread doubled) and +1 bar order
+  latency. The allocator keeps its base `c_i` (fee + spread, a lower bound) in every
+  scenario, as in the development study.
+* **Mechanism:** the Phase 3 builders and the development runner unchanged: gamma 5,
+  EWMA halflife 60 days, shrinkage 0.2, `w_max` 0.5, `gross_max` 0.95, minimum trade
+  0.5% of equity; kappa 3 and VT12 (`sqrt(w' Sigma w * 365)` cap at 12%, applied to the
+  solved target before the minimum-trade rule) for FS1-A, VT12 only for FS1-B.
+* **Data scope:** development data through 2026-08-01 (the end of the consumed
+  development window) is the only data that exists at registration. Bars from
+  2026-08-01 to 2026-11-01 (and any later bars before the scoring start) may enter
+  features, forecasts and the covariance warm-up **only if separately authorized, and
+  are never scored**: the replay starts at the 2026-11-01 row. The Ridge forecast
+  sources refit every 30 days from the scoring start, expanding from the first
+  dataset row; each refit uses only labels matured before its fit time, including
+  scoring-window bars that precede that fit time (causal prequential refit).
+  Without a contiguous dataset the evaluator refuses: the data must be regular hourly
+  rows over the whole span and at least 99% tradable per symbol over
+  2026-08-01..2027-05-01, so an unauthorized three-month hole cannot be scored.
+* **Seal procedure (all recorded before any scoring):**
+  1. This record and the code are merged through the normal review path. A fresh
+     result-blind G0-G2 review of the design record and the code is recorded on the
+     merging change. Reviewers are told not to open `report/` or any study output; they
+     cannot be blind to the public development results, only to the forward window, which
+     does not exist.
+  2. A seal record on Issue #810 names the sealed code commit (a commit on `main`
+     that contains this contract; mechanism-affecting merges after this record require
+     re-running the G2 tests and a new seal), the params digest above, and later the
+     dataset manifest SHA-256.
+  3. The user separately authorizes (a) fetching the post-2026-08-31 data and
+     (b) the single scoring run, each by an Issue #810 comment. Neither is implied by
+     this record.
+  4. After the authorized fetch the dataset is built offline with the development gap
+     policy (`non_tradable_rows`) and
+     `manifest_bytes_from_dataset` writes the dataset seal manifest (dataset id,
+     symbols, first and last timestamp, bar count, build-policy digest, source
+     archive digests, fetch authorization). The manifest SHA-256 is recorded in the
+     seal record before scoring.
+* **Scoring** happens once: `python -m trade_rl.evaluation.forward_study`, which writes a
+  write-once result file and never overwrites.
+
+### G2 — FS1 independent oracles and the sealed evaluator
+
+The evaluator and the mechanism checks are tested on synthetic data only; the frozen
+registry itself is never scored in tests.
+
+| Oracle | Statement | Test |
+|---|---|---|
+| ORACLE-1 | A pure-Python (no numpy) reference of the annualised portfolio volatility, the VT scale `min(1, cap / vol)`, the kappa-scaled cost vector `kappa * (fee + taker fee + spread)` and the EWMA covariance equals production on 40 random instances and, decision by decision, inside a replay of the FS1-A mechanism (the scale binds on at least ten decisions) | `tests/evaluation/test_forward_study_mechanism_oracles.py` |
+| ORACLE-2 | The kappa-scaled solve is not beaten by an exhaustive grid plus pattern-search polish on two-asset instances (long/short and long-only), and has no feasible improving move among 3,000 random and kink-aligned perturbations on three-asset instances; larger kappa never increases trading | same |
+| ORACLE-3 | With `kappa = 1` and no volatility target the policy is bit-identical (`==` on every proposal) to a re-implementation of the pre-Phase-3 decision pipeline over a 88-day replay, and an active mechanism is not | same |
+| ORACLE-4 | Future perturbation after the causality cut leaves every decision, quantity, cash and equity value at or before the cut identical for FS1-A, FS1-B and FS1-C in all three scenarios; the probe has power (a deliberate look-ahead arm is detected and its label is `FORWARD_INVALID`) | `tests/evaluation/test_forward_study_fs1.py` |
+| ORACLE-5 | The sealed evaluator refuses, listing every unmet precondition, and reads no dataset and writes no result, unless: the wall clock is at or after 2027-05-01T00:00Z; an Issue #810 comment URL is supplied as `--authorization`; the registry equals the frozen digest and the operator-supplied params digest; the checked-out HEAD equals the sealed code SHA with clean tracked files; the manifest bytes match the recorded manifest SHA-256 and the frozen roster/window; the loaded dataset has a verified content identity equal to the manifest, regular hourly rows, the exact last row and enough tradable bars; the output path does not exist | `tests/evaluation/test_forward_study_seal.py`, `tests/evaluation/test_forward_study_fs1.py` |
+| Labels | The label rule on fabricated numbers: both falsifiers, the exact 20% boundary, the passive annotation, Bonferroni, and every INVALID path | `tests/evaluation/test_forward_study_labels.py` |
+
+**Known limitations of the machine checks.** The authorization reference is recorded,
+not verified: no code can check who wrote a GitHub comment, so the human decision is
+the real gate. The permit object guards against accidental use, not against a
+developer who bypasses the module on purpose. The code identity relies on the git
+checkout at the sealed commit (the digest of the parameters, not of every transitive
+source file, is pinned in the tree). The G2 oracles establish the declared
+mechanism, not its profitability; the solver's fail-closed certificate can reject
+extreme instances (for example a very large kappa with the book exactly on the gross
+limit), which the policy turns into a hold, and a fail-closed share above 10% makes
+the arm `FORWARD_INVALID`. The synthetic scoring path shows that the evaluator runs,
+labels and refuses as specified; it says nothing about the real window.
+
+**Gate state of this record:** G0/G1 independent result-blind review NOT ESTABLISHED
+(pending); G2 machine oracles implemented, final-HEAD CI pending; G3 not applicable
+(no forward evidence exists); G4 NOT ESTABLISHED; G5 NOT ESTABLISHED. Scoring may not
+start until the seal record, the dataset manifest, the scoring end date and both
+user authorizations exist.
+
 ## AI adversarial review
 
 **AI semantic review is mandatory.** 研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを新設・変更する場合、G4のeconomic resultを生成・閲覧する前にAIがG0-G2をadversarial reviewする。これは任意のコメント欄ではなく、研究を次段階へ進めるためのsemantic gateである。

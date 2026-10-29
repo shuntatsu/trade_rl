@@ -101,6 +101,7 @@ trade_rl/
     ├── directional_study.py
     ├── ppo_risk_study.py
     ├── dev_realdata_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,cli.py,dataset_build.py,trials.py,trial_sources.py,trial_study.py,trial_cli.py,trial_labels.py,phase3_registry.py,phase3_sources.py,phase3_study.py,phase3_cli.py}
+    ├── forward_study/{__init__.py,__main__.py,registry.py,labels.py,seal.py,fs1.py,cli.py}
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
     ├── ppo_normalization_replication.py
@@ -721,6 +722,12 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 Phase 2 trial registry は同じpackage内の `trials.py`（T1-T8の事前固定spec・定数・実装判断、JSON exportは `report/issue810-phase2-trial-registry-20261029.json`）、`trial_sources.py`（`ExpectedReturnSource` registry、causalなTSMOM/XS-momentum/funding carry/blend source、T7のdrawdown overlay policy wrapper）、`trial_study.py`（armごとの隔離実行・FAILED_TO_RUN記録・13 arm Bonferroni・同一selection rule）、`trial_cli.py`、事後ラベル再計算の `trial_labels.py`（PR-C probe ruleとamended ruleの両ラベルをcommit済み証拠からcodeで計算）が所有する。PR-Cの `runner.py` を `arm_builder` / `build_allocator` / 汎用causality probeで拡張して再利用し、複製しない。同じくaccount・P&L ledgerは持たず、`WINNER` を出さない。
 
 Phase 3 roster（turnover aversion `kappa` とex-ante volatility target `VT12`、POST_HOC_EXPLORATORY・事前登録ではない）は `phase3_registry.py`（8 armの凍結roster・公開事前記録のverbatim本文とSHA-256・実装判断notes・JSON exportは `report/issue810-phase3-trial-registry-20261029.json`）、`phase3_sources.py`（T4×7 source、T2/T4 z-blend、vol-scaled passive comparatorのpolicy、arm builder）、`phase3_study.py`（armごとの隔離実行・causality probe/matrix・PR-C probe rule主ラベルと補助のamended rule・Phase 3 family 8とall-arms 21のBonferroni）、`phase3_cli.py`（新規出力のみ・全実行を数える`--execution-ledger`）が所有する。`kappa`（optimizerのL1 cost penalty倍率のみ。実行costは不変）とVT（解いたtargetをmin-trade rule前に`cap/sigma_p`倍へ縮小）は `strategies/allocation/cost_aware.py` のopt-in引数で、defaultでは従来のdecisionとbit-identical。label語彙は `POST_HOC_PROMISING` / `NO_WINNER` で、`WINNER` は出さない。
+
+## Forward study FS1 boundary
+
+`evaluation/forward_study/` は Issue #810 の sealed forward study FS1 だけを所有する。`registry.py` はFS1-A/B/C + CASHのroster・scoring window・falsifier・validity guardの凍結値と `FROZEN_PARAMS_DIGEST`（JSON exportは `report/issue810-fs1-registry-20261030.json`）だけを持ち、dataset・clock・resultを読まない。`labels.py` は数値だけを受け取る純粋な `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` ruleで、`WINNER` を返さない。`seal.py` はscoring前提条件（scoring end date経過、Issue commentのauthorization reference、凍結params digest、checkout済みcode SHAとclean tree、dataset seal manifest、読み込んだdatasetのidentity・window・tradable割合）を全て集めて `Fs1Refusal` で拒否し、満たしたときだけ `ScoringPermit` を返す。`fs1.py` はpermitを必須とする唯一のscoring entrypointで、Phase 3 policy builderと `dev_realdata_study.runner` を変更せず再利用し、write-onceでresultを書く。`cli.py` (`python -m trade_rl.evaluation.forward_study`) は唯一wall clockを読む。
+
+このpackageはnetworkへ出ず（`integrations` を import しない）、データを取得せず、`final_test` authorization chain・paper/live・RLを使わず、`trade_rl.evaluation` の公開APIを拡張しない。`dev_realdata_study`・`strategies`・`simulation`・`data` はこのpackageへ依存しない。account・P&L ledger・fill modelは持たない。実データのscoringはscoring end date後にuserが取得とscoring runを別々に認可するまで実行しない。Contractの詳細は `architecture/research-assurance.md` の FS1 section、状態は `research/current-status.md`。
 
 ## Public API policy
 

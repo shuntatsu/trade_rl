@@ -218,6 +218,12 @@ def _render(
         f"`{SOURCE_KEY_RECEIPT}` entry; the builder commit and the command above are "
         "read from it, and compliance of the run with the pinned build policy is "
         "procedural, as the FS1 design record states.",
+        "- Provenance of the archives: fetched archives were checked against their "
+        "official `.CHECKSUM` files (the raw checksum bytes are hashed in the receipt); "
+        "the reused development archives have no official checksum check and are "
+        "verified only against the development roster SHA-256 bound in the verified "
+        "development Dataset. The rebuilt development span was compared with that "
+        "Dataset (`development_span_equality` in the receipt).",
         "- Scoring remains refused until the wall clock, this seal, both user "
         "authorizations and every parameter, code and dataset check hold.",
     ]

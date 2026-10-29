@@ -127,6 +127,7 @@ def test_low_a_and_low_b_notes_are_stated_exactly(tmp_path: Path) -> None:
     assert "removed by hand" in text and "never silently" in text
     assert "`output_exists`" in text
     assert seal_record.LOW_A_NOTE in text and seal_record.LOW_B_PROCEDURE in text
+    assert "no official checksum check" in text
 
 
 def test_a_builder_commit_that_differs_from_the_sealed_commit_is_disclosed(

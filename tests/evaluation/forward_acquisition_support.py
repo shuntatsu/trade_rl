@@ -325,8 +325,10 @@ def _build_dev_dataset(
     archives: dict[str, bytes],
     roster: list[dict[str, Any]],
     root: Path,
+    fee_rate: float = 0.0,
 ) -> acquire.DevReference:
-    """A real build of the development span, published like the development Dataset."""
+    """A real build of the development span, published like the development Dataset
+    (``fee_rate`` != 0 makes it a Dataset the FS1 policy would not rebuild)."""
 
     cache_root = root / "dev-cache"
     exchange_dir = root / "dev-exchange"
@@ -376,7 +378,7 @@ def _build_dev_dataset(
             "raw_source_count": len(roster),
         },
         execution_economics=ExecutionEconomicsProfile(
-            name="bot_overlay_only_assumptions_v1"
+            name="bot_overlay_only_assumptions_v1", fee_rate=fee_rate
         ),
         gap_policy=BinanceGapPolicy.NON_TRADABLE_ROWS,
     )
@@ -393,11 +395,13 @@ def make_scenario(
     missing_everywhere: Iterable[datetime] = (),
     wrong_checksum_for: str | None = None,
     omit_from_server: Iterable[str] = (),
+    dev_fee_rate: float = 0.0,
 ) -> Scenario:
     """Build the fixture world under ``root``.
 
-    ``missing_*`` remove kline hours from the archives of the FETCHED month only (the
-    development archives are fixed by the development identity);
+    ``missing_*`` remove kline hours from the archives of any month (the development
+    Dataset is built from the same bytes, so it carries the same gaps);
+    ``dev_fee_rate`` builds the development Dataset with a baked-in fee;
     ``wrong_checksum_for`` serves a wrong ``.CHECKSUM`` for one planned URL;
     ``omit_from_server`` makes URLs answer like a 404.
     """
@@ -415,7 +419,7 @@ def make_scenario(
         json.dumps({"evidence": {}, "roster": roster}, sort_keys=True),
         encoding="utf-8",
     )
-    dev_reference = _build_dev_dataset(item_plan, archives, roster, root)
+    dev_reference = _build_dev_dataset(item_plan, archives, roster, root, dev_fee_rate)
     served: dict[str, bytes] = {plan.EXCHANGE_INFO_URL: EXCHANGE_JSON}
     for item in item_plan.fetched:
         served[item.url] = archives[item.url]

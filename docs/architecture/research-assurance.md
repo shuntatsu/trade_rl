@@ -889,25 +889,48 @@ data has been fetched**, and the data-fetch authorization is still pending.
    settlement margin (`settlement_not_reached`: a manifest fetched earlier would be
    refused by the scoring evaluator, and the final monthly archive does not exist
    earlier); a trade_rl checkout that is unavailable or dirty (the builder commit is
-   provenance); and the development reuse proof below.
+   provenance); an output root inside that checkout (`output_root_inside_checkout`: a new
+   untracked directory there would fail the scoring evaluator's clean-tree check, so the
+   root must lie outside the repository); and the development reuse proof below. One
+   documented exception: when the build policy cannot be parsed there is no plan and so
+   no list of development archives to prove, hence the identity proof is skipped (the
+   policy, settlement, checkout and missing-input reasons are still reported together).
+   The clock is the local, unauthenticated wall clock, the same trust basis as the
+   scoring evaluator. If the final monthly archive is not yet published at the first
+   permitted instant, the fetch answers 404 and the run refuses with `fetch_failed`,
+   leaving a partial root; the operator retries with a new root after publication.
 3. **Development reuse by identity (never refetched).** The published development Dataset
    is loaded read-only and must be identity-verified, equal the pinned development
    `dataset_id` and artifact digest (copies of `dataset_build.STUDY_*`, pinned equal by a
    test); its identity payload binds `raw_source_roster_digest`; the evidence file's
    roster must hash to it and list exactly the planned development archives; and every
-   local archive must equal its roster SHA-256 and size (`dev_*` reasons). Only then are
-   the files copied into the new transport cache.
+   local archive must equal its roster SHA-256 and size (`dev_*` reasons; a malformed
+   identity payload and duplicate roster URLs are refusals too). Only then are the files
+   copied into the new transport cache. The reused archives have **no official
+   `.CHECKSUM` check**: the development evidence recorded those files as absent offline,
+   so the roster SHA-256 bound inside the identity-verified Dataset is their only
+   evidence.
 4. **Fetch, verify, build.** The tool fetches only the 90 archives, their `.CHECKSUM`
    files and the exchange rules, through the maintained transport; refuses a missing
-   archive (`fetch_failed`), an unexpected or missing cache member (`archives_*`) and an
-   archive that does not equal its official checksum (`archive_checksum_*`); builds the
+   archive (`fetch_failed`), an unexpected or missing cache member (`archives_*`; any
+   file other than a planned `.bin` with its `.json` sidecar, such as a leftover
+   `.bin.tmp`, is unexpected) and an archive that does not equal its official checksum
+   (`archive_checksum_*`); builds the
    dataset offline (`allow_network=False`) under `FS1_BUILD_POLICY` (`non_tradable_rows`,
    4h/1d aggregated from complete 1h windows, zero baked-in costs, the frozen exchange
    snapshot applied statically); and refuses a gap the policy does not admit
    (`gap_*`: an irregular timeline, or less than the registry's tradable fraction per
    symbol over `[2026-08-01, 2027-05-01)`; a few missing bars stay non-tradable rows).
    That guard reads only timestamps and tradable flags, never a price, return, feature
-   or funding value, and decides nothing about any arm.
+   or funding value, and decides nothing about any arm. The span `[2021-01-01,
+   2026-08-01)` is then compared with the identity-verified development Dataset
+   (`dev_span_rebuild_differs`): every identity array must be exactly equal on those
+   rows, except (a) the exchange-rule arrays (`minimum_notional`, `lot_size`,
+   `tick_size`), which come from the freshly retrieved snapshot and are only recorded
+   as equal or not, and (b) on the last development row only, the feature-derived arrays,
+   because a higher-clock placeholder window is visible there in the development build
+   (its `available_at` is the development range end) but not in the longer FS1 build.
+   The result is recorded in the receipt (`development_span_equality`).
 5. **Outputs (the manifest is written last).** The root holds `vision-cache/`,
    `exchange-info/`, `dataset/` (the published artifact that `--dataset` takes),
    `acquisition-receipt.json` and `fs1-dataset-seal-manifest.json`. The manifest is the
@@ -918,8 +941,9 @@ data has been fetched**, and the data-fetch authorization is still pending.
    exchange-rule payload, the dataset artifact digest and the development roster digest.
    The receipt carries what the manifest format has no field for: the builder commit and
    clean-tree flag, the exact command line, the exchange snapshot, the development reuse
-   identity, the archive roster with its origin, the gap report and
-   `economic_replay_executed: false`. A refusal after the fetch leaves a partial root with
+   identity, the archive roster with its origin and, for fetched archives, the SHA-256
+   of the raw `.CHECKSUM` bytes, the development-span equality result, the gap report
+   and `economic_replay_executed: false`. A refusal after the fetch leaves a partial root with
    no manifest; it is inspected and removed by hand, and a new run needs a new root (the
    tool never deletes and never reuses a root).
 6. **Seal record.** `... seal-record --output-root <dir> --sealed-code-sha <sha>` prints

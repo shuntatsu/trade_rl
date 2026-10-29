@@ -461,7 +461,10 @@ def test_unexpected_and_missing_cache_members_are_detected(
     )
 
     stray.unlink()
-    vision_cache_path(cache, world.item_plan.archives[0].url).unlink()
+    stray.with_suffix(".json").unlink()
+    victim = vision_cache_path(cache, world.item_plan.archives[0].url)
+    victim.unlink()
+    victim.with_suffix(".json").unlink()
     assert acquire._cache_problems(world.item_plan, cache)[0] == ("archives_missing",)
 
 

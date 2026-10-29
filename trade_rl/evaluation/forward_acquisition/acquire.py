@@ -16,17 +16,24 @@ Behaviour by mode:
   have passed (a manifest fetched earlier would be refused by the scoring evaluator), a
   clean trade_rl checkout (the builder commit is provenance), and the verified
   development inputs. Every refusal that can be known before the first request is
-  collected and raised together; nothing is created in that case.
+  collected and raised together; nothing is created in that case. One exception: if the
+  build policy cannot be parsed there is no plan, hence no list of development archives
+  to prove, so the development identity proof is not attempted (the settlement, checkout
+  and missing-input reasons are still reported). The output root must also lie outside
+  the trade_rl checkout.
 
 The authorized run then (1) copies the development archives read-only into a fresh
 transport cache after proving them against the verified development Dataset identity,
 (2) fetches only the archives from the development data end onwards, plus their official
 ``.CHECKSUM`` files, and the exchange rules, (3) refuses on any missing or unexpected
-archive or checksum mismatch, (4) builds the Dataset offline under ``FS1_BUILD_POLICY``,
-(5) refuses on a gap the policy does not admit, (6) publishes the Dataset and writes the
-receipt and the seal manifest. The manifest is written last; a refusal after step 2
-leaves a partial root with no manifest, which must be inspected and removed by hand
-(a new run needs a new root).
+cache member or checksum mismatch, (4) builds the Dataset offline under
+``FS1_BUILD_POLICY``, (5) refuses on a gap the policy does not admit and on any
+difference between the rebuilt development span and the verified development Dataset
+(:func:`dev_span_equality`), (6) publishes the Dataset and writes the receipt and the
+seal manifest. The manifest is written last; a refusal after step 2 leaves a partial
+root with no manifest, which must be inspected and removed by hand (a new run needs a
+new root). Reused development archives have no official ``.CHECKSUM`` check: their
+evidence is the development roster SHA-256.
 
 The public entrypoint takes no registry, digest, clock, code-identity or transport
 argument; those exist only in the private factory :func:`_run_acquire`, which tests
@@ -207,6 +214,25 @@ class _DevReuse:
     artifact_digest: str
     roster_digest: str
     roster: dict[str, dict[str, Any]]
+    dataset: MarketDataset
+
+
+def _bound_roster_digest(dataset: MarketDataset) -> object:
+    """``raw_source_roster_digest`` from the identity payload, or None when absent;
+    raises ``ValueError`` for a payload that is not a JSON object."""
+
+    if dataset.identity_payload_json is None:
+        return None
+    try:
+        payload = json.loads(dataset.identity_payload_json)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("identity payload is not JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("identity payload is not an object")
+    evidence = payload.get("metadata_evidence")
+    if isinstance(evidence, dict):
+        return evidence.get("raw_source_roster_digest")
+    return None
 
 
 def _dev_reuse_or_problems(
@@ -230,12 +256,14 @@ def _dev_reuse_or_problems(
         return None, ("dev_inputs_missing",)
     problems: list[str] = []
     bound_digest: object = None
+    loaded: MarketDataset | None = None
     dataset_id = artifact_digest = ""
     try:
         artifact, dataset = load_published_market_dataset_artifact(dev_dataset)
     except Exception:
         problems.append("dev_dataset_unreadable")
     else:
+        loaded = dataset
         dataset_id, artifact_digest = dataset.dataset_id, artifact.artifact_digest
         if not dataset.identity_verified:
             problems.append("dev_dataset_identity_unverified")
@@ -243,21 +271,23 @@ def _dev_reuse_or_problems(
             problems.append("dev_dataset_id_mismatch")
         if artifact.artifact_digest != env.dev_reference.artifact_digest:
             problems.append("dev_dataset_artifact_digest_mismatch")
-        if dataset.identity_payload_json is not None:
-            payload = json.loads(dataset.identity_payload_json)
-            evidence = payload.get("metadata_evidence")
-            if isinstance(evidence, dict):
-                bound_digest = evidence.get("raw_source_roster_digest")
-        if not isinstance(bound_digest, str) or not _SHA256.match(bound_digest):
-            problems.append("dev_dataset_roster_digest_unbound")
+        try:
+            bound_digest = _bound_roster_digest(dataset)
+        except ValueError:
+            problems.append("dev_dataset_identity_payload_invalid")
+        else:
+            if not isinstance(bound_digest, str) or not _SHA256.match(bound_digest):
+                problems.append("dev_dataset_roster_digest_unbound")
     roster: dict[str, dict[str, Any]] = {}
     roster_digest = ""
+    listed = 0
     try:
         evidence_doc = json.loads(dev_source_evidence.read_text(encoding="utf-8"))
         items = evidence_doc["roster"]
         if not isinstance(items, list):
             raise TypeError("roster is not a list")
         roster_digest = content_digest(items)
+        listed = len(items)
         for item in items:
             roster[str(item["url"])] = {
                 "url": str(item["url"]),
@@ -267,6 +297,8 @@ def _dev_reuse_or_problems(
     except (OSError, ValueError, KeyError, TypeError):
         problems.append("dev_source_evidence_unreadable")
     else:
+        if listed != len(roster):
+            problems.append("dev_roster_duplicate_urls")
         if isinstance(bound_digest, str) and roster_digest != bound_digest:
             problems.append("dev_roster_digest_mismatch")
         planned = {item.url for item in plan.reused}
@@ -289,9 +321,9 @@ def _dev_reuse_or_problems(
             problems.append("dev_archive_missing")
         if mismatched:
             problems.append("dev_archive_hash_mismatch")
-    if problems:
+    if problems or loaded is None:
         return None, tuple(dict.fromkeys(problems))
-    return _DevReuse(dataset_id, artifact_digest, roster_digest, roster), ()
+    return _DevReuse(dataset_id, artifact_digest, roster_digest, roster, loaded), ()
 
 
 # ---------------------------------------------------------------------------
@@ -344,30 +376,49 @@ def _cache_problems(
 
     expected = set(plan.archive_urls) | {item.checksum_url for item in plan.fetched}
     found: set[str] = set()
-    for path in cache_root.rglob("*.bin"):
-        sidecar = path.with_suffix(".json")
-        try:
-            found.add(str(json.loads(sidecar.read_text(encoding="utf-8"))["url"]))
-        except (OSError, ValueError, KeyError):
-            found.add(f"unlabelled:{path.name}")
+    stray = False
+    for path in cache_root.rglob("*"):
+        if path.is_dir():
+            continue
+        if path.suffix == ".bin":
+            sidecar = path.with_suffix(".json")
+            try:
+                found.add(str(json.loads(sidecar.read_text(encoding="utf-8"))["url"]))
+            except (OSError, ValueError, KeyError):
+                found.add(f"unlabelled:{path.name}")
+        elif path.suffix == ".json":
+            # a sidecar is only legitimate next to its archive
+            stray = stray or not path.with_suffix(".bin").is_file()
+        else:
+            # anything else (for example a ``.bin.tmp`` left by an interrupted
+            # download) is not a planned member
+            stray = True
     problems: list[str] = []
     if expected - found:
         problems.append("archives_missing")
-    if found - expected:
+    if found - expected or stray:
         problems.append("archives_unexpected")
     paths = {url: vision_cache_path(cache_root, url) for url in plan.archive_urls}
     return tuple(problems), paths
 
 
-def _checksum_problems(plan: AcquisitionPlan, cache_root: Path) -> tuple[str, ...]:
+def _checksum_problems(
+    plan: AcquisitionPlan, cache_root: Path
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Problems with the official checksum files of the fetched archives, plus the
+    SHA-256 of each raw ``.CHECKSUM`` file (keyed by archive URL) for the receipt."""
+
     from trade_rl.integrations.binance import vision_cache_path
 
     malformed = mismatched = 0
+    file_digests: dict[str, str] = {}
     for item in plan.fetched:
         zip_path = vision_cache_path(cache_root, item.url)
         checksum_path = vision_cache_path(cache_root, item.checksum_url)
+        raw = checksum_path.read_bytes()
+        file_digests[item.url] = hashlib.sha256(raw).hexdigest()
         expected = parse_checksum(
-            checksum_path.read_text(encoding="utf-8", errors="replace"),
+            raw.decode("utf-8", errors="replace"),
             filename=item.url.rsplit("/", 1)[1],
         )
         if expected is None:
@@ -379,7 +430,7 @@ def _checksum_problems(plan: AcquisitionPlan, cache_root: Path) -> tuple[str, ..
         problems.append("archive_checksum_file_malformed")
     if mismatched:
         problems.append("archive_checksum_mismatch")
-    return tuple(problems)
+    return tuple(problems), file_digests
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +492,78 @@ def _tradable_fraction(
     }
 
 
+# Arrays derived from the exchange-rule snapshot, which the FS1 run retrieves afresh: a
+# change of the venue's rules since the development snapshot is expected and is only
+# recorded, never a refusal. Everything else must be identical on the reused span.
+EXCHANGE_RULE_ARRAYS: Final = ("minimum_notional", "lot_size", "tick_size")
+# On the very last development row (timestamp == development data end) a higher-clock
+# placeholder window is visible in the development build, whose ``available_at`` is the
+# development range end, but not in the FS1 build, whose range ends later. Only these
+# feature-derived arrays may differ there.
+FINAL_ROW_FEATURE_ARRAYS: Final = (
+    "features",
+    "feature_available",
+    "feature_staleness",
+    "feature_staleness_hours",
+    "feature_missing_reason",
+    "global_features",
+    "global_feature_available",
+    "global_feature_staleness_hours",
+    "global_feature_missing_reason",
+)
+
+
+def dev_span_equality(dev: MarketDataset, rebuilt: MarketDataset) -> dict[str, Any]:
+    """Compare the FS1 rebuild of the reused span with the identity-verified development
+    Dataset, array by array over the development rows.
+
+    ``equal`` is true only when the symbols and feature names agree, the rebuilt rows up
+    to the last development timestamp exist, and every identity array is exactly equal
+    on all but the last development row, and on that row apart from
+    :data:`FINAL_ROW_FEATURE_ARRAYS`; :data:`EXCHANGE_RULE_ARRAYS` are reported
+    separately. Reads arrays only to compare them; no value is interpreted.
+    """
+
+    n = dev.n_bars
+    report: dict[str, Any] = {
+        "development_rows": n,
+        "exchange_rule_arrays_equal": {},
+        "final_row_feature_arrays_excluded": list(FINAL_ROW_FEATURE_ARRAYS),
+        "mismatched_arrays": [],
+    }
+    mismatched: list[str] = []
+    if tuple(dev.symbols) != tuple(rebuilt.symbols):
+        mismatched.append("symbols")
+    if tuple(dev.feature_names) != tuple(rebuilt.feature_names):
+        mismatched.append("feature_names")
+    if rebuilt.n_bars < n:
+        mismatched.append("rows")
+    if not mismatched:
+        dev_arrays, new_arrays = dev.identity_arrays(), rebuilt.identity_arrays()
+        for name in sorted(dev_arrays):
+            old = np.asarray(dev_arrays[name])
+            new = np.asarray(new_arrays.get(name, np.empty(0)))
+            if old.ndim and old.shape[0] == n:
+                last = name not in FINAL_ROW_FEATURE_ARRAYS
+                rows = n if last else n - 1
+                same = new.shape[:1] != () and bool(
+                    np.array_equal(
+                        old[:rows], new[:rows], equal_nan=old.dtype.kind in "fc"
+                    )
+                )
+            else:
+                same = old.shape == new.shape and bool(
+                    np.array_equal(old, new, equal_nan=old.dtype.kind in "fc")
+                )
+            if name in EXCHANGE_RULE_ARRAYS:
+                report["exchange_rule_arrays_equal"][name] = same
+            elif not same:
+                mismatched.append(name)
+    report["mismatched_arrays"] = mismatched
+    report["equal"] = not mismatched
+    return report
+
+
 def _build_dataset(
     params: BuildParams,
     *,
@@ -494,6 +617,27 @@ def _build_dataset(
 # ---------------------------------------------------------------------------
 
 
+def _checkout_root() -> Path | None:
+    """The git worktree this module runs from, or None for an installed copy."""
+
+    root = Path(__file__).resolve().parents[3]
+    return root if (root / ".git").exists() else None
+
+
+def _inside_checkout(output_root: Path) -> bool:
+    """True when ``output_root`` lies in the trade_rl checkout: a new untracked directory
+    there would fail the scoring evaluator's clean-tree check (``code_tree_dirty``)."""
+
+    root = _checkout_root()
+    if root is None:
+        return False
+    try:
+        output_root.resolve().relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def _preflight(
     env: _Environment,
     *,
@@ -507,6 +651,8 @@ def _preflight(
     reasons: list[str] = list(authorization_problems(authorization))
     if output_root.exists():
         reasons.append("output_exists")
+    if _inside_checkout(output_root):
+        reasons.append("output_root_inside_checkout")
     registry = env.registry
     params, policy_problems = build_params_or_problems(
         registry, implemented_policy_digest=env.implemented_policy_digest
@@ -527,7 +673,9 @@ def _preflight(
         )
     dev: _DevReuse | None = None
     now: datetime | None = None
-    if allow_network and plan is not None:
+    if allow_network:
+        # The clock and the checkout do not depend on the build policy, so they are
+        # checked even when the policy is refused.
         now = env.clock()
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("the clock must return a timezone-aware datetime")
@@ -538,14 +686,24 @@ def _preflight(
             reasons.append("code_identity_unavailable")
         elif not identity.tracked_tree_clean:
             reasons.append("code_tree_dirty")
-        dev, dev_problems = _dev_reuse_or_problems(
-            env,
-            plan,
-            dev_archive_root=dev_archive_root,
-            dev_source_evidence=dev_source_evidence,
-            dev_dataset=dev_dataset,
-        )
-        reasons.extend(dev_problems)
+        if plan is not None:
+            dev, dev_problems = _dev_reuse_or_problems(
+                env,
+                plan,
+                dev_archive_root=dev_archive_root,
+                dev_source_evidence=dev_source_evidence,
+                dev_dataset=dev_dataset,
+            )
+            reasons.extend(dev_problems)
+        elif (
+            dev_archive_root is None
+            or dev_source_evidence is None
+            or dev_dataset is None
+        ):
+            # Without a parsable policy there is no plan, hence no list of development
+            # archives to prove; the identity proof itself is therefore not attempted
+            # (it needs the plan). Missing inputs are still reported.
+            reasons.append("dev_inputs_missing")
     return plan, dev, now, tuple(dict.fromkeys(reasons))
 
 
@@ -629,7 +787,7 @@ def _run_acquire(
     cache_problems, archive_paths = _cache_problems(plan, cache_root)
     if cache_problems:
         raise AcquisitionRefusal(cache_problems)
-    checksum_problems = _checksum_problems(plan, cache_root)
+    checksum_problems, checksum_file_digests = _checksum_problems(plan, cache_root)
     if checksum_problems:
         raise AcquisitionRefusal(checksum_problems)
 
@@ -685,7 +843,8 @@ def _run_acquire(
         ),
         "checksum_files": (
             "official .CHECKSUM verified for every fetched archive; reused development "
-            "archives verified against the development roster"
+            "archives have no official checksum check and are verified only against "
+            "the development roster SHA-256"
         ),
     }
     say("building the dataset offline")
@@ -704,6 +863,11 @@ def _run_acquire(
     gap_problems = dataset_gap_problems(dataset, registry)
     if gap_problems:
         raise AcquisitionRefusal(gap_problems)
+    span_equality = dev_span_equality(dev.dataset, dataset)
+    if not span_equality["equal"]:
+        raise AcquisitionRefusal(
+            ("dev_span_rebuild_differs",), ", ".join(span_equality["mismatched_arrays"])
+        )
 
     destination = output_root / DATASET_DIR
     published = publish_market_dataset_artifact(destination, dataset)
@@ -734,8 +898,18 @@ def _run_acquire(
             "count": len(roster),
             "roster_digest": evidence["raw_source_roster_digest"],
             "fetched_count": len(plan.fetched),
-            "roster": [{**entry, "origin": origins[entry["url"]]} for entry in roster],
+            "roster": [
+                {
+                    **entry,
+                    "origin": origins[entry["url"]],
+                    # SHA-256 of the raw official .CHECKSUM bytes (fetched archives
+                    # only); reused development archives have no official checksum
+                    "checksum_file_sha256": checksum_file_digests.get(entry["url"]),
+                }
+                for entry in roster
+            ],
         },
+        "development_span_equality": span_equality,
         "dataset": {
             "dataset_id": loaded.dataset_id,
             "artifact_digest": published.artifact_digest,

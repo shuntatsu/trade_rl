@@ -381,3 +381,96 @@ def test_runner_records_interval_units_and_all_cashflow_components(
     assert result.summary["gross_price_pnl_usdt"] == pytest.approx(97.0)
     assert result.summary["dividend_pnl_usdt"] == 4.0
     assert result.summary["cash_interest_pnl_usdt"] == 5.0
+
+
+def test_compact_summary_retains_cashflow_and_native_forecast_units() -> None:
+    """A compact result must still reconcile net profit to the price P&L."""
+    row = {
+        "terminal_net_profit_pct": 1.0,
+        "cagr_pct": 0.5,
+        "max_drawdown_pct": 0.3,
+        "sharpe_daily": None,
+        "turnover_total": 1.0,
+        "turnover_per_year": 1.0,
+        "execution_costs_usdt": 2.0,
+        "funding_pnl_usdt": -3.0,
+        "borrow_cost_usdt": 4.0,
+        "dividend_pnl_usdt": 5.0,
+        "cash_interest_pnl_usdt": 6.0,
+        "gross_price_pnl_usdt": 98.0,
+        "net_pnl_usdt": 100.0,
+        "n_trades": 2,
+        "per_year_return_pct": {"2023": 1.0},
+        "reconciliation": {
+            "passed": True,
+            "terminal_flat": True,
+            "terminal_residual_quantities": {},
+            "terminal_residual_notional_usdt": 0.0,
+        },
+        "exposure": {"mean_gross_exposure": 0.2, "mean_net_exposure": 0.1},
+        "forecast": {
+            "share_abs_mu_above_one_way_cost": 0.5,
+            "decision_interval_hours": 168,
+            "mean_abs_mu_per_interval": 0.07,
+            "median_abs_mu_per_interval": 0.035,
+            "mean_abs_mu_per_day": 0.01,
+            "median_abs_mu_per_day": 0.005,
+        },
+    }
+    keys = (
+        "schema_version",
+        "status",
+        "label",
+        "label_pr_c_probe_rule",
+        "label_amended_rule",
+        "selected_arm_pr_c_probe_rule",
+        "selected_arm_amended_rule",
+        "label_note",
+        "registry_digest",
+        "base_protocol_digest",
+        "dataset_id",
+        "git_head",
+        "trials",
+        "validity",
+        "validity_detail",
+        "causality_probes",
+        "causality_matrix",
+        "causality_matrix_cut",
+        "nonregistered_causality_cut_override",
+        "failures",
+        "bootstrap",
+        "bootstrap_omissions",
+        "bonferroni_comparisons",
+        "selection_pr_c_probe_rule",
+        "selection_amended_rule",
+        "notes",
+    )
+    result: dict[str, Any] = {key: None for key in keys}
+    legacy = dict(row)
+    for name in ("borrow_cost_usdt", "dividend_pnl_usdt", "cash_interest_pnl_usdt"):
+        del legacy[name]
+    legacy["forecast"] = {
+        "share_abs_mu_above_one_way_cost": 0.5,
+        "mean_abs_mu_per_day": 0.01,
+    }
+    result["arms"] = {
+        "t8_blend_weekly": {"base": row},
+        "legacy_day": {"base": legacy},
+    }
+    compact = trial_study.compact_phase2_summary(result)
+    saved = compact["arms"]["t8_blend_weekly"]["base"]
+    assert saved["gross_price_pnl_usdt"] == pytest.approx(
+        saved["net_pnl_usdt"]
+        + saved["execution_costs_usdt"]
+        - saved["funding_pnl_usdt"]
+        + saved["borrow_cost_usdt"]
+        - saved["dividend_pnl_usdt"]
+        - saved["cash_interest_pnl_usdt"]
+    )
+    assert saved["decision_interval_hours"] == 168
+    assert saved["mean_abs_mu_per_interval"] == pytest.approx(0.07)
+    assert saved["mean_abs_mu_per_day"] == pytest.approx(0.01)
+    old_saved = compact["arms"]["legacy_day"]["base"]
+    assert "borrow_cost_usdt" not in old_saved
+    assert "cash_interest_pnl_usdt" not in old_saved
+    assert "decision_interval_hours" not in old_saved

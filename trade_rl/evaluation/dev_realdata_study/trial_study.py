@@ -498,6 +498,15 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
                 arm_rows[scenario] = dict(summary)
                 continue
             row = {name: summary[name] for name in _SUMMARY_FIELDS}
+            # New execution cashflow diagnostics are additive. Older summaries
+            # may lack these keys and remain readable without backfilling data.
+            for name in (
+                "borrow_cost_usdt",
+                "dividend_pnl_usdt",
+                "cash_interest_pnl_usdt",
+            ):
+                if name in summary:
+                    row[name] = summary[name]
             decisions = summary.get("allocator_decisions")
             row["fail_closed_hold_count"] = (
                 None if decisions is None else decisions["fail_closed_hold_count"]
@@ -521,6 +530,14 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
                     "share_abs_mu_above_one_way_cost"
                 ]
                 row["mean_abs_mu_per_day"] = forecast["mean_abs_mu_per_day"]
+                for name in (
+                    "decision_interval_hours",
+                    "mean_abs_mu_per_interval",
+                    "median_abs_mu_per_interval",
+                    "median_abs_mu_per_day",
+                ):
+                    if name in forecast:
+                        row[name] = forecast[name]
             if "overlay" in summary:
                 row["overlay"] = summary["overlay"]
             arm_rows[scenario] = row

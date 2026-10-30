@@ -4,7 +4,8 @@ Attempt 1 is preserved and invalidated for `observation_gap`; it is never resume
 rewritten or read here. This module only reuses the existing lineage validator,
 screen plan, seal and supervisor. Its three commands are:
 
-* ``plan`` (default, no side effect except an optional write-once draft file);
+* ``plan`` (the safe first step; the subcommand is always explicit, and it has no
+  side effect except an optional write-once draft file);
 * ``seal`` (writes a new, empty root and its protocol digest; no network);
 * ``launch`` (starts the supervised collector; the only step that needs the network).
 

@@ -347,7 +347,11 @@ collector must not damage the screen: each detects the held `collector.sqlite`
 lock (the supervisor and `launch` probe it before spawning, and a child that loses
 the race exits with code 4) and ends with exit code 4, outcome `lock_contention`,
 without writing any failure marker, heartbeat or journal event. Exit 2 stays a
-real refusal and is recorded as `CollectorRefused`.
+real refusal and is recorded as `CollectorRefused`. Lock acquisition retries a busy
+result with a short random backoff for 1.5 seconds before reporting contention, so two
+processes started at the same instant cannot both lose and leave no owner; a lock
+really held by a live collector stays busy through that window. Only a busy/locked
+sqlite result counts as contention.
 
 Hard process death (`taskkill /f`, power loss, machine sleep) cannot run any
 in-process hook; only `check` or `supervise` can record it, which is why one of
@@ -446,7 +450,18 @@ first; nothing here proves the comment exists or says what it should say.
    previous child survives). Exit 5 from `check` means unhealthy with no marker (a
    stale heartbeat before the start, or an unreadable heartbeat inside the start
    grace); investigate, because the next `check` after the start will write a
-   marker. Exit 2 is a refusal or error that wrote no marker from `run`/`check`.
+   marker. Exit 1 from `run` or `supervise` means the collection ran to a terminal state
+   but the screen is rejected or the child finished non-zero (quality failure or
+   positions not flat); it is final and needs `evaluate` for the reasons. Exit 2 is a
+   refusal or error: `check`, `supervise` and `status` write no marker on it, but `run`
+   MAY have written one (any exception inside the collector context, such as a source
+   error or provenance change, records `collection-failure.json` before returning 2),
+   so always read `check` afterwards. Exit 4 is trusted only when a live owner exists:
+   the lock probe counts only a busy/locked database as contention, and any other
+   sqlite error is reported as an error (exit 2), not as exit 4. After an exit 4 the
+   surviving owner has no supervisor; if it later dies nothing relaunches it, so the
+   `check` task must run for the entire screen and is what turns that death into a
+   marker.
 7. Monitor: `cli check` each minute (exit 0 healthy, 3 marker written or present,
    5 degraded without a marker); `cli status` for
    journal-chain-only progress; daily free-space and log-size checks; compare the

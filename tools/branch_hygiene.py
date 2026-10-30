@@ -225,9 +225,7 @@ class GitHubApi:
                 if expected_total is None:
                     expected_total = count
                 elif count != expected_total:
-                    raise RuntimeError(
-                        "workflow run total_count changed between pages"
-                    )
+                    raise RuntimeError("workflow run total_count changed between pages")
                 if len(runs) > count or (page - 1) * 100 + len(runs) < min(
                     page * 100, count
                 ):

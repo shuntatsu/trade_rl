@@ -265,6 +265,19 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         assert required in research
 
 
+def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
+    entry = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for required in (
+        "tools.branch_hygiene --apply",
+        "fail-closed",
+        "read-only dry-run",
+        "requested/waiting/pending/queued/in_progress",
+        "provenance/branch-retention",
+        "tested PR head contains current `main`",
+    ):
+        assert required in entry
+
+
 def test_current_p2_p3_labels_match_committed_evidence_records() -> None:
     status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     expected_reports = (

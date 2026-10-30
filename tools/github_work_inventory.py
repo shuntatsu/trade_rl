@@ -55,6 +55,32 @@ def classify_ancestry(compare: dict[str, Any]) -> str:
     return "diverged"
 
 
+def _pull_identity(
+    value: Any, repository: str
+) -> tuple[int, str, str, str, str | None]:
+    """Stable reference identity, ignoring mutable title/updated_at metadata."""
+    pr = _mapping(value, "open PR")
+    number = _number(pr.get("number"), "PR number")
+    head = _mapping(pr.get("head"), "PR head")
+    base = _mapping(pr.get("base"), "PR base")
+    base_repo = _mapping(base.get("repo"), "PR base repository")
+    if base_repo.get("full_name") != repository:
+        raise ValueError("PR base points at a different repository")
+    base_name = base.get("ref")
+    if not isinstance(base_name, str) or not base_name:
+        raise ValueError("PR base branch missing")
+    base_sha = _sha(base.get("sha"), "PR base SHA")
+    head_sha = _sha(head.get("sha"), "PR head SHA")
+    head_name: str | None = None
+    head_repo = head.get("repo")
+    if isinstance(head_repo, dict) and head_repo.get("full_name") == repository:
+        raw_name = head.get("ref")
+        if not isinstance(raw_name, str) or not raw_name:
+            raise ValueError("local PR head branch missing")
+        head_name = raw_name
+    return number, head_sha, base_name, base_sha, head_name
+
+
 class GitHubWorkApi(GitHubApi):
     """Network adapter outside the network-free agent_repo package."""
 
@@ -89,32 +115,31 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         raise RuntimeError("default branch is absent or ambiguous")
     main_sha = _sha(main_candidates[0].sha, "main SHA")
 
+    if len({branch.name for branch in branches}) != len(branches):
+        raise RuntimeError("branch list contains duplicate names")
+
     open_names = {default, "provenance/branch-retention"}
     pulls: list[dict[str, Any]] = []
+    pull_identities: list[tuple[int, str, str, str, str | None]] = []
+    seen_pr_numbers: set[int] = set()
     for item in api.open_pulls():
-        pr = _mapping(item, "open PR")
-        number = _number(pr.get("number"), "PR number")
-        head = _mapping(pr.get("head"), "PR head")
-        base = _mapping(pr.get("base"), "PR base")
-        base_repo = _mapping(base.get("repo"), "PR base repository")
-        if base_repo.get("full_name") != api.repository:
-            raise ValueError("PR base points at a different repository")
-        base_name = base.get("ref")
-        if not isinstance(base_name, str) or not base_name:
-            raise ValueError("PR base branch missing")
+        number, head_sha, base_name, base_sha, head_name = _pull_identity(
+            item, api.repository
+        )
+        if number in seen_pr_numbers:
+            raise RuntimeError(f"duplicate open PR number: {number}")
+        seen_pr_numbers.add(number)
+        pull_identities.append((number, head_sha, base_name, base_sha, head_name))
         open_names.add(base_name)
-        head_sha = _sha(head.get("sha"), "PR head SHA")
-        head_repo = head.get("repo")
-        if isinstance(head_repo, dict) and head_repo.get("full_name") == api.repository:
-            head_name = head.get("ref")
-            if not isinstance(head_name, str) or not head_name:
-                raise ValueError("local PR head branch missing")
+        if head_name is not None:
             open_names.add(head_name)
         pulls.append(
             {
                 "number": number,
                 "head_sha": head_sha,
+                "head_ref": head_name,
                 "base": base_name,
+                "base_sha": base_sha,
                 "relation_to_main": (
                     api.compare_head_to_main(head_sha, main_sha)
                     if compare_prs
@@ -126,11 +151,15 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
     task_branches: set[str] = set()
     task_ids: set[str] = set()
     open_issues = 0
+    issue_ids: set[int] = set()
     for item in api.open_issues():
         issue = _mapping(item, "open Issue")
         if "pull_request" in issue:
             continue
         issue_number = _number(issue.get("number"), "Issue number")
+        if issue_number in issue_ids:
+            raise RuntimeError(f"duplicate open Issue number: {issue_number}")
+        issue_ids.add(issue_number)
         open_issues += 1
         for entry in api.issue_comments(issue_number):
             comment = _mapping(entry, "Issue comment")
@@ -150,6 +179,23 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
             task_ids.add(record.task_id)
             if record.lease_branch is not None:
                 task_branches.add(record.lease_branch)
+
+    # A changed or duplicated API page is not one coherent inventory snapshot.
+    if sorted(pull_identities) != sorted(
+        _pull_identity(item, api.repository) for item in api.open_pulls()
+    ):
+        raise RuntimeError("open PR refs changed during inventory")
+    latest_issue_ids = [
+        _number(item.get("number"), "Issue number")
+        for item in map(lambda value: _mapping(value, "open Issue"), api.open_issues())
+        if "pull_request" not in item
+    ]
+    if sorted(latest_issue_ids) != sorted(issue_ids):
+        raise RuntimeError("open Issue roster changed during inventory")
+    if tuple(sorted(api.branches(), key=lambda b: b.name)) != tuple(
+        sorted(branches, key=lambda b: b.name)
+    ):
+        raise RuntimeError("branch tips or protection changed during inventory")
 
     observed_names = set(open_names) | task_branches
     branch_rows = []
@@ -193,7 +239,8 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         "warning": (
             "This is a read-only, incomplete Task projection. Closed Issue leases, "
             "unregistered work, active workflow runs, and coordinator ownership "
-            "have not been independently verified. Never use as deletion authority."
+            "have not been independently verified. A stable readback is not an "
+            "atomic snapshot. Never use as deletion authority."
         ),
     }
 

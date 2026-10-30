@@ -140,6 +140,78 @@ def test_duplicate_or_malformed_coordinator_state_fails_closed() -> None:
         build_inventory(api)  # type: ignore[arg-type]
 
 
+
+def test_work_inventory_rejects_changed_branch_tip_during_readback() -> None:
+    api = FakeWorkApi()
+    first = api.branch_rows
+    calls = 0
+
+    def moving_branches() -> tuple[BranchInfo, ...]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return first
+        return (
+            first[0],
+            BranchInfo("feature/unregistered", "e" * 40, False),
+            first[2],
+        )
+
+    api.branches = moving_branches  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="branch tips or protection changed"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_work_inventory_rejects_pr_created_during_readback() -> None:
+    api = FakeWorkApi()
+    calls = 0
+
+    def changing_prs() -> list[dict[str, object]]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return []
+        return [
+            {
+                "number": 1057,
+                "head": {"sha": "a" * 40, "ref": "feature/new"},
+                "base": {
+                    "ref": "main",
+                    "sha": "a" * 40,
+                    "repo": {"full_name": api.repository},
+                },
+            }
+        ]
+
+    api.open_pulls = changing_prs  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="open PR refs changed"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_work_inventory_rejects_duplicate_pr_and_issue_pages() -> None:
+    api = FakeWorkApi()
+    pr = {
+        "number": 100,
+        "head": {
+            "sha": "d" * 40,
+            "ref": "feature/pr",
+            "repo": {"full_name": api.repository},
+        },
+        "base": {
+            "ref": "main",
+            "sha": "a" * 40,
+            "repo": {"full_name": api.repository},
+        },
+    }
+    api.pull_rows = [pr, pr]
+    with pytest.raises(RuntimeError, match="duplicate open PR"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+    api.pull_rows = []
+    api.issue_rows = [{"number": 810}, {"number": 810}]
+    with pytest.raises(RuntimeError, match="duplicate open Issue"):
+        build_inventory(api)  # type: ignore[arg-type]
+
 def test_partial_github_failure_does_not_produce_snapshot() -> None:
     api = FakeWorkApi()
     api.fail_comments = True

@@ -1306,6 +1306,21 @@ authenticate external roots, prevent a caller from claiming a new attempt 1, or
 prove that the declared disposition is truthful. G0 review must verify the
 complete predecessor chain before a successor is sealed.
 
+Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
+v2 valid and unchanged. `available` embeds the verification of a root that the
+existing v1 journal reader read (protocol digest, event count, final tip, last
+observation); `attempt2` cannot build it without a root path that passes that read.
+`unavailable` is the honest case where the preserved root is lost: it records that the
+lineage values come from the prior public result-blind review record (document and
+commit), that they were not re-verified at seal time, the user's statement quoted
+verbatim with its date, and the replacement review rule. For attempt 2 the root is
+unavailable, so the G0 requirement that a fresh review resolve the preserved root is
+replaced, for this case only, by a fresh result-blind review of the lineage
+documentation and the pull request that introduced the rule. This is weaker than
+resolving the root: the predecessor protocol, tip and gap are carried forward from a
+recorded review and are not re-verified, and global attempt uniqueness stays
+unestablished. Disposition remains `invalidated` with reason `observation_gap`.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
 ## Research-specific contract: PPO versus A2C update families

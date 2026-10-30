@@ -17,6 +17,9 @@ from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.evaluation.paper.supervisor import PaperCollector, seal_collection
 
 _ATTEMPT_LINEAGE_SCHEMA = "carry_paper_attempt_lineage_v2"
+_ATTEMPT_LINEAGE_SCHEMA_V3 = "carry_paper_attempt_lineage_v3"
+PREDECESSOR_ROOT_STATUSES = ("available", "unavailable")
+STORAGE_PROBE_PLAN_SCHEMA = "carry_paper_storage_probe_v1"
 _ATTEMPT_DISPOSITIONS = {
     "invalidated",
     "incomplete",
@@ -51,26 +54,112 @@ REQUIRED_FILL_SYMBOL_INDICES = tuple(
 )
 
 
+_ROOT_READER = "paper_journal_protocol_v1"
+_SHA1_HEX = r"[0-9a-f]{40}"
+
+
+def _validate_predecessor_root(
+    value: object, predecessor: dict[str, Any], *, sealed_at: datetime | None
+) -> None:
+    """Structure of the recorded predecessor-root status (lineage v3 only).
+
+    This checks shape and internal consistency. It cannot prove that a root was read
+    or that a quoted statement was made: ``attempt2`` reads the root before writing an
+    ``available`` record, and an ``unavailable`` record is an explicit attestation.
+    """
+    if not isinstance(value, dict) or value.get("status") not in (
+        PREDECESSOR_ROOT_STATUSES
+    ):
+        raise ValueError("attempt lineage predecessor root status is invalid")
+    if value["status"] == "available":
+        if set(value) != {"status", "verification"}:
+            raise ValueError("available predecessor root requires verification")
+        proof = value["verification"]
+        if (
+            not isinstance(proof, dict)
+            or set(proof)
+            != {
+                "reader",
+                "event_count",
+                "protocol_sha256",
+                "final_tip_sha256",
+                "last_observed_at",
+            }
+            or proof["reader"] != _ROOT_READER
+            or type(proof["event_count"]) is not int
+            or proof["event_count"] < 1
+            or proof["protocol_sha256"] != predecessor["protocol_sha256"]
+            or proof["final_tip_sha256"] != predecessor["final_tip_sha256"]
+            or proof["last_observed_at"] != predecessor["last_observed_at"]
+        ):
+            raise ValueError("available predecessor root verification is inconsistent")
+        return
+    if set(value) != {
+        "status",
+        "re_verified_at_seal",
+        "lineage_source",
+        "user_attestation",
+        "review_rule",
+    }:
+        raise ValueError("unavailable predecessor root record is incomplete")
+    source = value["lineage_source"]
+    attestation = value["user_attestation"]
+    if (
+        value["re_verified_at_seal"] is not False
+        or not isinstance(source, dict)
+        or set(source) != {"kind", "document", "commit"}
+        or source["kind"] != "prior_result_blind_review_record"
+        or not isinstance(source["document"], str)
+        or not source["document"]
+        or not isinstance(source["commit"], str)
+        or re.fullmatch(_SHA1_HEX, source["commit"]) is None
+        or not isinstance(attestation, dict)
+        or set(attestation) != {"quote", "date", "channel"}
+        or not isinstance(attestation["quote"], str)
+        or not attestation["quote"]
+        or not isinstance(attestation["date"], str)
+        or attestation["channel"] != "chat"
+        or not isinstance(value["review_rule"], str)
+        or not value["review_rule"]
+    ):
+        raise ValueError("unavailable predecessor root record is invalid")
+    try:
+        said = datetime.strptime(attestation["date"], "%Y-%m-%d").date()
+    except ValueError as error:
+        raise ValueError(
+            "unavailable predecessor attestation date is invalid"
+        ) from error
+    if (
+        sealed_at is not None
+        and said
+        > require_aware_datetime(sealed_at, field="paper seal").astimezone(UTC).date()
+    ):
+        raise ValueError("unavailable predecessor attestation is newer than the seal")
+
+
 def validate_attempt_lineage(
     value: object,
     *,
     sealed_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Validate the immutable parent link for this attempt in the screen series."""
-    if not isinstance(value, dict) or set(value) != {
-        "schema",
-        "attempt_number",
-        "predecessor",
-    }:
+    base_keys = {"schema", "attempt_number", "predecessor"}
+    if not isinstance(value, dict) or set(value) not in (
+        base_keys,
+        base_keys | {"predecessor_root"},
+    ):
         raise ValueError("attempt lineage must declare schema, number, and predecessor")
-    if value["schema"] != _ATTEMPT_LINEAGE_SCHEMA:
+    version_three = value["schema"] == _ATTEMPT_LINEAGE_SCHEMA_V3
+    if value["schema"] not in (_ATTEMPT_LINEAGE_SCHEMA, _ATTEMPT_LINEAGE_SCHEMA_V3):
         raise ValueError("unsupported paper attempt lineage schema")
+    if version_three != ("predecessor_root" in value):
+        raise ValueError("predecessor root status belongs to lineage v3 only")
     number = value["attempt_number"]
     if isinstance(number, bool) or not isinstance(number, int) or number < 1:
         raise ValueError("attempt lineage number must be a positive integer")
     predecessor = value["predecessor"]
     if number == 1:
-        if predecessor is not None:
+        if predecessor is not None or version_three:
             raise ValueError("first attempt cannot declare a predecessor")
     else:
         expected = {
@@ -143,6 +232,10 @@ def validate_attempt_lineage(
         elif "observation_gap" in reasons:
             raise ValueError(
                 "attempt lineage observation gap requires a last observation time"
+            )
+        if version_three:
+            _validate_predecessor_root(
+                value["predecessor_root"], predecessor, sealed_at=sealed_at
             )
     return deepcopy(value)
 

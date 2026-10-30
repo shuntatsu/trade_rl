@@ -167,7 +167,11 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         else:
             reason = "unclassified"
         branch_rows.append(
-            {"name": branch.name, "sha": _sha(branch.sha, "branch SHA"), "reason": reason}
+            {
+                "name": branch.name,
+                "sha": _sha(branch.sha, "branch SHA"),
+                "reason": reason,
+            }
         )
 
     return {
@@ -205,7 +209,13 @@ def main() -> int:
     if not token:
         parser.error("GH_TOKEN or GITHUB_TOKEN is required for GitHub inventory")
     api = GitHubWorkApi(repository=args.repository, token=token)
-    print(json.dumps(build_inventory(api, compare_prs=args.compare_prs), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            build_inventory(api, compare_prs=args.compare_prs),
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

@@ -148,9 +148,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         open_names.add(base_name)
         if head_name is not None:
             if branch_tips.get(head_name) != head_sha:
-                raise RuntimeError(
-                    f"local PR head tip is absent or changed: #{number}"
-                )
+                raise RuntimeError(f"local PR head tip is absent or changed: #{number}")
             open_names.add(head_name)
         pulls.append(
             {

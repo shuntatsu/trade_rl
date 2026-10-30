@@ -178,6 +178,18 @@ def test_probe_reports_bytes_per_observation_from_the_real_collector(tmp_path):
     json.dumps(report, allow_nan=False)
 
 
+def test_the_v1_status_reader_exposes_the_fields_the_lineage_check_compares(tmp_path):
+    from trade_rl.evaluation.paper.operations import collection_status
+
+    report, _ = probe(tmp_path)
+    status = collection_status(
+        report["root"], expected_protocol_sha256=report["probe_protocol_sha256"]
+    )
+    assert status["events"] == report["events"]
+    assert status["status"]["observed_at"] is not None
+    assert len(status["tip"]) == 64
+
+
 def test_probe_root_is_marked_as_a_probe_and_carries_no_attempt_lineage(tmp_path):
     report, _ = probe(tmp_path)
     protocol = json.loads((Path(report["root"]) / "protocol.json").read_bytes())

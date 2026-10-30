@@ -690,10 +690,12 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 ### Direct decision-value study contract
 
-`trade_rl.evaluation.decision_value_dev_study` は、事前固定されたプロトコルと実開発データに対する直接的意思決定価値学習（Direct Decision-Value Learning）の研究検証契約を定義する。
+`trade_rl.evaluation.decision_value_dev_study` は、事前固定された直接的意思決定価値学習（Direct Decision-Value Learning）の研究契約と、現行の合成データ診断の実行境界を定義する。**旧TD8 protocol v2（実データ）は履歴閲覧・検証の対象であり、現行runnerからの再実行は禁止する。** 新しいsolver・model schema・paired projection・proposalで古い研究認可ダイジェストを使い回すことはできない。
 
-- **Source scope契約**: `source_scope` は従来の `"synthetic_only"` に加え、事前認可ダイジェストを要求する `"real_development"` を明示的に許容する。scopeの不一致や未認可の実データ実行はfail-closedで拒否される。
-- **事前認可ダイジェスト**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定、および既消費開示文言を含む完全な仕様からSHA-256ダイジェストを導出し、プロトコル内の `real_scope_authorization_digest` と完全一致することを事前検証する。
+- **現行TD8 software-only gate（protocol v3）**: `run_decision_value_dev_study` は `DecisionValueStudyPlan(data_scope="synthetic_only")` と `real_scope_authorization_digest=None` を要求し、`artifact_root` の公開済みCanonical Datasetをmanifest/配列/ID/artifact digest照合で検証する。`identity_payload_json` の `synthetic_only: true` は発行元の申告にすぎず、データの合成由来や独立認可を暗号学的に証明しない。実行時は凍結した3学習器・4シナリオとの一致を検査し、既存出力dirを事前拒否。出力は `decision_value_dev_study_protocol_v3_software` / `decision_value_dev_study_result_v3_software` で、正常診断は `SOFTWARE_ONLY`、原因判明した不正は `INVALID / BLOCKED` とし、収益性・新規G4/G5/liveの証拠として扱わない。独立した研究審査と新しい研究認可が成立するまで、旧Tier D実データの新sourceでの再実行経路を設けない。
+
+- **Source scope契約**: `DecisionValueStudyPlan` の型は、従来の `"synthetic_only"` と履歴用 `"real_development"` を識別し、後者にSHA-256設定ダイジェストを要求する。ただし、設定ダイジェストは独立研究認可ではない。**現行`run_decision_value_dev_study`は`"real_development"`を一律に拒否する。** scope不一致・旧実データの無断再実行はfail-closedとなる。
+- **旧実データ仕様のダイジェスト（認可そのものではない）**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定および既消費開示文言を含む仕様のSHA-256を再計算し、旧プロトコルのフィールドと照合する。呼び出し元でも作成できるハッシュであり、外部G0–G3承認・新sourceへの実行許可は含まない。
 - **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B1c 保守的線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
 - **保守的意思決定価値モデルと不確実性割引 (B1c)**: `ConservativeLinearDecisionValueModel`（`schema_version="conservative_linear_decision_value_v2"`）は、候補行動ごとの回帰係数ベクトルに加え、重なり群の平均多重度 $\bar{m}_k = \frac{1}{N_k} \sum_i m_i$ と有効自由度 $\text{dof}_k = \max(1.0, N_k / \bar{m}_k - p_{\text{eff}})$ に基づく残差共分散行列 `covariance_matrices`、不確実性ペナルティ重み `uncertainty_penalty_weight`、および片道切替コスト `one_way_switch_cost` を保持する。標準化特徴空間でのRidge回帰係数および共分散行列は、元座標系 $x$ へのアフィン変換行列 $A$ により $w = A^\top \beta$、$Cov(w) = A^\top Cov(\beta) A$ として代数的に折りたたまれ、モデルのシリアル表現および推論コードとの完全な互換性を維持する。ポリシー `ConservativeLinearDecisionValuePolicy` は、予測標準誤差 $se = \sqrt{x^\top \Sigma_k x}$ を用いた下側信頼限界（LCB: `mean - lambda * se - c * extra_turnover`）により不確実性と切替ターンオーバーを保守的に割り引く。
 - **B1c有効自由度（実装との対応）**: 現行実装の残差分散は、重なり相関行列 $\Omega$ と射影 $H$ から $\text{dof}_k = \max(1,\ \mathrm{tr}[(I-H)\Omega(I-H)])$ を用い、`fit_conservative_linear_decision_value(residual_dof_out=...)` で候補headごとに取り出せる。`overlap_groups` は区間が接する（`decision_time == 直前のterminal`）branchを同一groupに連結する開示用の数であり、自由度には使わない。非重複ラベル（branch step = horizon）では $\Omega$ は単位行列に近づき、dofは標本数からパラメータ数を引いた値に近い。
@@ -707,7 +709,7 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
   - **事後prior撤回**: `unexcited_prior_std`の既定をmain相当の無情報値`1.0`へ戻し、TD7再実行で導入した`1e-3`の事後調整は撤回する。protocol fieldとして凍結し、authorization digestに束縛する。
 - **姿勢認識プロポーザルと未約定注文保全 (TD7)**: `preserve_posture_aware_proposal` は、`LinearDecisionValuePolicy`、`ConservativeLinearDecisionValuePolicy`、`ShallowDecisionValuePolicy`、および `_FixedEntryPolicy` に共通する統一的な姿勢保全セマンティクスを提供する。(1) レイテンシ下（`latency_1bar`, `latency_2bar`）で未約定注文が進行中の場合、目標ウェイトを実効ウェイト $w_{\text{eff}} = w_{\text{account}} + w_{\text{pending}}$ に一致させつつ `hold_current_quantity_symbols` への追加を避けることで、`reconcile_target` による進行中注文の早期キャンセルを防止して約定を保護する。(2) 約定完了後は `hold_current_quantity_symbols` に追加して毎時の微小ドリフトによるリバランスターンオーバーを完全に抑止する。(3) 損失ポジションを保有中に全候補の方向スコアが非正となった場合、自動的に現金化（`ACTION_FLAT`）を選択して損失の拡大を防止する。
 - **因果性プローブと台帳突合**: 各ブロックの評価開始直前に、未来データ（t+1以降）を無作為摂動させたデータセット上での意思決定が元データセットと完全一致することを確認する因果性プローブ（Causality Perturbation Probe）を実行する。protocol v2ではfit cutoff以降を摂動したデータで特徴変換・B0・ラベル収集・全head・margin選択のパイプライン全体を再実行し、係数SHA-256・B1c共分散・選択margin・評価開始時の意思決定が不変であることを要求する。また、各ブロックの全アーム・全シナリオについて、台帳の注文・約定・資産推移・手数料・終端清算が整合していることを検証する（Ledger Evidence Reconciliation）。
-- **Write-once出力**: 結果は `write_decision_value_dev_study_bundle` により一度だけ `protocol.json`、`result.json`、`summary.md` として書き出され、既存ファイルの上書きを防止する。
+- **Write-once出力**: 現行 `run_decision_value_dev_study` は既存出力dirをfit前に拒否し、成功時に `protocol.json`、`result.json`、`summary.md` を作成する。最終書込直前にも既存dirを拒否するが、3ファイルを原子的に一括保存する仕組みは備えていないため、途中例外時の部分出力がないことまで保証しない。
 
 ## Artifact and evidence rules
 

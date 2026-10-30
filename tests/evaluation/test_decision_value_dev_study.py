@@ -12,7 +12,6 @@ from trade_rl.data.market import MarketCalendarKind, MarketDataset
 from trade_rl.evaluation.decision_value_dev_study import (
     DecisionValueBlockSpec,
     DecisionValueDevStudyProtocol,
-    compute_real_scope_authorization_digest,
     default_2024q1_decision_value_dev_protocol,
     run_decision_value_dev_study,
 )
@@ -405,9 +404,16 @@ def test_default_2024q1_protocol_construction_and_fail_closed() -> None:
 def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
     tmp_path: Path,
 ) -> None:
-    dataset = _compact_market(90)
+    from trade_rl.data.artifacts.publication import (
+        publish_market_dataset_artifact,
+    )
+
+    dataset = _compact_market(90).with_content_identity(
+        {"synthetic_only": True, "generator": "issue1025-fixed-seed-e2e"}
+    )
+    artifact = publish_market_dataset_artifact(tmp_path / "synthetic_dataset", dataset)
     dataset_id = dataset.dataset_id
-    artifact_digest = "e" * 64
+    artifact_digest = artifact.artifact_digest
     symbols = dataset.symbols
     initial_capital = 100_000.0
     target_abs_weights = (0.25, 0.25)
@@ -459,33 +465,8 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
     exit_thresh = 0.0005
     prior_disclosure = "compact synthetic test disclosure"
 
-    auth_digest = compute_real_scope_authorization_digest(
-        dataset_id=dataset_id,
-        expected_artifact_digest=artifact_digest,
-        symbols=symbols,
-        initial_capital=initial_capital,
-        target_abs_weights=target_abs_weights,
-        horizon_bars=horizon_bars,
-        terminal_reserve_bars=terminal_reserve_bars,
-        candidate_actions=candidate_actions,
-        fee_rate=fee_rate,
-        spread_rate=spread_rate,
-        impact_rate=impact_rate,
-        max_participation_rate=max_participation_rate,
-        risk_config=risk_config,
-        blocks=blocks,
-        ridge_feature_indices=ridge_features,
-        ridge_horizon_hours=ridge_horizon,
-        ridge_alpha=alpha,
-        ridge_entry_threshold=entry_thresh,
-        ridge_exit_threshold=exit_thresh,
-        prior_usage_disclosure=prior_disclosure,
-        label_prefix_bars=4,
-        reference_min_fit_bars=6,
-    )
-
     plan = DecisionValueStudyPlan(
-        data_scope="real_development",
+        data_scope="synthetic_only",
         account_mode="shared_portfolio",
         symbols=symbols,
         initial_capital=initial_capital,
@@ -496,7 +477,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         spread_rate=spread_rate,
         max_policy_improvements=1,
         learner_roster=("linear", "conservative_linear", "shallow"),
-        real_scope_authorization_digest=auth_digest,
+        real_scope_authorization_digest=None,
     )
 
     protocol = DecisionValueDevStudyProtocol(
@@ -522,16 +503,18 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         dataset,
         protocol,
         actual_artifact_digest=artifact_digest,
+        artifact_root=artifact.root,
         output_dir=out_dir,
     )
 
-    assert result.schema_version == "decision_value_dev_study_result_v2"
-    assert result.verdict in (
-        "DEVELOPMENT_IMPROVED",
-        "INCONCLUSIVE",
-        "NO_IMPROVEMENT",
-        "INVALID / BLOCKED",
+    assert result.schema_version == "decision_value_dev_study_result_v3_software"
+    assert result.verdict == "SOFTWARE_ONLY"
+    assert "no independent G0-G3" in result.verdict_reason
+    assert protocol.to_mapping()["schema_version"] == (
+        "decision_value_dev_study_protocol_v3_software"
     )
+    assert protocol.study_plan.real_scope_authorization_digest is None
+    assert result.actual_artifact_digest == artifact.artifact_digest
     assert len(result.blocks) == 2
     for b in result.blocks:
         assert b.causality_probe_passed
@@ -571,6 +554,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
             dataset,
             protocol,
             actual_artifact_digest=artifact_digest,
+            artifact_root=artifact.root,
             output_dir=out_dir,
         )
 

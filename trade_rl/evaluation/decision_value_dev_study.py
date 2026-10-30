@@ -28,6 +28,10 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.artifacts.publication import (
+    load_published_market_dataset_artifact,
+)
+from trade_rl.data.identity import parse_identity_json
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.decision_value_feature_transform import (
     apply_feature_transform,
@@ -279,7 +283,7 @@ def compute_real_scope_authorization_digest(
 
 @dataclass(frozen=True, slots=True)
 class DecisionValueDevStudyProtocol:
-    """Frozen protocol specification binding all parameters for the TD5 study."""
+    """Frozen TD8 parameters; real v2 is archival and synthetic v3 is runnable."""
 
     study_plan: DecisionValueStudyPlan
     dataset_id: str
@@ -307,8 +311,23 @@ class DecisionValueDevStudyProtocol:
     def __post_init__(self) -> None:
         if not isinstance(self.study_plan, DecisionValueStudyPlan):
             raise TypeError("study_plan must be DecisionValueStudyPlan")
-        if self.study_plan.data_scope != "real_development":
-            raise ValueError("study_plan data_scope must be real_development")
+        if self.study_plan.data_scope not in ("real_development", "synthetic_only"):
+            raise ValueError(
+                "study_plan data_scope must be real_development or synthetic_only"
+            )
+        if self.study_plan.data_scope == "synthetic_only":
+            # The result table uses a fixed arm/scenario roster; do not execute
+            # hidden arms under a smaller protocol declaration.
+            if self.study_plan.learner_roster != (
+                "linear",
+                "conservative_linear",
+                "shallow",
+            ):
+                raise ValueError(
+                    "TD8 synthetic learner roster must name all three heads"
+                )
+            if self.scenarios != DEFAULT_SCENARIOS:
+                raise ValueError("TD8 synthetic scenario roster must match four cases")
         require_sha256(self.dataset_id, field="dataset_id")
         require_sha256(self.expected_artifact_digest, field="expected_artifact_digest")
         if type(self.blocks) is not tuple or not (1 <= len(self.blocks) <= 3):
@@ -458,14 +477,21 @@ class DecisionValueDevStudyProtocol:
             feature_clip=self.feature_clip,
             unexcited_prior_std=self.unexcited_prior_std,
         )
-        if self.study_plan.real_scope_authorization_digest != expected_digest:
-            raise ValueError(
-                "study_plan real_scope_authorization_digest does not match pre-authorization specification"
-            )
+        if self.study_plan.data_scope == "real_development":
+            if self.study_plan.real_scope_authorization_digest != expected_digest:
+                raise ValueError(
+                    "study_plan real_scope_authorization_digest does not match pre-authorization specification"
+                )
+        elif self.study_plan.real_scope_authorization_digest is not None:
+            raise ValueError("synthetic_only study cannot claim real authorization")
 
     def to_mapping(self) -> dict[str, object]:
         return {
-            "schema_version": "decision_value_dev_study_protocol_v2",
+            "schema_version": (
+                "decision_value_dev_study_protocol_v3_software"
+                if self.study_plan.data_scope == "synthetic_only"
+                else "decision_value_dev_study_protocol_v2"
+            ),
             "study_plan": {
                 "data_scope": self.study_plan.data_scope,
                 "account_mode": self.study_plan.account_mode,
@@ -1065,7 +1091,7 @@ def _runtime_context(
     model: object, dataset: MarketDataset
 ) -> LinearDecisionValueRuntimeContext:
     return LinearDecisionValueRuntimeContext(
-        source_scope="real_development",
+        source_scope=model.source_scope,  # type: ignore[attr-defined]
         feature_config_digest=dataset.feature_config_digest,
         normalization_digest=dataset.normalization_digest,
         execution_policy_digest=model.execution_policy_digest,  # type: ignore[attr-defined]
@@ -1229,7 +1255,7 @@ def _train_block(
         execution_cost=protocol.base_execution_cost,
         risk_config=protocol.risk_config,
         fit_cutoff=fit_cutoff,
-        source_scope="real_development",
+        source_scope=protocol.study_plan.data_scope,
     )
     if not collection.samples:
         raise ValueError(f"block {block.block_id} produced no admissible labels")
@@ -1294,7 +1320,7 @@ def _format_markdown_summary(
 ) -> str:
     """Generate human-readable Markdown summary of the study results."""
     lines = [
-        "# Decision Value Development Study Report (#1025)",
+        "# TD8 Synthetic-only Software Diagnostics (#1025)",
         "",
         f"- **Verdict**: `{result.verdict}`",
         f"- **Reason**: {result.verdict_reason}",
@@ -1373,11 +1399,12 @@ def run_decision_value_dev_study(
     *,
     actual_artifact_digest: str | None = None,
     output_dir: str | Path | None = None,
+    artifact_root: str | Path | None = None,
 ) -> DecisionValueDevStudyResult:
-    """Execute the bounded real-development study under strict contracts."""
+    """Execute only verified synthetic TD8 diagnostics; historical real TD8 is frozen."""
     study_start_time = time.perf_counter()
 
-    # Preflight verification (G0–G2)
+    # Software-only preflight. Identity checks are not independent G0–G2 approval.
     if not isinstance(dataset, MarketDataset):
         raise TypeError("dataset must be a MarketDataset")
     if not isinstance(protocol, DecisionValueDevStudyProtocol):
@@ -1395,6 +1422,43 @@ def run_decision_value_dev_study(
         raise ValueError(
             f"actual_artifact_digest {resolved_artifact_digest} differs from expected {protocol.expected_artifact_digest}"
         )
+    # The archived TD8 real-development authorization refers to the original
+    # source SHA a775b577e. It cannot authorize this post-review software:
+    # versioned fitting, paired intervention, and native proposal all changed.
+    if protocol.study_plan.data_scope != "synthetic_only":
+        raise ValueError(
+            "G0-G3 independent research authorization NOT_ESTABLISHED for revised "
+            "TD8 source; historical real_development protocol is read-only"
+        )
+    if artifact_root is None:
+        raise ValueError(
+            "synthetic_only TD8 diagnostics require a verified published artifact_root"
+        )
+    if not dataset.identity_verified:
+        raise ValueError(
+            "synthetic_only TD8 requires canonical verified input identity"
+        )
+    artifact, verified_dataset = load_published_market_dataset_artifact(artifact_root)
+    if artifact.artifact_digest != protocol.expected_artifact_digest:
+        raise ValueError("published artifact digest differs from frozen protocol")
+    if verified_dataset.dataset_id != protocol.dataset_id:
+        raise ValueError("published dataset identity differs from frozen protocol")
+    if not verified_dataset.identity_verified:
+        raise ValueError("published dataset identity is not verified")
+    provenance = parse_identity_json(verified_dataset.identity_payload_json or "{}")
+    # This synthetic flag is source-provided provenance, not independent proof
+    # of origin. It must not unlock real-data authorization or G4 claims.
+    if provenance.get("synthetic_only") is not True:
+        raise ValueError(
+            "synthetic_only TD8 diagnostics require declared synthetic_only provenance"
+        )
+    if verified_dataset.dataset_id != dataset.dataset_id:
+        raise ValueError("provided and published dataset identities differ")
+    dataset = verified_dataset
+    # Fail before costly fit; the write-once check remains at persistence for
+    # a racing writer who creates the destination during the study.
+    if output_dir is not None and Path(output_dir).exists():
+        raise FileExistsError(f"output_dir already exists: {output_dir}")
     if tuple(dataset.symbols) != protocol.study_plan.symbols:
         raise ValueError("dataset symbols do not match study_plan symbols")
     for block in protocol.blocks:
@@ -1778,8 +1842,17 @@ def run_decision_value_dev_study(
             verdict = "NO_IMPROVEMENT"
             verdict_reason = "Neither linear_value, conservative_linear_value, nor shallow_value outperformed baselines across evaluation scenarios"
 
+    # The synthetic fixture is NOT a G4 market experiment, even if its
+    # internal fixed-control comparison happens to be statistically favorable.
+    if verdict != "INVALID / BLOCKED":
+        verdict = "SOFTWARE_ONLY"
+        verdict_reason = (
+            "Synthetic TD8 diagnostic only; revised source has no independent "
+            "G0-G3 real-development authorization or G4 economic verdict"
+        )
+
     result = DecisionValueDevStudyResult(
-        schema_version="decision_value_dev_study_result_v2",
+        schema_version="decision_value_dev_study_result_v3_software",
         protocol_digest=protocol.protocol_digest,
         dataset_id=dataset.dataset_id,
         actual_artifact_digest=resolved_artifact_digest,

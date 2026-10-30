@@ -265,6 +265,47 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         assert required in research
 
 
+def test_current_p2_p3_labels_match_committed_evidence_records() -> None:
+    status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    expected_reports = (
+        "dev-realdata-study-p2-20261029.json",
+        "dev-realdata-study-p2-20261029-provenance.json",
+        "issue810-phase2-trial-results-20261029.json",
+        "issue810-phase2-trial-provenance-20261029.json",
+        "issue810-phase2-trial-registry-20261029.json",
+        "issue810-phase3-trial-results-20261029.json",
+        "issue810-phase3-trial-provenance-20261029.json",
+        "issue810-phase3-trial-registry-20261029.json",
+    )
+    for name in expected_reports:
+        assert f"../../report/{name}" in status
+        assert (ROOT / "report" / name).is_file()
+
+    p2 = json.loads(
+        (ROOT / "report" / "issue810-phase2-trial-results-20261029.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    p3 = json.loads(
+        (ROOT / "report" / "issue810-phase3-trial-results-20261029.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    p3_provenance = json.loads(
+        (
+            ROOT / "report" / "issue810-phase3-trial-provenance-20261029.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert p2["label_pr_c_probe_rule"] == "NO_WINNER"
+    assert p2["label_amended_rule"] == "DEVELOPMENT_PROMISING"
+    assert p3["label_pr_c_probe_rule"] == "POST_HOC_PROMISING"
+    assert all(
+        p3_provenance["assurance"][gate] == "NOT_ESTABLISHED"
+        for gate in ("G0", "G1", "G2")
+    )
+    assert "P3-6 is **not a G4 candidate**" in status
+
+
 def test_ppo_feature_ablation_g4_decision_is_bound_to_independent_audit() -> None:
     research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     for required in (

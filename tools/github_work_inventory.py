@@ -129,7 +129,8 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         raise RuntimeError("default branch is absent or ambiguous")
     main_sha = _sha(main_candidates[0].sha, "main SHA")
 
-    if len({branch.name for branch in branches}) != len(branches):
+    branch_tips = {branch.name: _sha(branch.sha, "branch SHA") for branch in branches}
+    if len(branch_tips) != len(branches):
         raise RuntimeError("branch list contains duplicate names")
 
     open_names = {default, "provenance/branch-retention"}
@@ -146,6 +147,10 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         pull_identities.append((number, head_sha, base_name, base_sha, head_name))
         open_names.add(base_name)
         if head_name is not None:
+            if branch_tips.get(head_name) != head_sha:
+                raise RuntimeError(
+                    f"local PR head tip is absent or changed: #{number}"
+                )
             open_names.add(head_name)
         pulls.append(
             {
@@ -243,6 +248,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         "task_projection_count": len(task_ids),
         "task_projection_trusted": False,
         "task_scope": "open_issue_comments_only",
+        "pr_base_sha_semantics": "historical_ref_not_current_branch_tip",
         "task_registry_complete": False,
         "workflow_activity_checked": False,
         "cleanup_authorized": False,

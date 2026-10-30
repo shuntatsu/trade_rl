@@ -129,6 +129,46 @@ def test_open_stacked_pr_refs_are_protected_and_ancestry_is_explicit() -> None:
     assert report["cleanup_authorized"] is False
 
 
+def test_local_pr_head_must_match_branch_but_base_sha_can_be_old() -> None:
+    api = FakeWorkApi()
+    api.branch_rows += (BranchInfo("feature/current", "d" * 40, False),)
+    pr = {
+        "number": 123,
+        "head": {
+            "ref": "feature/current",
+            "sha": "d" * 40,
+            "repo": {"full_name": api.repository},
+        },
+        "base": {
+            "ref": "main",
+            "sha": "b" * 40,
+            "repo": {"full_name": api.repository},
+        },
+    }
+    api.pull_rows = [pr]
+    report = build_inventory(api)  # type: ignore[arg-type]
+    assert report["pull_requests"][0]["base_sha"] == "b" * 40
+    assert report["main_sha"] == "a" * 40
+    assert report["pr_base_sha_semantics"] == "historical_ref_not_current_branch_tip"
+    assert report["cleanup_authorized"] is False
+
+    pr["head"] = {
+        "ref": "feature/current",
+        "sha": "c" * 40,
+        "repo": {"full_name": api.repository},
+    }
+    with pytest.raises(RuntimeError, match="local PR head tip"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+    pr["head"] = {
+        "ref": "feature/missing",
+        "sha": "d" * 40,
+        "repo": {"full_name": api.repository},
+    }
+    with pytest.raises(RuntimeError, match="local PR head tip"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
 def test_coordinator_projection_only_protects_never_authorizes() -> None:
     api = FakeWorkApi()
     branch = lease_branch_name("T810-01", 2, "agent-a")

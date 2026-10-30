@@ -314,7 +314,7 @@ def test_posture_v2_end_to_end_uses_only_verified_artifact_and_new_evidence(
     )
 
     dataset = _compact_market(120).with_content_identity(
-        {"source": "closed synthetic posture fixture"}
+        {"source": "closed synthetic posture fixture", "synthetic_only": True}
     )
     artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
     old = study.default_2024q1_decision_value_dev_protocol()
@@ -373,6 +373,8 @@ def test_posture_v2_end_to_end_uses_only_verified_artifact_and_new_evidence(
     )
     assert result.schema_version == "decision_value_dev_study_result_v2"
     assert result.training_reference_mode == "causal_posture_v2"
+    assert result.verdict == "SOFTWARE_ONLY"
+    assert result.verdict_reason.startswith("Synthetic-only TD8")
     assert proto.to_mapping()["evaluation_decision_interval_bars"] == 6
     assert proto.to_mapping()["evaluation_decision_anchor"] == 0
     import json
@@ -380,6 +382,11 @@ def test_posture_v2_end_to_end_uses_only_verified_artifact_and_new_evidence(
     saved_protocol = json.loads((tmp_path / "output" / "protocol.json").read_text())
     assert saved_protocol["evaluation_decision_interval_bars"] == 6
     assert saved_protocol["evaluation_decision_anchor"] == 0
+    assert saved_protocol["training_intervention_projection"] == "posture_v2"
+    assert (
+        saved_protocol["training_post_intervention_reference"] == "hold_pending_only_v2"
+    )
+    assert saved_protocol["study_plan"]["data_scope"] == "synthetic_only"
     block_result = result.blocks[0]
     assert block_result.training_rows == 6 * 9
     assert block_result.training_posture_counts is not None
@@ -596,3 +603,161 @@ def test_td8_off_anchor_pending_orders_complete_without_duplicating() -> None:
     # The off-anchor policy must not submit another trade to reach 0.4.
     assert proposal.target_weights[0] == pytest.approx(0.1)
     assert 0 not in proposal.hold_current_quantity_symbols
+
+
+@pytest.mark.parametrize("t", (24, 30, 36, 42))
+def test_td8_training_intervention_has_exact_runtime_proposal(t: int) -> None:
+    """Teacher labels must use the same proposal code as inference at t."""
+    data = _compact_market(90)
+    protocol = study.upgrade_posture_aware_dev_protocol_v2(
+        study.default_2024q1_decision_value_dev_protocol()
+    )
+    hold = protocol.study_plan.candidate_actions[0]
+    # Include all-FLAT, repeated LONG, and the other mixed posture.
+    for candidate in (
+        (ACTION_FLAT, ACTION_FLAT),
+        (ACTION_LONG, ACTION_FLAT),
+        (ACTION_FLAT, ACTION_LONG),
+    ):
+        pair = study._training_pair(data, protocol, t, candidate)
+        assert pair.eligible_for_label
+        assert pair.intervention_projection == "posture_v2"
+        snap = pair.baseline_snapshot
+        offset = t - (t - study.POSTURE_START_LEAD_BARS)
+        for arm, action in (
+            (pair.baseline_result, hold),
+            (pair.candidate_result, candidate),
+        ):
+            actual = arm.decisions[offset]
+            expected = preserve_posture_aware_proposal(
+                action, snap, protocol.target_abs_weights
+            )
+            assert actual.proposal_weights == expected.target_weights
+            assert (
+                actual.requested_hold_symbols == expected.hold_current_quantity_symbols
+            )
+    if t == 30:
+        # No pending order; same-sign filled LONG must be held, not rebalanced.
+        pair = study._training_pair(data, protocol, t, (ACTION_LONG, ACTION_FLAT))
+        assert pair.baseline_snapshot.account.weights[0] != 0.25
+        actual = pair.candidate_result.decisions[study.POSTURE_START_LEAD_BARS]
+        assert actual.proposal_weights[0] == pair.baseline_snapshot.account.weights[0]
+        assert 0 in actual.requested_hold_symbols
+
+
+def test_td8_has_no_self_authorized_real_development_execution() -> None:
+    """A self-computed SHA-256 is not a G0/G1/G2 independent research receipt."""
+    legacy = study.default_2024q1_decision_value_dev_protocol()
+    assert legacy.study_plan.data_scope == "real_development"
+    td8 = study.upgrade_posture_aware_dev_protocol_v2(legacy)
+    assert td8.study_plan.data_scope == "synthetic_only"
+    assert td8.study_plan.real_scope_authorization_digest is None
+    assert td8.to_mapping()["study_plan"]["data_scope"] == "synthetic_only"
+    assert td8.to_mapping()["training_intervention_projection"] == "posture_v2"
+    assert (
+        td8.to_mapping()["training_post_intervention_reference"]
+        == "hold_pending_only_v2"
+    )
+
+    with pytest.raises(ValueError, match="synthetic_only|G0|G2|authorization"):
+        replace(
+            td8,
+            study_plan=replace(
+                td8.study_plan,
+                data_scope="real_development",
+                real_scope_authorization_digest=study.compute_real_scope_authorization_digest(
+                    dataset_id=td8.dataset_id,
+                    expected_artifact_digest=td8.expected_artifact_digest,
+                    symbols=td8.study_plan.symbols,
+                    initial_capital=td8.study_plan.initial_capital,
+                    target_abs_weights=td8.target_abs_weights,
+                    horizon_bars=td8.study_plan.horizon_bars,
+                    terminal_reserve_bars=td8.study_plan.terminal_reserve_bars,
+                    candidate_actions=td8.study_plan.candidate_actions,
+                    fee_rate=td8.study_plan.fee_rate,
+                    spread_rate=td8.study_plan.spread_rate,
+                    impact_rate=td8.base_execution_cost.impact_rate,
+                    max_participation_rate=td8.base_execution_cost.max_participation_rate,
+                    risk_config=td8.risk_config,
+                    blocks=td8.blocks,
+                    ridge_feature_indices=td8.ridge_feature_indices,
+                    ridge_horizon_hours=td8.ridge_horizon_hours,
+                    ridge_alpha=td8.ridge_alpha,
+                    ridge_entry_threshold=td8.ridge_entry_threshold,
+                    ridge_exit_threshold=td8.ridge_exit_threshold,
+                    prior_usage_disclosure=td8.prior_usage_disclosure,
+                    learner_roster=td8.study_plan.learner_roster,
+                    value_ridge_penalty=td8.value_ridge_penalty,
+                    uncertainty_penalty_weight=td8.uncertainty_penalty_weight,
+                    scenarios=td8.scenarios,
+                    training_reference_mode="causal_posture_v2",
+                ),
+            ),
+        )
+
+
+def test_td8_software_only_requires_explicitly_declared_synthetic_provenance(
+    tmp_path: Path,
+) -> None:
+    """A verified market artifact is not proof of synthetic/authorized data use."""
+    from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
+
+    fake_unmarked = _compact_market(90).with_content_identity(
+        {"source": "unreviewed historical dataset"}
+    )
+    artifact = publish_market_dataset_artifact(
+        tmp_path / "not_synthetic", fake_unmarked
+    )
+    td8 = study.upgrade_posture_aware_dev_protocol_v2(
+        study.default_2024q1_decision_value_dev_protocol()
+    )
+    td8 = replace(
+        td8,
+        dataset_id=fake_unmarked.dataset_id,
+        expected_artifact_digest=artifact.artifact_digest,
+    )
+    with patch.object(
+        study, "fit_ridge_forecast", side_effect=AssertionError("FITTED")
+    ):
+        with pytest.raises(ValueError, match="synthetic|provenance"):
+            study.run_decision_value_dev_study(
+                fake_unmarked, td8, artifact_root=artifact.root
+            )
+
+
+def test_td8_post_intervention_reference_does_not_invent_future_entries() -> None:
+    """The training label is for an intervention then HOLD/pending continuation."""
+    market = _compact_market(90)
+    protocol = study.upgrade_posture_aware_dev_protocol_v2(
+        study.default_2024q1_decision_value_dev_protocol()
+    )
+    hold = (ACTION_HOLD, ACTION_HOLD)
+    baseline = study._training_pair(market, protocol, 24, hold)
+    assert baseline.baseline_snapshot.account.exact_quantities == ("0", "0")
+    assert not baseline.baseline_snapshot.active_orders
+    for decision in baseline.baseline_result.decisions:
+        if decision.index > 24:
+            assert decision.proposal_weights == (0.0, 0.0)
+            assert decision.requested_hold_symbols == (0, 1)
+    assert baseline.baseline_result.book.total_cost == 0.0
+    assert baseline.baseline_result.book.portfolio_value == pytest.approx(
+        protocol.study_plan.initial_capital
+    )
+
+
+def test_td8_same_position_repeated_long_is_identical_to_quantity_hold() -> None:
+    """A drifted, already-held LONG action must never create invented P&L."""
+    market = _compact_market(90)
+    protocol = study.upgrade_posture_aware_dev_protocol_v2(
+        study.default_2024q1_decision_value_dev_protocol()
+    )
+    pair = study._training_pair(market, protocol, 30, (ACTION_LONG, ACTION_HOLD))
+    assert pair.eligible_for_label
+    assert pair.baseline_snapshot.account.weights[0] != 0.25
+    assert Fraction(pair.baseline_snapshot.account.exact_quantities[0]) > 0
+    assert not pair.baseline_snapshot.active_orders
+    assert pair.delta_per_initial_capital == pytest.approx(0.0, abs=1e-12)
+    assert (
+        pair.baseline_result.ledger_evidence.to_mapping()
+        == pair.candidate_result.ledger_evidence.to_mapping()
+    )

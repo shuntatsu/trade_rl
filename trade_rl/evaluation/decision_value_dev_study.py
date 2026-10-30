@@ -21,6 +21,7 @@ from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.artifacts.publication import load_published_market_dataset_artifact
+from trade_rl.data.identity import parse_identity_json
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.decision_value_fit import (
     fit_conservative_linear_decision_value,
@@ -253,6 +254,8 @@ def compute_real_scope_authorization_digest(
     if training_reference_mode == TRAINING_REFERENCE_POSTURE:
         payload["training_reference_mode"] = training_reference_mode
         payload["training_reference_schedule"] = "6bar_anchor_posture_v2"
+        payload["training_intervention_projection"] = "posture_v2"
+        payload["training_post_intervention_reference"] = "hold_pending_only_v2"
         payload["evaluation_decision_interval_bars"] = 6
         payload["evaluation_decision_anchor"] = 0
         payload["training_order_latency_bars"] = POSTURE_TRAINING_LATENCY_BARS
@@ -287,8 +290,14 @@ class DecisionValueDevStudyProtocol:
     def __post_init__(self) -> None:
         if not isinstance(self.study_plan, DecisionValueStudyPlan):
             raise TypeError("study_plan must be DecisionValueStudyPlan")
-        if self.study_plan.data_scope != "real_development":
-            raise ValueError("study_plan data_scope must be real_development")
+        if self.training_reference_mode == TRAINING_REFERENCE_LEGACY:
+            if self.study_plan.data_scope != "real_development":
+                raise ValueError("legacy study requires real_development scope")
+        elif self.study_plan.data_scope != "synthetic_only":
+            raise ValueError(
+                "TD8 G0-G2 authorization is NOT_ESTABLISHED: only synthetic_only "
+                "software diagnostics may run; no real_development evidence"
+            )
         require_sha256(self.dataset_id, field="dataset_id")
         require_sha256(self.expected_artifact_digest, field="expected_artifact_digest")
         if self.training_reference_mode not in (
@@ -409,10 +418,13 @@ class DecisionValueDevStudyProtocol:
             scenarios=self.scenarios,
             training_reference_mode=self.training_reference_mode,
         )
-        if self.study_plan.real_scope_authorization_digest != expected_digest:
-            raise ValueError(
-                "study_plan real_scope_authorization_digest does not match pre-authorization specification"
-            )
+        if self.training_reference_mode == TRAINING_REFERENCE_LEGACY:
+            if self.study_plan.real_scope_authorization_digest != expected_digest:
+                raise ValueError(
+                    "study_plan real_scope_authorization_digest does not match pre-authorization specification"
+                )
+        elif self.study_plan.real_scope_authorization_digest is not None:
+            raise ValueError("synthetic_only TD8 cannot claim real authorization")
 
     def to_mapping(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -476,6 +488,8 @@ class DecisionValueDevStudyProtocol:
         }
         if self.training_reference_mode == TRAINING_REFERENCE_POSTURE:
             payload["training_reference_mode"] = self.training_reference_mode
+            payload["training_intervention_projection"] = "posture_v2"
+            payload["training_post_intervention_reference"] = "hold_pending_only_v2"
             payload["evaluation_decision_interval_bars"] = 6
             payload["evaluation_decision_anchor"] = 0
         return payload
@@ -640,39 +654,13 @@ def upgrade_posture_aware_dev_protocol_v2(
     """
     if protocol.training_reference_mode != TRAINING_REFERENCE_LEGACY:
         raise ValueError("source protocol must be the legacy study")
-    digest = compute_real_scope_authorization_digest(
-        dataset_id=protocol.dataset_id,
-        expected_artifact_digest=protocol.expected_artifact_digest,
-        symbols=protocol.study_plan.symbols,
-        initial_capital=protocol.study_plan.initial_capital,
-        target_abs_weights=protocol.target_abs_weights,
-        horizon_bars=protocol.study_plan.horizon_bars,
-        terminal_reserve_bars=protocol.study_plan.terminal_reserve_bars,
-        candidate_actions=protocol.study_plan.candidate_actions,
-        fee_rate=protocol.study_plan.fee_rate,
-        spread_rate=protocol.study_plan.spread_rate,
-        impact_rate=protocol.base_execution_cost.impact_rate,
-        max_participation_rate=protocol.base_execution_cost.max_participation_rate,
-        risk_config=protocol.risk_config,
-        blocks=protocol.blocks,
-        ridge_feature_indices=protocol.ridge_feature_indices,
-        ridge_horizon_hours=protocol.ridge_horizon_hours,
-        ridge_alpha=protocol.ridge_alpha,
-        ridge_entry_threshold=protocol.ridge_entry_threshold,
-        ridge_exit_threshold=protocol.ridge_exit_threshold,
-        prior_usage_disclosure=protocol.prior_usage_disclosure,
-        learner_roster=protocol.study_plan.learner_roster,
-        value_ridge_penalty=protocol.value_ridge_penalty,
-        uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
-        scenarios=protocol.scenarios,
-        training_reference_mode=TRAINING_REFERENCE_POSTURE,
-    )
     return replace(
         protocol,
         training_reference_mode=TRAINING_REFERENCE_POSTURE,
         study_plan=replace(
             protocol.study_plan,
-            real_scope_authorization_digest=digest,
+            data_scope="synthetic_only",
+            real_scope_authorization_digest=None,
         ),
     )
 
@@ -813,16 +801,31 @@ class _CausalPostureReferencePolicy:
     replayed from t-4, rather than manufacturing a non-causal account snapshot.
     """
 
-    __slots__ = ("_target_abs_weights",)
+    __slots__ = ("_target_abs_weights", "_intervention_index")
 
-    def __init__(self, target_abs_weights: tuple[float, ...]) -> None:
+    def __init__(
+        self, target_abs_weights: tuple[float, ...], *, intervention_index: int
+    ) -> None:
         self._target_abs_weights = target_abs_weights
+        self._intervention_index = intervention_index
 
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
         n = len(snapshot.symbols)
         action = (ACTION_HOLD,) * n
+        if snapshot.index >= self._intervention_index:
+            action = (
+                _reference_continuation_action(snapshot)
+                if snapshot.active_orders
+                else action
+            )
+            return preserve_posture_aware_proposal(
+                action, snapshot, self._target_abs_weights
+            )
+        # Synthetic posture seeding is *only* the shared prefix. After t,
+        # the frozen counterfactual follows quantity-HOLD/pending continuation,
+        # never adds arbitrary future entries.
         if snapshot.index % 6 == 3:
             phase = ((snapshot.index + 3) // 6) % 4
             if phase == 1:
@@ -904,7 +907,9 @@ def _training_pair(
 
     def make_reference() -> PortfolioPolicy:
         if mode == TRAINING_REFERENCE_POSTURE:
-            return _CausalPostureReferencePolicy(protocol.target_abs_weights)
+            return _CausalPostureReferencePolicy(
+                protocol.target_abs_weights, intervention_index=t
+            )
         return _HoldQuantityPolicy(protocol.target_abs_weights)
 
     return run_paired_portfolio_action(
@@ -919,6 +924,11 @@ def _training_pair(
         initial_capital=protocol.study_plan.initial_capital,
         execution_cost=_training_execution_cost(protocol),
         risk=PreTradeRisk(protocol.risk_config),
+        intervention_projection=(
+            "posture_v2"
+            if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
+            else "legacy_v1"
+        ),
     )
 
 
@@ -1223,6 +1233,16 @@ def run_decision_value_dev_study(
         raise ValueError("actual_artifact_digest differs from verified artifact")
     dataset = verified_dataset
     resolved_artifact_digest = artifact.artifact_digest
+    if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+        # This value is a provenance *declaration*, not cryptographic proof
+        # that a generator genuinely produced this market. In particular,
+        # a source SHA or an artifact digest does not grant G0-G2/G4 authority.
+        declared = parse_identity_json(dataset.identity_payload_json or "{}")
+        if declared.get("synthetic_only") is not True:
+            raise ValueError(
+                "TD8 synthetic_only software diagnostics require explicit "
+                "synthetic_only provenance; real_development remains blocked"
+            )
     if tuple(dataset.symbols) != protocol.study_plan.symbols:
         raise ValueError("dataset symbols do not match study_plan symbols")
     for block in protocol.blocks:
@@ -1267,6 +1287,8 @@ def run_decision_value_dev_study(
             reference_identity["training_order_latency_bars"] = (
                 POSTURE_TRAINING_LATENCY_BARS
             )
+            reference_identity["intervention_projection"] = "posture_v2"
+            reference_identity["post_intervention_reference"] = "hold_pending_only_v2"
         ref_digest = content_digest(reference_identity)
         samples: list[SyntheticPairedLabel] = []
         intervention_indices = range(
@@ -1315,7 +1337,7 @@ def run_decision_value_dev_study(
                         dataset.timestamps[t + protocol.study_plan.horizon_bars]
                     ),
                     fit_cutoff=fit_cutoff,
-                    source_scope="real_development",
+                    source_scope=protocol.study_plan.data_scope,
                 )
                 samples.append(label)
 
@@ -1422,7 +1444,7 @@ def run_decision_value_dev_study(
                         ]
                     ),
                     fit_cutoff=fit_cutoff,
-                    source_scope="real_development",
+                    source_scope=protocol.study_plan.data_scope,
                 )
                 samples_pert.append(label_pert)
 
@@ -1473,21 +1495,21 @@ def run_decision_value_dev_study(
         b2_fit_ok = b2_coef_sha256 == b2_pert_sha256
 
         b1_runtime_ctx = LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
+            source_scope=protocol.study_plan.data_scope,
             feature_config_digest=dataset.feature_config_digest,
             normalization_digest=dataset.normalization_digest,
             execution_policy_digest=b1_model.execution_policy_digest,
             reference_policy_digest=b1_model.reference_policy_digest,
         )
         b1c_runtime_ctx = LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
+            source_scope=protocol.study_plan.data_scope,
             feature_config_digest=dataset.feature_config_digest,
             normalization_digest=dataset.normalization_digest,
             execution_policy_digest=b1c_model.execution_policy_digest,
             reference_policy_digest=b1c_model.reference_policy_digest,
         )
         b2_runtime_ctx = LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
+            source_scope=protocol.study_plan.data_scope,
             feature_config_digest=dataset.feature_config_digest,
             normalization_digest=dataset.normalization_digest,
             execution_policy_digest=b2_model.execution_policy_digest,
@@ -1857,6 +1879,19 @@ def run_decision_value_dev_study(
         else:
             verdict = "NO_IMPROVEMENT"
             verdict_reason = "Neither linear_value, conservative_linear_value, nor shallow_value outperformed baselines across evaluation scenarios"
+
+    # There is no independently authorized G0-G3/G4 experimental contract
+    # for the revised TD8 method. Never emit a winner/failure verdict from
+    # its synthetic fixtures, regardless of the diagnostic return numbers.
+    if (
+        protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE
+        and verdict != "INVALID / BLOCKED"
+    ):
+        verdict = "SOFTWARE_ONLY"
+        verdict_reason = (
+            "Synthetic-only TD8 software diagnostic; G0-G3 research assurance "
+            "NOT_ESTABLISHED; no G4 economic/winner verdict is authorized"
+        )
 
     result = DecisionValueDevStudyResult(
         schema_version=(

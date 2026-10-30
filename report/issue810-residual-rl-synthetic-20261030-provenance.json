@@ -125,6 +125,93 @@
         "total_timesteps": 10080
       },
       "synthetic_only": true
+    },
+    {
+      "argv": [
+        "smoke",
+        "--smoke-timesteps",
+        "1008",
+        "--smoke-seeds",
+        "2",
+        "--note",
+        "official pipeline smoke on calibration seeds after the protocol freeze commit; not evidence"
+      ],
+      "elapsed_seconds": 13.4,
+      "evidence": false,
+      "finished_utc": "2026-10-30T01:02:44.866169+00:00",
+      "git": {
+        "branch": "claude/issue810-residual-rl-synthetic-20261030",
+        "commit": "0bcbee2b3e8300a720972d7311e98b7928033dc8",
+        "dirty_outside_report_files": false
+      },
+      "mode": "smoke",
+      "note": "official pipeline smoke on calibration seeds after the protocol freeze commit; not evidence",
+      "protocol_sha256_computed": "96c11b5c3f14b5b29a8557a3d250ce16ac34594a43cd8c5ff0336ef9f2f03904",
+      "protocol_sha256_frozen_in_source": "96c11b5c3f14b5b29a8557a3d250ce16ac34594a43cd8c5ff0336ef9f2f03904",
+      "result": {
+        "regimes": {
+          "planted_alpha": {
+            "seed0": {
+              "mean_net_log_return": 0.17975352719014026,
+              "mean_trade_days": 202.0,
+              "median_cost_paid": 0.03617780337861879,
+              "median_daily_turnover": 0.2168127101549595,
+              "median_max_drawdown": 0.036893316068057014,
+              "median_net_log_return": 0.17975352719014026,
+              "n_episodes": 2.0,
+              "std_net_log_return": 0.0052899765629562945
+            }
+          },
+          "zero_alpha": {
+            "seed0": {
+              "mean_net_log_return": -0.026538014134777917,
+              "mean_trade_days": 165.5,
+              "median_cost_paid": 0.027788137795769833,
+              "median_daily_turnover": 0.18134349907339192,
+              "median_max_drawdown": 0.08481893635872234,
+              "median_net_log_return": -0.026538014134777917,
+              "n_episodes": 2.0,
+              "std_net_log_return": 0.006106910642114355
+            }
+          }
+        },
+        "seeds": [
+          9000,
+          9001
+        ],
+        "total_timesteps": 1008
+      },
+      "started_utc": "2026-10-30T01:02:31.447999+00:00",
+      "synthetic_only": true
+    },
+    {
+      "argv": [
+        "full",
+        "--workers",
+        "6",
+        "--note",
+        "frozen study: 3 PPO seeds x 2 regimes, 40 held-out seeds"
+      ],
+      "elapsed_seconds": 392.5,
+      "evidence": true,
+      "finished_utc": "2026-10-30T01:09:21.935883+00:00",
+      "git": {
+        "branch": "claude/issue810-residual-rl-synthetic-20261030",
+        "commit": "0bcbee2b3e8300a720972d7311e98b7928033dc8",
+        "dirty_outside_report_files": false
+      },
+      "label": "SYNTHETIC_FAIL",
+      "label_reasons": [
+        "F1_primary_advantage_not_established"
+      ],
+      "mode": "full",
+      "note": "frozen study: 3 PPO seeds x 2 regimes, 40 held-out seeds",
+      "protocol_sha256_computed": "96c11b5c3f14b5b29a8557a3d250ce16ac34594a43cd8c5ff0336ef9f2f03904",
+      "protocol_sha256_frozen_in_source": "96c11b5c3f14b5b29a8557a3d250ce16ac34594a43cd8c5ff0336ef9f2f03904",
+      "results_file": "report/issue810-residual-rl-synthetic-20261030-results.json",
+      "results_file_sha256": "ee7d5512ba8cb3d175010e5bf0460c2897da504a71a982605f868f6078f7b6b3",
+      "started_utc": "2026-10-30T01:02:49.491283+00:00",
+      "synthetic_only": true
     }
   ],
   "schema": "issue810_residual_ppo_synthetic_provenance_v1"

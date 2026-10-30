@@ -102,13 +102,15 @@ trade_rl/
     ├── directional_study.py
     ├── ppo_risk_study.py
     ├── dev_realdata_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,cli.py,dataset_build.py,trials.py,trial_sources.py,trial_study.py,trial_cli.py,trial_labels.py,phase3_registry.py,phase3_sources.py,phase3_study.py,phase3_cli.py}
+    ├── forward_study/{__init__.py,__main__.py,registry.py,labels.py,seal.py,fs1.py,cli.py}
+    ├── forward_acquisition/{__init__.py,__main__.py,plan.py,acquire.py,seal_record.py,cli.py}
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
     ├── ppo_normalization_replication.py
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -193,9 +195,22 @@ the ninety-day economic screen, runs sixty-second slots and exposes explicitly
 chain-only operational status. `paper/assessment.py` excludes a running collector,
 replays the pinned event tip and all financial inputs, audits control/source
 rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
-run, status and write-once evaluation commands. The account/engine expose due
-announced funding for previously held exact quantities, including after exits.
-These operations contain no production routing.
+run, status, check, supervise and write-once evaluation commands. The account/engine
+expose due announced funding for previously held exact quantities, including after
+exits. `paper/failure.py` is the single exclusive-create failure-marker writer and
+`paper/lock.py` the single collector lock plus a non-destructive probe; both are
+import-light so the watchdog never loads the Binance stack. `paper/watchdog.py`
+owns only operational liveness: the atomic collector
+heartbeat, exit/signal/console failure hooks, the stateless stale check and the
+child supervisor. It never opens the journal, control writer or market surfaces; it
+reads the control database read-only through `control.incomplete_cycle_exists`
+and creates failure markers through the one `failure.write_collection_failure`
+writer (re-exported by `supervisor`). A held collector lock is contention, never a
+failure. `paper/attempt2.py` composes the
+existing lineage validator, `screen_plan`, `seal_paper_study`, FS1's authorization
+pattern and the supervisor into plan/seal/launch gates for the successor attempt
+with no network call (it loads the collector stack at import through
+`seal_paper_study`, so the offline property is proved at call level). These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and
@@ -700,6 +715,16 @@ Coordinationの耐久契約は次である。
 - `python -m tools.agent_repo task ...` はnetwork-freeなparse/digest/readiness/status/dashboard操作だけを持つ。GitHub claim/comment/mergeのwrite authorityはこのCLIへ埋め込まない。
 
 このlayerは複数Coordinator間のdistributed consensusを保証しない。v1のoperational invariantはactive Coordinatorが1つであることとし、Worker自身の完了主張やlabelだけをmerge authorityにしない。
+
+## Forward study FS1 boundary
+
+`evaluation/forward_study/` は Issue #810 の sealed forward study FS1 だけを所有する。`registry.py` はFS1-A/B/C + CASHのroster・scoring window・falsifier・validity guardの凍結値と `FROZEN_PARAMS_DIGEST`（JSON exportは `report/issue810-fs1-registry-20261030.json`）だけを持ち、dataset・clock・resultを読まない。`labels.py` は数値だけを受け取る純粋な `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` ruleで、`WINNER` を返さない。`seal.py` はscoring前提条件（scoring end date経過、Issue commentのauthorization reference、凍結params digest、checkout済みcode SHAとclean tree、dataset seal manifest、読み込んだdatasetのidentity・window・tradable割合）を全て集めて `Fs1Refusal` で拒否し、満たしたときだけ `ScoringPermit` を返す。`fs1.py` はpermitを必須とする唯一のscoring entrypointで、Phase 3 policy builderと `dev_realdata_study.runner` を変更せず再利用し、write-onceでresultを書く。`fs1.py` の公開 `run_fs1` はregistry・digest・clock・code identity・dataset loaderを引数に取らず、private factory `_environment`（frozen registry、実wall clock、`git`）だけがそれらを供給する（testsはこのfactoryをmonkeypatchする）。code identityは `git rev-parse --show-toplevel` が解決したtrade_rl repository（pinned root commit）の追跡済み `seal.py` であること、HEADがsealed SHAに一致すること、変更済み・未追跡fileがないことを要求する。scoringはscoring end + 24h settlement marginの後だけで、manifestはfetch時刻とpinned build-policy digestを持つ。`cli.py` (`python -m trade_rl.evaluation.forward_study`) は引数をそのまま渡すだけでseamを持たない。
+
+このpackageはnetworkへ出ず（`integrations` を import しない）、データを取得せず、`final_test` authorization chain・paper/live・RLを使わず、`trade_rl.evaluation` の公開APIを拡張しない。`dev_realdata_study`・`strategies`・`simulation`・`data` はこのpackageへ依存しない。account・P&L ledger・fill modelは持たない。実データのscoringはscoring end date後にuserが取得とscoring runを別々に認可するまで実行しない。Contractの詳細は `architecture/research-assurance.md` の FS1 section、状態は `research/current-status.md`。
+
+### Forward study FS1 acquisition tooling
+
+`evaluation/forward_acquisition/` はFS1のdata acquisition・dataset build・seal manifest・seal-record textを一つの文書化されたcommand（`python -m trade_rl.evaluation.forward_acquisition acquire` / `seal-record`）として提供し、ad-hocなscriptやmonkeypatchでFS1 datasetを作らせない。`forward_study/` はnetworkを一切importしないため、acquisitionは別packageに置く。`plan.py` はFS1 span・archive URL・date range・build policy照合・出力layoutを持つ純粋moduleで `trade_rl.integrations` をimportしない。`acquire.py` の `run_acquire` は `--allow-network` が無ければplanだけを返し（network clientをimportせず、fileを作らず、development inputも読まない）、ある場合だけ（Issue #810 authorization URL、新規output root、settlement margin経過、clean checkout、developmentのidentity検証が揃ったときに）`trade_rl.integrations.binance` をlazy importしてfetchする。`run_acquire` はregistry・digest・clock・code identity・transportを引数に取らず、private factory `_run_acquire` / `_environment` だけがそれらを供給する（testsが置換する）。development期間のarchiveは再取得せず、published development Datasetのidentity（pinned `dataset_id`・artifact digest・内部にbindされた `raw_source_roster_digest`）に対してread-onlyで検証して再利用する。manifest（`manifest_bytes_from_dataset`）は最後に書き、receiptがbuilder commit・exact command・exchange snapshot・development reuse identityを持つ。`seal_record.py` はmanifestとreceiptを凍結registryと相互に検証してseal commentのMarkdownを返すだけで、投稿しない。このpackageはscoring・replay・strategyに依存せず、`forward_study` からは `registry` と `seal` だけをimportする。それ以外のmodule scope依存は `trade_rl.artifacts`、`trade_rl.data`（`data.artifacts.publication`・`data.market`）とnumpyで、`trade_rl.integrations.binance`・`trade_rl.data.build` は認可された経路（`acquire.py` の関数内）でだけlazy importする。output rootはcheckout外でなければならず、`forward_study`・`dev_realdata_study`・`strategies`・`simulation`・`data`・`integrations` から参照されない。手順の正本は `architecture/research-assurance.md` の *FS1 acquisition procedure*、状態は `research/current-status.md`。
 
 ## Repository integration boundary
 

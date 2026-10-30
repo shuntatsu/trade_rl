@@ -337,6 +337,18 @@ Limits: development evidence only, post hoc, 21 development arms compared on dat
 
 Scope choices to read with the label: (1) the selection pool is the seven Phase 3 allocator arms; Phase 2 arms are excluded (including them would not change the label or the selected arm: T1, base +10.4% at 3.0% drawdown, would be the only Phase 2 arm eligible under the rule and P3-6's base profit is higher); (2) the public record says the PR-C probe rule with no amendments, but the registry adds the causality matrix to validity under both rules (fixed before the first run, only tightens validity; every matrix cell is identical, so no outcome changes); (3) P3-7 is excluded from selection as a control (it would also fail the drawdown gate at 21.6%); (4) the inherited PR-C check `pre_cut_trace_has_trades` tests whether any nonzero position is held in the first half of the probe trace, which equals the hourly interval rows, so it checks holding a position rather than trading (semantics unchanged; every arm other than CASH made 340 to 4,378 trades in the base scenario).
 
+## Issue #810 FS1: forward-study preparation (design recorded result-blind; no economic result; 2026-10-30)
+
+Development data are exhausted as evidence: 21 arms were compared post hoc on data already used, and Phase 3 recorded G0-G2 as NOT ESTABLISHED. FS1 is the properly ordered replacement for the unused window 2026-11-01..2027-05-01, whose data do not exist yet, so the design fixed here is result-blind with respect to it. It tests three frozen configurations that were chosen from the public development results (the selection contamination is the reason a forward test is needed): FS1-A = the Phase 3 P3-6 mechanism, FS1-B = P3-3, and FS1-C = P3-7 as the vol-targeted passive control, against CASH. Falsifiers: max drawdown above 20% in base or cost x2; the 95% block-bootstrap lower bound of annualised excess over CASH at cost x2 not above zero; an excess over FS1-C that is not above zero is labelled NO_BETTER_THAN_PASSIVE. Labels: FORWARD_PASS / FORWARD_FAIL / FORWARD_INVALID, never a WINNER.
+
+Delivered (software and docs only): the frozen registry and its digest (`report/issue810-fs1-registry-20261030.json`), the pure label rule, the sealed evaluator that refuses to score unless the scoring end date plus a 24 h settlement margin has passed, an Issue #810 comment authorization reference is supplied, the params digest, code commit (trade_rl checkout, clean tree) and dataset seal (including the pinned build-policy digest and a post-settlement fetch time) match, and the output is new, and the G2 oracle tests (`research-assurance.md`, FS1 section). The scoring path was exercised on synthetic data only. Headline rule: `FORWARD_PASS` is only the minimum bar; the single claim flag is `edge_claim_supported` (PASS, BETTER_THAN_PASSIVE and Bonferroni k=2 together). The FS1 section also records when each constant was fixed relative to the development results, and the pre-seal revision of the params digest after the first review.
+
+State: G0, G1 and G2 were recorded ESTABLISHED by the result-blind independent review 5702477777 of the FS1 design change (head 51b8b435a; design and code review only, not a seal). The FS1 seal record, the data-fetch authorization and the G4 scoring authorization are pending, and no economic result exists: nothing was fetched, replayed or computed on 2026-08-01 or later data. The sealed code commit will be a later commit named in the future seal record. No live or paper orders.
+
+Acquisition tooling (software only, 2026-10-30): `python -m trade_rl.evaluation.forward_acquisition` now provides the single documented route from an Issue #810 data-fetch authorization to the FS1 dataset, its seal manifest, an acquisition receipt and the exact text of the future seal comment (procedure: `architecture/research-assurance.md`, *FS1 acquisition procedure*). It plans offline by default and fetches only with `--allow-network`; it was exercised on fixture archives with a fake transport only. No data was fetched, no live endpoint was contacted, nothing from 2026-08-31 or later was read, and the data-fetch authorization is still pending (the G4 scoring authorization likewise). The tool scores nothing and changes no registry value or digest.
+
+Needed from the user before FS1 can produce evidence, each by a separate Issue #810 comment: (a) authorization for fetching the post-2026-08-31 data (including the warm-up-only bars before the scoring start) and (b) authorization for the single G4 scoring run, allowed only at or after 2027-05-02T00:00Z (the scoring end 2027-05-01T00:00Z plus the 24 h settlement margin). Neither is implied by this section.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
@@ -957,6 +969,18 @@ the sealed plan and funding blocks use settlement time in `[start, close)`;
 their targeted synthetic tests pass. Overall G2 and an independent full
 source-to-ledger replay remain unestablished. No successor screen has been
 sealed.
+
+2026-10-30: attempt-2 operational tooling is prepared offline; nothing has been
+sealed, launched or collected, and no attempt-2 start time exists. User
+authorization (an Issue #810 comment) and a fresh result-blind review of the
+preserved attempt-1 root are still pending. The silent attempt-1 death is addressed
+operationally with a heartbeat, permanent failure records from exit, signal,
+console-close and stale-heartbeat paths, and a supervisor that relaunches only a
+child that died between cycles inside the frozen 180-second gap. A death inside a
+cycle, a hang or any source error still ends the screen by design, and the 90-day
+storage and journal-replay latency remain operator-measured. No economics, P&L or
+profitability evidence was produced. The runbook is in
+`docs/specs/funding-carry-paper.md`.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

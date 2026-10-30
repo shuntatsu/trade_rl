@@ -45,11 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Temporary formatter diff for work inventory
-        run: |
-          uv run ruff format --diff tools/github_work_inventory.py || true
-          uv run ruff format --diff tests/tools/test_github_work_inventory.py || true
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

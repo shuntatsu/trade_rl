@@ -140,7 +140,6 @@ def test_duplicate_or_malformed_coordinator_state_fails_closed() -> None:
         build_inventory(api)  # type: ignore[arg-type]
 
 
-
 def test_work_inventory_rejects_changed_branch_tip_during_readback() -> None:
     api = FakeWorkApi()
     first = api.branch_rows
@@ -211,6 +210,7 @@ def test_work_inventory_rejects_duplicate_pr_and_issue_pages() -> None:
     api.issue_rows = [{"number": 810}, {"number": 810}]
     with pytest.raises(RuntimeError, match="duplicate open Issue"):
         build_inventory(api)  # type: ignore[arg-type]
+
 
 def test_partial_github_failure_does_not_produce_snapshot() -> None:
     api = FakeWorkApi()

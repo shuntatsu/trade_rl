@@ -305,6 +305,21 @@ class DecisionValueDevStudyProtocol:
             TRAINING_REFERENCE_POSTURE,
         ):
             raise ValueError("unregistered training reference mode")
+        if self.training_reference_mode == TRAINING_REFERENCE_POSTURE:
+            # Do not silently write verdicts over missing/renamed controls,
+            # or train unreported heads under a smaller declared roster.
+            if self.study_plan.learner_roster != (
+                "linear",
+                "conservative_linear",
+                "shallow",
+            ):
+                raise ValueError(
+                    "TD8 fixed learner roster must declare all three fitted heads"
+                )
+            if self.scenarios != DEFAULT_SCENARIOS:
+                raise ValueError(
+                    "TD8 requires the exact fixed four-scenario stress roster"
+                )
         if type(self.blocks) is not tuple or not (1 <= len(self.blocks) <= 3):
             raise ValueError("protocol must specify between 1 and 3 blocks")
         for block in self.blocks:
@@ -890,6 +905,35 @@ def _training_execution_cost(
     return protocol.base_execution_cost
 
 
+def _require_td8_training_pair_ledger(
+    dataset: MarketDataset,
+    protocol: DecisionValueDevStudyProtocol,
+    pair: PairedPortfolioActionResult,
+    *,
+    start_index: int,
+) -> None:
+    """Fail closed before fitting when a *teacher* arm has invalid native money.
+
+    Previously only the *evaluation* arms went through the independent
+    interval-ledger oracle, allowing a wrong teacher suffix cash flow to be
+    accepted as a supervised target.
+    """
+    if protocol.training_reference_mode != TRAINING_REFERENCE_POSTURE:
+        return
+    expected = protocol.study_plan.horizon_bars + POSTURE_START_LEAD_BARS
+    if any(
+        not verify_paired_economic_ledger(
+            arm,
+            dataset,
+            expected_intervals=expected,
+            expected_start_index=start_index,
+            initial_capital=protocol.study_plan.initial_capital,
+        )
+        for arm in (pair.baseline_result, pair.candidate_result)
+    ):
+        raise ValueError("TD8 independent training ledger reconciliation failed")
+
+
 def _training_pair(
     dataset: MarketDataset,
     protocol: DecisionValueDevStudyProtocol,
@@ -912,7 +956,7 @@ def _training_pair(
             )
         return _HoldQuantityPolicy(protocol.target_abs_weights)
 
-    return run_paired_portfolio_action(
+    pair = run_paired_portfolio_action(
         dataset,
         reference_policy_factory=make_reference,
         start_index=start_index,
@@ -930,6 +974,13 @@ def _training_pair(
             else "legacy_v1"
         ),
     )
+    _require_td8_training_pair_ledger(
+        dataset,
+        protocol,
+        pair,
+        start_index=start_index,
+    )
+    return pair
 
 
 class _HoldQuantityPolicy:

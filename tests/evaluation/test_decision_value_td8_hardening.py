@@ -761,3 +761,78 @@ def test_td8_same_position_repeated_long_is_identical_to_quantity_hold() -> None
         pair.baseline_result.ledger_evidence.to_mapping()
         == pair.candidate_result.ledger_evidence.to_mapping()
     )
+
+
+def test_td8_study_rejects_an_unreported_candidate_or_scenario_roster() -> None:
+    """A declared study cannot silently run a different fixed set of arms."""
+    proto = study.upgrade_posture_aware_dev_protocol_v2(
+        study.default_2024q1_decision_value_dev_protocol()
+    )
+    with pytest.raises(ValueError, match="learner|roster|arm"):
+        replace(
+            proto,
+            study_plan=replace(
+                proto.study_plan,
+                learner_roster=("linear",),
+            ),
+        )
+    with pytest.raises(ValueError, match="scenario"):
+        replace(
+            proto,
+            scenarios=(("base", 1.0, 0),),
+        )
+    with pytest.raises(ValueError, match="scenario"):
+        replace(
+            proto,
+            scenarios=(
+                ("base", 1.0, 0),
+                ("base", 2.0, 0),
+                ("latency_1bar", 1.0, 1),
+                ("latency_2bar", 1.0, 2),
+            ),
+        )
+
+
+def test_td8_training_pair_requires_independent_interval_ledger_reconciliation() -> (
+    None
+):
+    """Changing an interior native cash expense cannot still produce a label."""
+    from trade_rl.evaluation.decision_value_ledger_oracle import (
+        verify_paired_economic_ledger,
+    )
+
+    data = _compact_market(90)
+    proto = study.upgrade_posture_aware_dev_protocol_v2(
+        study.default_2024q1_decision_value_dev_protocol()
+    )
+    pair = study._training_pair(data, proto, 30, (ACTION_LONG, ACTION_FLAT))
+    assert pair.eligible_for_label
+    for arm in (pair.baseline_result, pair.candidate_result):
+        assert verify_paired_economic_ledger(
+            arm,
+            data,
+            initial_capital=proto.study_plan.initial_capital,
+            expected_intervals=(
+                proto.study_plan.horizon_bars + study.POSTURE_START_LEAD_BARS
+            ),
+            expected_start_index=30 - study.POSTURE_START_LEAD_BARS,
+        )
+    corrupted = replace(
+        pair.baseline_result.ledger_evidence.intervals.intervals[0],
+        interval_cost=17.0,
+    )
+    ledger = pair.baseline_result.ledger_evidence
+    assert ledger is not None
+    changed_ledger = replace(
+        ledger,
+        intervals=replace(
+            ledger.intervals,
+            intervals=(corrupted, *ledger.intervals.intervals[1:]),
+        ),
+    )
+    fake = replace(
+        pair,
+        baseline_result=replace(pair.baseline_result, ledger_evidence=changed_ledger),
+    )
+    with pytest.raises(ValueError, match="independent|ledger"):
+        study._require_td8_training_pair_ledger(data, proto, fake, start_index=26)

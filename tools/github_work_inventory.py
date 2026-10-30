@@ -188,9 +188,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         "pull_requests": sorted(pulls, key=lambda pr: pr["number"]),
         "branches": branch_rows,
         "unclassified_branches": sorted(
-            b.name
-            for b in branches
-            if b.name not in observed_names and not b.protected
+            b.name for b in branches if b.name not in observed_names and not b.protected
         ),
         "warning": (
             "This is a read-only, incomplete Task projection. Closed Issue leases, "

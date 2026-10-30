@@ -352,7 +352,9 @@ def test_unfinished_workflow_statuses_all_protect_branch_refs(
         seen_statuses.append(status)
         return {
             "total_count": 1,
-            "workflow_runs": [{"head_branch": f"task/{status}", "status": status}],
+            "workflow_runs": [
+                {"id": 1, "head_branch": f"task/{status}", "status": status}
+            ],
         }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
@@ -381,7 +383,9 @@ def test_unfinished_workflow_without_branch_fails_closed(
         assert query is not None
         return {
             "total_count": 1,
-            "workflow_runs": [{"status": query["status"], "head_branch": None}],
+            "workflow_runs": [
+                {"id": 1, "status": query["status"], "head_branch": None}
+            ],
         }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
@@ -432,6 +436,70 @@ def test_unfinished_workflow_missing_result_count_fails_closed(
 
     monkeypatch.setattr(api, "_request_json", fake_request)
     with pytest.raises(RuntimeError, match="total_count"):
+        api.active_workflow_branch_names()
+
+
+@pytest.mark.parametrize(
+    ("variant", "error_pattern"),
+    [
+        ("duplicate-id", "duplicate workflow run id"),
+        ("count-drift", "total_count changed between pages"),
+        ("status-mismatch", "status differs from requested status"),
+        ("missing-id", "workflow run id is missing or invalid"),
+    ],
+)
+def test_unfinished_workflow_scan_rejects_inconsistent_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+    variant: str,
+    error_pattern: str,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        page = int(query["page"])
+        if status != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        if variant == "status-mismatch":
+            return {
+                "total_count": 1,
+                "workflow_runs": [
+                    {"id": 1, "status": "completed", "head_branch": "task/1"}
+                ],
+            }
+        if variant == "missing-id":
+            return {
+                "total_count": 1,
+                "workflow_runs": [{"status": status, "head_branch": "task/1"}],
+            }
+        if page == 1:
+            return {
+                "total_count": 101,
+                "workflow_runs": [
+                    {"id": i, "status": status, "head_branch": f"task/{i}"}
+                    for i in range(1, 101)
+                ],
+            }
+        if variant == "count-drift":
+            return {"total_count": 100, "workflow_runs": []}
+        return {
+            "total_count": 101,
+            "workflow_runs": [{"id": 1, "status": status, "head_branch": "task/1"}],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match=error_pattern):
         api.active_workflow_branch_names()
 
 

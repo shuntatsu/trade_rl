@@ -198,6 +198,8 @@ class GitHubApi:
         names: set[str] = set()
         for status in ("requested", "waiting", "pending", "queued", "in_progress"):
             page = 1
+            expected_total: int | None = None
+            seen_run_ids: set[int] = set()
             while True:
                 payload = self._request_json(
                     "GET",
@@ -220,6 +222,12 @@ class GitHubApi:
                     raise RuntimeError(
                         "workflow run search meets GitHub's 1000-result limit"
                     )
+                if expected_total is None:
+                    expected_total = count
+                elif count != expected_total:
+                    raise RuntimeError(
+                        "workflow run total_count changed between pages"
+                    )
                 if len(runs) > count or (page - 1) * 100 + len(runs) < min(
                     page * 100, count
                 ):
@@ -227,6 +235,16 @@ class GitHubApi:
                 for run in runs:
                     if not isinstance(run, dict):
                         raise RuntimeError("workflow run entry is not an object")
+                    run_id = run.get("id")
+                    if type(run_id) is not int or run_id <= 0:
+                        raise RuntimeError("workflow run id is missing or invalid")
+                    if run_id in seen_run_ids:
+                        raise RuntimeError("duplicate workflow run id within status")
+                    seen_run_ids.add(run_id)
+                    if run.get("status") != status:
+                        raise RuntimeError(
+                            "workflow run status differs from requested status"
+                        )
                     head_branch = run.get("head_branch")
                     if not isinstance(head_branch, str) or not head_branch:
                         raise RuntimeError(

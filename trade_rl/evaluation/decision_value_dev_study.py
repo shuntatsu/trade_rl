@@ -253,6 +253,8 @@ def compute_real_scope_authorization_digest(
     if training_reference_mode == TRAINING_REFERENCE_POSTURE:
         payload["training_reference_mode"] = training_reference_mode
         payload["training_reference_schedule"] = "6bar_anchor_posture_v2"
+        payload["evaluation_decision_interval_bars"] = 6
+        payload["evaluation_decision_anchor"] = 0
         payload["training_order_latency_bars"] = POSTURE_TRAINING_LATENCY_BARS
         payload["unexcited_state_prior_std"] = 1e-3
     elif training_reference_mode != TRAINING_REFERENCE_LEGACY:
@@ -474,6 +476,8 @@ class DecisionValueDevStudyProtocol:
         }
         if self.training_reference_mode == TRAINING_REFERENCE_POSTURE:
             payload["training_reference_mode"] = self.training_reference_mode
+            payload["evaluation_decision_interval_bars"] = 6
+            payload["evaluation_decision_anchor"] = 0
         return payload
 
     @property
@@ -838,6 +842,38 @@ class _CausalPostureReferencePolicy:
             snapshot,
             self._target_abs_weights,
         )
+
+
+class _AnchoredDecisionValuePolicy:
+    """Serve fitted TD8 heads on the same six-bar clock as their labels.
+
+    On intra-cycle bars, preserve exact filled positions or continue an
+    existing pending order. No predictive head is queried outside its trained
+    time-grid and the native risk/execution loop remains authoritative.
+    """
+
+    __slots__ = ("_policy", "_targets")
+
+    def __init__(
+        self,
+        policy: PortfolioPolicy,
+        *,
+        target_abs_weights: tuple[float, ...],
+    ) -> None:
+        self._policy = policy
+        self._targets = target_abs_weights
+
+    def decide_portfolio(
+        self, snapshot: PortfolioDecisionSnapshot
+    ) -> PortfolioTargetProposal:
+        if snapshot.index % 6 == 0:
+            return self._policy.decide_portfolio(snapshot)
+        action = (
+            _reference_continuation_action(snapshot)
+            if snapshot.active_orders
+            else (ACTION_HOLD,) * len(snapshot.symbols)
+        )
+        return preserve_posture_aware_proposal(action, snapshot, self._targets)
 
 
 def _training_execution_cost(
@@ -1475,6 +1511,29 @@ def run_decision_value_dev_study(
             risk_config=protocol.risk_config,
         )
 
+        # Compare value-head proposals only at an actually served decision
+        # instant. The TD8 learner is trained every six bars, not every hour.
+        model_probe_snapshot = snap_clean
+        if posture_aware:
+            first_anchor = block.eval_start_index + (-block.eval_start_index) % 6
+            if first_anchor >= block.eval_stop_index:
+                raise ValueError("TD8 evaluation has no scheduled decision")
+            model_probe_snapshot = build_portfolio_decision_snapshot(
+                dataset,
+                index=first_anchor,
+                agent_stop_index=block.eval_stop_index,
+                book=session_clean.book,
+                active_orders=session_clean.active_orders,
+                risk_config=protocol.risk_config,
+            )
+
+        def probe_value_head(policy: PortfolioPolicy) -> PortfolioTargetProposal:
+            if posture_aware:
+                return _AnchoredDecisionValuePolicy(
+                    policy, target_abs_weights=protocol.target_abs_weights
+                ).decide_portfolio(model_probe_snapshot)
+            return policy.decide_portfolio(model_probe_snapshot)
+
         pol_b0_probe = _CostAwareRidgePortfolioPolicy(
             dataset=dataset,
             model=b0_model,
@@ -1512,8 +1571,7 @@ def run_decision_value_dev_study(
             train_one_way_cost=train_switch_cost,
         )
         b1_probe_ok = b1_fit_ok and (
-            pol_b1_clean.decide_portfolio(snap_clean).target_weights
-            == pol_b1_pert_policy.decide_portfolio(snap_clean).target_weights
+            probe_value_head(pol_b1_clean) == probe_value_head(pol_b1_pert_policy)
         )
 
         pol_b1c_clean = ConservativeLinearDecisionValuePolicy(
@@ -1531,8 +1589,7 @@ def run_decision_value_dev_study(
             train_one_way_cost=train_switch_cost,
         )
         b1c_probe_ok = b1c_fit_ok and (
-            pol_b1c_clean.decide_portfolio(snap_clean).target_weights
-            == pol_b1c_pert_policy.decide_portfolio(snap_clean).target_weights
+            probe_value_head(pol_b1c_clean) == probe_value_head(pol_b1c_pert_policy)
         )
 
         pol_b2_clean = ShallowDecisionValuePolicy(
@@ -1550,8 +1607,7 @@ def run_decision_value_dev_study(
             train_one_way_cost=train_switch_cost,
         )
         b2_probe_ok = b2_fit_ok and (
-            pol_b2_clean.decide_portfolio(snap_clean).target_weights
-            == pol_b2_pert_policy.decide_portfolio(snap_clean).target_weights
+            probe_value_head(pol_b2_clean) == probe_value_head(pol_b2_pert_policy)
         )
 
         causality_probe_passed = bool(
@@ -1598,6 +1654,20 @@ def run_decision_value_dev_study(
                 train_one_way_cost=train_switch_cost,
             )
 
+            b1_serving: PortfolioPolicy = pol_b1_eval
+            b1c_serving: PortfolioPolicy = pol_b1c_eval
+            b2_serving: PortfolioPolicy = pol_b2_eval
+            if posture_aware:
+                b1_serving = _AnchoredDecisionValuePolicy(
+                    pol_b1_eval, target_abs_weights=protocol.target_abs_weights
+                )
+                b1c_serving = _AnchoredDecisionValuePolicy(
+                    pol_b1c_eval, target_abs_weights=protocol.target_abs_weights
+                )
+                b2_serving = _AnchoredDecisionValuePolicy(
+                    pol_b2_eval, target_abs_weights=protocol.target_abs_weights
+                )
+
             arm_policies: tuple[tuple[str, PortfolioPolicy], ...] = (
                 ("cash", CashPortfolioPolicy(symbols=dataset.symbols)),
                 (
@@ -1618,9 +1688,9 @@ def run_decision_value_dev_study(
                         one_way_switch_cost=scen_switch_cost,
                     ),
                 ),
-                ("linear_value", pol_b1_eval),
-                ("conservative_linear_value", pol_b1c_eval),
-                ("shallow_value", pol_b2_eval),
+                ("linear_value", b1_serving),
+                ("conservative_linear_value", b1c_serving),
+                ("shallow_value", b2_serving),
             )
 
             for arm_name, policy in arm_policies:

@@ -373,6 +373,13 @@ def test_posture_v2_end_to_end_uses_only_verified_artifact_and_new_evidence(
     )
     assert result.schema_version == "decision_value_dev_study_result_v2"
     assert result.training_reference_mode == "causal_posture_v2"
+    assert proto.to_mapping()["evaluation_decision_interval_bars"] == 6
+    assert proto.to_mapping()["evaluation_decision_anchor"] == 0
+    import json
+
+    saved_protocol = json.loads((tmp_path / "output" / "protocol.json").read_text())
+    assert saved_protocol["evaluation_decision_interval_bars"] == 6
+    assert saved_protocol["evaluation_decision_anchor"] == 0
     block_result = result.blocks[0]
     assert block_result.training_rows == 6 * 9
     assert block_result.training_posture_counts is not None
@@ -538,3 +545,54 @@ def test_legacy_study_api_also_rejects_self_attested_fake_source() -> None:
     ):
         with pytest.raises(ValueError, match="artifact|verified|identity"):
             study.run_decision_value_dev_study(synthetic, old)
+
+
+def test_td8_serving_decisions_match_the_six_bar_training_clock() -> None:
+    """The fitted head cannot silently execute on unseen intra-cycle hours."""
+    from trade_rl.strategies.portfolio import PortfolioTargetProposal
+
+    snapshot = replace(_held_snapshot(), agent_stop_index=24, remaining_decisions=23)
+
+    class RecordingHead:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+
+        def decide_portfolio(self, obs):
+            self.calls.append(obs.index)
+            return PortfolioTargetProposal((0.4, 0.0))
+
+    fitted = RecordingHead()
+    policy = study._AnchoredDecisionValuePolicy(fitted, target_abs_weights=(0.4, 0.4))
+    for t in (10, 11, 12, 13, 14, 18):
+        result = policy.decide_portfolio(
+            replace(snapshot, index=t, remaining_decisions=24 - t)
+        )
+        if t % 6 != 0:
+            assert result.target_weights == snapshot.account.weights
+            assert result.hold_current_quantity_symbols == (0, 1)
+    assert fitted.calls == [12, 18]
+
+
+def test_td8_off_anchor_pending_orders_complete_without_duplicating() -> None:
+    from tests.strategies.test_decision_value import _pending_order
+
+    snap = replace(
+        _snapshot(),
+        index=13,
+        agent_stop_index=24,
+        remaining_decisions=11,
+        active_orders=(_pending_order(),),
+    )
+
+    class NoOffAnchorCalls:
+        def decide_portfolio(self, _snapshot):
+            raise AssertionError("fitted model must not trade on hour 13")
+
+    policy = study._AnchoredDecisionValuePolicy(
+        NoOffAnchorCalls(), target_abs_weights=(0.4, 0.4)
+    )
+    proposal = policy.decide_portfolio(snap)
+    # Preserve the existing one-share pending order (0.1 of equity).
+    # The off-anchor policy must not submit another trade to reach 0.4.
+    assert proposal.target_weights[0] == pytest.approx(0.1)
+    assert 0 not in proposal.hold_current_quantity_symbols

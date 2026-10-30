@@ -277,6 +277,7 @@ def test_work_inventory_rejects_duplicate_pr_and_issue_pages() -> None:
             "repo": {"full_name": api.repository},
         },
     }
+    api.branch_rows += (BranchInfo("feature/pr", "d" * 40, False),)
     api.pull_rows = [pr, pr]
     with pytest.raises(RuntimeError, match="duplicate open PR"):
         build_inventory(api)  # type: ignore[arg-type]

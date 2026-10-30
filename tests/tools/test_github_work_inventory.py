@@ -11,7 +11,11 @@ from tools.agent_repo.coordination.github_state import (
 from tools.agent_repo.coordination.leases import lease_branch_name
 from tools.agent_repo.coordination.model import TaskPhase
 from tools.branch_hygiene import BranchInfo
-from tools.github_work_inventory import build_inventory, classify_ancestry
+from tools.github_work_inventory import (
+    GitHubWorkApi,
+    build_inventory,
+    classify_ancestry,
+)
 
 
 class FakeWorkApi:
@@ -48,6 +52,15 @@ class FakeWorkApi:
     def compare_head_to_main(self, head_sha: str, main_sha: str) -> str:
         assert main_sha == "a" * 40
         return "head_in_main" if head_sha == "d" * 40 else "main_in_head"
+
+
+def test_work_inventory_public_adapter_exposes_no_mutating_operations() -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+    assert not hasattr(api, "delete_branches_with_leases")
+    assert not hasattr(api, "create_retention_commit")
+    assert not hasattr(api, "create_branch_ref")
+    assert not hasattr(api, "update_branch_ref")
+    assert not hasattr(api, "apply_cleanup")
 
 
 def test_compare_direction_prevents_closing_ahead_pr() -> None:
@@ -115,7 +128,8 @@ def test_coordinator_projection_only_protects_never_authorizes() -> None:
     report = build_inventory(api)  # type: ignore[arg-type]
     reasons = {row["name"]: row["reason"] for row in report["branches"]}
     assert report["task_projection_count"] == 1
-    assert reasons[branch] == "coordinator_projection"
+    assert reasons[branch] == "unverified_task_comment"
+    assert report["task_projection_trusted"] is False
     assert report["cleanup_authorized"] is False
 
 

@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from tools.agent_repo.coordination.github_state import parse_status_comment
-from tools.branch_hygiene import GitHubApi
+from tools.branch_hygiene import BranchInfo, GitHubApi
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _TASK_MARKER = "<!-- agent-coordination:"
@@ -81,28 +81,34 @@ def _pull_identity(
     return number, head_sha, base_name, base_sha, head_name
 
 
-class GitHubWorkApi(GitHubApi):
-    """Network adapter outside the network-free agent_repo package."""
+class GitHubWorkApi:
+    """Read-only public adapter; the underlying shared client is not a security boundary."""
 
     def __init__(self, *, repository: str, token: str) -> None:
-        super().__init__(
+        self._reader = GitHubApi(
             repository=repository, token=token, api_url="https://api.github.com"
         )
         self.repository = repository
 
+    def repository_default_branch(self) -> str:
+        return self._reader.repository_default_branch()
+
+    def branches(self) -> tuple[BranchInfo, ...]:
+        return self._reader.branches()
+
     def open_pulls(self) -> list[Any]:
-        return self._list_pages("pulls", state="open")
+        return self._reader._list_pages("pulls", state="open")
 
     def open_issues(self) -> list[Any]:
-        return self._list_pages("issues", state="open")
+        return self._reader._list_pages("issues", state="open")
 
     def issue_comments(self, issue_number: int) -> list[Any]:
-        return self._list_pages(f"issues/{issue_number}/comments")
+        return self._reader._list_pages(f"issues/{issue_number}/comments")
 
     def compare_head_to_main(self, head_sha: str, main_sha: str) -> str:
         head = _sha(head_sha, "head_sha")
         main = _sha(main_sha, "main_sha")
-        payload = self._request_json("GET", f"compare/{head}...{main}")
+        payload = self._reader._request_json("GET", f"compare/{head}...{main}")
         return classify_ancestry(_mapping(payload, "compare"))
 
 
@@ -209,7 +215,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         elif branch.name in open_names:
             reason = "open_pr_ref"
         elif branch.name in task_branches:
-            reason = "coordinator_projection"
+            reason = "unverified_task_comment"
         else:
             reason = "unclassified"
         branch_rows.append(
@@ -227,6 +233,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
         "open_issue_count": open_issues,
         "open_pr_count": len(pulls),
         "task_projection_count": len(task_ids),
+        "task_projection_trusted": False,
         "task_scope": "open_issue_comments_only",
         "task_registry_complete": False,
         "workflow_activity_checked": False,
@@ -237,10 +244,11 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
             b.name for b in branches if b.name not in observed_names and not b.protected
         ),
         "warning": (
-            "This is a read-only, incomplete Task projection. Closed Issue leases, "
-            "unregistered work, active workflow runs, and coordinator ownership "
-            "have not been independently verified. A stable readback is not an "
-            "atomic snapshot. Never use as deletion authority."
+            "This is a read-only, incomplete Task projection. The author of a "
+            "Coordinator-shaped Issue comment has not been authenticated. Closed "
+            "Issue leases, unregistered work, active workflow runs, and coordinator "
+            "ownership remain unverified; a stable readback is not an atomic "
+            "snapshot. Never use as deletion authority."
         ),
     }
 

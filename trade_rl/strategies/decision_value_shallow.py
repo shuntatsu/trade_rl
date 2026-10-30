@@ -26,6 +26,7 @@ from trade_rl.strategies.decision_value import (
     encode_decision_value_state_v2,
     incremental_scenario_cost_adjustment,
     is_native_flat_without_pending,
+    is_native_hold_equivalent,
     preserve_posture_aware_proposal,
 )
 from trade_rl.strategies.portfolio import (
@@ -272,6 +273,8 @@ class ShallowDecisionValuePolicy:
         ) and is_native_flat_without_pending(snapshot):
             return 0.0
         if action == self.model.candidate_actions[0]:
+            return 0.0
+        if is_native_hold_equivalent(action, snapshot, self.model.target_abs_weights):
             return 0.0
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights

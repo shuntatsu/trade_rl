@@ -385,3 +385,156 @@ def test_posture_v2_end_to_end_uses_only_verified_artifact_and_new_evidence(
     assert summary["validity_status"] == "software_only_no_G4_authorization"
     assert summary["blocks"][0]["training_posture_counts"]["pending"] > 0
     assert not (tmp_path / "output" / "unstated_real_returns.json").exists()
+
+
+def test_existing_posture_equivalent_directional_action_has_zero_delta() -> None:
+    """Repeating a filled position's exact target is not extra profit vs HOLD."""
+    snap = _held_snapshot()
+    lm = _model()
+    cm = _conservative_model(cov_diag_val=0.0, uncertainty_penalty_weight=0.0)
+    lp = LinearDecisionValuePolicy(lm, runtime_context=_context(lm))
+    cp = ConservativeLinearDecisionValuePolicy(cm, runtime_context=_context(lm))
+    same_posture = (ACTION_LONG, ACTION_HOLD)
+    assert lp.value_for_action(snap, same_posture) == 0.0
+    assert cp.conservative_value_for_action(snap, same_posture) == 0.0
+    assert cp.predictive_std_for_action(snap, same_posture) == 0.0
+
+
+def test_independent_ledger_oracle_rejects_forged_terminal_and_fill_fields() -> None:
+    """Final book equality alone cannot admit a fabricated interval/receipt."""
+    from trade_rl.evaluation.decision_value_ledger_oracle import (
+        verify_paired_economic_ledger,
+    )
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+    from trade_rl.risk.pretrade import PreTradeRisk
+    from trade_rl.strategies.portfolio_adapter import CashPortfolioPolicy
+
+    data = _compact_market(16)
+    proto = study.default_2024q1_decision_value_dev_protocol()
+    result = run_shared_portfolio_replay(
+        data,
+        CashPortfolioPolicy(symbols=data.symbols),
+        start_index=5,
+        stop_index=12,
+        initial_capital=100_000.0,
+        execution_cost=proto.base_execution_cost,
+        risk=PreTradeRisk(proto.risk_config),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    assert verify_paired_economic_ledger(
+        result,
+        data,
+        expected_intervals=7,
+        expected_start_index=5,
+        initial_capital=100_000.0,
+    )
+    wrapper = result.ledger_evidence
+    assert wrapper is not None
+    ledger = wrapper.intervals
+
+    def reject(*, interval=None, **ledger_overrides):
+        replacement = (
+            ledger
+            if interval is None
+            else replace(ledger, intervals=(interval, *ledger.intervals[1:]))
+        )
+        invalid = replace(
+            result,
+            ledger_evidence=replace(
+                wrapper, intervals=replace(replacement, **ledger_overrides)
+            ),
+        )
+        assert not verify_paired_economic_ledger(
+            invalid,
+            data,
+            expected_intervals=7,
+            expected_start_index=5,
+            initial_capital=100_000.0,
+        )
+
+    # In the old oracle, these cases all pass because terminal account totals
+    # were the only values compared.
+    reject(final_max_drawdown=0.5)
+    reject(final_turnover_total=100.0)
+    reject(active_order_remainders=(("AAA", 1.0),))
+    reject(dataset_id="f" * 64)
+    reject(start_index=6)
+    reject(interval=replace(ledger.intervals[0], interval_cost=123.0))
+    reject(interval=replace(ledger.intervals[0], total_cost_before=123.0))
+
+
+def test_independent_ledger_oracle_checks_raw_fill_receipts() -> None:
+    """An individual fill cannot hide inconsistent event cost/notional/clock."""
+    from trade_rl.evaluation.decision_value_ledger_oracle import (
+        verify_paired_economic_ledger,
+    )
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+    from trade_rl.risk.pretrade import PreTradeRisk
+    from trade_rl.strategies.portfolio_policy_codec import ACTION_LONG
+
+    data = _compact_market(16)
+    proto = study.default_2024q1_decision_value_dev_protocol()
+    result = run_shared_portfolio_replay(
+        data,
+        study._FixedEntryPolicy(
+            action=(ACTION_LONG, ACTION_LONG),
+            target_abs_weights=proto.target_abs_weights,
+        ),
+        start_index=5,
+        stop_index=12,
+        initial_capital=100_000.0,
+        execution_cost=proto.base_execution_cost,
+        risk=PreTradeRisk(proto.risk_config),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    assert verify_paired_economic_ledger(
+        result,
+        data,
+        expected_intervals=7,
+        expected_start_index=5,
+        initial_capital=100_000.0,
+    )
+    wrapper = result.ledger_evidence
+    assert wrapper is not None
+    intervals = list(wrapper.intervals.intervals)
+    for i, interval in enumerate(intervals):
+        for j, event in enumerate(interval.order_events):
+            if not event.filled_quantity:
+                continue
+            for altered in (
+                replace(event, timestamp_ns=event.timestamp_ns + 1),
+                replace(event, filled_notional=event.filled_notional + 1),
+            ):
+                events = list(interval.order_events)
+                events[j] = altered
+                changed = intervals.copy()
+                changed[i] = replace(interval, order_events=tuple(events))
+                invalid = replace(
+                    result,
+                    ledger_evidence=replace(
+                        wrapper,
+                        intervals=replace(wrapper.intervals, intervals=tuple(changed)),
+                    ),
+                )
+                assert not verify_paired_economic_ledger(
+                    invalid,
+                    data,
+                    expected_intervals=7,
+                    expected_start_index=5,
+                    initial_capital=100_000.0,
+                )
+            return
+    pytest.fail("No filled order events in the synthetic replay")
+
+
+def test_legacy_study_api_also_rejects_self_attested_fake_source() -> None:
+    """A historical schema does not authorize new runs from unverified bytes."""
+    old = study.default_2024q1_decision_value_dev_protocol()
+    synthetic = replace(_compact_market(2200), dataset_id=old.dataset_id)
+    with patch.object(
+        study, "fit_ridge_forecast", side_effect=AssertionError("FIT_REACHED")
+    ):
+        with pytest.raises(ValueError, match="artifact|verified|identity"):
+            study.run_decision_value_dev_study(synthetic, old)

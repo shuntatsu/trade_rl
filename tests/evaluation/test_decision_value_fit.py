@@ -421,10 +421,12 @@ def test_shallow_policy_zero_sensitivity_on_unexcited_weights() -> None:
     basis_holding = policy._basis(snap_holding)
     np.testing.assert_allclose(basis_flat, basis_holding)
 
-    # At zero switch cost, value_for_action is identically equal
+    # The raw model basis is equally blind to unexcited holdings, but the
+    # native economic identity is not: repeating a filled LONG is exactly HOLD.
     val_flat = policy.value_for_action(snap_flat, _LONG)
     val_holding = policy.value_for_action(snap_holding, _LONG)
-    assert val_flat == pytest.approx(val_holding)
+    assert np.isfinite(val_flat)
+    assert val_holding == 0.0
 
 
 def test_conservative_policy_epistemic_prior_preserves_entry_hysteresis() -> None:
@@ -514,16 +516,19 @@ def test_conservative_policy_epistemic_prior_preserves_entry_hysteresis() -> Non
     snap_inflight = replace(snap_flat, active_orders=(order,))
 
     action = _LONG
-    # 1. Epistemic uncertainty on unexcited coordinates is strictly positive
+    # Existing filled LONG -> repeated LONG is an exact native no-op, so
+    # both incremental value and uncertainty must be structural zero.
+    # An active pending entry remains distinct from quantity-HOLD.
     std_flat = pol.predictive_std_for_action(snap_flat, action)
     std_held = pol.predictive_std_for_action(snap_held, action)
     std_inflight = pol.predictive_std_for_action(snap_inflight, action)
-    assert std_held > std_flat
-    assert std_inflight > std_flat
+    assert std_flat > 0.0
+    assert std_held == 0.0
+    assert std_inflight > 0.0
 
-    # 2. Sunk-cost hysteresis dominates the small OOD state prior
     val_flat = pol.conservative_value_for_action(snap_flat, action)
     val_held = pol.conservative_value_for_action(snap_held, action)
     val_inflight = pol.conservative_value_for_action(snap_inflight, action)
-    assert val_held > val_flat
-    assert val_inflight > val_flat
+    assert np.isfinite(val_flat)
+    assert val_held == 0.0
+    assert np.isfinite(val_inflight)

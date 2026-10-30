@@ -554,6 +554,25 @@ def preserve_posture_aware_proposal(
     )
 
 
+def is_native_hold_equivalent(
+    action: tuple[int, ...],
+    snapshot: PortfolioDecisionSnapshot,
+    target_abs_weights: tuple[float, ...],
+) -> bool:
+    """An executable no-op has zero incremental value, whatever its code.
+
+    A same-direction LONG over an already filled long is often just
+    quantity-HOLD. Do not allow a predictive head to claim extra value for
+    the exact same native request; if pending orders differ, it is NOT a no-op.
+    """
+    hold = (ACTION_HOLD,) * len(snapshot.symbols)
+    if action == hold:
+        return True
+    return preserve_posture_aware_proposal(
+        action, snapshot, target_abs_weights
+    ) == preserve_posture_aware_proposal(hold, snapshot, target_abs_weights)
+
+
 class LinearDecisionValuePolicy:
     """Synthetic-only PortfolioPolicy; hard risk and native execution stay downstream."""
 
@@ -617,6 +636,8 @@ class LinearDecisionValuePolicy:
         ) and is_native_flat_without_pending(snapshot):
             return 0.0
         if action == self.model.candidate_actions[0]:
+            return 0.0
+        if is_native_hold_equivalent(action, snapshot, self.model.target_abs_weights):
             return 0.0
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
@@ -945,6 +966,8 @@ class ConservativeLinearDecisionValuePolicy:
             return 0.0
         if action == self.model.candidate_actions[0]:
             return 0.0
+        if is_native_hold_equivalent(action, snapshot, self.model.target_abs_weights):
+            return 0.0
         k = self.model.candidate_actions.index(action) - 1
         features = self._features(snapshot)
         var = float(features @ self._covs[k] @ features)
@@ -962,6 +985,8 @@ class ConservativeLinearDecisionValuePolicy:
         ) and is_native_flat_without_pending(snapshot):
             return 0.0
         if action == self.model.candidate_actions[0]:
+            return 0.0
+        if is_native_hold_equivalent(action, snapshot, self.model.target_abs_weights):
             return 0.0
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights

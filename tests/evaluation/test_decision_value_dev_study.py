@@ -405,9 +405,14 @@ def test_default_2024q1_protocol_construction_and_fail_closed() -> None:
 def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
     tmp_path: Path,
 ) -> None:
-    dataset = _compact_market(90)
+    from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
+
+    dataset = _compact_market(90).with_content_identity(
+        {"source": "closed synthetic legacy fixture"}
+    )
+    artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
     dataset_id = dataset.dataset_id
-    artifact_digest = "e" * 64
+    artifact_digest = artifact.artifact_digest
     symbols = dataset.symbols
     initial_capital = 100_000.0
     target_abs_weights = (0.25, 0.25)
@@ -518,6 +523,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         dataset,
         protocol,
         actual_artifact_digest=artifact_digest,
+        artifact_root=artifact.root,
         output_dir=out_dir,
     )
 

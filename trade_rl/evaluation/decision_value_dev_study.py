@@ -112,12 +112,14 @@ def _verify_ledger_reconciliation(
     expected_intervals: int,
     dataset: MarketDataset,
     initial_capital: float,
+    expected_start_index: int | None = None,
 ) -> bool:
     return verify_paired_economic_ledger(
         replay_res,
         dataset,
         expected_intervals=expected_intervals,
         initial_capital=initial_capital,
+        expected_start_index=expected_start_index,
     )
 
 
@@ -1153,42 +1155,38 @@ def run_decision_value_dev_study(
         raise TypeError("protocol must be a DecisionValueDevStudyProtocol")
     if output_dir is not None and Path(output_dir).exists():
         raise FileExistsError(f"output_dir already exists: {output_dir}")
-    if protocol.training_reference_mode == TRAINING_REFERENCE_POSTURE:
-        # Only a canonical published artifact is accepted as future evidence.
-        # A supplied Dataset ID or self-declared digest cannot attest raw bytes.
-        if artifact_root is None:
-            raise ValueError("causal_posture_v2 requires a verified artifact_root")
-        artifact, verified_dataset = load_published_market_dataset_artifact(
-            artifact_root
+    # Every real_development API invocation, including historical protocol
+    # v1, must verify the bytes of the published artifact. The old fallback
+    # trusted a caller-supplied Dataset ID / digest without reading any bytes.
+    if dataset.dataset_id != protocol.dataset_id:
+        raise ValueError(
+            f"dataset dataset_id {dataset.dataset_id} differs from protocol {protocol.dataset_id}"
         )
-        if (
-            not dataset.identity_verified
-            or verified_dataset.dataset_id != protocol.dataset_id
-            or dataset.dataset_id != verified_dataset.dataset_id
-            or artifact.artifact_digest != protocol.expected_artifact_digest
-        ):
-            raise ValueError("verified artifact identity differs from the study")
-        if (
-            actual_artifact_digest is not None
-            and actual_artifact_digest != artifact.artifact_digest
-        ):
-            raise ValueError("actual_artifact_digest differs from verified artifact")
-        dataset = verified_dataset
-        resolved_artifact_digest = artifact.artifact_digest
-    else:
-        if dataset.dataset_id != protocol.dataset_id:
-            raise ValueError(
-                f"dataset dataset_id {dataset.dataset_id} differs from protocol {protocol.dataset_id}"
-            )
-        resolved_artifact_digest = (
-            actual_artifact_digest
-            if actual_artifact_digest is not None
-            else protocol.expected_artifact_digest
+    if (
+        actual_artifact_digest is not None
+        and actual_artifact_digest != protocol.expected_artifact_digest
+    ):
+        raise ValueError(
+            f"actual_artifact_digest {actual_artifact_digest} differs "
+            f"from expected {protocol.expected_artifact_digest}"
         )
-        if resolved_artifact_digest != protocol.expected_artifact_digest:
-            raise ValueError(
-                f"actual_artifact_digest {resolved_artifact_digest} differs from expected {protocol.expected_artifact_digest}"
-            )
+    if artifact_root is None:
+        raise ValueError("real_development requires verified artifact_root")
+    artifact, verified_dataset = load_published_market_dataset_artifact(artifact_root)
+    if (
+        not dataset.identity_verified
+        or verified_dataset.dataset_id != protocol.dataset_id
+        or dataset.dataset_id != verified_dataset.dataset_id
+        or artifact.artifact_digest != protocol.expected_artifact_digest
+    ):
+        raise ValueError("verified artifact identity differs from the study")
+    if (
+        actual_artifact_digest is not None
+        and actual_artifact_digest != artifact.artifact_digest
+    ):
+        raise ValueError("actual_artifact_digest differs from verified artifact")
+    dataset = verified_dataset
+    resolved_artifact_digest = artifact.artifact_digest
     if tuple(dataset.symbols) != protocol.study_plan.symbols:
         raise ValueError("dataset symbols do not match study_plan symbols")
     for block in protocol.blocks:
@@ -1643,6 +1641,7 @@ def run_decision_value_dev_study(
                 if not _verify_ledger_reconciliation(
                     replay_res,
                     expected_intervals=expected_intervals,
+                    expected_start_index=block.eval_start_index,
                     dataset=dataset,
                     initial_capital=protocol.study_plan.initial_capital,
                 ):

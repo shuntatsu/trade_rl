@@ -211,8 +211,19 @@ class GitHubApi:
                 if not isinstance(payload, dict):
                     raise RuntimeError("workflow run list is not an object")
                 runs = payload.get("workflow_runs")
+                count = payload.get("total_count")
                 if not isinstance(runs, list):
                     raise RuntimeError("workflow_runs is not a list")
+                if type(count) is not int or count < 0:
+                    raise RuntimeError("workflow run total_count is missing or invalid")
+                if count >= 1000:
+                    raise RuntimeError(
+                        "workflow run search meets GitHub's 1000-result limit"
+                    )
+                if len(runs) > count or (page - 1) * 100 + len(runs) < min(
+                    page * 100, count
+                ):
+                    raise RuntimeError("workflow run pagination is incomplete")
                 for run in runs:
                     if not isinstance(run, dict):
                         raise RuntimeError("workflow run entry is not an object")

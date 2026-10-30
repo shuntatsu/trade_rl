@@ -350,7 +350,10 @@ def test_unfinished_workflow_statuses_all_protect_branch_refs(
         assert query is not None
         status = query["status"]
         seen_statuses.append(status)
-        return {"workflow_runs": [{"head_branch": f"task/{status}", "status": status}]}
+        return {
+            "total_count": 1,
+            "workflow_runs": [{"head_branch": f"task/{status}", "status": status}],
+        }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
     assert api.active_workflow_branch_names() == frozenset(
@@ -376,10 +379,59 @@ def test_unfinished_workflow_without_branch_fails_closed(
         assert method == "GET"
         assert suffix == "actions/runs"
         assert query is not None
-        return {"workflow_runs": [{"status": query["status"], "head_branch": None}]}
+        return {
+            "total_count": 1,
+            "workflow_runs": [{"status": query["status"], "head_branch": None}],
+        }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
     with pytest.raises(RuntimeError, match="head_branch"):
+        api.active_workflow_branch_names()
+
+
+def test_unfinished_workflow_search_limit_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        return {"total_count": 1000, "workflow_runs": []}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="1000-result limit"):
+        api.active_workflow_branch_names()
+
+
+def test_unfinished_workflow_missing_result_count_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        return {"workflow_runs": []}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="total_count"):
         api.active_workflow_branch_names()
 
 

@@ -5,7 +5,10 @@ from dataclasses import replace
 import pytest
 
 import trade_rl.simulation.diagnostics.funding as funding_evidence
-from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
+from trade_rl.simulation.diagnostics.funding import (
+    FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2,
+    FundingBoundaryEvidence,
+)
 
 _DATASET_ID = "a" * 64
 _EXECUTION_POLICY_DIGEST = "b" * 64
@@ -60,6 +63,129 @@ def test_funding_evidence_artifact_round_trips_canonically() -> None:
     assert loaded.to_mapping()["schema_version"] == (
         "execution_funding_boundary_artifact_v1"
     )
+
+
+def test_v2_funding_evidence_preserves_event_price_rates_and_amount_oracle() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=10,
+        timestamp_ns=1_000,
+        funding_due=(True, True),
+        signed_quantities=(10.0, -4.0),
+        mark_prices=(120.0, 80.0),
+        contract_multipliers=(2.0, 3.0),
+        funding_rates=(0.001, -0.002),
+        funding_amount=-4.3,
+        equity_before_funding=1_200.0,
+        equity_after_funding=1_195.7,
+        funding_price_rates=(0.125, -0.15),
+    )
+    artifact = funding_evidence.build_funding_evidence_artifact(
+        dataset_id=_DATASET_ID,
+        execution_policy_digest=_EXECUTION_POLICY_DIGEST,
+        symbol_count=2,
+        boundaries=(boundary,),
+    )
+
+    restored = funding_evidence.load_funding_evidence_artifact_bytes(artifact.raw_bytes)
+
+    assert artifact.schema_version == FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2
+    assert restored == artifact
+    assert restored.boundaries[0].funding_price_rates == pytest.approx((0.125, -0.15))
+    assert restored.boundaries[0].funding_rates == pytest.approx((0.001, -0.002))
+
+
+def test_funding_evidence_schema_rejects_missing_or_mixed_event_price_rates() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=10,
+        timestamp_ns=1_000,
+        funding_due=(True,),
+        signed_quantities=(10.0,),
+        mark_prices=(120.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.001,),
+        funding_amount=-1.25,
+        equity_before_funding=1_200.0,
+        equity_after_funding=1_198.75,
+        funding_price_rates=(0.125,),
+    )
+    v1_mapping = boundary.to_mapping()
+    del v1_mapping["funding_price_rates"]
+    with pytest.raises(ValueError, match="mark notional"):
+        FundingBoundaryEvidence.from_mapping(v1_mapping)
+
+    legacy = FundingBoundaryEvidence(
+        processing_index=11,
+        timestamp_ns=2_000,
+        funding_due=(True,),
+        signed_quantities=(10.0,),
+        mark_prices=(120.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.001,),
+        funding_amount=-1.2,
+        equity_before_funding=1_198.75,
+        equity_after_funding=1_197.55,
+    )
+    with pytest.raises(ValueError, match="requires event-price rates"):
+        funding_evidence.FundingEvidenceArtifact(
+            dataset_id=_DATASET_ID,
+            execution_policy_digest=_EXECUTION_POLICY_DIGEST,
+            symbol_count=1,
+            boundaries=(boundary, legacy),
+            schema_version=FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2,
+        )
+
+
+def test_v2_funding_evidence_rejects_missing_event_price_rates() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=10,
+        timestamp_ns=1_000,
+        funding_due=(True,),
+        signed_quantities=(10.0,),
+        mark_prices=(120.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.001,),
+        funding_amount=-1.2,
+        equity_before_funding=1_200.0,
+        equity_after_funding=1_198.8,
+    )
+    v2_mapping: dict[str, object] = {
+        "boundaries": (boundary.to_mapping(),),
+        "dataset_id": _DATASET_ID,
+        "execution_policy_digest": _EXECUTION_POLICY_DIGEST,
+        "schema_version": FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2,
+        "symbol_count": 1,
+    }
+
+    with pytest.raises(ValueError, match="v2 requires event-price rates"):
+        funding_evidence.FundingEvidenceArtifact.from_mapping(v2_mapping)
+
+
+def test_v2_funding_evidence_rejects_tampered_event_price_rate() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=10,
+        timestamp_ns=1_000,
+        funding_due=(True,),
+        signed_quantities=(10.0,),
+        mark_prices=(120.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.001,),
+        funding_amount=-1.25,
+        equity_before_funding=1_200.0,
+        equity_after_funding=1_198.75,
+        funding_price_rates=(0.125,),
+    )
+    boundary_mapping = boundary.to_mapping()
+    boundary_mapping["funding_price_rates"] = (0.126,)
+    v2_mapping: dict[str, object] = {
+        "boundaries": (boundary_mapping,),
+        "dataset_id": _DATASET_ID,
+        "execution_policy_digest": _EXECUTION_POLICY_DIGEST,
+        "schema_version": FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2,
+        "symbol_count": 1,
+    }
+
+    with pytest.raises(ValueError, match="event-price rates"):
+        funding_evidence.FundingEvidenceArtifact.from_mapping(v2_mapping)
 
 
 def test_empty_funding_evidence_is_explicit_and_identity_bound() -> None:

@@ -19,6 +19,7 @@ REQUIRED_DOC_FILES = {
     "architecture/controlled-experiment-loop.md",
     "architecture/final-evaluation-authorization.md",
     "architecture/research-assurance.md",
+    "architecture/insolvency-valuation.md",
     "research/current-status.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
@@ -37,6 +38,7 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
+    DOCS / "architecture" / "insolvency-valuation.md",
     DOCS / "research" / "current-status.md",
     ROOT / "LICENSES" / "LICENSING.md",
     ROOT / "LICENSES" / "PROVENANCE.md",
@@ -53,6 +55,7 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
+    DOCS / "architecture" / "insolvency-valuation.md",
     DOCS / "research" / "current-status.md",
 )
 
@@ -192,6 +195,7 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/controlled-experiment-loop.md",
         "architecture/final-evaluation-authorization.md",
         "architecture/research-assurance.md",
+        "architecture/insolvency-valuation.md",
         "research/current-status.md",
     ):
         assert target in index

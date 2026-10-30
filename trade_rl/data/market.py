@@ -13,6 +13,8 @@ from trade_rl._validation import require_sha256, require_unique_non_empty
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.identity import (
+    MARKET_DATASET_IDENTITY_SCHEMA,
+    MARKET_DATASET_IDENTITY_SCHEMA_V7,
     canonical_identity_json,
     compute_market_dataset_id,
     parse_identity_json,
@@ -133,6 +135,9 @@ class MarketDataset:
     feature_config_digest: str = _ZERO_DIGEST
     normalization_digest: str = _ZERO_DIGEST
     identity_payload_json: str | None = None
+    # Present only for identity v7 datasets that bind event-price funding
+    # economics separately from the legacy rate-at-bar-mark calculation.
+    funding_price_rate: np.ndarray | None = None
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
     _nominal_bar_hours: float = field(init=False, repr=False)
@@ -494,6 +499,17 @@ class MarketDataset:
             if self.mark_price is not None
             else close
         )
+        funding_price_rate = (
+            _optional_array(
+                self.funding_price_rate,
+                shape=price_shape,
+                dtype=np.dtype(np.float64),
+                default=0.0,
+                field_name="funding_price_rate",
+            )
+            if self.funding_price_rate is not None
+            else None
+        )
         index_price = (
             _optional_array(
                 self.index_price,
@@ -603,6 +619,8 @@ class MarketDataset:
             raise ValueError("delisting_recovery must be within [0, 1]")
         if not np.isfinite(cash_rate).all():
             raise ValueError("cash_rate must be finite")
+        if funding_price_rate is not None and not np.isfinite(funding_price_rate).all():
+            raise ValueError("funding_price_rate must be finite")
 
         information_is_immediate = bool(np.array_equal(available_at, event_times))
         eligibility_invalid_prefix = _readonly_array(
@@ -676,6 +694,7 @@ class MarketDataset:
         object.__setattr__(self, "buy_allowed", buy_allowed)
         object.__setattr__(self, "sell_allowed", sell_allowed)
         object.__setattr__(self, "mark_price", mark_price)
+        object.__setattr__(self, "funding_price_rate", funding_price_rate)
         object.__setattr__(self, "index_price", index_price)
         object.__setattr__(self, "dividend", dividend)
         object.__setattr__(self, "split_factor", split_factor)
@@ -706,6 +725,27 @@ class MarketDataset:
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
             canonical_payload_json = canonical_identity_json(payload)
+            identity_schema = payload.get("schema")
+            if (
+                identity_schema == MARKET_DATASET_IDENTITY_SCHEMA
+                and funding_price_rate is not None
+            ):
+                raise ValueError(
+                    "identity v6 cannot bind funding_price_rate; use identity v7"
+                )
+            if (
+                identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7
+                and funding_price_rate is None
+            ):
+                raise ValueError("identity v7 requires funding_price_rate")
+            if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7:
+                stored_contract = payload.get("dataset_contract")
+                if not isinstance(stored_contract, dict) or canonical_identity_json(
+                    stored_contract
+                ) != canonical_identity_json(self.identity_contract_payload()):
+                    raise ValueError(
+                        "dataset_id does not match the current dataset contract"
+                    )
             resolved_id = compute_market_dataset_id(payload, self.identity_arrays())
             if resolved_id != self.dataset_id:
                 raise ValueError(
@@ -730,7 +770,7 @@ class MarketDataset:
         )
 
     def identity_contract_payload(self) -> dict[str, object]:
-        return {
+        arrays: dict[str, object] = {
             "calendar_kind": MarketCalendarKind(self.calendar_kind).value,
             "feature_config_digest": self.feature_config_digest,
             "feature_names": self.feature_names,
@@ -741,9 +781,10 @@ class MarketDataset:
             "symbols": self.symbols,
             "volume_units": tuple(value.value for value in self.volume_units),
         }
+        return arrays
 
     def identity_arrays(self) -> dict[str, np.ndarray]:
-        return {
+        arrays = {
             "timestamps": self.timestamps,
             "available_at": self.resolved_array("available_at"),
             "information_available": self.resolved_array("information_available"),
@@ -790,13 +831,20 @@ class MarketDataset:
             "cash_rate": self.resolved_array("cash_rate"),
             "contract_multipliers": self.resolved_array("contract_multipliers"),
         }
+        if self.funding_price_rate is not None:
+            arrays["funding_price_rate"] = self.funding_price_rate
+        return arrays
 
     def with_content_identity(
         self,
         provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         payload = dict(provenance or {})
-        payload["schema"] = "market_dataset_identity_v6"
+        payload["schema"] = (
+            MARKET_DATASET_IDENTITY_SCHEMA_V7
+            if self.funding_price_rate is not None
+            else MARKET_DATASET_IDENTITY_SCHEMA
+        )
         payload["dataset_contract"] = self.identity_contract_payload()
         dataset_id = compute_market_dataset_id(payload, self.identity_arrays())
         return replace(

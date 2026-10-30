@@ -136,6 +136,30 @@ example-based unit testだけで重要なmechanismを保証済みとしない。
   establish complete risk or liquidation conformance, full source-to-ledger
   conformance, formal G2 approval, real-feed behavior, or economic performance.
 
+### Synthetic software invariant: identity-bound event-price funding
+
+- **Statement:** Legacy identity v6/artifact v3 datasets keep the existing
+  position-notional-at-mark calculation. Identity v7/artifact v4 datasets bind
+  an explicit per-event `funding_price_rate` and charge signed contracts times
+  contract multiplier times that event value, only on due rows. Funding trace
+  v2 preserves the original event-price input and closes to the same amount;
+  legacy v1 mappings and default v6 IDs remain unchanged.
+- **Scope:** `MarketDataset` identity, v3/v4 artifact codec and publication,
+  native `MarketExecutor` carry, and `FundingBoundaryEvidence` in the focused
+  synthetic data and simulation tests.
+- **Counterexamples:** A v4 artifact missing or changing the identity-bound
+  event-price array must fail even when its outer file digests are recomputed.
+  A v7 rate different from bar funding rate times mark must use the event-price
+  amount for both long and short signed quantities, including a non-due control.
+  A v7 funding boundary cannot be serialized as v1 mark-rate evidence.
+- **Oracle:** Tests compare native account funding with an independent signed
+  quantity × contract multiplier × stored event-price calculation, round-trip
+  the raw rate through v2 evidence, and verify legacy v1/v6/v3 compatibility.
+- **Known limitations:** Synthetic tests establish only the declared versioned
+  software equations and identity/serialization boundaries. They do not attest
+  the historical source of a funding value, completeness of any dataset, actual
+  venue settlement, profitability, G0-G4 approval, or live readiness.
+
 ### Synthetic software diagnostic: conditional PPO under delayed gains and fees
 
 - **Statement:** A literal fixed-action ledger must charge the entry fee before
@@ -1207,10 +1231,15 @@ the endpoint is settled, flat, order-free, non-insolvent, and has no
 termination reason. It does not establish all objective/risk/digest checks or
 study admission. A stop cannot prevent a larger realized drawdown after a
 price gap. The existing native insolvency path floors terminal cash/equity at
-zero; the adapter adds no reward clipping but does not establish debt-loss
-semantics below -100% of fixed initial capital. Insolvent episodes remain
-invalid rather than being filtered. This adapter is not a trainer and
-establishes no learned-policy or economic result.
+zero by default; the opt-in native `retain_debt` mode preserves signed terminal
+cash while keeping existing return fields bounded near -100% for finite
+log-return reporting. The adapter adds no reward clipping but does not establish
+debt-loss semantics below -100% of fixed initial capital unless its caller uses
+that native mode and reads terminal `BookState` equity. Insolvent episodes
+remain invalid rather than being filtered. This adapter is not a trainer and
+establishes no learned-policy or economic result. See
+[`insolvency-valuation.md`](insolvency-valuation.md) for the native accounting
+contract.
 
 ### GYM-002 — forward observation-transform binding
 

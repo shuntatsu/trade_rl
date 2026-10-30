@@ -12,6 +12,7 @@ from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 
 FUNDING_BOUNDARY_ARTIFACT_SCHEMA = "execution_funding_boundary_artifact_v1"
+FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2 = "execution_funding_boundary_artifact_v2"
 
 
 def _integer(value: object, *, field: str) -> int:
@@ -68,6 +69,7 @@ class FundingBoundaryEvidence:
     funding_amount: float
     equity_before_funding: float
     equity_after_funding: float
+    funding_price_rates: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -113,6 +115,11 @@ class FundingBoundaryEvidence:
             raise ValueError("contract_multipliers must be finite and positive")
         if any(not math.isfinite(value) for value in self.funding_rates):
             raise ValueError("funding_rates must be finite")
+        if self.funding_price_rates is not None:
+            if len(self.funding_price_rates) != size:
+                raise ValueError("funding_price_rates must match symbol count")
+            if any(not math.isfinite(value) for value in self.funding_price_rates):
+                raise ValueError("funding_price_rates must be finite")
         for name, value in (
             ("funding_amount", self.funding_amount),
             ("equity_before_funding", self.equity_before_funding),
@@ -121,25 +128,40 @@ class FundingBoundaryEvidence:
             if not math.isfinite(value):
                 raise ValueError(f"{name} must be finite")
 
-        expected_funding = -math.fsum(
-            quantity * mark * multiplier * rate
-            for due, quantity, mark, multiplier, rate in zip(
-                self.funding_due,
-                self.signed_quantities,
-                self.mark_prices,
-                self.contract_multipliers,
-                self.funding_rates,
-                strict=True,
+        if self.funding_price_rates is None:
+            expected_funding = -math.fsum(
+                quantity * mark * multiplier * rate
+                for due, quantity, mark, multiplier, rate in zip(
+                    self.funding_due,
+                    self.signed_quantities,
+                    self.mark_prices,
+                    self.contract_multipliers,
+                    self.funding_rates,
+                    strict=True,
+                )
+                if due
             )
-            if due
-        )
+        else:
+            expected_funding = -math.fsum(
+                quantity * multiplier * price_rate
+                for due, quantity, multiplier, price_rate in zip(
+                    self.funding_due,
+                    self.signed_quantities,
+                    self.contract_multipliers,
+                    self.funding_price_rates,
+                    strict=True,
+                )
+                if due
+            )
         if not math.isclose(
             self.funding_amount,
             expected_funding,
             rel_tol=1e-12,
             abs_tol=1e-12,
         ):
-            raise ValueError("funding_amount does not match boundary mark notional")
+            if self.funding_price_rates is None:
+                raise ValueError("funding_amount does not match boundary mark notional")
+            raise ValueError("funding_amount does not match boundary event-price rates")
         if not math.isclose(
             self.equity_after_funding,
             self.equity_before_funding + self.funding_amount,
@@ -149,7 +171,7 @@ class FundingBoundaryEvidence:
             raise ValueError("funding boundary equity closure is inconsistent")
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        mapping = {
             "contract_multipliers": self.contract_multipliers,
             "equity_after_funding": self.equity_after_funding,
             "equity_before_funding": self.equity_before_funding,
@@ -161,6 +183,9 @@ class FundingBoundaryEvidence:
             "signed_quantities": self.signed_quantities,
             "timestamp_ns": self.timestamp_ns,
         }
+        if self.funding_price_rates is not None:
+            mapping["funding_price_rates"] = self.funding_price_rates
+        return mapping
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> FundingBoundaryEvidence:
@@ -176,7 +201,11 @@ class FundingBoundaryEvidence:
             "signed_quantities",
             "timestamp_ns",
         }
-        if set(value) != required:
+        has_funding_price_rates = "funding_price_rates" in value
+        if frozenset(value) not in {
+            frozenset(required),
+            frozenset(required | {"funding_price_rates"}),
+        }:
             raise ValueError("funding boundary evidence field closure mismatch")
 
         raw_due = _sequence(value["funding_due"], field="funding_due")
@@ -205,6 +234,9 @@ class FundingBoundaryEvidence:
             ),
             equity_after_funding=_number(
                 value["equity_after_funding"], field="equity_after_funding"
+            ),
+            funding_price_rates=(
+                vector("funding_price_rates") if has_funding_price_rates else None
             ),
         )
 
@@ -250,8 +282,23 @@ class FundingEvidenceArtifact:
                 )
             previous_index = boundary.processing_index
             previous_timestamp = boundary.timestamp_ns
-        if self.schema_version != FUNDING_BOUNDARY_ARTIFACT_SCHEMA:
+        if self.schema_version not in {
+            FUNDING_BOUNDARY_ARTIFACT_SCHEMA,
+            FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2,
+        }:
             raise ValueError("unsupported funding boundary artifact schema")
+        has_event_price_rates = any(
+            boundary.funding_price_rates is not None for boundary in boundaries
+        )
+        if (
+            self.schema_version == FUNDING_BOUNDARY_ARTIFACT_SCHEMA
+            and has_event_price_rates
+        ):
+            raise ValueError("funding boundary v1 cannot contain event-price rates")
+        if self.schema_version == FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2 and any(
+            boundary.funding_price_rates is None for boundary in boundaries
+        ):
+            raise ValueError("funding boundary v2 requires event-price rates")
         object.__setattr__(self, "symbol_count", symbol_count)
         object.__setattr__(self, "boundaries", boundaries)
 
@@ -314,11 +361,21 @@ def build_funding_evidence_artifact(
 ) -> FundingEvidenceArtifact:
     """Build one canonical funding-boundary artifact from completed execution."""
 
+    resolved_boundaries = tuple(boundaries)
+    schema_version = (
+        FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2
+        if resolved_boundaries
+        and any(
+            boundary.funding_price_rates is not None for boundary in resolved_boundaries
+        )
+        else FUNDING_BOUNDARY_ARTIFACT_SCHEMA
+    )
     return FundingEvidenceArtifact(
         dataset_id=dataset_id,
         execution_policy_digest=execution_policy_digest,
         symbol_count=symbol_count,
-        boundaries=tuple(boundaries),
+        boundaries=resolved_boundaries,
+        schema_version=schema_version,
     )
 
 
@@ -339,6 +396,7 @@ def load_funding_evidence_artifact_bytes(raw: bytes) -> FundingEvidenceArtifact:
 
 __all__ = [
     "FUNDING_BOUNDARY_ARTIFACT_SCHEMA",
+    "FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2",
     "FundingBoundaryEvidence",
     "FundingEvidenceArtifact",
     "build_funding_evidence_artifact",

@@ -723,6 +723,25 @@ to this pair loader; the existing dataset-only loader keeps returning
 lock the directory or promise an operating-system-level atomic filesystem
 snapshot.
 
+Dataset artifact v3 / identity v6 remain the default for datasets without
+`funding_price_rate`; their identity arrays and funding arithmetic are unchanged.
+Historical or explicitly constructed datasets with an event-price funding input
+use artifact v4 / identity v7. V7 binds `funding_price_rate` immediately after
+`funding_rate` in the canonical array identity, and v4 requires that exact array.
+The reader rejects v3/v7 or v4/v6 pairings, missing or undeclared arrays, and
+identity mismatches. Dataset views preserve the field when slicing rows.
+
+The executor retains the v6 mark-notional calculation
+`-Σ(quantity × mark × contract_multiplier × funding_rate)` on due rows. For v7,
+`funding_price_rate` is the quote-currency funding amount per contract at the
+funding event, so the calculation is
+`-Σ(quantity × contract_multiplier × funding_price_rate)` on the same due rows.
+Funding-boundary evidence v1 continues to encode mark-notional rates unchanged;
+v2 stores the original event-price-rate vector and validates the corresponding
+independent amount equation. These versioned software contracts preserve loaded
+inputs and accounting semantics; they do not establish source authenticity,
+historical completeness, a profitable strategy, or economic validation.
+
 ## Separate directional development composition
 
 `data.features.price_channels` appends prior-window high/low boundaries relative

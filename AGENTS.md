@@ -22,5 +22,5 @@
 
 - causal/point-in-time data、現実的執行費用、common accounting、hard risk、unused data、研究証拠の不変性を維持する。結果後の合格条件変更・leakage・過去の封印結果の再分類は禁止。研究変更はG0–G2のresult-blind反証と必要な独立reviewを先に行う。
 - `tools.agent_repo` のsource-derived出力は便利な補助であり、GitHub PR/branch現況・実コード・Full CIの代替ではない。生成reportをcommitしない。
-- `main`、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、active Task、`provenance/branch-retention`等を保全する。現行のTask/lease同期が不完全な間、branch-hygieneのActions実行はread-only dry-run、手動CLIの`tools.branch_hygiene --apply`もfail-closedで拒否する。既存mainの削除workflowが安全化されるまでは有効化済みとみなさず、正本コードとGitHub設定を照合する。削除を再開する場合は完全なTask/PR/workflow保護、競合反証、retentionと復元を独立に検証する。
+- `main`、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、active Task、`provenance/branch-retention`等を保全する。Task/lease同期が不完全な間はbranch削除を認可しない。`.github/workflows/branch-hygiene.yml` と `tools.branch_hygiene` を正本として、Actionsがread-only dry-runであること、手動CLIの`tools.branch_hygiene --apply`がfail-closedで拒否されることを確認する。現在のsourceがまだその状態でなければ、安全化変更を先に統合してからdocsの「現行」記述を更新する。削除を再開する場合は完全なTask/PR/workflow保護、競合反証、retentionと復元を独立に検証する。
 - `docs/` は現行正本のみ。完了済みplan/specは必要な契約を昇格してGit historyに残し、`docs/history`・`docs/archive`を増やさない。`LICENSE`・`LICENSES/`と、immutable研究artifactは通常のdocs整理から除外する。

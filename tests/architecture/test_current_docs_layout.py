@@ -273,6 +273,8 @@ def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
         "read-only dry-run",
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
+        "Task/lease同期が不完全な間はbranch削除を認可しない",
+        "現在のsourceがまだその状態でなければ、安全化変更を先に統合",
         "tested PR head contains current `main`",
     ):
         assert required in entry

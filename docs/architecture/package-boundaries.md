@@ -47,6 +47,7 @@ trade_rl/
 │       ├── market_order_profile.py
 │       ├── derived_klines.py
 │       └── dataset.py
+│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,cli.py,migrations/*.sql}
 ├── risk/
 │   ├── inputs.py
 │   ├── portfolio.py
@@ -726,6 +727,36 @@ Coordinationの耐久契約は次である。
 ### Forward study FS1 acquisition tooling
 
 `evaluation/forward_acquisition/` はFS1のdata acquisition・dataset build・seal manifest・seal-record textを一つの文書化されたcommand（`python -m trade_rl.evaluation.forward_acquisition acquire` / `seal-record`）として提供し、ad-hocなscriptやmonkeypatchでFS1 datasetを作らせない。`forward_study/` はnetworkを一切importしないため、acquisitionは別packageに置く。`plan.py` はFS1 span・archive URL・date range・build policy照合・出力layoutを持つ純粋moduleで `trade_rl.integrations` をimportしない。`acquire.py` の `run_acquire` は `--allow-network` が無ければplanだけを返し（network clientをimportせず、fileを作らず、development inputも読まない）、ある場合だけ（Issue #810 authorization URL、新規output root、settlement margin経過、clean checkout、developmentのidentity検証が揃ったときに）`trade_rl.integrations.binance` をlazy importしてfetchする。`run_acquire` はregistry・digest・clock・code identity・transportを引数に取らず、private factory `_run_acquire` / `_environment` だけがそれらを供給する（testsが置換する）。development期間のarchiveは再取得せず、published development Datasetのidentity（pinned `dataset_id`・artifact digest・内部にbindされた `raw_source_roster_digest`）に対してread-onlyで検証して再利用する。manifest（`manifest_bytes_from_dataset`）は最後に書き、receiptがbuilder commit・exact command・exchange snapshot・development reuse identityを持つ。`seal_record.py` はmanifestとreceiptを凍結registryと相互に検証してseal commentのMarkdownを返すだけで、投稿しない。このpackageはscoring・replay・strategyに依存せず、`forward_study` からは `registry` と `seal` だけをimportする。それ以外のmodule scope依存は `trade_rl.artifacts`、`trade_rl.data`（`data.artifacts.publication`・`data.market`）とnumpyで、`trade_rl.integrations.binance`・`trade_rl.data.build` は認可された経路（`acquire.py` の関数内）でだけlazy importする。output rootはcheckout外でなければならず、`forward_study`・`dev_realdata_study`・`strategies`・`simulation`・`data`・`integrations` から参照されない。手順の正本は `architecture/research-assurance.md` の *FS1 acquisition procedure*、状態は `research/current-status.md`。
+
+## Market-data store runbook
+
+`integrations/market_store/` is a reusable, generic PostgreSQL store of public Binance market data (Issue #810). It is an adapter beside `integrations/binance/`: it depends only on `data`, `artifacts` and `integrations.binance`, never on strategies, evaluation, simulation or risk, and it is not re-exported from `trade_rl.integrations`. It stores USD-M perpetual and spot 1h klines and USD-M funding rates for a configurable universe (default BTC, ETH, BNB, XRP, ADA, SOL against USDT), reuses the Vision URL planner (`plan_vision_kline_urls`, `vision_funding_url`) and the unchanged `build_binance_market_dataset`, and owns no strategy, execution or P&L semantics. `psycopg` is imported only by `store.py` and is the optional `store` extra (also in `dev`); `plan` and a dry-run `ingest` need neither PostgreSQL nor the extra, and only `fetch.py` imports a network client.
+
+Schema (plain SQL, `migrations/NNNN_name.sql`, applied in order with a `schema_version` ledger that records each file's SHA-256 and refuses an edited or unknown applied migration): `instruments`, `exchange_info_snapshots` + `instrument_rule_snapshots` (current-snapshot rules valid from retrieval, not historical rules), `sources` (one row per archive: URL, kind, period, archive sha256, the `.CHECKSUM` line digest, the sha256 of the `.CHECKSUM` file, size, HTTP status, fetched_at), `ingestion_runs` (code commit, command line, counts, status), `klines`, `funding_rates` and `ingestion_conflicts`. Every price, quantity and rate is exact `NUMERIC`; natural keys are primary keys; CHECK constraints enforce `high >= max(open, close)`, `low <= min(open, close)` and non-negative volume. `klines`, `funding_rates`, `sources` (once ingested) and the exchange snapshots are append-only (triggers reject UPDATE and DELETE). Re-ingesting an archive is a no-op; a changed value for an existing key rolls the archive back, is written to `ingestion_conflicts`, fails the run and is never applied.
+
+Sealed-window embargo. The FS1 forward study's unused window starts at 2026-11-01T00:00Z (`SEALED_WINDOW_START`, pinned by a test against the FS1 registry `scoring_start`) and no one may see that data before it is scored once after 2027-05-02. The store refuses it at three layers: the planner never plans an archive whose period passes the boundary (a monthly archive straddling it is replaced by its in-bounds daily archives; a funding month that cannot be published inside the bound is reported and skipped), every parsed row is checked before any write, and the `market_embargo` row with its triggers rejects such klines, funding rows and sources inside PostgreSQL itself. A requested range end inside the window exits with code 4. The only override is `--release-sealed-window` together with `--release-authorization-url` naming an Issue #810 comment (`https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>`); the user must authorize it, the release is permanent and audited in `market_embargo` and the run record, and FS1 scoring itself still uses its own sealed acquisition tool, never this store.
+
+Export. `export_market_dataset` serves stored rows through the same transport interface as the Vision file path (Vision column layout from exact values, funding events with the Vision inclusive range, one stored raw `exchangeInfo` applied statically) so the unchanged builder, gap policy, 4h/1d aggregation and identity produce the `MarketDataset`. Digests of every row read and the exchange snapshot enter the identity as `metadata_evidence`; the same store content and parameters give the same `dataset_id` (pin the rules snapshot with `--rules-snapshot-sha256`), and a test proves a store-backed build equals a file-backed build from the same archives.
+
+Operating it (Windows, PowerShell; install Docker Desktop first, then `uv sync --extra store`):
+
+```powershell
+Copy-Item deploy/market-store/.env.example deploy/market-store/.env
+# put a random password into MARKET_STORE_PASSWORD (never commit .env)
+$pw = -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+(Get-Content deploy/market-store/.env) -replace 'CHANGE_ME_generate_a_random_password', $pw | Set-Content deploy/market-store/.env
+docker compose -f deploy/market-store/compose.yml --env-file deploy/market-store/.env up -d
+docker compose -f deploy/market-store/compose.yml ps    # wait for "healthy"
+$env:TRADE_RL_MARKET_STORE_URL = "postgresql://market_store:$pw@127.0.0.1:55432/market_store"
+uv run python -m trade_rl.integrations.market_store migrate
+uv run python -m trade_rl.integrations.market_store plan --start 2021-01-01          # offline
+uv run python -m trade_rl.integrations.market_store ingest --start 2021-01-01        # dry run
+uv run python -m trade_rl.integrations.market_store ingest --start 2021-01-01 --allow-network
+uv run python -m trade_rl.integrations.market_store status
+uv run python -m trade_rl.integrations.market_store export --market usds_m --start 2021-01-01 --end 2026-08-01 --output-dir C:/data/exports/usds_m_2021_2026
+```
+
+The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.4` service container and fails if any of them was skipped.
 
 ## Repository integration boundary
 

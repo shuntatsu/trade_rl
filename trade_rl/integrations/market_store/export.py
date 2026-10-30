@@ -235,20 +235,16 @@ def export_market_dataset(
     embargo: EmbargoPolicy | None = None,
     economics_profile_name: str = ECONOMICS_PROFILE_NAME,
 ) -> StoreExport:
-    """Build a Dataset from the store with the existing builder; refuse the sealed window."""
+    """Build a Dataset from the store with the existing builder; refuse closed FS1 spans."""
 
     policy = EmbargoPolicy.enforced() if embargo is None else embargo
     end_utc = end_time.astimezone(UTC)
-    if not policy.released and end_utc > policy.start:
-        raise SealedWindowEmbargoError(
-            f"export end {end_utc.isoformat()} is inside the FS1 sealed window "
-            f"(>= {policy.start.isoformat()}); refusing"
-        )
+    policy.check_range_end(end_utc, what="export")
     state = reader.embargo_state()
-    if not state.released and end_utc > state.sealed_from:
+    if end_utc > state.sealed_from:
         raise SealedWindowEmbargoError(
             f"export end {end_utc.isoformat()} is past the store embargo boundary "
-            f"{state.sealed_from.isoformat()}; refusing"
+            f"{state.sealed_from.isoformat()}; refusing unconditionally"
         )
     resolved_symbols = tuple(symbols)
     start_ms = ms_from_utc(start_time)

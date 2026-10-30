@@ -6,97 +6,30 @@
 --     existing natural key can never be written (UPDATE is rejected, a duplicate
 --     insert is a primary-key violation); the application additionally compares
 --     re-ingested rows and records any difference in ingestion_conflicts;
---   * the FS1 sealed window (>= 2026-11-01T00:00Z) cannot be stored: the
---     market_embargo row plus the triggers below reject such rows at the database
---     layer, independent of the Python ingester. The only release path is an
---     explicit, permanent, audited update of market_embargo.released_at together
---     with an Issue #810 comment URL.
---   The sealed_from literal below must equal
---   trade_rl.integrations.market_store.embargo.SEALED_WINDOW_START (pinned by a
---   test against the FS1 registry scoring_start).
+--   * the FS1 sealed window (>= 2026-11-01T00:00Z) can NEVER be stored: triggers
+--     reject such rows and sources unconditionally. There is no release flag, table
+--     or function; lifting this after FS1 is scored (2027-05-02) needs a future
+--     reviewed migration (CREATE OR REPLACE of market_sealed_from()) and PR;
+--   * the FS1 warm-up span [2026-08-01T00:00Z, 2026-11-01T00:00Z) is rejected unless
+--     the session belongs to a RUNNING ingestion run that was started with the
+--     explicit warm-up authorization (flag + Issue #810 comment URL recorded on the
+--     ingestion_runs row). Direct INSERTs without such a run are refused.
+--   The two literals below must equal
+--   trade_rl.integrations.market_store.embargo.FS1_WARMUP_START / SEALED_WINDOW_START
+--   (pinned by tests against the FS1 registry).
 
 -- ---------------------------------------------------------------------------
--- Embargo
+-- FS1 boundaries (constants; changing them is a new reviewed migration)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE market_embargo (
-    id smallint PRIMARY KEY CHECK (id = 1),
-    sealed_from timestamptz NOT NULL,
-    reason text NOT NULL,
-    released_at timestamptz,
-    release_authorization_url text,
-    CONSTRAINT market_embargo_release_consistent
-        CHECK ((released_at IS NULL) = (release_authorization_url IS NULL)),
-    CONSTRAINT market_embargo_release_url_shape
-        CHECK (
-            release_authorization_url IS NULL
-            OR release_authorization_url ~
-                '^https://github\.com/shuntatsu/trade_rl/issues/810#issuecomment-[0-9]+$'
-        )
-);
-
-INSERT INTO market_embargo (id, sealed_from, reason)
-VALUES (
-    1,
-    TIMESTAMPTZ '2026-11-01 00:00:00+00',
-    'FS1 forward study sealed unused window: scored once after 2027-05-02, '
-    'no data at or after sealed_from may be stored or viewed before then'
-);
-
-CREATE FUNCTION market_embargo_guard() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF TG_OP = 'DELETE' THEN
-        RAISE EXCEPTION 'market_embargo row cannot be deleted'
-            USING ERRCODE = 'restrict_violation';
-    END IF;
-    IF NEW.id IS DISTINCT FROM OLD.id
-        OR NEW.sealed_from IS DISTINCT FROM OLD.sealed_from
-        OR NEW.reason IS DISTINCT FROM OLD.reason THEN
-        RAISE EXCEPTION 'market_embargo boundary and reason are immutable'
-            USING ERRCODE = 'restrict_violation';
-    END IF;
-    IF OLD.released_at IS NOT NULL THEN
-        RAISE EXCEPTION 'market_embargo release is permanent and cannot be changed'
-            USING ERRCODE = 'restrict_violation';
-    END IF;
-    RETURN NEW;
-END
+CREATE FUNCTION market_sealed_from() RETURNS timestamptz
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT TIMESTAMPTZ '2026-11-01 00:00:00+00'
 $$;
 
-CREATE TRIGGER market_embargo_guard_row
-    BEFORE UPDATE OR DELETE ON market_embargo
-    FOR EACH ROW EXECUTE FUNCTION market_embargo_guard();
-
-CREATE FUNCTION market_embargo_no_truncate() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    RAISE EXCEPTION 'market_embargo cannot be truncated'
-        USING ERRCODE = 'restrict_violation';
-END
-$$;
-
-CREATE TRIGGER market_embargo_guard_truncate
-    BEFORE TRUNCATE ON market_embargo
-    FOR EACH STATEMENT EXECUTE FUNCTION market_embargo_no_truncate();
-
-CREATE FUNCTION market_embargo_sealed_from() RETURNS timestamptz
-LANGUAGE plpgsql STABLE AS $$
-DECLARE
-    boundary timestamptz;
-    released timestamptz;
-BEGIN
-    SELECT sealed_from, released_at INTO boundary, released
-    FROM market_embargo WHERE id = 1;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'market_embargo row is missing'
-            USING ERRCODE = 'check_violation';
-    END IF;
-    IF released IS NOT NULL THEN
-        RETURN 'infinity'::timestamptz;
-    END IF;
-    RETURN boundary;
-END
+CREATE FUNCTION market_fs1_warmup_start() RETURNS timestamptz
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT TIMESTAMPTZ '2026-08-01 00:00:00+00'
 $$;
 
 CREATE FUNCTION forbid_row_mutation() RETURNS trigger
@@ -134,8 +67,8 @@ CREATE TABLE ingestion_runs (
     code_commit text NOT NULL,
     command_line text NOT NULL,
     request jsonb NOT NULL,
-    embargo_released boolean NOT NULL DEFAULT false,
-    release_authorization_url text,
+    fs1_warmup_allowed boolean NOT NULL DEFAULT false,
+    fs1_warmup_authorization_url text,
     archives_planned integer NOT NULL DEFAULT 0 CHECK (archives_planned >= 0),
     archives_ingested integer NOT NULL DEFAULT 0 CHECK (archives_ingested >= 0),
     archives_skipped integer NOT NULL DEFAULT 0 CHECK (archives_skipped >= 0),
@@ -145,8 +78,53 @@ CREATE TABLE ingestion_runs (
     conflicts integer NOT NULL DEFAULT 0 CHECK (conflicts >= 0),
     error text,
     CONSTRAINT ingestion_runs_finished_consistent
-        CHECK ((status = 'running') = (finished_at IS NULL))
+        CHECK ((status = 'running') = (finished_at IS NULL)),
+    CONSTRAINT ingestion_runs_warmup_consistent
+        CHECK (fs1_warmup_allowed = (fs1_warmup_authorization_url IS NOT NULL)),
+    CONSTRAINT ingestion_runs_warmup_url_shape
+        CHECK (
+            fs1_warmup_authorization_url IS NULL
+            OR fs1_warmup_authorization_url ~
+                '^https://github\.com/shuntatsu/trade_rl/issues/810#issuecomment-[0-9]+$'
+        )
 );
+
+-- True only inside a RUNNING run that carries the recorded warm-up authorization.
+CREATE FUNCTION market_fs1_warmup_authorized() RETURNS boolean
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    run_text text := current_setting('trade_rl.fs1_warmup_run_id', true);
+    allowed boolean;
+BEGIN
+    IF run_text IS NULL OR run_text = '' THEN
+        RETURN false;
+    END IF;
+    SELECT true INTO allowed FROM ingestion_runs
+    WHERE run_id = run_text::bigint
+      AND status = 'running'
+      AND fs1_warmup_allowed
+      AND fs1_warmup_authorization_url IS NOT NULL;
+    RETURN COALESCE(allowed, false);
+END
+$$;
+
+-- Raise unless every instant up to ``last_instant`` is storable.
+CREATE FUNCTION market_require_storable(last_instant timestamptz, what text)
+RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF last_instant >= market_sealed_from() THEN
+        RAISE EXCEPTION '% reaches the FS1 sealed window (>= %); refused unconditionally',
+            what, market_sealed_from()
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF last_instant >= market_fs1_warmup_start() AND NOT market_fs1_warmup_authorized() THEN
+        RAISE EXCEPTION '% reaches the FS1 warm-up span (>= %) without an authorized run',
+            what, market_fs1_warmup_start()
+            USING ERRCODE = 'check_violation';
+    END IF;
+END
+$$;
 
 CREATE TABLE exchange_info_snapshots (
     snapshot_id bigserial PRIMARY KEY,
@@ -255,11 +233,9 @@ CREATE TRIGGER sources_guard_row
 CREATE FUNCTION sources_embargo() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.period_end > market_embargo_sealed_from() THEN
-        RAISE EXCEPTION 'source period % .. % reaches the sealed window',
-            NEW.period_start, NEW.period_end
-            USING ERRCODE = 'check_violation';
-    END IF;
+    -- period_end is exclusive: the last covered instant is just before it
+    PERFORM market_require_storable(
+        NEW.period_end - INTERVAL '1 millisecond', 'source ' || NEW.url);
     RETURN NEW;
 END
 $$;
@@ -299,11 +275,8 @@ CREATE INDEX klines_source ON klines (source_id);
 CREATE FUNCTION klines_embargo() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.open_time >= market_embargo_sealed_from()
-        OR NEW.close_time >= market_embargo_sealed_from() THEN
-        RAISE EXCEPTION 'kline at % reaches the sealed window', NEW.open_time
-            USING ERRCODE = 'check_violation';
-    END IF;
+    PERFORM market_require_storable(
+        GREATEST(NEW.open_time, NEW.close_time), 'kline at ' || NEW.open_time);
     RETURN NEW;
 END
 $$;
@@ -335,10 +308,8 @@ CREATE INDEX funding_rates_source ON funding_rates (source_id);
 CREATE FUNCTION funding_rates_embargo() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.funding_time >= market_embargo_sealed_from() THEN
-        RAISE EXCEPTION 'funding rate at % reaches the sealed window', NEW.funding_time
-            USING ERRCODE = 'check_violation';
-    END IF;
+    PERFORM market_require_storable(
+        NEW.funding_time, 'funding rate at ' || NEW.funding_time);
     RETURN NEW;
 END
 $$;

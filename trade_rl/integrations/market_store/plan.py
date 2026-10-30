@@ -1,4 +1,4 @@
-"""Pure, network-free ingestion planning with the sealed-window embargo applied.
+"""Pure, network-free ingestion planning with the FS1 embargo applied.
 
 The URL arithmetic is the existing Binance Vision planner
 (:func:`~trade_rl.integrations.binance.plan_vision_kline_urls` and
@@ -33,10 +33,7 @@ from trade_rl.integrations.market_store.contracts import (
     StoreMarket,
     Universe,
 )
-from trade_rl.integrations.market_store.embargo import (
-    EmbargoPolicy,
-    SealedWindowEmbargoError,
-)
+from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 
 DEFAULT_MONTHLY_PUBLICATION_LAG = timedelta(days=7)
 
@@ -78,8 +75,11 @@ class IngestionPlan:
         return {
             "archives": [spec.to_dict() for spec in self.specs],
             "archives_planned": len(self.specs),
-            "embargo_released": self.embargo.released,
-            "embargo_start": self.embargo.start.isoformat(),
+            "closed_from": self.embargo.start.isoformat(),
+            "fs1_warmup_allowed": self.embargo.warmup_allowed,
+            "fs1_warmup_authorization_url": self.embargo.warmup_authorization_url,
+            "fs1_warmup_start": self.embargo.warmup_start.isoformat(),
+            "sealed_window_start": self.embargo.sealed_start.isoformat(),
             "end": self.end.isoformat(),
             "skipped": [item.to_dict() for item in self.skipped],
             "start": self.start.isoformat(),
@@ -176,11 +176,7 @@ def plan_ingestion(
         raise ValueError("start and end must be UTC midnight boundaries")
     if end_utc <= start_utc:
         raise ValueError("end must be later than start")
-    if not policy.released and end_utc > policy.start:
-        raise SealedWindowEmbargoError(
-            f"requested end {end_utc.isoformat()} is inside the FS1 sealed window "
-            f"(>= {policy.start.isoformat()}); refusing to plan it"
-        )
+    policy.check_range_end(end_utc, what="requested")
     today = _floor_day(now_utc)
     effective_end = min(end_utc, today)
     monthly_end = _month_start(today - monthly_publication_lag)

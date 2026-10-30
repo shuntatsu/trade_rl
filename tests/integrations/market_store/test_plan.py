@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -12,8 +12,10 @@ from trade_rl.integrations.market_store.contracts import (
     Universe,
 )
 from trade_rl.integrations.market_store.embargo import (
+    FS1_WARMUP_START,
     SEALED_WINDOW_START,
     EmbargoPolicy,
+    Fs1WarmupSpanError,
     SealedWindowEmbargoError,
 )
 from trade_rl.integrations.market_store.plan import plan_ingestion
@@ -66,6 +68,7 @@ def test_current_partial_month_uses_daily_archives_up_to_yesterday() -> None:
         start=day(2026, 10),
         end=day(2026, 11),
         now=datetime(2026, 10, 12, 9, tzinfo=UTC),
+        embargo=EmbargoPolicy.with_warmup(URL),
     )
     klines = [s for s in plan.specs if s.kind is ArchiveKind.KLINES]
     assert [s.period_start.day for s in klines] == list(range(1, 12))
@@ -78,13 +81,22 @@ def test_current_partial_month_uses_daily_archives_up_to_yesterday() -> None:
 
 def test_recently_completed_month_waits_for_publication_lag() -> None:
     universe = Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,))
+    warmup = EmbargoPolicy.with_warmup(URL)
     early = plan_ingestion(
-        universe, start=day(2026, 9), end=day(2026, 10), now=day(2026, 10, 3)
+        universe,
+        start=day(2026, 9),
+        end=day(2026, 10),
+        now=day(2026, 10, 3),
+        embargo=warmup,
     )
     assert all(s.period_kind is PeriodKind.DAILY for s in early.specs)
     assert len(early.specs) == 30
     late = plan_ingestion(
-        universe, start=day(2026, 9), end=day(2026, 10), now=day(2026, 10, 20)
+        universe,
+        start=day(2026, 9),
+        end=day(2026, 10),
+        now=day(2026, 10, 20),
+        embargo=warmup,
     )
     assert names(late.specs) == ["BTCUSDT-1h-2026-09.zip"]
 
@@ -110,34 +122,46 @@ def test_requested_end_inside_the_sealed_window_is_refused() -> None:
             plan_ingestion(ONE, start=day(2026, 10), end=end, now=day(2031, 1))
 
 
-def test_end_exactly_at_the_boundary_is_allowed_and_plans_october_monthly() -> None:
+def test_default_plan_stops_at_the_fs1_warmup_start() -> None:
     plan = plan_ingestion(
-        ONE, start=day(2026, 10), end=SEALED_WINDOW_START, now=day(2026, 12, 15)
+        ONE, start=day(2026, 6), end=FS1_WARMUP_START, now=day(2026, 12, 15)
+    )
+    assert "BTCUSDT-1h-2026-07.zip" in names(plan.specs)
+    assert "BTCUSDT-fundingRate-2026-07.zip" in names(plan.specs)
+    assert all(spec.period_end <= FS1_WARMUP_START for spec in plan.specs)
+    assert not any("2026-08" in spec.url for spec in plan.specs)
+    for end in (day(2026, 8, 2), day(2026, 10, 30), SEALED_WINDOW_START):
+        with pytest.raises(Fs1WarmupSpanError):
+            plan_ingestion(ONE, start=day(2026, 6), end=end, now=day(2026, 12, 15))
+
+
+def test_warmup_authorization_plans_up_to_but_never_into_the_sealed_window() -> None:
+    policy = EmbargoPolicy.with_warmup(URL)
+    plan = plan_ingestion(
+        ONE,
+        start=day(2026, 7),
+        end=SEALED_WINDOW_START,
+        now=day(2026, 12, 15),
+        embargo=policy,
     )
     assert "BTCUSDT-1h-2026-10.zip" in names(plan.specs)
     assert "BTCUSDT-fundingRate-2026-10.zip" in names(plan.specs)
     assert all(spec.period_end <= SEALED_WINDOW_START for spec in plan.specs)
-    assert not any(
-        "2026-11" in spec.url or "2026-12" in spec.url for spec in plan.specs
-    )
-
-
-def test_no_plan_ever_contains_an_archive_reaching_the_boundary() -> None:
-    universe = Universe(symbols=("BTCUSDT", "ETHUSDT"))
-    for offset in range(0, 400, 7):
-        now = day(2026, 6) + timedelta(days=offset, hours=5)
-        end = min(
-            SEALED_WINDOW_START, now.replace(hour=0, minute=0, second=0, microsecond=0)
+    assert plan.to_dict()["fs1_warmup_allowed"] is True
+    assert plan.to_dict()["fs1_warmup_authorization_url"] == URL
+    with pytest.raises(SealedWindowEmbargoError):
+        plan_ingestion(
+            ONE,
+            start=day(2026, 7),
+            end=day(2026, 11, 2),
+            now=day(2027, 6),
+            embargo=policy,
         )
-        plan = plan_ingestion(universe, start=day(2026, 5), end=end, now=now)
-        for spec in plan.specs:
-            assert spec.period_end <= SEALED_WINDOW_START, spec.url
-            assert spec.period_start < SEALED_WINDOW_START, spec.url
 
 
 def test_monthly_archive_straddling_a_mid_month_boundary_is_never_planned() -> None:
     boundary = datetime(2026, 11, 15, tzinfo=UTC)
-    policy = EmbargoPolicy.enforced(boundary)
+    policy = EmbargoPolicy(warmup_start=boundary, sealed_start=boundary)
     plan = plan_ingestion(
         Universe(symbols=("BTCUSDT",), markets=(StoreMarket.USDS_M,)),
         start=day(2026, 11),
@@ -163,21 +187,6 @@ def test_monthly_archive_straddling_a_mid_month_boundary_is_never_planned() -> N
             now=day(2027, 3),
             embargo=policy,
         )
-
-
-def test_released_policy_plans_past_the_boundary() -> None:
-    plan = plan_ingestion(
-        Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
-        start=day(2026, 11),
-        end=day(2027, 1),
-        now=day(2027, 6),
-        embargo=EmbargoPolicy.release(URL),
-    )
-    assert names(plan.specs) == [
-        "BTCUSDT-1h-2026-11.zip",
-        "BTCUSDT-1h-2026-12.zip",
-    ]
-    assert plan.embargo.released
 
 
 def test_planning_validates_its_inputs() -> None:

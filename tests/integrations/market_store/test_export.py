@@ -22,8 +22,10 @@ from trade_rl.integrations.market_store.contracts import (
     ms_from_utc,
 )
 from trade_rl.integrations.market_store.embargo import (
+    FS1_WARMUP_START,
     SEALED_WINDOW_START,
     EmbargoPolicy,
+    Fs1WarmupSpanError,
     SealedWindowEmbargoError,
 )
 from trade_rl.integrations.market_store.export import (
@@ -171,7 +173,29 @@ def test_export_refuses_the_sealed_window_and_empty_coverage() -> None:
             start_time=START,
             end_time=datetime(2026, 11, 2, tzinfo=UTC),
         )
-    assert EmbargoPolicy.enforced().start == SEALED_WINDOW_START
+    assert EmbargoPolicy.enforced().start == FS1_WARMUP_START
+    with pytest.raises(Fs1WarmupSpanError):
+        export_market_dataset(
+            store,
+            market=StoreMarket.USDS_M,
+            symbols=SYMBOLS,
+            interval="1h",
+            start_time=START,
+            end_time=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+    with pytest.raises(SealedWindowEmbargoError):
+        export_market_dataset(
+            store,
+            market=StoreMarket.USDS_M,
+            symbols=SYMBOLS,
+            interval="1h",
+            start_time=START,
+            end_time=datetime(2026, 11, 2, tzinfo=UTC),
+            embargo=EmbargoPolicy.with_warmup(
+                "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-3"
+            ),
+        )
+    assert SEALED_WINDOW_START > FS1_WARMUP_START
     with pytest.raises(StoreCoverageError):
         export_market_dataset(
             store,

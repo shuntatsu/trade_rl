@@ -30,6 +30,7 @@ from trade_rl.integrations.market_store.contracts import (
     utc_from_ms,
 )
 from trade_rl.integrations.market_store.embargo import (
+    FS1_WARMUP_START,
     SEALED_WINDOW_START,
     EmbargoPolicy,
 )
@@ -311,7 +312,6 @@ class MemoryStore:
         self.runs: dict[int, dict[str, object]] = {}
         self.conflicts: list[ConflictRecord] = []
         self.exchange_info: list[StoredExchangeInfo] = []
-        self.embargo_released = False
         self._next_source = 1
 
     # -- IngestStore ----------------------------------------------------------
@@ -329,10 +329,9 @@ class MemoryStore:
             "status": "running",
             "code_commit": code_commit,
             "command_line": command_line,
-            "embargo_released": embargo.released,
+            "fs1_warmup_allowed": embargo.warmup_allowed,
+            "fs1_warmup_authorization_url": embargo.warmup_authorization_url,
         }
-        if embargo.released:
-            self.embargo_released = True
         return run_id
 
     def finish_run(
@@ -486,9 +485,7 @@ class MemoryStore:
 
     def embargo_state(self) -> EmbargoState:
         return EmbargoState(
-            sealed_from=SEALED_WINDOW_START,
-            released=self.embargo_released,
-            authorization_url=None,
+            fs1_warmup_start=FS1_WARMUP_START, sealed_from=SEALED_WINDOW_START
         )
 
 

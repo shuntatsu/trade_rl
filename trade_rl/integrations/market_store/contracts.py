@@ -213,11 +213,10 @@ class StoredExchangeInfo:
 
 @dataclass(frozen=True, slots=True)
 class EmbargoState:
-    """The database-side embargo row (the second guard behind the Python layers)."""
+    """The database-side boundaries (the second guard behind the Python layers)."""
 
+    fs1_warmup_start: datetime
     sealed_from: datetime
-    released: bool
-    authorization_url: str | None
 
 
 class MarketReader(Protocol):

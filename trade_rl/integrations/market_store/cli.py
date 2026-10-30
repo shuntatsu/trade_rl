@@ -5,9 +5,11 @@
 The connection URL comes only from ``TRADE_RL_MARKET_STORE_URL`` (never an argument, so
 it does not enter shell history or the recorded run command line). ``plan`` and
 ``ingest`` without ``--allow-network`` are offline and need neither PostgreSQL nor the
-``store`` extra. The sealed-window embargo can only be lifted with BOTH
-``--release-sealed-window`` and ``--release-authorization-url`` naming an Issue #810
-comment in which the user authorized it.
+``store`` extra. Data on or after 2026-11-01T00:00Z (the FS1 sealed window) is refused
+unconditionally: there is no flag that lifts it. The FS1 warm-up span
+[2026-08-01, 2026-11-01) is refused by default and admitted only with BOTH
+``--allow-fs1-warmup-span`` and ``--fs1-warmup-authorization-url`` naming the Issue #810
+comment in which the user authorized it; even then FS1 scoring re-acquires its own data.
 """
 
 from __future__ import annotations
@@ -93,19 +95,20 @@ def _add_range(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_release(parser: argparse.ArgumentParser) -> None:
+def _add_warmup(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--release-sealed-window",
+        "--allow-fs1-warmup-span",
         action="store_true",
         help=(
-            "lift the FS1 sealed-window embargo; requires "
-            "--release-authorization-url and the user's explicit authorization"
+            "admit the FS1 warm-up span [2026-08-01, 2026-11-01); requires "
+            "--fs1-warmup-authorization-url and a separate user authorization. "
+            "The sealed window (>= 2026-11-01) can never be admitted."
         ),
     )
     parser.add_argument(
-        "--release-authorization-url",
+        "--fs1-warmup-authorization-url",
         default=None,
-        help="Issue #810 comment URL in which the user authorized the release",
+        help="Issue #810 comment URL in which the user authorized the warm-up fetch",
     )
 
 
@@ -123,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan = commands.add_parser("plan", help="print the archives that would be ingested")
     _add_universe(plan)
     _add_range(plan)
-    _add_release(plan)
+    _add_warmup(plan)
 
     ingest = commands.add_parser(
         "ingest",
@@ -131,7 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_universe(ingest)
     _add_range(ingest)
-    _add_release(ingest)
+    _add_warmup(ingest)
     ingest.add_argument(
         "--allow-network",
         action="store_true",
@@ -175,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="pin the exchangeInfo snapshot (default: latest; recorded in the receipt)",
     )
     export.add_argument("--output-dir", type=Path, required=True)
-    _add_release(export)
+    _add_warmup(export)
     return parser
 
 
@@ -185,21 +188,21 @@ def _universe(args: argparse.Namespace) -> Universe:
 
 
 def _embargo(args: argparse.Namespace, err: TextIO) -> EmbargoPolicy:
-    flag = bool(getattr(args, "release_sealed_window", False))
-    url = getattr(args, "release_authorization_url", None)
+    flag = bool(getattr(args, "allow_fs1_warmup_span", False))
+    url = getattr(args, "fs1_warmup_authorization_url", None)
     if flag != (url is not None):
         raise ValueError(
-            "--release-sealed-window and --release-authorization-url must be given "
-            "together"
+            "--allow-fs1-warmup-span and --fs1-warmup-authorization-url must be "
+            "given together"
         )
     if not flag:
         return EmbargoPolicy.enforced()
     assert url is not None
-    policy = EmbargoPolicy.release(url)
+    policy = EmbargoPolicy.with_warmup(url)
     print(
-        "WARNING: the FS1 sealed-window embargo is RELEASED for this command "
-        f"(authorization: {url}). FS1 scoring still uses its own sealed acquisition "
-        "tool, never this store.",
+        "WARNING: the FS1 warm-up span is ADMITTED for this command "
+        f"(authorization: {url}). The sealed window stays closed, and FS1 scoring "
+        "still re-acquires and re-verifies its own data through its sealed tool.",
         file=err,
     )
     return policy
@@ -207,7 +210,7 @@ def _embargo(args: argparse.Namespace, err: TextIO) -> EmbargoPolicy:
 
 def _default_end(now: datetime, policy: EmbargoPolicy) -> datetime:
     today = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    return today if policy.released else min(today, policy.start)
+    return min(today, policy.start)
 
 
 def _code_commit() -> str:

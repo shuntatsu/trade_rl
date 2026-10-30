@@ -1,24 +1,27 @@
-"""Sealed-window embargo for the market-data store (Issue #810).
+"""FS1 data-protection boundaries for the market-data store (Issue #810).
 
-The FS1 forward study (``trade_rl.evaluation.forward_study``) owns an unused window
-that starts at ``2026-11-01T00:00Z`` and is scored exactly once after 2027-05-02. No
-one may see data from that window before then, so the store refuses to ingest it.
+The FS1 forward study (``trade_rl.evaluation.forward_study``) controls two spans:
 
-``SEALED_WINDOW_START`` is pinned here, not imported: integrations must not depend on
-evaluation. ``tests/integrations/market_store/test_embargo.py`` asserts equality with
-``Fs1Registry.scoring_start`` and with the ``market_embargo`` row of the SQL
-migration, so the three can never drift apart silently.
+* the **warm-up span** ``[2026-08-01T00:00Z, 2026-11-01T00:00Z)``: per
+  ``docs/architecture/research-assurance.md`` (FS1 acquisition procedure) it may be
+  fetched only with a separate Issue #810 data-fetch authorization. The store refuses
+  it by default and admits it only for a run that carries ``--allow-fs1-warmup-span``
+  together with an Issue #810 authorization comment URL (recorded on the run);
+* the **sealed window** ``[2026-11-01T00:00Z, ...)``: scored once after 2027-05-02 and
+  never visible before. The store refuses it **unconditionally**. There is no flag,
+  parameter or SQL path that lifts this; lifting it after FS1 is scored needs a
+  future reviewed migration and pull request.
 
-The embargo is enforced at three independent layers:
+Both constants are pinned here (integrations must not depend on evaluation) and
+``tests/integrations/market_store/test_embargo.py`` asserts equality with
+``Fs1Registry.warmup_only_start`` / ``scoring_start`` and with the SQL functions of the
+migration. Even when the warm-up span is admitted, FS1 scoring still re-acquires and
+re-verifies its own data through its sealed acquisition tool
+(``trade_rl.evaluation.forward_acquisition``); store rows never feed FS1 scoring.
 
-1. planning: no archive whose period reaches the boundary is ever planned or fetched;
-2. row validation: a parsed row at or after the boundary raises before any write;
-3. the database: ``market_embargo`` triggers reject such rows and sources even if the
-   Python layers are bypassed.
-
-The only override is :meth:`EmbargoPolicy.released`, which requires an explicit
-authorization comment URL on Issue #810. The user must authorize it; FS1 scoring
-itself still uses its own sealed acquisition tool, never this store.
+The boundaries are enforced at three independent layers: planning (no archive whose
+period reaches a closed span is planned or fetched), row validation (before any
+write) and PostgreSQL triggers (even if the Python layers are bypassed).
 """
 
 from __future__ import annotations
@@ -28,10 +31,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
 
+FS1_WARMUP_START: Final = datetime(2026, 8, 1, tzinfo=UTC)
 SEALED_WINDOW_START: Final = datetime(2026, 11, 1, tzinfo=UTC)
+FS1_WARMUP_START_MS: Final = int(FS1_WARMUP_START.timestamp() * 1_000)
 SEALED_WINDOW_START_MS: Final = int(SEALED_WINDOW_START.timestamp() * 1_000)
 
-RELEASE_AUTHORIZATION_URL_PATTERN: Final = re.compile(
+WARMUP_AUTHORIZATION_URL_PATTERN: Final = re.compile(
     r"^https://github\.com/shuntatsu/trade_rl/issues/810#issuecomment-[0-9]+$"
 )
 
@@ -40,76 +45,126 @@ class SealedWindowEmbargoError(ValueError):
     """Data at or after the FS1 sealed window start was requested or encountered."""
 
 
+class Fs1WarmupSpanError(SealedWindowEmbargoError):
+    """FS1 warm-up data was requested without the explicit authorization."""
+
+
 @dataclass(frozen=True, slots=True)
 class EmbargoPolicy:
-    """The embargo boundary and whether an authorized release is in force."""
+    """Which spans a run may touch: everything before ``start``."""
 
-    start: datetime = SEALED_WINDOW_START
-    released: bool = False
-    authorization_url: str | None = None
+    warmup_start: datetime = FS1_WARMUP_START
+    sealed_start: datetime = SEALED_WINDOW_START
+    warmup_authorization_url: str | None = None
 
     def __post_init__(self) -> None:
-        if self.start.tzinfo is None or self.start.utcoffset() is None:
-            raise ValueError("embargo start must be timezone-aware")
-        object.__setattr__(self, "start", self.start.astimezone(UTC))
-        if self.released != (self.authorization_url is not None):
-            raise ValueError(
-                "a released embargo requires an authorization URL and vice versa"
-            )
-        if self.authorization_url is not None and (
-            RELEASE_AUTHORIZATION_URL_PATTERN.fullmatch(self.authorization_url) is None
+        for value in (self.warmup_start, self.sealed_start):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("embargo boundaries must be timezone-aware")
+        object.__setattr__(self, "warmup_start", self.warmup_start.astimezone(UTC))
+        object.__setattr__(self, "sealed_start", self.sealed_start.astimezone(UTC))
+        if self.warmup_start > self.sealed_start:
+            raise ValueError("the warm-up span cannot start after the sealed window")
+        if self.warmup_authorization_url is not None and (
+            WARMUP_AUTHORIZATION_URL_PATTERN.fullmatch(self.warmup_authorization_url)
+            is None
         ):
             raise ValueError(
-                "release authorization must be an Issue #810 comment URL "
+                "FS1 warm-up authorization must be an Issue #810 comment URL "
                 "(https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>)"
             )
 
     @classmethod
-    def enforced(cls, start: datetime = SEALED_WINDOW_START) -> EmbargoPolicy:
-        return cls(start=start)
+    def enforced(
+        cls,
+        sealed_start: datetime = SEALED_WINDOW_START,
+        warmup_start: datetime | None = None,
+    ) -> EmbargoPolicy:
+        """Default policy: warm-up refused too (``warmup_start`` defaults to FS1's)."""
+
+        if warmup_start is None:
+            warmup_start = min(FS1_WARMUP_START, sealed_start)
+        return cls(warmup_start=warmup_start, sealed_start=sealed_start)
 
     @classmethod
-    def release(
-        cls, authorization_url: str, start: datetime = SEALED_WINDOW_START
+    def with_warmup(
+        cls,
+        authorization_url: str,
+        sealed_start: datetime = SEALED_WINDOW_START,
+        warmup_start: datetime | None = None,
     ) -> EmbargoPolicy:
-        return cls(start=start, released=True, authorization_url=authorization_url)
+        """Admit the warm-up span for one run; the sealed window stays closed."""
+
+        if warmup_start is None:
+            warmup_start = min(FS1_WARMUP_START, sealed_start)
+        return cls(
+            warmup_start=warmup_start,
+            sealed_start=sealed_start,
+            warmup_authorization_url=authorization_url,
+        )
+
+    @property
+    def warmup_allowed(self) -> bool:
+        return self.warmup_authorization_url is not None
+
+    @property
+    def start(self) -> datetime:
+        """First instant this run must not touch."""
+
+        return self.sealed_start if self.warmup_allowed else self.warmup_start
 
     @property
     def start_ms(self) -> int:
         return int(self.start.timestamp() * 1_000)
 
-    def check_ms(self, timestamp_ms: int, *, context: str) -> None:
-        """Refuse a row timestamp (epoch milliseconds) inside the sealed window."""
-
-        if not self.released and timestamp_ms >= self.start_ms:
-            moment = datetime.fromtimestamp(timestamp_ms / 1_000, tz=UTC).isoformat()
-            raise SealedWindowEmbargoError(
-                f"{context}: timestamp {moment} is inside the FS1 sealed window "
-                f"(>= {self.start.isoformat()}); refusing"
+    def _refusal(self, moment: str, *, sealed: bool, context: str) -> ValueError:
+        if sealed:
+            return SealedWindowEmbargoError(
+                f"{context}: {moment} is inside the FS1 sealed window "
+                f"(>= {self.sealed_start.isoformat()}); refusing unconditionally"
             )
+        return Fs1WarmupSpanError(
+            f"{context}: {moment} is inside the FS1 warm-up span "
+            f"[{self.warmup_start.isoformat()}, {self.sealed_start.isoformat()}); "
+            "it needs --allow-fs1-warmup-span with an Issue #810 authorization URL"
+        )
+
+    def check_ms(self, timestamp_ms: int, *, context: str) -> None:
+        """Refuse a row timestamp (epoch milliseconds) in a closed span."""
+
+        if timestamp_ms >= int(self.sealed_start.timestamp() * 1_000):
+            moment = datetime.fromtimestamp(timestamp_ms / 1_000, tz=UTC).isoformat()
+            raise self._refusal(moment, sealed=True, context=context)
+        if timestamp_ms >= self.start_ms:
+            moment = datetime.fromtimestamp(timestamp_ms / 1_000, tz=UTC).isoformat()
+            raise self._refusal(moment, sealed=False, context=context)
 
     def check_archive_end(self, period_end: datetime, *, url: str) -> None:
-        """Refuse an archive whose exclusive period end passes the boundary."""
+        """Refuse an archive whose exclusive period end passes a closed span."""
 
-        if not self.released and period_end > self.start:
-            raise SealedWindowEmbargoError(
-                f"archive {url} covers a period ending {period_end.isoformat()}, "
-                f"past the FS1 sealed window start {self.start.isoformat()}; "
-                "it must not be downloaded"
-            )
+        context = f"archive {url} (period ends {period_end.isoformat()})"
+        if period_end > self.sealed_start:
+            raise self._refusal("its period", sealed=True, context=context)
+        if period_end > self.start:
+            raise self._refusal("its period", sealed=False, context=context)
 
-    def effective_end(self, requested_end: datetime) -> datetime:
-        """The range end an enforced embargo allows (the request unchanged if released)."""
+    def check_range_end(self, requested_end: datetime, *, what: str) -> None:
+        """Refuse a requested exclusive range end past a closed span."""
 
-        if self.released:
-            return requested_end
-        return min(requested_end, self.start)
+        context = f"{what} end {requested_end.isoformat()}"
+        if requested_end > self.sealed_start:
+            raise self._refusal("the range", sealed=True, context=context)
+        if requested_end > self.start:
+            raise self._refusal("the range", sealed=False, context=context)
 
 
 __all__ = [
-    "RELEASE_AUTHORIZATION_URL_PATTERN",
+    "FS1_WARMUP_START",
+    "FS1_WARMUP_START_MS",
     "SEALED_WINDOW_START",
     "SEALED_WINDOW_START_MS",
+    "WARMUP_AUTHORIZATION_URL_PATTERN",
     "EmbargoPolicy",
+    "Fs1WarmupSpanError",
     "SealedWindowEmbargoError",
 ]

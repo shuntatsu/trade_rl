@@ -155,7 +155,22 @@ def test_ci_runs_the_postgres_integration_tests_in_a_service_container() -> None
     assert "pull_request" in job
 
 
-def test_runbook_documents_embargo_release_and_the_non_goals() -> None:
+def test_runbook_example_default_form_stops_before_the_warmup_span() -> None:
+    text = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    section = text.split("## Market-data store runbook", 1)[1].split("\n## ", 1)[0]
+    assert "--release" not in section
+    for line in section.splitlines():
+        if "market_store ingest" in line or "market_store plan" in line:
+            if line.lstrip().startswith("#") or "--allow-fs1-warmup-span" in line:
+                continue
+            assert "--end 2026-08-01" in line, line
+    assert "no flag, parameter, table or SQL function that lifts it" in section
+    assert "re-acquires and re-verifies its own data" in section
+
+
+def test_runbook_documents_embargo_boundaries_and_the_non_goals() -> None:
     text = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
         encoding="utf-8"
     )
@@ -163,7 +178,9 @@ def test_runbook_documents_embargo_release_and_the_non_goals() -> None:
     for required in (
         "integrations/market_store/",
         "--allow-network",
-        "--release-sealed-window",
+        "--allow-fs1-warmup-span",
+        "--fs1-warmup-authorization-url",
+        "FS1 acquisition procedure",
         "pg_dump",
         "TRADE_RL_MARKET_STORE_URL",
         "TRADE_RL_TEST_POSTGRES_URL",

@@ -28,14 +28,17 @@ from trade_rl.integrations.market_store.contracts import (
     ms_from_utc,
 )
 from trade_rl.integrations.market_store.embargo import (
+    FS1_WARMUP_START,
     SEALED_WINDOW_START,
     EmbargoPolicy,
+    Fs1WarmupSpanError,
     SealedWindowEmbargoError,
 )
 from trade_rl.integrations.market_store.export import export_market_dataset
 from trade_rl.integrations.market_store.ingest import (
     ConflictError,
     IngestReport,
+    RunCounts,
     run_ingestion,
 )
 from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
@@ -454,20 +457,45 @@ def test_a_second_concurrent_run_is_refused(
     pg_store.finish_run(first, status="succeeded", counts=RunCounts(), error=None)
 
 
-# -- embargo at the database layer -----------------------------------------------
+# -- FS1 boundaries at the database layer -----------------------------------------------
+
+SEALED = "2026-11-01 00:00:00+00"
+WARMUP = "2026-08-01 00:00:00+00"
+JULY_LAST = ("2026-07-31 23:00+00", "2026-07-31 23:59:59.999+00")
+
+
+def insert_funding(store: Any, instrument_id: int, source_id: int, when: str) -> None:
+    with store.connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO funding_rates (instrument_id, funding_time, rate, source_id) "
+            "VALUES (%s, %s, 0.0001, %s)",
+            (instrument_id, when, source_id),
+        )
+
+
+def insert_source(
+    store: Any, instrument_id: int, name: str, start: str, end: str
+) -> None:
+    with store.connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO sources (url, kind, instrument_id, bar_interval, period_kind, "
+            "period_start, period_end, status, http_status, checksum_url, fetched_at, "
+            "run_id) SELECT %s, 'klines', %s, '1h', 'monthly', %s, %s, 'missing', 404, "
+            "%s, now(), run_id FROM ingestion_runs LIMIT 1",
+            (name, instrument_id, start, end, f"{name}.CHECKSUM"),
+        )
 
 
 def test_database_rejects_sealed_rows_even_if_python_is_bypassed(pg_store: Any) -> None:
     import psycopg
 
     instrument_id, source_id = seed_instrument_and_source(pg_store)
-    boundary = "2026-11-01 00:00:00+00"
     with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
         insert_kline(
             pg_store,
             instrument_id,
             source_id,
-            open_time=boundary,
+            open_time=SEALED,
             close_time="2026-11-01 00:59:59.999+00",
         )
     with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
@@ -478,6 +506,69 @@ def test_database_rejects_sealed_rows_even_if_python_is_bypassed(pg_store: Any) 
             open_time="2026-10-31 23:00+00",
             close_time="2026-11-01 00:00+00",
         )
+    with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
+        insert_funding(pg_store, instrument_id, source_id, SEALED)
+    with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
+        insert_source(pg_store, instrument_id, "m", "2026-11-01+00", "2026-12-01+00")
+    with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
+        insert_source(pg_store, instrument_id, "wide", "2026-07-01+00", "2026-11-02+00")
+    assert scalar(pg_store, "SELECT count(*) FROM klines") == 0
+
+
+def test_database_rejects_warmup_rows_without_an_authorized_run(pg_store: Any) -> None:
+    import psycopg
+
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    insert_kline(
+        pg_store,
+        instrument_id,
+        source_id,
+        open_time=JULY_LAST[0],
+        close_time=JULY_LAST[1],
+    )
+    insert_funding(pg_store, instrument_id, source_id, "2026-07-31 16:00:00.005+00")
+    insert_source(pg_store, instrument_id, "july", "2026-07-01+00", "2026-08-01+00")
+    for when in (WARMUP, "2026-09-15 00:00+00", "2026-10-31 23:00+00"):
+        with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+            insert_kline(
+                pg_store,
+                instrument_id,
+                source_id,
+                open_time=when,
+                close_time=f"{when[:10]} 23:59:59.999+00",
+            )
+        with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+            insert_funding(pg_store, instrument_id, source_id, when)
+    with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+        insert_source(pg_store, instrument_id, "aug", "2026-08-01+00", "2026-09-01+00")
+
+    # a RUNNING run that was NOT authorized does not open the span either, even if the
+    # session variable names it
+    run_id = pg_store.begin_run(
+        code_commit="c", command_line="c", request={}, embargo=EmbargoPolicy.enforced()
+    )
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT set_config('trade_rl.fs1_warmup_run_id', %s, false)", (str(run_id),)
+        )
+    with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+        insert_funding(pg_store, instrument_id, source_id, WARMUP)
+    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
+
+
+def test_authorized_run_admits_only_the_warmup_span_and_only_while_running(
+    pg_store: Any,
+) -> None:
+    import psycopg
+
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    run_id = pg_store.begin_run(
+        code_commit="c",
+        command_line="c --allow-fs1-warmup-span",
+        request={},
+        embargo=EmbargoPolicy.with_warmup(URL),
+    )
+    insert_funding(pg_store, instrument_id, source_id, WARMUP)
     insert_kline(
         pg_store,
         instrument_id,
@@ -486,107 +577,211 @@ def test_database_rejects_sealed_rows_even_if_python_is_bypassed(pg_store: Any) 
         close_time="2026-10-31 23:59:59.999+00",
     )
     with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
-        with pg_store.connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO funding_rates (instrument_id, funding_time, rate, source_id) "
-                "VALUES (%s, %s, 0.0001, %s)",
-                (instrument_id, boundary, source_id),
-            )
+        insert_funding(pg_store, instrument_id, source_id, SEALED)
     with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
-        with pg_store.connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO sources (url, kind, instrument_id, bar_interval, "
-                "period_kind, period_start, period_end, status, http_status, "
-                "checksum_url, fetched_at, run_id) SELECT 'm', 'klines', %s, '1h', "
-                "'monthly', '2026-11-01+00', '2026-12-01+00', 'missing', 404, 'm.CHECKSUM', "
-                "now(), run_id FROM ingestion_runs LIMIT 1",
-                (instrument_id,),
-            )
+        insert_kline(
+            pg_store,
+            instrument_id,
+            source_id,
+            open_time=SEALED,
+            close_time="2026-11-01 00:59:59.999+00",
+        )
+    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
+    with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+        insert_funding(pg_store, instrument_id, source_id, "2026-09-01 00:00:00+00")
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT fs1_warmup_allowed, fs1_warmup_authorization_url "
+            "FROM ingestion_runs WHERE run_id = %s",
+            (run_id,),
+        )
+        assert cursor.fetchone() == (True, URL)
 
 
-def test_embargo_row_cannot_be_edited_only_released_once(pg_store: Any) -> None:
+def test_ingestion_runs_record_the_warmup_flag_and_url_consistently(
+    pg_store: Any,
+) -> None:
     import psycopg
 
-    state = pg_store.embargo_state()
-    assert state.sealed_from == SEALED_WINDOW_START and not state.released
-    for sql in (
-        "UPDATE market_embargo SET sealed_from = '2030-01-01+00'",
-        "UPDATE market_embargo SET reason = 'x'",
-        "DELETE FROM market_embargo",
-        "TRUNCATE market_embargo",
+    insert = (
+        "INSERT INTO ingestion_runs (code_commit, command_line, request, "
+        "fs1_warmup_allowed, fs1_warmup_authorization_url) "
+        "VALUES ('c', 'c', '{}'::jsonb, %s, %s)"
+    )
+    for allowed, url in (
+        (True, None),
+        (False, URL),
+        (True, "https://example.com/not-the-issue"),
+        (True, "https://github.com/shuntatsu/trade_rl/issues/811#issuecomment-1"),
     ):
-        with pytest.raises(psycopg.errors.RestrictViolation):
+        with pytest.raises(psycopg.errors.CheckViolation):
             with pg_store.connection.cursor() as cursor:
-                cursor.execute(sql)
-    with pytest.raises(psycopg.errors.CheckViolation):
-        with pg_store.connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE market_embargo SET released_at = now(), "
-                "release_authorization_url = 'https://example.com/x'"
-            )
-    with pytest.raises(psycopg.errors.CheckViolation):
-        with pg_store.connection.cursor() as cursor:
-            cursor.execute("UPDATE market_embargo SET released_at = now()")
+                cursor.execute(insert, (allowed, url))
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(insert, (True, URL))
+        cursor.execute(insert, (False, None))
 
 
-def test_ingestion_enforces_the_embargo_end_to_end(pg_store: Any) -> None:
-    october = plan_ingestion(
+def test_there_is_no_release_path_in_the_database(pg_store: Any) -> None:
+    import psycopg
+
+    assert scalar(pg_store, "SELECT to_regclass('market_embargo') IS NULL") is True
+    assert scalar(pg_store, "SELECT market_sealed_from()") == SEALED_WINDOW_START
+    assert scalar(pg_store, "SELECT market_fs1_warmup_start()") == FS1_WARMUP_START
+    names = [
+        row[0]
+        for row in _rows(
+            pg_store,
+            "SELECT proname FROM pg_proc WHERE pronamespace = "
+            "(SELECT oid FROM pg_namespace WHERE nspname = current_schema())",
+        )
+    ]
+    assert not [name for name in names if "release" in name]
+    state = pg_store.embargo_state()
+    assert state.sealed_from == SEALED_WINDOW_START
+    assert state.fs1_warmup_start == FS1_WARMUP_START
+    assert not hasattr(state, "released")
+
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    # an authorized warm-up run, and even a forged session variable, never open the
+    # sealed window
+    run_id = pg_store.begin_run(
+        code_commit="c",
+        command_line="c",
+        request={},
+        embargo=EmbargoPolicy.with_warmup(URL),
+    )
+    for forged in (str(run_id), "0", "1", "-1", "x"):
+        try:
+            with pg_store.connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT set_config('trade_rl.fs1_warmup_run_id', %s, false)",
+                    (forged,),
+                )
+            insert_funding(pg_store, instrument_id, source_id, SEALED)
+        except (
+            psycopg.errors.CheckViolation,
+            psycopg.errors.InvalidTextRepresentation,
+        ):
+            continue
+        raise AssertionError("a sealed funding row was stored")
+    pg_store.finish_run(run_id, status="failed", counts=RunCounts(), error="x")
+    assert scalar(pg_store, "SELECT count(*) FROM funding_rates") == 0
+
+
+def _rows(store: Any, sql: str) -> list[Any]:
+    with store.connection.cursor() as cursor:
+        cursor.execute(sql)
+        return list(cursor.fetchall())
+
+
+def test_empty_or_failed_authorized_runs_change_nothing_permanent(
+    postgres_url: str, pg_schema: str, pg_store: Any
+) -> None:
+    from trade_rl.integrations.market_store.store import PostgresMarketStore
+
+    plan = plan_ingestion(
         Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
-        start=datetime(2026, 10, 1, tzinfo=UTC),
-        end=SEALED_WINDOW_START,
+        start=datetime(2026, 8, 1, tzinfo=UTC),
+        end=datetime(2026, 9, 1, tzinfo=UTC),
+        now=datetime(2026, 10, 30, tzinfo=UTC),
+        embargo=EmbargoPolicy.with_warmup(URL),
+    )
+    # an empty fetcher: every archive 404s; and a fetcher that fails the run outright
+    empty = FakeFetcher()
+    report = ingest(pg_store, empty, plan)
+    assert report.counts.archives_missing == len(plan.specs) > 0
+    broken = fetcher_for(plan)
+    broken.fail(plan.specs[0].url, 503)
+    with pytest.raises(Exception, match="503"):
+        ingest(pg_store, broken, plan)
+    # a brand-new session (no authorized run) is exactly as closed as before
+    with PostgresMarketStore.open(postgres_url, schema=pg_schema) as other:
+        instrument_id, source_id = seed_instrument_and_source(other)
+        import psycopg
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+            insert_funding(other, instrument_id, source_id, WARMUP)
+        with pytest.raises(psycopg.errors.CheckViolation, match="sealed window"):
+            insert_funding(other, instrument_id, source_id, SEALED)
+    assert scalar(pg_store, "SELECT count(*) FROM klines") == 0
+
+
+def test_ingestion_enforces_the_boundaries_end_to_end(pg_store: Any) -> None:
+    july = plan_ingestion(
+        Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
+        start=datetime(2026, 7, 1, tzinfo=UTC),
+        end=FS1_WARMUP_START,
         now=datetime(2026, 12, 15, tzinfo=UTC),
     )
-    fetcher = fetcher_for(october)
-    report = ingest(pg_store, fetcher, october)
+    report = ingest(pg_store, fetcher_for(july), july)
     assert report.counts.rows_inserted == 31 * 24
+    assert scalar(pg_store, "SELECT max(open_time) FROM klines") == datetime(
+        2026, 7, 31, 23, tzinfo=UTC
+    )
+    for end in (datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 11, 2, tzinfo=UTC)):
+        with pytest.raises(SealedWindowEmbargoError):
+            plan_ingestion(
+                july.universe,
+                start=datetime(2026, 7, 1, tzinfo=UTC),
+                end=end,
+                now=datetime(2026, 12, 15, tzinfo=UTC),
+            )
+    # a hand-built plan that smuggles an August archive in is refused with no download
+    august = plan_ingestion(
+        july.universe,
+        start=datetime(2026, 8, 1, tzinfo=UTC),
+        end=datetime(2026, 9, 1, tzinfo=UTC),
+        now=datetime(2026, 12, 15, tzinfo=UTC),
+        embargo=EmbargoPolicy.with_warmup(URL),
+    )
+    smuggled = IngestionPlan(
+        august.universe,
+        august.start,
+        august.end,
+        EmbargoPolicy.enforced(),
+        august.specs,
+        (),
+    )
+    fetcher = fetcher_for(august)
+    with pytest.raises(Fs1WarmupSpanError):
+        ingest(pg_store, fetcher, smuggled)
+    assert fetcher.requested == []
+    assert scalar(pg_store, "SELECT count(*) FROM klines") == 31 * 24
+
+
+def test_authorized_warmup_ingestion_records_the_run_and_stays_below_the_sealed_window(
+    pg_store: Any,
+) -> None:
+    policy = EmbargoPolicy.with_warmup(URL)
+    plan = plan_ingestion(
+        Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
+        start=datetime(2026, 9, 1, tzinfo=UTC),
+        end=SEALED_WINDOW_START,
+        now=datetime(2026, 12, 15, tzinfo=UTC),
+        embargo=policy,
+    )
+    report = ingest(pg_store, fetcher_for(plan), plan)
+    assert report.counts.rows_inserted == (30 + 31) * 24
     assert scalar(pg_store, "SELECT max(open_time) FROM klines") == datetime(
         2026, 10, 31, 23, tzinfo=UTC
     )
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT fs1_warmup_allowed, fs1_warmup_authorization_url, status, "
+            "request ->> 'fs1_warmup_authorization_url' FROM ingestion_runs "
+            "WHERE run_id = %s",
+            (report.run_id,),
+        )
+        assert cursor.fetchone() == (True, URL, "succeeded", URL)
     with pytest.raises(SealedWindowEmbargoError):
         plan_ingestion(
-            october.universe,
-            start=datetime(2026, 10, 1, tzinfo=UTC),
+            plan.universe,
+            start=datetime(2026, 9, 1, tzinfo=UTC),
             end=datetime(2026, 11, 2, tzinfo=UTC),
-            now=datetime(2026, 12, 15, tzinfo=UTC),
+            now=datetime(2027, 6, 1, tzinfo=UTC),
+            embargo=policy,
         )
-    assert not pg_store.embargo_state().released
-
-
-def test_release_requires_the_authorization_url_and_is_permanent(pg_store: Any) -> None:
-    run_id = pg_store.begin_run(
-        code_commit="c",
-        command_line="c --release-sealed-window",
-        request={},
-        embargo=EmbargoPolicy.release(URL),
-    )
-    from trade_rl.integrations.market_store.ingest import RunCounts
-
-    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
-    state = pg_store.embargo_state()
-    assert state.released and state.authorization_url == URL
-    assert (
-        scalar(
-            pg_store,
-            "SELECT release_authorization_url FROM ingestion_runs WHERE run_id = %s",
-            run_id,
-        )
-        == URL
-    )
-    instrument_id, source_id = seed_instrument_and_source(pg_store)
-    insert_kline(
-        pg_store,
-        instrument_id,
-        source_id,
-        open_time="2026-11-01 00:00+00",
-        close_time="2026-11-01 00:59:59.999+00",
-    )
-    import psycopg
-
-    with pytest.raises(psycopg.errors.RestrictViolation):
-        with pg_store.connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE market_embargo SET released_at = NULL, release_authorization_url = NULL"
-            )
 
 
 # -- export ---------------------------------------------------------------------
@@ -665,6 +860,7 @@ def test_export_refuses_the_window_and_status_reports(pg_store: Any) -> None:
         )
     status = pg_store.status()
     assert status["migrated"] is True
-    assert status["embargo"]["released"] is False  # type: ignore[index]
+    assert status["embargo"]["sealed_from"].startswith("2026-11-01")  # type: ignore[index]
+    assert "released" not in status["embargo"]  # type: ignore[operator]
     assert {item["symbol"] for item in status["klines"]} == set(SYMBOLS)  # type: ignore[attr-defined]
     assert status["sources"] == {"ingested": 2}

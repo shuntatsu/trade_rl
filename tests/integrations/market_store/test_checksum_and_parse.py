@@ -30,9 +30,12 @@ from trade_rl.integrations.market_store.contracts import (
     utc_from_ms,
 )
 from trade_rl.integrations.market_store.embargo import (
+    FS1_WARMUP_START,
+    FS1_WARMUP_START_MS,
     SEALED_WINDOW_START,
     SEALED_WINDOW_START_MS,
     EmbargoPolicy,
+    Fs1WarmupSpanError,
     SealedWindowEmbargoError,
 )
 from trade_rl.integrations.market_store.parse import (
@@ -43,6 +46,7 @@ from trade_rl.integrations.market_store.parse import (
 
 JAN = datetime(2024, 1, 1, tzinfo=UTC)
 FEB = datetime(2024, 2, 1, tzinfo=UTC)
+JUL = datetime(2026, 7, 1, tzinfo=UTC)
 OCT = datetime(2026, 10, 1, tzinfo=UTC)
 ENFORCED = EmbargoPolicy.enforced()
 
@@ -271,28 +275,42 @@ def test_funding_refuses_missing_header_and_implausible_rates() -> None:
 # -- embargo inside the parser ---------------------------------------------------
 
 
-def test_a_kline_at_the_boundary_is_refused_even_inside_a_wide_period() -> None:
+WARMUP = EmbargoPolicy.with_warmup(
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7"
+)
+
+
+def test_a_kline_in_the_sealed_window_is_refused_under_every_policy() -> None:
     november = spec(start=SEALED_WINDOW_START, end=datetime(2026, 12, 1, tzinfo=UTC))
     payload = zip_csv(klines(SEALED_WINDOW_START, datetime(2026, 11, 2, tzinfo=UTC)))
-    with pytest.raises(SealedWindowEmbargoError, match="sealed window"):
-        parse_kline_archive(payload, november, embargo=ENFORCED)
-    released = EmbargoPolicy.release(
-        "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7"
-    )
-    assert parse_kline_archive(payload, november, embargo=released)
+    for policy in (ENFORCED, WARMUP):
+        with pytest.raises(SealedWindowEmbargoError, match="sealed window"):
+            parse_kline_archive(payload, november, embargo=policy)
 
 
-def test_one_embargoed_row_poisons_an_otherwise_valid_october_archive() -> None:
-    october = spec(start=OCT, end=datetime(2026, 11, 2, tzinfo=UTC))
-    payload = zip_csv(klines(OCT, datetime(2026, 11, 1, 1, tzinfo=UTC)))
-    with pytest.raises(SealedWindowEmbargoError):
-        parse_kline_archive(payload, october, embargo=ENFORCED)
-    just_before = zip_csv(klines(OCT, SEALED_WINDOW_START))
+def test_a_warmup_kline_needs_the_authorization() -> None:
+    august = spec(start=FS1_WARMUP_START, end=datetime(2026, 9, 1, tzinfo=UTC))
+    payload = zip_csv(klines(FS1_WARMUP_START, datetime(2026, 9, 1, tzinfo=UTC)))
+    with pytest.raises(Fs1WarmupSpanError, match="warm-up"):
+        parse_kline_archive(payload, august, embargo=ENFORCED)
+    assert parse_kline_archive(payload, august, embargo=WARMUP)
+
+
+def test_one_closed_span_row_poisons_an_otherwise_valid_archive() -> None:
+    july = spec(start=JUL, end=datetime(2026, 8, 2, tzinfo=UTC))
+    payload = zip_csv(klines(JUL, datetime(2026, 8, 1, 1, tzinfo=UTC)))
+    with pytest.raises(Fs1WarmupSpanError):
+        parse_kline_archive(payload, july, embargo=ENFORCED)
+    just_before = zip_csv(klines(JUL, FS1_WARMUP_START))
     rows = parse_kline_archive(
-        just_before, spec(start=OCT, end=SEALED_WINDOW_START), embargo=ENFORCED
+        just_before, spec(start=JUL, end=FS1_WARMUP_START), embargo=ENFORCED
     )
-    assert rows[-1].open_time_ms == SEALED_WINDOW_START_MS - HOUR_MS
-    assert rows[-1].close_time_ms == SEALED_WINDOW_START_MS - 1
+    assert rows[-1].open_time_ms == FS1_WARMUP_START_MS - HOUR_MS
+    assert rows[-1].close_time_ms == FS1_WARMUP_START_MS - 1
+    october = spec(start=OCT, end=datetime(2026, 11, 2, tzinfo=UTC))
+    late = zip_csv(klines(OCT, datetime(2026, 11, 1, 1, tzinfo=UTC)))
+    with pytest.raises(SealedWindowEmbargoError):
+        parse_kline_archive(late, october, embargo=WARMUP)
 
 
 def test_a_funding_row_at_the_boundary_is_refused() -> None:

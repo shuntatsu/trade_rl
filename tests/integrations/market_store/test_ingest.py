@@ -27,8 +27,10 @@ from trade_rl.integrations.market_store.contracts import (
     ms_from_utc,
 )
 from trade_rl.integrations.market_store.embargo import (
+    FS1_WARMUP_START,
     SEALED_WINDOW_START,
     EmbargoPolicy,
+    Fs1WarmupSpanError,
     SealedWindowEmbargoError,
 )
 from trade_rl.integrations.market_store.ingest import (
@@ -295,115 +297,127 @@ def test_corrupt_archive_with_valid_checksum_is_rejected() -> None:
 # -- embargo through the ingestion path ------------------------------------------
 
 
-def october_spec(*, market: StoreMarket = StoreMarket.SPOT) -> ArchiveSpec:
-    url = "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2026-10.zip"
+def month_spec(
+    year: int, month: int, *, daily_end: datetime | None = None
+) -> ArchiveSpec:
+    start = day(year, month)
+    end = day(year + (month == 12), month % 12 + 1)
+    url = (
+        "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/"
+        f"BTCUSDT-1h-{year}-{month:02d}.zip"
+    )
     return ArchiveSpec(
         kind=ArchiveKind.KLINES,
-        market=market,
+        market=StoreMarket.SPOT,
         symbol="BTCUSDT",
         interval="1h",
         period_kind=PeriodKind.MONTHLY,
-        period_start=day(2026, 10),
-        period_end=SEALED_WINDOW_START,
+        period_start=start,
+        period_end=end if daily_end is None else daily_end,
         url=url,
         checksum_url=f"{url}.CHECKSUM",
     )
 
 
-def test_an_embargoed_archive_is_never_downloaded() -> None:
-    november_url = "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2026-11.zip"
-    spec = ArchiveSpec(
-        kind=ArchiveKind.KLINES,
-        market=StoreMarket.SPOT,
-        symbol="BTCUSDT",
-        interval="1h",
-        period_kind=PeriodKind.MONTHLY,
-        period_start=SEALED_WINDOW_START,
-        period_end=day(2026, 12),
-        url=november_url,
-        checksum_url=f"{november_url}.CHECKSUM",
+def one_archive_plan(spec: ArchiveSpec, policy: EmbargoPolicy) -> IngestionPlan:
+    return IngestionPlan(
+        UNIVERSE, spec.period_start, spec.period_end, policy, (spec,), ()
     )
-    plan = IngestionPlan(
-        UNIVERSE,
-        SEALED_WINDOW_START,
-        day(2026, 12),
-        EmbargoPolicy.enforced(),
-        (spec,),
-        (),
-    )
+
+
+POLICIES = [EmbargoPolicy.enforced(), EmbargoPolicy.with_warmup(URL)]
+POLICY_IDS = ["default", "warmup-authorized"]
+
+
+@pytest.mark.parametrize("policy", POLICIES, ids=POLICY_IDS)
+def test_a_sealed_window_archive_is_never_downloaded_under_any_policy(
+    policy: EmbargoPolicy,
+) -> None:
+    spec = month_spec(2026, 11)
     fetcher, store = FakeFetcher(), MemoryStore()
     fetcher.add(spec.url, archive_bytes(spec))
     with pytest.raises(SealedWindowEmbargoError):
-        ingest(store, fetcher, plan)
+        ingest(store, fetcher, one_archive_plan(spec, policy))
     assert fetcher.requested == []
     assert store.klines == {} and store.sources == {}
 
 
-def test_a_late_row_inside_an_allowed_archive_is_refused_before_any_write() -> None:
-    spec = october_spec()
-    wide = zip_csv(
-        kline_csv_rows(
-            "BTCUSDT",
-            ms_from_utc(spec.period_start),
-            ms_from_utc(day(2026, 11, 1)) + 3_600_000,
-        )
-    )
+def test_a_warmup_archive_is_never_downloaded_by_default() -> None:
     fetcher, store = FakeFetcher(), MemoryStore()
-    fetcher.add(spec.url, wide)
-    plan = IngestionPlan(
-        UNIVERSE,
-        day(2026, 10),
-        SEALED_WINDOW_START,
-        EmbargoPolicy.enforced(),
-        (spec,),
-        (),
+    for month in (8, 9, 10):
+        spec = month_spec(2026, month)
+        fetcher.add(spec.url, archive_bytes(spec))
+        with pytest.raises(Fs1WarmupSpanError):
+            ingest(store, fetcher, one_archive_plan(spec, EmbargoPolicy.enforced()))
+    assert fetcher.requested == []
+    assert store.klines == {} and store.sources == {}
+    assert all(run["status"] == "failed" for run in store.runs.values())
+
+
+def test_a_late_row_in_an_allowed_archive_is_refused_before_any_write() -> None:
+    # July (allowed by default) carrying one August bar
+    july = month_spec(2026, 7)
+    fetcher, store = FakeFetcher(), MemoryStore()
+    fetcher.add(
+        july.url,
+        zip_csv(
+            kline_csv_rows(
+                "BTCUSDT",
+                ms_from_utc(july.period_start),
+                ms_from_utc(day(2026, 8)) + 3_600_000,
+            )
+        ),
+    )
+    with pytest.raises(Fs1WarmupSpanError):
+        ingest(store, fetcher, one_archive_plan(july, EmbargoPolicy.enforced()))
+    assert store.klines == {} and store.sources == {}
+
+    # October (allowed only with the warm-up authorization) carrying one November bar
+    october = month_spec(2026, 10)
+    fetcher.add(
+        october.url,
+        zip_csv(
+            kline_csv_rows(
+                "BTCUSDT",
+                ms_from_utc(october.period_start),
+                ms_from_utc(SEALED_WINDOW_START) + 3_600_000,
+            )
+        ),
     )
     with pytest.raises(SealedWindowEmbargoError):
-        ingest(store, fetcher, plan)
+        ingest(
+            store, fetcher, one_archive_plan(october, EmbargoPolicy.with_warmup(URL))
+        )
     assert store.klines == {} and store.sources == {}
 
 
-def test_october_archive_ending_at_the_boundary_ingests_fully() -> None:
-    spec = october_spec()
+def test_july_archive_ending_at_the_default_boundary_ingests_fully() -> None:
+    spec = month_spec(2026, 7)
     fetcher, store = FakeFetcher(), MemoryStore()
     fetcher.add(spec.url, archive_bytes(spec))
-    plan = IngestionPlan(
-        UNIVERSE,
-        day(2026, 10),
-        SEALED_WINDOW_START,
-        EmbargoPolicy.enforced(),
-        (spec,),
-        (),
-    )
-    report = ingest(store, fetcher, plan)
+    report = ingest(store, fetcher, one_archive_plan(spec, EmbargoPolicy.enforced()))
     assert report.counts.rows_inserted == 31 * 24
     last = max(key[2] for key in store.klines)
-    assert last == ms_from_utc(SEALED_WINDOW_START) - 3_600_000
+    assert last == ms_from_utc(FS1_WARMUP_START) - 3_600_000
+    assert store.runs[report.run_id]["fs1_warmup_allowed"] is False
 
 
-def test_release_is_recorded_on_the_run_and_unlocks_the_archive() -> None:
-    november_url = "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2026-11.zip"
-    spec = ArchiveSpec(
-        kind=ArchiveKind.KLINES,
-        market=StoreMarket.SPOT,
-        symbol="BTCUSDT",
-        interval="1h",
-        period_kind=PeriodKind.MONTHLY,
-        period_start=SEALED_WINDOW_START,
-        period_end=day(2026, 12),
-        url=november_url,
-        checksum_url=f"{november_url}.CHECKSUM",
-    )
-    policy = EmbargoPolicy.release(URL)
-    plan = IngestionPlan(
-        UNIVERSE, SEALED_WINDOW_START, day(2026, 12), policy, (spec,), ()
-    )
-    fetcher, store = FakeFetcher(), MemoryStore()
-    fetcher.add(spec.url, archive_bytes(spec))
+def test_warmup_authorization_is_recorded_and_admits_only_the_warmup_span() -> None:
+    policy = EmbargoPolicy.with_warmup(URL)
+    store, fetcher = MemoryStore(), FakeFetcher()
+    specs = tuple(month_spec(2026, month) for month in (8, 9, 10))
+    for spec in specs:
+        fetcher.add(spec.url, archive_bytes(spec))
+    plan = IngestionPlan(UNIVERSE, day(2026, 8), SEALED_WINDOW_START, policy, specs, ())
     report = ingest(store, fetcher, plan)
-    assert report.counts.rows_inserted == 30 * 24
-    assert store.runs[report.run_id]["embargo_released"] is True
-    assert store.embargo_released
+    assert report.counts.rows_inserted == (31 + 30 + 31) * 24
+    run = store.runs[report.run_id]
+    assert run["fs1_warmup_allowed"] is True
+    assert run["fs1_warmup_authorization_url"] == URL
+    assert (
+        max(key[2] for key in store.klines)
+        == ms_from_utc(SEALED_WINDOW_START) - 3_600_000
+    )
 
 
 # -- diff -----------------------------------------------------------------------

@@ -259,26 +259,27 @@ class PostgresMarketStore:
             if not bool(cursor.fetchone()[0]):  # type: ignore[index]
                 raise IngestError("another ingestion run holds the store lock")
             self._holds_ingest_lock = True
-            if embargo.released:
-                cursor.execute(
-                    "UPDATE market_embargo SET released_at = now(), "
-                    "release_authorization_url = %s "
-                    "WHERE id = 1 AND released_at IS NULL",
-                    (embargo.authorization_url,),
-                )
             cursor.execute(
                 "INSERT INTO ingestion_runs (code_commit, command_line, request, "
-                "embargo_released, release_authorization_url) "
+                "fs1_warmup_allowed, fs1_warmup_authorization_url) "
                 "VALUES (%s, %s, %s, %s, %s) RETURNING run_id",
                 (
                     code_commit,
                     command_line,
                     Jsonb(request),
-                    embargo.released,
-                    embargo.authorization_url,
+                    embargo.warmup_allowed,
+                    embargo.warmup_authorization_url,
                 ),
             )
-            return int(cursor.fetchone()[0])  # type: ignore[index]
+            run_id = int(cursor.fetchone()[0])  # type: ignore[index]
+            if embargo.warmup_allowed:
+                # the database triggers admit warm-up rows only for this running,
+                # authorized run on this session; nothing else changes permanently
+                cursor.execute(
+                    "SELECT set_config('trade_rl.fs1_warmup_run_id', %s, false)",
+                    (str(run_id),),
+                )
+            return run_id
 
     def finish_run(
         self,
@@ -307,6 +308,7 @@ class PostgresMarketStore:
                     run_id,
                 ),
             )
+            cursor.execute("SELECT set_config('trade_rl.fs1_warmup_run_id', '', false)")
             if self._holds_ingest_lock:
                 cursor.execute("SELECT pg_advisory_unlock(%s)", (_INGEST_LOCK,))
                 self._holds_ingest_lock = False
@@ -621,18 +623,11 @@ class PostgresMarketStore:
 
     def embargo_state(self) -> EmbargoState:
         with self._connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT sealed_from, released_at, release_authorization_url "
-                "FROM market_embargo WHERE id = 1"
-            )
+            cursor.execute("SELECT market_fs1_warmup_start(), market_sealed_from()")
             row = cursor.fetchone()
-        if row is None:
-            raise RuntimeError("market_embargo row is missing; run migrate")
-        return EmbargoState(
-            sealed_from=row[0],
-            released=row[1] is not None,
-            authorization_url=row[2],
-        )
+        if row is None:  # pragma: no cover - a SELECT of functions always returns a row
+            raise RuntimeError("embargo functions are missing; run migrate")
+        return EmbargoState(fs1_warmup_start=row[0], sealed_from=row[1])
 
     # -- status -----------------------------------------------------------------
 
@@ -697,9 +692,8 @@ class PostgresMarketStore:
             "migrated": True,
             "schema_versions": [list(item) for item in versions],
             "embargo": {
+                "fs1_warmup_start": state.fs1_warmup_start.isoformat(),
                 "sealed_from": state.sealed_from.isoformat(),
-                "released": state.released,
-                "authorization_url": state.authorization_url,
             },
             "klines": klines,
             "funding_rates": funding,

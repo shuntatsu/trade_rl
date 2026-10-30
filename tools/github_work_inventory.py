@@ -47,12 +47,20 @@ def classify_ancestry(compare: dict[str, Any]) -> str:
     ):
         raise ValueError("compare ahead/behind counts must be nonnegative integers")
     if ahead == 0 and behind == 0:
-        return "identical"
-    if ahead > 0 and behind == 0:
-        return "head_in_main"
-    if ahead == 0 and behind > 0:
-        return "main_in_head"
-    return "diverged"
+        comparison_status = "identical"
+        relationship = "identical"
+    elif ahead > 0 and behind == 0:
+        comparison_status = "ahead"
+        relationship = "head_in_main"
+    elif ahead == 0 and behind > 0:
+        comparison_status = "behind"
+        relationship = "main_in_head"
+    else:
+        comparison_status = "diverged"
+        relationship = "diverged"
+    if compare.get("status") != comparison_status:
+        raise ValueError("GitHub compare status conflicts with ahead/behind counts")
+    return relationship
 
 
 def _pull_identity(

@@ -64,12 +64,33 @@ def test_work_inventory_public_adapter_exposes_no_mutating_operations() -> None:
 
 
 def test_compare_direction_prevents_closing_ahead_pr() -> None:
-    assert classify_ancestry({"ahead_by": 10, "behind_by": 0}) == "head_in_main"
-    assert classify_ancestry({"ahead_by": 0, "behind_by": 10}) == "main_in_head"
-    assert classify_ancestry({"ahead_by": 4, "behind_by": 2}) == "diverged"
-    assert classify_ancestry({"ahead_by": 0, "behind_by": 0}) == "identical"
-    with pytest.raises(ValueError):
-        classify_ancestry({"ahead_by": True, "behind_by": 0})
+    assert (
+        classify_ancestry({"status": "ahead", "ahead_by": 10, "behind_by": 0})
+        == "head_in_main"
+    )
+    assert (
+        classify_ancestry({"status": "behind", "ahead_by": 0, "behind_by": 10})
+        == "main_in_head"
+    )
+    assert (
+        classify_ancestry({"status": "diverged", "ahead_by": 4, "behind_by": 2})
+        == "diverged"
+    )
+    assert (
+        classify_ancestry({"status": "identical", "ahead_by": 0, "behind_by": 0})
+        == "identical"
+    )
+    with pytest.raises(ValueError, match="nonnegative integers"):
+        classify_ancestry({"status": "ahead", "ahead_by": True, "behind_by": 0})
+
+
+def test_compare_rejects_missing_or_conflicting_github_status() -> None:
+    with pytest.raises(ValueError, match="compare status conflicts"):
+        classify_ancestry({"ahead_by": 10, "behind_by": 0})
+    with pytest.raises(ValueError, match="compare status conflicts"):
+        classify_ancestry({"status": "behind", "ahead_by": 10, "behind_by": 0})
+    with pytest.raises(ValueError, match="compare status conflicts"):
+        classify_ancestry({"status": "ahead", "ahead_by": 0, "behind_by": 10})
 
 
 def test_unregistered_branch_is_never_deletion_authority() -> None:

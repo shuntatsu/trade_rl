@@ -1007,7 +1007,7 @@ collection machine (no non-test `collector.sqlite` was found on C: or D:), and o
 (they do not know that data or where its results were saved, and new data may be
 collected). The attempt-1 protocol digest, final tip and last observation above were
 verified against the root by the 2026-09-27/28 result-blind review recorded earlier in
-this document (introduced in commit `b9f1ca65b26dcff7acbb089c7643e95702d474c9`); they
+this document (introduced in commit `b9f1ca65b26d`, full SHA in the lineage record); they
 were NOT re-verified against the root now, and global attempt uniqueness remains
 unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 (`available` only with a root path that the existing v1 reader verifies; otherwise

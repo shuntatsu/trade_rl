@@ -122,7 +122,7 @@ def write_heartbeat(
 ) -> None:
     """Atomically replace the heartbeat; a reader never sees a partial file.
 
-    A Windows sharing violation is retried with exponential backoff (about 2.5 s
+    A Windows sharing violation is retried with exponential backoff (about 3.55 s
     in total) before the error is raised to the caller."""
     if state not in HEARTBEAT_STATES:
         raise ValueError("unsupported heartbeat state")
@@ -737,8 +737,13 @@ def supervise_collector(
             poll_seconds=policy.poll_seconds,
         )
 
-    def finish(outcome: str, exit_code: int, **extra: Any) -> dict[str, Any]:
-        status_beat("stopped")
+    def finish(
+        outcome: str, exit_code: int, *, record_stop: bool = True, **extra: Any
+    ) -> dict[str, Any]:
+        # A supervisor that never launched a child owns no status file, and a
+        # contention exit must leave the live owner's supervisor status untouched.
+        if record_stop and launched_at is not None:
+            status_beat("stopped")
         result = dict(
             schema="paper_collector_supervision_v1",
             outcome=outcome,
@@ -835,7 +840,12 @@ def supervise_collector(
         if code == EXIT_LOCK_HELD:
             # Lost a start-up race for the lock to another live collector. Not a
             # collector refusal: write nothing and leave the owner undisturbed.
-            return finish("lock_contention", EXIT_LOCK_HELD, child_exit_code=code)
+            return finish(
+                "lock_contention",
+                EXIT_LOCK_HELD,
+                record_stop=False,
+                child_exit_code=code,
+            )
         if code == 2:
             return fail(
                 "CollectorRefused",

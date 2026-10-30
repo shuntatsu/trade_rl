@@ -6,11 +6,14 @@ a fake clock, and the sealed roots hold software-validation plans.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import signal
+import sqlite3
 import subprocess
 import sys
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -19,6 +22,7 @@ import pytest
 
 from tests.evaluation.test_paper_supervisor import collector, setup
 from tests.integrations.test_binance_forward import NOW
+from trade_rl.evaluation.paper import lock as lock_module
 from trade_rl.evaluation.paper import operations, watchdog
 from trade_rl.evaluation.paper.control import CollectionControl
 from trade_rl.evaluation.paper.lock import CollectorLockHeld, collector_lock_held
@@ -52,6 +56,12 @@ class WallClock:
 
     def sleep(self, seconds):
         self.value += timedelta(seconds=seconds)
+
+
+@pytest.fixture(autouse=True)
+def short_lock_patience(monkeypatch):
+    """In-process tests need no real backoff window; the subprocess race keeps it."""
+    monkeypatch.setattr(lock_module, "LOCK_PATIENCE_SECONDS", 0.05)
 
 
 @pytest.fixture
@@ -1098,3 +1108,267 @@ def test_control_schema_is_read_through_the_control_module(sealed):
     owner.finish(cycle)
     owner.close()
     assert control.incomplete_cycle_exists(root) is False
+
+
+# ------------------------------- status file untouched on contention (L5)
+
+
+def test_contention_and_terminal_exits_leave_a_live_supervisors_status_untouched(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed = setup(tmp_path, monkeypatch)
+    status = root / "supervisor-heartbeat.json"
+    supervisor_beat(root, digest, at=START, child_launched_at=START)
+    original = status.read_bytes()
+    harness = Harness(root, digest, [lambda c, p: pytest.fail("must not spawn")])
+    with collector(root, digest, clock, feed):
+        assert harness.run()["outcome"] == "lock_contention"
+    assert status.read_bytes() == original
+    # already_terminal
+    beat(root, digest, harness.clock, state="finished", last=START)
+    assert harness.run()["outcome"] == "already_terminal"
+    assert status.read_bytes() == original
+    # halted before any launch
+    (root / "collector-heartbeat.json").unlink()
+    write_collection_failure(
+        root, protocol_sha256=digest, error_type="Earlier", error="x"
+    )
+    assert harness.run()["outcome"] == "halted"
+    assert status.read_bytes() == original
+
+
+def test_child_race_loss_does_not_write_a_stopped_status(sealed):
+    root, digest = sealed
+    harness = Harness(root, digest, [lambda c, p: 4])
+    assert harness.run()["outcome"] == "lock_contention"
+    assert read_supervisor_heartbeat(root, digest).state != "stopped"
+    assert not (root / "collection-failure.json").exists()
+
+
+# ------------------------- only a busy database is contention (L6)
+
+
+class _FakeConnection:
+    def __init__(self, error):
+        self.error = error
+        self.closed = False
+
+    def execute(self, *_):
+        raise self.error
+
+    def close(self):
+        self.closed = True
+
+    def rollback(self):
+        pass
+
+
+def _operational(message, code=None):
+    error = sqlite3.OperationalError(message)
+    if code is not None:
+        error.sqlite_errorcode = code
+    return error
+
+
+@pytest.mark.parametrize(
+    ("message", "code", "held"),
+    [
+        ("database is locked", 5, True),  # SQLITE_BUSY
+        ("database table is locked", 6, True),  # SQLITE_LOCKED
+        ("busy", 5 | (1 << 8), True),  # extended BUSY code
+        ("database is locked", None, True),  # no code: message fallback
+        ("disk I/O error", 10, False),  # SQLITE_IOERR
+        ("unable to open database file", 14, False),  # SQLITE_CANTOPEN
+        ("database disk image is malformed", 11, False),  # SQLITE_CORRUPT
+        ("something else", None, False),
+        ("disk I/O error", 10 | (1 << 8), False),
+    ],
+)
+def test_only_busy_or_locked_errors_count_as_contention(
+    tmp_path, monkeypatch, message, code, held
+):
+    (tmp_path / "collector.sqlite").write_bytes(b"")
+    fake = _FakeConnection(_operational(message, code))
+    monkeypatch.setattr(lock_module.sqlite3, "connect", lambda *a, **k: fake)
+    if held:
+        assert collector_lock_held(tmp_path) is True
+        with pytest.raises(CollectorLockHeld):
+            lock_module.acquire_collector_lock(tmp_path)
+    else:
+        with pytest.raises(sqlite3.OperationalError, match=message):
+            collector_lock_held(tmp_path)
+        with pytest.raises(sqlite3.OperationalError):
+            lock_module.acquire_collector_lock(tmp_path)
+    assert fake.closed
+
+
+def test_a_non_busy_probe_error_is_an_error_everywhere_and_never_exit_four(
+    sealed, tmp_path, monkeypatch, capsys
+):
+    from trade_rl.evaluation.paper import cli
+
+    root, digest = sealed
+    (root / "collector.sqlite").write_bytes(b"")
+    fake = _FakeConnection(_operational("disk I/O error", 10))
+    monkeypatch.setattr(lock_module.sqlite3, "connect", lambda *a, **k: fake)
+    harness = Harness(root, digest, [lambda c, p: pytest.fail("must not spawn")])
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O"):
+        harness.run()
+    assert not harness.children
+    code = cli.main(
+        [
+            "supervise",
+            "--root",
+            str(root),
+            "--protocol-sha256",
+            digest,
+            "--log-file",
+            str(tmp_path / "child.log"),
+        ]
+    )
+    assert code == 2  # an error, never the contention code 4
+    assert json.loads(capsys.readouterr().err)["error_type"] == "OperationalError"
+    assert not (root / "collection-failure.json").exists()
+    assert not (root / "supervisor-heartbeat.json").exists()
+    code = cli.main(["run", "--root", str(root), "--protocol-sha256", digest])
+    assert code == 2
+    assert not (root / "collection-failure.json").exists()
+
+
+# --------------------------- real two-process lock race (L7)
+
+
+def test_two_real_collector_processes_race_for_the_lock_exactly_one_owns_it(tmp_path):
+    import os
+    from datetime import UTC, datetime
+
+    root = tmp_path / "race"
+    digest = operations.seal_paper_study(
+        root,
+        start_at=datetime.now(UTC) + timedelta(hours=2),
+        attempt_lineage={
+            "schema": "carry_paper_attempt_lineage_v2",
+            "attempt_number": 1,
+            "predecessor": None,
+        },
+    )
+    repo = Path(__file__).resolve().parents[2]
+    # A venv python may be a launcher that spawns the real interpreter, so each
+    # process reports its own pid first; ownership is judged by that real pid.
+    bootstrap = (
+        "import os, sys\n"
+        "print(os.getpid(), flush=True)\n"
+        "from trade_rl.evaluation.paper.cli import main\n"
+        "sys.exit(main(sys.argv[1:]))\n"
+    )
+    command = [
+        sys.executable,
+        "-c",
+        bootstrap,
+        "run",
+        "--root",
+        str(root),
+        "--protocol-sha256",
+        digest,
+    ]
+    options = dict(
+        cwd=repo,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    launchers = [subprocess.Popen(command, **options) for _ in range(2)]
+    real_pids: list[int] = []
+    try:
+        deadline = time.monotonic() + 240
+        for launcher in launchers:
+            real_pids.append(int(launcher.stdout.readline().decode().strip()))
+        loser_index = None
+        while loser_index is None and time.monotonic() < deadline:
+            done = [i for i, p in enumerate(launchers) if p.poll() is not None]
+            if done:
+                loser_index = done[0]
+            else:
+                time.sleep(0.2)
+        assert loser_index is not None, "neither process resolved the lock race"
+        winner_index = 1 - loser_index
+        loser, winner = launchers[loser_index], launchers[winner_index]
+        assert loser.returncode == 4
+        assert winner.poll() is None  # the owner is still collecting
+        error = json.loads(loser.stderr.read().decode().strip().splitlines()[-1])
+        assert error["error_type"] == "CollectorLockHeld"
+        # The owner writes its heartbeat only after it holds the lock; it must be the
+        # winner's, never the loser's, and no marker may exist.
+        heartbeat = None
+        while heartbeat is None and time.monotonic() < deadline:
+            try:
+                heartbeat = read_heartbeat(root, digest)
+            except ValueError:
+                heartbeat = None
+            if heartbeat is None:
+                time.sleep(0.2)
+        assert heartbeat is not None
+        assert heartbeat.pid == real_pids[winner_index] != real_pids[loser_index]
+        assert not (root / "collection-failure.json").exists()
+        assert collector_lock_held(root) is True
+        assert winner.poll() is None
+    finally:
+        for pid in real_pids:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)  # TerminateProcess on Windows
+        for launcher in launchers:
+            if launcher.poll() is None:
+                launcher.kill()
+            launcher.wait(timeout=60)
+            for stream in (launcher.stdout, launcher.stderr):
+                if stream is not None:
+                    stream.close()
+    deadline = time.monotonic() + 60
+    while collector_lock_held(root) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert collector_lock_held(root) is False  # death released the lock
+
+
+def test_transient_mutual_busy_is_retried_so_a_simultaneous_start_has_one_owner(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "collector.sqlite").write_bytes(b"")
+    attempts = []
+
+    class Flaky:
+        def __init__(self):
+            self.closed = False
+
+        def execute(self, *_):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise _operational("database is locked", 5)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(lock_module.sqlite3, "connect", lambda *a, **k: Flaky())
+    slept = []
+    connection = lock_module.acquire_collector_lock(
+        tmp_path, patience_seconds=5, sleep=slept.append
+    )
+    assert len(attempts) == 3 and len(slept) == 2
+    assert all(0.02 <= pause < 0.1 for pause in slept)
+    assert isinstance(connection, Flaky)
+
+
+def test_a_genuinely_held_lock_is_reported_after_the_bounded_patience(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "collector.sqlite").write_bytes(b"")
+    fake = _FakeConnection(_operational("database is locked", 5))
+    monkeypatch.setattr(lock_module.sqlite3, "connect", lambda *a, **k: fake)
+    ticks = iter(range(0, 100))
+    with pytest.raises(CollectorLockHeld):
+        lock_module.acquire_collector_lock(
+            tmp_path,
+            patience_seconds=3,
+            sleep=lambda _s: None,
+            monotonic=lambda: float(next(ticks)),
+        )

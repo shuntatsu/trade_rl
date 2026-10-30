@@ -137,6 +137,8 @@ trade_rl/
 
 `evaluation/rl_family_comparison/` はPPO/A2C比較の固定設定、replay-cell schema validation、および純粋な開発判定oracleだけを所有する。SB3 constructor mocksと合成セルが固定設定・判定規則の回帰を検査する。このpackageはDataset/artifact I/O、fit/replay、ledger、paper、production/live authorizationを所有せず、`trade_rl.evaluation` の公開APIも拡張しない。
 
+`evaluation/residual_rl/` is the synthetic-only residual-PPO study over the cost-aware allocator (Issue #810). `market.py` generates deterministic multi-asset markets with an explicitly planted alpha (or none); `env.py` is a Gymnasium environment that reuses the real `strategies.allocation.cost_aware.CostAwareAllocationPolicy` read-only and owns a separate value ledger, a discrete trade-throttle residual and the explicit fee/spread charge; `protocol.py` freezes every outcome-relevant constant behind a source-bound digest; `evaluate.py` holds rollouts, metrics and the pre-declared decision rules; `train.py` imports stable-baselines3 and torch lazily (optional `train-sb3` extra); `study.py` and `cli.py` run the study and append every execution to a provenance JSON. It reads no Dataset, artifact store, network or live source, depends only on `strategies.allocation`, `strategies.portfolio`, `artifacts` and NumPy/Gymnasium at import time, is not re-exported from `trade_rl.evaluation`, and its labels (`SYNTHETIC_PASS` / `SYNTHETIC_FAIL`) are synthetic evidence only, never a profitability claim and never a clearance of the real-data fee-only learnability gate.
+
 ## Provider evidence boundary
 
 The separate paired-carry path keeps provider assembly in

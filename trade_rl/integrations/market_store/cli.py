@@ -311,7 +311,9 @@ def run(
             if fetcher is None:
                 from trade_rl.integrations.market_store.fetch import VisionFetcher
 
-                fetcher = VisionFetcher()
+                fetcher = VisionFetcher(
+                    warmup_authorization_url=plan.embargo.warmup_authorization_url
+                )
             with PostgresMarketStore.open() as store:
                 if not store.schema_versions():
                     raise IngestError("the store is not migrated; run `migrate` first")

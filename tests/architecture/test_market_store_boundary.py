@@ -18,6 +18,7 @@ MODULES = {
     "__main__.py",
     "checksum.py",
     "cli.py",
+    "archive_url.py",
     "contracts.py",
     "embargo.py",
     "export.py",
@@ -224,3 +225,14 @@ def test_nothing_outside_the_store_imports_it_and_fs1_never_does() -> None:
         assert "market_store" not in path.read_text(encoding="utf-8"), path.relative_to(
             ROOT
         )
+
+
+def test_the_url_gate_is_wired_into_the_fetcher_and_the_ingester() -> None:
+    fetch = (STORE / "fetch.py").read_text(encoding="utf-8")
+    assert fetch.index("check_url_fetchable(url, self._policy)") < fetch.index(
+        "self._open(request"
+    )
+    assert "_NoRedirect" in fetch
+    ingest = (STORE / "ingest.py").read_text(encoding="utf-8")
+    assert ingest.count("verify_spec_matches_url(spec)") == 2
+    assert "urllib" not in (STORE / "archive_url.py").read_text(encoding="utf-8")

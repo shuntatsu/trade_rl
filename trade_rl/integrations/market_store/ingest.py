@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
+from trade_rl.integrations.market_store.archive_url import verify_spec_matches_url
 from trade_rl.integrations.market_store.checksum import (
     ChecksumEvidence,
     verify_archive,
@@ -291,7 +292,9 @@ def _ingest_archive(
     counts: RunCounts,
     missing: list[str],
 ) -> None:
-    embargo.check_archive_end(spec.period_end, url=spec.url)
+    # the boundary decision comes from the URL itself, never from declared metadata
+    parsed = verify_spec_matches_url(spec)
+    embargo.check_archive_end(parsed.period_end, url=spec.url)
     instrument_id = store.ensure_instrument(spec.market, spec.symbol)
     known = store.source_record(spec.url)
     if known is not None and known.status == "ingested" and not refetch:
@@ -419,6 +422,10 @@ def run_ingestion(
     """Ingest every planned archive; the run record is finished even on failure."""
 
     now = clock or (lambda: datetime.now(UTC))
+    # refuse a mismatched or closed-span spec before a run exists or anything is fetched
+    for spec in plan.specs:
+        parsed = verify_spec_matches_url(spec)
+        plan.embargo.check_archive_end(parsed.period_end, url=spec.url)
     run_id = store.begin_run(
         code_commit=code_commit,
         command_line=command_line,

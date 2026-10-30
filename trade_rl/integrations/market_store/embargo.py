@@ -19,9 +19,11 @@ migration. Even when the warm-up span is admitted, FS1 scoring still re-acquires
 re-verifies its own data through its sealed acquisition tool
 (the FS1 acquisition tool under ``trade_rl.evaluation``); store rows never feed FS1 scoring.
 
-The boundaries are enforced at three independent layers: planning (no archive whose
-period reaches a closed span is planned or fetched), row validation (before any
-write) and PostgreSQL triggers (even if the Python layers are bypassed).
+The boundaries are enforced at four independent layers, each deciding from the period
+parsed out of the archive URL (``archive_url.py``) and never from declared metadata:
+the fetcher (before any network call), spec-vs-URL verification and planning (no
+archive whose period reaches a closed span is planned or requested), row validation
+(before any write) and PostgreSQL triggers (even if the Python layers are bypassed).
 """
 
 from __future__ import annotations

@@ -335,7 +335,11 @@ def test_unfinished_workflow_statuses_all_protect_branch_refs(
 ) -> None:
     from tools.branch_hygiene import GitHubApi
 
-    api = GitHubApi(repository="owner/repo", token="token", api_url="https://api.github.test")
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
     seen_statuses: list[str] = []
 
     def fake_request(
@@ -360,7 +364,11 @@ def test_unfinished_workflow_without_branch_fails_closed(
 ) -> None:
     from tools.branch_hygiene import GitHubApi
 
-    api = GitHubApi(repository="owner/repo", token="token", api_url="https://api.github.test")
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
 
     def fake_request(
         method: str, suffix: str, *, query: dict[str, str] | None = None

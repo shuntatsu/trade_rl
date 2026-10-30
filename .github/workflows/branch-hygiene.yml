@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Plan and apply safe cleanup
+      - name: Report cleanup candidates without deleting refs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

@@ -205,3 +205,65 @@ def test_export_refuses_the_sealed_window_and_empty_coverage() -> None:
             start_time=START,
             end_time=END,
         )
+
+
+WARMUP_URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-41"
+
+
+def test_export_evidence_carries_fs1_warmup_provenance() -> None:
+    ordinary_store, _, _ = populated(StoreMarket.SPOT)
+    ordinary = export_market_dataset(
+        ordinary_store,
+        market=StoreMarket.SPOT,
+        symbols=SYMBOLS,
+        interval="1h",
+        start_time=START,
+        end_time=END,
+    )
+    assert ordinary.evidence["fs1_warmup"] == {
+        "touches_span": False,
+        "last_bar_open_time": "2024-01-31T23:00:00+00:00",
+        "runs": [],
+    }
+
+    policy = EmbargoPolicy.with_warmup(WARMUP_URL)
+    plan = plan_ingestion(
+        Universe(symbols=SYMBOLS, markets=(StoreMarket.SPOT,)),
+        start=datetime(2026, 7, 1, tzinfo=UTC),
+        end=datetime(2026, 8, 3, tzinfo=UTC),
+        now=datetime(2026, 10, 30, tzinfo=UTC),
+        embargo=policy,
+    )
+    store = MemoryStore()
+    run_ingestion(
+        store,
+        fetcher_for(plan),
+        plan,
+        code_commit="t",
+        command_line="t",
+        clock=lambda: NOW,
+    )
+    store.exchange_info.append(stored_exchange_info(StoreMarket.SPOT))
+    export = export_market_dataset(
+        store,
+        market=StoreMarket.SPOT,
+        symbols=SYMBOLS,
+        interval="1h",
+        start_time=datetime(2026, 7, 1, tzinfo=UTC),
+        end_time=datetime(2026, 8, 3, tzinfo=UTC),
+        embargo=policy,
+    )
+    warmup = export.evidence["fs1_warmup"]
+    assert warmup["touches_span"] is True
+    assert warmup["runs"] == [{"authorization_url": WARMUP_URL, "run_id": 1}]
+    assert warmup["last_bar_open_time"] == "2026-08-02T23:00:00+00:00"
+    assert export.receipt()["evidence"]["fs1_warmup"] == warmup
+    with pytest.raises(Fs1WarmupSpanError):
+        export_market_dataset(
+            store,
+            market=StoreMarket.SPOT,
+            symbols=SYMBOLS,
+            interval="1h",
+            start_time=datetime(2026, 7, 1, tzinfo=UTC),
+            end_time=datetime(2026, 8, 3, tzinfo=UTC),
+        )

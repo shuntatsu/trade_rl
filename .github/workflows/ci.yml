@@ -344,7 +344,7 @@ jobs:
 
   independent-review:
     name: Generic Independent Research Review
-    needs: [core, ppo-runtime, guide]
+    needs: [core, ppo-runtime, guide, market-store]
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
@@ -358,6 +358,7 @@ jobs:
           CORE_RESULT: ${{ needs.core.result }}
           PPO_RESULT: ${{ needs.ppo-runtime.result }}
           GUIDE_RESULT: ${{ needs.guide.result }}
+          MARKET_STORE_RESULT: ${{ needs.market-store.result }}
         run: |
           set -euo pipefail
           test "$CORE_RESULT" = "success"
@@ -366,6 +367,9 @@ jobs:
           fi
           if [ -n "$GUIDE_RESULT" ] && [ "$GUIDE_RESULT" != "skipped" ]; then
             test "$GUIDE_RESULT" = "success"
+          fi
+          if [ -n "$MARKET_STORE_RESULT" ] && [ "$MARKET_STORE_RESULT" != "skipped" ]; then
+            test "$MARKET_STORE_RESULT" = "success"
           fi
 
       - name: Checkout exact head

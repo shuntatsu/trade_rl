@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from trade_rl.integrations.market_store import embargo as embargo_module
 from trade_rl.integrations.market_store.contracts import (
     DEFAULT_BASE_ASSETS,
     ArchiveKind,
@@ -159,9 +160,14 @@ def test_warmup_authorization_plans_up_to_but_never_into_the_sealed_window() -> 
         )
 
 
-def test_monthly_archive_straddling_a_mid_month_boundary_is_never_planned() -> None:
+def test_monthly_archive_straddling_a_mid_month_boundary_is_never_planned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     boundary = datetime(2026, 11, 15, tzinfo=UTC)
-    policy = EmbargoPolicy(warmup_start=boundary, sealed_start=boundary)
+    # test-only seam: the boundaries are module constants, never constructor arguments
+    monkeypatch.setattr(embargo_module, "FS1_WARMUP_START", boundary)
+    monkeypatch.setattr(embargo_module, "SEALED_WINDOW_START", boundary)
+    policy = EmbargoPolicy.enforced()
     plan = plan_ingestion(
         Universe(symbols=("BTCUSDT",), markets=(StoreMarket.USDS_M,)),
         start=day(2026, 11),

@@ -28,6 +28,7 @@ from trade_rl.integrations.market_store.contracts import (
     KlineRow,
     StoredExchangeInfo,
     StoreMarket,
+    WarmupRun,
     ms_from_utc,
     utc_from_ms,
 )
@@ -259,6 +260,13 @@ class PostgresMarketStore:
             if not bool(cursor.fetchone()[0]):  # type: ignore[index]
                 raise IngestError("another ingestion run holds the store lock")
             self._holds_ingest_lock = True
+            # the advisory lock is free, so any run still 'running' belongs to a dead
+            # process: close it so its warm-up authorization cannot linger
+            cursor.execute(
+                "UPDATE ingestion_runs SET status = 'failed', finished_at = now(), "
+                "error = 'abandoned: the process died before finishing' "
+                "WHERE status = 'running'"
+            )
             cursor.execute(
                 "INSERT INTO ingestion_runs (code_commit, command_line, request, "
                 "fs1_warmup_allowed, fs1_warmup_authorization_url) "
@@ -620,6 +628,44 @@ class PostgresMarketStore:
             source_uri=str(row[2]),
             retrieved_at=row[3],
         )
+
+    def warmup_provenance(
+        self,
+        market: StoreMarket,
+        symbols: Sequence[str],
+        interval: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[WarmupRun]:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT r.run_id, r.fs1_warmup_authorization_url FROM klines k "
+                "JOIN instruments i USING (instrument_id) "
+                "JOIN sources s ON s.source_id = k.source_id "
+                "JOIN ingestion_runs r ON r.run_id = s.run_id "
+                "WHERE i.exchange = 'binance' AND i.market = %(market)s "
+                "AND i.symbol = ANY(%(symbols)s) AND k.bar_interval = %(interval)s "
+                "AND k.open_time >= market_fs1_warmup_start() "
+                "AND k.open_time >= %(start)s AND k.open_time < %(end)s "
+                "UNION "
+                "SELECT r.run_id, r.fs1_warmup_authorization_url FROM funding_rates f "
+                "JOIN instruments i USING (instrument_id) "
+                "JOIN sources s ON s.source_id = f.source_id "
+                "JOIN ingestion_runs r ON r.run_id = s.run_id "
+                "WHERE i.exchange = 'binance' AND i.market = %(market)s "
+                "AND i.symbol = ANY(%(symbols)s) "
+                "AND f.funding_time >= market_fs1_warmup_start() "
+                "AND f.funding_time >= %(start)s AND f.funding_time <= %(end)s "
+                "ORDER BY 1",
+                {
+                    "market": market.value,
+                    "symbols": list(symbols),
+                    "interval": interval,
+                    "start": utc_from_ms(start_ms),
+                    "end": utc_from_ms(end_ms),
+                },
+            )
+            return [WarmupRun(int(row[0]), str(row[1])) for row in cursor.fetchall()]
 
     def embargo_state(self) -> EmbargoState:
         with self._connection.cursor() as cursor:

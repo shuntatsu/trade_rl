@@ -784,6 +784,211 @@ def test_authorized_warmup_ingestion_records_the_run_and_stays_below_the_sealed_
         )
 
 
+# -- hardening: run lifetime, session binding, immutability, TRUNCATE, provenance ----------
+
+
+def start_authorized_run(store: Any) -> int:
+    return int(
+        store.begin_run(
+            code_commit="c",
+            command_line="c --allow-fs1-warmup-span",
+            request={},
+            embargo=EmbargoPolicy.with_warmup(URL),
+        )
+    )
+
+
+def test_a_stale_authorized_run_stops_admitting_warmup_rows(pg_store: Any) -> None:
+    import psycopg
+
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    run_id = start_authorized_run(pg_store)
+    insert_funding(pg_store, instrument_id, source_id, WARMUP)
+    # age the run beyond market_fs1_warmup_max_run_age() without touching its identity:
+    # started_at is immutable, so emulate a hard-killed old run with a direct row
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO ingestion_runs (code_commit, command_line, request, "
+            "started_at, fs1_warmup_allowed, fs1_warmup_authorization_url) "
+            "VALUES ('c', 'c', '{}'::jsonb, now() - interval '13 hours', true, %s) "
+            "RETURNING run_id",
+            (URL,),
+        )
+        stale_id = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT set_config('trade_rl.fs1_warmup_run_id', %s, false)",
+            (str(stale_id),),
+        )
+    with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+        insert_funding(pg_store, instrument_id, source_id, "2026-09-01 00:00:00+00")
+    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
+
+
+def test_begin_run_reaps_abandoned_running_runs(pg_store: Any) -> None:
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO ingestion_runs (code_commit, command_line, request, "
+            "started_at, fs1_warmup_allowed, fs1_warmup_authorization_url) "
+            "VALUES ('c', 'c', '{}'::jsonb, now() - interval '30 hours', true, %s) "
+            "RETURNING run_id",
+            (URL,),
+        )
+        abandoned = cursor.fetchone()[0]
+    run_id = pg_store.begin_run(
+        code_commit="c", command_line="c", request={}, embargo=EmbargoPolicy.enforced()
+    )
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT status, error, finished_at IS NOT NULL FROM ingestion_runs "
+            "WHERE run_id = %s",
+            (abandoned,),
+        )
+        status, error, finished = cursor.fetchone()
+    assert status == "failed" and finished and "abandoned" in error
+    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
+
+
+def test_warmup_admission_is_bound_to_the_starting_session(
+    postgres_url: str, pg_schema: str, pg_store: Any
+) -> None:
+    import psycopg
+
+    from trade_rl.integrations.market_store.store import PostgresMarketStore
+
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    run_id = start_authorized_run(pg_store)
+    with PostgresMarketStore.open(postgres_url, schema=pg_schema) as other:
+        with other.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('trade_rl.fs1_warmup_run_id', %s, false)",
+                (str(run_id),),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+            insert_funding(other, instrument_id, source_id, WARMUP)
+    insert_funding(pg_store, instrument_id, source_id, WARMUP)
+    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
+
+
+def test_ingestion_runs_authorization_is_immutable_and_finished_runs_are_final(
+    pg_store: Any,
+) -> None:
+    import psycopg
+
+    run_id = start_authorized_run(pg_store)
+    for sql in (
+        "UPDATE ingestion_runs SET fs1_warmup_authorization_url = "
+        "'https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-1'",
+        "UPDATE ingestion_runs SET fs1_warmup_allowed = false, "
+        "fs1_warmup_authorization_url = NULL",
+        "UPDATE ingestion_runs SET started_at = now()",
+        "UPDATE ingestion_runs SET backend_pid = backend_pid + 1",
+        "UPDATE ingestion_runs SET command_line = 'other'",
+        "DELETE FROM ingestion_runs",
+    ):
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            with pg_store.connection.cursor() as cursor:
+                cursor.execute(sql)
+    pg_store.finish_run(run_id, status="succeeded", counts=RunCounts(), error=None)
+    with pytest.raises(psycopg.errors.RestrictViolation, match="immutable"):
+        with pg_store.connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE ingestion_runs SET status = 'running', finished_at = NULL "
+                "WHERE run_id = %s",
+                (run_id,),
+            )
+    # the reopened run (had it worked) would have re-admitted warm-up rows
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    with pytest.raises(psycopg.errors.CheckViolation, match="warm-up"):
+        insert_funding(pg_store, instrument_id, source_id, WARMUP)
+
+
+def test_truncate_is_blocked_on_every_evidence_table_and_source_updates_are_constrained(
+    pg_store: Any,
+) -> None:
+    import psycopg
+
+    instrument_id, source_id = seed_instrument_and_source(pg_store)
+    insert_kline(pg_store, instrument_id, source_id)
+    for sql in (
+        "TRUNCATE klines",
+        "TRUNCATE funding_rates",
+        "TRUNCATE sources CASCADE",
+        "TRUNCATE instruments CASCADE",
+        "TRUNCATE ingestion_runs CASCADE",
+        "TRUNCATE exchange_info_snapshots CASCADE",
+        "TRUNCATE instrument_rule_snapshots",
+        "TRUNCATE ingestion_conflicts",
+    ):
+        with pytest.raises(psycopg.errors.RestrictViolation, match="TRUNCATE"):
+            with pg_store.connection.cursor() as cursor:
+                cursor.execute(sql)
+    assert scalar(pg_store, "SELECT count(*) FROM klines") == 1
+
+    # a 404 record may only gain evidence for the same archive identity
+    with pg_store.connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO sources (url, kind, instrument_id, bar_interval, period_kind, "
+            "period_start, period_end, status, http_status, checksum_url, fetched_at, "
+            "run_id) SELECT 'gone', 'klines', %s, '1h', 'monthly', '2024-02-01+00', "
+            "'2024-03-01+00', 'missing', 404, 'gone.CHECKSUM', now(), run_id "
+            "FROM ingestion_runs LIMIT 1",
+            (instrument_id,),
+        )
+    for column, value in (
+        ("period_end", "'2024-04-01+00'"),
+        ("period_start", "'2024-01-15+00'"),
+        ("url", "'other'"),
+        ("bar_interval", "'4h'"),
+    ):
+        with pytest.raises(psycopg.errors.RestrictViolation, match="identity"):
+            with pg_store.connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE sources SET {column} = {value} WHERE url = 'gone'"
+                )
+
+
+def test_export_receipt_records_warmup_runs_from_postgres(pg_store: Any) -> None:
+    policy = EmbargoPolicy.with_warmup(URL)
+    plan = plan_ingestion(
+        Universe(symbols=SYMBOLS, markets=(StoreMarket.SPOT,)),
+        start=datetime(2026, 7, 1, tzinfo=UTC),
+        end=datetime(2026, 8, 3, tzinfo=UTC),
+        now=datetime(2026, 10, 30, tzinfo=UTC),
+        embargo=policy,
+    )
+    report = ingest(pg_store, fetcher_for(plan), plan)
+    info = stored_exchange_info(StoreMarket.SPOT)
+    pg_store.store_exchange_info(
+        info,
+        parse_symbol_rules(info.raw_payload, market=StoreMarket.SPOT, symbols=SYMBOLS),
+        run_id=None,
+    )
+    export = export_market_dataset(
+        pg_store,
+        market=StoreMarket.SPOT,
+        symbols=SYMBOLS,
+        interval="1h",
+        start_time=datetime(2026, 7, 1, tzinfo=UTC),
+        end_time=datetime(2026, 8, 3, tzinfo=UTC),
+        embargo=policy,
+    )
+    warmup = export.evidence["fs1_warmup"]
+    assert warmup["touches_span"] is True
+    assert warmup["runs"] == [{"authorization_url": URL, "run_id": report.run_id}]
+    # an export that stays before the span records no warm-up runs
+    before = export_market_dataset(
+        pg_store,
+        market=StoreMarket.SPOT,
+        symbols=SYMBOLS,
+        interval="1h",
+        start_time=datetime(2026, 7, 1, tzinfo=UTC),
+        end_time=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    assert before.evidence["fs1_warmup"]["touches_span"] is False
+    assert before.evidence["fs1_warmup"]["runs"] == []
+    assert before.dataset.dataset_id != export.dataset.dataset_id
+
+
 # -- export ---------------------------------------------------------------------
 
 

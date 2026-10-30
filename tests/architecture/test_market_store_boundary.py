@@ -186,3 +186,41 @@ def test_runbook_documents_embargo_boundaries_and_the_non_goals() -> None:
         "TRADE_RL_TEST_POSTGRES_URL",
     ):
         assert required in text, required
+
+
+def test_the_market_store_job_gates_the_generic_independent_review() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    generic = workflow.split("  independent-review:\n", 1)[1].split(
+        "  ppo-4h-independent-review:\n", 1
+    )[0]
+    assert "needs: [core, ppo-runtime, guide, market-store]" in generic
+    assert "MARKET_STORE_RESULT: ${{ needs.market-store.result }}" in generic
+    assert 'test "$MARKET_STORE_RESULT" = "success"' in generic
+
+
+def test_nothing_outside_the_store_imports_it_and_fs1_never_does() -> None:
+    """FS1 scoring and acquisition re-acquire their own data; the store never feeds them."""
+
+    collector = ImportCollector(PACKAGE)
+    fs1_roots = (
+        PACKAGE / "evaluation" / "forward_study",
+        PACKAGE / "evaluation" / "forward_acquisition",
+    )
+    for root in fs1_roots:
+        assert root.is_dir()
+        for path in sorted(root.rglob("*.py")):
+            assert not any(
+                within_module(name, "trade_rl.integrations.market_store")
+                for name in collector.collect(path)
+            ), path.relative_to(ROOT)
+            assert "market_store" not in path.read_text(encoding="utf-8"), path.name
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if STORE in path.parents:
+            continue
+        assert not any(
+            within_module(name, "trade_rl.integrations.market_store")
+            for name in collector.collect(path)
+        ), path.relative_to(ROOT)
+        assert "market_store" not in path.read_text(encoding="utf-8"), path.relative_to(
+            ROOT
+        )

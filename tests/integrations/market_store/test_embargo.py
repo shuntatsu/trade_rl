@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -125,8 +126,42 @@ def test_warmup_requires_an_issue_810_comment_url(url: str) -> None:
         EmbargoPolicy.with_warmup(url)
 
 
-def test_boundaries_must_be_ordered_and_aware() -> None:
-    with pytest.raises(ValueError):
-        EmbargoPolicy(warmup_start=SEALED_WINDOW_START + timedelta(days=1))
-    with pytest.raises(ValueError):
-        EmbargoPolicy(sealed_start=datetime(2026, 11, 1))
+def test_boundaries_are_not_parameters_of_any_public_construction() -> None:
+    assert list(inspect.signature(EmbargoPolicy).parameters) == [
+        "warmup_authorization_url"
+    ]
+    assert list(inspect.signature(EmbargoPolicy.enforced).parameters) == []
+    assert list(inspect.signature(EmbargoPolicy.with_warmup).parameters) == [
+        "authorization_url"
+    ]
+    for kwargs in (
+        {"warmup_start": SEALED_WINDOW_START},
+        {"sealed_start": SEALED_WINDOW_START + timedelta(days=300)},
+    ):
+        with pytest.raises(TypeError):
+            EmbargoPolicy(**kwargs)  # type: ignore[arg-type]
+        with pytest.raises(TypeError):
+            EmbargoPolicy.enforced(**kwargs)  # type: ignore[arg-type]
+        with pytest.raises(TypeError):
+            EmbargoPolicy.with_warmup(URL, **kwargs)  # type: ignore[arg-type]
+    for policy in (
+        EmbargoPolicy(),
+        EmbargoPolicy.enforced(),
+        EmbargoPolicy.with_warmup(URL),
+    ):
+        assert policy.warmup_start == FS1_WARMUP_START
+        assert policy.sealed_start == SEALED_WINDOW_START
+        with pytest.raises((AttributeError, TypeError)):
+            policy.sealed_start = datetime(2030, 1, 1, tzinfo=UTC)  # type: ignore[misc]
+        with pytest.raises((AttributeError, TypeError)):
+            policy.warmup_authorization_url = None  # type: ignore[misc]
+    for module_function in ("plan_ingestion", "run_ingestion", "export_market_dataset"):
+        from trade_rl.integrations.market_store import export, ingest, plan
+
+        function = {
+            "plan_ingestion": plan,
+            "run_ingestion": ingest,
+            "export_market_dataset": export,
+        }[module_function]
+        parameters = inspect.signature(getattr(function, module_function)).parameters
+        assert not {"warmup_start", "sealed_start", "boundary"} & set(parameters)

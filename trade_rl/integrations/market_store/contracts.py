@@ -219,6 +219,17 @@ class EmbargoState:
     sealed_from: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class WarmupRun:
+    """An ingestion run that stored FS1 warm-up rows, with its recorded authorization."""
+
+    run_id: int
+    authorization_url: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {"authorization_url": self.authorization_url, "run_id": self.run_id}
+
+
 class MarketReader(Protocol):
     """Read access the Dataset export needs; PostgreSQL and test fakes implement it."""
 
@@ -244,6 +255,17 @@ class MarketReader(Protocol):
         self, market: StoreMarket, sha256: str | None = None
     ) -> StoredExchangeInfo:
         """The named snapshot, or the latest one when ``sha256`` is None."""
+        ...
+
+    def warmup_provenance(
+        self,
+        market: StoreMarket,
+        symbols: Sequence[str],
+        interval: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[WarmupRun]:
+        """Runs whose rows in ``[start_ms, end_ms)`` lie in the FS1 warm-up span."""
         ...
 
     def embargo_state(self) -> EmbargoState: ...
@@ -306,6 +328,7 @@ __all__ = [
     "MarketReader",
     "PeriodKind",
     "StoredExchangeInfo",
+    "WarmupRun",
     "StoreMarket",
     "Universe",
     "funding_digest",

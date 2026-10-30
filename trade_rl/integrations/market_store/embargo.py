@@ -51,20 +51,18 @@ class Fs1WarmupSpanError(SealedWindowEmbargoError):
 
 @dataclass(frozen=True, slots=True)
 class EmbargoPolicy:
-    """Which spans a run may touch: everything before ``start``."""
+    """Which FS1 spans a run may touch: everything before :attr:`start`.
 
-    warmup_start: datetime = FS1_WARMUP_START
-    sealed_start: datetime = SEALED_WINDOW_START
+    The two boundaries are NOT parameters: they are the module constants
+    ``FS1_WARMUP_START`` and ``SEALED_WINDOW_START`` (pinned to the FS1 registry), so no
+    public construction can move them. The only input is the optional warm-up
+    authorization URL. Tests that need other boundaries monkeypatch the module
+    constants; no production code path does.
+    """
+
     warmup_authorization_url: str | None = None
 
     def __post_init__(self) -> None:
-        for value in (self.warmup_start, self.sealed_start):
-            if value.tzinfo is None or value.utcoffset() is None:
-                raise ValueError("embargo boundaries must be timezone-aware")
-        object.__setattr__(self, "warmup_start", self.warmup_start.astimezone(UTC))
-        object.__setattr__(self, "sealed_start", self.sealed_start.astimezone(UTC))
-        if self.warmup_start > self.sealed_start:
-            raise ValueError("the warm-up span cannot start after the sealed window")
         if self.warmup_authorization_url is not None and (
             WARMUP_AUTHORIZATION_URL_PATTERN.fullmatch(self.warmup_authorization_url)
             is None
@@ -75,33 +73,24 @@ class EmbargoPolicy:
             )
 
     @classmethod
-    def enforced(
-        cls,
-        sealed_start: datetime = SEALED_WINDOW_START,
-        warmup_start: datetime | None = None,
-    ) -> EmbargoPolicy:
-        """Default policy: warm-up refused too (``warmup_start`` defaults to FS1's)."""
+    def enforced(cls) -> EmbargoPolicy:
+        """Default policy: the warm-up span and the sealed window are both refused."""
 
-        if warmup_start is None:
-            warmup_start = min(FS1_WARMUP_START, sealed_start)
-        return cls(warmup_start=warmup_start, sealed_start=sealed_start)
+        return cls()
 
     @classmethod
-    def with_warmup(
-        cls,
-        authorization_url: str,
-        sealed_start: datetime = SEALED_WINDOW_START,
-        warmup_start: datetime | None = None,
-    ) -> EmbargoPolicy:
+    def with_warmup(cls, authorization_url: str) -> EmbargoPolicy:
         """Admit the warm-up span for one run; the sealed window stays closed."""
 
-        if warmup_start is None:
-            warmup_start = min(FS1_WARMUP_START, sealed_start)
-        return cls(
-            warmup_start=warmup_start,
-            sealed_start=sealed_start,
-            warmup_authorization_url=authorization_url,
-        )
+        return cls(warmup_authorization_url=authorization_url)
+
+    @property
+    def warmup_start(self) -> datetime:
+        return FS1_WARMUP_START
+
+    @property
+    def sealed_start(self) -> datetime:
+        return SEALED_WINDOW_START
 
     @property
     def warmup_allowed(self) -> bool:

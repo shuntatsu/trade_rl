@@ -43,9 +43,11 @@ from trade_rl.integrations.market_store.contracts import (
     MarketReader,
     StoredExchangeInfo,
     StoreMarket,
+    WarmupRun,
     funding_digest,
     klines_digest,
     ms_from_utc,
+    utc_from_ms,
 )
 from trade_rl.integrations.market_store.embargo import (
     EmbargoPolicy,
@@ -184,9 +186,21 @@ def export_evidence(
     klines: Mapping[str, Sequence[KlineRow]],
     funding: Mapping[str, Sequence[FundingRow]],
     exchange_info: StoredExchangeInfo,
+    warmup_runs: Sequence[WarmupRun] = (),
 ) -> dict[str, Any]:
-    """The Dataset-identity provenance: parameters plus digests of every row read."""
+    """The Dataset-identity provenance: parameters plus digests of every row read.
 
+    ``fs1_warmup`` records whether any exported bar lies in the FS1 warm-up span and,
+    if so, the authorizing ingestion runs (id + Issue #810 URL), so such a Dataset can
+    never share an identity or receipt with an ordinary one.
+    """
+
+    last_open_ms = max(
+        (rows[-1].open_time_ms for rows in klines.values() if rows), default=None
+    )
+    touches = last_open_ms is not None and last_open_ms >= ms_from_utc(
+        EmbargoPolicy.enforced().warmup_start
+    )
     return {
         "schema_version": EXPORT_SCHEMA,
         "market": market.value,
@@ -209,6 +223,13 @@ def export_evidence(
                 "sha256": funding_digest(funding.get(symbol, ())),
             }
             for symbol in symbols
+        },
+        "fs1_warmup": {
+            "touches_span": touches,
+            "last_bar_open_time": None
+            if last_open_ms is None
+            else utc_from_ms(last_open_ms).isoformat(),
+            "runs": [run.to_dict() for run in warmup_runs],
         },
         "exchange_information": {
             "raw_payload_sha256": exchange_info.raw_payload_sha256,
@@ -264,6 +285,12 @@ def export_market_dataset(
             funding[symbol] = reader.read_funding(market, symbol, start_ms, end_ms)
     exchange_info = reader.load_exchange_info(market, rules_snapshot_sha256)
 
+    last_open = max(rows[-1].open_time_ms for rows in klines.values())
+    warmup_runs: list[WarmupRun] = []
+    if last_open >= ms_from_utc(policy.warmup_start):
+        warmup_runs = reader.warmup_provenance(
+            market, resolved_symbols, interval, start_ms, end_ms
+        )
     evidence = export_evidence(
         market=market,
         symbols=resolved_symbols,
@@ -275,6 +302,7 @@ def export_market_dataset(
         klines=klines,
         funding=funding,
         exchange_info=exchange_info,
+        warmup_runs=warmup_runs,
     )
     store_transport = StoreMarketTransport(
         market=market,

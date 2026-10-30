@@ -14,6 +14,15 @@
 --     the session belongs to a RUNNING ingestion run that was started with the
 --     explicit warm-up authorization (flag + Issue #810 comment URL recorded on the
 --     ingestion_runs row). Direct INSERTs without such a run are refused.
+--   Limits (an accident guard, not an authorization boundary): the warm-up
+--   admission is bound to the backend session that started a RUNNING authorized run
+--   not older than market_fs1_warmup_max_run_age(), and ingestion_runs authorization
+--   fields are immutable. The session variable trade_rl.fs1_warmup_run_id is an
+--   ordinary custom GUC that ANY login role may SET, and any role that may INSERT
+--   into ingestion_runs can create a fresh authorized-looking run; PostgreSQL cannot
+--   verify that an Issue #810 comment exists. Do not hand this database's write role
+--   to anything that should not be trusted with the warm-up span; the sealed window
+--   has no such path (market_sealed_from() is unconditional).
 --   The two literals below must equal
 --   trade_rl.integrations.market_store.embargo.FS1_WARMUP_START / SEALED_WINDOW_START
 --   (pinned by tests against the FS1 registry).
@@ -67,6 +76,7 @@ CREATE TABLE ingestion_runs (
     code_commit text NOT NULL,
     command_line text NOT NULL,
     request jsonb NOT NULL,
+    backend_pid integer NOT NULL DEFAULT pg_backend_pid(),
     fs1_warmup_allowed boolean NOT NULL DEFAULT false,
     fs1_warmup_authorization_url text,
     archives_planned integer NOT NULL DEFAULT 0 CHECK (archives_planned >= 0),
@@ -89,7 +99,14 @@ CREATE TABLE ingestion_runs (
         )
 );
 
--- True only inside a RUNNING run that carries the recorded warm-up authorization.
+-- A hard-killed run stays 'running'; its warm-up authorization must not live on.
+CREATE FUNCTION market_fs1_warmup_max_run_age() RETURNS interval
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT INTERVAL '12 hours'
+$$;
+
+-- True only inside a RUNNING, recent run of THIS backend session that carries the
+-- recorded warm-up authorization.
 CREATE FUNCTION market_fs1_warmup_authorized() RETURNS boolean
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
@@ -102,11 +119,46 @@ BEGIN
     SELECT true INTO allowed FROM ingestion_runs
     WHERE run_id = run_text::bigint
       AND status = 'running'
+      AND backend_pid = pg_backend_pid()
+      AND started_at > now() - market_fs1_warmup_max_run_age()
       AND fs1_warmup_allowed
       AND fs1_warmup_authorization_url IS NOT NULL;
     RETURN COALESCE(allowed, false);
 END
 $$;
+
+-- A run's identity and authorization are immutable, a finished run is final, and
+-- only the counters / status / error of a running run may change.
+CREATE FUNCTION ingestion_runs_guard() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'ingestion_runs is append-only (DELETE rejected)'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF OLD.status <> 'running' THEN
+        RAISE EXCEPTION 'a finished ingestion run is immutable (cannot be reopened)'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF NEW.run_id IS DISTINCT FROM OLD.run_id
+        OR NEW.started_at IS DISTINCT FROM OLD.started_at
+        OR NEW.code_commit IS DISTINCT FROM OLD.code_commit
+        OR NEW.command_line IS DISTINCT FROM OLD.command_line
+        OR NEW.request IS DISTINCT FROM OLD.request
+        OR NEW.backend_pid IS DISTINCT FROM OLD.backend_pid
+        OR NEW.fs1_warmup_allowed IS DISTINCT FROM OLD.fs1_warmup_allowed
+        OR NEW.fs1_warmup_authorization_url IS DISTINCT FROM OLD.fs1_warmup_authorization_url
+    THEN
+        RAISE EXCEPTION 'ingestion run identity and warm-up authorization are immutable'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER ingestion_runs_guard_row
+    BEFORE UPDATE OR DELETE ON ingestion_runs
+    FOR EACH ROW EXECUTE FUNCTION ingestion_runs_guard();
 
 -- Raise unless every instant up to ``last_instant`` is storable.
 CREATE FUNCTION market_require_storable(last_instant timestamptz, what text)
@@ -220,6 +272,17 @@ BEGIN
     -- source is immutable evidence.
     IF OLD.status <> 'missing' THEN
         RAISE EXCEPTION 'sources is append-only (UPDATE of an ingested source rejected)'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF NEW.url IS DISTINCT FROM OLD.url
+        OR NEW.kind IS DISTINCT FROM OLD.kind
+        OR NEW.instrument_id IS DISTINCT FROM OLD.instrument_id
+        OR NEW.bar_interval IS DISTINCT FROM OLD.bar_interval
+        OR NEW.period_kind IS DISTINCT FROM OLD.period_kind
+        OR NEW.period_start IS DISTINCT FROM OLD.period_start
+        OR NEW.period_end IS DISTINCT FROM OLD.period_end
+        OR NEW.checksum_url IS DISTINCT FROM OLD.checksum_url THEN
+        RAISE EXCEPTION 'a missing source may only gain its evidence, never change its identity'
             USING ERRCODE = 'restrict_violation';
     END IF;
     RETURN NEW;
@@ -341,3 +404,40 @@ CREATE TABLE ingestion_conflicts (
 );
 
 CREATE INDEX ingestion_conflicts_run ON ingestion_conflicts (run_id);
+
+-- ---------------------------------------------------------------------------
+-- TRUNCATE is blocked on every evidence table (row triggers do not fire for it)
+-- ---------------------------------------------------------------------------
+
+CREATE FUNCTION forbid_truncate() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION '% is append-only (TRUNCATE rejected)', TG_TABLE_NAME
+        USING ERRCODE = 'restrict_violation';
+END
+$$;
+
+CREATE TRIGGER instruments_no_truncate
+    BEFORE TRUNCATE ON instruments
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER ingestion_runs_no_truncate
+    BEFORE TRUNCATE ON ingestion_runs
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER exchange_info_snapshots_no_truncate
+    BEFORE TRUNCATE ON exchange_info_snapshots
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER instrument_rule_snapshots_no_truncate
+    BEFORE TRUNCATE ON instrument_rule_snapshots
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER sources_no_truncate
+    BEFORE TRUNCATE ON sources
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER klines_no_truncate
+    BEFORE TRUNCATE ON klines
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER funding_rates_no_truncate
+    BEFORE TRUNCATE ON funding_rates
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();
+CREATE TRIGGER ingestion_conflicts_no_truncate
+    BEFORE TRUNCATE ON ingestion_conflicts
+    FOR EACH STATEMENT EXECUTE FUNCTION forbid_truncate();

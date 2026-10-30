@@ -26,6 +26,7 @@ from trade_rl.integrations.market_store.contracts import (
     KlineRow,
     StoredExchangeInfo,
     StoreMarket,
+    WarmupRun,
     ms_from_utc,
     utc_from_ms,
 )
@@ -482,6 +483,25 @@ class MemoryStore:
         if not candidates:
             raise LookupError("no exchangeInfo snapshot")
         return max(candidates, key=lambda info: info.retrieved_at)
+
+    def warmup_provenance(
+        self,
+        market: StoreMarket,
+        symbols: Sequence[str],
+        interval: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[WarmupRun]:
+        """Fake: every authorized run, if any stored bar lies in the warm-up span."""
+
+        in_span = any(key[2] >= ms_from_utc(FS1_WARMUP_START) for key in self.klines)
+        if not in_span:
+            return []
+        return [
+            WarmupRun(run_id, str(run["fs1_warmup_authorization_url"]))
+            for run_id, run in sorted(self.runs.items())
+            if run["fs1_warmup_allowed"]
+        ]
 
     def embargo_state(self) -> EmbargoState:
         return EmbargoState(

@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-28 (JST)
+更新基準: 2026-10-30 (JST)
 
 ## 結論
 
@@ -1975,8 +1975,8 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 
 ## 現在の次アクション
 
-現時点の次アクションは、Run Coreやbootstrap toolingをさらに拡張することではない。
+現行の経済研究は[Issue #810](https://github.com/shuntatsu/trade_rl/issues/810)を親計画とする。M34は`FAILED_SCREEN`、Phase 2の事前ルールによる判定は`NO_WINNER`、Phase 3の改善はpost hocの開発観察であり採用・未使用期間の証拠ではない。残差PPOの固定合成比較は`SYNTHETIC_FAIL`であり、real-data RLの適格性は別途確認を要する。
 
-> Experiment 0001のKEEP_BASELINEを維持し、次に検証するControlled Factorを結果を見る前に事前登録したうえで、次のdevelopment Experimentを独立検証する。
+優先するのは既存失敗の原因・費用・因果性・共有口座の会計を検証し、必要なG0–G2、独立oracle、データ消費記録と結果前の選択条件を閉じること。FS1の設計/取得能力やprospective paperの準備を、未使用評価の成功や実運用承認と混同しない。個別の進捗とブロッカーはIssue、active [carry plan](../plans/funding-carry-paper.md)と[exit plan](../plans/reduce-only-exits.md)から確認し、ここに作業日誌を複製しない。
 
-旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+歴史的なCanonical M2では、Portable Controlled Experiment 0001の`KEEP_BASELINE`を維持し、次のControlled Factorは結果を見る前に事前登録する。いずれの研究線でも過去の判定を変更したり、既に消費したデータをunusedへ戻したりしない。

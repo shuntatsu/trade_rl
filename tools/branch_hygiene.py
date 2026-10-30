@@ -196,7 +196,7 @@ class GitHubApi:
 
     def active_workflow_branch_names(self) -> frozenset[str]:
         names: set[str] = set()
-        for status in ("in_progress", "queued"):
+        for status in ("requested", "waiting", "pending", "queued", "in_progress"):
             page = 1
             while True:
                 payload = self._request_json(
@@ -217,8 +217,11 @@ class GitHubApi:
                     if not isinstance(run, dict):
                         raise RuntimeError("workflow run entry is not an object")
                     head_branch = run.get("head_branch")
-                    if isinstance(head_branch, str) and head_branch:
-                        names.add(head_branch)
+                    if not isinstance(head_branch, str) or not head_branch:
+                        raise RuntimeError(
+                            "unfinished workflow run is missing its head_branch"
+                        )
+                    names.add(head_branch)
                 if len(runs) < 100:
                     break
                 page += 1

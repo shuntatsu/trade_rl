@@ -319,12 +319,60 @@ def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     assert "schedule:" in workflow
     assert "workflow_dispatch:" in workflow
     assert "pull_request_target:" not in workflow
-    assert "contents: write" in workflow
+    assert "contents: read" in workflow
+    assert "contents: write" not in workflow
+    assert "--apply" not in workflow
+    assert "APPLY_REQUESTED" not in workflow
     assert "pull-requests: read" in workflow
     assert "actions: read" in workflow
     assert "ref: ${{ github.event.repository.default_branch }}" in workflow
     assert "persist-credentials: false" in workflow
     assert "python3 -m tools.branch_hygiene" in workflow
+
+
+def test_unfinished_workflow_statuses_all_protect_branch_refs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(repository="owner/repo", token="token", api_url="https://api.github.test")
+    seen_statuses: list[str] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        seen_statuses.append(status)
+        return {"workflow_runs": [{"head_branch": f"task/{status}", "status": status}]}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    assert api.active_workflow_branch_names() == frozenset(
+        {f"task/{status}" for status in seen_statuses}
+    )
+    assert seen_statuses == ["requested", "waiting", "pending", "queued", "in_progress"]
+
+
+def test_unfinished_workflow_without_branch_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(repository="owner/repo", token="token", api_url="https://api.github.test")
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        return {"workflow_runs": [{"status": query["status"], "head_branch": None}]}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="head_branch"):
+        api.active_workflow_branch_names()
 
 
 def test_repository_root_url_has_no_trailing_slash() -> None:

@@ -90,6 +90,7 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
 - Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
 - `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
+- 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行する。Taskの保護情報が完全に取得・検証できない間は自動削除を再開しない。
 
 ## Agent Eval protocol
 

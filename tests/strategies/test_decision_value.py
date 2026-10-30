@@ -621,6 +621,7 @@ def test_preserve_posture_aware_proposal_dust_weight_exit() -> None:
         snap_dust,
         targets,
         all_scores_non_positive=True,
+        version="td8_v2",
     )
     assert prop.target_weights[0] == pytest.approx(0.0)
     assert 0 not in prop.hold_current_quantity_symbols
@@ -633,6 +634,7 @@ def test_preserve_posture_aware_proposal_dust_weight_exit() -> None:
         snap_dust,
         targets,
         all_scores_non_positive=False,
+        version="td8_v2",
     )
     assert prop_flat.target_weights[0] == pytest.approx(0.0)
     assert 0 not in prop_flat.hold_current_quantity_symbols
@@ -674,6 +676,7 @@ def test_preserve_posture_aware_proposal_sublot_remainder() -> None:
         snap_crumb,
         targets,
         all_scores_non_positive=False,
+        version="td8_v2",
     )
     assert prop.target_weights[0] == pytest.approx(0.25)
     assert 0 in prop.hold_current_quantity_symbols
@@ -685,7 +688,11 @@ def test_preserve_posture_aware_proposal_latency_2bar_lifecycle() -> None:
 
     # Bar 0: Flat -> Enter LONG (order submitted for 2.5 qty)
     p0 = preserve_posture_aware_proposal(
-        (ACTION_LONG, ACTION_HOLD), snap, targets, all_scores_non_positive=False
+        (ACTION_LONG, ACTION_HOLD),
+        snap,
+        targets,
+        all_scores_non_positive=False,
+        version="td8_v2",
     )
     assert p0.target_weights == (0.25, 0.0)
     assert 0 not in p0.hold_current_quantity_symbols
@@ -709,7 +716,11 @@ def test_preserve_posture_aware_proposal_latency_2bar_lifecycle() -> None:
     )
     snap1 = replace(snap, index=1, active_orders=(ord_inflight,))
     p1 = preserve_posture_aware_proposal(
-        (ACTION_LONG, ACTION_HOLD), snap1, targets, all_scores_non_positive=False
+        (ACTION_LONG, ACTION_HOLD),
+        snap1,
+        targets,
+        all_scores_non_positive=False,
+        version="td8_v2",
     )
     assert p1.target_weights[0] == pytest.approx(0.25)
     assert 0 not in p1.hold_current_quantity_symbols
@@ -728,7 +739,11 @@ def test_preserve_posture_aware_proposal_latency_2bar_lifecycle() -> None:
         ),
     )
     p2 = preserve_posture_aware_proposal(
-        (ACTION_HOLD, ACTION_HOLD), snap2, targets, all_scores_non_positive=False
+        (ACTION_HOLD, ACTION_HOLD),
+        snap2,
+        targets,
+        all_scores_non_positive=False,
+        version="td8_v2",
     )
     assert p2.target_weights[0] == pytest.approx(0.25)
     assert 0 in p2.hold_current_quantity_symbols
@@ -736,7 +751,11 @@ def test_preserve_posture_aware_proposal_latency_2bar_lifecycle() -> None:
     # Bar 3: Model decides to exit to cash (all_scores_non_positive=True).
     # Generates exit order targeting 0.0.
     p3 = preserve_posture_aware_proposal(
-        (ACTION_HOLD, ACTION_HOLD), snap2, targets, all_scores_non_positive=True
+        (ACTION_HOLD, ACTION_HOLD),
+        snap2,
+        targets,
+        all_scores_non_positive=True,
+        version="td8_v2",
     )
     assert p3.target_weights[0] == pytest.approx(0.0)
     assert 0 not in p3.hold_current_quantity_symbols
@@ -764,7 +783,11 @@ def test_preserve_posture_aware_proposal_latency_2bar_lifecycle() -> None:
         active_orders=(ord_exit_inflight,),
     )
     p4 = preserve_posture_aware_proposal(
-        (ACTION_HOLD, ACTION_HOLD), snap4, targets, all_scores_non_positive=True
+        (ACTION_HOLD, ACTION_HOLD),
+        snap4,
+        targets,
+        all_scores_non_positive=True,
+        version="td8_v2",
     )
     assert p4.target_weights[0] == pytest.approx(0.0)
     assert 0 not in p4.hold_current_quantity_symbols

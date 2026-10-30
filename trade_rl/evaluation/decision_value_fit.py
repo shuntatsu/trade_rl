@@ -23,6 +23,7 @@ from trade_rl.strategies.decision_value_shallow import (
 )
 from trade_rl.strategies.decision_value_shallow import (
     ShallowDecisionValueModel,
+    expand_state,
     fixed_hidden_weights,
 )
 from trade_rl.strategies.portfolio_policy_codec import (
@@ -177,6 +178,108 @@ def _collect_training(
     )
 
 
+# Keep the pre-TD8 ridge penalty/covariance math byte-for-byte equivalent.
+# An unpenalized intercept or changed rank handling requires a new model schema.
+def _fit_standardized_ridge_legacy_v1(
+    design: list[np.ndarray],
+    labels: list[float],
+    penalty: float,
+    intervals: list[tuple[int, int]] | None = None,
+    *,
+    compute_covariance: bool = False,
+) -> tuple[tuple[float, ...], tuple[tuple[float, ...], ...] | None]:
+    if len(design) < 3:
+        raise ValueError("insufficient fixed candidate coverage for Ridge")
+    matrix = np.stack(design)
+    target = np.asarray(labels, dtype=np.float64)
+    n_samples, p_total = matrix.shape
+
+    # Non-bias feature standardization and constant collinearity removal
+    feat_matrix = matrix[:, 1:]
+    means = np.mean(feat_matrix, axis=0)
+    stds = np.std(feat_matrix, axis=0)
+    active_mask = stds >= 1e-8
+    active_indices = np.where(active_mask)[0]
+    k_active = len(active_indices)
+    p_eff = 1 + k_active
+
+    z_matrix = np.empty((n_samples, p_eff), dtype=np.float64)
+    z_matrix[:, 0] = 1.0
+    if k_active > 0:
+        z_matrix[:, 1:] = (
+            feat_matrix[:, active_indices] - means[active_indices]
+        ) / stds[active_indices]
+
+    gram = z_matrix.T @ z_matrix + penalty * np.eye(p_eff)
+    beta = np.linalg.solve(gram, z_matrix.T @ target)
+    if not np.isfinite(beta).all():
+        raise ValueError("fit produced non-finite action values")
+
+    # Affine folding matrix A: z_eff = A @ x
+    a_matrix = np.zeros((p_eff, p_total), dtype=np.float64)
+    a_matrix[0, 0] = 1.0
+    for m in range(k_active):
+        col = 1 + active_indices[m]
+        mu = means[active_indices[m]]
+        s = stds[active_indices[m]]
+        a_matrix[1 + m, 0] = -mu / s
+        a_matrix[1 + m, col] = 1.0 / s
+
+    coefficients = a_matrix.T @ beta
+    if not np.isfinite(coefficients).all():
+        raise ValueError("fit produced non-finite action values")
+
+    cov_matrix: tuple[tuple[float, ...], ...] | None = None
+    if compute_covariance:
+        residuals = target - z_matrix @ beta
+        ssr = float(residuals @ residuals)
+
+        # Average overlap multiplicity m_bar across intervals
+        if intervals is not None and len(intervals) == n_samples:
+            multiplicities: list[int] = []
+            for i in range(n_samples):
+                d_i, t_i = intervals[i]
+                m_i = sum(
+                    1
+                    for j in range(n_samples)
+                    if max(d_i, intervals[j][0]) < min(t_i, intervals[j][1])
+                )
+                multiplicities.append(m_i)
+            m_bar = float(np.mean(multiplicities))
+        else:
+            m_bar = 1.0
+
+        m_bar = max(1.0, m_bar)
+        n_eff = n_samples / m_bar
+        dof = max(1.0, n_eff - p_eff)
+        sigma2 = max(1e-12, (ssr / dof) * m_bar)
+
+        inv_gram = np.linalg.inv(gram)
+        cov_beta = sigma2 * inv_gram
+        cov_beta = 0.5 * (cov_beta + cov_beta.T)
+        cov_w = a_matrix.T @ cov_beta @ a_matrix
+        cov_w = 0.5 * (cov_w + cov_w.T)
+        if not np.isfinite(cov_w).all():
+            raise ValueError("fit produced non-finite covariance")
+        cov_matrix = tuple(tuple(float(val) for val in row) for row in cov_w)
+
+    return tuple(float(val) for val in coefficients), cov_matrix
+
+
+def _ridge_legacy_v1(
+    design: list[np.ndarray], labels: list[float], penalty: float
+) -> tuple[float, ...]:
+    if len(design) < 3:
+        raise ValueError("insufficient fixed candidate coverage for Ridge")
+    matrix = np.stack(design)
+    target = np.asarray(labels, dtype=np.float64)
+    gram = matrix.T @ matrix + penalty * np.eye(matrix.shape[1])
+    coefficients = np.linalg.solve(gram, matrix.T @ target)
+    if not np.isfinite(coefficients).all():
+        raise ValueError("fit produced non-finite action values")
+    return tuple(float(value) for value in coefficients)
+
+
 def _fit_standardized_ridge(
     design: list[np.ndarray],
     labels: list[float],
@@ -190,7 +293,20 @@ def _fit_standardized_ridge(
     unexcited_prior_std: float = 1.0,
     dataset_ids: list[str] | None = None,
     dof_out: list[float] | None = None,
+    solver_version: str = "legacy_v1",
 ) -> tuple[tuple[float, ...], tuple[tuple[float, ...], ...] | None]:
+    if solver_version not in ("legacy_v1", "td8_v2"):
+        raise ValueError("unrecognized ridge solver_version")
+    if solver_version == "legacy_v1":
+        # V1 original B1c did not include epistemic-prior or residual-dof
+        # calibration. Keep its exact solver/covariance for frozen v1 models.
+        if dof_out is not None or unexcited_prior_std != 1.0:
+            raise ValueError(
+                "TD8-only uncertainty parameters require solver_version=td8_v2"
+            )
+        return _fit_standardized_ridge_legacy_v1(
+            design, labels, penalty, intervals, compute_covariance=compute_covariance
+        )
     p_total = (
         expected_width
         if expected_width is not None
@@ -329,7 +445,8 @@ def fit_synthetic_linear_decision_value(
     batch: SyntheticPairedLabelBatch,
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
-    ridge_penalty: float = 1.0,
+    ridge_penalty: float = _FIXED_RIDGE_PENALTY,
+    solver_version: str = "legacy_v1",
 ) -> LinearDecisionValueModel:
     """Fit one fixed state-action Ridge head for each non-HOLD joint candidate.
 
@@ -354,13 +471,18 @@ def fit_synthetic_linear_decision_value(
             action=action,
             unexcited_state_cols=unexcited,
             dataset_ids=d_ids,
+            solver_version=solver_version,
         )[0]
         for d, v, iv, action, d_ids in zip(
             t.rows, t.values, t.intervals, t.codes[1:], t.dataset_ids, strict=True
         )
     )
     return LinearDecisionValueModel(
-        schema_version="synthetic_linear_decision_value_v1",
+        schema_version=(
+            "synthetic_linear_decision_value_v2"
+            if solver_version == "td8_v2"
+            else "synthetic_linear_decision_value_v1"
+        ),
         source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
@@ -385,6 +507,7 @@ def fit_synthetic_shallow_decision_value(
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
     ridge_penalty: float = SHALLOW_RIDGE_PENALTY,
+    solver_version: str = "legacy_v1",
 ) -> ShallowDecisionValueModel:
     """B2: same population as B1, fixed hidden layer, one fixed Ridge per head."""
     pen = _finite(ridge_penalty, field="ridge_penalty")
@@ -395,6 +518,33 @@ def fit_synthetic_shallow_decision_value(
     state_width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + n_symbols
     hidden = fixed_hidden_weights(state_width)
     expanded_width = state_width + len(hidden)
+    if solver_version not in ("legacy_v1", "td8_v2"):
+        raise ValueError("unrecognized shallow solver_version")
+    if solver_version == "legacy_v1":
+        legacy_coefficients = tuple(
+            _ridge_legacy_v1([expand_state(x, hidden) for x in d], v, pen)
+            for d, v in zip(t.rows, t.values, strict=True)
+        )
+        return ShallowDecisionValueModel(
+            schema_version="synthetic_shallow_decision_value_v1",
+            source_scope=t.source_scope,
+            symbols=t.symbols,
+            feature_names=t.feature_names,
+            global_feature_names=t.global_names,
+            feature_config_digest=t.feature_digest,
+            normalization_digest=t.normalizer_digest,
+            execution_policy_digest=t.cost_digest,
+            reference_policy_digest=t.ref_digest,
+            target_abs_weights=t.joint_weights,
+            candidate_actions=t.codes,
+            fit_cutoff_ns=batch.fit_cutoff_ns,
+            evaluation_start_ns=batch.evaluation_start_ns,
+            ridge_penalty=pen,
+            training_rows=len(batch.samples),
+            overlap_groups=t.groups,
+            hidden_weights=hidden,
+            coefficients=legacy_coefficients,
+        )
 
     non_empty_rows = [r for sublist in t.rows for r in sublist]
     if not non_empty_rows:
@@ -430,7 +580,7 @@ def fit_synthetic_shallow_decision_value(
         fitted.append(tuple(float(x) for x in coefs))
 
     return ShallowDecisionValueModel(
-        schema_version="synthetic_shallow_decision_value_v1",
+        schema_version="synthetic_shallow_decision_value_v2",
         source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,
@@ -457,11 +607,12 @@ def fit_conservative_linear_decision_value(
     batch: SyntheticPairedLabelBatch,
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
-    ridge_penalty: float = 10.0,
+    ridge_penalty: float = _FIXED_RIDGE_PENALTY,
     uncertainty_penalty_weight: float = 1.0,
     one_way_switch_cost: float = 0.0,
     unexcited_prior_std: float = 1.0,
     residual_dof_out: list[float] | None = None,
+    solver_version: str = "legacy_v1",
 ) -> ConservativeLinearDecisionValueModel:
     """Fit conservative linear action-value head with uncertainty covariance.
 
@@ -518,13 +669,18 @@ def fit_conservative_linear_decision_value(
             unexcited_prior_std=unexcited_prior_std,
             dataset_ids=d_ids,
             dof_out=residual_dof_out,
+            solver_version=solver_version,
         )
         assert cov is not None
         coefficients_list.append(coefs)
         covariances_list.append(cov)
 
     return ConservativeLinearDecisionValueModel(
-        schema_version="conservative_linear_decision_value_v2",
+        schema_version=(
+            "conservative_linear_decision_value_v3"
+            if solver_version == "td8_v2"
+            else "conservative_linear_decision_value_v2"
+        ),
         source_scope=t.source_scope,
         symbols=t.symbols,
         feature_names=t.feature_names,

@@ -84,7 +84,10 @@ def _labels(market):
 
 def _fit(batch):
     return fit_synthetic_linear_decision_value(
-        batch, candidate_actions=_CANDIDATES, ridge_penalty=10.0
+        batch,
+        candidate_actions=_CANDIDATES,
+        ridge_penalty=10.0,
+        solver_version="td8_v2",
     )
 
 

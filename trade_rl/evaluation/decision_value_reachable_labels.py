@@ -116,6 +116,7 @@ def collect_reachable_state_labels(
                 initial_capital=initial_capital,
                 execution_cost=execution_cost,
                 risk=PreTradeRisk(risk_config),
+                intervention_projection="posture_v2",
             )
             runs += 2
             if not branch_counted:

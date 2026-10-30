@@ -210,7 +210,7 @@ def test_account_weight_coefficients_are_not_identically_zero_when_excited() -> 
     )
     n_symbols = 2
     b1 = fit_synthetic_linear_decision_value(
-        batch, candidate_actions=_CANDIDATES, ridge_penalty=1.0
+        batch, candidate_actions=_CANDIDATES, ridge_penalty=1.0, solver_version="td8_v2"
     )
     d_feat = len(b1.coefficients[0]) - 1
     weight_cols = slice(1 + d_feat - n_symbols, 1 + d_feat)
@@ -220,6 +220,7 @@ def test_account_weight_coefficients_are_not_identically_zero_when_excited() -> 
         batch,
         candidate_actions=_CANDIDATES,
         ridge_penalty=1.0,
+        solver_version="td8_v2",
         one_way_switch_cost=ONE_WAY,
     )
     d_feat_c = len(b1c.coefficients[0]) - 1

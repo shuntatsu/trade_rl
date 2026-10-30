@@ -112,7 +112,10 @@ def test_intercept_only_value_model_reproduces_fixed_long_in_an_uptrend() -> Non
         expected_reference_policy_digest=_REF,
     )
     fitted = fit_synthetic_linear_decision_value(
-        batch, candidate_actions=_CANDIDATES, ridge_penalty=10.0
+        batch,
+        candidate_actions=_CANDIDATES,
+        ridge_penalty=10.0,
+        solver_version="td8_v2",
     )
     width = len(fitted.coefficients[0])
     by_action = {}
@@ -134,7 +137,9 @@ def test_intercept_only_value_model_reproduces_fixed_long_in_an_uptrend() -> Non
     passive = _replay(
         market,
         _FixedEntryPolicy(
-            action=(ACTION_LONG, ACTION_LONG), target_abs_weights=TARGETS
+            action=(ACTION_LONG, ACTION_LONG),
+            target_abs_weights=TARGETS,
+            proposal_version="td8_v2",
         ),
         start,
         stop,
@@ -157,7 +162,7 @@ def _noise_model(market, scale: float) -> LinearDecisionValueModel:
     short_row[1] = -scale
     flat_row = [0.0] * width
     return LinearDecisionValueModel(
-        schema_version="synthetic_linear_decision_value_v1",
+        schema_version="synthetic_linear_decision_value_v2",
         source_scope="real_development",
         symbols=market.symbols,
         feature_names=market.feature_names,

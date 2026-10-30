@@ -834,14 +834,18 @@ class _HoldQuantityPolicy:
 class _FixedEntryPolicy:
     """One fixed entry on the first decision bar, followed by exact-quantity HOLD."""
 
-    __slots__ = ("_action", "_target_abs_weights", "_entered")
+    __slots__ = ("_action", "_target_abs_weights", "_entered", "_proposal_version")
 
     def __init__(
         self,
         *,
         action: tuple[int, ...],
         target_abs_weights: tuple[float, ...],
+        proposal_version: str = "legacy_v1",
     ) -> None:
+        if proposal_version not in ("legacy_v1", "td8_v2"):
+            raise ValueError("unknown fixed-entry proposal version")
+        self._proposal_version = proposal_version
         self._action = action
         self._target_abs_weights = target_abs_weights
         self._entered = False
@@ -856,12 +860,14 @@ class _FixedEntryPolicy:
                 snapshot,
                 self._target_abs_weights,
                 all_scores_non_positive=False,
+                version=self._proposal_version,
             )
         return preserve_posture_aware_proposal(
             (ACTION_HOLD,) * len(snapshot.symbols),
             snapshot,
             self._target_abs_weights,
             all_scores_non_positive=False,
+            version=self._proposal_version,
         )
 
 
@@ -875,6 +881,7 @@ class _CostAwareRidgePortfolioPolicy:
         "_last_index",
         "_last_timestamp_ns",
         "_agent_stop_index",
+        "_proposal_version",
     )
 
     def __init__(
@@ -886,7 +893,11 @@ class _CostAwareRidgePortfolioPolicy:
         entry_threshold: float,
         exit_threshold: float,
         one_way_switch_cost: float,
+        proposal_version: str = "legacy_v1",
     ) -> None:
+        if proposal_version not in ("legacy_v1", "td8_v2"):
+            raise ValueError("unknown cost-aware proposal version")
+        self._proposal_version = proposal_version
         self._symbols = tuple(dataset.symbols)
         self._budgets = target_abs_weights
         self._strategies = tuple(
@@ -957,7 +968,9 @@ class _CostAwareRidgePortfolioPolicy:
         self._last_index = snapshot.index
         self._last_timestamp_ns = snapshot.timestamp_ns
         self._agent_stop_index = snapshot.agent_stop_index
-        return preserve_posture_aware_proposal(tuple(actions), snapshot, self._budgets)
+        return preserve_posture_aware_proposal(
+            tuple(actions), snapshot, self._budgets, version=self._proposal_version
+        )
 
 
 def _perturb_after(dataset: MarketDataset, last_unchanged_bar: int) -> MarketDataset:
@@ -1040,6 +1053,7 @@ def causal_b0_reference_provider(
                 entry_threshold=entry_threshold,
                 exit_threshold=exit_threshold,
                 one_way_switch_cost=one_way_switch_cost,
+                proposal_version="td8_v2",
             )
 
         return factory
@@ -1105,11 +1119,13 @@ def _fit_all_learners(
             batch,  # type: ignore[arg-type]
             candidate_actions=actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            solver_version="td8_v2",
         ),
         "conservative_linear_value": fit_conservative_linear_decision_value(
             batch,  # type: ignore[arg-type]
             candidate_actions=actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            solver_version="td8_v2",
             uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
             one_way_switch_cost=train_switch_cost,
             unexcited_prior_std=protocol.unexcited_prior_std,
@@ -1119,6 +1135,7 @@ def _fit_all_learners(
             batch,  # type: ignore[arg-type]
             candidate_actions=actions,
             ridge_penalty=protocol.value_ridge_penalty,
+            solver_version="td8_v2",
         ),
     }
 
@@ -1166,7 +1183,11 @@ def _train_block(
     )
     ref_digest = content_digest(
         {
-            "policy": "b0_causal_refit_prefix_hold_relative_v1",
+            # This v2 identity distinguishes the native TD8 intervention/proposal
+            # semantics from the frozen exploratory TD8 result at a775b577e.
+            "policy": "b0_causal_refit_prefix_hold_relative_v2",
+            "intervention_projection": "posture_v2",
+            "native_proposal_version": "td8_v2",
             "target_abs_weights": [float(w) for w in protocol.target_abs_weights],
             "label_prefix_bars": protocol.label_prefix_bars,
             "reference_min_fit_bars": protocol.reference_min_fit_bars,
@@ -1487,6 +1508,7 @@ def run_decision_value_dev_study(
             entry_threshold=protocol.ridge_entry_threshold,
             exit_threshold=protocol.ridge_exit_threshold,
             one_way_switch_cost=train_switch_cost,
+            proposal_version="td8_v2",
         )
         pol_b0_probe_perturbed = _CostAwareRidgePortfolioPolicy(
             dataset=view,
@@ -1495,6 +1517,7 @@ def run_decision_value_dev_study(
             entry_threshold=protocol.ridge_entry_threshold,
             exit_threshold=protocol.ridge_exit_threshold,
             one_way_switch_cost=train_switch_cost,
+            proposal_version="td8_v2",
         )
         prop_b0_clean = pol_b0_probe.decide_portfolio(snap_clean)
         prop_b0_pert = pol_b0_probe_perturbed.decide_portfolio(snap_clean)
@@ -1556,6 +1579,7 @@ def run_decision_value_dev_study(
                     _FixedEntryPolicy(
                         action=(ACTION_LONG,) * len(dataset.symbols),
                         target_abs_weights=protocol.target_abs_weights,
+                        proposal_version="td8_v2",
                     ),
                 ),
                 (
@@ -1567,6 +1591,7 @@ def run_decision_value_dev_study(
                         entry_threshold=protocol.ridge_entry_threshold,
                         exit_threshold=protocol.ridge_exit_threshold,
                         one_way_switch_cost=scen_switch_cost,
+                        proposal_version="td8_v2",
                     ),
                 ),
             ]

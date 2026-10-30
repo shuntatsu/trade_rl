@@ -8,6 +8,8 @@ proportional to the candidate's round-trip cost. Ties go to HOLD.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from trade_rl.strategies.decision_value import (
@@ -99,7 +101,7 @@ def _snapshot(*, long_first: bool = False, signal: float = 0.0):
 def _model(*, long_intercept: float = 0.0, flat_intercept: float = 0.0):
     # [intercept, AAA signal, BBB signal, regime, AAA weight, BBB weight]
     return LinearDecisionValueModel(
-        schema_version="synthetic_linear_decision_value_v1",
+        schema_version="synthetic_linear_decision_value_v2",
         source_scope="real_development",
         symbols=("AAA", "BBB"),
         feature_names=("signal",),
@@ -256,7 +258,10 @@ def test_selector_rejects_noop_equivalents_and_uses_margin_per_candidate() -> No
 
 def test_legacy_policy_semantics_are_untouched_by_default() -> None:
     model = _model(long_intercept=1e-9)
-    legacy = LinearDecisionValuePolicy(model, runtime_context=_context(model))
+    legacy_model = replace(model, schema_version="synthetic_linear_decision_value_v1")
+    legacy = LinearDecisionValuePolicy(
+        legacy_model, runtime_context=_context(legacy_model)
+    )
     assert legacy.decide_action(_snapshot()) == _LONG
     # Default legacy FLAT sentinel still means structural zero for all-FLAT only.
     assert legacy.value_for_action(_snapshot(), _HOLD) == 0.0
@@ -266,7 +271,7 @@ def test_conservative_and_shallow_use_the_same_rule() -> None:
     base = _model(long_intercept=0.005)
     width = 1 + 2 * 1 + 1 + 2 + 2
     cons = ConservativeLinearDecisionValueModel(
-        schema_version="conservative_linear_decision_value_v2",
+        schema_version="conservative_linear_decision_value_v3",
         source_scope=base.source_scope,
         symbols=base.symbols,
         feature_names=base.feature_names,
@@ -310,7 +315,7 @@ def test_conservative_and_shallow_use_the_same_rule() -> None:
     state_width = 1 + 2 * 1 + 1 + 2
     hidden = fixed_hidden_weights(state_width)
     shallow = ShallowDecisionValueModel(
-        schema_version="synthetic_shallow_decision_value_v1",
+        schema_version="synthetic_shallow_decision_value_v2",
         source_scope=base.source_scope,
         symbols=base.symbols,
         feature_names=base.feature_names,
@@ -327,6 +332,8 @@ def test_conservative_and_shallow_use_the_same_rule() -> None:
         training_rows=18,
         overlap_groups=1,
         hidden_weights=hidden,
+        input_means=(0.0,) * (state_width - 1),
+        input_scales=(1.0,) * (state_width - 1),
         coefficients=(
             (0.005,) + (0.0,) * (state_width + 8 - 1),
             (-1.0,) + (0.0,) * (state_width + 8 - 1),

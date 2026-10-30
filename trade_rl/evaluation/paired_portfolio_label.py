@@ -249,10 +249,15 @@ def _validate_intervention_actions(
         if offset >= len(decisions):
             raise ValueError("native arm did not record its intervention")
         actual = decisions[offset]
-        if pair.baseline_snapshot.active_orders:
+        if pair.intervention_projection == "posture_v2":
             expected = preserve_posture_aware_proposal(
-                action, pair.baseline_snapshot, target_abs_weights
+                action,
+                pair.baseline_snapshot,
+                target_abs_weights,
+                version="td8_v2",
             )
+        elif pair.intervention_projection != "legacy_v1":
+            raise ValueError("unsupported paired projection version")
         else:
             expected = portfolio_action_to_proposal(
                 action, pair.baseline_snapshot, target_abs_weights

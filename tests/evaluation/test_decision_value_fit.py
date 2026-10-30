@@ -290,7 +290,12 @@ def test_fit_standardized_ridge_and_affine_folding() -> None:
     labels = [float(v) for v in y]
 
     coefs, cov = _fit_standardized_ridge(
-        rows, labels, penalty=1e-4, intervals=intervals, compute_covariance=True
+        rows,
+        labels,
+        penalty=1e-4,
+        intervals=intervals,
+        compute_covariance=True,
+        solver_version="td8_v2",
     )
     assert len(coefs) == p
     assert cov is not None
@@ -334,7 +339,12 @@ def test_standardized_ridge_covariance_calibration_and_collinearity() -> None:
         rows = [x[i] for i in range(n)]
         labels = [float(v) for v in y]
         coefs, cov = _fit_standardized_ridge(
-            rows, labels, penalty=0.05, intervals=intervals, compute_covariance=True
+            rows,
+            labels,
+            penalty=0.05,
+            intervals=intervals,
+            compute_covariance=True,
+            solver_version="td8_v2",
         )
         assert cov is not None
         c_arr = np.asarray(coefs)
@@ -362,7 +372,7 @@ def test_shallow_policy_zero_sensitivity_on_unexcited_weights() -> None:
 
     batch = _fit_batch()
     shallow_model = fit_synthetic_shallow_decision_value(
-        batch, candidate_actions=_CANDIDATES
+        batch, candidate_actions=_CANDIDATES, solver_version="td8_v2"
     )
     # The last 2 features are account.weights for AAA and BBB.
     # Since _fit_batch training was conducted from flat start, weights had 0 variance
@@ -381,6 +391,7 @@ def test_shallow_policy_zero_sensitivity_on_unexcited_weights() -> None:
         runtime_context=context,
         eval_one_way_cost=0.0,
         train_one_way_cost=0.0,
+        hold_relative=True,
     )
 
     # Create two snapshots with same market signals but differing non-zero weights
@@ -427,7 +438,7 @@ def test_shallow_policy_zero_sensitivity_on_unexcited_weights() -> None:
     assert val_flat == pytest.approx(val_holding)
 
 
-def test_conservative_policy_epistemic_prior_preserves_entry_hysteresis() -> None:
+def test_td8_small_ood_prior_does_not_prove_sunk_cost_hysteresis() -> None:
     from trade_rl.evaluation.decision_value_fit import (
         fit_conservative_linear_decision_value,
     )
@@ -452,6 +463,7 @@ def test_conservative_policy_epistemic_prior_preserves_entry_hysteresis() -> Non
         uncertainty_penalty_weight=1.0,
         one_way_switch_cost=0.0008,
         unexcited_prior_std=1e-3,
+        solver_version="td8_v2",
     )
     context = LinearDecisionValueRuntimeContext(
         source_scope="synthetic_only",
@@ -466,6 +478,7 @@ def test_conservative_policy_epistemic_prior_preserves_entry_hysteresis() -> Non
         allow_active_orders=True,
         eval_one_way_cost=0.0008,
         train_one_way_cost=0.0008,
+        hold_relative=True,
     )
 
     market = _market(signal=0.8, move=0.015, day="2026-03-03", tag="cons-hyst")
@@ -521,9 +534,11 @@ def test_conservative_policy_epistemic_prior_preserves_entry_hysteresis() -> Non
     assert std_held > std_flat
     assert std_inflight > std_flat
 
-    # 2. Sunk-cost hysteresis dominates the small OOD state prior
-    val_flat = pol.conservative_value_for_action(snap_flat, action)
-    val_held = pol.conservative_value_for_action(snap_held, action)
-    val_inflight = pol.conservative_value_for_action(snap_inflight, action)
-    assert val_held > val_flat
-    assert val_inflight > val_flat
+    # 2. The post-hoc TD7 1e-3 prior is NOT a proof of desired hysteresis.
+    # This diagnostic records finite scores only; no winner or superiority
+    # conclusion may be derived from the chosen prior or these state scores.
+    vals = tuple(
+        pol.conservative_value_for_action(s, action)
+        for s in (snap_flat, snap_held, snap_inflight)
+    )
+    assert all(np.isfinite(x) for x in vals)

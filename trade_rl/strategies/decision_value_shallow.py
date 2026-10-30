@@ -12,8 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, fields
-from fractions import Fraction
+from dataclasses import asdict, dataclass, fields, replace
 from typing import Any, cast
 
 import numpy as np
@@ -24,7 +23,6 @@ from trade_rl.strategies.decision_value import (
     _validated_hold_relative,
     compute_effective_posture_weights,
     compute_hold_relative_cost_adjustment,
-    compute_posture_cost_adjustment,
     encode_decision_value_state,
     preserve_posture_aware_proposal,
     select_hold_relative_action,
@@ -34,14 +32,12 @@ from trade_rl.strategies.portfolio import (
     PortfolioTargetProposal,
 )
 from trade_rl.strategies.portfolio_policy_codec import (
-    ACTION_FLAT,
     ACTION_HOLD,
-    ACTION_LONG,
-    ACTION_SHORT,
     decode_portfolio_action_codes,
 )
 
 _SCHEMA = "synthetic_shallow_decision_value_v1"
+_SCHEMA_TD8 = "synthetic_shallow_decision_value_v2"
 _POSITIVE_EDGE = 1e-12
 HIDDEN_UNITS = 8
 HIDDEN_SEED = 20261029
@@ -95,7 +91,10 @@ class ShallowDecisionValueModel:
     input_scales: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
-        if self.schema_version != _SCHEMA or self.source_scope not in (
+        if self.schema_version not in (
+            _SCHEMA,
+            _SCHEMA_TD8,
+        ) or self.source_scope not in (
             "synthetic_only",
             "real_development",
         ):
@@ -160,6 +159,18 @@ class ShallowDecisionValueModel:
                 raise ValueError("coefficients have incorrect expanded dimension")
             if any(not math.isfinite(v) for v in row):
                 raise ValueError("coefficients must be finite")
+        if self.schema_version == _SCHEMA and (
+            self.input_means is not None or self.input_scales is not None
+        ):
+            raise ValueError(
+                "legacy v1 shallow schema cannot carry normalized TD8 basis"
+            )
+        if self.schema_version == _SCHEMA_TD8 and (
+            self.input_means is None or self.input_scales is None
+        ):
+            raise ValueError(
+                "TD8 shallow schema requires normalized input means/scales"
+            )
         if (self.input_means is None) != (self.input_scales is None):
             raise ValueError(
                 "input_means and input_scales must both be None or both be tuples"
@@ -221,6 +232,10 @@ class ShallowDecisionValuePolicy:
         self.hold_relative = _validated_hold_relative(
             hold_relative, decision_margin_multiplier
         )
+        if self.hold_relative != (model.schema_version == _SCHEMA_TD8):
+            raise ValueError(
+                "shallow model schema and hold_relative scoring must match"
+            )
         self.decision_margin_multiplier = float(decision_margin_multiplier)
         self._coefs = [np.asarray(row, dtype=np.float64) for row in model.coefficients]
         self._hidden_w = np.asarray(model.hidden_weights, dtype=np.float64)
@@ -253,48 +268,28 @@ class ShallowDecisionValuePolicy:
         hidden = np.tanh(self._hidden_w @ x_norm)
         return np.concatenate(([1.0], x_norm, hidden))
 
+    def _legacy_scores(self, snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        basis = self._basis(snapshot)
+        scores = [0.0]
+        for coef in self._coefs:
+            score = float(basis @ coef)
+            if not math.isfinite(score):
+                raise ValueError("predicted decision value must be finite")
+            scores.append(score)
+        return tuple(scores)
+
     def value_for_action(
         self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
-        if self.hold_relative:
-            if action == self.model.candidate_actions[0]:
-                return 0.0
-            return self._hold_relative_value(snapshot, action)
-        n_symbols = len(self.model.symbols)
-        if action == (ACTION_FLAT,) * n_symbols:
-            return 0.0
-        w_eff = compute_effective_posture_weights(
-            snapshot, self.model.target_abs_weights
-        )
+        if not self.hold_relative:
+            return self._legacy_scores(snapshot)[
+                self.model.candidate_actions.index(action)
+            ]
         if action == self.model.candidate_actions[0]:
-            if all(abs(w) <= 1e-6 for w in w_eff):
-                return 0.0
-            d_eff = tuple(1 if w > 1e-6 else (-1 if w < -1e-6 else 0) for w in w_eff)
-            for cand in self.model.candidate_actions[1:]:
-                cand_codes = decode_portfolio_action_codes(cand, n_symbols=n_symbols)
-                cand_dir = tuple(
-                    1 if c == ACTION_LONG else (-1 if c == ACTION_SHORT else 0)
-                    for c in cand_codes
-                )
-                if cand_dir == d_eff:
-                    return self.value_for_action(snapshot, cand)
             return 0.0
-
-        k = self.model.candidate_actions.index(action) - 1
-        basis = self._basis(snapshot)
-        raw_val = float(basis @ self._coefs[k])
-        if not math.isfinite(raw_val):
-            raise ValueError("predicted decision value must be finite")
-        adj_cost = compute_posture_cost_adjustment(
-            action,
-            w_eff,
-            self.model.target_abs_weights,
-            eval_one_way_cost=self.eval_one_way_cost,
-            train_one_way_cost=self.train_one_way_cost,
-        )
-        return float(raw_val - adj_cost)
+        return self._hold_relative_value(snapshot, action)
 
     def _hold_relative_value(
         self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
@@ -320,51 +315,24 @@ class ShallowDecisionValuePolicy:
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
-        if self.hold_relative:
-            return (
-                select_hold_relative_action(
-                    self.model.candidate_actions,
-                    snapshot,
-                    lambda action: self.value_for_action(snapshot, action),
-                    target_abs_weights=self.model.target_abs_weights,
-                    eval_one_way_cost=self.eval_one_way_cost,
-                    margin_multiplier=self.decision_margin_multiplier,
-                ),
-                False,
-            )
-        w_eff = compute_effective_posture_weights(
-            snapshot, self.model.target_abs_weights
+        if not self.hold_relative:
+            scores = self._legacy_scores(snapshot)
+            best, edge = 0, _POSITIVE_EDGE
+            for i in range(1, len(scores)):
+                if scores[i] > edge:
+                    best, edge = i, scores[i]
+            return self.model.candidate_actions[best], best == 0
+        return (
+            select_hold_relative_action(
+                self.model.candidate_actions,
+                snapshot,
+                lambda action: self.value_for_action(snapshot, action),
+                target_abs_weights=self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                margin_multiplier=self.decision_margin_multiplier,
+            ),
+            False,
         )
-        is_invested = any(abs(w) > 1e-6 for w in w_eff) or any(
-            Fraction(q) != 0 for q in snapshot.account.exact_quantities
-        )
-        n_symbols = len(self.model.symbols)
-        flat_action = (ACTION_FLAT,) * n_symbols
-        hold_action = (ACTION_HOLD,) * n_symbols
-
-        best_index = -1
-        best_score = _POSITIVE_EDGE
-        for index in range(1, len(self.model.candidate_actions)):
-            action = self.model.candidate_actions[index]
-            if action == flat_action:
-                continue
-            score = self.value_for_action(snapshot, action)
-            if score > best_score:
-                best_score = score
-                best_index = index
-
-        if best_index != -1:
-            return self.model.candidate_actions[best_index], False
-
-        all_non_positive = True
-        if is_invested:
-            if flat_action in self.model.candidate_actions:
-                chosen = flat_action
-            else:
-                chosen = hold_action
-        else:
-            chosen = hold_action
-        return chosen, all_non_positive
 
     def decide_action(self, snapshot: PortfolioDecisionSnapshot) -> tuple[int, ...]:
         chosen, _ = self._select_best_action(snapshot)
@@ -373,12 +341,18 @@ class ShallowDecisionValuePolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        chosen, all_non_positive = self._select_best_action(snapshot)
+        score_snapshot = (
+            replace(snapshot, active_orders=())
+            if not self.hold_relative and snapshot.active_orders
+            else snapshot
+        )
+        chosen, all_non_positive = self._select_best_action(score_snapshot)
         return preserve_posture_aware_proposal(
             chosen,
             snapshot,
             self.model.target_abs_weights,
             all_scores_non_positive=all_non_positive,
+            version="td8_v2" if self.hold_relative else "legacy_v1",
         )
 
 
@@ -387,8 +361,14 @@ def serialize_shallow_decision_value(
 ) -> tuple[str, str]:
     if not isinstance(model, ShallowDecisionValueModel):
         raise TypeError("model must be ShallowDecisionValueModel")
+    payload = asdict(model)
+    if model.schema_version == _SCHEMA:
+        # The pre-TD8 v1 artifact did not have these fields: preserving
+        # its serialized bytes is necessary for existing trusted SHA-256.
+        payload.pop("input_means")
+        payload.pop("input_scales")
     encoded = json.dumps(
-        asdict(model),
+        payload,
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -422,7 +402,15 @@ def load_shallow_decision_value(
         raise ValueError("model payload must be an object")
     expected_fields = {f.name for f in fields(ShallowDecisionValueModel)}
     base_fields = expected_fields - {"input_means", "input_scales"}
-    if set(value) != expected_fields and set(value) != base_fields:
+    schema = value.get("schema_version")
+    declared_fields = (
+        base_fields
+        if schema == _SCHEMA
+        else expected_fields
+        if schema == _SCHEMA_TD8
+        else None
+    )
+    if declared_fields is None or set(value) != declared_fields:
         raise ValueError("model payload fields differ from the declared schema")
     raw = cast(dict[str, Any], value)
     input_means = (

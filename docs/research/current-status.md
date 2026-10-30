@@ -584,7 +584,9 @@ TD6では、レイテンシ下の未約定注文（in-flight order）を明示�
 
 ### TD7: Posture-aware decision-value learning and audit remediation (6-arm development study, #1025)
 
-TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入した。さらに、厳格な監査により特定された18件の構造的バグ（未約定注文の取り消しループ、微小ダスト退出時のValueError、薄型SVDによるランク切断正則化、重なり共分散のPSD Gram行列計算、非励起状態座標に対する事前分散、浅層モデルの入力標準化によるリミットサイクル抑止、符号付きサンクコスト調整の整合化、厳格な因果性摂動プローブ、全金融変数の台帳突合検証）および未励起座標事前分散の調整（`unexcited_prior_std = 1e-3` によるサンクコスト・ヒステリシス保全と自己キャンセル解消）を網羅的に是正した。
+**撤回・履歴保全（2026-10-30）:** 以下のTD7成績・INCONCLUSIVEは実行当時の保存済み観測記録であり、現行HEADで再実行・再現した値ではない。事前分散を1e-3に変更したのは既消費Tier D開発データを見てから行った事後選択であり、「事前分散を適正化したから保守的モデルが優越した」「自己キャンセルを完全に根絶した」等の改善主張を撤回する。数値そのものは改ざんせず保存するが、G0–G4の認可、方式間の優位性、未使用データでの一般化の証拠には使用しない。旧v1 solver・注文proposalとTD8改修後の実装は明確に区別する。
+
+TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入した。さらに、厳格な監査により特定された18件の構造的バグ（未約定注文の取り消しループ、微小ダスト退出時のValueError、薄型SVDによるランク切断正則化、重なり共分散のPSD Gram行列計算、非励起状態座標に対する事前分散、浅層モデルの入力標準化によるリミットサイクル抑止、符号付きサンクコスト調整の整合化、厳格な因果性摂動プローブ、全金融変数の台帳突合検証）および未励起座標事前分散の事後調整（`unexcited_prior_std = 1e-3`）を当時の研究報告に記録した。ただし、事後調整による改善・ヒステリシス保全・完全な自己キャンセル解消の主張は上記の通り撤回する。
 
 同一データセット（`data/bot-development-2024q1/dataset`）上で是正後の6アーム4シナリオ比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2] × `base`, `cost_x2`, `latency_1bar`, `latency_2bar`）を再実行した。
 
@@ -604,7 +606,7 @@ TD7では、TD6で残された課題（標準化特徴空間でのRidge適合お
 - `block_3`: 下落局面において `fixed_long`（-3.5498%）、`cost_aware_ridge`（-2.9249%）、`linear_value`（-5.7865%）、`shallow_value`（-7.4589%）がマイナスとなる中、`conservative_linear_value` は `base` で -6.8044%（cost 3704.68、前版7921から半減）となった。さらに `latency_2bar` では `conservative_linear_value` が +0.3373%（cost 1656.90、drawdown 5.2302%）と全アーム中唯一のプラスリターンを記録した。
 
 判定（Verdict）: `INCONCLUSIVE`
-判定理由: `conservative_linear_value`（B1c）は事前分散の適正化（`1e-3`）により、`base`（-13.7092% vs B1 -17.9891%）、`cost_x2`（-18.4959% vs B1 -23.4239%）、`latency_1bar`（-13.5036% vs B1 -17.7219%）、`latency_2bar`（-2.3156% vs B1 -13.6709%）の全4シナリオで `linear_value` を大幅にアウトパフォームし、`cost_aware_ridge`（-15.2323% / -14.9821%）に対しても優位を示した。また、浅層モデル（B2）も特徴量標準化と非励起座標のゼロ感度化により、旧実装で見られた極端な発散破綻から -16.9076% へと堅牢に安定化した。しかし、強気相場であった2024Q1において `fixed_long`（+16.0339%）および `cash`（+0.0000%）を一貫して支配するには至らなかったため、事前設定された統計判定基準に基づき結果は `INCONCLUSIVE` となる。是正された姿勢認識プロポーザルにより、2バーレイテンシ下での自己キャンセル（ping-pong）、小口残余注文の誤認識、および微小ダスト退出時のクラッシュは完全に根絶された。
+判定理由（**歴史的記録・優位性主張は撤回済み**）: 当時の事後調整済みパラメータで算出した数字上は、B1cが一部の学習器・シナリオより高い収益を示した。しかし1e-3を観測後に選択したため、この比較は結果盲検性を満たさず、パラメータの「適正化」やモデルの耐久性の証拠ではない。当時の数値は再利用・事後再分類しない。
 
 本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
 
@@ -612,9 +614,11 @@ TD7では、TD6で残された課題（標準化特徴空間でのRidge適合お
 
 **Status: protocol and software frozen and committed before the re-run; the re-run was then executed once and its result is recorded at the end of this section. This is an exploratory re-run on consumed Tier D development data after a diagnosis. It is not a G4 result, creates no winner, no edge claim and no G5/live authorization.**
 
+**Post-review software correction, not a new study:** The table below describes the one exploratory run performed on the originally frozen source commit `a775b577e` and its original protocol and authorization digests. Afterward, the #1047 reviewer identified Medium v1-compatibility defects; correcting them required explicit v1 vs TD8 numerical-solvers, native proposal/paired intervention paths and new TD8 model artifact schema identifiers (B1 v2, B1c v3, B2 v2). The current corrected code has **not re-run** the consumed 2024Q1 development study, does not silently reclassify or reproduce the prior numerical table, and does not create a new research authorization. TD7 v1 fitted coefficients/covariance and shallow serialized bytes are regression-pinned to the original main snapshot. The TD8 new-source reference-policy digest now explicitly binds the `posture_v2` intervention and `td8_v2` proposal under `b0_causal_refit_prefix_hold_relative_v2`, preventing model artifacts with unchanged reference digests from masking this source-level behavioural change. Any new empirical study needs its own updated source/protocol authorization and fresh independent G0–G3 review; existing digests alone do not authorize running revised code.
+
 #### Diagnosis that motivates the correction (read-only, 2026-10-30)
 
-The TD5-TD7 numbers reproduce, but their mechanism does not support a learned-value claim. Sound and kept: native replay and paired intervention, label sign, codec mapping, `preserve_posture_aware_proposal`, ledger reconciliation, causality probe and cost accounting; an intercept-only (or constant long-long) value model reproduces `fixed_long` to the cent. The learned arms lose 13-18% in a quarter where `fixed_long` makes about +16% for these root causes:
+The archived TD5–TD7 reports retain their originally recorded numerical results, but those results have **not** been re-derived under the present source HEAD and the post-hoc TD7 1e-3 calibration claim has been withdrawn. Their mechanism does not support a learned-value superiority claim. Sound and kept: native replay and paired intervention, label sign, codec mapping, `preserve_posture_aware_proposal`, ledger reconciliation, causality probe and cost accounting; an intercept-only (or constant long-long) value model reproduces `fixed_long` to the cent. The learned arms lose 13-18% in a quarter where `fixed_long` makes about +16% for these root causes:
 
 1. **Non-stationary feature extrapolation.** `funding_bps` drifts: in block 2 its evaluation z-score (train-window statistics) averages about +5.5 and peaks near 13.6. Linear B0/B1/B1c/B2 extrapolate it, flip to 74-99% short in a +25% block, and B0 without the funding feature scores about +10.7% there versus -10.25% with it.
 2. **No decision margin.** The only threshold was the numerical floor `1e-12`, so noisy scores churn: turnover 126-158x and cost 8.5-10.7% of capital.

@@ -1,0 +1,131 @@
+{
+  "note": "Every execution of the study code is listed, including calibration and smoke runs. SYNTHETIC data only.",
+  "protocol_id": "issue810_residual_ppo_synthetic_v1",
+  "runs": [
+    {
+      "evidence": false,
+      "git": {
+        "branch": "claude/issue810-residual-rl-synthetic-20261030",
+        "commit": "4909d3359db0ab86b5321badf1b932c46fb95e31",
+        "dirty_outside_report_files": true,
+        "note": "uncommitted working tree on top of the base commit; recorded by hand"
+      },
+      "mode": "scratch_precommit_calibration",
+      "note": "PRE-FREEZE scratch run (scratchpad script, not the committed CLI). Allocator-only (no PPO) on calibration seeds 9000-9011, gamma=30 was the only value tried. Used to choose the allocator constants and margin scale. Held-out seeds were not touched.",
+      "protocol_sha256_frozen_in_source": "not yet frozen when this run executed",
+      "result": {
+        "planted_alpha": {
+          "ALLOCATOR_KAPPA_1": {
+            "mean": 0.2256,
+            "median": 0.1981,
+            "sd": 0.1214,
+            "turnover_per_day": 0.4057
+          },
+          "ALLOCATOR_KAPPA_3": {
+            "mean": 0.1955,
+            "median": 0.1712,
+            "sd": 0.097,
+            "turnover_per_day": 0.0887
+          },
+          "CASH": {
+            "median": 0.0
+          },
+          "STATIC_M_0.5": {
+            "mean": 0.2137,
+            "median": 0.1898,
+            "sd": 0.1048,
+            "turnover_per_day": 0.2089
+          },
+          "STATIC_M_1.5": {
+            "mean": 0.1874,
+            "median": 0.1675,
+            "sd": 0.1216,
+            "turnover_per_day": 0.5806
+          }
+        },
+        "seeds": "9000..9011",
+        "zero_alpha": {
+          "ALLOCATOR_KAPPA_1": {
+            "mean": -0.037,
+            "median": -0.0672,
+            "sd": 0.1087,
+            "turnover_per_day": 0.4065
+          },
+          "ALLOCATOR_KAPPA_3": {
+            "mean": 0.0173,
+            "median": -0.007,
+            "sd": 0.0864,
+            "turnover_per_day": 0.0891
+          },
+          "CASH": {
+            "median": 0.0
+          },
+          "STATIC_M_0.5": {
+            "mean": -0.0055,
+            "median": -0.0365,
+            "sd": 0.0918,
+            "turnover_per_day": 0.2094
+          },
+          "STATIC_M_1.5": {
+            "mean": -0.0671,
+            "median": -0.0813,
+            "sd": 0.1125,
+            "turnover_per_day": 0.5807
+          }
+        }
+      },
+      "synthetic_only": true
+    },
+    {
+      "evidence": false,
+      "git": {
+        "branch": "claude/issue810-residual-rl-synthetic-20261030",
+        "commit": "4909d3359db0ab86b5321badf1b932c46fb95e31",
+        "dirty_outside_report_files": true,
+        "note": "uncommitted working tree on top of the base commit; recorded by hand"
+      },
+      "mode": "scratch_precommit_ppo_pilot",
+      "note": "PRE-FREEZE scratch PPO pilot (regime=zero_alpha), PPO seed 0, 10,080 timesteps, evaluated deterministically on the first 6 calibration seeds. This was a training run executed before the protocol freeze to check that the pipeline trains at all; it is NOT evidence and no held-out seed was used. No hyper-parameter was changed afterwards.",
+      "protocol_sha256_frozen_in_source": "not yet frozen when this run executed",
+      "result": {
+        "action_histogram_m0_0.5_1_1.5": [
+          952,
+          264,
+          236,
+          60
+        ],
+        "median_daily_turnover": 0.0976,
+        "median_net_log_return": 0.00574,
+        "regime": "zero_alpha",
+        "total_timesteps": 10080
+      },
+      "synthetic_only": true
+    },
+    {
+      "evidence": false,
+      "git": {
+        "branch": "claude/issue810-residual-rl-synthetic-20261030",
+        "commit": "4909d3359db0ab86b5321badf1b932c46fb95e31",
+        "dirty_outside_report_files": true,
+        "note": "uncommitted working tree on top of the base commit; recorded by hand"
+      },
+      "mode": "scratch_precommit_ppo_pilot",
+      "note": "PRE-FREEZE scratch PPO pilot (regime=planted_alpha), PPO seed 0, 10,080 timesteps, evaluated deterministically on the first 6 calibration seeds. This was a training run executed before the protocol freeze to check that the pipeline trains at all; it is NOT evidence and no held-out seed was used. No hyper-parameter was changed afterwards.",
+      "protocol_sha256_frozen_in_source": "not yet frozen when this run executed",
+      "result": {
+        "action_histogram_m0_0.5_1_1.5": [
+          70,
+          159,
+          977,
+          306
+        ],
+        "median_daily_turnover": 0.4251,
+        "median_net_log_return": 0.1592,
+        "regime": "planted_alpha",
+        "total_timesteps": 10080
+      },
+      "synthetic_only": true
+    }
+  ],
+  "schema": "issue810_residual_ppo_synthetic_provenance_v1"
+}

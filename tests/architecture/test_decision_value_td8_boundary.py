@@ -11,6 +11,7 @@ STRATEGIES = ROOT / "trade_rl" / "strategies"
 DOCS = ROOT / "docs"
 
 NEW_EVALUATION_MODULES = (
+    "decision_value_ledger_oracle.py",
     "decision_value_feature_transform.py",
     "decision_value_reachable_labels.py",
     "decision_value_margin.py",

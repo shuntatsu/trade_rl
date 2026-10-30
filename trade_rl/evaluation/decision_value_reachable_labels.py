@@ -35,6 +35,9 @@ from fractions import Fraction
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.decision_value_ledger_oracle import (
+    verify_paired_economic_ledger,
+)
 from trade_rl.evaluation.paired_portfolio_action import run_paired_portfolio_action
 from trade_rl.evaluation.paired_portfolio_label import (
     SyntheticPairedLabel,
@@ -129,6 +132,19 @@ def collect_reachable_state_labels(
             if not pair.eligible_for_label:
                 ineligible += 1
                 continue
+            # Validate the money of both teacher branches *before* fitting.
+            # A matching BookState/observer terminal total is not independent.
+            if any(
+                not verify_paired_economic_ledger(
+                    arm,
+                    dataset,
+                    expected_intervals=stop - start,
+                    initial_capital=initial_capital,
+                    expected_start_index=start,
+                )
+                for arm in (pair.baseline_result, pair.candidate_result)
+            ):
+                raise ValueError("TD8 independent training ledger accounting failed")
             samples.append(
                 build_synthetic_paired_label(
                     dataset,

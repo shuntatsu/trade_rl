@@ -43,6 +43,9 @@ from trade_rl.evaluation.decision_value_fit import (
     fit_synthetic_linear_decision_value,
     fit_synthetic_shallow_decision_value,
 )
+from trade_rl.evaluation.decision_value_ledger_oracle import (
+    verify_paired_economic_ledger,
+)
 from trade_rl.evaluation.decision_value_margin import (
     MarginSelection,
     select_margin_multiplier,
@@ -124,23 +127,22 @@ def _finite(value: object, *, field: str) -> float:
 def _verify_ledger_reconciliation(
     replay_res: SharedCashPortfolioReplayResult,
     *,
+    dataset: MarketDataset,
     expected_intervals: int,
+    expected_start_index: int,
+    initial_capital: float,
 ) -> bool:
-    ledger = replay_res.ledger_evidence
-    if ledger is None:
-        return False
-    iv = ledger.intervals
-    if len(iv.intervals) != expected_intervals:
-        return False
-    book = replay_res.book
-    return (
-        math.isclose(iv.final_portfolio_value, float(book.portfolio_value))
-        and math.isclose(iv.final_cash, float(book.cash))
-        and math.isclose(iv.final_total_cost, float(book.total_cost))
-        and math.isclose(iv.final_funding_pnl, float(book.funding_pnl))
-        and math.isclose(iv.final_borrow_cost, float(book.borrow_cost))
-        and math.isclose(iv.final_turnover_total, float(book.turnover_total))
-        and math.isclose(iv.final_max_drawdown, float(book.max_drawdown))
+    """Validate source-backed interval fills/cash/marked equity, not just totals.
+
+    Actual fee/funding/borrow/dividend/interest amounts still originate from the
+    observer rather than independently priced financial contracts.
+    """
+    return verify_paired_economic_ledger(
+        replay_res,
+        dataset,
+        expected_intervals=expected_intervals,
+        expected_start_index=expected_start_index,
+        initial_capital=initial_capital,
     )
 
 
@@ -1690,7 +1692,11 @@ def run_decision_value_dev_study(
 
                 expected_intervals = block.eval_stop_index - block.eval_start_index
                 if not _verify_ledger_reconciliation(
-                    replay_res, expected_intervals=expected_intervals
+                    replay_res,
+                    dataset=view,
+                    expected_intervals=expected_intervals,
+                    expected_start_index=block.eval_start_index,
+                    initial_capital=protocol.study_plan.initial_capital,
                 ):
                     ledger_all_reconciled = False
 

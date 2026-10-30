@@ -1000,6 +1000,26 @@ storage and journal-replay latency remain operator-measured. No economics, P&L o
 profitability evidence was produced. The runbook is in
 `docs/specs/funding-carry-paper.md`.
 
+2026-10-31: attempt 1's evidence root is lost; its lineage rests on a prior
+recorded review. The `funding-carry-forward-20260918` worktree is not on the
+collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
+2026-10-30 the user stated in chat, quoted verbatim: 「そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ」
+(they do not know that data or where its results were saved, and new data may be
+collected). The attempt-1 protocol digest, final tip and last observation above were
+verified against the root by the 2026-09-27/28 result-blind review recorded earlier in
+this document (introduced in commit `b9f1ca65b26d`, full SHA in the lineage record); they
+were NOT re-verified against the root now, and global attempt uniqueness remains
+unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
+(`available` only with a root path that the existing v1 reader verifies; otherwise
+`unavailable` with the source record and the attestation) and keeps the
+disposition `invalidated` with reason `observation_gap`. For this case the G0
+requirement that a fresh review resolve the preserved root is replaced by a fresh
+result-blind review of the lineage documentation and the pull request that introduced
+the rule. A short public-network storage probe (`paper/storage_probe.py`, a scratch
+root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
+measurement; it has not been run. Nothing has been sealed, launched or collected, no
+attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
+
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
 engine rejected the unmatched hedge, actually flattened all four legs on the

@@ -110,7 +110,7 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,assessment.py,cli.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -212,7 +212,13 @@ failure. `paper/attempt2.py` composes the
 existing lineage validator, `screen_plan`, `seal_paper_study`, FS1's authorization
 pattern and the supervisor into plan/seal/launch gates for the successor attempt
 with no network call (it loads the collector stack at import through
-`seal_paper_study`, so the offline property is proved at call level). These operations contain no production routing.
+`seal_paper_study`, so the offline property is proved at call level). It imports
+neither the collector nor `paper/storage_probe.py`. The probe is the one other
+networked step: it runs the real `PaperCollector` for a few slots into a scratch root
+whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
+`cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
+refuse it otherwise. These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

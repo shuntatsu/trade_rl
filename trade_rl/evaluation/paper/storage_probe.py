@@ -3,8 +3,9 @@
 Runs the real paper collector (same capture code, journal and control files as the
 screen) for a few one-minute slots into a NEW scratch root outside the repository,
 then reports bytes per observation. The root carries ``probe_plan``: it names no
-attempt lineage, so ``attempt2 seal``/``launch`` and ``cli evaluate`` all refuse it,
-and ``evaluate`` additionally refuses the probe schema by name. A probe is capacity
+attempt lineage, so ``attempt2 launch``, ``cli evaluate``, ``cli run`` and
+``cli supervise`` refuse it (``attempt2 seal`` only writes new roots), and
+``evaluate``/``run``/``supervise`` refuse the probe schema by name. A probe is capacity
 evidence only; it never counts toward, replaces or pre-registers a screen, computes
 no P&L and places no order.
 
@@ -55,8 +56,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 def probe_plan() -> dict[str, Any]:
     """The research plan of a storage probe root: unmistakably not a screen.
 
-    It names no attempt lineage, so ``seal``, ``launch`` and ``evaluate`` all refuse
-    it, and ``evaluate`` additionally refuses this exact schema by name.
+    It names no attempt lineage, so ``launch`` and ``evaluate`` refuse it, and
+    ``evaluate``, ``run`` and ``supervise`` also refuse this exact schema by name.
     """
     return {
         "schema": STORAGE_PROBE_PLAN_SCHEMA,
@@ -106,6 +107,7 @@ def storage_breakdown(root: Path) -> dict[str, int]:
                 seen.add(folder)
                 rule_captures += int(is_rules)
                 snapshot_captures += int(not is_rules)
+    journal = root / "journal.sqlite"
     return dict(
         rule_capture_bytes=rules,
         snapshot_capture_bytes=snapshots,
@@ -113,6 +115,28 @@ def storage_breakdown(root: Path) -> dict[str, int]:
         total_bytes=rules + snapshots + other,
         rule_captures=rule_captures,
         snapshot_captures=snapshot_captures,
+        journal_bytes=journal.stat().st_size if journal.is_file() else 0,
+    )
+
+
+def conservative_rate(
+    usage: dict[str, int], *, observations: int, events: int
+) -> float:
+    """Measured bytes per observation plus the cost of one trade cycle per observation.
+
+    A trade cycle adds a second snapshot capture (decision, then execution) and a
+    second journal event (the execution). A short probe may not trade, so those
+    trade-cycle costs are not measured; the bound assumes every observation incurs
+    both: ``total / observations + mean snapshot bytes + journal bytes / events``.
+    The journal term uses the whole database file (pages, indexes, the constraint
+    triggers), and an execution event is about as large as a decision event because
+    both store the full account status, so it errs high. Fill-specific growth beyond
+    that is not measured; the plan's 1.25 headroom is the only further margin.
+    """
+    return (
+        usage["total_bytes"] / observations
+        + usage["snapshot_capture_bytes"] / max(1, usage["snapshot_captures"])
+        + usage["journal_bytes"] / max(1, events)
     )
 
 
@@ -183,11 +207,9 @@ def measure_storage(
     if observations < PROBE_MINIMUM_OBSERVATIONS:
         raise Attempt2Refusal(["probe_too_few_observations"])
     usage = storage_breakdown(root_path)
+    events = int(status["events"])
     measured = usage["total_bytes"] / observations
-    snapshot_mean = usage["snapshot_capture_bytes"] / max(1, usage["snapshot_captures"])
-    # A trade cycle takes a second snapshot (decision, then execution); a short probe
-    # may not trade, so the bound assumes every observation does.
-    conservative = measured + snapshot_mean
+    conservative = conservative_rate(usage, observations=observations, events=events)
     identity = code_identity()
     return dict(
         schema=PROBE_REPORT_SCHEMA,
@@ -204,7 +226,7 @@ def measure_storage(
         tracked_tree_clean=identity.tracked_tree_clean,
         slots=slots,
         observations=observations,
-        events=int(status["events"]),
+        events=events,
         quality_failures=list(status["quality_failures"]),
         storage=usage,
         bytes_per_observation=math.ceil(measured),
@@ -217,7 +239,9 @@ def measure_storage(
         notes=[
             "measured rate includes the fixed files and one hourly rule capture of a "
             "short probe, which overstates the long-run rate",
-            "conservative rate adds one extra snapshot per observation for trade cycles",
+            "conservative rate adds, per observation, one extra snapshot capture and "
+            "one extra journal event, because a probe that does not trade does not "
+            "measure trade-cycle growth",
             "pass conservative_bytes_per_observation to plan and seal; the capacity "
             "check applies the 1.25 headroom itself",
         ],

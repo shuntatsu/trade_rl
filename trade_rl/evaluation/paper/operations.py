@@ -84,8 +84,11 @@ def _validate_predecessor_root(
                 "protocol_sha256",
                 "final_tip_sha256",
                 "last_observed_at",
+                "root_path",
             }
             or proof["reader"] != _ROOT_READER
+            or not isinstance(proof["root_path"], str)
+            or not proof["root_path"]
             or type(proof["event_count"]) is not int
             or proof["event_count"] < 1
             or proof["protocol_sha256"] != predecessor["protocol_sha256"]
@@ -99,6 +102,7 @@ def _validate_predecessor_root(
         "re_verified_at_seal",
         "lineage_source",
         "user_attestation",
+        "not_established",
         "review_rule",
     }:
         raise ValueError("unavailable predecessor root record is incomplete")
@@ -121,6 +125,11 @@ def _validate_predecessor_root(
         or attestation["channel"] != "chat"
         or not isinstance(value["review_rule"], str)
         or not value["review_rule"]
+        or not isinstance(value["not_established"], list)
+        or not value["not_established"]
+        or any(
+            not isinstance(item, str) or not item for item in value["not_established"]
+        )
     ):
         raise ValueError("unavailable predecessor root record is invalid")
     try:
@@ -267,13 +276,23 @@ def seal_paper_study(
     *,
     start_at: datetime,
     attempt_lineage: dict[str, Any],
+    via_attempt2: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> str:
+    """Seal a screen. Lineage v3 is accepted only from ``attempt2``.
+
+    A v3 ``predecessor_root`` record asserts a root read (``available``) or an
+    explicit attestation (``unavailable``) that only ``attempt2`` produces after its
+    own checks, so the generic CLI cannot seal one. ``via_attempt2`` is a caller
+    contract, not authentication: ``attempt2 launch`` re-verifies ``available``.
+    """
     start = require_aware_datetime(start_at, field="paper start").astimezone(UTC)
     now = require_aware_datetime(clock(), field="paper seal").astimezone(UTC)
     if start < now + timedelta(minutes=5):
         raise ValueError("paper study requires at least five minutes before start")
     lineage = validate_attempt_lineage(attempt_lineage, sealed_at=now)
+    if lineage["schema"] == _ATTEMPT_LINEAGE_SCHEMA_V3 and not via_attempt2:
+        raise ValueError("attempt lineage v3 can only be sealed through attempt2")
     return seal_collection(
         root,
         settings=PaperSettings(start_at=start, close_at=start + timedelta(days=90)),
@@ -336,12 +355,18 @@ def collect_until_finished(
 
 
 def collection_status(
-    root: str | Path, *, expected_protocol_sha256: str
+    root: str | Path, *, expected_protocol_sha256: str, read_only: bool = False
 ) -> dict[str, Any]:
-    """Operational status verifies the chain, not raw-source financial replay."""
+    """Operational status verifies the chain, not raw-source financial replay.
+
+    ``read_only`` opens the journal database without write access (no hot-journal
+    recovery), for verifying preserved evidence.
+    """
     import json
 
-    journal = PaperJournal(root, expected_protocol_sha256=expected_protocol_sha256)
+    journal = PaperJournal(
+        root, expected_protocol_sha256=expected_protocol_sha256, read_only=read_only
+    )
     records = journal.events()
     if records:
         status = records[-1]["event"]["payload"]["result"]

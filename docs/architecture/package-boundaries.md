@@ -215,8 +215,10 @@ with no network call (it loads the collector stack at import through
 `seal_paper_study`, so the offline property is proved at call level). It imports
 neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
-whose research plan names no attempt lineage, so `attempt2 seal`/`launch` and
-`cli evaluate` refuse it. These operations contain no production routing.
+whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
+`cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
+refuse it otherwise. These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

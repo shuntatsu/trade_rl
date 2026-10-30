@@ -99,14 +99,23 @@ class PaperJournal:
             os.fsync(stream.fileno())
         return hashlib.sha256(raw).hexdigest()
 
-    def __init__(self, root: str | Path, *, expected_protocol_sha256: str) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        expected_protocol_sha256: str,
+        read_only: bool = False,
+    ) -> None:
         _digest(expected_protocol_sha256)
         self.root = Path(root).absolute()
         self.protocol_sha256 = expected_protocol_sha256
         # A read-only connection cannot recover a hot rollback journal. Verify
         # the protocol first, then allow SQLite to restore its committed prefix.
-        with self._connection(writable=True) as connection:
-            connection.execute("SELECT sequence FROM events LIMIT 1").fetchone()
+        # ``read_only`` never opens the database for writing, so preserved evidence
+        # is not mutated; a hot journal then fails verification instead of recovering.
+        if not read_only:
+            with self._connection(writable=True) as connection:
+                connection.execute("SELECT sequence FROM events LIMIT 1").fetchone()
         self._verify_chain()
 
     def _protocol(self) -> None:

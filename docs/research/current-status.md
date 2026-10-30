@@ -1016,7 +1016,7 @@ disposition `invalidated` with reason `observation_gap`. For this case the G0
 requirement that a fresh review resolve the preserved root is replaced by a fresh
 result-blind review of the lineage documentation and the pull request that introduced
 the rule. A short public-network storage probe (`paper/storage_probe.py`, a scratch
-root that cannot be sealed or evaluated) replaces the attempt-1 byte-rate
+root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
 measurement; it has not been run. Nothing has been sealed, launched or collected, no
 attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
 

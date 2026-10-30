@@ -253,6 +253,7 @@ def test_storage_breakdown_splits_rule_and_snapshot_captures(tmp_path):
         total_bytes=25,
         rule_captures=1,
         snapshot_captures=1,
+        journal_bytes=3,
     )
 
 
@@ -286,3 +287,62 @@ def test_cli_output_is_write_once(tmp_path, capsys):
     assert code == 2
     assert json.loads(capsys.readouterr().err)["error_type"] == "FileExistsError"
     assert not (tmp_path / "scratch").exists()
+
+
+def test_conservative_rate_formula_is_pinned_exactly():
+    usage = dict(
+        rule_capture_bytes=1_000,
+        snapshot_capture_bytes=30_000,
+        other_bytes=9_000,
+        total_bytes=40_000,
+        rule_captures=1,
+        snapshot_captures=15,
+        journal_bytes=6_000,
+    )
+    # total / observations + mean snapshot + journal bytes per event
+    assert storage_probe.conservative_rate(usage, observations=20, events=10) == (
+        40_000 / 20 + 30_000 / 15 + 6_000 / 10
+    )
+    assert storage_probe.conservative_rate(usage, observations=20, events=10) == 4_600
+    # zero captures or events cannot divide by zero
+    empty = dict(usage, snapshot_captures=0, journal_bytes=0)
+    assert storage_probe.conservative_rate(empty, observations=20, events=0) == (
+        40_000 / 20 + 30_000
+    )
+
+
+def test_report_rate_is_the_pinned_formula_applied_to_the_report(tmp_path):
+    report, _ = probe(tmp_path)
+    storage = report["storage"]
+    expected = (
+        storage["total_bytes"] / report["observations"]
+        + storage["snapshot_capture_bytes"] / storage["snapshot_captures"]
+        + storage["journal_bytes"] / report["events"]
+    )
+    assert (
+        storage["journal_bytes"]
+        == (Path(report["root"]) / "journal.sqlite").stat().st_size
+    )
+    assert report["conservative_bytes_per_observation"] == math.ceil(expected)
+    assert report["required_bytes_at_conservative_rate"] == math.ceil(
+        attempt2.SCREEN_SLOTS * expected * 1.25
+    )
+
+
+def test_generic_run_and_supervise_refuse_a_probe_root_and_write_nothing(
+    tmp_path, capsys
+):
+    from trade_rl.evaluation.paper import cli
+
+    report, _ = probe(tmp_path)
+    root = Path(report["root"])
+    digest = report["probe_protocol_sha256"]
+    before = sorted(p.name for p in root.iterdir())
+    for command in ("run", "supervise"):
+        arguments = [command, "--root", str(root), "--protocol-sha256", digest]
+        if command == "supervise":
+            arguments += ["--log-file", str(tmp_path / "child.log")]
+        assert cli.main(arguments) == 2
+        assert "storage probe" in json.loads(capsys.readouterr().err)["error"]
+    assert sorted(p.name for p in root.iterdir()) == before
+    assert not (tmp_path / "child.log").exists()

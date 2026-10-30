@@ -1308,8 +1308,11 @@ complete predecessor chain before a successor is sealed.
 
 Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
 v2 valid and unchanged. `available` embeds the verification of a root that the
-existing v1 journal reader read (protocol digest, event count, final tip, last
-observation); `attempt2` cannot build it without a root path that passes that read.
+existing v1 journal reader read read-only (protocol digest, event count, final tip,
+last observation, root path); `attempt2` cannot build it without a root path that
+passes that read, the generic `seal_paper_study`/`paper.cli seal` refuse any v3
+lineage, and a first `attempt2 launch` re-reads the recorded root and refuses if it
+is gone or differs.
 `unavailable` is the honest case where the preserved root is lost: it records that the
 lineage values come from the prior public result-blind review record (document and
 commit), that they were not re-verified at seal time, the user's statement quoted

@@ -383,6 +383,13 @@ def test_unfinished_workflow_without_branch_fails_closed(
         api.active_workflow_branch_names()
 
 
+def test_apply_cli_is_blocked_without_authoritative_task_registry() -> None:
+    from tools.branch_hygiene import main
+
+    with pytest.raises(RuntimeError, match="apply is disabled"):
+        main(["--repository", "owner/repo", "--apply"])
+
+
 def test_repository_root_url_has_no_trailing_slash() -> None:
     from tools.branch_hygiene import GitHubApi
 

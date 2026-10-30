@@ -655,6 +655,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.apply:
+        raise RuntimeError(
+            "branch cleanup apply is disabled until verified Coordinator Task/lease "
+            "protection is integrated"
+        )
     if not args.token:
         raise RuntimeError("GH_TOKEN or GITHUB_TOKEN is required")
     api = GitHubApi(repository=args.repository, token=args.token, api_url=args.api_url)

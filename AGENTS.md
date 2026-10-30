@@ -38,7 +38,7 @@ Remote branchは「作業履歴の保管庫」として増やさない。active�
 
 `main`、open PRのhead/base、実行中またはqueuedのGitHub Actionsが参照するbranch、protected branch、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`research/`・`seal/`・`freeze/`・`run/` というbranch名だけでは永久anchorにしない。研究provenanceは、Issue/PR/Artifactに記録したexact commit SHAと、`provenance/branch-retention` のmerge-historyで保持する。
 
-現行の `.github/workflows/branch-hygiene.yml` は、Coordinator のactive Task / leaseと未登録作業を完全に照合する機能が未接続のため、`main` push・schedule・手動起動のすべてで **dry-run のみ**を行う。`tools.branch_hygiene --apply` は運用側で全Task/PR/workflowの保護を別途照合できた場合の明示的な管理操作に限る。自動削除の再開はTask連携と独立した競合・保全テストを経た後とする。
+現行の `.github/workflows/branch-hygiene.yml` は、Coordinator のactive Task / leaseと未登録作業を完全に照合する機能が未接続のため、`main` push・schedule・手動起動のすべてで **dry-run のみ**を行う。`tools.branch_hygiene --apply` もverified Coordinator Task/leaseの完全な保護情報が未実装の間はfail-closedで拒否する。自動削除の再開はTask連携と独立した競合・保全テストを経た後とする。
 
 `.github/workflows/branch-hygiene.yml` は、非anchor branchを初めて観測したrunでは、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ保存し、そのtip SHA自体もretention commitのparentとして到達可能にしたうえで元refを残す。同じbranch名・同じtip SHAが少なくとも1時間retentionで観測済みで、その間にopen PR / active workflow / protected anchorにならず、tip SHAがdurable anchorから到達可能である場合に限り元refを削除してよい。tipが変われば新しい観測として猶予をやり直す。したがってcompleted research refを削除しても、`git branch <元branch名> <記録済みSHA>` で復元できるexact provenanceを失わない。
 

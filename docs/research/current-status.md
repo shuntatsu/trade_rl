@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-28 (JST)
+更新基準: 2026-10-30 (JST)
 
 ## 結論
 
@@ -607,6 +607,35 @@ TD7では、TD6で残された課題（標準化特徴空間でのRidge適合お
 判定理由: `conservative_linear_value`（B1c）は事前分散の適正化（`1e-3`）により、`base`（-13.7092% vs B1 -17.9891%）、`cost_x2`（-18.4959% vs B1 -23.4239%）、`latency_1bar`（-13.5036% vs B1 -17.7219%）、`latency_2bar`（-2.3156% vs B1 -13.6709%）の全4シナリオで `linear_value` を大幅にアウトパフォームし、`cost_aware_ridge`（-15.2323% / -14.9821%）に対しても優位を示した。また、浅層モデル（B2）も特徴量標準化と非励起座標のゼロ感度化により、旧実装で見られた極端な発散破綻から -16.9076% へと堅牢に安定化した。しかし、強気相場であった2024Q1において `fixed_long`（+16.0339%）および `cash`（+0.0000%）を一貫して支配するには至らなかったため、事前設定された統計判定基準に基づき結果は `INCONCLUSIVE` となる。是正された姿勢認識プロポーザルにより、2バーレイテンシ下での自己キャンセル（ping-pong）、小口残余注文の誤認識、および微小ダスト退出時のクラッシュは完全に根絶された。
 
 本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
+
+### TD8: Corrected decision-value design (protocol v2, exploratory re-run after a diagnosis; 2026-10-30)
+
+**Status: protocol and software frozen before the re-run; the re-run result is recorded below only after the run. This is an exploratory re-run on consumed Tier D development data after a diagnosis. It is not a G4 result, creates no winner, no edge claim and no G5/live authorization.**
+
+#### Diagnosis that motivates the correction (read-only, 2026-10-30)
+
+The TD5-TD7 numbers reproduce, but their mechanism does not support a learned-value claim. Sound and kept: native replay and paired intervention, label sign, codec mapping, `preserve_posture_aware_proposal`, ledger reconciliation, causality probe and cost accounting; an intercept-only (or constant long-long) value model reproduces `fixed_long` to the cent. The learned arms lose 13-18% in a quarter where `fixed_long` makes about +16% for these root causes:
+
+1. **Non-stationary feature extrapolation.** `funding_bps` drifts: in block 2 its evaluation z-score (train-window statistics) averages about +5.5 and peaks near 13.6. Linear B0/B1/B1c/B2 extrapolate it, flip to 74-99% short in a +25% block, and B0 without the funding feature scores about +10.7% there versus -10.25% with it.
+2. **No decision margin.** The only threshold was the numerical floor `1e-12`, so noisy scores churn: turnover 126-158x and cost 8.5-10.7% of capital.
+3. **Design deviation from the Issue #1025 section on training states.** Labels came from `start_index = t` with a quantity-HOLD reference, so every training state was flat and the label was really "enter at t, hold 24 bars, liquidate". Account-weight coefficients were exactly zero, yet the policy then applied the head every bar from non-flat states it had never seen.
+4. **Overlapping labels.** Branches every 6 bars with a 24-bar horizon produced a single overlap group per block and only about 40-70 independent windows, so the B1c uncertainty term was not meaningful.
+5. **Post-hoc prior.** The TD7 re-run's `unexcited_prior_std = 1e-3` was tuned on the consumed dev data after seeing it (lower values simply trade less). **That calibration is withdrawn**; the default returns to the uninformative `1.0` and the value is frozen in the protocol and its authorization digest.
+
+#### Frozen TD8 parameters (fixed before any TD8 result; changing one requires a new protocol version)
+
+- **Labels from reachable non-flat states.** pi0 is the B0 cost-aware ridge recipe. For branch time `t` (step = horizon = 24, so label windows do not overlap) the account starts flat at `max(train_start, t - 48)`, pi0 runs the prefix, intervenes once at `t` with each candidate (baseline: exact-quantity HOLD) and continues to `t + 24` with forced settlement. All 9 non-HOLD candidates including all-FLAT are kept, with losses, zeros and counted ineligible pairs. This is a *truncated-prefix approximation* of reachability.
+- **Necessary deviation (recorded before the run).** `RidgeForecastStrategy` rejects any decision earlier than its `fit_cutoff`, so the block-level B0 cannot act inside the train window. pi0 is therefore the same recipe refitted causally at each prefix start (`fit_cutoff = timestamps[start]`); branches with fewer than `reference_min_fit_bars = 96` bars of train history before the prefix start have no informed reference and are skipped and counted. The evaluation arm `cost_aware_ridge` keeps the block-fit B0, so pi0 is not the identical model of that arm.
+- **Decision margin.** Act only when `max_a(delta_a - m_a) > 0`, `m_a = k * round_trip_cost_fraction(candidate target weights)` with `k` from `{0, 0.5, 1, 2}`; ties go to HOLD. `k` is chosen per block and per learner (B1, B1c, B2) from train-window data only: first 75% of the time-ordered branch labels fit, last 25% closed-loop native replay, best after-cost net return, ties to the larger `k`. No evaluation data is used.
+- **Uniform feature rule.** Every arm including B0 sees features standardized with train-window mean/std and clipped to [-3, 3]; `funding_bps` is kept; the covariate-shift report (evaluation vs train z: mean, max abs, clipped fraction) is diagnostic only and drops nothing. **Disclosure:** the clip rule was chosen after the diagnosis had observed the funding shift, so it is a researcher degree of freedom and not a result-blind choice.
+- **HOLD-relative scoring.** Heads predict the increment over HOLD; HOLD is structurally zero; FLAT is a learned head; candidates equal to the current posture are no-ops; stress-cost correction applies only the cost difference to extra turnover.
+- **Unchanged from TD7:** probes, ledger reconciliation, posture-aware proposal, SVD solver, covariance, six arms x four scenarios, verdict logic, drawdown guard.
+
+#### Mechanism contract, falsifiers and known limitations (G0-G2, stated before the re-run)
+
+- **Premise.** A one-step increment over HOLD, estimated from states a baseline policy reaches, carries information about when changing the posture pays for its round-trip cost.
+- **Falsifiers.** (a) the pi0-prefix labels still give identically zero account-weight coefficients; (b) a zero-margin policy does not churn more than a margin policy on pure noise; (c) an intercept-only value model in an up-drift market does not reproduce `fixed_long`; (d) the margin choice or any fitted object changes when only data after the fit cutoff is perturbed; (e) the feature statistics depend on data after the train window. Each has a synthetic test in the same change.
+- **Known limitations.** The label is the value of a one-step deviation under pi0 continuation, while the deployed policy continues under itself; the prefix is a truncation of the history that produced the book; pi0 is a causal refit that differs from the evaluation B0 and is data-starved early in each block (24-bar labels give only about 33-65 branches per block); the margin and clip choices are pre-registered but not optimal; the train-internal calibration slice holds only a few branches; B1/B2 do not see pending-order weights. Independent different-model G0-G2 adversarial review of this design is **NOT ESTABLISHED** at the time of writing; this is why the re-run is exploratory and why its outcome, whatever it is, is not reused to tune parameters on this data.
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 

@@ -436,7 +436,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         DecisionValueBlockSpec(
             block_id="test_block_1",
             train_start_index=0,
-            train_stop_index=20,
+            train_stop_index=24,
             train_step=4,
             fit_cutoff_index=30,
             eval_start_index=35,
@@ -480,6 +480,8 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         ridge_entry_threshold=entry_thresh,
         ridge_exit_threshold=exit_thresh,
         prior_usage_disclosure=prior_disclosure,
+        label_prefix_bars=4,
+        reference_min_fit_bars=6,
     )
 
     plan = DecisionValueStudyPlan(
@@ -511,6 +513,8 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         ridge_entry_threshold=entry_thresh,
         ridge_exit_threshold=exit_thresh,
         prior_usage_disclosure=prior_disclosure,
+        label_prefix_bars=4,
+        reference_min_fit_bars=6,
     )
 
     out_dir = tmp_path / "study_output"
@@ -521,7 +525,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         output_dir=out_dir,
     )
 
-    assert result.schema_version == "decision_value_dev_study_result_v1"
+    assert result.schema_version == "decision_value_dev_study_result_v2"
     assert result.verdict in (
         "DEVELOPMENT_IMPROVED",
         "INCONCLUSIVE",
@@ -536,6 +540,24 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         assert b.paired_replay_runs > 0
         assert len(b.b1c_model_coefficients_sha256) == 64
         assert len(b.arms) == 24
+        # TD8 evidence: chosen margins, B1c dof, label population and shift.
+        assert set(b.chosen_margin_multipliers) == {
+            "linear_value",
+            "conservative_linear_value",
+            "shallow_value",
+        }
+        assert all(
+            m in protocol.margin_multiplier_grid
+            for m in b.chosen_margin_multipliers.values()
+        )
+        assert len(b.b1c_residual_dof) == len(candidate_actions) - 1
+        assert all(dof >= 1.0 for dof in b.b1c_residual_dof)
+        assert b.distinct_decision_times > 0
+        assert b.ineligible_pairs >= 0
+        assert b.nonflat_branch_states >= 0
+        assert len(b.covariate_shift) > 0
+        assert {r["scope"] for r in b.covariate_shift} == {"symbol", "global"}
+        assert all(a.turnover_total >= 0.0 for a in b.arms)
 
     assert "conservative_linear_value" in result.aggregate_metrics
 

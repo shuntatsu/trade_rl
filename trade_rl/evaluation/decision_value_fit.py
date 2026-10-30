@@ -187,8 +187,9 @@ def _fit_standardized_ridge(
     action: tuple[int, ...] | None = None,
     compute_covariance: bool = False,
     unexcited_state_cols: tuple[int, ...] = (),
-    unexcited_prior_std: float = 1e-3,
+    unexcited_prior_std: float = 1.0,
     dataset_ids: list[str] | None = None,
+    dof_out: list[float] | None = None,
 ) -> tuple[tuple[float, ...], tuple[tuple[float, ...], ...] | None]:
     p_total = (
         expected_width
@@ -206,6 +207,8 @@ def _fit_standardized_ridge(
             if compute_covariance
             else None
         )
+        if dof_out is not None and compute_covariance:
+            dof_out.append(0.0)
         return zero_coef, zero_cov
 
     if len(design) < 3:
@@ -290,6 +293,8 @@ def _fit_standardized_ridge(
         h_mat = z_aug @ inv_gram @ z_aug.T
         i_minus_h = np.eye(n_samples, dtype=np.float64) - h_mat
         denom = max(1.0, float(np.sum((i_minus_h @ omega) * i_minus_h)))
+        if dof_out is not None:
+            dof_out.append(denom)
         sigma2_u = ssr / denom
 
         meat = z_aug.T @ omega @ z_aug
@@ -455,12 +460,17 @@ def fit_conservative_linear_decision_value(
     ridge_penalty: float = 10.0,
     uncertainty_penalty_weight: float = 1.0,
     one_way_switch_cost: float = 0.0,
-    unexcited_prior_std: float = 1e-3,
+    unexcited_prior_std: float = 1.0,
+    residual_dof_out: list[float] | None = None,
 ) -> ConservativeLinearDecisionValueModel:
     """Fit conservative linear action-value head with uncertainty covariance.
 
     Uses design matrix from encode_decision_value_state_v2 (including in-flight state)
     and estimates group-degrees-of-freedom adjusted residual covariance per candidate head.
+    ``unexcited_prior_std`` is the epistemic prior on state coordinates the training
+    labels never varied; the default is the uninformative 1.0 (the post-hoc 1e-3
+    calibration of the TD7 re-run is withdrawn). When ``residual_dof_out`` is a list,
+    the effective residual degrees of freedom of every head is appended to it.
     """
     pen = _finite(ridge_penalty, field="ridge_penalty")
     if pen <= 0.0:
@@ -507,6 +517,7 @@ def fit_conservative_linear_decision_value(
             unexcited_state_cols=unexcited,
             unexcited_prior_std=unexcited_prior_std,
             dataset_ids=d_ids,
+            dof_out=residual_dof_out,
         )
         assert cov is not None
         coefficients_list.append(coefs)

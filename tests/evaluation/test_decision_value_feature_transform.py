@@ -1,0 +1,143 @@
+"""Train-window standardize-and-clip input transform and shift report (#1025 TD8)."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import numpy as np
+import pytest
+
+from tests.evaluation.decision_value_td8_support import signal_market
+from trade_rl.evaluation.decision_value_feature_transform import (
+    apply_feature_transform,
+    covariate_shift_report,
+    fit_train_feature_transform,
+)
+
+
+def test_transform_statistics_come_from_the_train_window_only() -> None:
+    market = signal_market(300)
+    base = fit_train_feature_transform(
+        market, train_start_index=10, train_stop_index=150, clip=3.0
+    )
+    # Violently change everything strictly after the train window.
+    features = market.features.copy()
+    features[151:] = features[151:] * 50.0 + 7.0
+    glob = market.global_features.copy()
+    glob[151:] += 9.0
+    mutated = replace(
+        market, features=features, global_features=glob, identity_payload_json=None
+    )
+    again = fit_train_feature_transform(
+        mutated, train_start_index=10, train_stop_index=150, clip=3.0
+    )
+    assert np.array_equal(base.feature_mean, again.feature_mean)
+    assert np.array_equal(base.feature_scale, again.feature_scale)
+    assert np.array_equal(base.global_mean, again.global_mean)
+    assert base.digest == again.digest
+
+    # Statistics equal the plain train-window mean / population std.
+    window = market.features[10:151].astype(np.float64)
+    assert np.allclose(base.feature_mean, window.mean(axis=0))
+    assert np.allclose(base.feature_scale, window.std(axis=0))
+
+    # Train rows are unchanged by later data; later rows are clipped, not refit.
+    transformed = apply_feature_transform(mutated, again)
+    reference = apply_feature_transform(market, base)
+    assert np.array_equal(transformed.features[:151], reference.features[:151])
+    assert float(np.max(np.abs(transformed.features))) <= 3.0 + 1e-6
+    assert float(np.max(np.abs(transformed.global_features))) <= 3.0 + 1e-6
+
+
+def test_apply_transform_clips_standardizes_and_rebinds_identity() -> None:
+    market = signal_market(200)
+    transform = fit_train_feature_transform(
+        market, train_start_index=5, train_stop_index=120, clip=3.0
+    )
+    transformed = apply_feature_transform(market, transform)
+    train = transformed.features[5:121].astype(np.float64)
+    # Standardization (up to the clip, which only trims the tails).
+    assert np.allclose(train.mean(axis=0), 0.0, atol=0.1)
+    assert np.all(np.abs(transformed.features) <= 3.0 + 1e-6)
+    assert transformed.dataset_id == market.dataset_id
+    assert transformed.feature_config_digest == market.feature_config_digest
+    # The extra transform is part of the normalization identity.
+    assert transformed.normalization_digest != market.normalization_digest
+    assert transformed.normalization_digest != "0" * 64
+    # Prices/volumes are untouched.
+    assert np.array_equal(transformed.close, market.close)
+    assert transformed.feature_names == market.feature_names
+
+
+def test_constant_feature_is_centered_not_divided_by_zero() -> None:
+    market = signal_market(120)
+    features = market.features.copy()
+    features[:, :, 2] = 4.0
+    market = replace(market, features=features, identity_payload_json=None)
+    transform = fit_train_feature_transform(
+        market, train_start_index=0, train_stop_index=100, clip=3.0
+    )
+    transformed = apply_feature_transform(market, transform)
+    assert np.all(transformed.features[:, :, 2] == 0.0)
+    assert np.isfinite(transformed.features).all()
+
+
+def test_unavailable_cells_do_not_enter_statistics() -> None:
+    market = signal_market(150)
+    avail = market.feature_available.copy()
+    features = market.features.copy()
+    avail[:20, :, 1] = False
+    features[:20, :, 1] = 1.0e6
+    market = replace(
+        market,
+        features=features,
+        feature_available=avail,
+        feature_staleness=None,
+        identity_payload_json=None,
+    )
+    transform = fit_train_feature_transform(
+        market, train_start_index=0, train_stop_index=100, clip=3.0
+    )
+    assert np.all(np.abs(transform.feature_mean[:, 1]) < 5.0)
+
+
+def test_covariate_shift_report_is_diagnostic_and_matches_hand_values() -> None:
+    market = signal_market(300)
+    features = market.features.copy()
+    features[200:260, :, 1] += 10.0 * float(features[:150, :, 1].std())
+    shifted = replace(market, features=features, identity_payload_json=None)
+    transform = fit_train_feature_transform(
+        shifted, train_start_index=0, train_stop_index=149, clip=3.0
+    )
+    report = covariate_shift_report(shifted, transform, start_index=200, stop_index=259)
+    by_name = {row["name"]: row for row in report if row["scope"] == "symbol"}
+    row = by_name["f_1"]
+    window = shifted.features[200:260, :, 1].astype(np.float64)
+    z = (window - transform.feature_mean[:, 1]) / transform.feature_scale[:, 1]
+    assert row["mean_z"] == pytest.approx(float(z.mean()))
+    assert row["max_abs_z"] == pytest.approx(float(np.abs(z).max()))
+    assert row["mean_z"] > 5.0
+    assert row["fraction_clipped"] == pytest.approx(float((np.abs(z) > 3.0).mean()))
+    assert by_name["f_0"]["max_abs_z"] < 6.0
+    # Report is purely diagnostic: nothing is dropped or flagged for removal.
+    assert {r["name"] for r in report if r["scope"] == "symbol"} == set(
+        shifted.feature_names
+    )
+    assert all("drop" not in r for r in report)
+    assert any(r["scope"] == "global" for r in report)
+
+
+def test_invalid_arguments_fail_closed() -> None:
+    market = signal_market(60)
+    with pytest.raises(ValueError, match="clip"):
+        fit_train_feature_transform(
+            market, train_start_index=0, train_stop_index=30, clip=0.0
+        )
+    with pytest.raises(ValueError, match="train"):
+        fit_train_feature_transform(
+            market, train_start_index=30, train_stop_index=30, clip=3.0
+        )
+    with pytest.raises(ValueError, match="train"):
+        fit_train_feature_transform(
+            market, train_start_index=0, train_stop_index=60, clip=3.0
+        )

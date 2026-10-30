@@ -21,10 +21,13 @@ import numpy as np
 from trade_rl._validation import require_sha256, require_unique_non_empty
 from trade_rl.strategies.decision_value import (
     LinearDecisionValueRuntimeContext,
+    _validated_hold_relative,
     compute_effective_posture_weights,
+    compute_hold_relative_cost_adjustment,
     compute_posture_cost_adjustment,
     encode_decision_value_state,
     preserve_posture_aware_proposal,
+    select_hold_relative_action,
 )
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
@@ -195,6 +198,8 @@ class ShallowDecisionValuePolicy:
         allow_active_orders: bool = False,
         eval_one_way_cost: float = 0.0,
         train_one_way_cost: float = 0.0,
+        hold_relative: bool = False,
+        decision_margin_multiplier: float = 0.0,
     ) -> None:
         if not isinstance(model, ShallowDecisionValueModel):
             raise TypeError("model must be ShallowDecisionValueModel")
@@ -213,6 +218,10 @@ class ShallowDecisionValuePolicy:
         self.allow_active_orders = allow_active_orders
         self.eval_one_way_cost = float(eval_one_way_cost)
         self.train_one_way_cost = float(train_one_way_cost)
+        self.hold_relative = _validated_hold_relative(
+            hold_relative, decision_margin_multiplier
+        )
+        self.decision_margin_multiplier = float(decision_margin_multiplier)
         self._coefs = [np.asarray(row, dtype=np.float64) for row in model.coefficients]
         self._hidden_w = np.asarray(model.hidden_weights, dtype=np.float64)
         self._input_means = (
@@ -249,6 +258,10 @@ class ShallowDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
+        if self.hold_relative:
+            if action == self.model.candidate_actions[0]:
+                return 0.0
+            return self._hold_relative_value(snapshot, action)
         n_symbols = len(self.model.symbols)
         if action == (ACTION_FLAT,) * n_symbols:
             return 0.0
@@ -283,9 +296,42 @@ class ShallowDecisionValuePolicy:
         )
         return float(raw_val - adj_cost)
 
+    def _hold_relative_value(
+        self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
+    ) -> float:
+        k = self.model.candidate_actions.index(action) - 1
+        raw_val = float(self._basis(snapshot) @ self._coefs[k])
+        if not math.isfinite(raw_val):
+            raise ValueError("predicted decision value must be finite")
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        return float(
+            raw_val
+            - compute_hold_relative_cost_adjustment(
+                action,
+                w_eff,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
+        )
+
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
+        if self.hold_relative:
+            return (
+                select_hold_relative_action(
+                    self.model.candidate_actions,
+                    snapshot,
+                    lambda action: self.value_for_action(snapshot, action),
+                    target_abs_weights=self.model.target_abs_weights,
+                    eval_one_way_cost=self.eval_one_way_cost,
+                    margin_multiplier=self.decision_margin_multiplier,
+                ),
+                False,
+            )
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
         )

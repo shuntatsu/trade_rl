@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields
 from fractions import Fraction
 from numbers import Real
@@ -45,6 +46,19 @@ def _finite(value: object, *, field: str) -> float:
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result
+
+
+def _validated_hold_relative(
+    hold_relative: bool, decision_margin_multiplier: float
+) -> bool:
+    if not isinstance(hold_relative, bool):
+        raise TypeError("hold_relative must be a bool")
+    margin = _finite(decision_margin_multiplier, field="decision_margin_multiplier")
+    if margin < 0.0:
+        raise ValueError("decision_margin_multiplier must be non-negative")
+    if margin != 0.0 and not hold_relative:
+        raise ValueError("a decision margin requires HOLD-relative decisions")
+    return hold_relative
 
 
 def compute_pending_order_weights(
@@ -330,6 +344,42 @@ def compute_effective_posture_weights(
     return tuple(effective)
 
 
+def candidate_target_weights(
+    action: tuple[int, ...],
+    effective_weights: tuple[float, ...],
+    target_abs_weights: tuple[float, ...],
+) -> tuple[float, ...]:
+    """Signed target weight each symbol would hold after ``action``.
+
+    HOLD keeps the current effective weight, FLAT is zero, LONG/SHORT are the
+    declared signed budget.
+    """
+    n = len(target_abs_weights)
+    codes = decode_portfolio_action_codes(action, n_symbols=n)
+    targets: list[float] = []
+    for i, code in enumerate(codes):
+        if code == ACTION_HOLD:
+            targets.append(float(effective_weights[i]))
+        elif code == ACTION_FLAT:
+            targets.append(0.0)
+        elif code == ACTION_LONG:
+            targets.append(float(target_abs_weights[i]))
+        else:  # ACTION_SHORT
+            targets.append(-float(target_abs_weights[i]))
+    return tuple(targets)
+
+
+def round_trip_cost_fraction(
+    target_weights: tuple[float, ...], one_way_cost: float
+) -> float:
+    """Capital fraction paid by entering and later closing ``target_weights``."""
+    cost = _finite(one_way_cost, field="one_way_cost")
+    if cost < 0.0:
+        raise ValueError("one_way_cost must be non-negative")
+    gross = sum(abs(_finite(w, field="target weight")) for w in target_weights)
+    return float(2.0 * cost * gross)
+
+
 def compute_posture_cost_adjustment(
     action: tuple[int, ...],
     effective_weights: tuple[float, ...],
@@ -341,24 +391,84 @@ def compute_posture_cost_adjustment(
     """Signed incremental turnover switching and sunk-cost adjustment relative to flat start."""
     eval_c = _finite(eval_one_way_cost, field="eval_one_way_cost")
     train_c = _finite(train_one_way_cost, field="train_one_way_cost")
-    n = len(target_abs_weights)
-    codes = decode_portfolio_action_codes(action, n_symbols=n)
-    targets: list[float] = []
-    for i, code in enumerate(codes):
-        if code == ACTION_HOLD:
-            targets.append(effective_weights[i])
-        elif code == ACTION_FLAT:
-            targets.append(0.0)
-        elif code == ACTION_LONG:
-            targets.append(float(target_abs_weights[i]))
-        else:  # ACTION_SHORT
-            targets.append(-float(target_abs_weights[i]))
+    targets = candidate_target_weights(action, effective_weights, target_abs_weights)
 
     turnover_diff = sum(
         abs(t - e) for t, e in zip(targets, effective_weights, strict=True)
     ) - sum(abs(t) for t in targets)
     extra_train_diff = 2.0 * (eval_c - train_c) * sum(abs(t) for t in targets)
     return float(eval_c * turnover_diff + extra_train_diff)
+
+
+def compute_hold_relative_cost_adjustment(
+    action: tuple[int, ...],
+    effective_weights: tuple[float, ...],
+    target_abs_weights: tuple[float, ...],
+    *,
+    eval_one_way_cost: float,
+    train_one_way_cost: float,
+) -> float:
+    """Stress-cost correction for a label that is already an increment over HOLD.
+
+    A HOLD-relative label from a reachable state already contains the training
+    cost of trading now and closing at the horizon. Only the *difference*
+    between the evaluation and training one-way cost, applied to the extra
+    turnover versus HOLD (``|t-e|`` now, ``|t|`` closed later, ``|e|`` saved),
+    is added back. It is zero whenever evaluation and training costs agree.
+    """
+    eval_c = _finite(eval_one_way_cost, field="eval_one_way_cost")
+    train_c = _finite(train_one_way_cost, field="train_one_way_cost")
+    targets = candidate_target_weights(action, effective_weights, target_abs_weights)
+    extra_turnover = (
+        sum(abs(t - e) for t, e in zip(targets, effective_weights, strict=True))
+        + sum(abs(t) for t in targets)
+        - sum(abs(e) for e in effective_weights)
+    )
+    return float((eval_c - train_c) * extra_turnover)
+
+
+def select_hold_relative_action(
+    candidate_actions: tuple[tuple[int, ...], ...],
+    snapshot: PortfolioDecisionSnapshot,
+    increment_for_action: Callable[[tuple[int, ...]], float],
+    *,
+    target_abs_weights: tuple[float, ...],
+    eval_one_way_cost: float,
+    margin_multiplier: float,
+) -> tuple[int, ...]:
+    """Pick the action whose increment over HOLD most exceeds its margin.
+
+    The margin of a candidate is ``margin_multiplier`` times the round-trip cost
+    fraction at that candidate's target weights. HOLD is the structural origin;
+    an action is chosen only when ``increment - margin`` is strictly positive
+    (and above the legacy numerical floor), so ties go to HOLD. A candidate whose
+    native proposal is identical to HOLD's is a no-op and never an edge.
+    """
+    multiplier = _finite(margin_multiplier, field="margin_multiplier")
+    if multiplier < 0.0:
+        raise ValueError("margin_multiplier must be non-negative")
+    hold = candidate_actions[0]
+    effective = compute_effective_posture_weights(snapshot, target_abs_weights)
+    hold_proposal = preserve_posture_aware_proposal(hold, snapshot, target_abs_weights)
+    best_action = hold
+    best_excess = _POSITIVE_EDGE
+    for action in candidate_actions[1:]:
+        proposal = preserve_posture_aware_proposal(action, snapshot, target_abs_weights)
+        if (
+            proposal.target_weights == hold_proposal.target_weights
+            and proposal.hold_current_quantity_symbols
+            == hold_proposal.hold_current_quantity_symbols
+        ):
+            continue
+        margin = multiplier * round_trip_cost_fraction(
+            candidate_target_weights(action, effective, target_abs_weights),
+            eval_one_way_cost,
+        )
+        excess = float(increment_for_action(action)) - margin
+        if excess > best_excess:
+            best_excess = excess
+            best_action = action
+    return best_action
 
 
 def preserve_posture_aware_proposal(
@@ -505,6 +615,8 @@ class LinearDecisionValuePolicy:
         allow_active_orders: bool = False,
         eval_one_way_cost: float = 0.0,
         train_one_way_cost: float = 0.0,
+        hold_relative: bool = False,
+        decision_margin_multiplier: float = 0.0,
     ) -> None:
         if not isinstance(model, LinearDecisionValueModel):
             raise TypeError("model must be LinearDecisionValueModel")
@@ -525,6 +637,10 @@ class LinearDecisionValuePolicy:
         self.train_one_way_cost = _finite(
             train_one_way_cost, field="train_one_way_cost"
         )
+        self.hold_relative = _validated_hold_relative(
+            hold_relative, decision_margin_multiplier
+        )
+        self.decision_margin_multiplier = float(decision_margin_multiplier)
         self._coefs = [np.asarray(row, dtype=np.float64) for row in model.coefficients]
 
     def _features(self, snapshot: PortfolioDecisionSnapshot) -> np.ndarray:
@@ -543,6 +659,10 @@ class LinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
+        if self.hold_relative:
+            if action == self.model.candidate_actions[0]:
+                return 0.0
+            return self._hold_relative_value(snapshot, action)
         n_symbols = len(self.model.symbols)
         if action == (ACTION_FLAT,) * n_symbols:
             return 0.0
@@ -577,9 +697,42 @@ class LinearDecisionValuePolicy:
         )
         return float(raw_val - adj_cost)
 
+    def _hold_relative_value(
+        self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
+    ) -> float:
+        k = self.model.candidate_actions.index(action) - 1
+        raw_val = float(self._features(snapshot) @ self._coefs[k])
+        if not math.isfinite(raw_val):
+            raise ValueError("predicted decision value must be finite")
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        return float(
+            raw_val
+            - compute_hold_relative_cost_adjustment(
+                action,
+                w_eff,
+                self.model.target_abs_weights,
+                eval_one_way_cost=self.eval_one_way_cost,
+                train_one_way_cost=self.train_one_way_cost,
+            )
+        )
+
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
+        if self.hold_relative:
+            return (
+                select_hold_relative_action(
+                    self.model.candidate_actions,
+                    snapshot,
+                    lambda action: self.value_for_action(snapshot, action),
+                    target_abs_weights=self.model.target_abs_weights,
+                    eval_one_way_cost=self.eval_one_way_cost,
+                    margin_multiplier=self.decision_margin_multiplier,
+                ),
+                False,
+            )
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
         )
@@ -847,6 +1000,8 @@ class ConservativeLinearDecisionValuePolicy:
         allow_active_orders: bool = True,
         eval_one_way_cost: float | None = None,
         train_one_way_cost: float | None = None,
+        hold_relative: bool = False,
+        decision_margin_multiplier: float = 0.0,
     ) -> None:
         if not isinstance(model, ConservativeLinearDecisionValueModel):
             raise TypeError("model must be ConservativeLinearDecisionValueModel")
@@ -872,6 +1027,10 @@ class ConservativeLinearDecisionValuePolicy:
             if train_one_way_cost is None
             else _finite(train_one_way_cost, field="train_one_way_cost")
         )
+        self.hold_relative = _validated_hold_relative(
+            hold_relative, decision_margin_multiplier
+        )
+        self.decision_margin_multiplier = float(decision_margin_multiplier)
         self._coefs = [np.asarray(row, dtype=np.float64) for row in model.coefficients]
         self._covs = [
             np.asarray(m, dtype=np.float64) for m in model.covariance_matrices
@@ -892,6 +1051,8 @@ class ConservativeLinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
+        if self.hold_relative and action == self.model.candidate_actions[0]:
+            return 0.0
         if action == self.model.candidate_actions[0]:
             w_eff = compute_effective_posture_weights(
                 snapshot, self.model.target_abs_weights
@@ -919,6 +1080,10 @@ class ConservativeLinearDecisionValuePolicy:
     ) -> float:
         if action not in self.model.candidate_actions:
             raise ValueError("action is not a declared candidate")
+        if self.hold_relative:
+            if action == self.model.candidate_actions[0]:
+                return 0.0
+            return self._hold_relative_lcb(snapshot, action)
         n_symbols = len(self.model.symbols)
         if action == (ACTION_FLAT,) * n_symbols:
             return 0.0
@@ -957,9 +1122,41 @@ class ConservativeLinearDecisionValuePolicy:
     ) -> float:
         return self.conservative_value_for_action(snapshot, action)
 
+    def _hold_relative_lcb(
+        self, snapshot: PortfolioDecisionSnapshot, action: tuple[int, ...]
+    ) -> float:
+        k = self.model.candidate_actions.index(action) - 1
+        features = self._features(snapshot)
+        mean_val = float(features @ self._coefs[k])
+        var = float(features @ self._covs[k] @ features)
+        se = math.sqrt(max(0.0, var))
+        w_eff = compute_effective_posture_weights(
+            snapshot, self.model.target_abs_weights
+        )
+        adj_cost = compute_hold_relative_cost_adjustment(
+            action,
+            w_eff,
+            self.model.target_abs_weights,
+            eval_one_way_cost=self.eval_one_way_cost,
+            train_one_way_cost=self.train_one_way_cost,
+        )
+        return float(mean_val - self.model.uncertainty_penalty_weight * se - adj_cost)
+
     def _select_best_action(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[tuple[int, ...], bool]:
+        if self.hold_relative:
+            return (
+                select_hold_relative_action(
+                    self.model.candidate_actions,
+                    snapshot,
+                    lambda action: self.conservative_value_for_action(snapshot, action),
+                    target_abs_weights=self.model.target_abs_weights,
+                    eval_one_way_cost=self.eval_one_way_cost,
+                    margin_multiplier=self.decision_margin_multiplier,
+                ),
+                False,
+            )
         w_eff = compute_effective_posture_weights(
             snapshot, self.model.target_abs_weights
         )

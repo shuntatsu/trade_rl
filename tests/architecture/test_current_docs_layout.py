@@ -281,21 +281,13 @@ def test_current_p2_p3_labels_match_committed_evidence_records() -> None:
         assert f"../../report/{name}" in status
         assert (ROOT / "report" / name).is_file()
 
-    p2 = json.loads(
-        (ROOT / "report" / "issue810-phase2-trial-results-20261029.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    p3 = json.loads(
-        (ROOT / "report" / "issue810-phase3-trial-results-20261029.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    p3_provenance = json.loads(
-        (
-            ROOT / "report" / "issue810-phase3-trial-provenance-20261029.json"
-        ).read_text(encoding="utf-8")
-    )
+    report_dir = ROOT / "report"
+    p2_path = report_dir / "issue810-phase2-trial-results-20261029.json"
+    p3_path = report_dir / "issue810-phase3-trial-results-20261029.json"
+    p3_provenance_path = report_dir / "issue810-phase3-trial-provenance-20261029.json"
+    p2 = json.loads(p2_path.read_text(encoding="utf-8"))
+    p3 = json.loads(p3_path.read_text(encoding="utf-8"))
+    p3_provenance = json.loads(p3_provenance_path.read_text(encoding="utf-8"))
     assert p2["label_pr_c_probe_rule"] == "NO_WINNER"
     assert p2["label_amended_rule"] == "DEVELOPMENT_PROMISING"
     assert p3["label_pr_c_probe_rule"] == "POST_HOC_PROMISING"

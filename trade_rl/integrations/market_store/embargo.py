@@ -17,7 +17,7 @@ Both constants are pinned here (integrations must not depend on evaluation) and
 ``Fs1Registry.warmup_only_start`` / ``scoring_start`` and with the SQL functions of the
 migration. Even when the warm-up span is admitted, FS1 scoring still re-acquires and
 re-verifies its own data through its sealed acquisition tool
-(``trade_rl.evaluation.forward_acquisition``); store rows never feed FS1 scoring.
+(the FS1 acquisition tool under ``trade_rl.evaluation``); store rows never feed FS1 scoring.
 
 The boundaries are enforced at three independent layers: planning (no archive whose
 period reaches a closed span is planned or fetched), row validation (before any

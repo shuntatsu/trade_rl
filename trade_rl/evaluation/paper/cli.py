@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import sys
@@ -12,12 +13,28 @@ from typing import Any
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import timestamp
 from trade_rl.evaluation.paper.assessment import evaluate_paper_study
+from trade_rl.evaluation.paper.lock import CollectorLockHeld
 from trade_rl.evaluation.paper.operations import (
     collect_until_finished,
     collection_status,
     seal_paper_study,
 )
 from trade_rl.evaluation.paper.supervisor import PaperCollector
+from trade_rl.evaluation.paper.watchdog import (
+    DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+    DEFAULT_STALE_SECONDS,
+    EXIT_DEGRADED,
+    EXIT_FAILED,
+    EXIT_LOCK_HELD,
+    CollectorTerminated,
+    ExitGuard,
+    HeartbeatWriter,
+    WatchdogPolicy,
+    check_collection,
+    install_termination_handlers,
+    popen_launcher,
+    supervise_collector,
+)
 
 
 def _print(value: dict[str, Any]) -> None:
@@ -43,6 +60,26 @@ def main(argv: list[str] | None = None) -> int:
                 required=True,
                 help="New, write-once assessment file",
             )
+    watch = commands.add_parser(
+        "check",
+        help="Stateless heartbeat check (exit 0 healthy, 3 marker, 5 degraded)",
+    )
+    watch.add_argument("--root", type=Path, required=True)
+    watch.add_argument("--protocol-sha256", required=True)
+    watch.add_argument("--stale-seconds", type=float, default=DEFAULT_STALE_SECONDS)
+    supervise = commands.add_parser(
+        "supervise",
+        help="Run and relaunch the collector child inside the frozen gap limit",
+    )
+    supervise.add_argument("--root", type=Path, required=True)
+    supervise.add_argument("--protocol-sha256", required=True)
+    supervise.add_argument(
+        "--log-file",
+        type=Path,
+        required=True,
+        help="Append-only child output; must be outside the sealed root",
+    )
+    supervise.add_argument("--stale-seconds", type=float, default=DEFAULT_STALE_SECONDS)
     args = parser.parse_args(argv)
     try:
         if args.command == "seal":
@@ -62,11 +99,43 @@ def main(argv: list[str] | None = None) -> int:
                     production_eligible=False,
                 )
             )
+        elif args.command == "check":
+            report = check_collection(
+                args.root,
+                protocol_sha256=args.protocol_sha256,
+                stale_seconds=args.stale_seconds,
+            )
+            _print(report)
+            # 0 healthy; 3 a failure marker exists or was just written;
+            # 5 unhealthy but no marker written (nothing has been lost yet).
+            if report["severity"] == "healthy":
+                return 0
+            return EXIT_FAILED if report["severity"] == "failed" else EXIT_DEGRADED
+        elif args.command == "supervise":
+            outcome = supervise_collector(
+                args.root,
+                protocol_sha256=args.protocol_sha256,
+                launch=popen_launcher(args.root, args.protocol_sha256, args.log_file),
+                policy=WatchdogPolicy(stale_seconds=args.stale_seconds),
+                publish=_print,
+            )
+            return int(outcome["exit_code"])
         elif args.command == "run":
             with PaperCollector(
                 args.root, expected_protocol_sha256=args.protocol_sha256
             ) as collector:
-                result = collect_until_finished(collector, publish=_print)
+                # Armed only while this process owns the collector lock.
+                guard = ExitGuard(args.root, args.protocol_sha256)
+                atexit.register(guard)
+                install_termination_handlers(guard.console_event)
+                result = collect_until_finished(
+                    collector,
+                    publish=_print,
+                    heartbeat=HeartbeatWriter(args.root, args.protocol_sha256),
+                    heartbeat_interval_seconds=DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+                )
+                guard.disarm()
+                atexit.unregister(guard)
                 status = result["status"]
                 return int(
                     result["phase"] == "rejected"
@@ -95,6 +164,35 @@ def main(argv: list[str] | None = None) -> int:
             _print(result)
             return 0 if result["decision"] == "PAPER_SCREEN_PASSED" else 1
         return 0
+    except CollectorLockHeld as held:
+        # Another live collector owns the root. This process wrote no marker and
+        # touched nothing, so the owner's screen is undisturbed.
+        print(
+            json.dumps(
+                dict(
+                    error_type="CollectorLockHeld",
+                    error=str(held),
+                    production_eligible=False,
+                )
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return EXIT_LOCK_HELD
+    except CollectorTerminated as terminated:
+        # The collector context already recorded the permanent failure marker.
+        print(
+            json.dumps(
+                dict(
+                    error_type="CollectorTerminated",
+                    error=str(terminated),
+                    production_eligible=False,
+                )
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 3
     except Exception as error:
         print(
             json.dumps(

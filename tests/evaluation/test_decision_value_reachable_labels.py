@@ -389,6 +389,138 @@ def test_ineligible_pair_preserves_negative_outcomes_reasons_and_endpoints(
         assert record["candidate"]["settled_label_eligible"] is False
         assert record["baseline"]["settled_label_eligible"] is True
         assert record["candidate"]["terminal_marked_equity"] == "90000.0"
+        assert record["candidate"]["observed_equity_change"] == "-10000.0"
+        assert record["candidate"]["observed_stop_index"] > 0
         assert "candidate_insolvent" in record["reason_codes"]
         assert "candidate_terminated" in record["reason_codes"]
         assert record["candidate_action"] != [_H, _H]
+
+
+def test_unsettled_pair_retains_both_outcomes_and_blocks_training(monkeypatch) -> None:
+    """An unresolved loss must not disappear as one incremented counter."""
+    from dataclasses import replace
+
+    from tests.evaluation.test_paired_portfolio_action import (
+        _CAPITAL,
+        _COST,
+        _RISK,
+        _dataset,
+        _paired,
+    )
+    from trade_rl.evaluation import decision_value_dev_study as study
+    from trade_rl.evaluation import decision_value_reachable_labels as labels
+
+    market = _dataset()
+    volume = market.volume.copy()
+    volume[-1, 0] = 0.0
+    market = replace(market, volume=volume, identity_payload_json=None)
+    incomplete = _paired(market=market)
+    assert not incomplete.eligible_for_label
+    with monkeypatch.context() as patch:
+        patch.setattr(labels, "run_paired_portfolio_action", lambda *a, **k: incomplete)
+        collection = collect_reachable_state_labels(
+            market,
+            reference_policy_provider=lambda _t, _start: (
+                lambda: _HoldQuantityPolicy((0.4, 0.4))
+            ),
+            reference_policy_digest=_REF_DIGEST,
+            branch_indices=(1,),
+            train_start_index=0,
+            prefix_bars=1,
+            horizon_bars=6,
+            candidate_actions=((ACTION_HOLD, ACTION_HOLD), (ACTION_FLAT, ACTION_HOLD)),
+            target_abs_weights=(0.4, 0.4),
+            initial_capital=_CAPITAL,
+            execution_cost=_COST,
+            risk_config=_RISK.config,
+            fit_cutoff=np.datetime64("2026-02-01T00:00:00", "ns"),
+            source_scope="synthetic_only",
+        )
+    assert collection.ineligible_pairs == 1
+    assert len(collection.ineligible_outcomes) == 1
+    evidence = collection.ineligible_outcomes[0].to_mapping()
+    assert evidence["candidate_action"] == [ACTION_FLAT, ACTION_HOLD]
+    assert evidence["baseline"]["terminal_exact_quantities"] != ["0", "0"]
+    assert evidence["baseline"]["pending_order_remainders"]
+    assert float(evidence["baseline"]["terminal_marked_equity"]) > 0
+    assert float(evidence["candidate"]["terminal_marked_equity"]) > 0
+    with pytest.raises(study.IncompletePairedLabelsError) as caught:
+        study._require_complete_reachable_labels(collection, block_id="test")
+    assert caught.value.evidence == collection.ineligible_outcomes
+    assert caught.value.block_id == "test"
+
+
+def test_reachable_label_fails_closed_if_decision_bar_arrived_in_future() -> None:
+    from dataclasses import replace
+
+    from trade_rl.evaluation.decision_value_reachable_labels import (
+        collect_reachable_state_labels,
+    )
+
+    market = signal_market(110)
+    timestamps = market.timestamps
+    delayed = market.available_at.copy()
+    delayed[20, 0] = timestamps[70]
+    info = market.resolved_array("information_available").copy()
+    info[20, 0] = False
+    market = replace(
+        market,
+        available_at=delayed,
+        information_available=info,
+        identity_payload_json=None,
+    )
+    with pytest.raises(ValueError, match="source|availability|decision"):
+        collect_reachable_state_labels(
+            market,
+            reference_policy_provider=lambda _t, _s: (
+                lambda: _HoldQuantityPolicy(TARGETS)
+            ),
+            reference_policy_digest=_REF_DIGEST,
+            branch_indices=(20,),
+            train_start_index=0,
+            prefix_bars=12,
+            horizon_bars=6,
+            candidate_actions=((ACTION_HOLD, ACTION_HOLD), (ACTION_LONG, ACTION_LONG)),
+            target_abs_weights=TARGETS,
+            initial_capital=100_000.0,
+            execution_cost=COST,
+            risk_config=RISK_CONFIG,
+            fit_cutoff=timestamps[80],
+            source_scope="synthetic_only",
+        )
+
+
+def test_reachable_label_rejects_delayed_terminal_mark() -> None:
+    from dataclasses import replace
+
+    market = signal_market(110)
+    timestamps = market.timestamps
+    delayed = market.available_at.copy()
+    delayed[26, 0] = timestamps[31]  # label endpoint cannot be known at bar 26
+    info = market.resolved_array("information_available").copy()
+    info[26, 0] = False
+    market = replace(
+        market,
+        available_at=delayed,
+        information_available=info,
+        identity_payload_json=None,
+    )
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        collect_reachable_state_labels(
+            market,
+            reference_policy_provider=lambda _t, _s: (
+                lambda: _HoldQuantityPolicy(TARGETS)
+            ),
+            reference_policy_digest=_REF_DIGEST,
+            branch_indices=(20,),
+            train_start_index=0,
+            prefix_bars=12,
+            horizon_bars=6,
+            candidate_actions=((ACTION_HOLD, ACTION_HOLD), (ACTION_LONG, ACTION_LONG)),
+            target_abs_weights=TARGETS,
+            initial_capital=100_000.0,
+            execution_cost=COST,
+            risk_config=RISK_CONFIG,
+            fit_cutoff=timestamps[80],
+            source_scope="synthetic_only",
+        )

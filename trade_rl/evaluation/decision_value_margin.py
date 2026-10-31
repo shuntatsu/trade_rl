@@ -10,7 +10,10 @@ candidate. It is chosen from a fixed grid using *only* the train window:
    multiplier with the best after-cost net return wins. Exact ties go to the
    larger multiplier.
 
-No evaluation-block data and no data after the last label horizon is touched.
+When supplied with the raw source, the temporary fit has its own fit-cutoff
+normalizer and the calibration replay uses that frozen vintage. The calibration
+replay is also checked by the native source-backed ledger oracle. No evaluation-
+block data enters this margin choice.
 """
 
 from __future__ import annotations
@@ -23,6 +26,13 @@ from typing import TypeVar
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.decision_value_feature_transform import (
+    apply_feature_transform,
+    fit_train_feature_transform,
+)
+from trade_rl.evaluation.decision_value_ledger_oracle import (
+    verify_paired_economic_ledger,
+)
 from trade_rl.evaluation.paired_portfolio_label import (
     SyntheticPairedLabel,
     SyntheticPairedLabelBatch,
@@ -46,9 +56,10 @@ class MarginSelection:
     n_calibration_branches: int
     calibration_start_index: int
     calibration_stop_index: int
+    fit_normalizer_digest: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        values = {
             "multiplier": self.multiplier,
             "net_returns": [[k, r] for k, r in self.net_returns],
             "n_fit_branches": self.n_fit_branches,
@@ -56,6 +67,9 @@ class MarginSelection:
             "calibration_start_index": self.calibration_start_index,
             "calibration_stop_index": self.calibration_stop_index,
         }
+        if self.fit_normalizer_digest is not None:
+            values["fit_normalizer_digest"] = self.fit_normalizer_digest
+        return values
 
 
 def _validate_grid(grid: tuple[float, ...]) -> tuple[float, ...]:
@@ -79,7 +93,7 @@ def select_margin_multiplier(
     dataset: MarketDataset,
     samples: tuple[SyntheticPairedLabel, ...],
     fit_model: Callable[[SyntheticPairedLabelBatch], _ModelT],
-    make_policy: Callable[[_ModelT, float], PortfolioPolicy],
+    make_policy: Callable[[_ModelT, float, MarketDataset], PortfolioPolicy],
     grid: tuple[float, ...],
     calibration_fraction: float,
     horizon_bars: int,
@@ -87,6 +101,9 @@ def select_margin_multiplier(
     execution_cost: ExecutionCostConfig,
     risk_config: PreTradeRiskConfig,
     reference_policy_digest: str,
+    raw_dataset: MarketDataset | None = None,
+    train_start_index: int | None = None,
+    feature_clip: float | None = None,
 ) -> MarginSelection:
     """Select the margin multiplier using time-ordered train-internal data only."""
     multipliers = _validate_grid(grid)
@@ -119,13 +136,78 @@ def select_margin_multiplier(
 
     fit_cutoff = dataset.timestamps[cutoff_index]
     fit_cutoff_ns = int(timestamps_ns[cutoff_index])
-    subset = tuple(
-        replace(s, fit_cutoff_ns=fit_cutoff_ns)
-        for s in samples
-        if s.decision_time_ns in fit_times
-    )
+    # The temporary fit has an earlier cutoff than the final block fit. It
+    # must have its own normalizer; fitting on the full block would leak the
+    # held-out calibration features into every training row.
+    calibration_view = dataset
+    transform_digest: str | None = None
+    if raw_dataset is not None:
+        if (
+            not isinstance(raw_dataset, MarketDataset)
+            or type(train_start_index) is not int
+            or feature_clip is None
+            or raw_dataset.dataset_id != dataset.dataset_id
+            or raw_dataset.feature_config_digest != dataset.feature_config_digest
+            or raw_dataset.symbols != dataset.symbols
+            or raw_dataset.feature_names != dataset.feature_names
+            or raw_dataset.global_feature_names != dataset.global_feature_names
+            or not np.array_equal(raw_dataset.timestamps, dataset.timestamps)
+        ):
+            raise ValueError("raw calibration source/clock/feature context mismatch")
+        transform = fit_train_feature_transform(
+            raw_dataset,
+            train_start_index=train_start_index,
+            train_stop_index=cutoff_index - 1,
+            as_of_index=cutoff_index,
+            clip=feature_clip,
+        )
+        calibration_view = apply_feature_transform(raw_dataset, transform)
+        transform_digest = transform.digest
+    elif train_start_index is not None or feature_clip is not None:
+        raise ValueError("calibration vintage requires a raw dataset")
+
+    subset = []
+    for sample in samples:
+        if sample.decision_time_ns not in fit_times:
+            continue
+        if raw_dataset is None:
+            subset.append(replace(sample, fit_cutoff_ns=fit_cutoff_ns))
+            continue
+        index = int(np.searchsorted(timestamps_ns, sample.decision_time_ns))
+        if (
+            index >= len(timestamps_ns)
+            or timestamps_ns[index] != sample.decision_time_ns
+        ):
+            raise ValueError("fit sample does not belong to calibration dataset clock")
+        observation = replace(
+            sample.observation,
+            features=tuple(
+                tuple(float(v) for v in row) for row in calibration_view.features[index]
+            ),
+            global_features=tuple(
+                float(v) for v in calibration_view.global_features[index]
+            ),
+            feature_available=tuple(
+                tuple(bool(v) for v in row)
+                for row in calibration_view.feature_available[index]
+            ),
+            global_feature_available=tuple(
+                bool(v)
+                for v in calibration_view.resolved_array("global_feature_available")[
+                    index
+                ]
+            ),
+        )
+        subset.append(
+            replace(
+                sample,
+                observation=observation,
+                normalization_digest=calibration_view.normalization_digest,
+                fit_cutoff_ns=fit_cutoff_ns,
+            )
+        )
     batch = build_synthetic_paired_label_batch(
-        subset,
+        tuple(subset),
         fit_cutoff=fit_cutoff,
         evaluation_start=dataset.timestamps[cal_start_index],
         expected_reference_policy_digest=reference_policy_digest,
@@ -137,15 +219,25 @@ def select_margin_multiplier(
     best_return = -math.inf
     for k in multipliers:
         replay = run_shared_portfolio_replay(
-            dataset,
-            make_policy(model, k),
+            calibration_view,
+            make_policy(model, k, calibration_view),
             start_index=cal_start_index,
             stop_index=cal_stop_index,
             initial_capital=initial_capital,
             execution_cost=execution_cost,
             risk=PreTradeRisk(risk_config),
             settle_terminal_position=True,
+            capture_ledger_evidence=True,
         )
+        if not verify_paired_economic_ledger(
+            replay,
+            calibration_view,
+            expected_intervals=cal_stop_index - cal_start_index,
+            initial_capital=initial_capital,
+            expected_start_index=cal_start_index,
+            execution_cost=execution_cost,
+        ):
+            raise ValueError("calibration replay failed the independent ledger oracle")
         net = float(replay.book.portfolio_value) / float(initial_capital) - 1.0
         results.append((k, net))
         if net >= best_return:  # exact ties go to the larger multiplier
@@ -158,6 +250,7 @@ def select_margin_multiplier(
         n_calibration_branches=len(times) - n_fit,
         calibration_start_index=cal_start_index,
         calibration_stop_index=cal_stop_index,
+        fit_normalizer_digest=transform_digest,
     )
 
 

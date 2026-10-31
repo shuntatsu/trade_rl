@@ -91,11 +91,11 @@ def _fit(batch):
     )
 
 
-def _policy(model, k):
+def _policy(model, k, _dataset=None):
     return LinearDecisionValuePolicy(
         model,
         runtime_context=LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
+            source_scope=model.source_scope,
             feature_config_digest=model.feature_config_digest,
             normalization_digest=model.normalization_digest,
             execution_policy_digest=model.execution_policy_digest,
@@ -183,7 +183,7 @@ def test_exact_ties_go_to_the_larger_margin() -> None:
     selection = _select(
         market,
         samples,
-        make_policy=lambda _model, _k: _Cash(market.symbols),
+        make_policy=lambda _model, _k, _market: _Cash(market.symbols),
     )
     assert {r for _, r in selection.net_returns} == {0.0}
     assert selection.multiplier == max(_GRID)
@@ -203,3 +203,75 @@ def test_selection_prefers_the_best_after_cost_return_and_rejects_bad_grid() -> 
         _select(market, samples, calibration_fraction=1.0)
     with pytest.raises(ValueError, match="labels"):
         _select(market, ())
+
+
+def test_temporary_margin_fit_is_immune_to_calibration_future_features() -> None:
+    """Calibration features must not leak through the earlier fit normalizer."""
+    from dataclasses import replace
+
+    from trade_rl.evaluation.decision_value_dev_study import _HoldQuantityPolicy
+    from trade_rl.evaluation.decision_value_feature_transform import (
+        apply_feature_transform,
+        fit_train_feature_transform,
+    )
+
+    raw = signal_market(420, seed=29)
+    changed_features = raw.features.copy()
+    changed_features[190:241] = changed_features[190:241] * 30.0 + 15.0
+    future_changed = replace(raw, features=changed_features, identity_payload_json=None)
+    assert np.array_equal(raw.features[:190], future_changed.features[:190])
+
+    models = []
+    for source in (raw, future_changed):
+        block_transform = fit_train_feature_transform(
+            source,
+            train_start_index=20,
+            train_stop_index=240,
+            clip=3.0,
+            as_of_index=330,
+        )
+        view = apply_feature_transform(source, block_transform)
+        collection = collect_reachable_state_labels(
+            view,
+            reference_policy_provider=lambda _t, _start: (
+                lambda: _HoldQuantityPolicy(TARGETS)
+            ),
+            reference_policy_digest=_REF,
+            branch_indices=tuple(range(20, 240, _HORIZON)),
+            train_start_index=20,
+            prefix_bars=12,
+            horizon_bars=_HORIZON,
+            candidate_actions=_CANDIDATES,
+            target_abs_weights=TARGETS,
+            initial_capital=100_000.0,
+            execution_cost=COST,
+            risk_config=RISK_CONFIG,
+            fit_cutoff=source.timestamps[330],
+            source_scope="synthetic_only",
+        )
+        captured = []
+
+        def fit(batch):
+            model = _fit(batch)
+            captured.append(model)
+            return model
+
+        select_margin_multiplier(
+            dataset=view,
+            raw_dataset=source,
+            train_start_index=20,
+            feature_clip=3.0,
+            samples=collection.samples,
+            fit_model=fit,
+            make_policy=_policy,
+            grid=_GRID,
+            calibration_fraction=0.25,
+            horizon_bars=_HORIZON,
+            initial_capital=100_000.0,
+            execution_cost=COST,
+            risk_config=RISK_CONFIG,
+            reference_policy_digest=_REF,
+        )
+        assert len(captured) == 1
+        models.append(captured[0])
+    np.testing.assert_array_equal(models[0].coefficients, models[1].coefficients)

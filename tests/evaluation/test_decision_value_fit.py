@@ -542,3 +542,28 @@ def test_td8_small_ood_prior_does_not_prove_sunk_cost_hysteresis() -> None:
         for s in (snap_flat, snap_held, snap_inflight)
     )
     assert all(np.isfinite(x) for x in vals)
+
+
+def test_td8_fit_rejects_zero_coverage_flat_action_instead_of_inventing_zero() -> None:
+    from trade_rl.evaluation.decision_value_fit import (
+        fit_conservative_linear_decision_value,
+        fit_synthetic_shallow_decision_value,
+    )
+    from trade_rl.strategies.portfolio_policy_codec import ACTION_FLAT
+
+    original = _fit_batch()
+    rows = tuple(s for s in original.samples if s.candidate_action == _LONG)
+    narrowed = build_synthetic_paired_label_batch(
+        rows,
+        fit_cutoff=np.datetime64(original.fit_cutoff_ns, "ns"),
+        evaluation_start=np.datetime64(original.evaluation_start_ns, "ns"),
+        expected_reference_policy_digest=rows[0].reference_policy_digest,
+    )
+    actions = (_HOLD, (ACTION_FLAT, ACTION_FLAT), _LONG)
+    for fitter in (
+        fit_synthetic_linear_decision_value,
+        fit_conservative_linear_decision_value,
+        fit_synthetic_shallow_decision_value,
+    ):
+        with pytest.raises(ValueError, match="coverage|insufficient"):
+            fitter(narrowed, candidate_actions=actions, solver_version="td8_v2")

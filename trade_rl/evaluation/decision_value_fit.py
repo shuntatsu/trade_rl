@@ -27,7 +27,6 @@ from trade_rl.strategies.decision_value_shallow import (
     fixed_hidden_weights,
 )
 from trade_rl.strategies.portfolio_policy_codec import (
-    ACTION_FLAT,
     ACTION_HOLD,
     decode_portfolio_action_codes,
 )
@@ -312,21 +311,6 @@ def _fit_standardized_ridge(
         if expected_width is not None
         else (design[0].shape[0] if design else 0)
     )
-    if (
-        action is not None
-        and all(a == ACTION_FLAT for a in action)
-        and len(design) == 0
-    ):
-        zero_coef = tuple(0.0 for _ in range(p_total))
-        zero_cov = (
-            tuple(tuple(0.0 for _ in range(p_total)) for _ in range(p_total))
-            if compute_covariance
-            else None
-        )
-        if dof_out is not None and compute_covariance:
-            dof_out.append(0.0)
-        return zero_coef, zero_cov
-
     if len(design) < 3:
         raise ValueError("insufficient fixed candidate coverage for Ridge")
     matrix = np.stack(design)
@@ -517,7 +501,6 @@ def fit_synthetic_shallow_decision_value(
     n_symbols = len(t.symbols)
     state_width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + n_symbols
     hidden = fixed_hidden_weights(state_width)
-    expanded_width = state_width + len(hidden)
     if solver_version not in ("legacy_v1", "td8_v2"):
         raise ValueError("unrecognized shallow solver_version")
     if solver_version == "legacy_v1":
@@ -560,9 +543,6 @@ def fit_synthetic_shallow_decision_value(
     scales_arr = np.asarray(input_scales, dtype=np.float64)
 
     for d, v, action in zip(t.rows, t.values, t.codes[1:], strict=True):
-        if all(a == ACTION_FLAT for a in action) and len(d) == 0:
-            fitted.append(tuple(0.0 for _ in range(expanded_width)))
-            continue
         if len(d) < 3:
             raise ValueError("insufficient fixed candidate coverage for Ridge")
         x_raw = np.stack(d)[:, 1:]

@@ -1,22 +1,19 @@
-"""Bounded real-data development study runner and contracts for TD5-TD8 (#1025).
+"""Historical TD8 contracts and current synthetic-only software diagnostics.
 
-This module implements the frozen development study protocol on real market data
-under the "real_development" source scope. It enforces strict preflight validation,
-causal training isolation, write-once artifact persistence, ledger reconciliation,
-and fail-closed causality verification.
-
-Protocol v2 (the corrected TD8 design) differs from the TD5-TD7 runs in four
-pre-registered ways: value-head labels are HOLD-relative increments from states
-reached by a causally refitted B0 policy rather than from flat accounts; the
-action rule requires an increment above a pre-registered decision margin; every
-arm sees train-window standardized-and-clipped features; and the post-hoc
-``unexcited_prior_std=1e-3`` is withdrawn.
+The original real-development TD8 protocol remains readable but cannot run on
+this corrected source. The current v3 runner requires a published synthetic
+artifact and preserves the old research outcomes without reclassification.
+Software diagnostics enforce distinct causal teacher, temporary calibration,
+and final block feature vintages; an incomplete paired label stops model fitting
+and is retained as an invalid attempt rather than a zero-valued label.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+import shutil
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -52,6 +49,8 @@ from trade_rl.evaluation.decision_value_margin import (
 )
 from trade_rl.evaluation.decision_value_plan import DecisionValueStudyPlan
 from trade_rl.evaluation.decision_value_reachable_labels import (
+    IneligiblePairOutcome,
+    ReachableLabelCollection,
     collect_reachable_state_labels,
 )
 from trade_rl.evaluation.paired_portfolio_label import (
@@ -131,6 +130,7 @@ def _verify_ledger_reconciliation(
     expected_intervals: int,
     expected_start_index: int,
     initial_capital: float,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> bool:
     """Validate source-backed interval fills/cash/marked equity, not just totals.
 
@@ -143,6 +143,7 @@ def _verify_ledger_reconciliation(
         expected_intervals=expected_intervals,
         expected_start_index=expected_start_index,
         initial_capital=initial_capital,
+        execution_cost=execution_cost,
     )
 
 
@@ -1255,6 +1256,65 @@ def _fit_all_learners(
     }
 
 
+class IncompletePairedLabelsError(ValueError):
+    """No learned fit is admitted from outcome-selected survivor pairs."""
+
+    def __init__(
+        self, block_id: str, evidence: tuple[IneligiblePairOutcome, ...]
+    ) -> None:
+        self.block_id = block_id
+        self.evidence = evidence
+        super().__init__(
+            f"TD8 block {block_id} contains {len(evidence)} incomplete/terminated "
+            "paired labels; outcomes must be recorded and research fit is blocked"
+        )
+
+
+def _require_complete_reachable_labels(
+    collection: ReachableLabelCollection, *, block_id: str
+) -> None:
+    if collection.ineligible_pairs != len(collection.ineligible_outcomes):
+        raise ValueError("incomplete paired-label evidence count mismatch")
+    if collection.ineligible_outcomes:
+        raise IncompletePairedLabelsError(block_id, collection.ineligible_outcomes)
+
+
+def _persist_incomplete_pair_attempt(
+    output_dir: Path,
+    failure: IncompletePairedLabelsError,
+    *,
+    dataset_id: str,
+    protocol_digest: str,
+) -> None:
+    """Preserve blocked synthetic-label evidence without publishing a success result.
+
+    Prepare a single canonical receipt off to the side, then rename the staging
+    directory. A concurrent writer must never be silently overwritten.
+    """
+    destination = Path(output_dir)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"output_dir already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
+    try:
+        payload = {
+            "schema_version": "decision_value_incomplete_pair_attempt_v1",
+            "verdict": "INVALID / BLOCKED",
+            "dataset_id": dataset_id,
+            "protocol_digest": protocol_digest,
+            "block_id": failure.block_id,
+            "ineligible_pairs": len(failure.evidence),
+            "pairs": [e.to_mapping() for e in failure.evidence],
+        }
+        (stage / "incomplete-pairs.json").write_bytes(canonical_json_bytes(payload))
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(f"output_dir already exists: {destination}")
+        stage.rename(destination)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
 @dataclass(frozen=True, slots=True)
 class _BlockTraining:
     """Everything fitted from one dataset view of the train window."""
@@ -1288,6 +1348,7 @@ def _train_block(
         train_start_index=block.train_start_index,
         train_stop_index=block.train_stop_index,
         clip=protocol.feature_clip,
+        as_of_index=block.fit_cutoff_index,
     )
     view = apply_feature_transform(raw_dataset, transform)
     b0_model = fit_ridge_forecast(
@@ -1351,6 +1412,7 @@ def _train_block(
         fit_cutoff=fit_cutoff,
         source_scope=protocol.study_plan.data_scope,
     )
+    _require_complete_reachable_labels(collection, block_id=block.block_id)
     if not collection.samples:
         raise ValueError(f"block {block.block_id} produced no admissible labels")
     batch = build_synthetic_paired_label_batch(
@@ -1368,11 +1430,13 @@ def _train_block(
         def fit_for_arm(sub_batch: object, _arm: str = arm) -> object:
             return _fit_all_learners(sub_batch, protocol, train_switch_cost)[_arm]
 
-        def policy_for_arm(model: object, k: float, _arm: str = arm) -> PortfolioPolicy:
+        def policy_for_arm(
+            model: object, k: float, calibration_view: MarketDataset, _arm: str = arm
+        ) -> PortfolioPolicy:
             return _build_value_policy(
                 _arm,
                 model,
-                view,
+                calibration_view,
                 margin_multiplier=k,
                 eval_one_way_cost=train_switch_cost,
                 train_one_way_cost=train_switch_cost,
@@ -1390,6 +1454,9 @@ def _train_block(
             execution_cost=protocol.base_execution_cost,
             risk_config=protocol.risk_config,
             reference_policy_digest=ref_digest,
+            raw_dataset=raw_dataset,
+            train_start_index=block.train_start_index,
+            feature_clip=protocol.feature_clip,
         )
     return _BlockTraining(
         dataset=view,
@@ -1583,7 +1650,17 @@ def run_decision_value_dev_study(
 
         # 1-4. Uniform feature transform, B0, reachable-state labels, three heads,
         #      and the train-internal margin selection.
-        training = _train_block(dataset, protocol, block, train_switch_cost)
+        try:
+            training = _train_block(dataset, protocol, block, train_switch_cost)
+        except IncompletePairedLabelsError as failure:
+            if output_dir is not None:
+                _persist_incomplete_pair_attempt(
+                    Path(output_dir),
+                    failure,
+                    dataset_id=dataset.dataset_id,
+                    protocol_digest=protocol.protocol_digest,
+                )
+            raise
         view = training.dataset
         b0_model = training.b0_model
         models = training.models
@@ -1603,6 +1680,7 @@ def run_decision_value_dev_study(
             train_start_index=block.train_start_index,
             train_stop_index=block.train_stop_index,
             clip=protocol.feature_clip,
+            as_of_index=block.fit_cutoff_index,
         )
         transform_digest = transform.digest
         shift = covariate_shift_report(
@@ -1792,6 +1870,7 @@ def run_decision_value_dev_study(
                     expected_intervals=expected_intervals,
                     expected_start_index=block.eval_start_index,
                     initial_capital=protocol.study_plan.initial_capital,
+                    execution_cost=scen_cost,
                 ):
                     ledger_all_reconciled = False
 

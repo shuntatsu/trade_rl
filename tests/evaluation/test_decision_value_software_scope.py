@@ -201,3 +201,121 @@ def test_synthetic_td8_never_trusts_supplied_artifact_digest_without_loading(
                 artifact_root=wrong_artifact.root,
                 actual_artifact_digest=good_artifact.artifact_digest,
             )
+
+
+def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
+    tmp_path,
+) -> None:
+    import json
+
+    from trade_rl.evaluation.decision_value_reachable_labels import (
+        IneligiblePairOutcome,
+    )
+
+    arm = {
+        "terminal_marked_equity": "893.0",
+        "terminal_cash": "10.0",
+        "termination_reason": "risk_termination",
+        "terminal_exact_quantities": ["4", "0"],
+        "pending_order_remainders": [["a" * 64, 4.0]],
+    }
+    row = IneligiblePairOutcome(
+        intervention_index=1,
+        prefix_start_index=0,
+        terminal_index=7,
+        candidate_action=(1, 0),
+        reason_codes=("baseline_terminated", "candidate_terminated"),
+        baseline=arm,
+        candidate=arm,
+    )
+    failure = study.IncompletePairedLabelsError("b1", (row,))
+    output = tmp_path / "attempt"
+    study._persist_incomplete_pair_attempt(
+        output,
+        failure,
+        dataset_id="1" * 64,
+        protocol_digest="f" * 64,
+    )
+    recorded = json.loads((output / "incomplete-pairs.json").read_text())
+    assert recorded["verdict"] == "INVALID / BLOCKED"
+    assert recorded["ineligible_pairs"] == 1
+    assert recorded["pairs"][0]["baseline"]["terminal_marked_equity"] == "893.0"
+    assert recorded["pairs"][0]["candidate"]["termination_reason"] == "risk_termination"
+    with pytest.raises(FileExistsError):
+        study._persist_incomplete_pair_attempt(
+            output,
+            failure,
+            dataset_id="1" * 64,
+            protocol_digest="f" * 64,
+        )
+    assert len(tuple(output.iterdir())) == 1
+
+
+def test_software_runner_persists_incomplete_receipt_before_any_fit(
+    tmp_path, monkeypatch
+) -> None:
+    import json
+
+    from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
+    from trade_rl.evaluation.decision_value_reachable_labels import (
+        IneligiblePairOutcome,
+    )
+
+    dataset = _compact_market(90).with_content_identity(
+        {"synthetic_only": True, "generator": "failed-label-attempt"}
+    )
+    artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
+    archived = study.default_2024q1_decision_value_dev_protocol()
+    block = study.DecisionValueBlockSpec(
+        block_id="blocked",
+        train_start_index=0,
+        train_stop_index=35,
+        train_step=24,
+        fit_cutoff_index=60,
+        eval_start_index=61,
+        eval_stop_index=80,
+    )
+    protocol = replace(
+        archived,
+        dataset_id=dataset.dataset_id,
+        expected_artifact_digest=artifact.artifact_digest,
+        blocks=(block,),
+        study_plan=replace(
+            archived.study_plan,
+            data_scope="synthetic_only",
+            real_scope_authorization_digest=None,
+        ),
+    )
+    arm = {
+        "terminal_marked_equity": "90000.0",
+        "terminal_cash": "90000.0",
+        "termination_reason": "insolvency",
+        "terminal_exact_quantities": ["0", "0"],
+        "pending_order_remainders": [],
+        "insolvent": True,
+    }
+    row = IneligiblePairOutcome(
+        intervention_index=50,
+        prefix_start_index=20,
+        terminal_index=60,
+        candidate_action=(1, 0),
+        reason_codes=("baseline_insolvent", "candidate_insolvent"),
+        baseline=arm,
+        candidate=arm,
+    )
+    failure = study.IncompletePairedLabelsError(block.block_id, (row,))
+
+    def stop_before_fit(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(study, "_train_block", stop_before_fit)
+    dest = tmp_path / "attempt"
+    with pytest.raises(study.IncompletePairedLabelsError):
+        study.run_decision_value_dev_study(
+            dataset, protocol, artifact_root=artifact.root, output_dir=dest
+        )
+    assert (dest / "incomplete-pairs.json").is_file()
+    assert not (dest / "result.json").exists()
+    receipt = json.loads((dest / "incomplete-pairs.json").read_text())
+    assert receipt["block_id"] == "blocked"
+    assert receipt["pairs"][0]["baseline"]["termination_reason"] == "insolvency"

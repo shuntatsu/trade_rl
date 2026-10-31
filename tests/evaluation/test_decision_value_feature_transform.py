@@ -190,3 +190,72 @@ def test_historical_normalizer_excludes_records_arriving_after_its_cutoff() -> N
             as_of_index=100,
             clip=3.0,
         )
+
+
+def test_fit_cutoff_excludes_late_training_record_from_statistics() -> None:
+    """A record published after fit cutoff cannot alter its normalizer."""
+    market = signal_market(420, seed=13)
+    delayed = market.available_at.copy()
+    delayed[21, 0] = market.timestamps[360]
+    info = market.resolved_array("information_available").copy()
+    info[21, 0] = False
+    left = market.features.copy()
+    right = market.features.copy()
+    left[21, 0, 1], right[21, 0, 1] = 1_000_000.0, -1_000_000.0
+    a = replace(
+        market,
+        features=left,
+        available_at=delayed,
+        information_available=info,
+        identity_payload_json=None,
+    )
+    b = replace(
+        market,
+        features=right,
+        available_at=delayed,
+        information_available=info,
+        identity_payload_json=None,
+    )
+    fit_a = fit_train_feature_transform(
+        a, train_start_index=20, train_stop_index=240, clip=3.0, as_of_index=330
+    )
+    fit_b = fit_train_feature_transform(
+        b, train_start_index=20, train_stop_index=240, clip=3.0, as_of_index=330
+    )
+    assert fit_a.digest == fit_b.digest
+    assert np.array_equal(fit_a.feature_mean, fit_b.feature_mean)
+
+
+def test_block_pipeline_passes_fit_cutoff_to_normalizer(monkeypatch) -> None:
+    """The real runner must use the as-of code path, not the unbounded default."""
+    from trade_rl.evaluation import decision_value_dev_study as study
+
+    market = signal_market(500, seed=37)
+    proto = study.default_2024q1_decision_value_dev_protocol()
+    block = replace(
+        proto.blocks[0],
+        train_start_index=24,
+        train_stop_index=300,
+        fit_cutoff_index=321,
+        eval_start_index=322,
+        eval_stop_index=450,
+    )
+    real_fit = study.fit_train_feature_transform
+    called = []
+
+    def fit_guard(*args, **kwargs):
+        called.append(kwargs.get("as_of_index"))
+        assert kwargs.get("as_of_index") == block.fit_cutoff_index
+        return real_fit(*args, **kwargs)
+
+    class StopHere(Exception):
+        pass
+
+    with monkeypatch.context() as patch:
+        patch.setattr(study, "fit_train_feature_transform", fit_guard)
+        patch.setattr(
+            study, "fit_ridge_forecast", lambda *a, **k: (_ for _ in ()).throw(StopHere)
+        )
+        with pytest.raises(StopHere):
+            study._train_block(market, proto, block, 0.0008)
+    assert called == [block.fit_cutoff_index]

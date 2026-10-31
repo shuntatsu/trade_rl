@@ -22,8 +22,10 @@ provider therefore returns a policy factory whose model was fitted causally
 before ``start`` (or ``None`` when no sufficiently informed causal reference
 exists, in which case the branch is skipped and counted).
 
-Pairs that cannot yield a settled native label are counted, never silently
-dropped or fabricated. Losing and zero increments are kept.
+Pairs that cannot yield a settled native label retain original branch outcomes,
+termination reasons and residual orders/positions for audit. The study runner
+blocks survivor-only fitting and may publish an invalid write-once receipt.
+Losing and zero eligible increments are kept, never fabricated.
 """
 
 from __future__ import annotations
@@ -81,7 +83,11 @@ class IneligiblePairOutcome:
 
 
 def _ineligible_arm_endpoint(
-    result: SharedCashPortfolioReplayResult, *, expected_intervals: int, arm: str
+    result: SharedCashPortfolioReplayResult,
+    *,
+    expected_intervals: int,
+    arm: str,
+    initial_capital: float,
 ) -> tuple[dict[str, object], list[str]]:
     """Record the original account/ledger endpoint, including losses and failures."""
     ledger = result.ledger_evidence
@@ -103,6 +109,9 @@ def _ineligible_arm_endpoint(
     reason = book.termination_reason
     record: dict[str, object] = {
         "terminal_marked_equity": str(book.portfolio_value),
+        "observed_equity_change": str(float(book.portfolio_value) - initial_capital),
+        "initial_capital": str(initial_capital),
+        "observed_stop_index": ledger.intervals.stop_index,
         "terminal_cash": str(book.cash),
         "terminal_exact_quantities": [str(q) for q in book.exact_quantities],
         "total_cost": str(book.total_cost),
@@ -221,11 +230,13 @@ def collect_reachable_state_labels(
                     pair.baseline_result,
                     expected_intervals=stop - start,
                     arm="baseline",
+                    initial_capital=initial_capital,
                 )
                 candidate_endpoint, candidate_reasons = _ineligible_arm_endpoint(
                     pair.candidate_result,
                     expected_intervals=stop - start,
                     arm="candidate",
+                    initial_capital=initial_capital,
                 )
                 problems = (*baseline_reasons, *candidate_reasons)
                 invalid_outcomes.append(
@@ -250,6 +261,7 @@ def collect_reachable_state_labels(
                     expected_intervals=stop - start,
                     initial_capital=initial_capital,
                     expected_start_index=start,
+                    execution_cost=execution_cost,
                 )
                 for arm in (pair.baseline_result, pair.candidate_result)
             ):

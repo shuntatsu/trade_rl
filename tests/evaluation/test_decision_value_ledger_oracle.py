@@ -296,3 +296,132 @@ def test_td8_oracle_rejects_forged_non_fill_event_identity(
         initial_capital=_CAPITAL,
         expected_start_index=0,
     )
+
+
+def test_td8_oracle_rejects_coherent_out_of_market_price_forgery() -> None:
+    """Consistent book/observer totals cannot bless impossible source fill prices."""
+    market = _dataset()
+    original = _paired(market=market).baseline_result
+    wrapped = original.ledger_evidence
+    assert wrapped is not None
+    intervals = list(wrapped.intervals.intervals)
+    last = intervals[-1]
+    index = next(i for i, e in enumerate(last.order_events) if e.filled_quantity)
+    event = last.order_events[index]
+    assert market.high[last.next_index, event.symbol_index] == 110.0
+    price = 1000.0
+    multiplier = float(
+        market.resolved_array("contract_multipliers")[event.symbol_index]
+    )
+    cash_delta = -event.filled_quantity * (price - event.execution_price) * multiplier
+    revised_events = list(last.order_events)
+    revised_events[index] = replace(
+        event,
+        execution_price=price,
+        filled_notional=abs(event.filled_quantity) * price * multiplier,
+    )
+    revised_equity = last.portfolio_value_after + cash_delta
+    intervals[-1] = replace(
+        last,
+        order_events=tuple(revised_events),
+        cash_after=last.cash_after + cash_delta,
+        portfolio_value_after=revised_equity,
+        interval_net_return=max(
+            max(revised_equity, 0.0) / last.portfolio_value_before - 1.0,
+            -1.0 + 1e-12,
+        ),
+    )
+    revised_ledger = replace(
+        wrapped.intervals,
+        intervals=tuple(intervals),
+        final_cash=wrapped.intervals.final_cash + cash_delta,
+        final_portfolio_value=wrapped.intervals.final_portfolio_value + cash_delta,
+    )
+    revised_book = replace(
+        original.book,
+        cash=original.book.cash + cash_delta,
+        peak_value=max(original.book.peak_value, original.book.cash + cash_delta),
+    )
+    forged = replace(
+        original,
+        book=revised_book,
+        ledger_evidence=replace(wrapped, intervals=revised_ledger),
+    )
+    kwargs = dict(
+        expected_intervals=7,
+        expected_start_index=0,
+        initial_capital=_CAPITAL,
+        execution_cost=_COST,
+    )
+    assert verify_paired_economic_ledger(original, market, **kwargs)
+    assert not verify_paired_economic_ledger(forged, market, **kwargs)
+
+
+def test_td8_oracle_recomputes_turnover_not_only_equal_book_and_final_ledger() -> None:
+    market = _dataset()
+    original = _paired(market=market).baseline_result
+    evidence = original.ledger_evidence
+    assert evidence is not None
+    forged = replace(
+        original,
+        book=replace(original.book, turnover_total=0.0),
+        ledger_evidence=replace(
+            evidence,
+            intervals=replace(evidence.intervals, final_turnover_total=0.0),
+        ),
+    )
+    assert original.book.turnover_total > 0
+    kwargs = dict(
+        expected_intervals=7, initial_capital=_CAPITAL, expected_start_index=0
+    )
+    assert verify_paired_economic_ledger(original, market, **kwargs)
+    assert not verify_paired_economic_ledger(forged, market, **kwargs)
+
+
+def test_td8_oracle_detects_forged_low_drawdown_despite_native_equity_decline() -> None:
+    market = _dataset(rise=-30.0)
+    original = _paired(market=market).baseline_result
+    wrapped = original.ledger_evidence
+    assert wrapped is not None
+    assert original.book.max_drawdown > 0.02
+    forged = replace(
+        original,
+        book=replace(original.book, max_drawdown=0.0),
+        ledger_evidence=replace(
+            wrapped,
+            intervals=replace(wrapped.intervals, final_max_drawdown=0.0),
+        ),
+    )
+    kwargs = dict(
+        expected_intervals=7, initial_capital=_CAPITAL, expected_start_index=0
+    )
+    assert verify_paired_economic_ledger(original, market, **kwargs)
+    assert not verify_paired_economic_ledger(forged, market, **kwargs)
+
+
+def test_td8_oracle_rejects_tampered_zero_fill_event_sequence() -> None:
+    market = _dataset()
+    result = _paired(market=market).baseline_result
+    wrapped = result.ledger_evidence
+    assert wrapped is not None
+    first = wrapped.intervals.intervals[0]
+    events = list(first.order_events)
+    events[0] = replace(events[0], sequence=9)
+    forged = replace(
+        result,
+        ledger_evidence=replace(
+            wrapped,
+            intervals=replace(
+                wrapped.intervals,
+                intervals=(
+                    replace(first, order_events=tuple(events)),
+                    *wrapped.intervals.intervals[1:],
+                ),
+            ),
+        ),
+    )
+    kwargs = dict(
+        expected_intervals=7, initial_capital=_CAPITAL, expected_start_index=0
+    )
+    assert verify_paired_economic_ledger(result, market, **kwargs)
+    assert not verify_paired_economic_ledger(forged, market, **kwargs)

@@ -43,9 +43,94 @@ from trade_rl.evaluation.paired_portfolio_label import (
     SyntheticPairedLabel,
     build_synthetic_paired_label,
 )
+from trade_rl.evaluation.replay import SharedCashPortfolioReplayResult
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.simulation.accounting import EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.portfolio import PortfolioPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class IneligiblePairOutcome:
+    """Versioned, audit-only financial endpoint for a pair not fitted as a label.
+
+    A terminated/unsettled branch may have a marked equity and real losses, but
+    it is not a comparable, fully settled action-value target.
+    """
+
+    intervention_index: int
+    prefix_start_index: int
+    terminal_index: int
+    candidate_action: tuple[int, ...]
+    reason_codes: tuple[str, ...]
+    baseline: dict[str, object]
+    candidate: dict[str, object]
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "schema": "decision_value_ineligible_pair_v1",
+            "intervention_index": self.intervention_index,
+            "prefix_start_index": self.prefix_start_index,
+            "terminal_index": self.terminal_index,
+            "candidate_action": list(self.candidate_action),
+            "reason_codes": list(self.reason_codes),
+            "baseline": dict(self.baseline),
+            "candidate": dict(self.candidate),
+            "admissible_for_fit": False,
+        }
+
+
+def _ineligible_arm_endpoint(
+    result: SharedCashPortfolioReplayResult, *, expected_intervals: int, arm: str
+) -> tuple[dict[str, object], list[str]]:
+    """Record the original account/ledger endpoint, including losses and failures."""
+    ledger = result.ledger_evidence
+    if ledger is None:
+        raise RuntimeError("ineligible paired replay lost its native ledger evidence")
+    mapping = ledger.to_mapping()
+    intervals = mapping["intervals"]
+    if not isinstance(intervals, (list, tuple)):
+        raise RuntimeError("ineligible paired ledger intervals are not ordered")
+    pending = mapping["active_order_remainders"]
+    if not isinstance(pending, (tuple, list)):
+        raise RuntimeError("ineligible pending order remainders are not ordered")
+    pending_records: list[list[object]] = []
+    for item in pending:
+        if not isinstance(item, (tuple, list)) or len(item) != 2:
+            raise RuntimeError("invalid ineligible pending order remainder")
+        pending_records.append([item[0], item[1]])
+    book = result.book
+    reason = book.termination_reason
+    record: dict[str, object] = {
+        "terminal_marked_equity": str(book.portfolio_value),
+        "terminal_cash": str(book.cash),
+        "terminal_exact_quantities": [str(q) for q in book.exact_quantities],
+        "total_cost": str(book.total_cost),
+        "funding_pnl": str(book.funding_pnl),
+        "insolvent": bool(book.insolvent),
+        "termination_reason": (
+            reason.value
+            if isinstance(reason, EconomicTerminationReason)
+            else (str(reason) if reason is not None else None)
+        ),
+        "observed_intervals": len(intervals),
+        "expected_intervals": expected_intervals,
+        "pending_order_remainders": pending_records,
+        "settled_label_eligible": False,
+    }
+    problems = []
+    if book.insolvent:
+        problems.append(f"{arm}_insolvent")
+    if reason is not None:
+        problems.append(f"{arm}_terminated")
+    if len(intervals) != expected_intervals:
+        problems.append(f"{arm}_intervals_incomplete")
+    if any(q != 0 for q in book.exact_quantities):
+        problems.append(f"{arm}_not_flat")
+    if pending_records:
+        problems.append(f"{arm}_pending_orders")
+    record["settled_label_eligible"] = not problems
+    return record, problems
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +143,7 @@ class ReachableLabelCollection:
     ineligible_pairs: int
     nonflat_branch_states: int
     skipped_branches_without_reference: int
+    ineligible_outcomes: tuple[IneligiblePairOutcome, ...]
 
 
 def collect_reachable_state_labels(
@@ -90,6 +176,7 @@ def collect_reachable_state_labels(
         raise ValueError("candidate roster requires HOLD and non-HOLD actions")
     baseline_action = candidate_actions[0]
     samples: list[SyntheticPairedLabel] = []
+    invalid_outcomes: list[IneligiblePairOutcome] = []
     windows: list[tuple[int, int, int]] = []
     runs = 0
     ineligible = 0
@@ -130,6 +217,28 @@ def collect_reachable_state_labels(
                 ):
                     nonflat += 1
             if not pair.eligible_for_label:
+                baseline, baseline_reasons = _ineligible_arm_endpoint(
+                    pair.baseline_result,
+                    expected_intervals=stop - start,
+                    arm="baseline",
+                )
+                candidate_endpoint, candidate_reasons = _ineligible_arm_endpoint(
+                    pair.candidate_result,
+                    expected_intervals=stop - start,
+                    arm="candidate",
+                )
+                problems = (*baseline_reasons, *candidate_reasons)
+                invalid_outcomes.append(
+                    IneligiblePairOutcome(
+                        intervention_index=t,
+                        prefix_start_index=start,
+                        terminal_index=stop,
+                        candidate_action=candidate,
+                        reason_codes=tuple(problems or ("invalid_endpoint",)),
+                        baseline=baseline,
+                        candidate=candidate_endpoint,
+                    )
+                )
                 ineligible += 1
                 continue
             # Validate the money of both teacher branches *before* fitting.
@@ -169,7 +278,12 @@ def collect_reachable_state_labels(
         ineligible_pairs=ineligible,
         nonflat_branch_states=nonflat,
         skipped_branches_without_reference=skipped,
+        ineligible_outcomes=tuple(invalid_outcomes),
     )
 
 
-__all__ = ["ReachableLabelCollection", "collect_reachable_state_labels"]
+__all__ = [
+    "IneligiblePairOutcome",
+    "ReachableLabelCollection",
+    "collect_reachable_state_labels",
+]

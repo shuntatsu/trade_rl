@@ -537,6 +537,14 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         assert all(dof >= 1.0 for dof in b.b1c_residual_dof)
         assert b.distinct_decision_times > 0
         assert b.ineligible_pairs >= 0
+        assert len(b.ineligible_pair_outcomes) == b.ineligible_pairs
+        assert b.to_mapping()["ineligible_pair_outcomes"] == [
+            dict(record) for record in b.ineligible_pair_outcomes
+        ]
+        assert all(
+            record["schema"] == "decision_value_ineligible_pair_v1"
+            for record in b.ineligible_pair_outcomes
+        )
         assert b.nonflat_branch_states >= 0
         assert len(b.covariate_shift) > 0
         assert {r["scope"] for r in b.covariate_shift} == {"symbol", "global"}

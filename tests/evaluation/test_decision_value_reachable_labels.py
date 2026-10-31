@@ -346,3 +346,49 @@ def test_td8_reference_vintage_is_immune_to_future_train_window_features() -> No
         proposals.append(policy.decide_portfolio(snapshot))
     assert np.array_equal(fitted_coefs[0], fitted_coefs[1])
     assert proposals[0] == proposals[1]
+
+
+def test_ineligible_pair_preserves_negative_outcomes_reasons_and_endpoints(
+    monkeypatch,
+) -> None:
+    """Do not throw away insolvency losses just because no label can be fitted."""
+    import json
+    from dataclasses import replace
+
+    import trade_rl.evaluation.decision_value_reachable_labels as owner
+
+    market = signal_market(200, seed=7)
+    original = owner.run_paired_portfolio_action
+
+    def stopped_candidate(*args, **kwargs):
+        pair = original(*args, **kwargs)
+        damaged = replace(
+            pair.candidate_result.book,
+            insolvent=True,
+            termination_reason="insolvency",
+            cash=90000.0,
+        )
+        return replace(
+            pair,
+            candidate_result=replace(pair.candidate_result, book=damaged),
+            eligible_for_label=False,
+            delta_per_initial_capital=None,
+        )
+
+    monkeypatch.setattr(owner, "run_paired_portfolio_action", stopped_candidate)
+    collection = _collect(market, _provider(market), branch_indices=(40,))
+    assert collection.ineligible_pairs == len(_CANDIDATES) - 1
+    assert collection.samples == ()
+    assert len(collection.ineligible_outcomes) == collection.ineligible_pairs
+    for failure in collection.ineligible_outcomes:
+        record = failure.to_mapping()
+        assert json.loads(json.dumps(record, allow_nan=False)) == record
+        assert record["schema"] == "decision_value_ineligible_pair_v1"
+        assert record["candidate"]["termination_reason"] == "insolvency"
+        assert record["candidate"]["insolvent"] is True
+        assert record["candidate"]["settled_label_eligible"] is False
+        assert record["baseline"]["settled_label_eligible"] is True
+        assert record["candidate"]["terminal_marked_equity"] == "90000.0"
+        assert "candidate_insolvent" in record["reason_codes"]
+        assert "candidate_terminated" in record["reason_codes"]
+        assert record["candidate_action"] != [_H, _H]

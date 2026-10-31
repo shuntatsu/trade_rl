@@ -776,6 +776,7 @@ class DecisionValueBlockResult:
     skipped_branches_without_reference: int
     feature_transform_digest: str
     covariate_shift: tuple[dict[str, object], ...]
+    ineligible_pair_outcomes: tuple[dict[str, object], ...] = ()
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -799,6 +800,9 @@ class DecisionValueBlockResult:
             "b1c_residual_dof": list(self.b1c_residual_dof),
             "distinct_decision_times": self.distinct_decision_times,
             "ineligible_pairs": self.ineligible_pairs,
+            "ineligible_pair_outcomes": [
+                dict(r) for r in self.ineligible_pair_outcomes
+            ],
             "nonflat_branch_states": self.nonflat_branch_states,
             "skipped_branches_without_reference": (
                 self.skipped_branches_without_reference
@@ -1262,6 +1266,7 @@ class _BlockTraining:
     models: dict[str, object]
     b1c_dof: tuple[float, ...]
     margins: dict[str, MarginSelection]
+    ineligible_pair_outcomes: tuple[dict[str, object], ...]
 
 
 def _train_block(
@@ -1400,6 +1405,9 @@ def _train_block(
         models=models,
         b1c_dof=tuple(dof),
         margins=margins,
+        ineligible_pair_outcomes=tuple(
+            record.to_mapping() for record in collection.ineligible_outcomes
+        ),
     )
 
 
@@ -1838,6 +1846,7 @@ def run_decision_value_dev_study(
                 b1c_residual_dof=training.b1c_dof,
                 distinct_decision_times=distinct_times,
                 ineligible_pairs=ineligible_pairs,
+                ineligible_pair_outcomes=training.ineligible_pair_outcomes,
                 nonflat_branch_states=nonflat_states,
                 skipped_branches_without_reference=skipped_branches,
                 feature_transform_digest=transform_digest,

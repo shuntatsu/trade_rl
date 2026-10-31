@@ -269,6 +269,10 @@ def _eligible_pair_evidence(
                 "horizon_bars": horizon_bars,
                 "candidate_roster_digest": candidate_roster_digest,
                 "observation_available_at_ns": observation_available_at_ns,
+                # Bind the native pre-intervention replay to the teacher-vintage
+                # identity. A single opaque prefix_identity_digest cannot be
+                # reconstructed or checked at the batch boundary.
+                "native_prefix_digest": prefix_digests[0],
             }
         )
     return {**payload, "evidence_digest": content_digest(payload)}

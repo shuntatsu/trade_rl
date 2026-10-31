@@ -490,11 +490,23 @@ def _validate_sample_pair_evidence(sample: SyntheticPairedLabel) -> None:
             "study_protocol_digest",
             "risk_config_digest",
             "candidate_roster_digest",
+            "native_prefix_digest",
         ):
             value = receipt.get(field_name)
             if not isinstance(value, str):
                 raise ValueError(f"TD8 {field_name} is missing")
             _digest(value, field=field_name)
+        expected_prefix_digest = content_digest(
+            {
+                "dataset_id": sample.dataset_id,
+                "prefix_start_index": vintage.prefix_start_index,
+                "intervention_index": sample.observation.index,
+                "native_prefix_digest": receipt["native_prefix_digest"],
+                "reference_vintage_digest": vintage.vintage_digest,
+            }
+        )
+        if receipt.get("prefix_identity_digest") != expected_prefix_digest:
+            raise ValueError("TD8 reference vintage/native prefix identity mismatch")
     prefix_digest = receipt.get("prefix_identity_digest")
     if not isinstance(prefix_digest, str):
         raise ValueError("sample prefix identity digest is missing")

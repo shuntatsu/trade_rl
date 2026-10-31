@@ -213,11 +213,12 @@ def _valid_software_payload(
     report = record.get("report")
     diff_sha256 = record.get("diff_sha256")
     if (
-        record.get("head_sha") != head_sha
+        record.get("schema") != _SOFTWARE_RECEIPT_SCHEMA
+        or record.get("head_sha") != head_sha
         or not _SHA_PATTERN.fullmatch(head_sha)
         or _positive_id(record.get("publisher_user_id")) != publisher_id
         or record.get("scope") != "software-only"
-        or record.get("disposition") not in {"APPROVED", "BLOCKED"}
+        or record.get("disposition") != "APPROVED"
         or record.get("review_result") != "PASS"
         or type(record.get("blocking_findings")) is not int
         or record.get("blocking_findings") != 0

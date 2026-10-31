@@ -356,7 +356,7 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `artifacts`
 
-汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`はstaging directoryの同一filesystem renameを使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。copy fallbackでatomic性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
+汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`はstaging directoryの同一filesystem **no-replace** rename（Linux `renameat2(RENAME_NOREPLACE)`、macOS `renamex_np(RENAME_EXCL)`、Windows既存先拒否）を使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。未対応環境はfail-closedとし、通常POSIX renameやcopy fallbackでatomic性と排他性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
 
 ### `data`
 

@@ -1,0 +1,293 @@
+"""Read-only GitHub Issue / PR / branch inventory, never cleanup authority."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+from typing import Any
+
+from tools.agent_repo.coordination.github_state import parse_status_comment
+from tools.branch_hygiene import BranchInfo, GitHubApi
+
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+_TASK_MARKER = "<!-- agent-coordination:"
+
+
+def _mapping(value: Any, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be an object")
+    return value
+
+
+def _sha(value: Any, name: str) -> str:
+    if not isinstance(value, str) or not _SHA.fullmatch(value):
+        raise ValueError(f"{name} must be an exact commit SHA")
+    return value
+
+
+def _number(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def classify_ancestry(compare: dict[str, Any]) -> str:
+    """Interpret the GitHub compare endpoint for PR_HEAD...CURRENT_MAIN."""
+    ahead = compare.get("ahead_by")
+    behind = compare.get("behind_by")
+    if (
+        isinstance(ahead, bool)
+        or isinstance(behind, bool)
+        or not isinstance(ahead, int)
+        or not isinstance(behind, int)
+        or ahead < 0
+        or behind < 0
+    ):
+        raise ValueError("compare ahead/behind counts must be nonnegative integers")
+    if ahead == 0 and behind == 0:
+        comparison_status = "identical"
+        relationship = "identical"
+    elif ahead > 0 and behind == 0:
+        comparison_status = "ahead"
+        relationship = "head_in_main"
+    elif ahead == 0 and behind > 0:
+        comparison_status = "behind"
+        relationship = "main_in_head"
+    else:
+        comparison_status = "diverged"
+        relationship = "diverged"
+    if compare.get("status") != comparison_status:
+        raise ValueError("GitHub compare status conflicts with ahead/behind counts")
+    return relationship
+
+
+def _pull_identity(
+    value: Any, repository: str
+) -> tuple[int, str, str, str, str | None]:
+    """Stable reference identity, ignoring mutable title/updated_at metadata."""
+    pr = _mapping(value, "open PR")
+    number = _number(pr.get("number"), "PR number")
+    head = _mapping(pr.get("head"), "PR head")
+    base = _mapping(pr.get("base"), "PR base")
+    base_repo = _mapping(base.get("repo"), "PR base repository")
+    if base_repo.get("full_name") != repository:
+        raise ValueError("PR base points at a different repository")
+    base_name = base.get("ref")
+    if not isinstance(base_name, str) or not base_name:
+        raise ValueError("PR base branch missing")
+    base_sha = _sha(base.get("sha"), "PR base SHA")
+    head_sha = _sha(head.get("sha"), "PR head SHA")
+    head_name: str | None = None
+    head_repo = head.get("repo")
+    if isinstance(head_repo, dict) and head_repo.get("full_name") == repository:
+        raw_name = head.get("ref")
+        if not isinstance(raw_name, str) or not raw_name:
+            raise ValueError("local PR head branch missing")
+        head_name = raw_name
+    return number, head_sha, base_name, base_sha, head_name
+
+
+class GitHubWorkApi:
+    """Read-only public adapter; the underlying shared client is not a security boundary."""
+
+    def __init__(self, *, repository: str, token: str) -> None:
+        self._reader = GitHubApi(
+            repository=repository, token=token, api_url="https://api.github.com"
+        )
+        self.repository = repository
+
+    def repository_default_branch(self) -> str:
+        return self._reader.repository_default_branch()
+
+    def branches(self) -> tuple[BranchInfo, ...]:
+        return self._reader.branches()
+
+    def open_pulls(self) -> list[Any]:
+        return self._reader._list_pages("pulls", state="open")
+
+    def open_issues(self) -> list[Any]:
+        return self._reader._list_pages("issues", state="open")
+
+    def issue_comments(self, issue_number: int) -> list[Any]:
+        return self._reader._list_pages(f"issues/{issue_number}/comments")
+
+    def compare_head_to_main(self, head_sha: str, main_sha: str) -> str:
+        head = _sha(head_sha, "head_sha")
+        main = _sha(main_sha, "main_sha")
+        payload = self._reader._request_json("GET", f"compare/{head}...{main}")
+        return classify_ancestry(_mapping(payload, "compare"))
+
+
+def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[str, Any]:
+    """Make a deterministic, non-authoritative snapshot. Never return delete eligibility."""
+    default = api.repository_default_branch()
+    branches = api.branches()
+    main_candidates = [branch for branch in branches if branch.name == default]
+    if len(main_candidates) != 1:
+        raise RuntimeError("default branch is absent or ambiguous")
+    main_sha = _sha(main_candidates[0].sha, "main SHA")
+
+    branch_tips = {branch.name: _sha(branch.sha, "branch SHA") for branch in branches}
+    if len(branch_tips) != len(branches):
+        raise RuntimeError("branch list contains duplicate names")
+
+    open_names = {default, "provenance/branch-retention"}
+    pulls: list[dict[str, Any]] = []
+    pull_identities: list[tuple[int, str, str, str, str | None]] = []
+    seen_pr_numbers: set[int] = set()
+    for item in api.open_pulls():
+        number, head_sha, base_name, base_sha, head_name = _pull_identity(
+            item, api.repository
+        )
+        if number in seen_pr_numbers:
+            raise RuntimeError(f"duplicate open PR number: {number}")
+        seen_pr_numbers.add(number)
+        pull_identities.append((number, head_sha, base_name, base_sha, head_name))
+        open_names.add(base_name)
+        if head_name is not None:
+            if branch_tips.get(head_name) != head_sha:
+                raise RuntimeError(f"local PR head tip is absent or changed: #{number}")
+            open_names.add(head_name)
+        # A forked or unavailable head is not comparable as a local branch tip.
+        # Unknown ancestry remains explicit; this inventory never permits cleanup.
+        relation_to_main = "not_checked"
+        if compare_prs:
+            relation_to_main = (
+                api.compare_head_to_main(head_sha, main_sha)
+                if head_name is not None
+                else "nonlocal_head_uncompared"
+            )
+        pulls.append(
+            {
+                "number": number,
+                "head_sha": head_sha,
+                "head_ref": head_name,
+                "base": base_name,
+                "base_sha": base_sha,
+                "relation_to_main": relation_to_main,
+            }
+        )
+
+    task_branches: set[str] = set()
+    task_ids: set[str] = set()
+    open_issues = 0
+    issue_ids: set[int] = set()
+    for item in api.open_issues():
+        issue = _mapping(item, "open Issue")
+        if "pull_request" in issue:
+            continue
+        issue_number = _number(issue.get("number"), "Issue number")
+        if issue_number in issue_ids:
+            raise RuntimeError(f"duplicate open Issue number: {issue_number}")
+        issue_ids.add(issue_number)
+        open_issues += 1
+        for entry in api.issue_comments(issue_number):
+            comment = _mapping(entry, "Issue comment")
+            body = comment.get("body")
+            if not isinstance(body, str):
+                raise ValueError("Issue comment body is missing")
+            if _TASK_MARKER not in body:
+                continue
+            try:
+                record = parse_status_comment(body)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Issue #{issue_number} contains an invalid Coordinator projection"
+                ) from exc
+            if record.task_id in task_ids:
+                raise RuntimeError(f"duplicate Coordinator Task ID: {record.task_id}")
+            task_ids.add(record.task_id)
+            if record.lease_branch is not None:
+                task_branches.add(record.lease_branch)
+
+    # A changed or duplicated API page is not one coherent inventory snapshot.
+    if sorted(pull_identities) != sorted(
+        _pull_identity(item, api.repository) for item in api.open_pulls()
+    ):
+        raise RuntimeError("open PR refs changed during inventory")
+    latest_issue_ids = [
+        _number(item.get("number"), "Issue number")
+        for item in map(lambda value: _mapping(value, "open Issue"), api.open_issues())
+        if "pull_request" not in item
+    ]
+    if sorted(latest_issue_ids) != sorted(issue_ids):
+        raise RuntimeError("open Issue roster changed during inventory")
+    if tuple(sorted(api.branches(), key=lambda b: b.name)) != tuple(
+        sorted(branches, key=lambda b: b.name)
+    ):
+        raise RuntimeError("branch tips or protection changed during inventory")
+
+    observed_names = set(open_names) | task_branches
+    branch_rows = []
+    for branch in sorted(branches, key=lambda b: b.name):
+        if branch.name == default:
+            reason = "default"
+        elif branch.name == "provenance/branch-retention":
+            reason = "retention"
+        elif branch.protected:
+            reason = "github_protected"
+        elif branch.name in open_names:
+            reason = "open_pr_ref"
+        elif branch.name in task_branches:
+            reason = "unverified_task_comment"
+        else:
+            reason = "unclassified"
+        branch_rows.append(
+            {
+                "name": branch.name,
+                "sha": _sha(branch.sha, "branch SHA"),
+                "reason": reason,
+            }
+        )
+
+    return {
+        "schema": "github_work_inventory_v1",
+        "repository": api.repository,
+        "main_sha": main_sha,
+        "open_issue_count": open_issues,
+        "open_pr_count": len(pulls),
+        "task_projection_count": len(task_ids),
+        "task_projection_trusted": False,
+        "task_scope": "open_issue_comments_only",
+        "pr_base_sha_semantics": "historical_ref_not_current_branch_tip",
+        "task_registry_complete": False,
+        "workflow_activity_checked": False,
+        "cleanup_authorized": False,
+        "pull_requests": sorted(pulls, key=lambda pr: pr["number"]),
+        "branches": branch_rows,
+        "unclassified_branches": sorted(
+            b.name for b in branches if b.name not in observed_names and not b.protected
+        ),
+        "warning": (
+            "This is a read-only, incomplete Task projection. The author of a "
+            "Coordinator-shaped Issue comment has not been authenticated. Closed "
+            "Issue leases, unregistered work, active workflow runs, and coordinator "
+            "ownership remain unverified; a stable readback is not an atomic "
+            "snapshot. Never use as deletion authority."
+        ),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repository", default="shuntatsu/trade_rl")
+    parser.add_argument("--compare-prs", action="store_true")
+    args = parser.parse_args()
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        parser.error("GH_TOKEN or GITHUB_TOKEN is required for GitHub inventory")
+    api = GitHubWorkApi(repository=args.repository, token=token)
+    print(
+        json.dumps(
+            build_inventory(api, compare_prs=args.compare_prs),
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

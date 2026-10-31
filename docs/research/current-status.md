@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-25 (JST)
+更新基準: 2026-10-28 (JST)
 
 ## 結論
 
@@ -19,12 +19,14 @@ Issue #810では4方式shared-cash比較のソフトウェアを統合し、M34�
 
 `strategies/portfolio_adapter.py` は、その既存portfolio seamへexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy`を接続するopt-in adapterと、固定rosterの明示cash zero-target policyを提供する。filled sideはcurrent snapshotのexact quantityから導き、strategy callbackにはcurrent row/account factsと結果前に固定したper-symbol budgetを渡す。任意のlegacy strategy parity、cached-target/minimum-hold/pending-aware semantics、exact-quantity HOLD、joint PPO trainingは追加しない。hard risk・pending-order reconciliation・fill・cost・accountingは既存のshared portfolio session/native ownerが維持する。この実装はsoftware interface preparationであり、新しいfit/replay/選択、経済結果、Dataset/profile/fit provenance、profitability evidenceではない。
 
-P0 software declarations now identify fixed-initial-capital net-profit,
-account mode, finite financial clock, and exact evaluation-window binding in
-`trade_rl.simulation.objectives`. They are opt-in pure contracts only: they do
-not read a ledger, connect a reward to PPO, change its legacy defaults, or
-produce training/replay evidence. The M34 screen classification and every
-existing economic criterion remain unchanged.
+P0 software declarations identify fixed-initial-capital net-profit, account
+mode, finite financial clock, and exact evaluation-window binding in
+`trade_rl.simulation.objectives`. They remain pure ledger-independent contracts.
+The opt-in `SharedPortfolioGymEnv` requires a bound objective/clock and uses
+gamma-one equity-delta reward, while `fit_shared_portfolio_ppo` checks the
+bound clock. This is a software runtime connection, not reward/ledger oracle,
+economic learnability, real-data training, Study authorization, or profitability
+evidence. Legacy per-symbol PPO defaults and the M34 classification are unchanged.
 
 `SharedPortfolioGymEnv` is now an opt-in joint Gym adapter over the same
 strategy-owned snapshot builder and simulation-owned `SharedPortfolioSession`.
@@ -221,11 +223,392 @@ Issue #810のP4にある残差PPO比較armとzero-residual parityはこのscreen
 
 元のNONRL 48-cell gateは別の評価で、registryは1 interrupted・47 unattempted・0 completeの未完了状態を保つ。このM34 screenはそのgateを完了させず、screen結果はforward profitability、winner、future persistence、live order authorizationを確立しない。今回の一度の結果を再実行・retuneしていない。別の試行を始める場合は新しいprotocol、result-blind review、実行許可が必要となる。
 
+## Issue #810 P2: cost-aware multi-symbol allocator seam (software only; 2026-10-29)
+
+`trade_rl.strategies.allocation` adds a `PortfolioPolicy` allocator and an equal-weight
+buy-and-hold control for the P2 net-of-fee non-RL line (causal forecast packets ->
+cost-aware allocation -> one continuous shared-account walk-forward, compared with
+CASH and buy-and-hold). The allocator maximizes `mu.w - (gamma/2) w'Sigma w - sum c_i |dw_i|`
+under weight and gross limits with a tolerance-accurate solver (coordinate descent with
+active-set Newton steps; a solution is accepted only after a KKT optimality check), uses an EWMA
+covariance of decision-time marks at or before the decision time, retargets only on its
+daily schedule, and holds exact quantities whenever an input or the solver fails. The
+expected-return source is caller supplied; no forecast model, data, replay result or
+selection is part of this change. It is not a profitability claim and changes no existing
+economic criterion.
+
+## Issue #810 P2: development real-data walk-forward study (NO_WINNER; 2026-10-29)
+
+`trade_rl.evaluation.dev_realdata_study` ran the preregistered P2 study (final reported run; see Run record) on the local development Dataset (5 USDT-perpetual symbols, 1h bars 2021-01..2026-08, zero fees baked in, costs applied by the replay: fee 0.05%/side, spread 0.02%, impact 0.01%, participation cap 5%). Pooled Ridge (alpha 10, 56 `1h__` non-funding features, expanding window, 30-day refit) gave 24h and 72h log forecasts; the cost-aware allocator (gamma 5, w_max 0.5, gross 0.95) traded daily at 00:00 UTC inside one continuous 10,000 USDT shared-account replay per arm and scenario over 2023-01-01..2026-08-01, settled flat at the end. The frozen protocol (all parameters, arm roster, selection rule, recorded deviations) is `dev_realdata_study/protocol.py`; the compact result is `report/dev-realdata-study-p2-20261029.json`.
+
+Result: **NO_WINNER**. Terminal net profit / max drawdown (%):
+
+| Arm | base | cost x2 | +1 bar latency |
+| --- | ---: | ---: | ---: |
+| CASH | 0.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 |
+| equal-weight buy-and-hold | +95.9 / 63.4 | +95.7 / 63.4 | +95.9 / 63.4 |
+| allocator 24h long/short | -50.4 / 58.8 | -71.1 / 76.0 | -56.7 / 64.3 |
+| allocator 72h long/short | -19.7 / 53.1 | -65.0 / 66.5 | -63.8 / 67.5 (invalid) |
+| allocator 24h long-only | +22.4 / 49.7 | -7.1 / 55.2 | +66.5 / 53.2 |
+
+Every allocator arm breached the 20% drawdown gate (worst 55% to 76%), and none beat CASH under both base and cost x2 together with the gate. The 72h latency row failed the runner's terminal-flat validity check (`runner.reconcile_ledger`; this is a runner rule, not a field of the frozen protocol) and is marked invalid, but the cash-flow identity itself reconciled (cash residual 1.5e-11 USDT). Root cause, diagnosed by re-running that one replay with ledger capture for diagnosis only (not a new study run; nothing in the result changed): the account ended with a 0.006 ETH short (11.17 USDT at the final mark, 0.3% of terminal equity) that the allocator's 0.5%-of-equity minimum-trade rule had left open as dust, and both terminal flatten orders were rejected by the executor with `below_minimum_notional` (ETHUSDT minimum notional 20 USDT from the frozen exchange-rule snapshot, applied to the closing order; in this study's configuration (no `market_order_profile` / `reduce_only_exits`) the executor does not exempt reduce-only closes from the ordinary minimum notional, whereas `MarketExecutor.order_minimum_notional` exempts a reduce-only closing order only when `intent.reduce_only` is set and `profile.rule_for(symbol)` is not None, see `trade_rl/simulation/execution.py`). It is an executor limit, not a ledger or runner error, so no replay was rerun and the label is unchanged: every allocator arm breaches the 20% drawdown gate in every scenario regardless. All other replays reconciled against raw fills to under 1e-9 USDT, and the real-data future-perturbation causality probe embedded in the run passed (it covers allocator-24h in the base scenario over 2023-01..2023-07 only; a post-hoc probe over every arm and scenario is recorded below). No allocator decision ended as a fail-closed HOLD (0 of 1,308 per arm/scenario). Equal-weight buy-and-hold beat every allocator arm in the base scenario; the 20-day block-bootstrap CIs of daily excess versus CASH include zero for every allocator arm and scenario, both unadjusted 95% and Bonferroni-adjusted (7 comparisons per scenario). Versus buy-and-hold only the Bonferroni-adjusted intervals all include zero: three unadjusted 95% intervals exclude zero, all on the negative side (annualized excess): 24h long/short under cost x2 [-1.08, -0.12], 72h long/short under cost x2 [-1.00, -0.07], and 72h long/short under +1 bar latency [-1.03, -0.04] (the last is from the invalid replay). No unadjusted interval is positive.
+
+What this does and does not show (base scenario, USDT on 10,000 capital). Forecast |mu| (about 0.36% per day) exceeded the one-way cost (0.07%) on about 86% of days, so the allocator traded almost every day (turnover 677 to 1,090 over 3.6 years). Gross price P&L / execution cost / funding: 24h long/short +158 / 5,097 / -99; 72h long/short +4,648 / 6,304 / -309; 24h long-only +9,275 / 6,075 / -958; buy-and-hold +14,753 / 24 / -5,143. Execution cost exceeded the gross price P&L of both long/short arms and consumed about two thirds of the long-only arm's. The allocator cost `c_i` (fee + spread) is a lower bound because participation impact is charged by the executor but not modelled by the allocator. Funding was a drag on the long-biased arms. The long-only arm's latency row is far better than base (+66.5% versus +22.4%) while its cost x2 row is negative, which indicates high sensitivity to execution assumptions rather than robustness.
+
+Dataset provenance (added after independent review). The study Dataset (`dataset_id` 0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174, artifact digest 9f00e17c2f3de700f3a9ff08d41dea312ff61c143d85514b73e0cd84e03cd381) was first built by an uncommitted scratch script that monkeypatched the Binance source. That procedure is now committed as `python -m trade_rl.evaluation.dev_realdata_study.dataset_build --archive-root data/breakeven-2020-2026/vision --exchange-info-dir data/bot-development-2024q1/exchange-info --output-dir <new dir>` (offline, refuses a non-empty output, no replay), built on an explicit `BinanceGapPolicy` option of `build_binance_market_dataset` (default `STRICT`, unchanged behaviour) and a 1h-to-4h/1d aggregating transport. Pinned gap policy (`DATASET_BUILD_POLICY`, digest 3d82d2daf28a341d333f8121b79221853dd379c8861ac7d80c03fd202e4e1a03): a missing 1h bar is a non-tradable row with forward-filled marks and no funding accrual; 4h/1d bars are aggregated from complete 1h windows; a 4h/1d window touching a gap is a price-carried placeholder with `available_at` = range end, so recursive higher-clock features stay unavailable afterwards. Inputs: 670 local Binance Vision monthly archives (5 symbols x 1h klines and funding, 2021-01..2026-07; raw-source roster digest ef2780f0891bbd996f83819a4c0b0124b01dc1addf2bb336c0ac97ef51a13164, source-evidence digest cb7072eae9045f11cbabca007f9cd7829a368520b17a286533747eacf1079f42) plus the frozen current-snapshot exchange information of `data/bot-development-2024q1` (rules applied statically, not point-in-time); archives were re-keyed into the transport cache with a local SHA-256 sidecar (its `acquired_at` field holds the local source file's modification time, not a download time; the field name is fixed by the cache schema and the sidecar is not part of `dataset_id` or the artifact digest) because the official `.CHECKSUM` files are unavailable offline. The only gap is XRPUSDT: 120 missing 1h bars (2022-02-26..28, 2022-04-01..02), 30 incomplete 4h and 5 incomplete 1d windows; 14 funding events fall inside the 1h gaps and are not accrued on the 1h clock. Reproduction: a fresh offline build into a new directory gave the SAME `dataset_id` and artifact digest, so the committed builder is the same procedure and the study was not rerun. The committed protocol digest 7adc12e8... is unchanged (the build policy is a separate constant, committed after the run).
+
+Run record and extended causality probe. The committed summary records `git_head` fe36b7c11 and the protocol digest, but not start time, CLI arguments or the number of executions. `report/dev-realdata-study-p2-20261029-provenance.json` adds what local files show: the reported outputs' SHA-256 and write time (2026-10-29 08:19 UTC+09:00), and that the protocol was executed in full at least once before (head d11f03106, 07:55, same protocol digest, label NO_WINNER too) on code that predates the allocator-solver hardening; its numbers differed (for example allocator 24h long-only base +13.1% instead of +22.4%) and it was superseded, not selected. The code that differs between the two executions (`git log d11f03106..fe36b7c11`) is the PR-B review fix `b52f21fbb`: the allocation solver was hardened (active-set Newton acceleration, exact line search, and a KKT optimality certificate before a solution is accepted; the previous solver returned tolerance-converged coordinate-descent results without a certificate), `buy_and_hold` now holds instead of raising after account termination, and the cost-rate docstring states the lower bound; the rest is tests, docs and guide fingerprints. The PR-A fitter-isolation fix (`c23c2a3c1`) was already in `d11f03106`. So the change was a review-driven correctness/hardening fix to solver accuracy, made independently of the study results (it addressed the #1036 review of the solver and is covered by synthetic-instance tests), but git alone does not show how far the earlier solver's weights were from the optimum, so the numeric differences are attributed to it, not independently quantified. Thus "run once" is withdrawn: no protocol parameter was changed between executions and only the final run is reported, but the earlier execution was seen. The same file records a post-hoc causality probe for every arm and scenario (5 arms x 3 scenarios, evaluation start 2023-01-01, future perturbed after 2023-03-01, 59 daily decisions each): all 15 pre-cut traces were bit-identical to the unperturbed ones (`runner.causality_probe_matrix`; the run's embedded probe covered allocator-24h in the base scenario over 2023-01..2023-07 only).
+
+Limits: this is development evidence only and never a WINNER. The 2023-2026 data were already seen by the earlier breakeven diagnostic, so it is not confirmatory; one fixed configuration per arm, no parameter was changed between runs (but see Run record: the study was executed more than once). Costs are fixed assumptions, not calibrated to realized execution; XRP lacks 120 bars in 2022 (non-tradable, forward-filled marks); 4h/1d features are aggregated from 1h and unused here; features are the 1h roster only. Confirmatory evaluation would need the unused window and a separate authorization.
+
+## Issue #810 P2: Phase 2 trial registry T1-T8 (NO_WINNER under the PR-C validity rule; DEVELOPMENT_PROMISING only under an amended rule; 2026-10-29)
+
+Eight fixed expected-return configurations (`trials.py`, registry JSON `report/issue810-phase2-trial-registry-20261029.json`) were replayed through the same continuous shared-account replay, allocator parameters, costs, three scenarios and selection rule as the PR-C study above, together with the five PR-C arms re-run in the same code (their numbers reproduce the PR-C table to its reported precision). Files: `report/issue810-phase2-trial-results-20261029.json` (result, both labels), `report/issue810-phase2-trial-execution1-summary-20261029.json` (execution 1, unmodified), `report/issue810-phase2-trial-provenance-20261029.json` (executions, erratum, amendment, deviations). Development evidence only: 2023-01..2026-08 was already used by PR-C and the breakeven diagnostic, so it is not confirmatory and never a WINNER.
+
+**Headline labels, side by side (the first is primary).**
+
+| Validity rule for the causality probe | Label | Selected |
+| --- | --- | --- |
+| PR-C rule: identical pre-cut decisions/traces AND the arm traded before the cut (applied in execution 1) | **NO_WINNER** | none |
+| Amended rule: identical pre-cut decisions/traces, trades not required (applied in execution 2) | DEVELOPMENT_PROMISING | T1 |
+
+Both labels are computed by code (`trial_labels.py`) from the committed replay metrics plus the per-arm probe outcomes (execution 1's, or the result's own, which give the same labels); a fresh `trial_cli` run emits both, with the PR-C-probe-rule label as `label`; they differ only through T1, which does not trade before the 2023-07-01 probe cut and is therefore invalid under the PR-C rule. There were two full real-data executions (not one run); their 39 arm x scenario replay metrics are identical (checked by a test), so the executions differ only in the probe rule. The amendment was made in the code while execution 1 was running; its outputs had not been read, but earlier partial timing probes had printed T3 and buy-and-hold results (T3 base net profit 0.0% over 2023-01..2023-03, which looked like no trading). A synthetic test failure and the argument that T3's |mu| is below the one-way cost motivated it. Real data later showed T3 did trade before the cut and only T1 did not; no T1 output had been seen, but a non-trading T1 was foreseeable from the registered formula and the amendment may have been influenced by the T3 observation. The registry text states no trade requirement (it is inherited from the PR-C runner), yet the rule was reinterpreted after a real-data execution had started, so the PR-C-rule label is the one to read as primary.
+
+**Provenance of the registry (two stages).** Headline specs of T1-T8 were recorded in the planner's notes before the PR-C run started (a local planner log, T1-T8 at 2026-10-28T21:43:33Z, PR-C worker launched about 21:59Z; not in git and not publicly verifiable). Implementation details (T1 constant, T6 z-scoring and warmup, T7 overlay application, T8 mu x7, ...) were pinned after the PR-C result was known (PR-C result commit 4526c5170, about 23:21Z) and before any T1-T8 result; like stage 1, this timing is not publicly verifiable (git shows only that the first public record, commit ebada213d, is after the PR-C result commit and before the first real-data run). The trials were therefore designed knowing PR-C's overtrading outcome. The frozen registry JSON and digest are not edited; the correction is the erratum in the provenance JSON.
+
+Terminal net profit % / max drawdown % (base | cost x2 | +1 bar latency); the first five rows are the PR-C arms:
+
+| Arm | base | cost x2 | latency |
+| --- | ---: | ---: | ---: |
+| CASH | 0.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 |
+| EW buy-and-hold | 95.9 / 63.4 | 95.7 / 63.3 | 95.9 / 63.4 |
+| allocator 24h long/short | -50.4 / 58.8 | -71.0 / 76.0 | -56.7 / 64.2 |
+| allocator 72h long/short (invalid) | -19.7 / 53.1 | -65.0 / 66.5 | -63.8 / 67.5 |
+| allocator 24h long-only | 22.4 / 49.7 | -7.1 / 55.2 | 66.5 / 53.2 |
+| T1 TSMOM | 10.4 / 3.0 | 10.4 / 3.0 | 10.4 / 3.0 |
+| T2 cross-sectional momentum | 46.6 / 21.2 | 37.6 / 21.9 | 54.5 / 20.9 |
+| T3 funding carry (invalid) | -12.9 / 24.1 | -13.1 / 24.4 | -12.9 / 24.1 |
+| T4 Ridge24, all features | 250.5 / 43.0 | 42.9 / 40.5 | 154.4 / 45.8 |
+| T5 LightGBM24 | -26.5 / 53.1 | -32.5 / 54.1 | 25.0 / 42.9 |
+| T6 blend (Ridge24, T1, T3) | 61.5 / 43.1 | 54.8 / 40.4 | 108.0 / 38.0 |
+| T7 T6 + drawdown overlay | -21.2 / 23.1 | -20.7 / 21.2 | -24.2 / 24.7 |
+| T8 T6 weekly | 48.3 / 42.8 | 69.1 / 43.9 | 52.1 / 53.7 |
+
+Base-scenario P&L split in USDT on 10,000 capital (gross price / execution cost / funding): T1 +1,153 / 3 / -111; T2 +5,221 / 508 / -55; T3 -2,413 / 27 / +1,151; T4 +41,744 / 16,507 / -189; T5 +2,120 / 4,397 / -372; T6 +7,900 / 2,967 / +1,220; T7 -1,932 / 326 / +135; T8 +4,623 / 1,163 / +1,369. No allocator decision ended as a fail-closed HOLD in any arm or scenario. T1 is the only valid candidate that passes the 20% drawdown gate in all three scenarios and is profitable at base and cost x2; T2, T4, T6 and T8 also beat CASH at cost x2 but breach the gate (T2 narrowly, worst drawdown 21.9%; the others 43.1% to 53.7%).
+
+How thin T1 is. T1 averaged 5.8% gross exposure (24 trades, turnover 0.45 in 3.6 years) and earned +10.4% (CAGR 2.8%, max drawdown 3.0%, daily Sharpe 1.05) against +95.9% for buy-and-hold; its 95% bootstrap interval of annualised daily excess versus CASH excludes zero (+2.8% [+0.4%, +5.5%]) but the Bonferroni interval over 13 arms does not ([-0.6%, +6.6%]), and no Bonferroni interval excludes zero for any arm. Deviation from the plan text (declared in the provenance JSON): the registered T1 formula `mu = 2 * s * (0.20 / ann_vol) * one_way_cost` gives mean |mu| 0.00031 and median 0.00037 per day, about 0.45x and 0.53x the one-way cost, not "median |mu| ~ 2x one-way cost"; only 2.5% of decisions had |mu| above the cost. It was run as registered and not recalibrated. T1's cost was 3 USDT, so its flat result across cost x2 and latency says little about the cost model.
+
+Observations, to be read as hypotheses and not as tuned findings: (1) the low-signal-magnitude trials T1 and T3 (|mu| above the cost on 2.5% and 4.9% of days) pay almost no cost, whereas T2 trades heavily (2,278 trades, |mu| above cost on 70% of days) and the Ridge/LightGBM arms were above cost on 69% to 96% of days; T6/T8 trade less than the PR-C arms and T7 mostly sits flat; (2) T4 (all 1h/4h/1d features) earned the largest gross P&L but is highly execution-sensitive (+250% base, +43% at cost x2, +154% with latency) and fails the drawdown gate; (3) the T7 overlay, implemented as registered, latched at 0 on 2023-07-14 and, because a flat book cannot recover to 95% of its peak, stayed latched (1,114 of 1,308 decisions at scale 0, mean scale 0.07) while still losing 21%, so it is not a useful risk control as registered; (4) the only trials near or under 20% drawdown that stayed profitable at cost x2 were T1 (3.0%) and, marginally outside the gate, T2 (21.9%).
+
+Validity notes. Every trial passed the real-data future-perturbation probe (2023-07-01 cut, base) and the per-scenario causality matrix (2023-03-01 cut, three scenarios) on identical pre-cut decisions and traces. T3 and the PR-C 72h arm are invalid under the runner's terminal-flat rule: T3 ended with 13/5 XRPUSDT (2.76 USDT notional) left open, which the executor could not close under its minimum notional. Terminal-flat status and residual notional per trial and scenario are in the result JSON. Funding of a due row (for example the 00:00 settlement) is treated as known at the 00:00 decision, under this dataset's `available_at == timestamp` convention. The T1/T3 trailing std in the blend requires at least 30 finite pooled observations, a constant that is not in the frozen registry.
+
+Limits: one fixed configuration per trial with the registry's implementation decisions, no tuning, but two full executions, 13 arms compared and data that were already used; the PR-C-rule label is NO_WINNER and the amended-rule label rests on a validity rule changed after execution 1 started. Costs are fixed assumptions; the allocator cost is a lower bound (participation impact is charged only by the executor); T2 lacks the planned net-exposure constraint (demeaning only); the T7 overlay is applied as an exposure budget; XRP lacks 120 bars in 2022. Confirmatory evaluation needs the unused window and a separate authorization.
+
+## Issue #810 Phase 3: turnover aversion and volatility target (POST_HOC_PROMISING for P3-6; post hoc, not a profitability claim; 2026-10-29)
+
+Eight configurations (`phase3_registry.py`, registry JSON `report/issue810-phase3-trial-registry-20261029.json`) were chosen by the planner AFTER the Phase 2 results on the same development data were known, so they are POST_HOC_EXPLORATORY and not preregistered. The only public pre-run record is the Issue #810 comment https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6493851921 (created 2026-10-29T10:10:07Z, edited 10:10:19Z only to correct the Bonferroni arm count to 21), reproduced verbatim with its SHA-256 in the registry JSON, which was committed and pushed (a938fe33e) before the first real-data execution. Two opt-in, causal, in-policy mechanisms were added to the cost-aware allocator (defaults leave every decision bit-identical): `kappa` (the optimizer's L1 cost penalty is `kappa * c_i`, kappa 3; the replay's execution costs are unchanged) and `VT12` (if the ex-ante `sqrt(w' Sigma w * periods_per_year)` of the solved target exceeds 12%, the target is scaled by `0.12 / sigma_p` before the existing min-trade rule; `Sigma` is the allocator's own EWMA/shrunk covariance; non-finite volatility fails closed). Same dataset, period, capital, costs, stresses, metrics and PR-C selection rule as Phase 2; CASH and unscaled buy-and-hold were re-run in the same code and reproduce the Phase 2 numbers bit-identically. Files: `report/issue810-phase3-trial-results-20261029.json` (result), `...-provenance-...json` (executions, ledger, decisions), `...-registry-...json`.
+
+Terminal net profit % / max drawdown % (base | cost x2 | +1 bar latency); P3-7 and the two baselines are controls and cannot be selected:
+
+| Arm | base | cost x2 | latency |
+| --- | ---: | ---: | ---: |
+| CASH | 0.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 |
+| EW buy-and-hold (unscaled) | 95.9 / 63.4 | 95.7 / 63.3 | 95.9 / 63.4 |
+| P3-1 T4 + kappa3 | 133.2 / 42.1 | 47.8 / 50.2 | 159.4 / 45.6 |
+| P3-2 T4 + kappa3 + VT12 | 29.4 / 15.3 | -4.6 / 18.8 | 31.5 / 15.3 |
+| P3-3 T2 + VT12 | 24.0 / 8.6 | 17.7 / 9.6 | 23.9 / 8.6 |
+| P3-4 T6 + kappa3 + VT12 | 30.0 / 19.4 | 13.4 / 20.4 | 30.0 / 19.4 |
+| P3-5 T4 weekly + VT12 | 3.7 / 9.0 | -2.2 / 9.5 | 3.7 / 9.0 |
+| P3-6 z-blend(T2,T4) + kappa3 + VT12 | 43.6 / 12.5 | 19.9 / 13.6 | 43.5 / 12.5 |
+| P3-7 EW buy-and-hold + VT12 (control) | 38.5 / 21.6 | 38.3 / 21.7 | 38.5 / 21.6 |
+| P3-8 z-blend(T2,T4) long-only + kappa3 + VT12 | 48.4 / 22.7 | 37.4 / 23.9 | 48.4 / 22.7 |
+
+Base-scenario P&L split in USDT on 10,000 capital (gross price / execution cost / funding): P3-1 +24,946 / 11,665 / +39; P3-2 +6,620 / 3,684 / +9; P3-3 +2,984 / 630 / +43; P3-4 +3,867 / 1,460 / +589; P3-5 +772 / 620 / +220; P3-6 +6,518 / 2,204 / +41; P3-7 +4,653 / 26 / -774; P3-8 +6,362 / 1,090 / -432.
+
+**Labels.** PR-C probe rule (primary): **POST_HOC_PROMISING, selected P3-6**. Amended rule (secondary, for continuity): POST_HOC_PROMISING, P3-6. Eligible under the rule (valid, max drawdown <= 20% in all three scenarios, profit > 0 at base and cost x2): P3-3 and P3-6 only; P3-6 has the higher base profit. P3-1, P3-4 and P3-8 breach the drawdown gate (50.2%, 20.4%, 23.9%); P3-2 and P3-5 do not beat CASH at cost x2. All arms were valid under both rules; every causality probe and matrix cell was identical.
+
+**How thin this is.** P3-6's annualised daily excess over CASH is +10.7% with a 95% block-bootstrap interval of [-0.2%, +22.8%] (Phase 3 family Bonferroni 0.05/8: [-3.6%, +27.3%]; all-21-arms 0.05/21: [-5.9%, +27.9%]), i.e. not distinguishable from zero even before adjustment; at cost x2 it is +5.7% [-5.2%, +17.9%]. Against the vol-scaled passive control P3-7 it is +0.8% [-14.6%, +17.6%]: a daily vol-capped equal-weight long book earned +38.5% at 21.6% drawdown, so most of the risk-gated return of the label winner is available from volatility targeting alone. P3-6 earned +43.6% at CAGR 10.6% with mean gross exposure 0.35, net exposure 0.04 and daily Sharpe 0.96; per-year base returns +13.1%, +11.6%, +20.6% (2023-2025) and -5.7% (2026 to August). Its cost-x2 profit halves (19.9%). Unscaled buy-and-hold made 95.9% with a 63% drawdown. P3-1 (the highest-gross arm, +24,946 gross) shows that kappa 3 cut T4's cost from 16.5k to 11.7k USDT while its drawdown stayed at 42% to 50%; the second-highest, P3-2 (+6,620 gross), is volatility-gated.
+
+**Executions (both counted).** Two full executions at code head a938fe33e. Execution 1 (12:38Z, 10 workers) failed on memory while loading the dataset in worker processes: six of ten arms (CASH, buy-and-hold, P3-1, P3-2, P3-4, P3-5) had no results, and the CLI raised in its post-run reproduction check before writing the summary. Its `full_results.json` was opened afterwards and the four complete arms' results and the partial-roster labels (also POST_HOC_PROMISING, P3-6) were seen before execution 2 (12:46Z, 5 workers, same code and parameters) was launched. The four overlapping arms are bit-identical between the executions (summaries, equity arrays, probes). Only execution 2 is reported; the public record's "each run once" was not literally true. The execution ledger is in the provenance JSON.
+
+Decisions not in the public record (all fixed before the first execution, see the registry notes): VT's `periods_per_year` is 8760 / decision interval (365 daily, 52.14 for the weekly P3-5); P3-7 keeps its drifted composition and re-sets its gross daily (a control, never selected); P3-5 is T4 with mu x7 on Monday 00:00 UTC; z-blend(T2,T4) is the T6 construction with two components scaled by T4's trailing std; the causality matrix is part of both validity rules (stricter than Phase 2's primary rule); P3-5 had one fail-closed `invalid_forecast` HOLD; the min-trade rule lets final book volatility exceed 12% slightly (allocator arms max 12.3% to 12.7%; the passive control P3-7 reaches 13.2%).
+
+Limits: development evidence only, post hoc, 21 development arms compared on data already used by PR-C, Phase 2 and the breakeven diagnostic; costs are fixed assumptions (allocator `c_i` is a lower bound); not confirmatory; not a profitability claim. Assurance: G0-G2 (`docs/architecture/research-assurance.md`) were NOT established result-blind before the Phase 3 economics were generated, and no retroactive review can be result-blind now that the numbers are public. The Phase 3 numbers are development diagnostics only, and the Phase 3 tests are contract tests of the mechanisms, not G2 approval. P3-6 is NOT a G4 candidate and must not be frozen or sealed for forward evaluation until a fresh result-blind G0-G2 review of the kappa, VT12, z-blend, weekly and passive-control mechanisms has been done in a new, separately authorized step; no sealed forward evaluation is scheduled or authorized. The independent software review of the PR (BLOCKED at 9c0c963ca on exactly this point, and read after the results) is not a G0-G2 review. No live or paper orders.
+
+Scope choices to read with the label: (1) the selection pool is the seven Phase 3 allocator arms; Phase 2 arms are excluded (including them would not change the label or the selected arm: T1, base +10.4% at 3.0% drawdown, would be the only Phase 2 arm eligible under the rule and P3-6's base profit is higher); (2) the public record says the PR-C probe rule with no amendments, but the registry adds the causality matrix to validity under both rules (fixed before the first run, only tightens validity; every matrix cell is identical, so no outcome changes); (3) P3-7 is excluded from selection as a control (it would also fail the drawdown gate at 21.6%); (4) the inherited PR-C check `pre_cut_trace_has_trades` tests whether any nonzero position is held in the first half of the probe trace, which equals the hourly interval rows, so it checks holding a position rather than trading (semantics unchanged; every arm other than CASH made 340 to 4,378 trades in the base scenario).
+
+## Issue #810 FS1: forward-study preparation (design recorded result-blind; no economic result; 2026-10-30)
+
+Development data are exhausted as evidence: 21 arms were compared post hoc on data already used, and Phase 3 recorded G0-G2 as NOT ESTABLISHED. FS1 is the properly ordered replacement for the unused window 2026-11-01..2027-05-01, whose data do not exist yet, so the design fixed here is result-blind with respect to it. It tests three frozen configurations that were chosen from the public development results (the selection contamination is the reason a forward test is needed): FS1-A = the Phase 3 P3-6 mechanism, FS1-B = P3-3, and FS1-C = P3-7 as the vol-targeted passive control, against CASH. Falsifiers: max drawdown above 20% in base or cost x2; the 95% block-bootstrap lower bound of annualised excess over CASH at cost x2 not above zero; an excess over FS1-C that is not above zero is labelled NO_BETTER_THAN_PASSIVE. Labels: FORWARD_PASS / FORWARD_FAIL / FORWARD_INVALID, never a WINNER.
+
+Delivered (software and docs only): the frozen registry and its digest (`report/issue810-fs1-registry-20261030.json`), the pure label rule, the sealed evaluator that refuses to score unless the scoring end date plus a 24 h settlement margin has passed, an Issue #810 comment authorization reference is supplied, the params digest, code commit (trade_rl checkout, clean tree) and dataset seal (including the pinned build-policy digest and a post-settlement fetch time) match, and the output is new, and the G2 oracle tests (`research-assurance.md`, FS1 section). The scoring path was exercised on synthetic data only. Headline rule: `FORWARD_PASS` is only the minimum bar; the single claim flag is `edge_claim_supported` (PASS, BETTER_THAN_PASSIVE and Bonferroni k=2 together). The FS1 section also records when each constant was fixed relative to the development results, and the pre-seal revision of the params digest after the first review.
+
+State: G0, G1 and G2 were recorded ESTABLISHED by the result-blind independent review 5702477777 of the FS1 design change (head 51b8b435a; design and code review only, not a seal). The FS1 seal record, the data-fetch authorization and the G4 scoring authorization are pending, and no economic result exists: nothing was fetched, replayed or computed on 2026-08-01 or later data. The sealed code commit will be a later commit named in the future seal record. No live or paper orders.
+
+Acquisition tooling (software only, 2026-10-30): `python -m trade_rl.evaluation.forward_acquisition` now provides the single documented route from an Issue #810 data-fetch authorization to the FS1 dataset, its seal manifest, an acquisition receipt and the exact text of the future seal comment (procedure: `architecture/research-assurance.md`, *FS1 acquisition procedure*). It plans offline by default and fetches only with `--allow-network`; it was exercised on fixture archives with a fake transport only. No data was fetched, no live endpoint was contacted, nothing from 2026-08-31 or later was read, and the data-fetch authorization is still pending (the G4 scoring authorization likewise). The tool scores nothing and changes no registry value or digest.
+
+Needed from the user before FS1 can produce evidence, each by a separate Issue #810 comment: (a) authorization for fetching the post-2026-08-31 data (including the warm-up-only bars before the scoring start) and (b) authorization for the single G4 scoring run, allowed only at or after 2027-05-02T00:00Z (the scoring end 2027-05-01T00:00Z plus the 24 h settlement margin). Neither is implied by this section.
+
+## Issue #810 reusable PostgreSQL market-data store (software only; no data fetched; 2026-10-30)
+
+A Docker/PostgreSQL store of public Binance market data (USD-M perpetual and spot 1h klines, USD-M funding rates, exchange-rule snapshots) with a checksum-verified Vision ingester and a `MarketDataset` export now exists so later experiments can reuse one reproducible data source instead of rebuilding file caches (`architecture/package-boundaries.md`, *Market-data store runbook*). It is plan-only unless `--allow-network` is given and it was exercised on fixture archives and a fake fetcher only: no real data was fetched in this change, nothing from 2026-08-01 onwards was read, and nothing was run on Docker. By default it refuses everything from 2026-08-01T00:00Z (the FS1 warm-up span, which `architecture/research-assurance.md` allows to be fetched only with a separate Issue #810 authorization) and, unconditionally with no release path, everything from 2026-11-01T00:00Z (the FS1 sealed window); the warm-up span is admitted only for a run carrying `--allow-fs1-warmup-span` plus the Issue #810 authorization URL, recorded on the run, and FS1 scoring still re-acquires and re-verifies its own data through its sealed acquisition tool. This changes no research hypothesis, comparison, window, digest or result; stored data carries no economic claim.
+
+## Issue #810 synthetic residual-PPO over the cost-aware allocator (protocol frozen before the run; synthetic only; 2026-10-30)
+
+G0 question. On synthetic 4-asset daily markets with a known planted after-cost alpha, explicit fees (0.05% per side) and spread (0.02% quoted, half crossed per side), can a PPO agent that controls only a low-dimensional residual on top of the cost-aware allocator beat the allocator alone, net of costs, on held-out synthetic seeds? This is a software/learnability study. It is never a real-data profitability claim, it uses no dataset, network, paper or live access, and real-data RL remains blocked behind the fee-only learnability check: this study does not clear that gate.
+
+G1 mechanism (code: `trade_rl/evaluation/residual_rl/`, source in `architecture/package-boundaries.md`). One continuous account per episode (252 daily decisions after a 40-day warm-up). The real `CostAwareAllocationPolicy` proposes targets from a noisy forecast `mu = a*z + noise`; the agent's action is a `Discrete(4)` trade-throttle multiplier `m` in {0, 0.5, 1, 1.5} applied as `w_exec = w_cur + m (w_target - w_cur)` and projected back into the allocator's own box, so the residual cannot lever the account beyond the allocator's limits. `m = 1` is exactly the allocator, `m = 0` is exactly no trade. Chosen before any held-out run because (1) it makes allocator parity exact, (2) it gives the fee-only control an exactly attainable optimum, (3) the projection removes any leverage advantage, (4) a categorical head avoids squashing/clipping ambiguity. Observation (causal, 12 values): `mu`, current weights, the allocator's proposed L1 trade, trailing-10-day cost paid, drawdown and trailing-10-day net return. Reward: per-step change in log equity after costs. The ledger has no financing, funding, borrow, impact or partial fills.
+
+Markets. Regime A (planted alpha): persistent AR(1) signal `z`, true expected return `a*z`, allocator sees `a*z + nu`. Regime B (zero alpha, fee-only): the allocator sees the same forecast distribution but returns carry no alpha, so every cost unit is a pure loss. The two regimes share the random stream per seed. Seeds: 100 train (1000-1099), 40 disjoint held-out (2000-2039), 12 calibration (9000-9011).
+
+Baselines: CASH, allocator alone with kappa = 1 and kappa = 3 (kappa multiplies the optimizer's cost penalty only), static throttles m = 0.5 and 1.5, and residual PPO (3 PPO seeds; SB3 PPO, 50,400 steps per fit, fixed hyper-parameters in the frozen protocol).
+
+Falsifiers, fixed before the run (protocol digest in `report/issue810-residual-rl-synthetic-20261030-protocol.json`; the runner refuses a differing digest). The label is `SYNTHETIC_FAIL` unless both hold:
+- F1 (regime A): the median over PPO seeds of the held-out median net log-return advantage over allocator-alone kappa = 1 is at least 0.01, it is positive for every PPO seed, and the 5% quantile of a paired bootstrap of the median advantage is above zero.
+- F2 (regime B, learnability control, trained on regime B): the median held-out daily turnover is at most 25% of the allocator's and the median net return exceeds the allocator's (it loses less).
+Static-throttle and kappa = 3 comparisons are reported as diagnostics and do not gate the label. This is aligned with, and does not duplicate, the open fee-only fixture work: that work fixes a zero-cost two-symbol Dataset for a probability probe, while this study owns its own synthetic generator and a trained-agent turnover control.
+
+G2 oracles (tests under `tests/evaluation/residual_rl/` and `tests/strategies/rl/`): observation causality by counterfactual markets (only inputs after the decision differ), reward equals the independent ledger equity change and conservation of pnl minus costs, `m = 1` reproduces allocator-alone exactly (executed weights equal the proposal; an independently written quantity ledger agrees), `m = 0` never trades, determinism, decision-rule unit tests, frozen-digest checks, and a real-SB3 fee-only check that a short training cuts turnover.
+
+Pre-freeze disclosure. Before the protocol was frozen, an allocator-only calibration (12 calibration seeds, gamma = 30 the only value tried) and two 10,080-step PPO pilots (one per regime, calibration seeds only) were run to check the pipeline; no hyper-parameter changed afterwards and no held-out seed was touched. All runs are listed in `report/issue810-residual-rl-synthetic-20261030-provenance.json`.
+
+Result (one frozen run, code commit 0bcbee2b3, protocol digest 96c11b5c3f14..., results file `report/issue810-residual-rl-synthetic-20261030-results.json`, 6 PPO fits of 50,400 steps, 40 held-out seeds, about 6.5 minutes): **SYNTHETIC_FAIL** because F1 failed; F2 passed. This is synthetic evidence only.
+- F1 (planted alpha): the residual agents did not beat the allocator. Held-out median net log return: allocator kappa = 1 +0.184, residual PPO +0.181 / +0.176 / +0.167 (seeds 0/1/2), per-seed median advantage -0.0005 / -0.0037 / -0.0137, median -0.0037 against the required +0.01; the paired-bootstrap 5% lower bound is -0.011 and only 27.5% of held-out seeds improved. Allocator kappa = 1 was also the best static choice (kappa = 3 +0.137, m = 0.5 +0.163, m = 1.5 +0.158), so on this market the cost-aware allocator is already near the best fixed throttle and the learned dynamic residual found no further edge. Residual agents mostly kept m = 1 (seed 2 drifted toward m = 0 and lost return).
+- F2 (zero-alpha fee-only control, trained there): the agents learned to trade little. Median daily turnover 0.042 / 0.027 / 0.149 against 0.399 for the allocator (median ratio 0.105, limit 0.25), median net log return -0.007 / -0.014 / -0.053 against -0.079 for the allocator. The learnability control passes, although one PPO seed (2) only partly restrained itself.
+- Reading: PPO can learn "do not trade when trading is worthless" in this controlled setting, which is the necessary sanity condition, but it did not learn any improvement over the cost-aware allocator when the planted alpha was worth trading. The result does not establish residual-RL value, does not transfer to real data, and does not clear the real-data fee-only learnability gate.
+
+Limits. Synthetic, 4 assets, daily, 3 PPO seeds, one fixed hyper-parameter set (no tuning), a Gaussian-noise market where the allocator's model is nearly correctly specified (no regime or forecast misspecification for a residual to correct), no financing, funding, impact or partial fills, and the control uses the same generator as the test regime. Not a profitability claim; no real, paper or live data or orders were used.
+
 ## Generic software PR review policy (2026-10-14)
 
 [Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に従い、Generic gateの独立性は「実装担当の全AIモデルと異なるconfigured AIモデルによるexact-HEAD review」とする。同一GitHub accountの正式review API `COMMENTED`投稿も、`independent_model_review_v1` のmodel/task IDs、actual report、authenticated publisher ID、exact HEAD、再計算したpayload SHAが整合する場合に受理する。別accountやsame-modelのfresh agentというだけではformal approvalを確立しない。
 
 receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+
+## Issue #1025: native paired portfolio action comparison (software stage; 2026-10-28)
+
+`evaluation/paired_portfolio_action.py` は、同一Dataset・初期資本・hard risk・costと
+freshな別actorから同じprefixをnative replayし、1つのdecisionだけ異なる4-code joint
+actionへ差し替えるopt-in evaluation helperである。両armの観測・reference proposal・
+native ledger prefixが一致しなければ失敗し、random slippageをv1で拒否する。
+HOLDはexact quantity request、terminal処理は既存ownerのままとし、ラベルは両armの
+決済済み・非insolvent・無残注文の正常終端でのみ有効とする。失敗・insolvencyを成功
+labelへ変換せず、native結果は保持する。reference policyのhidden stateが一致する証明や、
+実市場のsource/PIT evidence・prequential fit・結果保存のone-shot authorityはまだない。
+
+後続のopt-in `evaluation/paired_portfolio_label.py` は**人工データ専用**として、
+決定時のsnapshotとnative ledgerのDataset/execution identity・申告した行動の一致を
+照合し、終端時刻・市場入力のavailable-at・明示的な人工settlement receiptの
+最大時刻よりもfit cutoffを厳密に後へ置く。条件を満たさないラベルは拒否する。
+符号付き実現差額と決定時snapshotを保持し、未来価格経路やnative BookStateは
+学習rowへ渡さない。複数rowの重複は拒否し、時系列が重なるlabelは同groupへ束ねる。
+参照policy digestとreceipt時刻は呼出側の宣言であり、真正な外部sourceやactor
+内部状態の検証ではないため、このmoduleから**実市場fitは認可されない**。
+[TD2 draft review](https://github.com/shuntatsu/trade_rl/pull/1028) は
+TD1 #1027上に積んだsoftware-only準備であり、両PRの独立レビューが必要である。
+
+これは[#1025](https://github.com/shuntatsu/trade_rl/issues/1025) TD1のsoftware準備であり、
+[#1027](https://github.com/shuntatsu/trade_rl/pull/1027)に実装・合成反証を載せる。
+実市場fit/replay、economic winner、unused/final、live注文は認可・実行していない。
+原NONRL48、M34 FAILED_SCREEN、既存fee-only PPO FAILEDは変更しない。
+
+## Issue #1025: synthetic linear decision-value software head (2026-10-29)
+
+`strategies/decision_value.py` は、事前固定したjoint HOLD/LONG/SHORT等の
+**有限candidate roster**のうち、HOLDを増分価値0として、それ以外のcandidateを
+独立の線形headで順位付けする opt-in `LinearDecisionValuePolicy` を提供する。
+入力はdecision時点で観測されたfeature/global featureと実際の口座weightのみであり、
+市場の将来pathやevaluation/replayからfutureの情報を読み込まない。
+推定値が正の固定marginを超えないときはquantity-preserving HOLDを返し、
+pending注文、欠損feature、roster不一致、fit cutoff以前の推論は明示的に拒否する。
+推論時は `LinearDecisionValueRuntimeContext` のsynthetic source scopeと
+feature/normalizer/execution/reference-policyの申告digestがfit済みmodelと
+一致することを必須とする。callerの申告だけで市場sourceやactual executorが
+独立認証されたとは扱わない。推論後のhard risk、pending reconciliation、
+約定、fee/funding、BookStateは従来のsimulation ownerが扱い、
+推定価値はその会計を置き換えない。
+
+`evaluation/decision_value_fit.py` は `SyntheticPairedLabelBatch` だけを受け、
+成熟済みの符号付きnative終端口座差額をfixed penaltyのRidgeで一度だけfitし、
+重複・不正vintage・action/mask/source schemaをrejectする。候補actionを後から
+広げない。既存候補やハイパーパラメータの利益結果選択は行わない。
+`LinearDecisionValueModel` のJSONはversioned・canonicalで、読み込みには
+外部から渡されたtrusted SHA-256 digestの一致が必須であるが、
+これはartifactsのone-shot publication/外部source attestationではない。
+
+この経路は**人工データ専用**の学習可能性software preparationである。
+強い取引可能signalを意図的に与える合成oracleへのfitと、別の人工時系列における
+native account E2Eの成否は、実市場のedge、独立市場標本、G4/G5、
+unused/finalデータの確認、live注文、PPO/非RL経済gateを証明しない。
+特にtraining中の重なるlabelは独立した標本として数えず、
+current modelは完全なactor hidden state、unknown action、pending-order価値、
+symbol間の高次joint interaction、実行経済recipeの外部検証を保証しない。
+[TD3 review](https://github.com/shuntatsu/trade_rl/pull/1031) は
+[TD2 review](https://github.com/shuntatsu/trade_rl/pull/1028) および
+[TD1 review](https://github.com/shuntatsu/trade_rl/pull/1027) の上に積んだDraftであり、
+それぞれのexact HEAD independent reviewと統合後の再検証が未了である。
+
+## Issue #1025: synthetic write-once native value comparison (TD4a software)
+
+`evaluation/runs/synthetic_value_attempt.py` は、人工データだけを対象にした
+**別のopt-in attempt**である。既存四方式比較の固定family名を流用せず、
+`cash / fixed_long / linear_value` を固定順に、同一のsource・capital・risk・
+execution cost・clockを持つ別々のnative shared-book上で実行する。
+fixed_longは最初の一度だけ入って、その後はexact quantity HOLDする単純controlであり、
+既存のcost-aware forecast方式に代わる基準ではない。推定値・実現収益は
+native ledgerのaccountingを上書きしない。
+
+各armのraw native ledger・費用・終端資産・flat/未約定/insolvency判定を、
+次arm開始前に書き込み、失敗でも既に完了したarm行とfailure recordを残す。
+fixed rosterが全件正常決済できた場合だけresult/complete markerを生成し、
+結果とarm行のdigest・source/model/実行recipe一致をstrict reloadで検証する。
+同じattempt rootへのtechnical rerunを拒否する。Datasetは64行以下の
+**非published identity**の二銘柄人工fixtureへ限定し、インメモリ全フィールドdigestで
+実行途中の変化を検出する。ただし、このdigestとdataset_idは外部原データの
+認証ではなく、source実バイト一式を単独で復元する外部snapshot artifactでもない。
+同じデータを再現するには別にfixture/sourceが必要である。
+
+これは**TD4の限定的なsoftware persistence/comparison substep**である。
+本研究で必要なcost-aware controllerとの正式比較、全joint16-action、
+training/closed-loopの多期間妥当性・部分約定/latency/funding/注文競合の
+全反証、厳密な事前登録run budget、G4研究実行認可、unused/final、
+liveを達成しない。[TD4a Draft review](https://github.com/shuntatsu/trade_rl/pull/1032)
+を先行するTD1/TD2/TD3へstackし、各段階の異なるモデルによる独立レビューと
+exact-HEAD統合を必須とする。M34/NONRL48/fee-only PPOの既存判定は不変。
+
+## Issue #1025: cost-aware Ridge comparator in a separate synthetic v2 attempt (TD4b)
+
+`evaluation/runs/synthetic_value_costaware_attempt.py` は、既存TD4aの
+`cash / fixed_long / linear_value` の **write-once v1試行をそのままネスト**し、
+新たな `cost_aware_ridge` を同一人工Dataset・初期資本・hard risk・
+execution cost・native shared book・terminal clockで比較する
+**別のv2 schemaを持つopt-in attempt** である。旧v1 writer/reader・
+既存FourFamily comparatorの固定arm名・既存Run artifactは変更しない。
+
+追加の第四armには現行の `RidgeForecastStrategy` と
+`CostAwareForecastIntentController` を **実際に使用**する。
+従来の汎用 `SingleSymbolPortfolioPolicyAdapter` はexact Fractionの
+通常のfloat変換とnative表示用quantityの完全一致を要求し、
+nativeの保守的なfloat射影では小数建玉の反例がある。
+**その既存検証を緩めず**、この人工試験では
+`_ExactQuantityCostAwareRidgePolicy` が
+`simulation.quantities.parse_quantity/project_quantity` の既存正本で
+canonicalなexact数量を読む。報告用quantityとの照合も許容誤差ではなく
+**nativeの保守的float射影との厳密一致**を要求し、同じ
+`RidgeForecastStrategy.decide`・同じ離散intent→target weightを通す。
+新しいbridgeは不正な数量差分・未約定注文・連続でないclockを拒否し、
+failure時はpoisonされる。これは従来adapterの完全同一runtime経路ではなく、
+本4方式の新規bounded bridgeである。Ridgeモデルの係数・平均・尺度・fit cutoff等は
+人工検証用に固定し、canonical hex浮動小数点から作るdigestで本人申告モデルを
+照合する。これは実Datasetに対して実際にfitされたforecastではなく、
+外部source・forecast vintage・手数料校正の独立証明でもない。
+cost-awareの単方向switch cost proxyは、この小試験で
+`execution fee_rate + spread_rate` と一致させ、追加のimpact・別maker/taker
+料金・funding等の不整合な設定は **事前に拒否** する。旧3方式の
+native ledgerと新たな第四armのraw ledgerをそれぞれ保存し、
+途中失敗や人工signalが逆行して生じた損失も公開条件から除外しない。
+
+v2結果はネストしたv1結果と第四armのrecord digest、Ridge fixture bytes、
+source/modelの宣言を外部から渡すSHA-256で再照合する。
+未決済・callback失敗・改ざん・同一rootの再実行はfailure/拒否であり、
+complete markerは4方式の正常終端をstrict-reloadした場合だけ作成する。
+ただしこのcontent-addressed readerもroot/source実バイト一式の
+再公開、独立source証明、producer identityの真正性を自動保証しない。
+
+これは **TD4の限定的な人工データsoftware mechanism確認**に過ぎない。
+frozen Ridge forecastを含むため、直接学習器とcost-aware方式の真の
+out-of-sample比較・独立training/selection/evaluation分割、16 joint actions、
+多数銘柄・期間・stochastic/partial fill/funding・stressを満たさない。
+試行からwinnerを選ばず、実市場fit、G4/G5、unused/final、live注文はしない。
+[TD4b review](https://github.com/shuntatsu/trade_rl/pull/1033) は
+TD1/TD2/TD3/TD4aにstackしたDraftで、各段階の別configured-model
+exact-head reviewとmain基準の再検証を待つ。M34/NONRL48/PPO fee-only
+の既存判定を変更しない。
+
+## Issue #1025: typed plan contract and shallow B2 head (TD0/TD3, software only)
+
+`evaluation/decision_value_plan.py` の `DecisionValueStudyPlan` は、data scope、
+shared_portfolio口座、資本、horizon/terminal reserve、joint候補（先頭は全銘柄HOLD）、
+非zeroのfee+spread、policy improvement回数（1回）、learner roster（linear/shallowを各最大1回）を
+全て必須にする純粋な検証であり、何も起動しない。`real_development` は別の認可digestが
+ない限り拒否し、synthetic planに実認可を持たせない。
+
+`strategies/decision_value_shallow.py` はB1（線形）と同じstate encoder・候補roster・runtime
+context・margin規則で動くB2の浅い非線形headである。固定seedのtanh隠れ層（保存・再検証対象）と
+headごとの固定Ridgeを1回だけfitし、B1の入力を含む。`decision_value_fit.py` はB1/B2が同一の
+検証済みrow・label・groupを使う共通収集経路を持ち、モデルごとに行を落とさない。
+勝率と金額の分離（高勝率・負の期待損益で参入しない）、共有gross上限の下でのjoint行動が
+単銘柄効果の和にならないことをsynthetic native testで固定した。これらは人工データ上の
+software確認であり、実市場のedge、独立標本、G4/G5、unused/final、live、
+M34/NONRL48/fee-only PPOの既存判定を変更しない。
+
+## Issue #1025: direct decision-value learning development study (TD5, bot-development-2024q1)
+
+`evaluation/decision_value_dev_study.py` は、既消費のTier D実データ `data/bot-development-2024q1/dataset`（Dataset ID `7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、artifact digest `96361d309652557382d8b74b96dac661d7ae568cb78db957e9032b71329d550c`）上で、事前認可digest（`51bd5f663ccaae7eaf5c4fbe10e599254dc57db74af5fb889e941105317f91ff`）および凍結protocol（digest `5f91e85ac538fc2502f30edb371fac126341e45fe432373b024939adfb757847`）に基づくTD5の開発検証を実行した。
+
+本検証は、実データに対して `source_scope="real_development"` を適用し、時系列順の3ブロック構成（block_1: [985, 1344]、block_2: [1369, 1728]、block_3: [1753, 2183]）、5アーム（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `shallow_value` [B2]）、および3ストレスシナリオ（`base`, `cost_x2`, `latency_1bar`）による完全台帳リプレイ（計11,880回のpaired replay）を実施した。
+
+各ブロックでcausality perturbation probe（t+1以降の価格摂動による過去意思決定の不変性検証）およびledger evidence reconciliation（台帳の全約定・資産推移・手数料の完全整合）が `PASSED` を記録した。総実行時間は773.30秒。
+
+総合評価結果（Aggregate Net Returns）:
+- `cash`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%
+- `fixed_long`: base +14.9392%, cost_x2 +14.6955%, latency_1bar +14.4848%
+- `cost_aware_ridge`: base -14.9667%, cost_x2 -17.0373%, latency_1bar -14.7359%
+- `linear_value`: base -13.4270%, cost_x2 -19.3331%, latency_1bar -13.1922%
+- `shallow_value`: base -44.6004%, cost_x2 -48.0316%, latency_1bar -44.5459%
+
+判定（Verdict）: `INCONCLUSIVE`
+判定理由: `linear_value` は `base`（-13.4270% vs -14.9667%）および `latency_1bar`（-13.1922% vs -14.7359%）において `cost_aware_ridge` に対する改善を示し、block_2（-4.9829% vs -9.8729%）やblock_3（-2.2010% vs -2.9422%）でも優位であったが、対照群である `fixed_long`（+14.9392%）および `cash`（+0.0000%）を上回ることはできず、また `shallow_value` は過大なターンオーバーにより大幅なマイナスとなった。
+
+本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
+
+### TD6: Conservative in-flight decision-value learning (6-arm development study)
+
+TD6では、レイテンシ下の未約定注文（in-flight order）を明示的に状態表現へ取り込む `encode_decision_value_state_v2`（pending order weightsの追加）と、重なり群の自由度 `max(1, groups - 1)` で調整された残差共分散行列に基づく不確実性割引（LCB）および二重注文抑止（duplicate hold suppression）をネイティブに備える保守的意思決定価値モデル `ConservativeLinearDecisionValueModel` / `ConservativeLinearDecisionValuePolicy`（B1c, `conservative_linear_value`）を導入し、同一データセット・同一事前認可プロトコル上で6アーム比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2]）を実施した。
+
+各ブロックで因果性プローブおよび台帳突合が `PASSED` を記録した（総実行時間 219.29秒）。
+
+総合評価結果（Aggregate Net Returns）:
+- `cash`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%
+- `fixed_long`: base +14.9392%, cost_x2 +14.6955%, latency_1bar +14.4848%
+- `cost_aware_ridge`: base -14.9667%, cost_x2 -17.0373%, latency_1bar -14.7359%
+- `linear_value`: base -13.4270%, cost_x2 -19.3331%, latency_1bar -13.1922%
+- `conservative_linear_value`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%
+- `shallow_value`: base -44.6004%, cost_x2 -48.0316%, latency_1bar -44.5459%
+
+ブロック別挙動の比較:
+- `block_1`: `cost_aware_ridge` は -2.7916%（cost 1490.01）、`linear_value` は -6.8364%（cost 3413.80）と取引コストを費やしたが、`conservative_linear_value` は不確実性割引により無益なエントリーを回避し、Net Return +0.0000%（cost 0.00、drawdown 0.0000%）を維持した。
+- `block_2`: 市場上昇局面において `fixed_long`（+10.8804%）が大きく伸びる一方、`cost_aware_ridge` は -9.8729%、`linear_value` は -4.9829% と損失を出したが、`conservative_linear_value` は +0.0000%（cost 0.00）でドローダウンをゼロに抑えた。
+- `block_3`: 下落局面において `fixed_long`（-3.5448%）、`cost_aware_ridge`（-2.9422%）、`linear_value`（-2.2010%）がいずれもマイナスとなったのに対し、`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）で資本を完全に保全した。
+
+判定（Verdict）: `INCONCLUSIVE`
+判定理由: `linear_value` および `conservative_linear_value` はいずれも `cost_aware_ridge`（-14.9667%）に対して改善（B1: -13.4270%, B1c: +0.0000%）を示したが、長期買い持ち対照群である `fixed_long`（+14.9392%）を上回ることはできなかった。しかしながら、B1cはB1およびB0が被った過剰な取引コスト（B1は最大6712.60、B2は最大21200.20）と大きな最大ドローダウン（B1は最大10.24%、B2は最大19.83%）を完全に排除し、全シナリオでドローダウン0%・コスト0の強固な資本保全特性（fail-closed conservative behavior）を実証した。
+
+本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
+
+### TD7: Posture-aware decision-value learning (6-arm development study)
+
+TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入し、同一データセット上で6アーム4シナリオ比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2] × `base`, `cost_x2`, `latency_1bar`, `latency_2bar`）を実施した。
+
+各ブロックで因果性プローブおよび台帳突合が `PASSED` を記録した（総実行時間 746.62秒）。
+
+総合評価結果（Aggregate Net Returns）:
+- `cash`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%, latency_2bar +0.0000%
+- `fixed_long`: base +16.0339%, cost_x2 +15.7885%, latency_1bar +15.5232%, latency_2bar +14.9689%
+- `cost_aware_ridge`: base -14.9667%, cost_x2 -17.0373%, latency_1bar -14.7359%, latency_2bar +0.0000%
+- `linear_value`: base -12.7714%, cost_x2 -22.4730%, latency_1bar -12.5079%, latency_2bar -13.7480%
+- `conservative_linear_value`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%, latency_2bar +0.0000%
+- `shallow_value`: base -41.7586%, cost_x2 -46.6702%, latency_1bar -41.7079%, latency_2bar -33.5419%
+
+ブロック別挙動の比較:
+- `block_1`: `cost_aware_ridge` は `base` で -2.7916%（cost 1490.01）、`linear_value` は -4.3329%（cost 3800.72）であったのに対し、`conservative_linear_value` は不確実性割引により無益なエントリーを回避し、Net Return +0.0000%（cost 0.00、drawdown 0.0000%）を維持した。また、`latency_2bar` において `preserve_posture_aware_proposal` により進行中注文がキャンセルされずに保護され、`fixed_long` は +7.7200%、`linear_value` は -3.1426%（cost 2238.52）で整然と完了した。
+- `block_2`: 市場上昇局面において `fixed_long`（+11.5364%）が伸びる一方、`cost_aware_ridge` は -9.8729% と損失を出したが、`linear_value` は -3.5019% と `cost_aware_ridge` を大きく上回った。`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）でドローダウンをゼロに抑えた。
+- `block_3`: 下落局面において `fixed_long`（-3.5498%）、`linear_value`（-5.5118%）、`cost_aware_ridge`（-2.9422%）がマイナスとなる中、`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）で資本を保全した。
+
+判定（Verdict）: `INCONCLUSIVE`
+判定理由: `linear_value` は `base`（-12.7714% vs -14.9667%）および `latency_1bar`（-12.5079% vs -14.7359%）において `cost_aware_ridge` に対する改善を示し、block_2（-3.5019% vs -9.8729%）でも顕著な優位性を示したが、対照群である `fixed_long`（+16.0339%）および `cash`（+0.0000%）を全シナリオで上回ることはできなかった。一方で、B1c（`conservative_linear_value`）は2バーレイテンシを含む全4シナリオでドローダウン0%・コスト0の強固な資本保全特性（fail-closed conservative behavior）を実証し、姿勢認識プロポーザルによりレイテンシ下での二重注文および未約定注文キャンセルの問題が解消された。
+
+本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 
@@ -604,6 +987,38 @@ the sealed plan and funding blocks use settlement time in `[start, close)`;
 their targeted synthetic tests pass. Overall G2 and an independent full
 source-to-ledger replay remain unestablished. No successor screen has been
 sealed.
+
+2026-10-30: attempt-2 operational tooling is prepared offline; nothing has been
+sealed, launched or collected, and no attempt-2 start time exists. User
+authorization (an Issue #810 comment) and a fresh result-blind review of the
+preserved attempt-1 root are still pending. The silent attempt-1 death is addressed
+operationally with a heartbeat, permanent failure records from exit, signal,
+console-close and stale-heartbeat paths, and a supervisor that relaunches only a
+child that died between cycles inside the frozen 180-second gap. A death inside a
+cycle, a hang or any source error still ends the screen by design, and the 90-day
+storage and journal-replay latency remain operator-measured. No economics, P&L or
+profitability evidence was produced. The runbook is in
+`docs/specs/funding-carry-paper.md`.
+
+2026-10-31: attempt 1's evidence root is lost; its lineage rests on a prior
+recorded review. The `funding-carry-forward-20260918` worktree is not on the
+collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
+2026-10-30 the user stated in chat, quoted verbatim: 「そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ」
+(they do not know that data or where its results were saved, and new data may be
+collected). The attempt-1 protocol digest, final tip and last observation above were
+verified against the root by the 2026-09-27/28 result-blind review recorded earlier in
+this document (introduced in commit `b9f1ca65b26d`, full SHA in the lineage record); they
+were NOT re-verified against the root now, and global attempt uniqueness remains
+unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
+(`available` only with a root path that the existing v1 reader verifies; otherwise
+`unavailable` with the source record and the attestation) and keeps the
+disposition `invalidated` with reason `observation_gap`. For this case the G0
+requirement that a fresh review resolve the preserved root is replaced by a fresh
+result-blind review of the lineage documentation and the pull request that introduced
+the rule. A short public-network storage probe (`paper/storage_probe.py`, a scratch
+root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
+measurement; it has not been run. Nothing has been sealed, launched or collected, no
+attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

@@ -1,0 +1,28 @@
+# Local PostgreSQL market-data store (Issue #810). See docs/architecture/package-boundaries.md
+# ("Market-data store runbook"). Credentials come from deploy/market-store/.env, which is
+# git-ignored; copy .env.example and set a random password first.
+name: trade-rl-market-store
+
+services:
+  postgres:
+    image: postgres:16.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${MARKET_STORE_USER:-market_store}
+      POSTGRES_PASSWORD: ${MARKET_STORE_PASSWORD:?set MARKET_STORE_PASSWORD in deploy/market-store/.env}
+      POSTGRES_DB: ${MARKET_STORE_DB:-market_store}
+    ports:
+      # loopback only: the store is never reachable from the network
+      - "127.0.0.1:${MARKET_STORE_PORT:-55432}:5432"
+    volumes:
+      - market_store_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  market_store_data:
+    name: trade_rl_market_store_data

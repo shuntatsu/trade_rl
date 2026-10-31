@@ -291,9 +291,60 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  market-store:
+    name: Market Store PostgreSQL
+    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-throwaway-service-container
+          POSTGRES_DB: market_store_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d market_store_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TRADE_RL_TEST_POSTGRES_URL: postgresql://postgres:ci-only-throwaway-service-container@localhost:5432/market_store_test
+      TRADE_RL_MARKET_STORE_URL: postgresql://postgres:ci-only-throwaway-service-container@localhost:5432/market_store_test
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install store runtime
+        run: uv sync --extra dev --extra store
+
+      - name: Market store tests against real PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q -rs tests/integrations/market_store --junitxml="$RUNNER_TEMP/market-store.xml"
+          # the PostgreSQL integration tests must really have run, never been skipped
+          grep -q 'skipped="0"' "$RUNNER_TEMP/market-store.xml"
+
+      - name: Market store CLI smoke (migrate twice, status)
+        run: |
+          uv run python -m trade_rl.integrations.market_store migrate
+          uv run python -m trade_rl.integrations.market_store migrate
+          uv run python -m trade_rl.integrations.market_store status
+
   independent-review:
     name: Generic Independent Research Review
-    needs: [core, ppo-runtime, guide]
+    needs: [core, ppo-runtime, guide, market-store]
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
@@ -307,6 +358,7 @@ jobs:
           CORE_RESULT: ${{ needs.core.result }}
           PPO_RESULT: ${{ needs.ppo-runtime.result }}
           GUIDE_RESULT: ${{ needs.guide.result }}
+          MARKET_STORE_RESULT: ${{ needs.market-store.result }}
         run: |
           set -euo pipefail
           test "$CORE_RESULT" = "success"
@@ -315,6 +367,9 @@ jobs:
           fi
           if [ -n "$GUIDE_RESULT" ] && [ "$GUIDE_RESULT" != "skipped" ]; then
             test "$GUIDE_RESULT" = "success"
+          fi
+          if [ -n "$MARKET_STORE_RESULT" ] && [ "$MARKET_STORE_RESULT" != "skipped" ]; then
+            test "$MARKET_STORE_RESULT" = "success"
           fi
 
       - name: Checkout exact head

@@ -1,0 +1,153 @@
+{
+  "base_protocol_digest": "7adc12e842cb8f574bcd3bd502182d9ffdd19dcc7d1a9b59cbc99ab6f4626558",
+  "baseline_arms": [
+    "cash",
+    "equal_weight_buy_and_hold"
+  ],
+  "bonferroni_arms": 21,
+  "candidate_pool": [
+    "p3_1_t4_kappa3",
+    "p3_2_t4_kappa3_vt12",
+    "p3_3_t2_vt12",
+    "p3_4_t6_kappa3_vt12",
+    "p3_5_t4_weekly_vt12",
+    "p3_6_zblend_t2t4_kappa3_vt12",
+    "p3_8_zblend_t2t4_longonly_kappa3_vt12"
+  ],
+  "classification": "POST_HOC_EXPLORATORY: chosen after the Phase 2 results on the same development data; not preregistered",
+  "controls": [
+    "cash",
+    "equal_weight_buy_and_hold",
+    "p3_7_ew_bh_vt12"
+  ],
+  "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+  "family_arms": 8,
+  "implementation_notes": [
+    "implementation notes, fixed before any Phase 3 real-data execution:",
+    "N1 kappa: the optimizer receives kappa * c_i with c_i = fee + spread = 0.0007 (the base-scenario one-way cost); the replay charges the unchanged scenario execution cost; the stress scenarios keep the base kappa * c_i like Phase 2",
+    "N2 VT12: sigma_p = sqrt(w' Sigma w * periods_per_year) on the solved target before the min-trade rule, with Sigma the allocator's own EWMA (halflife 60d, shrink 0.2, floor 1e-8) covariance of decision-time marks including the current decision mark. periods_per_year = 8760 / decision_interval_hours: 365 for daily arms and 52.14 for the weekly P3-5 whose Sigma is a weekly-return covariance (the public record writes 365 for a daily Sigma; applying 365 to a weekly covariance would overstate the variance sevenfold, so this is a clarification of the same intent). If sigma_p <= 0.12 the target is unchanged. The min-trade rule can hold positions at exact quantity after the scaling, so the final book may sit slightly above the cap (final_vol is recorded per decision). A non-finite sigma_p fails closed (HOLD, reason invalid_volatility)",
+    "N3 P3-5: the T4 source (Ridge alpha 10, 24h horizon, all 1h/4h/1d features, as T4) with every mu multiplied by 7; decisions every 168h at Monday 00:00 UTC (decision_anchor_hour_utc = 96, as T8); covariance from weekly marks with the same fit-period warmup rule as T8",
+    "N4 z-blend(T2, T4): components are T2 (the registered 90d skip-1d demeaned score scaled to mean |mu| = 2 * one-way cost, daily) and T4 (Ridge24 all features, per-24h expected simple return); each component is divided by its causal trailing 365-day population std pooled over symbols and dates (dates up to and including the decision), the two are averaged (divided by 2) and multiplied by the same trailing std of T4; at least 10 T4 dates and, for T2, at least BLEND_MIN_POOLED_OBSERVATIONS = 30 finite pooled observations are required, otherwise mu = 0; this is the T6 construction with the components replaced",
+    "N5 P3-7: a long-only equal-weight book (gross budget 0.99, as the buy-and-hold control) that keeps its relative composition (the weights drift with prices; there is no calendar rebalance back to equal weights) and re-sets its gross at every daily 00:00 UTC decision to 0.99 * min(1, 0.12 / sigma_p), where sigma_p is the ex-ante volatility of the current composition at gross 0.99 (same Sigma as N2); the first decision enters at equal weights; the existing min-trade rule (0.5% of equity per symbol) leaves smaller adjustments untouched; it is a control (vol-scaled passive comparator) and not a selection candidate",
+    "N6 selection: candidates are the seven allocator arms P3-1..P3-6 and P3-8; CASH, unscaled equal-weight buy-and-hold and P3-7 are controls. The selection rule is the PR-C one (validity, max drawdown <= 20% in all three scenarios, net profit > 0 at base and cost x2, highest base net profit); the label names are POST_HOC_PROMISING / NO_WINNER",
+    "N7 validity: the replay ran in all scenarios, the ledger reconciled to raw fills with a flat terminal book, no termination, the real-data future-perturbation probe at the PR-C cut (2023-07-01, base) identical, and the per-arm, per-scenario causality matrix at 2023-03-01 identical. Primary (PR-C probe rule): the arm must also have traded in the first half of the probe's trace rows (the PR-C 'pre_cut_trace_has_trades' definition, unchanged). Secondary, reported for continuity only: the same without the trade requirement. Including the causality matrix in both validity rules is stricter than Phase 2's primary rule and can only invalidate an arm, never promote one",
+    "N8 Bonferroni: 95% percentile block-bootstrap intervals (20-day blocks, 2000 resamples, seed 0) of annualized daily excess versus CASH, versus unscaled equal-weight buy-and-hold and (for the candidates) versus P3-7 are reported unadjusted, at level 0.05/8 (the Phase 3 family) and at 0.05/21 (all development arms). The Phase 2 arms are not re-run here, so only the Phase 3 arms and the two baselines have intervals",
+    "N9 baselines: CASH and unscaled equal-weight buy-and-hold are re-run in the same code and compared with the committed Phase 2 numbers (reproduction check)",
+    "N10 the probe also records an explicit-split indicator (pre_cut_interval_rows_have_trades: any non-zero quantity in any pre-cut interval row) as a diagnostic only; it does not enter validity"
+  ],
+  "issue": 810,
+  "kappa": 3.0,
+  "provenance_report": "report/issue810-phase3-trial-provenance-20261029.json",
+  "public_pre_run_record": {
+    "body_sha256": "347704933f29310d5c88bc55f3a95b6965271d4c7825b2c285acb9ef8222e334",
+    "body_verbatim": "<!-- issue810-phase3-post-hoc-registry-20261029 -->\n## #810 Phase 3 trial registry \u2014 recorded BEFORE any Phase 3 code or run (post-hoc relative to Phase 2)\n\nThis comment is the public timestamped record of the Phase 3 roster, written by the planner after the Phase 2 (PR #1042) results were known. It is therefore **POST_HOC_EXPLORATORY** with respect to the development data, not preregistered. No Phase 3 code exists yet.\n\n**Motivation (from Phase 2 numbers):** T4 (Ridge with all features) made +41.7k USDT gross but paid 16.5k in costs and drew down 43%. T2 (cross-sectional momentum) held up under cost stress with a drawdown of about 21%. T1 traded too little to matter. Hypothesis: turnover aversion plus ex-ante portfolio volatility targeting can turn gross edge into net profit that passes the drawdown gate.\n\n**Fixed protocol:** same data, period (2023-01-01..2026-08-01), capital, costs, stresses (cost x2, +1 bar latency), metrics and selection rule as Phase 2, using the PR-C probe rule with no amendments.\n\n**Two new causal, in-policy mechanisms:**\n- `kappa`: the optimizer's cost penalty is `kappa * c_i`, with kappa = 3. Execution costs are unchanged.\n- `VT12`: after the solve, if the ex-ante `sqrt(w' Sigma w * 365)` exceeds 12% annualized, scale the target `w` by `0.12 / sigma_p`, then apply the existing min-trade rule. `Sigma` is the allocator's own EWMA/shrunk covariance.\n\n**Roster (8 configs, each run once, all reported):**\n\n| ID | Config |\n|---|---|\n| P3-1 | T4 + kappa3 |\n| P3-2 | T4 + kappa3 + VT12 |\n| P3-3 | T2 + VT12 |\n| P3-4 | T6 + kappa3 + VT12 |\n| P3-5 | T4 weekly (168h, mu x7) + VT12 |\n| P3-6 | z-blend(T2, T4) + kappa3 + VT12 |\n| P3-7 | EW buy-and-hold + VT12 (vol-scaled passive comparator) |\n| P3-8 | z-blend(T2, T4) long-only + kappa3 + VT12 |\n\n**Multiple testing:** Bonferroni intervals reported over all 21 development arms (PR-C 5, including CASH and EW B&H, + T1\u2013T8 + P3-1..P3-8), and per family.\n\n**Label vocabulary:** POST_HOC_PROMISING or NO_WINNER, never WINNER. A promising config would be frozen (exact code SHA plus params digest) as the candidate for one sealed forward evaluation on the unused window. That needs separate user authorization and is not run in this phase. No live or paper orders.\n",
+    "created_utc": "2026-10-29T10:10:07Z",
+    "edit_note": "edited only to correct the Bonferroni arm count to 21",
+    "edited_utc": "2026-10-29T10:10:19Z",
+    "url": "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6493851921"
+  },
+  "registry_digest": "7eff119d896f0c75316a77df0d5258cafc507ec05bd103cca411fc8e02eabbb1",
+  "result_report": "report/issue810-phase3-trial-results-20261029.json",
+  "roster_digest": "f81282e7ef697516ebe9fe8c4b493daa52268a9542a61368be3da8b4a244b3c5",
+  "schema_version": "dev_realdata_phase3_trial_registry_v1",
+  "status": "post_hoc_exploratory",
+  "trials": [
+    {
+      "arm": "p3_1_t4_kappa3",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 3.0,
+      "kind": "allocator",
+      "long_only": false,
+      "roster_text": "T4 + kappa3",
+      "source": "t4_ridge24_all_features",
+      "trial_id": "P3-1",
+      "vol_target": null
+    },
+    {
+      "arm": "p3_2_t4_kappa3_vt12",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 3.0,
+      "kind": "allocator",
+      "long_only": false,
+      "roster_text": "T4 + kappa3 + VT12",
+      "source": "t4_ridge24_all_features",
+      "trial_id": "P3-2",
+      "vol_target": 0.12
+    },
+    {
+      "arm": "p3_3_t2_vt12",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 1.0,
+      "kind": "allocator",
+      "long_only": false,
+      "roster_text": "T2 + VT12",
+      "source": "t2_xsmom",
+      "trial_id": "P3-3",
+      "vol_target": 0.12
+    },
+    {
+      "arm": "p3_4_t6_kappa3_vt12",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 3.0,
+      "kind": "allocator",
+      "long_only": false,
+      "roster_text": "T6 + kappa3 + VT12",
+      "source": "t6_blend",
+      "trial_id": "P3-4",
+      "vol_target": 0.12
+    },
+    {
+      "arm": "p3_5_t4_weekly_vt12",
+      "decision_anchor_hour_utc": 96,
+      "decision_interval_hours": 168,
+      "kappa": 1.0,
+      "kind": "allocator",
+      "long_only": false,
+      "roster_text": "T4 weekly (168h, mu x7) + VT12",
+      "source": "t4_ridge24_all_features_x7",
+      "trial_id": "P3-5",
+      "vol_target": 0.12
+    },
+    {
+      "arm": "p3_6_zblend_t2t4_kappa3_vt12",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 3.0,
+      "kind": "allocator",
+      "long_only": false,
+      "roster_text": "z-blend(T2, T4) + kappa3 + VT12",
+      "source": "zblend_t2_t4",
+      "trial_id": "P3-6",
+      "vol_target": 0.12
+    },
+    {
+      "arm": "p3_7_ew_bh_vt12",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 1.0,
+      "kind": "passive_vol_target",
+      "long_only": false,
+      "roster_text": "EW buy-and-hold + VT12 (vol-scaled passive comparator)",
+      "source": null,
+      "trial_id": "P3-7",
+      "vol_target": 0.12
+    },
+    {
+      "arm": "p3_8_zblend_t2t4_longonly_kappa3_vt12",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "kappa": 3.0,
+      "kind": "allocator",
+      "long_only": true,
+      "roster_text": "z-blend(T2, T4) long-only + kappa3 + VT12",
+      "source": "zblend_t2_t4",
+      "trial_id": "P3-8",
+      "vol_target": 0.12
+    }
+  ],
+  "vol_target_annual": 0.12
+}

@@ -50,6 +50,12 @@ Status: Active
   fills, fees, positive/negative funding settlement quantities at exact event
   times, asymmetric partials, collateral, and actual terminal/recovery fills; it
   does not establish raw-source parsing, strategy selection, or full G2.
+- [x] Prepare attempt-2 collector hardening offline: atomic heartbeat, permanent
+  failure records from exit/signal/console hooks and a stateless stale check, and a
+  supervisor that relaunches only a child that died between cycles inside the frozen
+  gap limit. Prepare the unsealed attempt-2 draft/seal/launch gates, bound to the
+  recorded attempt-1 lineage and current source/runtime identity, and the operator
+  runbook. Nothing is sealed, started or collected; human authorization is pending.
 - [ ] Run prospective paper observation and report the complete declared gate.
 
 No successful probe, past development profit or partial paper record completes

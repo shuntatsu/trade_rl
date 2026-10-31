@@ -25,6 +25,19 @@ from trade_rl.evaluation.comparison.strategies import (
     compare_strategies_by_symbol,
     compare_strategy_factories_by_symbol,
 )
+from trade_rl.evaluation.decision_value_dev_study import (
+    DecisionValueArmMetrics,
+    DecisionValueBlockResult,
+    DecisionValueBlockSpec,
+    DecisionValueDevStudyProtocol,
+    DecisionValueDevStudyResult,
+    compute_real_scope_authorization_digest,
+    default_2024q1_decision_value_dev_protocol,
+    run_decision_value_dev_study,
+)
+from trade_rl.evaluation.decision_value_fit import (
+    fit_conservative_linear_decision_value,
+)
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.gates import resolve_gate
 from trade_rl.evaluation.metrics import (
@@ -68,6 +81,11 @@ __all__ = [
     "CapacityPoint",
     "ClosedTradeDiagnostics",
     "ClosedTradeTracker",
+    "DecisionValueArmMetrics",
+    "DecisionValueBlockResult",
+    "DecisionValueBlockSpec",
+    "DecisionValueDevStudyProtocol",
+    "DecisionValueDevStudyResult",
     "ExecutionDiagnostics",
     "IndependentFoldSummary",
     "LeanCandidateConfig",
@@ -93,11 +111,15 @@ __all__ = [
     "compare_strategies",
     "compare_strategies_by_symbol",
     "compare_strategy_factories_by_symbol",
+    "compute_real_scope_authorization_digest",
     "compound_return",
+    "default_2024q1_decision_value_dev_protocol",
     "evaluate_capacity_grid",
     "evaluate_performance",
+    "fit_conservative_linear_decision_value",
     "moving_block_mean_test",
     "resolve_gate",
+    "run_decision_value_dev_study",
     "run_lean_candidate_suite",
     "run_single_symbol_replay",
     "solve_perfect_information_bound",

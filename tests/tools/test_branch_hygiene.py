@@ -12,6 +12,7 @@ from tools.branch_hygiene import (
     apply_cleanup,
     parse_retention_log,
     plan_cleanup,
+    render_summary,
 )
 
 
@@ -501,6 +502,117 @@ def test_unfinished_workflow_scan_rejects_inconsistent_pagination(
     monkeypatch.setattr(api, "_request_json", fake_request)
     with pytest.raises(RuntimeError, match=error_pattern):
         api.active_workflow_branch_names()
+
+
+def test_unfinished_workflow_overfull_final_page_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        if status != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        ids = range(1, 101) if page == 1 else range(101, 103)
+        return {
+            "total_count": 101,
+            "workflow_runs": [
+                {"id": i, "status": status, "head_branch": f"task/{i}"}
+                for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="pagination"):
+        api.active_workflow_branch_names()
+
+
+def test_unfinished_workflow_exact_final_page_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        if status != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        assert page in (1, 2)
+        ids = range(1, 101) if page == 1 else range(101, 102)
+        return {
+            "total_count": 101,
+            "workflow_runs": [
+                {"id": i, "status": status, "head_branch": f"task/{i}"}
+                for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    assert api.active_workflow_branch_names() == frozenset(
+        f"task/{i}" for i in range(1, 102)
+    )
+
+
+def test_dry_run_summary_does_not_claim_archival_or_grace_as_anchor() -> None:
+    decisions = (
+        BranchDecision(
+            BranchInfo("main", "a" * 40, False), "keep", "default-branch"
+        ),
+        BranchDecision(
+            BranchInfo("tmp/first", "b" * 40, False),
+            "archive-keep",
+            "first-seen-non-anchor-tip",
+        ),
+        BranchDecision(
+            BranchInfo("tmp/grace", "c" * 40, False),
+            "keep",
+            "observation-grace-period",
+        ),
+        BranchDecision(
+            BranchInfo("tmp/unreachable", "d" * 40, False),
+            "keep",
+            "retained-tip-not-reachable",
+        ),
+    )
+    summary = render_summary(decisions, deleted=(), apply=False)
+    assert "- durable anchors kept: 1" in summary
+    assert "- first-observation archival candidates: 1" in summary
+    assert "- ref/retention mutations: none (dry-run)" in summary
+    assert "archived and kept" not in summary
+
+
+def test_branch_hygiene_cli_help_marks_apply_disabled(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from tools.branch_hygiene import parse_args
+
+    with pytest.raises(SystemExit) as exited:
+        parse_args(["--help"])
+    assert exited.value.code == 0
+    assert "--apply is disabled" in capsys.readouterr().out
 
 
 def test_apply_cli_is_blocked_without_authoritative_task_registry() -> None:

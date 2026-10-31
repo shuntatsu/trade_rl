@@ -226,10 +226,11 @@ class GitHubApi:
                     expected_total = count
                 elif count != expected_total:
                     raise RuntimeError("workflow run total_count changed between pages")
-                if len(runs) > count or (page - 1) * 100 + len(runs) < min(
-                    page * 100, count
-                ):
-                    raise RuntimeError("workflow run pagination is incomplete")
+                remaining = count - (page - 1) * 100
+                if remaining < 0 or len(runs) != min(100, remaining):
+                    raise RuntimeError(
+                        "workflow run pagination is incomplete or exceeds total_count"
+                    )
                 for run in runs:
                     if not isinstance(run, dict):
                         raise RuntimeError("workflow run entry is not an object")
@@ -249,7 +250,7 @@ class GitHubApi:
                             "unfinished workflow run is missing its head_branch"
                         )
                     names.add(head_branch)
-                if len(runs) < 100:
+                if len(seen_run_ids) == count:
                     break
                 page += 1
         return frozenset(names)
@@ -634,7 +635,18 @@ def render_summary(
     archive_candidates = [
         item.branch.name for item in decisions if item.action == "archive-keep"
     ]
-    anchors = [item.branch.name for item in decisions if item.action == "keep"]
+    durable_reasons = {
+        "default-branch",
+        "protected",
+        "open-pr-ref",
+        "active-workflow",
+        "provenance",
+    }
+    anchors = [
+        item.branch.name
+        for item in decisions
+        if item.action == "keep" and item.reason in durable_reasons
+    ]
     lines = [
         "## Branch hygiene",
         "",
@@ -642,10 +654,11 @@ def render_summary(
         f"- branches inspected: {len(decisions)}",
         f"- durable anchors kept: {len(anchors)}",
         f"- direct deletion candidates: {len(direct_candidates)}",
-        f"- first-observation branches archived and kept: {len(archive_candidates)}",
+        f"- first-observation archival candidates: {len(archive_candidates)}",
         f"- grace period: {RETENTION_GRACE_SECONDS} seconds",
         f"- branches deleted: {len(deleted)}",
         f"- retention branch: `{RETENTION_BRANCH}`",
+        f"- ref/retention mutations: {'apply mode' if apply else 'none (dry-run)'}",
         "",
     ]
     if deleted:
@@ -660,8 +673,9 @@ def render_summary(
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Observe non-anchor branch tips first, preserve them in retention history, "
-            "and delete only unchanged tips that survive the grace period."
+            "Report branch retention and cleanup candidates without changing refs. "
+            "Destructive --apply is disabled until verified Coordinator Task/lease "
+            "protection is integrated."
         )
     )
     parser.add_argument(
@@ -675,7 +689,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--token",
         default=os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"),
     )
-    parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="disabled until verified Coordinator Task/lease protection is integrated",
+    )
     parser.add_argument("--summary", type=Path)
     return parser.parse_args(argv)
 

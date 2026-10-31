@@ -457,15 +457,25 @@ def _validate_sample_pair_evidence(sample: SyntheticPairedLabel) -> None:
     if receipt.get("schema") == "decision_value_eligible_pair_evidence_v2":
         baseline_record = receipt.get("baseline")
         candidate_record = receipt.get("candidate")
+        prefix_start_index = receipt.get("prefix_start_index")
+        intervention_index = receipt.get("intervention_index")
+        terminal_index = receipt.get("terminal_index")
         bars = receipt.get("horizon_bars")
         observation_time = receipt.get("observation_available_at_ns")
         capital_value = receipt.get("initial_capital")
         if (
             not isinstance(baseline_record, dict)
             or not isinstance(candidate_record, dict)
+            or type(prefix_start_index) is not int
+            or type(intervention_index) is not int
+            or type(terminal_index) is not int
+            or prefix_start_index != vintage.prefix_start_index
+            or intervention_index != sample.observation.index
+            or not 0 <= prefix_start_index <= intervention_index < terminal_index
             or not isinstance(capital_value, (int, float))
             or type(bars) is not int
             or bars <= 0
+            or terminal_index - intervention_index != bars
             or type(observation_time) is not int
             or observation_time > sample.decision_time_ns
             or receipt.get("source_runtime_digest") != vintage.source_runtime_digest
@@ -473,7 +483,9 @@ def _validate_sample_pair_evidence(sample: SyntheticPairedLabel) -> None:
             or str(float(capital_value)) != baseline_record.get("initial_capital")
             or str(float(capital_value)) != candidate_record.get("initial_capital")
         ):
-            raise ValueError("TD8 risk/capital/economic contract mismatch")
+            raise ValueError(
+                "TD8 prefix/decision/terminal/horizon or economic contract mismatch"
+            )
         for field_name in (
             "study_protocol_digest",
             "risk_config_digest",

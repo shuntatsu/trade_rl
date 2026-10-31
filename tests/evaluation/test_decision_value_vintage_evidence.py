@@ -335,3 +335,41 @@ def test_v4_same_decision_candidates_must_share_teacher_and_baseline() -> None:
     altered["ledger_digest"] = "f" * 64
     with pytest.raises(ValueError, match="teacher|prefix|state|vintage|baseline"):
         admit((rows[0], forged(1, baseline=altered), *rows[2:]))
+
+
+@pytest.mark.parametrize(
+    ("field", "offset"),
+    (
+        ("prefix_start_index", 1),
+        ("intervention_index", 1),
+        ("terminal_index", 1),
+        ("horizon_bars", 1),
+    ),
+)
+def test_v4_receipt_rejects_rehashed_clock_or_prefix_tamper(
+    field: str, offset: int
+) -> None:
+    """A fresh SHA cannot bless a different prefix/decision/terminal contract."""
+    _, view, provider = _context()
+    collection = _labels(view, provider, require_v4_evidence=True)
+    rows = list(collection.samples)
+    first = rows[0]
+    assert first.pair_evidence is not None
+    receipt = dict(first.pair_evidence)
+    receipt[field] = int(receipt[field]) + offset
+    receipt["evidence_digest"] = content_digest(
+        {k: v for k, v in receipt.items() if k != "evidence_digest"}
+    )
+    rows[0] = replace(
+        first,
+        pair_evidence=receipt,
+        pair_evidence_digest=receipt["evidence_digest"],
+    )
+    with pytest.raises(ValueError, match="prefix|decision|terminal|clock|horizon"):
+        build_synthetic_paired_label_batch(
+            tuple(rows),
+            fit_cutoff=view.timestamps[330],
+            evaluation_start=view.timestamps[331],
+            expected_reference_policy_digest="d" * 64,
+            require_v4_evidence=True,
+        )

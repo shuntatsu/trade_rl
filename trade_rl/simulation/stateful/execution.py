@@ -16,6 +16,7 @@ from trade_rl.simulation.orders.model import (
     OrderIntent,
     OrderStatus,
     PendingOrder,
+    TerminalOrderArchive,
 )
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarLifecycle
 from trade_rl.simulation.stateful.order_transitions import (
@@ -79,12 +80,44 @@ class StatefulExecutionObservation:
     def from_result(
         cls, result: StatefulExecutionResult
     ) -> StatefulExecutionObservation:
+        return cls._from_result_with_terminal_reasons(
+            result, cls._terminal_reasons(result.order_book.terminal_orders)
+        )
+
+    @classmethod
+    def from_result_since(
+        cls,
+        result: StatefulExecutionResult,
+        previous_terminal_orders: TerminalOrderArchive,
+    ) -> StatefulExecutionObservation:
+        """Build interval facts using only terminal orders appended this call."""
+
+        current_terminal_orders = result.order_book.terminal_orders
+        if not isinstance(current_terminal_orders, TerminalOrderArchive):
+            raise RuntimeError("terminal order archive was not normalized")
+        terminal_reasons = cls._terminal_reasons(
+            current_terminal_orders.suffix_since(previous_terminal_orders)
+        )
+        return cls._from_result_with_terminal_reasons(result, terminal_reasons)
+
+    @staticmethod
+    def _terminal_reasons(
+        terminal_orders: Sequence[PendingOrder],
+    ) -> tuple[tuple[str, str], ...]:
         terminal_reasons: list[tuple[str, str]] = []
-        for order in result.order_book.terminal_orders:
+        for order in terminal_orders:
             reason = order.terminal_reason
             if reason is None:
                 raise RuntimeError("terminal order observation is missing its reason")
             terminal_reasons.append((order.order_id, reason))
+        return tuple(terminal_reasons)
+
+    @classmethod
+    def _from_result_with_terminal_reasons(
+        cls,
+        result: StatefulExecutionResult,
+        terminal_reasons: tuple[tuple[str, str], ...],
+    ) -> StatefulExecutionObservation:
         return cls(
             next_index=result.next_index,
             order_events=result.order_events,
@@ -94,7 +127,7 @@ class StatefulExecutionObservation:
                 (order.order_id, float(order.remaining_quantity))
                 for order in result.order_book.active_orders
             ),
-            terminal_order_reasons=tuple(terminal_reasons),
+            terminal_order_reasons=terminal_reasons,
         )
 
 

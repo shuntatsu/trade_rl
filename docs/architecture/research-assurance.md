@@ -25,8 +25,8 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 ### Declarative financial objective and clock
 
-`trade_rl.simulation.objectives` declares the P0 financial objective without wiring it
-into current training or replay. Its canonical endpoint is one realized
+`trade_rl.simulation.objectives` declares the P0 financial objective without
+owning a ledger or calculating future expected profitability. Its canonical endpoint is one realized
 after-cost terminal-equity delta, net of explicitly declared external cash
 flows and divided by fixed total initial capital. Independent books contribute
 their capital and terminal values to the same capital-weighted sum; a shared
@@ -37,10 +37,11 @@ The objective interval is UTC-normalized and half-open. A bound clock requires
 its exact elapsed duration to equal the declared finite horizon; decision,
 execution and reward intervals must align, and gamma / GAE values must be
 finite and in range. `terminal_profit_aligned` is only an algebraic declaration
-for equity-delta rewards with gamma one. None of these declarations verifies
-that a PPO environment uses them, changes the historical PPO defaults, or
-authorizes a Study. Any future reward/runtime integration remains a separate
-mechanism change with its own result-blind oracle.
+for equity-delta rewards with gamma one. The opt-in `SharedPortfolioGymEnv` requires the bound objective/clock and
+gamma-one equity-delta reward; `fit_shared_portfolio_ppo` checks its bound clock.
+This connection does not itself prove actual reward/ledger parity, economic
+learnability, Study authorization, or real-data profitability. The historical
+per-symbol PPO defaults are unchanged; G0–G2 independent oracles still apply.
 
 ## G0: Research Question Validity
 
@@ -667,6 +668,357 @@ identity; a constant checkout SHA alone does not establish constant transport
 behavior. Terminated child processes must be reaped before evidence upload.
 
 
+## Research-specific contract: forward study FS1
+
+This contract applies only to the sealed forward study in
+`trade_rl.evaluation.forward_study` (Issue #810). It is a result-blind design record: the
+scoring window starts after the date of this record, so no return, drawdown, Sharpe
+or label of the window exists, and none may be generated before the preconditions
+below hold. The frozen parameters are `Fs1Registry` (`registry.py`), exported to
+`report/issue810-fs1-registry-20261030.json`; their SHA-256 digest is
+`9350734ca6ba920ebfcb47cd7b81b633df5457bfcfe7da37eba6d96fab5f1c56` (`FROZEN_PARAMS_DIGEST`,
+pinned by a test). Changing any frozen value is a new study (FS2), never an edit.
+
+### G0 — FS1 question, falsifiers, and claim scope
+
+**Headline rule (read this first).** `FORWARD_PASS` is only the minimum bar: it means
+the arm beat CASH net of costs at cost x2 (95% lower bound above zero) and stayed within
+the 20% drawdown gate. An arm can be `FORWARD_PASS` and `NO_BETTER_THAN_PASSIVE`, and
+both candidates can pass at the unadjusted 5% level by chance. **The only headline claim
+flag is `edge_claim_supported`**, true only for `FORWARD_PASS` together with
+`BETTER_THAN_PASSIVE` and `survives_bonferroni_k2`. Without it the result supports no
+claim that the forecast or allocation mechanism adds value, and a report must not
+present `FORWARD_PASS` alone as a positive finding.
+
+**Question:** After fees, spread and participation costs, does the frozen configuration
+FS1-A (the Phase 3 P3-6 mechanism: z-blend of the T2 and T4 expected returns, kappa 3,
+12% volatility target, long/short) beat CASH, and does it beat the vol-targeted passive
+control FS1-C (the Phase 3 P3-7 mechanism: equal-weight buy-and-hold with the same 12%
+target), over 2026-11-01..2027-05-01 (181 days, final endpoint closing the last 2027-04-30
+bar)? FS1-B (the P3-3 mechanism: T2 + VT12) is the secondary arm. The roster is exactly
+CASH, FS1-A, FS1-B and FS1-C; no arm may be added, removed or retuned after this record.
+
+**Hypothesis and causal story.** Cross-sectional momentum (T2) and a Ridge forecast on
+the 1h/4h/1d features (T4) may each carry a small, slowly decaying cross-sectional
+signal in USDT-perpetual returns; a turnover penalty (kappa) keeps the book from paying
+more in costs than the signal earns, and an ex-ante volatility cap keeps the drawdown
+inside the 20% budget. Part of the Phase 3 development return was available from the
+volatility cap alone (the passive control), so beating CASH is the minimum bar and
+beating FS1-C is what would support a forecasting or allocation edge.
+
+**Falsifiers** (per candidate; frozen numbers in the registry):
+
+1. Maximum drawdown above 20% in the base **or** cost x2 scenario.
+2. The 95% percentile block-bootstrap lower bound (20-day moving blocks, 2000 resamples,
+   seed 0) of the annualised mean daily excess return over CASH at cost x2 is not above
+   zero.
+3. The same lower bound of the excess over FS1-C (cost x2) not above zero marks the arm
+   `NO_BETTER_THAN_PASSIVE`. This does not by itself make the arm `FORWARD_FAIL`, but it
+   keeps `edge_claim_supported` false.
+
+The +1 bar latency scenario is reported and enters validity, not the label.
+Bonferroni with k = 2 (FS1-A, FS1-B) is reported for every excess interval and
+summarised as `survives_bonferroni_k2` (the Bonferroni lower bound over CASH at cost x2
+above zero); the per-arm label uses the unadjusted 95% bound as specified, and the
+family-wise statement enters only through `edge_claim_supported`.
+
+**Label vocabulary:** `FORWARD_PASS`, `FORWARD_FAIL`, `FORWARD_INVALID`. There is no
+`WINNER`, no profitability guarantee and no deployment label. `FORWARD_INVALID` is
+returned (never `FORWARD_FAIL`) when a measurement is not valid: a replay failed, the
+ledger does not reconcile or the account terminated, the equity path does not cover the
+whole window, an arm made fewer than one trade or more than 10% of its decisions
+fail-closed (pipeline degradation, not market evidence), the future-perturbation
+causality matrix is not identical, CASH is not exactly flat, or **any control (CASH,
+FS1-C) is invalid** (every candidate is then invalid; a broken baseline is never skipped).
+
+**Disclosure — selection contamination.** The Phase 2/3 development results are public.
+FS1-A, FS1-B and FS1-C were chosen from them (P3-6 and P3-3 were the only arms that
+passed the development rule; P3-7 is the passive comparator), after 21 development
+arms were compared on data already used by earlier studies. That selection is why a
+forward test is needed. FS1 can falsify the chosen configurations; it cannot re-select
+or tune them, and the Phase 3 development numbers are not evidence for FS1.
+
+**When each constant was fixed relative to the development results** (git commit times
+are local clocks, not publicly verifiable timestamps; the only GitHub-timestamped record
+is the Issue #810 comment of 2026-10-29T10:10:07Z):
+
+* *Before the first allocator result of the development real-data study (PR-C):* the
+  20% drawdown gate, the 20-day block bootstrap (2000 resamples, seed 0, 95%), the
+  costs and stresses, 10,000 USDT capital, daily 00:00 UTC decisions, and the allocator
+  constants gamma 5, EWMA halflife 60 days, shrinkage 0.2, `w_max` 0.5, `gross_max`
+  0.95, minimum trade 0.5%. The protocol commit says 'freeze before any run'; that is
+  not publicly verifiable. The 20% budget itself predates the study (earlier directional
+  work), but PR-C was designed in knowledge of an earlier breakeven diagnostic on the
+  same development data.
+* *After the PR-C results and before the Phase 2 results:* the T1-T8 trial registry
+  (T2 cross-sectional momentum, T4 Ridge on all features and the T6 z-blend
+  construction) and its constants; the registry was committed before the first Phase 2
+  run, with its implementation details pinned after the PR-C result (not publicly
+  verifiable).
+* *After the Phase 2 results:* kappa 3, the 12% volatility target, the P3-3/P3-6/P3-7
+  mechanisms and therefore the choice of FS1-A, FS1-B and FS1-C. They are post hoc
+  exploratory (the public record is the Issue #810 comment above, posted before any
+  Phase 3 code existed).
+* *After the Phase 3 results:* the FS1 window, Bonferroni k = 2, the FS1 roster, the
+  validity guards (at most 10% fail-closed decisions, at least one trade, at least 99%
+  tradable bars, the settlement margin) and the label rule. These are fixed before any
+  forward bar exists.
+
+**What FS1 can prove.** Whether, in one future regime, these three frozen
+configurations earned after-cost excess return inside the drawdown budget. **What it
+cannot prove:** a durable edge (one window of about 181 days is a single regime with
+about nine independent 20-day blocks, so a wide interval means 'not demonstrated', not
+'zero edge'); that the forecast adds value unless `BETTER_THAN_PASSIVE`; capacity,
+live execution quality or point-in-time source availability; deployment (G5) eligibility;
+anything about other configurations.
+
+### G1 — FS1 fixed mechanism, window, and seal
+
+* **Universe and clock:** BTCUSDT, ETHUSDT, BNBUSDT, XRPUSDT, ADAUSDT USDT-perpetuals,
+  1h bars, one decision per day at 00:00 UTC, orders eligible per the shared replay.
+* **Account:** one continuous shared 10,000 USDT account per arm and scenario, no reset
+  at refit boundaries, terminal positions settled flat at the final endpoint, funding
+  accrued by the replay. CASH is the all-zero book and earns no yield.
+* **Costs:** fee 0.05%/side, spread 0.02%, impact rate and 5% participation cap of the
+  development protocol. Stresses: cost x2 (fee and spread doubled) and +1 bar order
+  latency. The allocator keeps its base `c_i` (fee + spread, a lower bound) in every
+  scenario, as in the development study.
+* **Mechanism:** the Phase 3 builders and the development runner unchanged: gamma 5,
+  EWMA halflife 60 days, shrinkage 0.2, `w_max` 0.5, `gross_max` 0.95, minimum trade
+  0.5% of equity; kappa 3 and VT12 (`sqrt(w' Sigma w * 365)` cap at 12%, applied to the
+  solved target before the minimum-trade rule) for FS1-A, VT12 only for FS1-B.
+* **Data scope:** development data through 2026-08-01 (the end of the consumed
+  development window) is the only data this study holds or has used at
+  registration. Exchange bars for 2026-08-01..2026-10-30 already exist, but this
+  study has not fetched them, fetching them needs the user's separate
+  authorization, and no constant was chosen with reference to them (author
+  attestation). Bars from 2026-08-01 to 2026-11-01 (and any later bars before the
+  scoring start) may enter
+  features, forecasts and the covariance warm-up **only if separately authorized, and
+  are never scored**: the replay starts at the 2026-11-01 row. The Ridge forecast
+  sources refit every 30 days from the scoring start, expanding from the first
+  dataset row; each refit uses only labels matured before its fit time, including
+  scoring-window bars that precede that fit time (causal prequential refit).
+  Without a contiguous dataset the evaluator refuses: the data must be regular hourly
+  rows over the whole span and at least 99% tradable per symbol over
+  2026-08-01..2027-05-01, so an unauthorized three-month hole cannot be scored.
+* **Dataset construction (pinned, with a procedural remainder).** `FS1_BUILD_POLICY` in
+  the registry fixes the construction: USDT-M perpetuals, 1h bars from 2021-01-01 to
+  2027-05-01, 4h/1d aggregated from complete 1h windows, the `non_tradable_rows` gap
+  policy (a missing 1h bar is a non-tradable row with a forward-filled mark and no
+  funding accrual; a higher-clock window touching a gap is a placeholder with
+  `available_at` at the range end, so recursive features stay unavailable), zero baked-in
+  fees and spread, and the `dataset_build` builder. Its digest
+  (`13d404e9a8b0a87d02cf7a90f9af2bbbad412d439dae42f730e4f416efd03a34`) is part of the
+  params digest and must appear in the manifest (`manifest_build_policy_mismatch`
+  otherwise). What cannot be pinned today is that a concrete builder run obeyed the
+  policy: the forward-window build does not exist yet and the existing builder carries
+  the development span as constants. That compliance is **procedural**: the seal record
+  must name the builder commit and the exact command, the exchange-rule snapshot, and the
+  source archive digests that the manifest repeats.
+* **Seal procedure (all recorded before any scoring):**
+  1. This record and the code are merged through the normal review path. A fresh
+     result-blind G0-G2 review of the design record and the code is recorded on the
+     merging change. Reviewers are told not to open `report/` or any study output; they
+     cannot be blind to the public development results, only to the forward window, which
+     does not exist.
+  2. A seal record on Issue #810 names the sealed code commit (a commit on `main`
+     that contains this contract; mechanism-affecting merges after this record require
+     re-running the G2 tests and a new seal), the params digest above, and later the
+     dataset manifest SHA-256, the dataset builder commit and command, the
+     exchange-rule snapshot and the UTC time of the data fetch.
+  3. The user separately authorizes (a) fetching the post-2026-08-31 data and
+     (b) the single scoring run, each by an Issue #810 comment (the evaluator accepts
+     only `https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<digits>`,
+     both for the scoring authorization and for the manifest's fetch authorization).
+     Neither is implied by this record.
+  4. After the authorized fetch the dataset is built offline under `FS1_BUILD_POLICY`
+     and `manifest_bytes_from_dataset` writes the dataset seal manifest (dataset id,
+     symbols, first and last timestamp, bar count, build-policy digest, source
+     archive digests, fetch authorization, UTC fetch time, UTC seal time). The
+     manifest SHA-256 is recorded in the seal record before scoring. Steps 3-4 are
+     performed by the single documented tool described in *FS1 acquisition procedure*
+     below, never by an ad-hoc script.
+* **Settlement.** The final scored row is the 2027-05-01T00:00Z endpoint that closes the
+  2027-04-30T23:00Z bar. Scoring requires the wall clock at or after the scoring end
+  plus a 24 h settlement margin (2027-05-02T00:00Z), and the manifest's recorded fetch
+  time must be at or after that instant and not after the seal time, so a partially
+  published final bar cannot be scored.
+* **Code identity.** The checkout must be the trade_rl repository: the evaluator runs
+  `git rev-parse --show-toplevel` from the package location, requires this module file
+  to be that repository's tracked `seal.py` (a non-editable install or a copy inside
+  another repository is refused), requires the pinned root commit in the history, the
+  HEAD to equal the sealed code SHA, and no modified tracked file and no non-ignored
+  untracked file.
+* **Scoring** happens once per output path: `python -m trade_rl.evaluation.forward_study`
+  writes a write-once result file and never overwrites. The public entrypoint takes no
+  registry, digest, clock, code-identity or loader argument; those exist only in a
+  private factory that tests replace. There is no durable cross-path scoring ledger, so
+  a second run with a new output path is possible; deterministic inputs give the same
+  labels, and any second result file is a protocol violation to be reported.
+
+#### FS1 acquisition procedure
+
+The acquisition, dataset build, seal manifest and seal-record text are produced by one
+documented tool, `trade_rl.evaluation.forward_acquisition`, so that no ad-hoc or
+monkeypatched script ever builds the FS1 dataset. It lives outside
+`evaluation/forward_study/` on purpose: the scoring package never imports a network
+client, and the tool imports neither the replay, the strategies nor `forward_study.fs1`.
+The tool changes no registry value or digest and scores nothing. As of this record **no
+data has been fetched**, and the data-fetch authorization is still pending.
+
+1. **Plan (default, offline).**
+   `python -m trade_rl.evaluation.forward_acquisition acquire --authorization <Issue #810 comment URL> --output-root <new dir>`
+   without `--allow-network` checks the authorization pattern, that the output root does
+   not exist and that the registry's build policy is the one the tool implements, then
+   prints the exact request list and ranges and exits 0. It creates nothing, reads no
+   development input, and imports no network client (a subprocess test pins that, also
+   for every pre-flight refusal and the seal-record printer). The plan is 760 monthly
+   archives (5 symbols, 1h klines and `fundingRate`, 2021-01..2027-04); 670 of them
+   (2021-01..2026-07, before the development data end) are reused read-only, 90
+   (2026-08..2027-04: warm-up only `[2026-08-01, 2026-11-01)`, scored
+   `[2026-11-01, 2027-05-01)`) are the ones to fetch, each with its official `.CHECKSUM`
+   file, plus one REST request for the exchange rules.
+2. **Authorized run.** Only after the user's Issue #810 data-fetch authorization comment:
+   `... acquire --authorization <URL> --output-root <new dir> --allow-network --dev-archive-root <dir> --dev-source-evidence <source-evidence.json> --dev-dataset <published development Dataset>`.
+   Every refusal knowable before the first request is collected and raised together and
+   nothing is created: the authorization pattern; an existing output root; any build
+   policy deviation (the policy must hash to the digest the tool was written against and
+   each field must be one the tool can build; `build_policy_*` reasons); a registry that
+   differs from the frozen digest; the wall clock before the scoring end plus the 24 h
+   settlement margin (`settlement_not_reached`: a manifest fetched earlier would be
+   refused by the scoring evaluator, and the final monthly archive does not exist
+   earlier); a trade_rl checkout that is unavailable or dirty (the builder commit is
+   provenance); an output root inside that checkout (`output_root_inside_checkout`: a new
+   untracked directory there would fail the scoring evaluator's clean-tree check, so the
+   root must lie outside the repository); and the development reuse proof below. One
+   documented exception: when the build policy cannot be parsed there is no plan and so
+   no list of development archives to prove, hence the identity proof is skipped (the
+   policy, settlement, checkout and missing-input reasons are still reported together).
+   The clock is the local, unauthenticated wall clock, the same trust basis as the
+   scoring evaluator. If the final monthly archive is not yet published at the first
+   permitted instant, the fetch answers 404 and the run refuses with `fetch_failed`,
+   leaving a partial root; the operator retries with a new root after publication.
+3. **Development reuse by identity (never refetched).** The published development Dataset
+   is loaded read-only and must be identity-verified, equal the pinned development
+   `dataset_id` and artifact digest (copies of `dataset_build.STUDY_*`, pinned equal by a
+   test); its identity payload binds `raw_source_roster_digest`; the evidence file's
+   roster must hash to it and list exactly the planned development archives; and every
+   local archive must equal its roster SHA-256 and size (`dev_*` reasons; a malformed
+   identity payload and duplicate roster URLs are refusals too). Only then are the files
+   copied into the new transport cache. The reused archives have **no official
+   `.CHECKSUM` check**: the development evidence recorded those files as absent offline,
+   so the roster SHA-256 bound inside the identity-verified Dataset is their only
+   evidence.
+4. **Fetch, verify, build.** The tool fetches only the 90 archives, their `.CHECKSUM`
+   files and the exchange rules, through the maintained transport; refuses a missing
+   archive (`fetch_failed`), an unexpected or missing cache member (`archives_*`; any
+   file other than a planned `.bin` with its `.json` sidecar, such as a leftover
+   `.bin.tmp`, is unexpected) and an archive that does not equal its official checksum
+   (`archive_checksum_*`); builds the
+   dataset offline (`allow_network=False`) under `FS1_BUILD_POLICY` (`non_tradable_rows`,
+   4h/1d aggregated from complete 1h windows, zero baked-in costs, the frozen exchange
+   snapshot applied statically); and refuses a gap the policy does not admit
+   (`gap_*`: an irregular timeline, or less than the registry's tradable fraction per
+   symbol over `[2026-08-01, 2027-05-01)`; a few missing bars stay non-tradable rows).
+   That guard reads only timestamps and tradable flags, never a price, return, feature
+   or funding value, and decides nothing about any arm. The span `[2021-01-01,
+   2026-08-01)` is then compared with the identity-verified development Dataset
+   (`dev_span_rebuild_differs`): every identity array must be exactly equal on those
+   rows, except (a) the exchange-rule arrays (`minimum_notional`, `lot_size`,
+   `tick_size`), which come from the freshly retrieved snapshot and are only recorded
+   as equal or not, and (b) on the last development row only, the feature-derived arrays,
+   because a higher-clock placeholder window is visible there in the development build
+   (its `available_at` is the development range end) but not in the longer FS1 build.
+   The result is recorded in the receipt (`development_span_equality`).
+5. **Outputs (the manifest is written last).** The root holds `vision-cache/`,
+   `exchange-info/`, `dataset/` (the published artifact that `--dataset` takes),
+   `acquisition-receipt.json` and `fs1-dataset-seal-manifest.json`. The manifest is the
+   strict seal manifest (`manifest_bytes_from_dataset`): dataset id, symbols, first and
+   last timestamp, bar count, build-policy digest, the fetch authorization, `fetched_utc`
+   (the clock reading before the first request) and `sealed_utc`; its `source_manifest`
+   maps every archive URL to its SHA-256 and binds, under `fs1:` keys, the receipt, the
+   exchange-rule payload, the dataset artifact digest and the development roster digest.
+   The receipt carries what the manifest format has no field for: the builder commit and
+   clean-tree flag, the exact command line, the exchange snapshot, the development reuse
+   identity, the archive roster with its origin and, for fetched archives, the SHA-256
+   of the raw `.CHECKSUM` bytes, the development-span equality result, the gap report
+   and `economic_replay_executed: false`. A refusal after the fetch leaves a partial root with
+   no manifest; it is inspected and removed by hand, and a new run needs a new root (the
+   tool never deletes and never reuses a root).
+6. **Seal record.** `... seal-record --output-root <dir> --sealed-code-sha <sha>` prints
+   (and never posts) the Markdown body of the Issue #810 seal comment after checking the
+   manifest and receipt against the frozen registry and each other: the sealed code
+   commit, `FROZEN_PARAMS_DIGEST`, the build-policy digest, the manifest SHA-256,
+   `fetched_utc`, the authorization URL, the scoring-allowed time (2027-05-02T00:00Z),
+   the builder commit and command, the exchange snapshot, the scoring command with the
+   G4 authorization left as a placeholder, and two procedure notes. **LOW-A:** pre-seal
+   Revision 2 above is covered by the independent-review receipt of the #1049 change.
+   **LOW-B:** a hard kill of the scoring process can leave a zero-byte claimed output
+   file; it is reported on Issue #810 and removed by hand, never silently, and a
+   non-empty output is never removed or replaced.
+
+Limits: the checks are procedural for what no digest can pin (a concrete run's compliance
+with the build policy rests on the receipt's builder commit and command, as G1 says); the
+authorization is a recorded URL, not a verified GitHub identity; the `.CHECKSUM` format
+and the live endpoints are exercised only against fixtures until the authorized run; and
+the tool authorizes nothing: scoring still needs the seal, the manifest, the clock and the
+separate G4 scoring authorization.
+
+### G2 — FS1 independent oracles and the sealed evaluator
+
+The evaluator and the mechanism checks are tested on synthetic data only; the frozen
+registry itself is never scored in tests.
+
+| Oracle | Statement | Test |
+|---|---|---|
+| ORACLE-1 | A pure-Python (no numpy) reference of the annualised portfolio volatility, the VT scale `min(1, cap / vol)`, the kappa-scaled cost vector `kappa * (fee + taker fee + spread)`, the EWMA covariance and the minimum-trade hold rule equals production on 40 random instances and, decision by decision, inside a replay of the FS1-A mechanism, once with reduced parameters and once at the frozen FS1-A parameters read from the pinned protocol (60-day halflife, 0.5% minimum trade, 30-period history; the cap binds on at least ten decisions and the hold rule on at least five); the builders are checked to carry those frozen settings | `tests/evaluation/test_forward_study_mechanism_oracles.py` |
+| ORACLE-2 | The kappa-scaled solve is not beaten by an exhaustive grid plus pattern-search polish on two-asset instances (long/short and long-only). On three-asset instances no random feasible perturbation (single coordinate, pairwise transfer, uniform draw, and a coordinate set exactly onto a kink: its current weight or zero) improves it over 3,000 trials per case; larger kappa never increases trading | same |
+| ORACLE-3 | With `kappa = 1` and no volatility target the policy is bit-identical to a policy with those values spelled out, and its proposals equal an independently written pre-Phase-3 pipeline (pure-Python EWMA covariance, a pure-Python derivative-free solve over all sign directions, its own history and hold rules) to 2e-4 in weight and exactly in the hold set away from the hold threshold; an active mechanism is not identical | same |
+| ORACLE-4 | Future perturbation after the causality cut leaves every decision, quantity, cash and equity value at or before the cut identical for FS1-A, FS1-B and FS1-C in all three scenarios; the probe has power (a deliberate look-ahead arm is detected and its label is `FORWARD_INVALID`) | `tests/evaluation/test_forward_study_fs1.py` |
+| ORACLE-5 | The sealed evaluator refuses, listing every unmet precondition, and reads no dataset and writes no result, unless: the wall clock is at or after 2027-05-02T00:00Z (scoring end plus the 24 h settlement margin); an Issue #810 comment URL is supplied as `--authorization`; the registry equals the frozen digest and the operator-supplied params digest; the checked-out HEAD equals the sealed code SHA in the trade_rl repository with no modified or untracked files; the manifest bytes match the recorded manifest SHA-256, the frozen roster/window and build-policy digest, and record a fetch after settlement; the loaded dataset has a verified content identity equal to the manifest, regular hourly rows, the exact last row and enough tradable bars; the output path does not exist | `tests/evaluation/test_forward_study_seal.py`, `tests/evaluation/test_forward_study_fs1.py`, `tests/architecture/test_forward_study_boundary.py` |
+| Labels | The label rule on fabricated numbers: both falsifiers, the exact 20% boundary, the passive annotation, Bonferroni, and every INVALID path | `tests/evaluation/test_forward_study_labels.py` |
+
+**Known limitations of the machine checks.** The authorization reference is recorded,
+not verified: no code can check who wrote a GitHub comment, so the human decision is
+the real gate. The permit object guards against accidental use, not against a
+developer who bypasses the module on purpose. The code identity relies on the git
+checkout at the sealed commit (the digest of the parameters, not of every transitive
+source file, is pinned in the tree). Scoring is once per output path, not once
+globally. The dataset build policy is pinned as a digest, but a concrete builder run's
+compliance is procedural (see G1). The G2 oracles establish the declared
+mechanism, not its profitability; the solver's fail-closed certificate can reject
+extreme instances (for example a very large kappa with the book exactly on the gross
+limit), which the policy turns into a hold, and a fail-closed share above 10% makes
+the arm `FORWARD_INVALID`. The synthetic scoring path shows that the evaluator runs,
+labels and refuses as specified; it says nothing about the real window.
+
+**Pre-seal revision log.** FS1 is not sealed, so the frozen digest may change, but only
+with a record here and no data in existence.
+
+* Revision 2 (2026-10-30, follow-ups from the result-blind review): no change to the
+  params digest, the falsifiers, the thresholds or the arms. A missing Bonferroni bound
+  now makes the candidate `FORWARD_INVALID` like every other missing number, a
+  candidate summary without `allocator_decisions` is invalid, and a dataset-load failure
+  or output write race is reported as a refusal with no partial output.
+* Revision 1 (2026-10-30, first review): the params digest changed from
+  `2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283` to the digest
+  above. Reasons: the dataset build policy is pinned in the registry (finding L4); a
+  24 h settlement margin is added to the scoring clock (L5); the claim limits state the
+  headline rule. The label rule changed in the output only: `edge_claim_supported` now
+  also requires `survives_bonferroni_k2` (L9); the falsifiers, thresholds and the
+  meaning of `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` did not change.
+
+**Gate state of this record:** G0, G1 and G2 were recorded ESTABLISHED by the
+result-blind independent review 5702477777 of the FS1 design change at head
+51b8b435a (a design and code review only: it does not seal FS1 and does not replace
+CI, the seal record or the user's authorizations). The FS1 seal record, the
+data-fetch authorization and the G4 scoring authorization are pending; the sealed
+code commit is a later commit that the future Issue #810 seal record will name. G3 is
+not applicable (no forward evidence exists); G4 NOT ESTABLISHED; G5 NOT ESTABLISHED.
+Scoring may not start until the seal record, the dataset manifest, the scoring end
+date plus the settlement margin and both user authorizations exist.
+
 ## AI adversarial review
 
 **AI semantic review is mandatory.** 研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを新設・変更する場合、G4のeconomic resultを生成・閲覧する前にAIがG0-G2をadversarial reviewする。これは任意のコメント欄ではなく、研究を次段階へ進めるためのsemantic gateである。
@@ -953,6 +1305,24 @@ roots. The lineage fields remain caller assertions: the schema alone does not
 authenticate external roots, prevent a caller from claiming a new attempt 1, or
 prove that the declared disposition is truthful. G0 review must verify the
 complete predecessor chain before a successor is sealed.
+
+Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
+v2 valid and unchanged. `available` embeds the verification of a root that the
+existing v1 journal reader read read-only (protocol digest, event count, final tip,
+last observation, root path); `attempt2` cannot build it without a root path that
+passes that read, the generic `seal_paper_study`/`paper.cli seal` refuse any v3
+lineage, and a first `attempt2 launch` re-reads the recorded root and refuses if it
+is gone or differs.
+`unavailable` is the honest case where the preserved root is lost: it records that the
+lineage values come from the prior public result-blind review record (document and
+commit), that they were not re-verified at seal time, the user's statement quoted
+verbatim with its date, and the replacement review rule. For attempt 2 the root is
+unavailable, so the G0 requirement that a fresh review resolve the preserved root is
+replaced, for this case only, by a fresh result-blind review of the lineage
+documentation and the pull request that introduced the rule. This is weaker than
+resolving the root: the predecessor protocol, tip and gap are carried forward from a
+recorded review and are not re-verified, and global attempt uniqueness stays
+unestablished. Disposition remains `invalidated` with reason `observation_gap`.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 

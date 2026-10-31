@@ -49,6 +49,7 @@ def test_attempt2_direct_imports_have_no_network_collector_or_order_surface() ->
     for forbidden in (
         "trade_rl.integrations",
         "trade_rl.evaluation.paper.supervisor",
+        "trade_rl.evaluation.paper.storage_probe",
         "trade_rl.evaluation.paper.engine",
         "trade_rl.evaluation.paper.store",
         "trade_rl.evaluation.paper.assessment",
@@ -128,6 +129,7 @@ def test_plan_and_check_attempt_no_connection_in_a_fresh_process(
         "    Path(sys.argv[1]) / 'attempt2',\n"
         "    start_at=datetime.now(UTC) + timedelta(days=1),\n"
         "    authorization=sys.argv[2],\n"
+        "    predecessor_root_status='unavailable',\n"
         ")\n"
         "report = check_collection(Path(sys.argv[3]), protocol_sha256=sys.argv[4])\n"
         "print(json.dumps(dict(attempts=attempts, status=draft['status'],\n"

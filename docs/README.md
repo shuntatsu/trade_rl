@@ -12,7 +12,7 @@ Active directional exit work: [design](specs/reduce-only-exits.md) and
 
 この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。
 
-現在読むべき恒久文書は次の7つである。
+現在読むべき恒久文書は次の10文書である。
 
 - [`AGENTS.md`](AGENTS.md) — Agent向けの読む順序、更新先、保持・削除ルール、verification contract
 - [`architecture/lean-core.md`](architecture/lean-core.md) — 現行lean coreの目的、データ・strategy・risk・execution/accounting・artifactの不変条件
@@ -20,6 +20,9 @@ Active directional exit work: [design](specs/reduce-only-exits.md) and
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`architecture/final-evaluation-authorization.md`](architecture/final-evaluation-authorization.md) — frozen WINNERからunused-futureを一度だけ開くread-only authorization、one-shot publication、tamper/concurrency境界の恒久契約
 - [`architecture/research-assurance.md`](architecture/research-assurance.md) — G0-G5、Research Question / Mechanism Contract、semantic invariant、independent oracle、Assurance Matrixの恒久契約
+- [`architecture/ppo-rollout-boundary.md`](architecture/ppo-rollout-boundary.md) — Issue #810 P3 synthetic PPO rollout-boundary diagnosticの閉じたsource、fit/held-out境界、accounting、bootstrap、provenance contract
+- [`research/ppo-rollout-boundary-protocol.md`](research/ppo-rollout-boundary-protocol.md) — 48/72-step paired synthetic controlの固定設定、held-out acceptance、software oracle、limits
+- [`research/ppo-rollout-boundary-results.md`](research/ppo-rollout-boundary-results.md) — frozen synthetic PPO rollout-boundary diagnosticのmeasured result、failed acceptance、provenance、limits
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
 人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Human Guideはこの `docs/` の正本と現行source/testsから派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。GuideはMarkdown本文・静的flow・表を主役にし、必要な実装詳細だけを記事末尾のdisclosureから辿る。本文は `guide/content/pages/*.md`、machine metadataは `guide/content/meta/*.json` に分離し、Markdown section fingerprintとPython symbol/source digestを別々にfail-closed検証する。source linkはbuildしたexact revisionへ固定する。公開版は <https://shuntatsu.github.io/trade_rl/> で提供する。
@@ -52,6 +55,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - final/unused-data authorization、WINNER binding、one-shot publicationを変えた → `architecture/final-evaluation-authorization.md` と final-test contract tests
 - economic hypothesis、causal story、capital/observation/action/reward/risk/execution/accounting semantics、G0-G2 oracleを変えた → `architecture/research-assurance.md` と関連contract/property tests
+- PPO rollout-boundary software contract or its frozen synthetic acceptance changed → `architecture/ppo-rollout-boundary.md` と `research/ppo-rollout-boundary-protocol.md`; do not infer or update unrelated research status
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - Guideが参照する正本sectionまたはPython symbolを変えた → 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json` を再確認し、`--refresh` / `--refresh-code` を対象topicだけ実行して `guide/tools/content_contract.py --check` を通す
 - Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する

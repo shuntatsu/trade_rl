@@ -319,3 +319,46 @@ def test_software_runner_persists_incomplete_receipt_before_any_fit(
     receipt = json.loads((dest / "incomplete-pairs.json").read_text())
     assert receipt["block_id"] == "blocked"
     assert receipt["pairs"][0]["baseline"]["termination_reason"] == "insolvency"
+
+
+def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
+    tmp_path, monkeypatch
+) -> None:
+    """Write-once must be atomic even when another writer claims the path."""
+    from pathlib import Path
+
+    from trade_rl.evaluation.decision_value_reachable_labels import (
+        IneligiblePairOutcome,
+    )
+
+    row = IneligiblePairOutcome(
+        intervention_index=1,
+        prefix_start_index=0,
+        terminal_index=7,
+        candidate_action=(1, 0),
+        reason_codes=("candidate_terminated",),
+        baseline={"terminal_marked_equity": "1000"},
+        candidate={"terminal_marked_equity": "900"},
+    )
+    error = study.IncompletePairedLabelsError("b1", (row,))
+    destination = tmp_path / "race"
+    original_mkdir = Path.mkdir
+    raced = False
+
+    def concurrent_writer(path: Path, *args, **kwargs):
+        nonlocal raced
+        if path == destination and not raced:
+            raced = True
+            original_mkdir(path, exist_ok=False)
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", concurrent_writer)
+    with pytest.raises(FileExistsError):
+        study._persist_incomplete_pair_attempt(
+            destination,
+            error,
+            dataset_id="1" * 64,
+            protocol_digest="f" * 64,
+        )
+    assert destination.is_dir()
+    assert tuple(destination.iterdir()) == ()

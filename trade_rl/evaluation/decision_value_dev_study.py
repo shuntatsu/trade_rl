@@ -1288,8 +1288,10 @@ def _persist_incomplete_pair_attempt(
 ) -> None:
     """Preserve blocked synthetic-label evidence without publishing a success result.
 
-    Prepare a single canonical receipt off to the side, then rename the staging
-    directory. A concurrent writer must never be silently overwritten.
+    Prepare a canonical receipt off to the side, then atomically claim the
+    destination with mkdir(exist_ok=False) before installing that receipt. A
+    concurrent writer must never be silently overwritten, including an empty
+    destination created between preliminary checks and publication.
     """
     destination = Path(output_dir)
     if destination.exists() or destination.is_symlink():
@@ -1307,9 +1309,21 @@ def _persist_incomplete_pair_attempt(
             "pairs": [e.to_mapping() for e in failure.evidence],
         }
         (stage / "incomplete-pairs.json").write_bytes(canonical_json_bytes(payload))
-        if destination.exists() or destination.is_symlink():
-            raise FileExistsError(f"output_dir already exists: {destination}")
-        stage.rename(destination)
+        # Directory rename would silently replace a concurrently created EMPTY
+        # directory on POSIX. Atomic mkdir is the write-once ownership gate.
+        destination.mkdir(exist_ok=False)
+        try:
+            (stage / "incomplete-pairs.json").rename(
+                destination / "incomplete-pairs.json"
+            )
+        except OSError:
+            # Best effort cleanup of our empty reservation. A failed receipt
+            # may never be interpreted as a successful research result.
+            try:
+                destination.rmdir()
+            except OSError:
+                pass
+            raise
     finally:
         if stage.exists():
             shutil.rmtree(stage)

@@ -27,7 +27,7 @@ from trade_rl.simulation.orders.model import (
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
 )
-from trade_rl.simulation.quantities import exact_quantity
+from trade_rl.simulation.quantities import exact_quantity, project_quantity
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionObservation,
     StatefulExecutionResult,
@@ -308,6 +308,7 @@ class ExecutionResult:
 @dataclass(frozen=True, slots=True)
 class _FillResult:
     requested_notional: float
+    original_requested_notional: float
     filled_notional: float
     cost_amount: float
     fill_count: int
@@ -633,6 +634,46 @@ class MarketExecutor:
             ]
         )
 
+    def _capacity_bounded_legacy_targets(
+        self,
+        current: np.ndarray,
+        accepted_delta: np.ndarray,
+        *,
+        market_index: int,
+    ) -> np.ndarray:
+        """Choose lot-grid targets without increasing the accepted fill budget.
+
+        A pre-existing off-grid holding is legal and must remain unchanged when
+        there is insufficient capacity to reach the next lot-grid target.
+        """
+
+        _, lot_sizes, _ = self._effective_rule_array_views(index=market_index)
+        next_quantities = current.copy()
+        for index, (position, change, lot_size) in enumerate(
+            zip(current, accepted_delta, lot_sizes, strict=True)
+        ):
+            if change == 0.0:
+                continue
+            position_exact = exact_quantity(float(position))
+            change_exact = exact_quantity(float(change))
+            limit = position_exact + change_exact
+            if lot_size > 0.0:
+                step = exact_quantity(float(lot_size))
+                count = (
+                    math.floor(limit / step)
+                    if change > 0.0
+                    else math.ceil(limit / step)
+                )
+                candidate = project_quantity(count * step)
+            else:
+                candidate = project_quantity(limit)
+            realized_delta = exact_quantity(candidate) - position_exact
+            if (change_exact > 0 and 0 < realized_delta <= change_exact) or (
+                change_exact < 0 and change_exact <= realized_delta < 0
+            ):
+                next_quantities[index] = candidate
+        return next_quantities
+
     def _constrain_borrow(
         self,
         desired: np.ndarray,
@@ -800,6 +841,10 @@ class MarketExecutor:
             self.dataset.resolved_array("sell_allowed")[market_index],
         )
         trade_mask = trade_mask & direction_allowed
+        # Preserve the original close demand even when minimum-notional
+        # admission later refuses every fill. Keep the same rounded price
+        # basis used to calculate actual fill notional.
+        raw_requested_notional_vector = requested_notional_vector.copy()
         _, _, minimum_notional = self._effective_rule_array_views(index=market_index)
         requested_notional_vector = np.where(
             np.abs(requested_notional_vector) >= minimum_notional,
@@ -826,15 +871,20 @@ class MarketExecutor:
             filled_notional_vector,
             price_vector,
         )
-        next_quantities = self._round_quantities(
-            book.quantities + filled_delta,
-            index=market_index,
+        next_quantities = self._capacity_bounded_legacy_targets(
+            book.quantities, filled_delta, market_index=market_index
         )
         filled_notional_vector = self.dataset.quantity_notional(
-            market_index,
-            next_quantities - book.quantities,
-            price_vector,
+            market_index, next_quantities - book.quantities, price_vector
         )
+        # Check the *actual* post-grid notional; a rounded position must never
+        # consume more volume than the accepted capacity even by float error.
+        over_capacity = np.abs(filled_notional_vector) > capacity
+        if np.any(over_capacity):
+            next_quantities[over_capacity] = book.quantities[over_capacity]
+            filled_notional_vector = self.dataset.quantity_notional(
+                market_index, next_quantities - book.quantities, price_vector
+            )
 
         positive_capacity = capacity_notional > 0.0
         participation = np.zeros_like(capacity_notional)
@@ -844,13 +894,16 @@ class MarketExecutor:
         )
         impact = self.cost.impact_rate * np.sqrt(participation)
         slippage = self._slippage_rates(len(price_vector))
-        spread_multiplier = 0.5 if self.cost.order_type == "limit" else 1.0
+        # Forced close bypasses limit resting/price rules and therefore takes
+        # liquidity even when the configured ordinary order type is LIMIT.
+        takes_liquidity = force_market or self.cost.order_type != "limit"
+        spread_multiplier = 1.0 if takes_liquidity else 0.5
         venue_fee = (
-            self.cost.maker_fee_rate
-            + self.dataset.resolved_array("maker_fee_rate")[market_index]
-            if self.cost.order_type == "limit"
-            else self.cost.taker_fee_rate
+            self.cost.taker_fee_rate
             + self.dataset.resolved_array("taker_fee_rate")[market_index]
+            if takes_liquidity
+            else self.cost.maker_fee_rate
+            + self.dataset.resolved_array("maker_fee_rate")[market_index]
         )
         unit_cost = self.cost.multiplier * (
             self.cost.fee_rate
@@ -881,6 +934,9 @@ class MarketExecutor:
         self._update_margin(book)
         return _FillResult(
             requested_notional=float(np.abs(requested_notional_vector).sum()),
+            original_requested_notional=float(
+                np.abs(raw_requested_notional_vector).sum()
+            ),
             filled_notional=filled_notional,
             cost_amount=cost_amount,
             fill_count=book.fill_count - fills_before,
@@ -1141,9 +1197,12 @@ class MarketExecutor:
             max(result_book.portfolio_value, 0.0) / starting_value - 1.0,
             -1.0 + 1e-12,
         )
-        requested_turnover = fill.requested_notional / starting_value
+        requested_notional = fill.original_requested_notional
+        requested_turnover = requested_notional / starting_value
         filled_turnover = fill.filled_notional / starting_value
-        if filled_turnover + _TOLERANCE >= requested_turnover:
+        if result_book.termination_reason is None and all(
+            quantity == 0 for quantity in result_book.exact_quantities
+        ):
             result_book.termination_reason = EconomicTerminationReason.LIQUIDATION
         return ExecutionResult(
             book=result_book,
@@ -1161,8 +1220,8 @@ class MarketExecutor:
             rebalance_events=fill.rebalance_events,
             fill_ratio=(
                 1.0
-                if fill.requested_notional <= _TOLERANCE
-                else min(1.0, fill.filled_notional / fill.requested_notional)
+                if requested_notional <= _TOLERANCE
+                else min(1.0, fill.filled_notional / requested_notional)
             ),
             max_participation=fill.max_participation,
             margin_utilization=result_book.margin_utilization,

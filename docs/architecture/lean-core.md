@@ -625,7 +625,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - maker/taker cost分類はorder typeだけでなくrealized liquidity roleに合わせる。LIMITがそのprocessing barで初めてeligibleになり、同じbarのopenで既にmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使う。新規LIMITがbar内touchまでrestする場合、および以前のeligible barからcarryされていたLIMITが後続bar openでcrossする場合はresting orderとしてmaker feeとhalf spreadを使う。MARKET / STOP_MARKETは従来どおりtakerである。この分類はfill価格・数量・capacityを変更しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
-- terminal mark-to-marketとforced closeを混同しない。
+- terminal mark-to-marketとforced closeを混同しない。旧互換の `MarketExecutor.liquidate_at_close` は標準stateful執行経路ではなく、profile modeでは引き続き拒否する。強制market closeは元の設定がLIMITでもtaker feeとfull spreadを適用し、最小発注額・参加上限によって保有が残れば清算完了としない。元の未決済notionalを消化率に残し、off-grid旧保有量も、実際の約定notionalがcapacityを超えない量だけをlot gridへ進める。これらは既存の研究protocolや結果を再分類しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。
 
 `MarketExecutor` の標準executionはnext-openであり、decision row `t` の注文は最初にrow `t+1` のopenで約定可能になる。participation capacityのvolume authorityは `ExecutionCostConfig.processing_bar_volume_capacity` に明示bindする。

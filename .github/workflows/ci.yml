@@ -45,6 +45,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Diagnostic Ruff formatter diff (temporary)
+        run: uv run ruff format --diff tests/tools/test_independent_research_review.py || true
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

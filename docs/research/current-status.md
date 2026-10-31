@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-28 (JST)
+更新基準: 2026-10-30 (JST)
 
 ## 結論
 
@@ -586,29 +586,243 @@ TD6では、レイテンシ下の未約定注文（in-flight order）を明示�
 
 本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
 
-### TD7: Posture-aware decision-value learning (6-arm development study)
+### TD7: Posture-aware decision-value learning and audit remediation (6-arm development study, #1025)
 
-TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入し、同一データセット上で6アーム4シナリオ比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2] × `base`, `cost_x2`, `latency_1bar`, `latency_2bar`）を実施した。
+**撤回・履歴保全（2026-10-30）:** 以下のTD7成績・INCONCLUSIVEは実行当時の保存済み観測記録であり、現行HEADで再実行・再現した値ではない。事前分散を1e-3に変更したのは既消費Tier D開発データを見てから行った事後選択であり、「事前分散を適正化したから保守的モデルが優越した」「自己キャンセルを完全に根絶した」等の改善主張を撤回する。数値そのものは改ざんせず保存するが、G0–G4の認可、方式間の優位性、未使用データでの一般化の証拠には使用しない。旧v1 solver・注文proposalとTD8改修後の実装は明確に区別する。
 
-各ブロックで因果性プローブおよび台帳突合が `PASSED` を記録した（総実行時間 746.62秒）。
+TD7では、TD6で残された課題（標準化特徴空間でのRidge適合および共分散の代数的折りたたみ、重なり多重度による自由度補正、姿勢認識プロポーザルによる未約定注文の保全と微小ドリフト抑止、状態励起ウォームアップ参照ポリシー、2バーレイテンシシナリオの追加、およびリスクヘッドルーム拡大）を導入した。さらに、厳格な監査により特定された18件の構造的バグ（未約定注文の取り消しループ、微小ダスト退出時のValueError、薄型SVDによるランク切断正則化、重なり共分散のPSD Gram行列計算、非励起状態座標に対する事前分散、浅層モデルの入力標準化によるリミットサイクル抑止、符号付きサンクコスト調整の整合化、厳格な因果性摂動プローブ、全金融変数の台帳突合検証）および未励起座標事前分散の事後調整（`unexcited_prior_std = 1e-3`）を当時の研究報告に記録した。ただし、事後調整による改善・ヒステリシス保全・完全な自己キャンセル解消の主張は上記の通り撤回する。
+
+同一データセット（`data/bot-development-2024q1/dataset`）上で是正後の6アーム4シナリオ比較（`cash`, `fixed_long`, `cost_aware_ridge` [B0], `linear_value` [B1], `conservative_linear_value` [B1c], `shallow_value` [B2] × `base`, `cost_x2`, `latency_1bar`, `latency_2bar`）を再実行した。
+
+全3ブロックで因果性摂動プローブ（`fit_cutoff_index` 以降の摂動とB0/B1/B1c/B2の再学習・係数SHA-256および共分散行列の一致検証と決定不変性）および全主要金融変数の台帳突合が `PASSED` を記録した（総実行時間 380.77秒）。
 
 総合評価結果（Aggregate Net Returns）:
 - `cash`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%, latency_2bar +0.0000%
 - `fixed_long`: base +16.0339%, cost_x2 +15.7885%, latency_1bar +15.5232%, latency_2bar +14.9689%
-- `cost_aware_ridge`: base -14.9667%, cost_x2 -17.0373%, latency_1bar -14.7359%, latency_2bar +0.0000%
-- `linear_value`: base -12.7714%, cost_x2 -22.4730%, latency_1bar -12.5079%, latency_2bar -13.7480%
-- `conservative_linear_value`: base +0.0000%, cost_x2 +0.0000%, latency_1bar +0.0000%, latency_2bar +0.0000%
-- `shallow_value`: base -41.7586%, cost_x2 -46.6702%, latency_1bar -41.7079%, latency_2bar -33.5419%
+- `cost_aware_ridge`: base -15.2323%, cost_x2 -15.9646%, latency_1bar -14.9821%, latency_2bar -12.4778%
+- `linear_value`: base -17.9891%, cost_x2 -23.4239%, latency_1bar -17.7219%, latency_2bar -13.6709%
+- `conservative_linear_value`: base -13.7092%, cost_x2 -18.4959%, latency_1bar -13.5036%, latency_2bar -2.3156%
+- `shallow_value`: base -16.9076%, cost_x2 -24.1307%, latency_1bar -16.6395%, latency_2bar -15.3654%
 
 ブロック別挙動の比較:
-- `block_1`: `cost_aware_ridge` は `base` で -2.7916%（cost 1490.01）、`linear_value` は -4.3329%（cost 3800.72）であったのに対し、`conservative_linear_value` は不確実性割引により無益なエントリーを回避し、Net Return +0.0000%（cost 0.00、drawdown 0.0000%）を維持した。また、`latency_2bar` において `preserve_posture_aware_proposal` により進行中注文がキャンセルされずに保護され、`fixed_long` は +7.7200%、`linear_value` は -3.1426%（cost 2238.52）で整然と完了した。
-- `block_2`: 市場上昇局面において `fixed_long`（+11.5364%）が伸びる一方、`cost_aware_ridge` は -9.8729% と損失を出したが、`linear_value` は -3.5019% と `cost_aware_ridge` を大きく上回った。`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）でドローダウンをゼロに抑えた。
-- `block_3`: 下落局面において `fixed_long`（-3.5498%）、`linear_value`（-5.5118%）、`cost_aware_ridge`（-2.9422%）がマイナスとなる中、`conservative_linear_value` は +0.0000%（cost 0.00、drawdown 0.0000%）で資本を保全した。
+- `block_1`: `cost_aware_ridge` は `base` で -2.7040%（cost 1457.19）、`linear_value` は -5.9206%（cost 4051.62）、`conservative_linear_value` は -0.7085%（cost 4151.41、max DD 2.2628%）となった。`cost_x2` において `conservative_linear_value` の取引コスト（5948.36）は `linear_value`（7380.00）を下回った。`latency_2bar` ではインフライト自己キャンセルが解消され、`conservative_linear_value` は -0.9903%（cost 1786.96、drawdown 1.9830%）を維持した。
+- `block_2`: 市場上昇局面において `fixed_long`（+11.5364%）が上昇する中、`cost_aware_ridge` は -10.2514%、`linear_value` は -7.4740%（cost 1707.07）、`conservative_linear_value` は -6.7481%（cost 2841.76、前版の7841から大幅縮減）、`shallow_value` は -4.4278% となった。`latency_2bar` において `conservative_linear_value` は -1.6702%（cost 1039.47、drawdown 4.8392%）を記録し、対照群（`cost_aware_ridge` -8.5843%、`linear_value` -5.0518%）を大きく上回った。
+- `block_3`: 下落局面において `fixed_long`（-3.5498%）、`cost_aware_ridge`（-2.9249%）、`linear_value`（-5.7865%）、`shallow_value`（-7.4589%）がマイナスとなる中、`conservative_linear_value` は `base` で -6.8044%（cost 3704.68、前版7921から半減）となった。さらに `latency_2bar` では `conservative_linear_value` が +0.3373%（cost 1656.90、drawdown 5.2302%）と全アーム中唯一のプラスリターンを記録した。
 
 判定（Verdict）: `INCONCLUSIVE`
-判定理由: `linear_value` は `base`（-12.7714% vs -14.9667%）および `latency_1bar`（-12.5079% vs -14.7359%）において `cost_aware_ridge` に対する改善を示し、block_2（-3.5019% vs -9.8729%）でも顕著な優位性を示したが、対照群である `fixed_long`（+16.0339%）および `cash`（+0.0000%）を全シナリオで上回ることはできなかった。一方で、B1c（`conservative_linear_value`）は2バーレイテンシを含む全4シナリオでドローダウン0%・コスト0の強固な資本保全特性（fail-closed conservative behavior）を実証し、姿勢認識プロポーザルによりレイテンシ下での二重注文および未約定注文キャンセルの問題が解消された。
+判定理由（**歴史的記録・優位性主張は撤回済み**）: 当時の事後調整済みパラメータで算出した数字上は、B1cが一部の学習器・シナリオより高い収益を示した。しかし1e-3を観測後に選択したため、この比較は結果盲検性を満たさず、パラメータの「適正化」やモデルの耐久性の証拠ではない。当時の数値は再利用・事後再分類しない。
 
 本検証は既消費のTier D探索用開発データに対する限定的な開発挙動の確認であり、将来の経済的優位性、未使用データ（G5）検証の合格、または実運用（live trading）への適用を承認するものではない。
+
+### TD8: Corrected decision-value design (protocol v2, exploratory re-run after a diagnosis; 2026-10-30)
+
+**Status: protocol and software frozen and committed before the re-run; the re-run was then executed once and its result is recorded at the end of this section. This is an exploratory re-run on consumed Tier D development data after a diagnosis. It is not a G4 result, creates no winner, no edge claim and no G5/live authorization.**
+
+**Post-review software correction, not a new study:** The table below describes the one exploratory run performed on the originally frozen source commit `a775b577e` and its original protocol and authorization digests. Afterward, the #1047 reviewer identified Medium v1-compatibility defects; correcting them required explicit v1 vs TD8 numerical-solvers, native proposal/paired intervention paths and new TD8 model artifact schema identifiers (B1 v2, B1c v3, B2 v2). The current corrected code has **not re-run** the consumed 2024Q1 development study, does not silently reclassify or reproduce the prior numerical table, and does not create a new research authorization. TD7 v1 backward-compatibility is now protected by original-main regression tests. The TD8 new-source reference-policy digest now explicitly binds the `posture_v2` intervention and `td8_v2` proposal under the subsequent software-only `b0_causal_refit_prefix_hold_relative_v3` (which also binds the pre-prefix, as-of-source-availability normalizer), preventing model artifacts with unchanged reference digests from masking this source-level behavioural change.
+
+**Regression portability note:** TD7 v1 B1/B1c coefficients and B1c covariance are numerically pinned to the complete original-main reference within strict tolerance across BLAS backends; exact SHA-256 of a newly fitted coefficient matrix is not portable (verified under OpenBLAS Prescott and Haswell). The archived artifacts themselves continue to require exact content digest verification. For B2 v1, the complete pre-TD8 numerical coefficient matrix is compared to the original-main reference within explicit floating-point tolerance, and the original dense Ridge normal equation is independently reconstructed on the same BLAS backend. The v1 B1/B1c/B2 canonical serializations are protected by original-main exact SHA-256 values over fixed-coefficient models, avoiding false cross-platform failures caused by BLAS-dependent last-bit differences in newly fitted coefficients. Previously published artifacts remain immutable and their trusted digest verification is unchanged.
+
+**Current runner admission (software-only protocol v4):** The corrected source **rejects** execution of historical `real_development` TD8 protocol v2 even when its old authorization SHA-256 matches. That hash attests historical study parameters, **not** independent G0–G3 approval of revised code. The frozen v2 mapping and archived 2024Q1 data/results remain readable and unchanged, but cannot be re-run here. Current `run_decision_value_dev_study` accepts only a `DecisionValueStudyPlan(data_scope="synthetic_only", real_scope_authorization_digest=None)`, publishes `decision_value_dev_study_protocol_v4_software` / `decision_value_dev_study_result_v4_software`, verifies the supplied canonical dataset against an actual published market artifact (dataset identity and artifact digest), and requires `synthetic_only: true` in its identity provenance. This provenance is a **caller declaration**, not independent proof that the market was generated. The fixed learner/scenario roster is checked before execution, and occupied output destinations are rejected before fit. Synthetic diagnostics report `SOFTWARE_ONLY` unless invalid/blocked, never a winner or economic G4 pass.
+
+**Post-review causal-teacher correction (software only):** The historical TD8 run used block-wide train-window feature statistics even when a B0 teacher was purportedly fitted at an earlier prefix start; future *training-block* records could influence that historical policy through its feature scaling. The current `b0_causal_refit_prefix_hold_relative_v3` builds a separate normalizer from raw records in `[train_start, prefix_start)`, including only records available as of `prefix_start`, and applies that same vintage to the B0 teacher's fit and every prefix/continuation decision. The offline learner and evaluation B0 still use the common block-fit transform, so both views have explicit and distinct information cutoffs. A counterfactual regression now holds all raw records through a prefix unchanged, modifies only the later training window, and requires the teacher's coefficients and native proposal at that prefix to remain invariant. This changes the old TD8 teacher/label semantics and must not be called a reproduction or a new 2024Q1 economic study; the archived figures and digests remain unchanged.
+
+**Additional TD8 software integrity repair (2026-10-31, not a new economic run):** Three independently reproduced failures were corrected: (1) final block B0/value-head normalization now excludes source rows arriving after the block fit cutoff; (2) the 75% temporary margin fit no longer uses statistics from its held-out 25% calibration tail and the calibration replay receives its own frozen pre-calibration normalization vintage plus an independent ledger check; (3) the source-backed oracle now enforces an OHLC/one-tick necessary fill-price envelope, re-derives turnover, and checks a bar-mark maximum-drawdown lower bound. Exact stop/limit/path trigger pricing, contractual fee and financing repricing, and intrabar peak DD remain outside this oracle. Ineligible/terminated paired labels now retain baseline and candidate endpoint equity, partial observed return, reason and residual positions/orders. Their presence blocks study fitting and can publish an invalid, write-once `incomplete-pairs.json` attempt receipt; survivor-only fitting and all-FLAT zero-row fabrication are forbidden. These fixes are software-only; they invalidate attempts to interpret the earlier TD8 source outcome as produced by current code and do not authorize rerunning consumed 2024Q1 data.
+
+**Post-review ineligible-pair evidence (synthetic software-only):** The current collector retains source-backed simulation endpoints and reason codes for each ineligible pair using `decision_value_ineligible_pair_v1`. Unlike the earlier software implementation that retained only a count or allowed survivor-only learning, the runner now blocks the entire affected block before model fitting and, when an unused output destination is supplied, publishes a write-once `incomplete-pairs.json` failure receipt instead of a successful `result.json`. The additive `ineligible_pair_outcomes` result field remains empty for successful studies. Historical artifacts are not reclassified.
+
+
+**TD8 v4 study/provenance integrity (software-only):** A full execution-policy payload and all risk controls now enter the v4 study digest; historical real-development v2 authorizations and artifacts remain immutable and nondefault undocumented v2 controls fail closed. Every eligible label now contains source/runtime-bound per-prefix teacher vintage, complete study/economic/risk/capital/horizon identity and native baseline/candidate evidence. The result content-addresses the entire eligible label population, and the TD8 learned model reference identity binds this evidence root as well as the common B0 recipe. TD8 fitting rejects missing candidate heads within a state and unequal horizons. These are software audit corrections, not new return evidence, real-data permission or a new G4 run.
+
+**Post-review money oracle extension:** In the synthetic v4 source (not the historical 2024Q1 result), an independent offline checker now reconstructs **each** accepted paired training label's baseline and candidate cash/quantities/equity before model fit, as well as each evaluation arm's per-bar native ledger, from execution-event fills and source market marks. It detects forged intermediate costs, fill notionals, quantities, portfolio values, and interval net returns even when BookState and ledger terminal summaries agree. All order events, including zero-fill submissions/cancellations, are now checked for market identity, execution digest and native clock/processing index before any cash-flow-specific logic. The checker uses observer-provided cost/funding/borrow/dividend/interest amounts and does **not independently derive their rates or contractual fees**; non-unit corporate action splits are unsupported and fail closed. This is software-accounting evidence only, not source authenticity, an independent financial audit of every fee, or a real-data G4 run. The corrected software has **not** re-run the consumed 2024Q1 source or obtained a renewed external research approval. Any new empirical study needs its own updated source/protocol authorization and fresh independent G0–G3 review; existing digests alone do not authorize running revised code.
+
+#### Diagnosis that motivates the correction (read-only, 2026-10-30)
+
+The archived TD5–TD7 reports retain their originally recorded numerical results, but those results have **not** been re-derived under the present source HEAD and the post-hoc TD7 1e-3 calibration claim has been withdrawn. Their mechanism does not support a learned-value superiority claim. Sound and kept: native replay and paired intervention, label sign, codec mapping, `preserve_posture_aware_proposal`, ledger reconciliation, causality probe and cost accounting; an intercept-only (or constant long-long) value model reproduces `fixed_long` to the cent. The learned arms lose 13-18% in a quarter where `fixed_long` makes about +16% for these root causes:
+
+1. **Non-stationary feature extrapolation.** `funding_bps` drifts: in block 2 its evaluation z-score (train-window statistics) averages about +5.5 and peaks near 13.6. Linear B0/B1/B1c/B2 extrapolate it, flip to 74-99% short in a +25% block, and B0 without the funding feature scores about +10.7% there versus -10.25% with it.
+2. **No decision margin.** The only threshold was the numerical floor `1e-12`, so noisy scores churn: turnover 126-158x and cost 8.5-10.7% of capital.
+3. **Design deviation from the Issue #1025 section on training states.** Labels came from `start_index = t` with a quantity-HOLD reference, so every training state was flat and the label was really "enter at t, hold 24 bars, liquidate". Account-weight coefficients were exactly zero, yet the policy then applied the head every bar from non-flat states it had never seen.
+4. **Overlapping labels.** Branches every 6 bars with a 24-bar horizon produced a single overlap group per block and only about 40-70 independent windows, so the B1c uncertainty term was not meaningful.
+5. **Post-hoc prior.** The TD7 re-run's `unexcited_prior_std = 1e-3` was tuned on the consumed dev data after seeing it (lower values simply trade less). **That calibration is withdrawn**; the default returns to the uninformative `1.0` and the value is frozen in the protocol and its authorization digest.
+
+#### Frozen TD8 parameters (fixed before any TD8 result; changing one requires a new protocol version)
+
+- **Labels from reachable non-flat states.** pi0 is the B0 cost-aware ridge recipe. For branch time `t` (step = horizon = 24, so label windows do not overlap) the account starts flat at `max(train_start, t - 48)`, pi0 runs the prefix, intervenes once at `t` with each candidate (baseline: exact-quantity HOLD) and continues to `t + 24` with forced settlement. All 9 non-HOLD candidates including all-FLAT are kept, with losses, zeros and counted ineligible pairs. This is a *truncated-prefix approximation* of reachability.
+- **Necessary deviation (recorded before the run).** `RidgeForecastStrategy` rejects any decision earlier than its `fit_cutoff`, so the block-level B0 cannot act inside the train window. pi0 is therefore the same recipe refitted causally at each prefix start (`fit_cutoff = timestamps[start]`); branches with fewer than `reference_min_fit_bars = 96` bars of train history before the prefix start have no informed reference and are skipped and counted. The evaluation arm `cost_aware_ridge` keeps the block-fit B0, so pi0 is not the identical model of that arm.
+- **Decision margin.** Act only when `max_a(delta_a - m_a) > 0`, `m_a = k * round_trip_cost_fraction(candidate target weights)` with `k` from `{0, 0.5, 1, 2}`; ties go to HOLD. `k` is chosen per block and per learner (B1, B1c, B2) from train-window data only: first 75% of the time-ordered branch labels fit, last 25% closed-loop native replay, best after-cost net return, ties to the larger `k`. No evaluation data is used.
+- **Uniform feature rule.** Every arm including B0 sees features standardized with train-window mean/std and clipped to [-3, 3]; `funding_bps` is kept; the covariate-shift report (evaluation vs train z: mean, max abs, clipped fraction) is diagnostic only and drops nothing. **Disclosure:** the clip rule was chosen after the diagnosis had observed the funding shift, so it is a researcher degree of freedom and not a result-blind choice.
+- **HOLD-relative scoring.** Heads predict the increment over HOLD; HOLD is structurally zero; FLAT is a learned head; candidates equal to the current posture are no-ops; stress-cost correction applies only the cost difference to extra turnover.
+- **Unchanged from TD7:** probes, ledger reconciliation, posture-aware proposal, SVD solver, covariance, six arms x four scenarios, verdict logic, drawdown guard.
+
+#### Mechanism contract, falsifiers and known limitations (G0-G2, stated before the re-run)
+
+- **Premise.** A one-step increment over HOLD, estimated from states a baseline policy reaches, carries information about when changing the posture pays for its round-trip cost.
+- **Falsifiers.** (a) the pi0-prefix labels still give identically zero account-weight coefficients; (b) a zero-margin policy does not churn more than a margin policy on pure noise; (c) an intercept-only value model in an up-drift market does not reproduce `fixed_long`; (d) the margin choice or any fitted object changes when only data after the fit cutoff is perturbed; (e) the feature statistics depend on data after the train window. Each has a synthetic test in the same change.
+- **Known limitations.** The label is the value of a one-step deviation under pi0 continuation, while the deployed policy continues under itself; the prefix is a truncation of the history that produced the book; pi0 is a causal refit that differs from the evaluation B0 and is data-starved early in each block (24-bar labels give only about 33-65 branches per block); the margin and clip choices are pre-registered but not optimal; the train-internal calibration slice holds only a few branches; B1/B2 do not see pending-order weights. Independent different-model G0-G2 adversarial review of this design is **NOT ESTABLISHED** at the time of writing; this is why the re-run is exploratory and why its outcome, whatever it is, is not reused to tune parameters on this data.
+
+#### Re-run result (single execution, 2026-10-30; not iterated)
+
+The corrected study was run **once** on `data/bot-development-2024q1/dataset` (Dataset ID `7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`) with protocol v2 digest `e7ec28ae162a14849002df769164519edd430f32d40014ee8d673929543c8cd7` and authorization digest `6be66add15cbc8cc9066143a5e99a65a6b0a6c83879177da2ff1f5a8feda5f21`, from the software committed before the run (commit `a775b577e`). Total wall clock 396.01 s; 6 arms x 4 scenarios x 3 blocks; causality probe (whole pipeline re-run on a future-perturbed dataset: transform, B0, labels, heads and margin selection) and ledger reconciliation `PASSED` in all three blocks. Generated `protocol.json` / `result.json` / `summary.md` were written outside the repository and are not committed.
+
+**This is an exploratory re-run on consumed Tier D development data after a diagnosis. It establishes no winner, no edge, and no G4/G5/live claim, and the outcome is reported as it came out; no parameter was or will be changed after seeing it on this data.**
+
+Verdict (existing logic): `INCONCLUSIVE`. Reason: Decision-value head improved over cost_aware_ridge in some scenarios but did not dominate all controls.
+
+Aggregate net return (compounded over the three blocks):
+
+| arm | base | cost_x2 | latency_1bar | latency_2bar |
+|---|---|---|---|---|
+| `cash` | +0.0000% | +0.0000% | +0.0000% | +0.0000% |
+| `fixed_long` | +16.0339% | +15.7885% | +15.5232% | +14.9689% |
+| `cost_aware_ridge` | -15.7963% | -18.3068% | -15.5338% | -12.9244% |
+| `linear_value` | -5.5521% | -11.9676% | -5.8515% | -4.6989% |
+| `conservative_linear_value` | +1.3845% | -8.0289% | +1.3304% | +5.6662% |
+| `shallow_value` | -6.5107% | -13.7692% | -6.5737% | -5.3363% |
+
+No learned arm reaches `fixed_long` (+16.03% base) in aggregate; only `conservative_linear_value` is positive in three of four scenarios (base, latency_1bar, latency_2bar) and it is -8.03% under `cost_x2`. `cost_aware_ridge` (B0) was not repaired by the feature rule (-15.80% base versus -15.23% before). The aggregate B1c figures come from one block-3 gain (+7.35% base) and one block-1 loss (-7.18% base) around a +1.74% block 2, with margin multipliers chosen from only 9-17 calibration branches per block; they are not a stable ranking.
+
+##### block_1
+
+- Labels: 297 rows from 33 distinct branch times (non-overlapping 24-bar windows; all 33 branch states non-flat; 0 ineligible pairs; 6 early branches skipped without a causal B0 reference); `overlap_groups` = 1 (touching windows are chained by the disclosure rule and are not used for the dof).
+- Chosen margin multiplier k: `linear_value`=2, `conservative_linear_value`=0, `shallow_value`=2 (grid 0, 0.5, 1, 2; selected on train-internal calibration only).
+- B1c residual dof per candidate head: 18.0, 18.0, 18.0, 18.0, 18.0, 18.0, 18.0, 18.0, 18.0 (distinct values: 18.0).
+
+| arm | scenario | net return | cost | turnover | max drawdown |
+|---|---|---|---|---|---|
+| `cash` | `base` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `cost_x2` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `latency_1bar` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `latency_2bar` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `fixed_long` | `base` | +7.8612% | 75.84 | 1.04 | 2.0228% |
+| `fixed_long` | `cost_x2` | +7.7853% | 151.68 | 1.04 | 2.0234% |
+| `fixed_long` | `latency_1bar` | +7.7889% | 75.78 | 1.04 | 2.0228% |
+| `fixed_long` | `latency_2bar` | +7.7200% | 75.79 | 1.04 | 2.0241% |
+| `cost_aware_ridge` | `base` | -2.4374% | 1348.96 | 19.49 | 3.3305% |
+| `cost_aware_ridge` | `cost_x2` | -5.1217% | 2591.10 | 19.01 | 5.6601% |
+| `cost_aware_ridge` | `latency_1bar` | -2.3784% | 1348.91 | 19.49 | 3.3305% |
+| `cost_aware_ridge` | `latency_2bar` | -0.9470% | 1249.81 | 17.98 | 2.7505% |
+| `linear_value` | `base` | -4.1953% | 4078.02 | 59.49 | 4.6304% |
+| `linear_value` | `cost_x2` | -4.3147% | 4534.78 | 33.00 | 4.4188% |
+| `linear_value` | `latency_1bar` | -4.1962% | 4078.02 | 59.49 | 4.6304% |
+| `linear_value` | `latency_2bar` | -1.7061% | 593.16 | 8.54 | 3.0561% |
+| `conservative_linear_value` | `base` | -7.1764% | 4726.35 | 70.53 | 7.5949% |
+| `conservative_linear_value` | `cost_x2` | -6.7756% | 6533.59 | 48.99 | 7.5801% |
+| `conservative_linear_value` | `latency_1bar` | -7.0913% | 4693.75 | 70.02 | 7.5101% |
+| `conservative_linear_value` | `latency_2bar` | +1.0735% | 3120.84 | 43.53 | 3.4086% |
+| `shallow_value` | `base` | -4.1638% | 4449.46 | 64.98 | 4.8001% |
+| `shallow_value` | `cost_x2` | -3.7442% | 4334.47 | 31.49 | 4.1167% |
+| `shallow_value` | `latency_1bar` | -4.1647% | 4449.46 | 64.98 | 4.8001% |
+| `shallow_value` | `latency_2bar` | -3.0961% | 556.35 | 8.05 | 3.5383% |
+
+##### block_2
+
+- Labels: 441 rows from 49 distinct branch times (non-overlapping 24-bar windows; all 49 branch states non-flat; 0 ineligible pairs; 6 early branches skipped without a causal B0 reference); `overlap_groups` = 1 (touching windows are chained by the disclosure rule and are not used for the dof).
+- Chosen margin multiplier k: `linear_value`=1, `conservative_linear_value`=2, `shallow_value`=2 (grid 0, 0.5, 1, 2; selected on train-internal calibration only).
+- B1c residual dof per candidate head: 31.7, 31.7, 31.7, 31.7, 31.7, 31.7, 31.7, 31.7, 31.7 (distinct values: 31.7).
+
+| arm | scenario | net return | cost | turnover | max drawdown |
+|---|---|---|---|---|---|
+| `cash` | `base` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `cost_x2` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `latency_1bar` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `latency_2bar` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `fixed_long` | `base` | +11.5364% | 79.03 | 1.06 | 6.0724% |
+| `fixed_long` | `cost_x2` | +11.4574% | 158.06 | 1.06 | 6.0744% |
+| `fixed_long` | `latency_1bar` | +11.1922% | 78.77 | 1.06 | 6.0724% |
+| `fixed_long` | `latency_2bar` | +10.7755% | 79.07 | 1.07 | 6.0956% |
+| `cost_aware_ridge` | `base` | -10.9728% | 145.01 | 2.19 | 12.0346% |
+| `cost_aware_ridge` | `cost_x2` | -11.1151% | 289.92 | 2.20 | 12.1080% |
+| `cost_aware_ridge` | `latency_1bar` | -10.6867% | 144.80 | 2.19 | 12.0346% |
+| `cost_aware_ridge` | `latency_2bar` | -8.4846% | 146.32 | 2.19 | 10.2381% |
+| `linear_value` | `base` | -1.5260% | 5104.12 | 71.08 | 8.2852% |
+| `linear_value` | `cost_x2` | -4.2712% | 3655.37 | 26.01 | 7.5377% |
+| `linear_value` | `latency_1bar` | -1.7981% | 5103.91 | 71.07 | 8.2852% |
+| `linear_value` | `latency_2bar` | -2.4249% | 793.34 | 11.16 | 7.1126% |
+| `conservative_linear_value` | `base` | +1.7438% | 74.21 | 1.05 | 3.4967% |
+| `conservative_linear_value` | `cost_x2` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `conservative_linear_value` | `latency_1bar` | +1.6389% | 74.12 | 1.05 | 3.4967% |
+| `conservative_linear_value` | `latency_2bar` | +3.4079% | 37.75 | 0.53 | 2.9131% |
+| `shallow_value` | `base` | +0.7043% | 3201.88 | 44.03 | 7.4883% |
+| `shallow_value` | `cost_x2` | -5.2684% | 1023.29 | 7.53 | 5.5715% |
+| `shallow_value` | `latency_1bar` | +0.7043% | 3201.88 | 44.03 | 7.4883% |
+| `shallow_value` | `latency_2bar` | -0.2995% | 937.00 | 13.05 | 5.8112% |
+
+##### block_3
+
+- Labels: 585 rows from 65 distinct branch times (non-overlapping 24-bar windows; all 65 branch states non-flat; 0 ineligible pairs; 6 early branches skipped without a causal B0 reference); `overlap_groups` = 1 (touching windows are chained by the disclosure rule and are not used for the dof).
+- Chosen margin multiplier k: `linear_value`=2, `conservative_linear_value`=0.5, `shallow_value`=2 (grid 0, 0.5, 1, 2; selected on train-internal calibration only).
+- B1c residual dof per candidate head: 47.0, 47.0, 47.0, 47.0, 47.0, 47.0, 47.0, 47.0, 47.0 (distinct values: 47.0).
+
+| arm | scenario | net return | cost | turnover | max drawdown |
+|---|---|---|---|---|---|
+| `cash` | `base` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `cost_x2` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `latency_1bar` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `cash` | `latency_2bar` | +0.0000% | 0.00 | 0.00 | 0.0000% |
+| `fixed_long` | `base` | -3.5498% | 68.00 | 0.99 | 9.7850% |
+| `fixed_long` | `cost_x2` | -3.6178% | 136.00 | 0.99 | 9.7885% |
+| `fixed_long` | `latency_1bar` | -3.6125% | 67.97 | 0.99 | 9.7850% |
+| `fixed_long` | `latency_2bar` | -3.6525% | 68.00 | 0.99 | 9.7890% |
+| `cost_aware_ridge` | `base` | -3.0551% | 600.21 | 8.99 | 8.0085% |
+| `cost_aware_ridge` | `cost_x2` | -3.1295% | 1200.51 | 8.98 | 7.9013% |
+| `cost_aware_ridge` | `latency_1bar` | -3.1229% | 600.17 | 8.99 | 8.0085% |
+| `cost_aware_ridge` | `latency_2bar` | -3.9417% | 529.99 | 8.01 | 8.7643% |
+| `linear_value` | `base` | +0.1115% | 3326.81 | 46.43 | 5.9039% |
+| `linear_value` | `cost_x2` | -3.8932% | 3090.20 | 22.51 | 4.1827% |
+| `linear_value` | `latency_1bar` | +0.0717% | 3326.79 | 46.43 | 5.9039% |
+| `linear_value` | `latency_2bar` | -0.6353% | 778.04 | 11.12 | 5.7431% |
+| `conservative_linear_value` | `base` | +7.3508% | 1653.06 | 22.93 | 4.5840% |
+| `conservative_linear_value` | `cost_x2` | -1.3444% | 2232.30 | 16.00 | 5.7080% |
+| `conservative_linear_value` | `latency_1bar` | +7.3059% | 1653.03 | 22.93 | 4.5840% |
+| `conservative_linear_value` | `latency_2bar` | +1.0986% | 89.10 | 1.26 | 8.0520% |
+| `shallow_value` | `base` | -3.1312% | 3260.20 | 46.49 | 7.9374% |
+| `shallow_value` | `cost_x2` | -5.4328% | 3207.46 | 23.53 | 5.4328% |
+| `shallow_value` | `latency_1bar` | -3.1955% | 3260.17 | 46.49 | 7.9374% |
+| `shallow_value` | `latency_2bar` | -2.0183% | 873.09 | 12.59 | 5.7427% |
+
+##### Covariate-shift report (diagnostic only; nothing was dropped)
+
+Evaluation-window z-scores against train-window statistics (before clipping). The two global features `active_fraction` and `tradable_fraction` are constant (z = 0) and omitted.
+
+| block | feature | mean z | max abs z | clipped at 3 |
+|---|---|---|---|---|
+| block_1 | `log_return_1bar` | +0.06 | 4.13 | 1.2% |
+| block_1 | `log_return_1d` | +0.28 | 2.72 | 0.0% |
+| block_1 | `realized_volatility_1d` | -0.08 | 1.72 | 0.0% |
+| block_1 | `volume_zscore_1d` | -0.03 | 4.06 | 1.9% |
+| block_1 | `funding_bps` | +0.17 | 6.26 | 0.3% |
+| block_1 | `channel_entry_upper` | +0.29 | 2.31 | 0.0% |
+| block_1 | `channel_entry_lower` | -0.01 | 2.96 | 0.0% |
+| block_1 | `channel_exit_upper` | +0.19 | 2.63 | 0.0% |
+| block_1 | `channel_exit_lower` | -0.01 | 3.79 | 1.0% |
+| block_1 | `market_return_mean` | +0.07 | 3.83 | 1.4% |
+| block_1 | `market_return_dispersion` | -0.01 | 4.22 | 0.6% |
+| block_2 | `log_return_1bar` | +0.10 | 12.06 | 5.0% |
+| block_2 | `log_return_1d` | +0.57 | 4.68 | 5.0% |
+| block_2 | `realized_volatility_1d` | +0.92 | 7.23 | 9.4% |
+| block_2 | `volume_zscore_1d` | -0.01 | 4.21 | 2.8% |
+| block_2 | `funding_bps` | +5.65 | 13.02 | 87.8% |
+| block_2 | `channel_entry_upper` | -0.12 | 6.60 | 2.8% |
+| block_2 | `channel_entry_lower` | +1.04 | 9.37 | 16.4% |
+| block_2 | `channel_exit_upper` | -0.23 | 8.73 | 4.9% |
+| block_2 | `channel_exit_lower` | +0.80 | 10.89 | 10.1% |
+| block_2 | `market_return_mean` | +0.11 | 10.84 | 5.3% |
+| block_2 | `market_return_dispersion` | +0.31 | 11.33 | 2.8% |
+| block_3 | `log_return_1bar` | -0.07 | 6.64 | 4.3% |
+| block_3 | `log_return_1d` | -0.42 | 4.22 | 4.2% |
+| block_3 | `realized_volatility_1d` | +0.68 | 4.10 | 3.6% |
+| block_3 | `volume_zscore_1d` | -0.04 | 4.10 | 1.7% |
+| block_3 | `funding_bps` | +0.31 | 2.62 | 0.0% |
+| block_3 | `channel_entry_upper` | -0.61 | 5.58 | 7.2% |
+| block_3 | `channel_entry_lower` | +0.11 | 4.81 | 3.0% |
+| block_3 | `channel_exit_upper` | -0.46 | 5.77 | 5.8% |
+| block_3 | `channel_exit_lower` | +0.17 | 5.93 | 2.7% |
+| block_3 | `market_return_mean` | -0.07 | 6.51 | 4.6% |
+| block_3 | `market_return_dispersion` | -0.04 | 4.67 | 1.2% |
+
+`funding_bps` in block_2 is the dominant shift (mean z +5.65, max 13.02, 87.8% of evaluation cells clipped at 3); blocks 1 and 3 are mild. Clipping bounds the extrapolation but a clipped funding feature is still a large, one-sided input in block_2, and B0 remained at -10.97% there (base).
+
+Limits of this evidence: one run, one quarter, three blocks, 33-65 branch labels per head, a selection of `k` from a handful of calibration branches, B1/B2 without pending-order state, and a reference policy (causal refit) that is not the evaluation B0. The result is recorded for the research history; it is not a basis for choosing parameters on this data and the TD5-TD7 figures above remain superseded by the diagnosis, not by this run.
 
 ## Issue #810: Task 18 feasibility and next research gates (2026-10-14)
 

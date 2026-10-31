@@ -63,7 +63,7 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
-from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
+from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession

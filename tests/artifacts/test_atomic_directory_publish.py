@@ -197,3 +197,19 @@ def test_darwin_directory_publish_uses_exclusive_native_flag(
         atomic_write.atomic_rename_directory(staging, target)
     assert calls == [(str(staging).encode(), str(target).encode(), 0x00000004)]
     assert staging.is_dir()
+
+
+def test_atomic_directory_publish_rejects_embedded_nul_in_target(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "receipt.json").write_text("keep", encoding="utf-8")
+    misleading_target = tmp_path / "other\x00suffix"
+    truncated_target = tmp_path / "other"
+
+    with pytest.raises(ValueError, match="NUL"):
+        atomic_write.atomic_rename_directory(staging, misleading_target)
+
+    assert (staging / "receipt.json").read_text(encoding="utf-8") == "keep"
+    assert not truncated_target.exists()

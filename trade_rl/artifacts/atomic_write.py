@@ -54,6 +54,12 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> Path:
 def _rename_directory_no_replace(staging: Path, output: Path) -> None:
     """Use an OS-enforced no-replace rename; never fall back to POSIX rename."""
 
+    staging_path = os.fsencode(staging)
+    output_path = os.fsencode(output)
+    # ctypes c_char_p silently truncates at NUL; never rename a different path.
+    if b"\x00" in staging_path or b"\x00" in output_path:
+        raise ValueError("directory publication path contains NUL")
+
     if _IS_WINDOWS:
         # Windows rename refuses an occupied destination; keep the bounded lock retry.
         staging.rename(output)
@@ -69,11 +75,11 @@ def _rename_directory_no_replace(staging: Path, output: Path) -> None:
             ctypes.c_char_p,
             ctypes.c_uint,
         ]
-        args = (-100, os.fsencode(staging), -100, os.fsencode(output), 1)
+        args = (-100, staging_path, -100, output_path, 1)
     elif sys.platform == "darwin":
         symbol = "renamex_np"
         signature = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-        args = (os.fsencode(staging), os.fsencode(output), 0x00000004)
+        args = (staging_path, output_path, 0x00000004)
     else:
         raise OSError(errno.ENOTSUP, "exclusive directory rename is unsupported")
 

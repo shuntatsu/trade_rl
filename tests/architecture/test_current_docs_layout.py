@@ -282,9 +282,7 @@ def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
 
 def test_research_status_preserves_newer_main_market_store_and_carry_evidence() -> None:
     """The old research summary must not overwrite newer main-side evidence."""
-    research = (DOCS / "research" / "current-status.md").read_text(
-        encoding="utf-8"
-    )
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     for required in (
         "## Issue #810 reusable PostgreSQL market-data store",
         "no real data was fetched in this change",

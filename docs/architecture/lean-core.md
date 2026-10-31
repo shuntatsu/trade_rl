@@ -49,10 +49,12 @@ GAE lambda、reward schemaを検証し、discountを経過時間から計算す�
 両contractを結ぶ。`terminal_profit_aligned` は `equity_delta_v1` と `gamma == 1.0`
 の代数的条件だけを示し、実環境でのreward parityを証明しない。
 
-これらはopt-in declarationsであり、現行PPO/replayに結線されていない。generic PPOの
-従来reward `log1p(interval_net_return)`、`gamma=0.99`、
-`settle_terminal_position=False` の既定は変わらない。新しいtraining objective、Study
-authorization、financial ledger、winner ruleを加えない。
+これらはopt-in declarationsであり、宣言そのものは台帳検算・Study認可・profitabilityを
+証明しない。現行のopt-in `SharedPortfolioGymEnv` は `BoundObjectiveClock` を要求し、
+`fit_shared_portfolio_ppo` は金融clockとgamma-one equity-delta rewardを接続する。
+ただしlegacy単銘柄PPOの従来reward `log1p(interval_net_return)`、`gamma=0.99`、
+`settle_terminal_position=False` の既定は変わらない。これらの接続も新しいfinancial
+ledger、winner rule、実市場学習・収益性の証拠を成立させない。
 
 ## Data contract
 
@@ -123,6 +125,8 @@ exact-quantity HOLDを再現せず、任意の`SingleSymbolStrategy`やsubclass�
 それらのsemanticsが必要ならdirect `PortfolioPolicy`を実装する。native sessionは同じ
 BookState/MarketExecutorでrisk、order reconciliation、fill、cost、accountingと終端処理を
 引き続き行う。Ridgeの`one_way_switch_cost`はintent選択のproxyであり、ledger feeを変更しない。
+
+`strategies/allocation/` は同じ`PortfolioPolicy` seamへ、forecast sourceが供給するper-symbolの期待単純収益から費用控除後のtarget weightを作るallocatorと、等weight buy-and-hold対照を追加する。`CostAwareAllocationPolicy`は各scheduled decisionで`mu.w - (gamma/2) w'Sigma w - sum_i c_i |w_i - w_cur_i|`（`|w_i| <= w_max`、`sum|w| <= gross_max`、任意でlong-only）を許容誤差内で解き、KKT最適性certificateが通った解だけを採用する（通らなければHOLD）。L1 costがno-trade regionを作り、`min_trade_fraction`未満の変更は`hold_current_quantity_symbols`にする。Sigmaはdecision時刻以前の日次mark価格のEWMA共分散を対角へshrinkしたもので、未来barは使わない。decision schedule以外のbar、forecast/共分散/solverの失敗、口座終端では全symbolをHOLDし、黙ってtradeしない。account・P&L ledger・fill・feeは持たず、既存のshared portfolio sessionが所有する。`forecast_source`の中身（モデル・fit・provenance）はこのcontractの外にある。この実装はsoftware seamであり、経済結果やprofitability evidenceではない。
 このstrategy wrapperはjoint PPO learner、training parity、Dataset/profile/fit provenance、
 経済的比較やprofitability evidenceを作らない。
 
@@ -684,6 +688,18 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 `AdaptiveProfitConfig`はfinite・nonnegativeなthresholdと、nonnegative integerのfeature index / max holdingを要求し、booleanも拒否する。entryはpositiveで対応exitより大きいことを要求する。zero regime thresholdによるtrend固定と、zero protective thresholdによるexit無効化は明示的な有効設定として維持する。NaNでprotective comparisonを黙って無効にする設定はreplay前に拒否する。
 
+### Direct decision-value study contract
+
+`trade_rl.evaluation.decision_value_dev_study` は、事前固定されたプロトコルと実開発データに対する直接的意思決定価値学習（Direct Decision-Value Learning）の研究検証契約を定義する。
+
+- **Source scope契約**: `source_scope` は従来の `"synthetic_only"` に加え、事前認可ダイジェストを要求する `"real_development"` を明示的に許容する。scopeの不一致や未認可の実データ実行はfail-closedで拒否される。
+- **事前認可ダイジェスト**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定、および既消費開示文言を含む完全な仕様からSHA-256ダイジェストを導出し、プロトコル内の `real_scope_authorization_digest` と完全一致することを事前検証する。
+- **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B1c 保守的線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
+- **保守的意思決定価値モデルと不確実性割引 (B1c)**: `ConservativeLinearDecisionValueModel`（`schema_version="conservative_linear_decision_value_v2"`）は、候補行動ごとの回帰係数ベクトルに加え、重なり群の平均多重度 $\bar{m}_k = \frac{1}{N_k} \sum_i m_i$ と有効自由度 $\text{dof}_k = \max(1.0, N_k / \bar{m}_k - p_{\text{eff}})$ に基づく残差共分散行列 `covariance_matrices`、不確実性ペナルティ重み `uncertainty_penalty_weight`、および片道切替コスト `one_way_switch_cost` を保持する。標準化特徴空間でのRidge回帰係数および共分散行列は、元座標系 $x$ へのアフィン変換行列 $A$ により $w = A^\top \beta$、$Cov(w) = A^\top Cov(\beta) A$ として代数的に折りたたまれ、モデルのシリアル表現および推論コードとの完全な互換性を維持する。ポリシー `ConservativeLinearDecisionValuePolicy` は、予測標準誤差 $se = \sqrt{x^\top \Sigma_k x}$ を用いた下側信頼限界（LCB: `mean - lambda * se - c * extra_turnover`）により不確実性と切替ターンオーバーを保守的に割り引く。
+- **姿勢認識プロポーザルと未約定注文保全 (TD7)**: `preserve_posture_aware_proposal` は、`LinearDecisionValuePolicy`、`ConservativeLinearDecisionValuePolicy`、`ShallowDecisionValuePolicy`、および `_FixedEntryPolicy` に共通する統一的な姿勢保全セマンティクスを提供する。(1) レイテンシ下（`latency_1bar`, `latency_2bar`）で未約定注文が進行中の場合、目標ウェイトを実効ウェイト $w_{\text{eff}} = w_{\text{account}} + w_{\text{pending}}$ に一致させつつ `hold_current_quantity_symbols` への追加を避けることで、`reconcile_target` による進行中注文の早期キャンセルを防止して約定を保護する。(2) 約定完了後は `hold_current_quantity_symbols` に追加して毎時の微小ドリフトによるリバランスターンオーバーを完全に抑止する。(3) 損失ポジションを保有中に全候補の方向スコアが非正となった場合、自動的に現金化（`ACTION_FLAT`）を選択して損失の拡大を防止する。
+- **因果性プローブと台帳突合**: 各ブロックの評価開始直前に、未来データ（t+1以降）を無作為摂動させたデータセット上での意思決定が元データセットと完全一致することを確認する因果性プローブ（Causality Perturbation Probe）を実行する。また、各ブロックの全アーム・全シナリオについて、台帳の注文・約定・資産推移・手数料・終端清算が整合していることを検証する（Ledger Evidence Reconciliation）。
+- **Write-once出力**: 結果は `write_decision_value_dev_study_bundle` により一度だけ `protocol.json`、`result.json`、`summary.md` として書き出され、既存ファイルの上書きを防止する。
+
 ## Artifact and evidence rules
 
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
@@ -842,6 +858,20 @@ the terminal observation window ends 180 seconds after the fixed close, includin
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.
 
+Collection liveness is separate from that evidence. The collector process writes an
+atomic heartbeat; every exit, signal or console-close path and the external stale
+check create the same permanent failure marker exclusively, so the first cause is
+kept. A supervisor may relaunch only a child that died between cycles, inside the
+frozen 180-second gap including a launch margin, with no marker, no unacknowledged
+cycle and a bounded restart count. It never resumes an interrupted cycle, retries a
+failed source request or edits the journal; a hard kill during acquisition therefore
+still ends the screen. A duplicate or restarted launch against a live collector is
+detected through the collector lock and ends as non-destructive contention (exit 4,
+no marker). The external check defers its stale limit only while a live supervisor
+is inside the bounded startup grace of a relaunched child. The attempt-2 tooling is plan-only until an explicit seal
+and, separately, an explicit network launch, both gated by an Issue #810
+authorization URL; they do not prove authorization or establish profitability.
+
 New forward captures use `binance_forward_market_snapshot_v2`, explicitly binding
 100 requested depth levels per side for each spot/perpetual symbol. All returned
 levels are retained; more than the requested bound fails. The offline reader
@@ -873,6 +903,10 @@ the journal chain only and must not claim raw-source financial validation.
 Even `PAPER_SCREEN_PASSED` retains `production_eligible=false`: observed paper
 marks, cost assumptions and public depth do not establish live fill guarantees,
 intraminute drawdown, optimal returns or private-account suitability.
+
+## Prequential forecast availability
+
+Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
 ## 非目標
 

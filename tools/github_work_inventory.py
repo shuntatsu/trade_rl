@@ -72,7 +72,11 @@ def _pull_identity(
     head = _mapping(pr.get("head"), "PR head")
     base = _mapping(pr.get("base"), "PR base")
     base_repo = _mapping(base.get("repo"), "PR base repository")
-    if base_repo.get("full_name") != repository:
+    base_full_name = base_repo.get("full_name")
+    if (
+        not isinstance(base_full_name, str)
+        or base_full_name.casefold() != repository.casefold()
+    ):
         raise ValueError("PR base points at a different repository")
     base_name = base.get("ref")
     if not isinstance(base_name, str) or not base_name:
@@ -81,7 +85,11 @@ def _pull_identity(
     head_sha = _sha(head.get("sha"), "PR head SHA")
     head_name: str | None = None
     head_repo = head.get("repo")
-    if isinstance(head_repo, dict) and head_repo.get("full_name") == repository:
+    if (
+        isinstance(head_repo, dict)
+        and isinstance(head_repo.get("full_name"), str)
+        and head_repo["full_name"].casefold() == repository.casefold()
+    ):
         raw_name = head.get("ref")
         if not isinstance(raw_name, str) or not raw_name:
             raise ValueError("local PR head branch missing")

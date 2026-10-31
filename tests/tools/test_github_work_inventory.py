@@ -110,6 +110,62 @@ def test_live_adapter_compare_uses_head_to_main_direction(
     assert requested == [("GET", f"compare/{head_sha}...{main_sha}")]
 
 
+def test_local_pr_identity_handles_repository_name_casing() -> None:
+    api = FakeWorkApi()
+    api.repository = "Shuntatsu/Trade_RL"
+    api.branch_rows += (BranchInfo("feature/current", "d" * 40, False),)
+    api.pull_rows = [
+        {
+            "number": 123,
+            "head": {
+                "ref": "feature/current",
+                "sha": "d" * 40,
+                "repo": {"full_name": "shuntatsu/trade_rl"},
+            },
+            "base": {
+                "ref": "main",
+                "sha": "a" * 40,
+                "repo": {"full_name": "shuntatsu/trade_rl"},
+            },
+        }
+    ]
+
+    report = build_inventory(api, compare_prs=True)  # type: ignore[arg-type]
+    pull = report["pull_requests"][0]
+    assert pull["head_ref"] == "feature/current"
+    assert pull["relation_to_main"] == "head_in_main"
+    assert report["cleanup_authorized"] is False
+
+
+def test_live_adapter_open_query_uses_shared_client_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="Shuntatsu/Trade_RL", token="fake")
+    calls: list[tuple[str, str, dict[str, str] | None]] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> list[object]:
+        calls.append((method, suffix, query))
+        return []
+
+    monkeypatch.setattr(api._reader, "_request_json", fake_request)
+    assert api.open_pulls() == []
+    assert api.open_issues() == []
+    assert calls == [
+        (
+            "GET",
+            "pulls",
+            {"per_page": "100", "page": "1", "state": "open"},
+        ),
+        (
+            "GET",
+            "issues",
+            {"per_page": "100", "page": "1", "state": "open"},
+        ),
+    ]
+
+
 def test_unregistered_branch_is_never_deletion_authority() -> None:
     report = build_inventory(FakeWorkApi())  # type: ignore[arg-type]
     assert report["cleanup_authorized"] is False

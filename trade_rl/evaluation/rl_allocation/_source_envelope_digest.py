@@ -487,11 +487,11 @@ def _estimates_state(estimates: object) -> object:
         != _ESTIMATE_FIELDS
     ):
         raise TypeError("unsupported cost estimate schema")
-    is_sorted = all(keys[i] < keys[i + 1] for i in range(len(keys) - 1))
+    sorted_keys = tuple(sorted(keys))
     ordered = (
         values
-        if is_sorted
-        else tuple(dict.__getitem__(estimates, key) for key in sorted(keys))
+        if keys == sorted_keys
+        else tuple(dict.__getitem__(estimates, key) for key in sorted_keys)
     )
     cols = tuple(zip(*map(_GET, ordered)))
     text = (cols[0], cols[4], cols[11])
@@ -525,7 +525,7 @@ def _estimates_state(estimates: object) -> object:
     ).digest()
     flat_fields = tuple(chain.from_iterable(map(_GET, ordered)))
 
-    return clocks, floats, text_digest, flat_fields
+    return clocks, floats, text_digest, flat_fields, sorted_keys
 
 
 def _state(
@@ -889,6 +889,7 @@ class SourceEnvelopeDigestMemo:
                     ):
                         b_estimates_state = b_state_t[2]
                         b_flat_fields = b_estimates_state[3]
+                        b_sorted_keys = b_estimates_state[4]
                         est = env._estimates
                         if type(est) is dict and len(est) * len(
                             _ESTIMATE_FIELDS
@@ -899,7 +900,9 @@ class SourceEnvelopeDigestMemo:
                                 if _exact(
                                     values, forecast_allocation.HorizonCostEstimates
                                 ):
-                                    if all(
+                                    if keys == b_sorted_keys:
+                                        ordered = values
+                                    elif all(
                                         keys[i] < keys[i + 1]
                                         for i in range(len(keys) - 1)
                                     ):

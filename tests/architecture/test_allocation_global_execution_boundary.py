@@ -133,6 +133,72 @@ def test_stream_memo_is_private_and_does_not_own_execution_or_persistence():
     }
 
 
+def test_terminal_stream_memo_is_private_and_scoped_to_one_top_level_call():
+    path = ROOT / "trade_rl/evaluation/allocation_terminal_execution.py"
+    tree = ast.parse(path.read_text("utf-8"))
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    runner = functions["run_terminal_allocation_execution"]
+    assert "_stream_digest_memo" not in {
+        argument.arg for argument in runner.args.args + runner.args.kwonlyargs
+    }
+    owned_memo = any(
+        isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "stream_digest_memo"
+            for target in node.targets
+        )
+        and isinstance(node.value, ast.Call)
+        and ast.unparse(node.value.func) == "SimpleStreamDigestMemo"
+        for node in runner.body
+    )
+    assert owned_memo
+    threaded_calls = {
+        ast.unparse(node.func): {
+            keyword.arg: ast.unparse(keyword.value) for keyword in node.keywords
+        }
+        for node in ast.walk(runner)
+        if isinstance(node, ast.Call)
+    }
+    assert (
+        threaded_calls["declare_terminal_allocation_execution"]["_stream_digest_memo"]
+        == "stream_digest_memo"
+    )
+    assert (
+        threaded_calls["run_declared_global_allocation_execution"][
+            "_stream_digest_memo"
+        ]
+        == "stream_digest_memo"
+    )
+
+    global_path = ROOT / "trade_rl/evaluation/allocation_global_execution.py"
+    global_tree = ast.parse(global_path.read_text("utf-8"))
+    private_declarations = {
+        node.name: node
+        for node in global_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name
+        in {
+            "declare_global_allocation_execution",
+            "run_declared_global_allocation_execution",
+        }
+    }
+    assert set(private_declarations) == {
+        "declare_global_allocation_execution",
+        "run_declared_global_allocation_execution",
+    }
+    for function in private_declarations.values():
+        positions = [
+            index
+            for index, argument in enumerate(function.args.kwonlyargs)
+            if argument.arg == "_stream_digest_memo"
+        ]
+        assert len(positions) == 1
+        default = function.args.kw_defaults[positions[0]]
+        assert isinstance(default, ast.Constant) and default.value is None
+
+
 def test_source_envelope_memo_is_private_and_does_not_own_execution_or_persistence():
     path = ROOT / "trade_rl/evaluation/rl_allocation/_source_envelope_digest.py"
     assert path.is_file(), "private source-envelope memo is missing"

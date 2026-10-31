@@ -27,6 +27,9 @@ from trade_rl.evaluation.allocation_scenario_identity import (
     allocation_candidate_recipe_digest,
 )
 from trade_rl.evaluation.allocation_selection import AllocationCashReference
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
     ContinuousAllocationWalkForwardResult,
@@ -398,9 +401,14 @@ def run_global_allocation_cash_control(
     env: AllocationTradingEnv,
     *,
     collector: GlobalAllocationExecutionCollector | None = None,
+    _stream_digest_memo: SimpleStreamDigestMemo | None = None,
 ) -> GlobalAllocationCashControlResult:
     """Execute direct HOLD from flat with one reset and native cash economics."""
-    candidate = _carriers((env,), required_action_mode="direct")
+    candidate = _carriers(
+        (env,),
+        required_action_mode="direct",
+        _stream_digest_memo=_stream_digest_memo,
+    )
     if type(folds) is not tuple:
         raise ValueError("global cash control requires immutable native folds")
     policy = AllocationFoldPolicy(
@@ -440,7 +448,12 @@ def run_global_allocation_cash_control(
         ):
             raise ValueError("global cash control segment must not carry trading costs")
     return GlobalAllocationCashControlResult(
-        result, candidate, env.stream.digest, env.recipe_digest
+        result,
+        candidate,
+        env.stream.digest
+        if _stream_digest_memo is None
+        else _stream_digest_memo.get(env.stream),
+        env.recipe_digest,
     )
 
 

@@ -23,6 +23,9 @@ from trade_rl.evaluation.allocation_scenario_identity import (
     allocation_candidate_recipe_digest,
 )
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
+from trade_rl.evaluation.rl_allocation._simple_stream_digest import (
+    SimpleStreamDigestMemo,
+)
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
     ContinuousAllocationWalkForwardResult,
@@ -87,7 +90,13 @@ def _carriers(
     environments: tuple[AllocationTradingEnv, ...],
     *,
     required_action_mode: str = "residual",
+    _stream_digest_memo: SimpleStreamDigestMemo | None = None,
 ) -> str:
+    if (
+        _stream_digest_memo is not None
+        and type(_stream_digest_memo) is not SimpleStreamDigestMemo
+    ):
+        raise ValueError("nonRL carrier check requires the native stream digest memo")
     if type(required_action_mode) is not str or required_action_mode not in {
         "residual",
         "direct",
@@ -120,9 +129,14 @@ def _carriers(
             raise ValueError("cash control requires direct HOLD-current carriers")
         if allocation_candidate_recipe_digest(env.recipe) != candidate:
             raise ValueError("nonRL candidate recipe differs across folds")
-        if (
-            env.stream.dataset_id != env.dataset.dataset_id
-            or env.stream.digest != first.stream.digest
+        if env.stream.dataset_id != env.dataset.dataset_id or (
+            env.stream.digest
+            if _stream_digest_memo is None
+            else _stream_digest_memo.get(env.stream)
+        ) != (
+            first.stream.digest
+            if _stream_digest_memo is None
+            else _stream_digest_memo.get(first.stream)
         ):
             raise ValueError("nonRL forecast context differs across folds")
         times = env.dataset.timestamps[env.start_index : env.stop_index].astype(
@@ -257,9 +271,10 @@ def run_global_nonrl_allocation(
     env: AllocationTradingEnv,
     *,
     collector: GlobalAllocationExecutionCollector | None = None,
+    _stream_digest_memo: SimpleStreamDigestMemo | None = None,
 ) -> GlobalNonRLAllocationResult:
     """Execute only residual action2 over one complete native horizon/account."""
-    candidate = _carriers((env,))
+    candidate = _carriers((env,), _stream_digest_memo=_stream_digest_memo)
     if type(folds) is not tuple:
         raise ValueError("global nonRL requires immutable native folds")
     policy = AllocationFoldPolicy(
@@ -271,7 +286,12 @@ def run_global_nonrl_allocation(
         folds, env, (policy,) * len(folds), collector=collector
     )
     return GlobalNonRLAllocationResult(
-        result, candidate, env.stream.digest, env.recipe_digest
+        result,
+        candidate,
+        env.stream.digest
+        if _stream_digest_memo is None
+        else _stream_digest_memo.get(env.stream),
+        env.recipe_digest,
     )
 
 

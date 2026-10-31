@@ -1312,14 +1312,21 @@ existing v1 journal reader read read-only (protocol digest, event count, final t
 last observation, root path); `attempt2` cannot build it without a root path that
 passes that read. `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse a
 v3 lineage unless given a module-private token that only `attempt2` holds (a caller
-contract, not authentication). Every `attempt2 launch` re-reads an `available`
-root, including a relaunch after start; a heartbeat never substitutes for an
-independently verified prior-root receipt. The collector (`PaperCollector`, `cli run`,
-`cli supervise`) refuses non-canonical v3 or unknown lineage schemas and re-reads an
-`available` predecessor on **every** entry, including after a journal event;
-a public `PaperEngine.gap` event does not attest the prior root. Loss of the
-previous root then permanently prevents that available-lineage collector from
-restarting. This stricter fail-closed rule is fixed before any attempt-2 seal.
+contract, not authentication). One shared classifier decides every lineage at every
+supported entry point (`seal_collection`, `seal_paper_study`, `paper.cli seal`,
+`PaperEngine` initialization and opening, `validate_attempt_lineage`, the collector):
+the v2 label requires exactly the v2 key set and the v3 label requires the type-strict
+canonical record, so a `predecessor_root` cannot ride under another label. These
+gates guard against accidental or non-canonical records through the supported entry
+points; they do not authenticate against a malicious local operator. Every
+`attempt2 launch` re-reads an `available` root, including a relaunch after start; a
+heartbeat never substitutes for an independently verified prior-root receipt. The
+collector (`PaperCollector`, `cli run`, `cli supervise`) re-reads an `available`
+predecessor on **every** entry, including after a journal event; a public
+`PaperEngine.gap` event does not attest the prior root. A predecessor root that is
+lost or unreadable then permanently prevents that available-lineage collector from
+restarting (the watchdog records the refusal). This stricter fail-closed rule is
+fixed before any attempt-2 seal.
 `unavailable` is the honest case where the preserved root is lost: it records that the
 lineage values come from the prior public result-blind review record (document and
 commit), that they were not re-verified at seal time, the user's chat statement quoted

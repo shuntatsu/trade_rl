@@ -289,25 +289,39 @@ that new data may be collected. Attempt 2 therefore uses lineage
   final tip, observation gap, and the absence of an earlier unreported attempt.
   The disposition stays `invalidated` with reason `observation_gap`.
 
-Enforcement has three layers, and the last one is the one that cannot be bypassed:
+Threat model. These gates prevent accidental or non-canonical attempt-2 records
+from being sealed or run through the supported entry points (`attempt2`,
+`paper.cli`, `seal_paper_study`, `seal_collection`, `PaperEngine`, `PaperCollector`).
+They are not authentication against a malicious local operator, who can always edit
+code or files; no layer is claimed to be impossible to bypass. All gates use one
+shared classifier (`predecessor.lineage_structure_problems`):
 
-* `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse any research
-  plan with a lineage v3 unless given a module-private token that only `attempt2`
-  holds. This is a caller contract, not authentication: a deliberate caller can
-  still write any protocol with `PaperEngine.initialize`, and `attempt2`'s sealing
-  preconditions (authorization URL shape, start notice, checkout identity, free
-  space) are only enforced by `attempt2 seal` itself.
-* Every `attempt2 launch`, including supervisor relaunch after the start,
-  re-reads an `available` root and refuses if it is missing or differs. A gap
-  event or heartbeat does not prove an earlier valid predecessor-root read.
+* No lineage is allowed. Otherwise the lineage must be an exact `dict` with an exact
+  `str` schema. The v2 label requires exactly the v2 key set, so a
+  `predecessor_root` (or any other v3-only field) cannot ride under it. The v3 label
+  requires the type-strict canonical record for its status (`available`: for its
+  recorded root path). Any other schema, including spelling variants, is refused.
+* `seal_collection`, `seal_paper_study` and `paper.cli seal` apply that classifier
+  and also refuse a v3 lineage unless given a module-private token that only
+  `attempt2` holds (a caller contract, not authentication). `PaperEngine.initialize`
+  applies the same rules, and `PaperEngine(root)` refuses to open, hence to append
+  to, a root whose lineage the classifier rejects; opening reads no predecessor
+  root. `validate_attempt_lineage` (hence `cli evaluate`) uses it for every v3-shaped
+  record. `attempt2`'s own sealing preconditions (authorization URL shape, start
+  notice, checkout identity, free space) are only enforced by `attempt2 seal`.
+* Every `attempt2 launch`, including a supervisor relaunch after the start,
+  re-reads an `available` root and refuses if it is lost, unreadable or differs. A
+  gap event or heartbeat does not prove an earlier valid predecessor-root read.
 * The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
-  before taking the lock and without writing a failure marker, any v3 lineage that
-  is not the canonical record for its status: an `unavailable` record must equal
-  the canonical one, and an `available` record must equal the canonical one for its
-  recorded path and re-read that root on **every** collector entry, including
-  restarts after the first journal event. An unavailable old root stops the
-  collection rather than being inferred from its own journal. A malformed v3-like
-  schema is also rejected; this gate holds however the protocol was sealed.
+  before taking the lock and without writing a failure marker, any lineage the
+  classifier rejects, a research plan that is not a plain `dict`, and a
+  `protocol.json` that repeats a JSON object key. An `available` record must also
+  re-read its recorded root on **every** collector entry, including restarts after
+  the first journal event. A predecessor root that is lost or unreadable (for
+  example a corrupt or locked journal) stops the collection and the restart exits
+  with the refusal code, rather than being inferred from the attempt's own journal.
+  Because that is a permanent refusal, an `available` lineage requires the old root
+  to stay intact for the whole screen; the planned attempt 2 uses `unavailable`.
 
 Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded
 review. The predecessor was not re-verified. For this case only, the runbook's

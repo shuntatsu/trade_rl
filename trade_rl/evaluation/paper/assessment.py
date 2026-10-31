@@ -22,7 +22,7 @@ from trade_rl.evaluation.paper.operations import (
     screen_plan,
     validate_attempt_lineage,
 )
-from trade_rl.evaluation.paper.predecessor import _same_canonical_record
+from trade_rl.evaluation.paper.predecessor import same_canonical_record
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 
 
@@ -322,7 +322,7 @@ def evaluate_paper_study(
         raise ValueError("paper attempt lineage is invalid") from error
     if (
         study.get("schema") != "paper_public_collection_v1"
-        or not _same_canonical_record(research_plan, expected_plan)
+        or not same_canonical_record(research_plan, expected_plan)
         or study.get("interval_seconds") != 60
         or study.get("terminal_grace_seconds") != 180
         or timestamp(study["created_at"]) > start - timedelta(minutes=5)

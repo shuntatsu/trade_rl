@@ -52,10 +52,11 @@ from trade_rl.evaluation.paper.predecessor import (
     _ATTEMPT2_SEAL_TOKEN,
     LINEAGE_V3_SCHEMA,
     PREDECESSOR_ROOT_STATUSES,
-    _same_canonical_record,
     available_root_problems,
     canonical_lineage,
+    lineage_structure_problems,
     read_predecessor_status,
+    same_canonical_record,
     verify_predecessor_root,
 )
 from trade_rl.evaluation.paper.watchdog import (
@@ -141,20 +142,19 @@ def accepted_lineage(
     missing, moved or changed root is refused, even for a restart. Journal
     events and heartbeat records do not attest an earlier successful root read.
     """
-    if not isinstance(recorded, dict) or recorded.get("schema") != LINEAGE_V3_SCHEMA:
-        return None, []
-    record = recorded.get("predecessor_root")
-    if not isinstance(record, dict) or record.get("status") not in (
-        PREDECESSOR_ROOT_STATUSES
+    if (
+        type(recorded) is not dict
+        or recorded.get("schema") != LINEAGE_V3_SCHEMA
+        or lineage_structure_problems(recorded)
     ):
-        return None, []
-    if record["status"] == "unavailable":
-        return attempt2_lineage("unavailable"), []
+        return None, []  # not a canonical v3 lineage; the caller reports that
     problems = available_root_problems(recorded, read=read)
     if problems:
         return None, problems
-    path = record["verification"]["root_path"]
-    return attempt2_lineage("available", path), []
+    record = recorded["predecessor_root"]
+    if record["status"] == "unavailable":
+        return attempt2_lineage("unavailable"), []
+    return attempt2_lineage("available", record["verification"]["root_path"]), []
 
 
 def authorization_reasons(authorization: str | None) -> list[str]:
@@ -495,7 +495,7 @@ def _protocol_reasons(
         read=read,
     )
     reasons += root_problems
-    if lineage is None or not _same_canonical_record(
+    if lineage is None or not same_canonical_record(
         plan, screen_plan(attempt_lineage=lineage)
     ):
         reasons.append("protocol_not_attempt2_lineage")
@@ -530,8 +530,9 @@ def launch_attempt2(
 ) -> dict[str, Any]:
     """Start the supervised collector for the sealed attempt-2 root (needs network).
 
-    A first launch (before the start) re-reads an ``available`` predecessor root with
-    the v1 reader and refuses if it is gone or differs.
+    Every launch, including a supervisor relaunch after the start, re-reads an
+    ``available`` predecessor root with the v1 reader and refuses if it is lost,
+    unreadable or differs.
     """
     now = clock().astimezone(UTC)
     root_path = Path(root).absolute()

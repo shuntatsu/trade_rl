@@ -11,6 +11,10 @@ from typing import Any
 
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import PaperAccount, PaperSettings, timestamp
+from trade_rl.evaluation.paper.predecessor import (
+    lineage_structure_problems,
+    require_seal_token,
+)
 from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.integrations.binance.forward_evidence import read_forward_snapshot
 from trade_rl.integrations.binance.forward_rules import read_forward_rules
@@ -29,10 +33,18 @@ class PaperEngine:
 
     @staticmethod
     def initialize(
-        root: str | Path, *, settings: PaperSettings, study: dict[str, Any]
+        root: str | Path,
+        *,
+        settings: PaperSettings,
+        study: dict[str, Any],
+        attempt2_seal_token: object | None = None,
     ) -> str:
         if not isinstance(study, dict):
             raise ValueError("paper study must be an object")
+        plan = study.get("research_plan")
+        if isinstance(plan, dict):
+            # The same classifier and token rule as ``seal_collection``.
+            require_seal_token(plan, attempt2_seal_token)
         return PaperJournal.initialize(
             root, dict(engine=_SCHEMA, settings=settings.to_dict(), study=study)
         )
@@ -50,6 +62,16 @@ class PaperEngine:
             or not isinstance(protocol["study"], dict)
         ):
             raise ValueError("unsupported paper engine protocol")
+        plan = protocol["study"].get("research_plan")
+        if isinstance(plan, dict):
+            # Refuse to open (hence to append to) a root whose lineage the shared
+            # classifier rejects. No root is read here, so evaluation after the
+            # screen does not depend on the old predecessor root.
+            problems = lineage_structure_problems(plan.get("attempt_lineage"))
+            if problems:
+                raise ValueError(
+                    "paper protocol lineage is not canonical: " + "; ".join(problems)
+                )
         config = dict(protocol["settings"])
         for name in ("start_at", "close_at"):
             config[name] = timestamp(config[name])

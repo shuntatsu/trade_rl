@@ -9,6 +9,7 @@ read-only (no hot-journal recovery), and never writes.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -128,24 +129,47 @@ def canonical_lineage(status: str, root_path: str | None = None) -> dict[str, An
 
 
 def require_seal_token(research_plan: object, token: object) -> None:
-    """Reject unrecognized lineages and unauthorized v3 seal entry points.
+    """Refuse an unsupported or non-canonical lineage, and v3 without the token.
 
     An ordinary dict is required; allowing an overridden ``dict.get`` to hide
     the lineage would undermine the seal-time contract. The private token is
-    still a caller contract, not an authentication credential.
+    still a caller contract, not an authentication credential. The structure check
+    is the single classifier that every other gate also uses.
     """
     if type(research_plan) is not dict:
         raise ValueError("collection research plan must be a plain dict")
     lineage = research_plan.get("attempt_lineage")
     if lineage is None:
         return
-    if type(lineage) is not dict or lineage.get("schema") not in (
-        LINEAGE_V2_SCHEMA,
-        LINEAGE_V3_SCHEMA,
+    if (
+        type(lineage) is dict
+        and type(lineage.get("schema")) is str
+        and lineage.get("schema") == LINEAGE_V3_SCHEMA
+        and token is not _ATTEMPT2_SEAL_TOKEN
     ):
-        raise ValueError("unsupported collection attempt lineage schema")
-    if lineage.get("schema") == LINEAGE_V3_SCHEMA and token is not _ATTEMPT2_SEAL_TOKEN:
         raise ValueError("attempt lineage v3 can only be sealed through attempt2")
+    problems = lineage_structure_problems(lineage)
+    if problems:
+        raise ValueError(
+            "unsupported or non-canonical collection attempt lineage: "
+            + "; ".join(problems)
+        )
+
+
+class DuplicateKeyError(ValueError):
+    """A protocol JSON object repeats a key (``json.loads`` would keep the last)."""
+
+
+def loads_without_duplicate_keys(raw: bytes | str) -> Any:
+    """``json.loads`` that refuses duplicate object keys instead of last-wins."""
+
+    def reject(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        keys = [key for key, _ in pairs]
+        if len(set(keys)) != len(keys):
+            raise DuplicateKeyError("protocol JSON repeats an object key")
+        return dict(pairs)
+
+    return json.loads(raw, object_pairs_hook=reject)
 
 
 def read_predecessor_status(
@@ -220,7 +244,7 @@ def available_root_problems(
     ]
 
 
-def _same_canonical_record(actual: object, expected: object) -> bool:
+def same_canonical_record(actual: object, expected: object) -> bool:
     """Compare JSON-shaped lineage records without Python's bool/int/float coercion.
 
     The collector reads a persisted protocol, so this must enforce the schema's
@@ -231,16 +255,58 @@ def _same_canonical_record(actual: object, expected: object) -> bool:
     if isinstance(expected, dict):
         assert isinstance(actual, dict)
         return actual.keys() == expected.keys() and all(
-            _same_canonical_record(actual[key], canonical)
+            same_canonical_record(actual[key], canonical)
             for key, canonical in expected.items()
         )
     if isinstance(expected, list):
         assert isinstance(actual, list)
         return len(actual) == len(expected) and all(
-            _same_canonical_record(value, canonical)
+            same_canonical_record(value, canonical)
             for value, canonical in zip(actual, expected, strict=True)
         )
     return actual == expected
+
+
+_V2_KEYS = frozenset({"schema", "attempt_number", "predecessor"})
+
+
+def lineage_structure_problems(lineage: object) -> list[str]:
+    """The single lineage classifier: pure, no I/O, used by every gate.
+
+    * ``None`` (no lineage) is allowed.
+    * Only an exact ``dict`` with an exact ``str`` schema is considered.
+    * The v2 label requires exactly the v2 key set, so a ``predecessor_root`` (or any
+      other v3-only field) cannot ride under it.
+    * The v3 label requires the type-strict canonical record for its status
+      (``available`` for its recorded root path).
+    * Any other schema, including spelling variants, is unsupported.
+    """
+    if lineage is None:
+        return []
+    if type(lineage) is not dict:
+        return ["lineage_not_a_mapping"]
+    schema = lineage.get("schema")
+    if type(schema) is str and schema == LINEAGE_V2_SCHEMA:
+        if set(lineage) != _V2_KEYS:
+            return ["lineage_v2_unexpected_fields"]
+        return []
+    if type(schema) is not str or schema != LINEAGE_V3_SCHEMA:
+        return ["lineage_schema_unsupported"]
+    record = lineage.get("predecessor_root")
+    status = record.get("status") if type(record) is dict else None
+    if type(status) is str and status == "unavailable":
+        expected = canonical_lineage("unavailable")
+    elif type(status) is str and status == "available":
+        proof = record.get("verification") if type(record) is dict else None
+        path = proof.get("root_path") if type(proof) is dict else None
+        if type(path) is not str or not path:
+            return ["predecessor_root_path_not_recorded"]
+        expected = canonical_lineage("available", path)
+    else:
+        return ["lineage_v3_not_canonical"]
+    return (
+        [] if same_canonical_record(lineage, expected) else ["lineage_v3_not_canonical"]
+    )
 
 
 def lineage_problems(
@@ -248,38 +314,9 @@ def lineage_problems(
     *,
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> list[str]:
-    """Check a recorded v3 lineage with type-strict canonical values and root proof.
-
-    Older v2 has its own historical contract. Unknown and v3-like schema spellings
-    cannot escape this gate by using a whitespace or Unicode variant.
-    """
-    if lineage is None:
-        return []
-    if not isinstance(lineage, dict):
-        return ["lineage_not_a_mapping"]
-    schema = lineage.get("schema")
-    if schema == LINEAGE_V2_SCHEMA:
-        return []
-    if schema != LINEAGE_V3_SCHEMA:
-        return ["lineage_schema_unsupported"]
-    record = lineage.get("predecessor_root")
-    status = record.get("status") if isinstance(record, dict) else None
-    if status == "unavailable":
-        expected = canonical_lineage("unavailable")
-    elif status == "available":
-        proof = record.get("verification") if isinstance(record, dict) else None
-        path = proof.get("root_path") if isinstance(proof, dict) else None
-        if not isinstance(path, str) or not path:
-            return ["predecessor_root_path_not_recorded"]
-        expected = canonical_lineage("available", path)
-    else:
-        return ["lineage_v3_not_canonical"]
-    reasons = (
-        []
-        if _same_canonical_record(lineage, expected)
-        else ["lineage_v3_not_canonical"]
-    )
-    if status == "available":
+    """Structure problems, plus a re-read of a canonical v3 ``available`` root."""
+    reasons = lineage_structure_problems(lineage)
+    if not reasons:
         reasons += available_root_problems(lineage, read=read)
     return reasons
 
@@ -301,6 +338,8 @@ def collection_lineage_problems(
     # These arguments remain in the generic collector signature for existing
     # callers; time and own-journal state cannot grant lineage authority.
     _ = root, start_at, now
-    if not isinstance(research_plan, dict):
+    if research_plan is None:
         return []
+    if type(research_plan) is not dict:
+        return ["research_plan_not_a_plain_dict"]
     return lineage_problems(research_plan.get("attempt_lineage"), read=read)

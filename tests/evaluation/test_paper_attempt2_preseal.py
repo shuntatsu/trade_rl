@@ -16,6 +16,7 @@ import pytest
 
 from tests.evaluation.test_paper_attempt2 import (  # noqa: F401  (autouse fixture)
     AUTH,
+    NOW,
     START,
     Recorder,
     clock,
@@ -30,6 +31,7 @@ from tests.evaluation.test_paper_attempt2_lineage import (
 )
 from trade_rl.evaluation.paper import attempt2, cli, operations, predecessor
 from trade_rl.evaluation.paper.attempt2 import attempt2_lineage
+from trade_rl.evaluation.paper.engine import PaperEngine
 from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.evaluation.paper.supervisor import PaperCollector
 
@@ -288,28 +290,31 @@ def tampered_unavailable_plan():
     )
 
 
-def seal_raw(tmp_path, plan):
-    """Seal without any attempt2 precondition and without the private token."""
+def seal_raw(tmp_path, plan, name="attempt2"):
+    """Write a protocol at the lowest layer (PaperJournal): no token, no gate."""
     from trade_rl.evaluation.paper.account import PaperSettings
-    from trade_rl.evaluation.paper.engine import PaperEngine
     from trade_rl.evaluation.runs import build_candidate_run_provenance
 
-    return PaperEngine.initialize(
-        tmp_path / "attempt2",
-        settings=PaperSettings(start_at=START, close_at=START + timedelta(days=90)),
-        study=dict(
-            schema="paper_public_collection_v1",
-            created_at=(START - timedelta(hours=2)).isoformat(),
-            interval_seconds=60,
-            terminal_grace_seconds=180,
-            provenance=build_candidate_run_provenance(),
-            research_plan=plan,
+    settings = PaperSettings(start_at=START, close_at=START + timedelta(days=90))
+    return PaperJournal.initialize(
+        tmp_path / name,
+        dict(
+            engine="funding_carry_paper_engine_v1",
+            settings=settings.to_dict(),
+            study=dict(
+                schema="paper_public_collection_v1",
+                created_at=(START - timedelta(hours=2)).isoformat(),
+                interval_seconds=60,
+                terminal_grace_seconds=180,
+                provenance=build_candidate_run_provenance(),
+                research_plan=plan,
+            ),
         ),
     )
 
 
 def test_a_non_canonical_unavailable_protocol_is_refused_everywhere(tmp_path, capsys):
-    # Sealed through the lowest layer (PaperEngine.initialize), with no token.
+    # Written through the lowest layer (PaperJournal), with no token.
     digest = seal_raw(tmp_path, tampered_unavailable_plan())
     forged = tmp_path / "attempt2"
     before = listing(forged)
@@ -525,3 +530,208 @@ def test_v3_lineage_dict_subclass_cannot_hide_schema_from_sealer(tmp_path):
             clock=clock,
         )
     assert not (tmp_path / "forged-nested").exists()
+
+
+# ------------- review 5721122305: M-A (v2 label) and M-B (public PaperEngine)
+
+
+def v2_label_with_v3_root(status):
+    lineage = attempt2_lineage(status, "D:/old/root" if status == "available" else None)
+    lineage["schema"] = "carry_paper_attempt_lineage_v2"
+    return lineage
+
+
+def v2_forgeries():
+    unavailable = v2_label_with_v3_root("unavailable")
+    unavailable["predecessor_root"]["user_statement"]["quote"] = "different words"
+    extra_key = attempt2_lineage("unavailable")
+    extra_key["schema"] = "carry_paper_attempt_lineage_v2"
+    extra_key["unexpected"] = 1
+    return {
+        "available_under_v2_label": v2_label_with_v3_root("available"),
+        "unavailable_under_v2_label": v2_label_with_v3_root("unavailable"),
+        "altered_unavailable_under_v2_label": unavailable,
+        "v2_with_unexpected_key": extra_key,
+    }
+
+
+@pytest.mark.parametrize("name", sorted(v2_forgeries()))
+def test_a_v2_label_cannot_carry_v3_fields_through_any_gate(tmp_path, capsys, name):
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    forged = v2_forgeries()[name]
+    plan = {"schema": "carry_paper_screen_v2", "attempt_lineage": forged}
+    settings = PaperSettings(start_at=START, close_at=START + timedelta(days=90))
+    # The shared classifier, directly and through the validator.
+    assert predecessor.lineage_structure_problems(forged) == [
+        "lineage_v2_unexpected_fields"
+    ]
+    with pytest.raises(ValueError):
+        operations.validate_attempt_lineage(forged, sealed_at=NOW)
+    # seal_collection with and without the token, and the engine's own initialize.
+    for token in (None, operations._ATTEMPT2_SEAL_TOKEN):
+        with pytest.raises(ValueError, match="non-canonical|unsupported"):
+            seal_collection(
+                tmp_path / "sealed",
+                settings=settings,
+                research_plan=plan,
+                attempt2_seal_token=token,
+                clock=clock,
+            )
+    assert not (tmp_path / "sealed").exists()
+    # A protocol written at the lowest layer is refused by every entry point.
+    digest = seal_raw(tmp_path, plan)
+    root = tmp_path / "attempt2"
+    before = listing(root)
+    for arguments in (
+        ["run", "--root", str(root), "--protocol-sha256", digest],
+        [
+            "supervise",
+            "--root",
+            str(root),
+            "--protocol-sha256",
+            digest,
+            "--log-file",
+            str(tmp_path / "child.log"),
+        ],
+    ):
+        assert cli.main(arguments) == 2
+        assert (
+            "lineage_v2_unexpected_fields"
+            in json.loads(capsys.readouterr().err)["error"]
+        )
+    with pytest.raises(ValueError, match="lineage_v2_unexpected_fields"):
+        with PaperCollector(root, expected_protocol_sha256=digest):
+            pytest.fail("the collector must not open")
+    with pytest.raises(ValueError, match="not canonical"):
+        PaperEngine(root, expected_protocol_sha256=digest)
+    assert listing(root) == before
+    assert not (tmp_path / "child.log").exists()
+
+
+def test_a_plain_v2_lineage_is_still_sealed_and_collected(tmp_path):
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    lineage = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 1,
+        "predecessor": None,
+    }
+    plan = operations.screen_plan(attempt_lineage=lineage)
+    assert predecessor.lineage_structure_problems(lineage) == []
+    digest = seal_collection(
+        tmp_path / "first",
+        settings=PaperSettings(start_at=START, close_at=START + timedelta(days=90)),
+        research_plan=plan,
+        clock=clock,
+    )
+    PaperEngine(tmp_path / "first", expected_protocol_sha256=digest)  # opens
+
+
+def test_public_engine_refuses_to_initialize_or_open_a_noncanonical_v3_root(tmp_path):
+    from trade_rl.evaluation.paper.account import PaperSettings
+
+    settings = PaperSettings(start_at=START, close_at=START + timedelta(days=90))
+    mutated = attempt2_lineage("unavailable")
+    mutated["attempt_number"] = 2.0
+    study = dict(
+        schema="paper_public_collection_v1",
+        created_at=(START - timedelta(hours=2)).isoformat(),
+        interval_seconds=60,
+        terminal_grace_seconds=180,
+        research_plan={"attempt_lineage": mutated},
+    )
+    # initialize: refused for a non-canonical record, with and without the token ...
+    for token in (None, operations._ATTEMPT2_SEAL_TOKEN):
+        with pytest.raises(
+            ValueError, match="only be sealed through attempt2|non-canonical"
+        ):
+            PaperEngine.initialize(
+                tmp_path / "e",
+                settings=settings,
+                study=study,
+                attempt2_seal_token=token,
+            )
+    # ... and a canonical v3 is refused without the token, accepted with it.
+    canonical = dict(
+        study, research_plan={"attempt_lineage": attempt2_lineage("unavailable")}
+    )
+    with pytest.raises(ValueError, match="only be sealed through attempt2"):
+        PaperEngine.initialize(tmp_path / "e", settings=settings, study=canonical)
+    assert not (tmp_path / "e").exists()
+    digest = PaperEngine.initialize(
+        tmp_path / "e",
+        settings=settings,
+        study=canonical,
+        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+    )
+    engine = PaperEngine(tmp_path / "e", expected_protocol_sha256=digest)
+    assert engine.status()["events"] == 0
+    # A root written below the engine with a mutated lineage cannot be opened, so
+    # gap/decide/execute cannot append to it.
+    bad = seal_raw(tmp_path, {"attempt_lineage": mutated}, name="bad")
+    before = listing(tmp_path / "bad")
+    with pytest.raises(ValueError, match="not canonical"):
+        PaperEngine(tmp_path / "bad", expected_protocol_sha256=bad)
+    assert listing(tmp_path / "bad") == before  # nothing was appended
+
+
+def test_duplicate_json_keys_are_refused_before_the_lock_with_no_marker(
+    tmp_path, capsys
+):
+    digest = seal_raw(
+        tmp_path,
+        operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable"))
+        | {"purpose": "x"},
+    )
+    root = tmp_path / "attempt2"
+    raw = (root / "protocol.json").read_bytes()
+    # Re-write the protocol with the lineage schema key repeated (last one wins in
+    # json.loads); the digest is the new file's own digest.
+    doubled = raw.replace(
+        b'"schema":"carry_paper_attempt_lineage_v3"',
+        b'"schema":"carry_paper_attempt_lineage_v2","schema":"carry_paper_attempt_lineage_v3"',
+        1,
+    )
+    assert doubled != raw
+    import hashlib
+
+    (root / "protocol.json").write_bytes(doubled)
+    new_digest = hashlib.sha256(doubled).hexdigest()
+    before = listing(root)
+    with pytest.raises(ValueError, match="repeats an object key"):
+        with PaperCollector(root, expected_protocol_sha256=new_digest):
+            pytest.fail("the collector must not open")
+    assert cli.main(["run", "--root", str(root), "--protocol-sha256", new_digest]) == 2
+    assert "repeats an object key" in json.loads(capsys.readouterr().err)["error"]
+    assert listing(root) == before  # no failure marker, lock file or heartbeat
+    assert digest != new_digest
+
+
+def test_collector_helper_requires_exact_plain_types(tmp_path):
+    class Plan(dict):
+        def get(self, key, default=None):
+            return None  # hides the lineage from a naive reader
+
+    forged = {"attempt_lineage": v2_forgeries()["available_under_v2_label"]}
+    assert predecessor.collection_lineage_problems(
+        Plan(forged), root=tmp_path, start_at=START, now=lambda: START
+    ) == ["research_plan_not_a_plain_dict"]
+    assert predecessor.collection_lineage_problems(
+        ["not", "a", "mapping"], root=tmp_path, start_at=START, now=lambda: START
+    ) == ["research_plan_not_a_plain_dict"]
+    assert (
+        predecessor.collection_lineage_problems(
+            None, root=tmp_path, start_at=START, now=lambda: START
+        )
+        == []
+    )
+
+
+def test_the_comparator_is_public_and_type_strict():
+    assert not hasattr(predecessor, "_same_canonical_record")
+    assert predecessor.same_canonical_record({"a": [1]}, {"a": [1]})
+    assert not predecessor.same_canonical_record({"a": 1.0}, {"a": 1})
+    assert not predecessor.same_canonical_record({"a": True}, {"a": 1})

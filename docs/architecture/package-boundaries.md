@@ -220,15 +220,17 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
-`seal_collection`, `seal_paper_study` and `cli seal` refuse a lineage v3 research
-plan unless given a module-private token held by `attempt2` (a caller contract, not
-authentication). `paper/predecessor.py` holds attempt 1's recorded identity, the
-canonical lineage v3 records and the read-only re-verification of a recorded
-predecessor root. `attempt2`, `PaperCollector`, `cli run` and `cli supervise` all use
-it, and the collector refuses any v3 lineage that is not the canonical record
-(re-reading an `available` root first), whichever way it was sealed. Among paper
-modules it imports only `account` at load time. These operations contain no
-production routing.
+`paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
+records, the single lineage classifier (`lineage_structure_problems`) and the
+read-only re-verification of a recorded predecessor root. `seal_collection`,
+`seal_paper_study`, `cli seal`, `PaperEngine.initialize` and `PaperEngine(root)`
+(on open), `validate_attempt_lineage`, `attempt2`, `PaperCollector`, `cli run` and
+`cli supervise` all use it; v3 also needs a module-private token held by `attempt2`
+at the seal functions (a caller contract), and the collector re-reads an `available`
+root on every entry. This guards against accidental or non-canonical records through
+the supported entry points; it is not authentication against a malicious local
+operator. Among paper modules it imports only `account` at load time. These
+operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

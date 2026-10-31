@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import time
 import uuid
@@ -21,6 +20,7 @@ from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_fai
 from trade_rl.evaluation.paper.lock import acquire_collector_lock
 from trade_rl.evaluation.paper.predecessor import (
     collection_lineage_problems,
+    loads_without_duplicate_keys,
     require_seal_token,
 )
 from trade_rl.evaluation.runs import build_candidate_run_provenance
@@ -46,8 +46,9 @@ def seal_collection(
     """Freeze collection identity; the caller owns the separate economic plan.
 
     A research plan carrying an attempt lineage v3 is refused unless the module-private
-    ``attempt2`` token is given (a caller contract, not authentication; the collector
-    refuses any non-canonical v3 lineage whatever way it was sealed).
+    ``attempt2`` token is given, and any lineage the shared classifier rejects is
+    refused. This guards against accidental or non-canonical records through the
+    supported entry points; it is not authentication against a local operator.
     """
     require_seal_token(research_plan, attempt2_seal_token)
     created = require_aware_datetime(clock(), field="collection seal")
@@ -58,6 +59,7 @@ def seal_collection(
     return PaperEngine.initialize(
         root,
         settings=settings,
+        attempt2_seal_token=attempt2_seal_token,
         study=dict(
             schema=_SCHEMA,
             created_at=created.isoformat(),
@@ -103,7 +105,7 @@ class PaperCollector:
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != self.digest:
             raise ValueError("collection protocol digest mismatch")
-        protocol = json.loads(raw)["protocol"]
+        protocol = loads_without_duplicate_keys(raw)["protocol"]
         study = protocol["study"]
         if (
             study.get("schema") != _SCHEMA

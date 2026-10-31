@@ -22,7 +22,11 @@ from trade_rl.evaluation.paper.operations import (
     collection_status,
     seal_paper_study,
 )
-from trade_rl.evaluation.paper.predecessor import collection_lineage_problems
+from trade_rl.evaluation.paper.predecessor import (
+    DuplicateKeyError,
+    collection_lineage_problems,
+    loads_without_duplicate_keys,
+)
 from trade_rl.evaluation.paper.supervisor import PaperCollector
 from trade_rl.evaluation.paper.watchdog import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -42,10 +46,12 @@ from trade_rl.evaluation.paper.watchdog import (
 
 
 def _refuse_non_screen_root(root: Path, protocol_sha256: str) -> None:
-    """Refuse a probe root, and a lineage v3 ``available`` root that cannot be re-read.
+    """Refuse a probe root and any root whose lineage the shared classifier rejects.
 
-    A probe is capacity evidence only (only its own entry point runs it). A forged
-    ``available`` record is re-verified exactly as ``attempt2 launch`` does.
+    A probe is capacity evidence only (only its own entry point runs it). A v3
+    ``available`` record is re-read exactly as ``attempt2 launch`` does, on every
+    entry. Duplicate JSON keys are refused here, before the lock, so no marker is
+    written for that input.
     """
     path = root / "protocol.json"
     if root.is_symlink() or path.is_symlink() or not path.is_file():
@@ -54,9 +60,11 @@ def _refuse_non_screen_root(root: Path, protocol_sha256: str) -> None:
     if hashlib.sha256(raw).hexdigest() != protocol_sha256:
         return
     try:
-        protocol = json.loads(raw)["protocol"]
+        protocol = loads_without_duplicate_keys(raw)["protocol"]
         plan = protocol["study"]["research_plan"]
         start_at = timestamp(protocol["settings"]["start_at"])
+    except DuplicateKeyError:
+        raise
     except (KeyError, TypeError, ValueError):
         return
     if isinstance(plan, dict) and plan.get("schema") == STORAGE_PROBE_PLAN_SCHEMA:

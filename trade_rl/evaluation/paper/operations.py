@@ -18,8 +18,9 @@ from trade_rl.evaluation.paper.predecessor import (
     LINEAGE_V3_SCHEMA,
     PREDECESSOR_ROOT_STATUSES,
     ROOT_READER,
-    _same_canonical_record,
     canonical_root_record,
+    lineage_structure_problems,
+    same_canonical_record,
 )
 from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.evaluation.paper.supervisor import PaperCollector, seal_collection
@@ -133,7 +134,7 @@ def _validate_predecessor_root(
         or not value["review_rule"]
     ):
         raise ValueError("unavailable predecessor root record is invalid")
-    if not _same_canonical_record(value, canonical_root_record("unavailable")):
+    if not same_canonical_record(value, canonical_root_record("unavailable")):
         # The quote, states, limits, source and review rule are fixed text, not
         # free-form: anything but the canonical record is refused.
         raise ValueError("unavailable predecessor root record is not the canonical one")
@@ -155,6 +156,13 @@ def validate_attempt_lineage(
     sealed_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Validate the immutable parent link for this attempt in the screen series."""
+    if isinstance(value, dict) and (
+        "predecessor_root" in value or value.get("schema") == LINEAGE_V3_SCHEMA
+    ):
+        # One shared classifier decides every v3-shaped record, whatever its label.
+        problems = lineage_structure_problems(value)
+        if problems:
+            raise ValueError("attempt lineage is not canonical: " + "; ".join(problems))
     base_keys = {"schema", "attempt_number", "predecessor"}
     if not isinstance(value, dict) or set(value) not in (
         base_keys,

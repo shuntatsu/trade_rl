@@ -311,6 +311,7 @@ def _execute_cells(
     for cell in planned_cells():
         attempt_root = cells_root / cell.cell_id
         attempt_root.mkdir(parents=False, exist_ok=False)
+        record: dict[str, object]
         try:
             payload = dict(cell_runner(cell, attempt_root))
             canonical_json_bytes(payload)

@@ -524,3 +524,32 @@ def test_reachable_label_rejects_delayed_terminal_mark() -> None:
             fit_cutoff=timestamps[80],
             source_scope="synthetic_only",
         )
+
+
+def test_ineligible_endpoint_uses_last_observed_interval_not_requested_stop() -> None:
+    """An early-terminated replay must not claim to have reached the horizon."""
+    from dataclasses import replace
+
+    from tests.evaluation.test_paired_portfolio_action import _dataset, _paired
+    from trade_rl.evaluation.decision_value_reachable_labels import (
+        _ineligible_arm_endpoint,
+    )
+
+    result = _paired(market=_dataset()).baseline_result
+    wrapped = result.ledger_evidence
+    assert wrapped is not None
+    trace = wrapped.intervals
+    assert trace.stop_index == 7
+    assert len(trace.intervals) == 7
+    observed = trace.intervals[:3]
+    assert observed[-1].next_index == 3
+    shortened = replace(
+        result,
+        ledger_evidence=replace(wrapped, intervals=replace(trace, intervals=observed)),
+    )
+    evidence, reasons = _ineligible_arm_endpoint(
+        shortened, expected_intervals=7, arm="baseline", initial_capital=1_000.0
+    )
+    assert "baseline_intervals_incomplete" in reasons
+    assert evidence["requested_stop_index"] == 7
+    assert evidence["observed_stop_index"] == 3

@@ -111,7 +111,12 @@ def _ineligible_arm_endpoint(
         "terminal_marked_equity": str(book.portfolio_value),
         "observed_equity_change": str(float(book.portfolio_value) - initial_capital),
         "initial_capital": str(initial_capital),
-        "observed_stop_index": ledger.intervals.stop_index,
+        "requested_stop_index": ledger.intervals.stop_index,
+        "observed_stop_index": (
+            ledger.intervals.intervals[-1].next_index
+            if ledger.intervals.intervals
+            else ledger.intervals.start_index
+        ),
         "terminal_cash": str(book.cash),
         "terminal_exact_quantities": [str(q) for q in book.exact_quantities],
         "total_cost": str(book.total_cost),

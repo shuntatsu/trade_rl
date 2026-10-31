@@ -55,7 +55,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Dependency direction",
-      "sha256": "48b3e56108e345db6a5e9828da55a9eac4b41c31c8eeda3d0b916b6f672dbe3b"
+      "sha256": "1d9c3f0e8e82235a71b73994e1fb8daade406e403bcb36914cc8aac0116aabba"
     },
     {
       "path": "docs/architecture/lean-core.md",

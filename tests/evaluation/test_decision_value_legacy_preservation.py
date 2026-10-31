@@ -92,11 +92,8 @@ def test_legacy_conservative_keeps_original_hold_and_pending_proposals() -> None
 
 
 def test_pre_td8_fitted_models_match_original_main_numerical_contract() -> None:
-    """Restore v1 numerical semantics; B2 floats vary with BLAS implementation."""
-    import hashlib
-
+    """V1 numeric parity against pre-TD8 main across distinct BLAS backends."""
     from tests.evaluation.test_decision_value_fit import _CANDIDATES, _fit_batch
-    from trade_rl.artifacts.canonical import canonical_json_bytes
     from trade_rl.evaluation.decision_value_fit import (
         fit_conservative_linear_decision_value,
         fit_synthetic_linear_decision_value,
@@ -107,18 +104,35 @@ def test_pre_td8_fitted_models_match_original_main_numerical_contract() -> None:
     b1 = fit_synthetic_linear_decision_value(batch, candidate_actions=_CANDIDATES)
     b1c = fit_conservative_linear_decision_value(batch, candidate_actions=_CANDIDATES)
     b2 = fit_synthetic_shallow_decision_value(batch, candidate_actions=_CANDIDATES)
-    exact_golden = {
-        "B1": "1bb38fb3596fae4011aafcba90e5a03a5981b5530b64a0bd38b0e5052166f989",
-        "B1c": "373c1df969040a1577461af495bfbc7f585d7eef66887e1a2b899f072539a61d",
-    }
-    for name, model in (("B1", b1), ("B1c", b1c)):
-        assert (
-            hashlib.sha256(canonical_json_bytes(model.coefficients)).hexdigest()
-            == exact_golden[name]
+    # These complete numerical references were obtained from pre-TD8 main.
+    # The old solver is unchanged, but BLAS backends (e.g. Prescott/Haswell)
+    # can differ in the last coefficient/covariance bits. Newly fitted bytes
+    # are not a portable compatibility oracle; saved artifact bytes are.
+    original_b1 = (
+        (-0.0009599893334518747, 0.00799031121876424, 0.0, 0.0, 0.0, 0.0),
+        (-0.0009599893334518619, -0.00800951100543329, 0.0, 0.0, 0.0, 0.0),
+    )
+    original_b1c = (
+        (*original_b1[0], 0.0, 0.0),
+        (*original_b1[1], 0.0, 0.0),
+    )
+    for model, golden in ((b1, original_b1), (b1c, original_b1c)):
+        np.testing.assert_allclose(
+            np.asarray(model.coefficients),
+            np.asarray(golden),
+            rtol=1e-11,
+            atol=1e-15,
         )
-    assert (
-        hashlib.sha256(canonical_json_bytes(b1c.covariance_matrices)).hexdigest()
-        == "86ad5c317ee789b4ddf221c90135480790bec00be71318744778c650e1e75f10"
+    original_covariance = np.zeros((2, 8, 8), dtype=np.float64)
+    original_covariance[0, 0, 0] = 2.5538313588125816e-06
+    original_covariance[0, 1, 1] = 3.830747038218873e-06
+    original_covariance[1, 0, 0] = 2.566119222508392e-06
+    original_covariance[1, 1, 1] = 3.849178833762587e-06
+    np.testing.assert_allclose(
+        np.asarray(b1c.covariance_matrices),
+        original_covariance,
+        rtol=1e-11,
+        atol=1e-15,
     )
     # These two rows are copied from pre-TD8 main@8cab046a, not recalculated
     # from the changed source. Different BLAS kernels produce slightly
@@ -164,6 +178,57 @@ def test_pre_td8_fitted_models_match_original_main_numerical_contract() -> None:
         rtol=1e-9,
         atol=1e-11,
     )
+
+
+def test_legacy_b1_b1c_fixed_artifact_bytes_remain_identical_to_old_main() -> None:
+    """Separate serialized-v1 byte identity from a fresh BLAS-dependent fit."""
+    import hashlib
+
+    from tests.evaluation.test_decision_value_fit import _CANDIDATES, _fit_batch
+    from trade_rl.evaluation.decision_value_fit import (
+        fit_conservative_linear_decision_value,
+        fit_synthetic_linear_decision_value,
+    )
+    from trade_rl.strategies.decision_value import (
+        load_conservative_linear_decision_value,
+        load_linear_decision_value,
+        serialize_conservative_linear_decision_value,
+        serialize_linear_decision_value,
+    )
+
+    batch = _fit_batch()
+    for model, serializer, loader, original_main_sha in (
+        (
+            fit_synthetic_linear_decision_value(batch, candidate_actions=_CANDIDATES),
+            serialize_linear_decision_value,
+            load_linear_decision_value,
+            "aa5c26f3e015ad8aef377324a5d699f1c8f5620af509f1a81da6e19d5244e11c",
+        ),
+        (
+            fit_conservative_linear_decision_value(
+                batch, candidate_actions=_CANDIDATES
+            ),
+            serialize_conservative_linear_decision_value,
+            load_conservative_linear_decision_value,
+            "cbd41d25895e338d78f83878f29e3c09190efa83790d479da2640bbcf03e2643",
+        ),
+    ):
+        fixed = replace(
+            model,
+            coefficients=tuple(tuple(0.0 for _ in row) for row in model.coefficients),
+        )
+        if hasattr(fixed, "covariance_matrices"):
+            fixed = replace(
+                fixed,
+                covariance_matrices=tuple(
+                    tuple(tuple(0.0 for _ in row) for row in matrix)
+                    for matrix in fixed.covariance_matrices
+                ),
+            )
+        payload, digest = serializer(fixed)
+        assert digest == original_main_sha
+        assert hashlib.sha256(payload.encode("utf-8")).hexdigest() == digest
+        assert loader(text=payload, expected_sha256=digest) == fixed
 
 
 def test_legacy_b2_matches_frozen_dense_ridge_normal_equations() -> None:

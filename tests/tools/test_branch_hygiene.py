@@ -578,9 +578,7 @@ def test_unfinished_workflow_exact_final_page_is_accepted(
 
 def test_dry_run_summary_does_not_claim_archival_or_grace_as_anchor() -> None:
     decisions = (
-        BranchDecision(
-            BranchInfo("main", "a" * 40, False), "keep", "default-branch"
-        ),
+        BranchDecision(BranchInfo("main", "a" * 40, False), "keep", "default-branch"),
         BranchDecision(
             BranchInfo("tmp/first", "b" * 40, False),
             "archive-keep",

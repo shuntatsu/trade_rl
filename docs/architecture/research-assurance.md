@@ -1315,6 +1315,9 @@ v3 lineage unless given a module-private token that only `attempt2` holds (a cal
 contract, not authentication). One shared classifier decides every lineage at every
 supported entry point (`seal_collection`, `seal_paper_study`, `paper.cli seal`,
 `PaperEngine` initialization and opening, `validate_attempt_lineage`, the collector):
+in-memory study/plan/lineage keys must all have the exact native `str` type,
+recursively before any mapping lookup (a `str` subclass can hide a v3 lineage
+from `dict.get` while serializing to ordinary JSON text);
 the v2 label requires exactly the v2 key set, exact integer attempt number `1`
 and null predecessor (float/boolean/int subclass values are refused); it is accepted
 only for attempt 1 (this

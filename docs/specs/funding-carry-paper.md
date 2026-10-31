@@ -299,7 +299,11 @@ code or files; no layer is claimed to be impossible to bypass. All gates use one
 shared classifier (`predecessor.lineage_structure_problems`):
 
 * No lineage is allowed. Otherwise the lineage must be an exact `dict` with an exact
-  `str` schema. The v2 label requires exactly the v2 key set, so a
+  `str` schema. **Every key** in the in-memory study, research plan and nested
+  lineage must be a native `str` (`type(key) is str`) before any `dict.get`
+  lookup, including keys inside lists of JSON objects. An equal-looking `str`
+  subclass with custom hashing/comparison cannot conceal the v3 token rule.
+  The v2 label requires exactly the v2 key set, so a
   `predecessor_root` (or any other v3-only field) cannot ride under it, and only
   attempt 1 may use it: its `attempt_number` must be the exact integer `1` and
   `predecessor` must be null. Float/boolean/subclassed or larger/smaller numbers
@@ -311,8 +315,9 @@ shared classifier (`predecessor.lineage_structure_problems`):
 * `seal_collection`, `seal_paper_study` and `paper.cli seal` apply that classifier
   and also refuse a v3 lineage unless given a module-private token that only
   `attempt2` holds (a caller contract, not authentication). `PaperEngine.initialize`
-  applies the same rules (it requires a plain `dict` study and research plan, so a
-  `dict` subclass cannot hide the plan), and `PaperEngine(root)` refuses to open,
+  applies the same rules (it requires a plain `dict` study and research plan
+  with native-string keys throughout, so neither a `dict` nor a string-key
+  subclass can hide the plan), and `PaperEngine(root)` refuses to open,
   hence to append to, a root whose lineage the classifier rejects; opening reads no
   predecessor root. `validate_attempt_lineage` (hence `cli evaluate`) uses it for every v3-shaped
   record. `attempt2`'s own sealing preconditions (authorization URL shape, start

@@ -20,6 +20,7 @@ from trade_rl.evaluation.paper.predecessor import (
     ROOT_READER,
     canonical_root_record,
     lineage_structure_problems,
+    plain_json_key_problems,
     same_canonical_record,
 )
 from trade_rl.evaluation.paper.store import PaperJournal
@@ -156,6 +157,12 @@ def validate_attempt_lineage(
     sealed_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Validate the immutable parent link for this attempt in the screen series."""
+    key_problems = plain_json_key_problems(value)
+    if key_problems:
+        raise ValueError(
+            "attempt lineage keys are not plain JSON strings: "
+            + "; ".join(key_problems)
+        )
     if isinstance(value, dict) and (
         "predecessor_root" in value or value.get("schema") == LINEAGE_V3_SCHEMA
     ):

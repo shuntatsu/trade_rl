@@ -128,6 +128,33 @@ def canonical_lineage(status: str, root_path: str | None = None) -> dict[str, An
     }
 
 
+def plain_json_key_problems(value: object) -> list[str]:
+    """Inspect all in-memory JSON-object keys before lookup or serialization.
+
+    A ``str`` subclass can have ordinary serialized text but adversarial
+    equality/hash, causing ``dict.get`` to hide an attempt lineage or schema.
+    Every traversed JSON-object mapping and key must have its exact native type.
+    """
+    pending = [value]
+    visited: set[int] = set()
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (dict, list, tuple)):
+            marker = id(node)
+            if marker in visited:
+                continue
+            visited.add(marker)
+        if isinstance(node, dict):
+            if type(node) is not dict:
+                return ["json_mapping_not_plain_dict"]
+            if any(type(key) is not str for key in node):
+                return ["json_key_not_plain_string"]
+            pending.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+    return []
+
+
 def require_seal_token(research_plan: object, token: object) -> None:
     """Refuse an unsupported or non-canonical lineage, and v3 without the token.
 
@@ -138,6 +165,12 @@ def require_seal_token(research_plan: object, token: object) -> None:
     """
     if type(research_plan) is not dict:
         raise ValueError("collection research plan must be a plain dict")
+    problems = plain_json_key_problems(research_plan)
+    if problems:
+        raise ValueError(
+            "collection lineage research plan requires plain dicts and native JSON keys: "
+            + "; ".join(problems)
+        )
     lineage = research_plan.get("attempt_lineage")
     if lineage is None:
         return
@@ -313,6 +346,9 @@ def lineage_structure_problems(lineage: object) -> list[str]:
         return []
     if type(lineage) is not dict:
         return ["lineage_not_a_mapping"]
+    key_problems = plain_json_key_problems(lineage)
+    if key_problems:
+        return key_problems
     schema = lineage.get("schema")
     if type(schema) is str and schema == LINEAGE_V2_SCHEMA:
         if set(lineage) != _V2_KEYS:
@@ -375,4 +411,7 @@ def collection_lineage_problems(
         return []
     if type(research_plan) is not dict:
         return ["research_plan_not_a_plain_dict"]
+    key_problems = plain_json_key_problems(research_plan)
+    if key_problems:
+        return key_problems
     return lineage_problems(research_plan.get("attempt_lineage"), read=read)

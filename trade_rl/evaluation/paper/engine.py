@@ -13,6 +13,7 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import PaperAccount, PaperSettings, timestamp
 from trade_rl.evaluation.paper.predecessor import (
     lineage_structure_problems,
+    plain_json_key_problems,
     require_seal_token,
 )
 from trade_rl.evaluation.paper.store import PaperJournal
@@ -41,6 +42,12 @@ class PaperEngine:
     ) -> str:
         if type(study) is not dict:
             raise ValueError("paper study must be a plain dict")
+        key_problems = plain_json_key_problems(study)
+        if key_problems:
+            raise ValueError(
+                "paper study requires plain dicts and native JSON keys: "
+                + "; ".join(key_problems)
+            )
         plan = study.get("research_plan")
         if plan is not None:
             # The same plain-dict, classifier and token rules as ``seal_collection``.
@@ -62,6 +69,12 @@ class PaperEngine:
             or not isinstance(protocol["study"], dict)
         ):
             raise ValueError("unsupported paper engine protocol")
+        key_problems = plain_json_key_problems(protocol["study"])
+        if key_problems:
+            raise ValueError(
+                "paper protocol contains non-plain JSON keys: "
+                + "; ".join(key_problems)
+            )
         plan = protocol["study"].get("research_plan")
         if plan is not None:
             # Refuse to open (hence to append to) a root whose lineage the shared

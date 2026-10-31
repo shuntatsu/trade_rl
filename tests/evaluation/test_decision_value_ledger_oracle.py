@@ -238,3 +238,61 @@ def test_td8_oracle_rejects_rewritten_interval_return_with_same_book() -> None:
         initial_capital=_CAPITAL,
         expected_start_index=0,
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong"),
+    [
+        ("dataset_id", "f" * 64),
+        ("execution_policy_digest", "e" * 64),
+        ("timestamp_ns", -1),
+        ("processing_index", -1),
+        ("symbol_index", -1),
+    ],
+)
+def test_td8_oracle_rejects_forged_non_fill_event_identity(
+    field: str, wrong: object
+) -> None:
+    """Source/clock/identity validation is required even with zero fills."""
+    market = _dataset()
+    result = _paired(market=market).baseline_result
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    first = ledger.intervals.intervals[0]
+    event = next(e for e in first.order_events if e.filled_quantity == 0.0)
+    # Keep each field syntactically valid but inconsistent with the real source.
+    if field == "timestamp_ns":
+        wrong = event.timestamp_ns + 7777
+    if field == "processing_index":
+        wrong = event.processing_index + 2
+    if field == "symbol_index":
+        wrong = len(market.symbols) + 1
+    forged = replace(event, **{field: wrong})
+    interval = replace(
+        first,
+        order_events=tuple(forged if e is event else e for e in first.order_events),
+    )
+    mutated = replace(
+        result,
+        ledger_evidence=replace(
+            ledger,
+            intervals=replace(
+                ledger.intervals,
+                intervals=(interval, *ledger.intervals.intervals[1:]),
+            ),
+        ),
+    )
+    assert verify_paired_economic_ledger(
+        result,
+        market,
+        expected_intervals=7,
+        initial_capital=_CAPITAL,
+        expected_start_index=0,
+    )
+    assert not verify_paired_economic_ledger(
+        mutated,
+        market,
+        expected_intervals=7,
+        initial_capital=_CAPITAL,
+        expected_start_index=0,
+    )

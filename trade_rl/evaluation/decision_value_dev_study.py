@@ -910,6 +910,7 @@ class _CostAwareRidgePortfolioPolicy:
         "_last_timestamp_ns",
         "_agent_stop_index",
         "_proposal_version",
+        "_reference_feature_dataset",
     )
 
     def __init__(
@@ -922,10 +923,23 @@ class _CostAwareRidgePortfolioPolicy:
         exit_threshold: float,
         one_way_switch_cost: float,
         proposal_version: str = "legacy_v1",
+        reference_feature_dataset: MarketDataset | None = None,
     ) -> None:
         if proposal_version not in ("legacy_v1", "td8_v2"):
             raise ValueError("unknown cost-aware proposal version")
         self._proposal_version = proposal_version
+        if reference_feature_dataset is not None and (
+            reference_feature_dataset.dataset_id != dataset.dataset_id
+            or reference_feature_dataset.symbols != dataset.symbols
+            or reference_feature_dataset.feature_names != dataset.feature_names
+            or reference_feature_dataset.global_feature_names
+            != dataset.global_feature_names
+            or not np.array_equal(
+                reference_feature_dataset.timestamps, dataset.timestamps
+            )
+        ):
+            raise ValueError("reference features differ from the native market roster")
+        self._reference_feature_dataset = reference_feature_dataset
         self._symbols = tuple(dataset.symbols)
         self._budgets = target_abs_weights
         self._strategies = tuple(
@@ -953,6 +967,44 @@ class _CostAwareRidgePortfolioPolicy:
         if np.isnat(timestamp):
             raise ValueError("decision timestamp must not be NaT")
 
+        # TD8 teachers score on a frozen pre-prefix feature vintage while the
+        # native account/intervention remains on the shared block dataset.
+        scoring_snapshot = snapshot
+        source = self._reference_feature_dataset
+        if source is not None:
+            if (
+                not 0 <= snapshot.index < source.n_bars
+                or source.timestamps[snapshot.index] != timestamp
+                or source.symbols != snapshot.symbols
+            ):
+                raise ValueError("reference feature vintage does not match the clock")
+            scoring_snapshot = replace(
+                snapshot,
+                features=tuple(
+                    tuple(float(v) for v in row)
+                    for row in source.features[snapshot.index]
+                ),
+                feature_available=tuple(
+                    tuple(bool(v) for v in row)
+                    for row in source.feature_available[snapshot.index]
+                ),
+                feature_staleness=tuple(
+                    tuple(float(v) for v in row)
+                    for row in source.resolved_array("feature_staleness")[
+                        snapshot.index
+                    ]
+                ),
+                global_features=tuple(
+                    float(v) for v in source.global_features[snapshot.index]
+                ),
+                global_feature_available=tuple(
+                    bool(v)
+                    for v in source.resolved_array("global_feature_available")[
+                        snapshot.index
+                    ]
+                ),
+            )
+
         effective_weights = compute_effective_posture_weights(snapshot, self._budgets)
         actions: list[int] = []
         for i, (strategy, budget) in enumerate(
@@ -970,16 +1022,18 @@ class _CostAwareRidgePortfolioPolicy:
                 index=snapshot.index,
                 timestamp=timestamp,
                 symbol=self._symbols[i],
-                features=np.asarray(snapshot.features[i], dtype=np.float64),
+                features=np.asarray(scoring_snapshot.features[i], dtype=np.float64),
                 feature_available=np.asarray(
-                    snapshot.feature_available[i], dtype=np.bool_
+                    scoring_snapshot.feature_available[i], dtype=np.bool_
                 ),
                 feature_staleness=np.asarray(
-                    snapshot.feature_staleness[i], dtype=np.float32
+                    scoring_snapshot.feature_staleness[i], dtype=np.float32
                 ),
-                global_features=np.asarray(snapshot.global_features, dtype=np.float64),
+                global_features=np.asarray(
+                    scoring_snapshot.global_features, dtype=np.float64
+                ),
                 global_feature_available=np.asarray(
-                    snapshot.global_feature_available, dtype=np.bool_
+                    scoring_snapshot.global_feature_available, dtype=np.bool_
                 ),
                 current_intent=current,
                 current_weight=w_eff,
@@ -1045,6 +1099,8 @@ def causal_b0_reference_provider(
     one_way_switch_cost: float,
     min_fit_bars: int,
     first_fit_index: int,
+    raw_dataset: MarketDataset | None = None,
+    causal_feature_clip: float | None = None,
 ) -> Callable[[int, int], Callable[[], PortfolioPolicy] | None]:
     """Per-branch B0 reference: the B0 recipe refitted causally before the prefix.
 
@@ -1052,36 +1108,63 @@ def causal_b0_reference_provider(
     the block-level B0 model (fitted at the block fit cutoff) cannot legally act
     inside the train window. For a branch whose prefix starts at ``start`` this
     provider refits the identical recipe (same features, horizon, alpha, thresholds)
-    with ``fit_cutoff = timestamps[start]``. It returns ``None`` when fewer than
+    with ``fit_cutoff = timestamps[start]``. A raw source and clip fit a
+    per-prefix normalizer and serve that same vintage to the teacher. It returns ``None`` when fewer than
     ``min_fit_bars`` bars precede ``start`` in the train window, because no
     informed causal reference exists there.
     """
-    cache: dict[int, RidgeForecastModel] = {}
+    if (raw_dataset is None) != (causal_feature_clip is None):
+        raise ValueError("reference vintage requires raw_dataset and clip together")
+    if raw_dataset is not None and (
+        raw_dataset.dataset_id != dataset.dataset_id
+        or raw_dataset.symbols != dataset.symbols
+        or raw_dataset.feature_names != dataset.feature_names
+        or raw_dataset.global_feature_names != dataset.global_feature_names
+        or not np.array_equal(raw_dataset.timestamps, dataset.timestamps)
+    ):
+        raise ValueError("reference raw source differs from replay source")
+    cache: dict[int, tuple[RidgeForecastModel, MarketDataset]] = {}
 
     def provider(_t: int, start: int) -> Callable[[], PortfolioPolicy] | None:
-        if start - first_fit_index < min_fit_bars:
+        minimum = max(min_fit_bars, 2) if raw_dataset is not None else min_fit_bars
+        if start - first_fit_index < minimum:
             return None
-        model = cache.get(start)
-        if model is None:
+        fitted = cache.get(start)
+        if fitted is None:
+            vintage_view = dataset
+            if raw_dataset is not None:
+                assert causal_feature_clip is not None
+                transform = fit_train_feature_transform(
+                    raw_dataset,
+                    train_start_index=first_fit_index,
+                    train_stop_index=start - 1,
+                    clip=causal_feature_clip,
+                    as_of_index=start,
+                )
+                vintage_view = apply_feature_transform(raw_dataset, transform)
             model = fit_ridge_forecast(
-                dataset,
+                vintage_view,
                 feature_indices=feature_indices,
-                fit_cutoff=dataset.timestamps[start],
+                fit_cutoff=vintage_view.timestamps[start],
                 horizon_hours=horizon_hours,
                 alpha=alpha,
             )
-            cache[start] = model
-        fitted = model
+            fitted = (model, vintage_view)
+            cache[start] = fitted
+        model, vintage_view = fitted
 
         def factory() -> PortfolioPolicy:
             return _CostAwareRidgePortfolioPolicy(
                 dataset=dataset,
-                model=fitted,
+                model=model,
                 target_abs_weights=target_abs_weights,
                 entry_threshold=entry_threshold,
                 exit_threshold=exit_threshold,
                 one_way_switch_cost=one_way_switch_cost,
                 proposal_version="td8_v2",
+                reference_feature_dataset=(
+                    vintage_view if raw_dataset is not None else None
+                ),
             )
 
         return factory
@@ -1211,9 +1294,11 @@ def _train_block(
     )
     ref_digest = content_digest(
         {
-            # This v2 identity distinguishes the native TD8 intervention/proposal
-            # semantics from the frozen exploratory TD8 result at a775b577e.
-            "policy": "b0_causal_refit_prefix_hold_relative_v2",
+            # Version both the teacher feature vintage and native TD8 actions;
+            # the archived exploratory run keeps its original provenance.
+            "policy": "b0_causal_refit_prefix_hold_relative_v3",
+            "teacher_normalization": "preprefix_asof_available_v1",
+            "raw_normalization_digest": raw_dataset.normalization_digest,
             "intervention_projection": "posture_v2",
             "native_proposal_version": "td8_v2",
             "target_abs_weights": [float(w) for w in protocol.target_abs_weights],
@@ -1239,6 +1324,8 @@ def _train_block(
         one_way_switch_cost=train_switch_cost,
         min_fit_bars=protocol.reference_min_fit_bars,
         first_fit_index=block.train_start_index,
+        raw_dataset=raw_dataset,
+        causal_feature_clip=protocol.feature_clip,
     )
     branches = tuple(
         range(block.train_start_index, block.train_stop_index + 1, block.train_step)

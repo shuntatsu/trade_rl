@@ -47,6 +47,7 @@ trade_rl/
 │       ├── market_order_profile.py
 │       ├── derived_klines.py
 │       └── dataset.py
+│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,cli.py,migrations/*.sql}
 ├── risk/
 │   ├── inputs.py
 │   ├── portfolio.py
@@ -113,7 +114,7 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,assessment.py,cli.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -215,7 +216,13 @@ failure. `paper/attempt2.py` composes the
 existing lineage validator, `screen_plan`, `seal_paper_study`, FS1's authorization
 pattern and the supervisor into plan/seal/launch gates for the successor attempt
 with no network call (it loads the collector stack at import through
-`seal_paper_study`, so the offline property is proved at call level). These operations contain no production routing.
+`seal_paper_study`, so the offline property is proved at call level). It imports
+neither the collector nor `paper/storage_probe.py`. The probe is the one other
+networked step: it runs the real `PaperCollector` for a few slots into a scratch root
+whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
+`cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
+refuse it otherwise. These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and
@@ -730,6 +737,40 @@ Coordinationの耐久契約は次である。
 ### Forward study FS1 acquisition tooling
 
 `evaluation/forward_acquisition/` はFS1のdata acquisition・dataset build・seal manifest・seal-record textを一つの文書化されたcommand（`python -m trade_rl.evaluation.forward_acquisition acquire` / `seal-record`）として提供し、ad-hocなscriptやmonkeypatchでFS1 datasetを作らせない。`forward_study/` はnetworkを一切importしないため、acquisitionは別packageに置く。`plan.py` はFS1 span・archive URL・date range・build policy照合・出力layoutを持つ純粋moduleで `trade_rl.integrations` をimportしない。`acquire.py` の `run_acquire` は `--allow-network` が無ければplanだけを返し（network clientをimportせず、fileを作らず、development inputも読まない）、ある場合だけ（Issue #810 authorization URL、新規output root、settlement margin経過、clean checkout、developmentのidentity検証が揃ったときに）`trade_rl.integrations.binance` をlazy importしてfetchする。`run_acquire` はregistry・digest・clock・code identity・transportを引数に取らず、private factory `_run_acquire` / `_environment` だけがそれらを供給する（testsが置換する）。development期間のarchiveは再取得せず、published development Datasetのidentity（pinned `dataset_id`・artifact digest・内部にbindされた `raw_source_roster_digest`）に対してread-onlyで検証して再利用する。manifest（`manifest_bytes_from_dataset`）は最後に書き、receiptがbuilder commit・exact command・exchange snapshot・development reuse identityを持つ。`seal_record.py` はmanifestとreceiptを凍結registryと相互に検証してseal commentのMarkdownを返すだけで、投稿しない。このpackageはscoring・replay・strategyに依存せず、`forward_study` からは `registry` と `seal` だけをimportする。それ以外のmodule scope依存は `trade_rl.artifacts`、`trade_rl.data`（`data.artifacts.publication`・`data.market`）とnumpyで、`trade_rl.integrations.binance`・`trade_rl.data.build` は認可された経路（`acquire.py` の関数内）でだけlazy importする。output rootはcheckout外でなければならず、`forward_study`・`dev_realdata_study`・`strategies`・`simulation`・`data`・`integrations` から参照されない。手順の正本は `architecture/research-assurance.md` の *FS1 acquisition procedure*、状態は `research/current-status.md`。
+
+## Market-data store runbook
+
+`integrations/market_store/` is a reusable, generic PostgreSQL store of public Binance market data (Issue #810). It is an adapter beside `integrations/binance/`: it depends only on `data`, `artifacts` and `integrations.binance`, never on strategies, evaluation, simulation or risk, and it is not re-exported from `trade_rl.integrations`. It stores USD-M perpetual and spot 1h klines and USD-M funding rates for a configurable universe (default BTC, ETH, BNB, XRP, ADA, SOL against USDT), reuses the Vision URL planner (`plan_vision_kline_urls`, `vision_funding_url`) and the unchanged `build_binance_market_dataset`, and owns no strategy, execution or P&L semantics. `psycopg` is imported only by `store.py` and is the optional `store` extra (also in `dev`); `plan` and a dry-run `ingest` need neither PostgreSQL nor the extra, and only `fetch.py` imports a network client.
+
+Schema (plain SQL, `migrations/NNNN_name.sql`, applied in order with a `schema_version` ledger that records each file's SHA-256 and refuses an edited or unknown applied migration): `instruments`, `exchange_info_snapshots` + `instrument_rule_snapshots` (current-snapshot rules valid from retrieval, not historical rules), `sources` (one row per archive: URL, kind, period, archive sha256, the `.CHECKSUM` line digest, the sha256 of the `.CHECKSUM` file, size, HTTP status, fetched_at), `ingestion_runs` (code commit, command line, counts, status, FS1 warm-up flag and authorization URL), `klines`, `funding_rates` and `ingestion_conflicts`. Every price, quantity and rate is exact `NUMERIC`; natural keys are primary keys; CHECK constraints enforce `high >= max(open, close)`, `low <= min(open, close)` and non-negative volume. `klines`, `funding_rates`, `sources` (once ingested) and the exchange snapshots are append-only (triggers reject UPDATE and DELETE). TRUNCATE is also blocked on every evidence table, and a 404 `sources` record may only gain its evidence, never change its identity. What is committed outside the per-archive transaction: before the run, `ingest --allow-network` snapshots `exchangeInfo` (`exchange_info_snapshots`, `instrument_rule_snapshots`, `instruments`, `run_id` NULL); during the run, `instruments` rows and 404 `missing` source markers are committed as they occur, plus the `ingestion_runs` audit row; none of these holds a price, a funding rate or a boundary state. Re-ingesting an archive is a no-op; a changed value for an existing key rolls the archive back, is written to `ingestion_conflicts`, fails the run and is never applied.
+
+FS1 data-protection boundaries. The FS1 forward study controls two spans (constants pinned by tests against the FS1 registry `warmup_only_start` / `scoring_start` and against the SQL functions of the migration). (1) The **warm-up span** `[2026-08-01T00:00Z, 2026-11-01T00:00Z)` may, per *FS1 acquisition procedure* in `research-assurance.md`, be fetched only with a separate Issue #810 data-fetch authorization, so the store refuses it **by default**; a run may admit it only with `--allow-fs1-warmup-span` together with `--fs1-warmup-authorization-url` naming that Issue #810 comment (both or neither). The flag, the URL and the run are recorded in `ingestion_runs`, the database triggers admit warm-up rows only for that still-running authorized run, and the URL is an attestation of the user's authorization, not a verified one. The boundaries are module constants (`FS1_WARMUP_START`, `SEALED_WINDOW_START`), not parameters of any public constructor, planner, ingester or exporter, so no caller can move them. Even then FS1 scoring does not use the store: it re-acquires and re-verifies its own data through its sealed tool (`evaluation/forward_acquisition`), and store rows never feed FS1 scoring. (2) The **sealed window** `>= 2026-11-01T00:00Z` (scored once after 2027-05-02) is refused **unconditionally**: there is no flag, parameter, table or SQL function that lifts it, and no sealed or warm-up row, authorization or release state is ever stored by a failed or empty run. Lifting it after FS1 is scored needs a future reviewed migration (replacing `market_sealed_from()`) and pull request. Both spans are enforced at five layers, and the decision is always made from the period parsed out of the Vision URL itself (`archive_url.py`), never from caller-declared metadata: `ingest` refuses any `ArchiveSpec` whose kind, market, symbol, interval, cadence or period disagrees with its URL before a run starts or anything is requested; `VisionFetcher.fetch` independently refuses, before any network call, every URL that is not a recognised Vision archive or `.CHECKSUM` path with a period entirely before 2026-08-01 (a fetcher constructed with the warm-up authorization URL may also take periods entirely before 2026-11-01; none can take a URL touching the sealed window) and never follows redirects; the planner never plans an archive whose period passes a closed span (a straddling monthly archive is replaced by its in-bounds daily archives; a funding month that cannot be published inside the bound is reported and skipped) and a requested range end inside a closed span exits with code 4; every parsed row is checked before any write; and PostgreSQL triggers on `klines`, `funding_rates` and `sources` reject such rows even under a direct INSERT. By default `plan`/`ingest` therefore end at 2026-08-01. The database guard for the warm-up span is an accident guard, not an authorization boundary: it admits warm-up rows only to the backend session that started a still-`running` authorized run no older than 12 hours (a hard-killed run is closed by the next `begin_run`, and an old one stops admitting rows), run identity and authorization columns are immutable and a finished run cannot be reopened; but the session variable `trade_rl.fs1_warmup_run_id` is an ordinary custom setting that any login role may `SET`, any role that may INSERT into `ingestion_runs` can create an authorized-looking run, and PostgreSQL cannot verify that an Issue #810 comment exists. Keep the store's write role with trusted operators; the sealed window has no such path.
+
+Export. `export_market_dataset` serves stored rows through the same transport interface as the Vision file path (Vision column layout from exact values, funding events with the Vision inclusive range, one stored raw `exchangeInfo` applied statically) so the unchanged builder, gap policy, 4h/1d aggregation and identity produce the `MarketDataset`. Digests of every row read, the exchange snapshot and an `fs1_warmup` record (whether any exported bar lies in the warm-up span, the last bar time and the authorizing run ids and Issue #810 URLs) enter the identity as `metadata_evidence` and the export receipt; the same store content and parameters give the same `dataset_id` (pin the rules snapshot with `--rules-snapshot-sha256`), and a test proves a store-backed build equals a file-backed build from the same archives.
+
+Operating it (Windows, PowerShell; install Docker Desktop first, then `uv sync --extra store`):
+
+```powershell
+Copy-Item deploy/market-store/.env.example deploy/market-store/.env
+# put a random password into MARKET_STORE_PASSWORD (never commit .env)
+$pw = -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+(Get-Content deploy/market-store/.env) -replace 'CHANGE_ME_generate_a_random_password', $pw | Set-Content deploy/market-store/.env
+docker compose -f deploy/market-store/compose.yml --env-file deploy/market-store/.env up -d
+docker compose -f deploy/market-store/compose.yml ps    # wait for "healthy"
+$env:TRADE_RL_MARKET_STORE_URL = "postgresql://market_store:$pw@127.0.0.1:55432/market_store"
+uv run python -m trade_rl.integrations.market_store migrate
+# default form: stops before the FS1 warm-up span (2026-08-01); --end is shown explicitly
+uv run python -m trade_rl.integrations.market_store plan --start 2021-01-01 --end 2026-08-01   # offline
+uv run python -m trade_rl.integrations.market_store ingest --start 2021-01-01 --end 2026-08-01  # dry run
+uv run python -m trade_rl.integrations.market_store ingest --start 2021-01-01 --end 2026-08-01 --allow-network
+# authorized form (only after the user's Issue #810 data-fetch authorization; never past 2026-11-01):
+#   ... ingest --start 2026-08-01 --end 2026-10-30 --allow-network `
+#       --allow-fs1-warmup-span --fs1-warmup-authorization-url https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>
+uv run python -m trade_rl.integrations.market_store status
+uv run python -m trade_rl.integrations.market_store export --market usds_m --start 2021-01-01 --end 2026-08-01 --output-dir C:/data/exports/usds_m_2021_2026
+```
+
+The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.4` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
 
 ## Repository integration boundary
 

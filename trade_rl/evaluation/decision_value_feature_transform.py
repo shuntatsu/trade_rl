@@ -84,8 +84,14 @@ def fit_train_feature_transform(
     train_start_index: int,
     train_stop_index: int,
     clip: float = 3.0,
+    as_of_index: int | None = None,
 ) -> FeatureTransform:
-    """Fit mean/scale on ``[train_start_index, train_stop_index]`` (inclusive)."""
+    """Fit train statistics, restricting record availability at a vintage cutoff.
+
+    Historical reference policies must not learn preprocessing statistics from
+    records arriving after the reference fit cutoff. Default block fitting is
+    unchanged when ``as_of_index`` is omitted.
+    """
     if not isinstance(dataset, MarketDataset):
         raise TypeError("dataset must be a MarketDataset")
     value = _validated_clip(clip)
@@ -98,11 +104,25 @@ def fit_train_feature_transform(
             "train window must satisfy 0 <= start < stop < n_bars as native integers"
         )
     window = slice(train_start_index, train_stop_index + 1)
-    f_mean, f_scale = _masked_mean_scale(
-        dataset.features[window].astype(np.float64),
-        dataset.feature_available[window],
-    )
+    f_avail = dataset.feature_available[window]
     g_avail = dataset.resolved_array("global_feature_available")[window]
+    if as_of_index is not None:
+        if (
+            type(as_of_index) is not int
+            or not train_stop_index < as_of_index < dataset.n_bars
+        ):
+            raise ValueError("as_of_index must follow the train window")
+        source_known = (
+            dataset.resolved_array("available_at")[window]
+            <= dataset.timestamps[as_of_index]
+        )
+        f_avail = f_avail & source_known[:, :, None]
+        # Global source timestamps are not separately recorded; require all
+        # symbol records of the bar to have arrived by the vintage cutoff.
+        g_avail = g_avail & np.all(source_known, axis=1)[:, None]
+    f_mean, f_scale = _masked_mean_scale(
+        dataset.features[window].astype(np.float64), f_avail
+    )
     g_mean, g_scale = _masked_mean_scale(
         dataset.global_features[window].astype(np.float64), g_avail
     )

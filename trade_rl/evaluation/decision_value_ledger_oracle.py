@@ -111,19 +111,26 @@ def verify_paired_economic_ledger(
                 return False
             updated = list(quantities)
             for event in iv.order_events:
+                idx = event.symbol_index
+                # Submission/cancellation can happen at the decision bar while
+                # fills are processed on the next bar. Every event, including a
+                # zero-fill event, must bind to the same source and native clock.
+                if (
+                    not 0 <= idx < len(updated)
+                    or event.processing_index not in (iv.start_index, iv.next_index)
+                    or event.timestamp_ns != int(stamps[event.processing_index])
+                    or event.dataset_id != dataset.dataset_id
+                    or event.execution_policy_digest != ledger.execution_policy_digest
+                ):
+                    return False
                 if not event.filled_quantity:
                     if abs(event.filled_notional) > 1e-9:
                         return False
                     continue
-                if event.execution_price is None or event.execution_price <= 0:
-                    return False
-                idx = event.symbol_index
                 if (
-                    not 0 <= idx < len(updated)
+                    event.execution_price is None
+                    or event.execution_price <= 0
                     or event.processing_index != iv.next_index
-                    or event.timestamp_ns != int(stamps[iv.next_index])
-                    or event.dataset_id != dataset.dataset_id
-                    or event.execution_policy_digest != ledger.execution_policy_digest
                     or event.event_type not in ("filled", "partial_fill")
                 ):
                     return False

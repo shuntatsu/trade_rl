@@ -281,3 +281,68 @@ def test_invalid_arguments_fail_closed() -> None:
         )
     with pytest.raises(ValueError, match="branch"):
         _collect(market, provider, branch_indices=())
+
+
+def test_td8_reference_vintage_is_immune_to_future_train_window_features() -> None:
+    """A teacher refitted at prefix start must not see later train-window stats."""
+    from dataclasses import replace
+
+    from trade_rl.evaluation.decision_value_feature_transform import (
+        apply_feature_transform,
+        fit_train_feature_transform,
+    )
+    from trade_rl.risk.pretrade import PreTradeRisk
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+    from trade_rl.strategies.portfolio_observation import (
+        build_portfolio_decision_snapshot,
+    )
+
+    raw = signal_market(420, seed=17)
+    mutated_features = raw.features.copy()
+    mutated_features[201:301] = mutated_features[201:301] * 18 + 12
+    future_changed = replace(raw, features=mutated_features, identity_payload_json=None)
+    assert np.array_equal(raw.features[:201], future_changed.features[:201])
+    proposals = []
+    fitted_coefs = []
+    for market in (raw, future_changed):
+        transform = fit_train_feature_transform(
+            market, train_start_index=24, train_stop_index=300, clip=3.0
+        )
+        block_view = apply_feature_transform(market, transform)
+        provider = causal_b0_reference_provider(
+            block_view,
+            raw_dataset=market,
+            causal_feature_clip=3.0,
+            feature_indices=(0, 1, 2),
+            horizon_hours=24,
+            alpha=1.0,
+            entry_threshold=0.002,
+            exit_threshold=0.0005,
+            target_abs_weights=TARGETS,
+            one_way_switch_cost=ONE_WAY,
+            min_fit_bars=96,
+            first_fit_index=24,
+        )
+        factory = provider(248, 200)
+        assert factory is not None
+        policy = factory()
+        session = SharedPortfolioSession(
+            block_view,
+            start_index=200,
+            stop_index=248,
+            initial_capital=100_000.0,
+            execution_cost=COST,
+            risk=PreTradeRisk(RISK_CONFIG),
+        )
+        snapshot = build_portfolio_decision_snapshot(
+            block_view,
+            index=200,
+            agent_stop_index=248,
+            book=session.book,
+            active_orders=session.active_orders,
+            risk_config=RISK_CONFIG,
+        )
+        fitted_coefs.append(policy._strategies[0].model.coefficients)  # noqa: SLF001
+        proposals.append(policy.decide_portfolio(snapshot))
+    assert np.array_equal(fitted_coefs[0], fitted_coefs[1])
+    assert proposals[0] == proposals[1]

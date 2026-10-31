@@ -141,3 +141,52 @@ def test_invalid_arguments_fail_closed() -> None:
         fit_train_feature_transform(
             market, train_start_index=0, train_stop_index=60, clip=3.0
         )
+
+
+def test_historical_normalizer_excludes_records_arriving_after_its_cutoff() -> None:
+    market = signal_market(170)
+    delayed = market.available_at.copy()
+    delayed[80, 0] = market.timestamps[140]
+    f = market.features.copy()
+    f[80, 0, 1] = 1_000_000.0
+    information_available = market.resolved_array("information_available").copy()
+    information_available[80, 0] = False
+    source = replace(
+        market,
+        features=f,
+        available_at=delayed,
+        information_available=information_available,
+        identity_payload_json=None,
+    )
+    as_of = fit_train_feature_transform(
+        source,
+        train_start_index=10,
+        train_stop_index=100,
+        as_of_index=120,
+        clip=3.0,
+    )
+    without_late_record = source.features.copy()
+    without_late_record[80, 0, 1] = -1_000_000.0
+    changed = replace(source, features=without_late_record, identity_payload_json=None)
+    again = fit_train_feature_transform(
+        changed,
+        train_start_index=10,
+        train_stop_index=100,
+        as_of_index=120,
+        clip=3.0,
+    )
+    assert np.array_equal(as_of.feature_mean, again.feature_mean)
+    assert np.array_equal(as_of.feature_scale, again.feature_scale)
+    assert as_of.digest == again.digest
+    without_boundary = fit_train_feature_transform(
+        source, train_start_index=10, train_stop_index=100, clip=3.0
+    )
+    assert without_boundary.feature_mean[0, 1] != as_of.feature_mean[0, 1]
+    with pytest.raises(ValueError, match="as_of_index"):
+        fit_train_feature_transform(
+            source,
+            train_start_index=10,
+            train_stop_index=100,
+            as_of_index=100,
+            clip=3.0,
+        )

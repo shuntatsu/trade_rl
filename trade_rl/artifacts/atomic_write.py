@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+import ctypes
+import errno
 import os
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -48,8 +51,45 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> Path:
     return output
 
 
+def _rename_directory_no_replace(staging: Path, output: Path) -> None:
+    """Use an OS-enforced no-replace rename; never fall back to POSIX rename."""
+
+    if _IS_WINDOWS:
+        # Windows rename refuses an occupied destination; keep the bounded lock retry.
+        staging.rename(output)
+        return
+
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "linux":
+        symbol = "renameat2"
+        signature = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        args = (-100, os.fsencode(staging), -100, os.fsencode(output), 1)
+    elif sys.platform == "darwin":
+        symbol = "renamex_np"
+        signature = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        args = (os.fsencode(staging), os.fsencode(output), 0x00000004)
+    else:
+        raise OSError(errno.ENOTSUP, "exclusive directory rename is unsupported")
+
+    try:
+        rename = getattr(library, symbol)
+    except AttributeError as error:
+        raise OSError(errno.ENOTSUP, f"{symbol} is unavailable") from error
+    rename.argtypes = signature
+    rename.restype = ctypes.c_int
+    if rename(*args) != 0:
+        error_code = ctypes.get_errno()
+        raise OSError(error_code, os.strerror(error_code), str(output))
+
+
 def atomic_rename_directory(source: str | Path, target: str | Path) -> Path:
-    """Atomically publish a staged directory, retrying transient Windows locks."""
+    """Atomically publish a staged directory without replacing an occupied target."""
 
     staging = Path(source)
     output = Path(target)
@@ -60,7 +100,7 @@ def atomic_rename_directory(source: str | Path, target: str | Path) -> Path:
     delays = _DIRECTORY_RENAME_RETRY_DELAYS if _IS_WINDOWS else ()
     for attempt in range(len(delays) + 1):
         try:
-            staging.rename(output)
+            _rename_directory_no_replace(staging, output)
             return output
         except PermissionError:
             if attempt >= len(delays):

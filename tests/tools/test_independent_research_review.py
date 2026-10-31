@@ -8,8 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from tools.independent_research_review import ReviewOutcome, resolve_review_outcome
-from tools.independent_research_review import _valid_software_payload
+from tools.independent_research_review import (
+    ReviewOutcome,
+    _valid_software_payload,
+    resolve_review_outcome,
+)
 
 HEAD_SHA = "a" * 40
 REVIEW_MARKER = "<!-- independent-research-review-audit -->"
@@ -594,15 +597,11 @@ def test_software_review_rejects_missing_stale_or_fabricated_evidence_fields(
 def test_direct_software_payload_rejects_contradictory_or_wrong_schema() -> None:
     payload = _software_payload()
     payload["disposition"] = "BLOCKED"
-    assert not _valid_software_payload(
-        payload, head_sha=HEAD_SHA, publisher_id=20
-    )
+    assert not _valid_software_payload(payload, head_sha=HEAD_SHA, publisher_id=20)
 
     payload["disposition"] = "APPROVED"
     payload["schema"] = "not-a-review-schema"
-    assert not _valid_software_payload(
-        payload, head_sha=HEAD_SHA, publisher_id=20
-    )
+    assert not _valid_software_payload(payload, head_sha=HEAD_SHA, publisher_id=20)
 
 
 def test_software_review_rejects_unknown_fields_and_wrong_hash() -> None:

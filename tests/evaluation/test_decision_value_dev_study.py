@@ -539,6 +539,16 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         assert b.ineligible_pairs >= 0
         assert b.label_evidence_digest is not None
         assert b.label_bound_reference_digest is not None
+        with pytest.raises(ValueError, match="bound|reference|population"):
+            replace(b, label_bound_reference_digest="f" * 64).to_mapping()
+        with pytest.raises(ValueError, match="evidence|population|root"):
+            replace(
+                result,
+                blocks=(
+                    replace(result.blocks[0], label_evidence_digest=None),
+                    *result.blocks[1:],
+                ),
+            ).to_mapping()
         from trade_rl.artifacts.hashing import content_digest
 
         assert b.label_evidence_digest == content_digest(b.eligible_pair_outcomes)

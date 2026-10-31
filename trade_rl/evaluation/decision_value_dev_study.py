@@ -830,6 +830,22 @@ class DecisionValueBlockResult:
                     {k: v for k, v in receipt.items() if k != "evidence_digest"}
                 ):
                     raise ValueError("TD8 per-pair evidence digest mismatch")
+            recipe_roots = {
+                r.get("reference_policy_digest") for r in self.eligible_pair_outcomes
+            }
+            if len(recipe_roots) != 1:
+                raise ValueError("TD8 label evidence has inconsistent teacher recipe")
+            recipe_root = next(iter(recipe_roots))
+            if not isinstance(
+                recipe_root, str
+            ) or self.label_bound_reference_digest != content_digest(
+                {
+                    "schema_version": "td8_reference_with_label_population_v1",
+                    "reference_recipe_digest": recipe_root,
+                    "label_evidence_digest": self.label_evidence_digest,
+                }
+            ):
+                raise ValueError("TD8 label-bound reference digest mismatch")
         return {
             "block_id": self.block_id,
             "paired_replay_runs": self.paired_replay_runs,
@@ -888,6 +904,15 @@ class DecisionValueDevStudyResult:
     total_wall_clock_seconds: float
 
     def to_mapping(self) -> dict[str, object]:
+        if self.schema_version == "decision_value_dev_study_result_v4_software":
+            if not self.blocks or any(
+                block.label_evidence_digest is None
+                or block.label_bound_reference_digest is None
+                for block in self.blocks
+            ):
+                raise ValueError(
+                    "TD8 v4 result requires a label evidence root per block"
+                )
         return {
             "schema_version": self.schema_version,
             "protocol_digest": self.protocol_digest,

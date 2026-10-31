@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-30 (JST)
+更新基準: 2026-10-31 (JST)
 
 ## 結論
 
@@ -272,6 +272,10 @@ State: G0, G1 and G2 were recorded ESTABLISHED by the result-blind independent r
 Acquisition tooling (software only, 2026-10-30): `python -m trade_rl.evaluation.forward_acquisition` now provides the single documented route from an Issue #810 data-fetch authorization to the FS1 dataset, its seal manifest, an acquisition receipt and the exact text of the future seal comment (procedure: `architecture/research-assurance.md`, *FS1 acquisition procedure*). It plans offline by default and fetches only with `--allow-network`; it was exercised on fixture archives with a fake transport only. No data was fetched, no live endpoint was contacted, nothing from 2026-08-31 or later was read, and the data-fetch authorization is still pending (the G4 scoring authorization likewise). The tool scores nothing and changes no registry value or digest.
 
 Needed from the user before FS1 can produce evidence, each by a separate Issue #810 comment: (a) authorization for fetching the post-2026-08-31 data (including the warm-up-only bars before the scoring start) and (b) authorization for the single G4 scoring run, allowed only at or after 2027-05-02T00:00Z (the scoring end 2027-05-01T00:00Z plus the 24 h settlement margin). Neither is implied by this section.
+
+## Issue #810 reusable PostgreSQL market-data store (software only; no data fetched; 2026-10-30)
+
+A Docker/PostgreSQL store of public Binance market data (USD-M perpetual and spot 1h klines, USD-M funding rates, exchange-rule snapshots) with a checksum-verified Vision ingester and a `MarketDataset` export now exists so later experiments can reuse one reproducible data source instead of rebuilding file caches (`architecture/package-boundaries.md`, *Market-data store runbook*). It is plan-only unless `--allow-network` is given and it was exercised on fixture archives and a fake fetcher only: no real data was fetched in this change, nothing from 2026-08-01 onwards was read, and nothing was run on Docker. By default it refuses everything from 2026-08-01T00:00Z (the FS1 warm-up span, which `architecture/research-assurance.md` allows to be fetched only with a separate Issue #810 authorization) and, unconditionally with no release path, everything from 2026-11-01T00:00Z (the FS1 sealed window); the warm-up span is admitted only for a run carrying `--allow-fs1-warmup-span` plus the Issue #810 authorization URL, recorded on the run, and FS1 scoring still re-acquires and re-verifies its own data through its sealed acquisition tool. This changes no research hypothesis, comparison, window, digest or result; stored data carries no economic claim.
 
 ## Issue #810 synthetic residual-PPO over the cost-aware allocator (protocol frozen before the run; synthetic only; 2026-10-30)
 
@@ -919,6 +923,26 @@ cycle, a hang or any source error still ends the screen by design, and the 90-da
 storage and journal-replay latency remain operator-measured. No economics, P&L or
 profitability evidence was produced. The runbook is in
 `docs/specs/funding-carry-paper.md`.
+
+2026-10-31: attempt 1's evidence root is lost; its lineage rests on a prior
+recorded review. The `funding-carry-forward-20260918` worktree is not on the
+collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
+2026-10-30 the user stated in chat, quoted verbatim: 「そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ」
+(they do not know that data or where its results were saved, and new data may be
+collected). The attempt-1 protocol digest, final tip and last observation above were
+verified against the root by the 2026-09-27/28 result-blind review recorded earlier in
+this document (introduced in commit `b9f1ca65b26d`, full SHA in the lineage record); they
+were NOT re-verified against the root now, and global attempt uniqueness remains
+unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
+(`available` only with a root path that the existing v1 reader verifies; otherwise
+`unavailable` with the source record and the attestation) and keeps the
+disposition `invalidated` with reason `observation_gap`. For this case the G0
+requirement that a fresh review resolve the preserved root is replaced by a fresh
+result-blind review of the lineage documentation and the pull request that introduced
+the rule. A short public-network storage probe (`paper/storage_probe.py`, a scratch
+root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
+measurement; it has not been run. Nothing has been sealed, launched or collected, no
+attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

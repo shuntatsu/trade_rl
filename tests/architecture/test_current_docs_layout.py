@@ -280,6 +280,25 @@ def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
         assert required in entry
 
 
+def test_research_status_preserves_newer_main_market_store_and_carry_evidence() -> None:
+    """The old research summary must not overwrite newer main-side evidence."""
+    research = (DOCS / "research" / "current-status.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "## Issue #810 reusable PostgreSQL market-data store",
+        "no real data was fetched in this change",
+        "--allow-fs1-warmup-span",
+        "2026-11-01T00:00Z",
+        "## Issue #810 synthetic residual-PPO over the cost-aware allocator",
+        "A subsequent real one-minute CLI software probe exposed partial ETH spot depth",
+        "attempt2",
+        "**Primary decision: `NO_WINNER`**",
+        "P3-6 is **not a G4 candidate**",
+    ):
+        assert required in research
+
+
 def test_current_p2_p3_labels_match_committed_evidence_records() -> None:
     status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     expected_reports = (

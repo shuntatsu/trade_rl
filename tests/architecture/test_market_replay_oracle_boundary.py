@@ -103,6 +103,7 @@ def test_public_facade_is_the_closed_pinned_attempt_binding_surface() -> None:
         "ProtocolSourceProfileId",
         "DEFAULT_PROTOCOL_SOURCE_PROFILE",
         "B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE",
+        "FA36_NATIVE_PROTOCOL_SOURCE_PROFILE",
         "ARRAY_FIELDS",
         "canonical",
         "content_id",
@@ -171,6 +172,7 @@ def test_closed_source_profile_is_threaded_only_through_native_static_readback()
         "ProtocolSourceProfileId",
         "DEFAULT_PROTOCOL_SOURCE_PROFILE",
         "B631_CANDIDATE_PROTOCOL_SOURCE_PROFILE",
+        "FA36_NATIVE_PROTOCOL_SOURCE_PROFILE",
     } <= set(exports)
     assert not {
         "ProtocolSourceProfile",

@@ -567,3 +567,30 @@ def test_td8_fit_rejects_zero_coverage_flat_action_instead_of_inventing_zero() -
     ):
         with pytest.raises(ValueError, match="coverage|insufficient"):
             fitter(narrowed, candidate_actions=actions, solver_version="td8_v2")
+
+
+def test_td8_refuses_a_partial_candidate_roster_with_sufficient_head_rows() -> None:
+    """One missing state/action must not create different per-head populations."""
+    from trade_rl.evaluation.decision_value_fit import (
+        fit_conservative_linear_decision_value,
+        fit_synthetic_shallow_decision_value,
+    )
+
+    original = _fit_batch()
+    samples = list(original.samples)
+    victim = next(i for i, s in enumerate(samples) if s.candidate_action == _LONG)
+    samples.pop(victim)
+    missing = build_synthetic_paired_label_batch(
+        tuple(samples),
+        fit_cutoff=np.datetime64(original.fit_cutoff_ns, "ns"),
+        evaluation_start=np.datetime64(original.evaluation_start_ns, "ns"),
+        expected_reference_policy_digest=samples[0].reference_policy_digest,
+    )
+    assert len(missing.samples) == len(original.samples) - 1
+    for fitter in (
+        fit_synthetic_linear_decision_value,
+        fit_conservative_linear_decision_value,
+        fit_synthetic_shallow_decision_value,
+    ):
+        with pytest.raises(ValueError, match="candidate|coverage|complete"):
+            fitter(missing, candidate_actions=_CANDIDATES, solver_version="td8_v2")

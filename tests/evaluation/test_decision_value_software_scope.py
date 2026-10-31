@@ -52,7 +52,7 @@ def test_corrected_td8_requires_synthetic_plan_and_verified_artifact_before_fit(
     )
     assert (
         protocol.to_mapping()["schema_version"]
-        == "decision_value_dev_study_protocol_v3_software"
+        == "decision_value_dev_study_protocol_v4_software"
     )
     with patch.object(
         study, "fit_ridge_forecast", side_effect=AssertionError("FITTED")
@@ -402,3 +402,94 @@ def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
             protocol_digest="f" * 64,
         )
     assert (destination / "incomplete-pairs.json").read_text() == "other-writer"
+
+
+@pytest.mark.parametrize(
+    ("name", "mutate"),
+    (
+        (
+            "limit_order",
+            lambda p: replace(
+                p,
+                base_execution_cost=replace(p.base_execution_cost, order_type="limit"),
+            ),
+        ),
+        (
+            "leverage",
+            lambda p: replace(
+                p, base_execution_cost=replace(p.base_execution_cost, max_leverage=2.0)
+            ),
+        ),
+        (
+            "maintenance",
+            lambda p: replace(
+                p,
+                base_execution_cost=replace(
+                    p.base_execution_cost, maintenance_margin_rate=0.10
+                ),
+            ),
+        ),
+        (
+            "partial_fills",
+            lambda p: replace(
+                p,
+                base_execution_cost=replace(
+                    p.base_execution_cost, partial_fill_carry=False
+                ),
+            ),
+        ),
+        (
+            "maker_fee",
+            lambda p: replace(
+                p,
+                base_execution_cost=replace(
+                    p.base_execution_cost, maker_fee_rate=0.001
+                ),
+            ),
+        ),
+        (
+            "slippage",
+            lambda p: replace(
+                p,
+                base_execution_cost=replace(p.base_execution_cost, slippage_std=0.001),
+            ),
+        ),
+        (
+            "risk_override",
+            lambda p: replace(
+                p, risk_config=replace(p.risk_config, emergency_turnover_override=False)
+            ),
+        ),
+        (
+            "risk_tolerance",
+            lambda p: replace(
+                p, risk_config=replace(p.risk_config, fail_closed_tolerance=0.0001)
+            ),
+        ),
+    ),
+)
+def test_td8_software_protocol_identity_binds_every_economic_control(
+    name, mutate
+) -> None:
+    archived = study.default_2024q1_decision_value_dev_protocol()
+    current = replace(
+        archived,
+        study_plan=replace(
+            archived.study_plan,
+            data_scope="synthetic_only",
+            real_scope_authorization_digest=None,
+        ),
+    )
+    assert (
+        current.to_mapping()["schema_version"]
+        == "decision_value_dev_study_protocol_v4_software"
+    )
+    changed = mutate(current)
+    assert changed.protocol_digest != current.protocol_digest, name
+    # Archival v2's exact digest cannot change or approve undocumented economics.
+    with pytest.raises(ValueError, match="archiv|undeclared|historical"):
+        mutate(archived)
+    assert (
+        archived.protocol_digest
+        == "e7ec28ae162a14849002df769164519edd430f32d40014ee8d673929543c8cd7"
+    )

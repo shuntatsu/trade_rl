@@ -507,11 +507,11 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         output_dir=out_dir,
     )
 
-    assert result.schema_version == "decision_value_dev_study_result_v3_software"
+    assert result.schema_version == "decision_value_dev_study_result_v4_software"
     assert result.verdict == "SOFTWARE_ONLY"
     assert "no independent G0-G3" in result.verdict_reason
     assert protocol.to_mapping()["schema_version"] == (
-        "decision_value_dev_study_protocol_v3_software"
+        "decision_value_dev_study_protocol_v4_software"
     )
     assert protocol.study_plan.real_scope_authorization_digest is None
     assert result.actual_artifact_digest == artifact.artifact_digest
@@ -537,6 +537,28 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         assert all(dof >= 1.0 for dof in b.b1c_residual_dof)
         assert b.distinct_decision_times > 0
         assert b.ineligible_pairs >= 0
+        assert b.label_evidence_digest is not None
+        assert b.label_bound_reference_digest is not None
+        from trade_rl.artifacts.hashing import content_digest
+
+        assert b.label_evidence_digest == content_digest(b.eligible_pair_outcomes)
+        mutated = dict(b.eligible_pair_outcomes[0])
+        mutated["label_delta"] = float(mutated["label_delta"]) + 0.5
+        forged = replace(
+            b, eligible_pair_outcomes=(mutated, *b.eligible_pair_outcomes[1:])
+        )
+        with pytest.raises(ValueError, match="population digest"):
+            forged.to_mapping()
+        assert len(b.eligible_pair_outcomes) == b.training_rows
+        for item in b.eligible_pair_outcomes:
+            assert item["evidence_digest"] == content_digest(
+                {k: v for k, v in item.items() if k != "evidence_digest"}
+            )
+            assert item["schema"] == "decision_value_eligible_pair_evidence_v2"
+            assert item["study_protocol_digest"] == protocol.protocol_digest
+            assert item["reference_vintage"]["model_digest"]
+            assert item["baseline"]["ledger_digest"]
+            assert item["candidate"]["ledger_digest"]
         assert len(b.ineligible_pair_outcomes) == b.ineligible_pairs
         assert b.to_mapping()["ineligible_pair_outcomes"] == [
             dict(record) for record in b.ineligible_pair_outcomes

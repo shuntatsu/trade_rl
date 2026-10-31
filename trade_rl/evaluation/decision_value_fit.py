@@ -60,6 +60,7 @@ def _collect_training(
     *,
     candidate_actions: tuple[tuple[int, ...], ...],
     encoder: Callable[..., np.ndarray] = encode_decision_value_state,
+    require_complete_candidate_roster: bool = False,
 ) -> _TrainingSet:
     """Shared validation for every value head; no model-specific row dropping."""
     if not isinstance(batch, SyntheticPairedLabelBatch):
@@ -94,6 +95,7 @@ def _collect_training(
     intervals: list[list[tuple[int, int]]] = [[] for _ in codes[1:]]
     dataset_ids: list[list[str]] = [[] for _ in codes[1:]]
     used: set[tuple[str, int, tuple[int, ...]]] = set()
+    action_groups: dict[tuple[str, int], dict[tuple[int, ...], int]] = {}
     group = -1
     group_end = -(2**63)
     for i, sample in enumerate(batch.samples):
@@ -132,6 +134,11 @@ def _collect_training(
         if key in used:
             raise ValueError("duplicate synthetic training sample")
         used.add(key)
+        if require_complete_candidate_roster:
+            state_key = (sample.dataset_id, sample.decision_time_ns)
+            action_groups.setdefault(state_key, {})[sample.candidate_action] = (
+                sample.terminal_time_ns
+            )
         if sample.decision_time_ns > group_end:
             group += 1
             group_end = sample.terminal_time_ns
@@ -156,6 +163,13 @@ def _collect_training(
         values[head].append(float(sample.label_delta))
         intervals[head].append((sample.decision_time_ns, sample.terminal_time_ns))
         dataset_ids[head].append(sample.dataset_id)
+    if require_complete_candidate_roster:
+        required = set(codes[1:])
+        for state, present in action_groups.items():
+            if set(present) != required or len(set(present.values())) != 1:
+                raise ValueError(
+                    f"incomplete candidate coverage or unequal horizons for {state}"
+                )
     if batch.evaluation_start_ns <= batch.fit_cutoff_ns:
         raise ValueError("evaluation must begin after the fit cutoff")
     return _TrainingSet(
@@ -440,7 +454,11 @@ def fit_synthetic_linear_decision_value(
     pen = _finite(ridge_penalty, field="ridge_penalty")
     if pen <= 0.0:
         raise ValueError("ridge_penalty must be positive and finite")
-    t = _collect_training(batch, candidate_actions=candidate_actions)
+    t = _collect_training(
+        batch,
+        candidate_actions=candidate_actions,
+        require_complete_candidate_roster=(solver_version == "td8_v2"),
+    )
     n_symbols = len(t.symbols)
     width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + n_symbols
     d_feat = width - 1
@@ -497,7 +515,11 @@ def fit_synthetic_shallow_decision_value(
     pen = _finite(ridge_penalty, field="ridge_penalty")
     if pen <= 0.0:
         raise ValueError("ridge_penalty must be positive and finite")
-    t = _collect_training(batch, candidate_actions=candidate_actions)
+    t = _collect_training(
+        batch,
+        candidate_actions=candidate_actions,
+        require_complete_candidate_roster=(solver_version == "td8_v2"),
+    )
     n_symbols = len(t.symbols)
     state_width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + n_symbols
     hidden = fixed_hidden_weights(state_width)
@@ -626,6 +648,7 @@ def fit_conservative_linear_decision_value(
         batch,
         candidate_actions=candidate_actions,
         encoder=encode_decision_value_state_v2,
+        require_complete_candidate_roster=(solver_version == "td8_v2"),
     )
     n_symbols = len(t.symbols)
     width = 1 + n_symbols * len(t.feature_names) + len(t.global_names) + 2 * n_symbols

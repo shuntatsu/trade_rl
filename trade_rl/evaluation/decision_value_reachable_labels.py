@@ -31,7 +31,7 @@ Losing and zero eligible increments are kept, never fabricated.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from fractions import Fraction
 
 import numpy as np
@@ -175,6 +175,12 @@ def _eligible_pair_evidence(
     reference_policy_digest: str,
     prefix_start_index: int,
     initial_capital: float,
+    study_protocol_digest: str | None = None,
+    risk_config_digest: str | None = None,
+    execution_policy_digest: str | None = None,
+    horizon_bars: int | None = None,
+    candidate_roster_digest: str | None = None,
+    observation_available_at_ns: int | None = None,
 ) -> dict[str, object]:
     """Persist both native endpoints and a common pre-intervention ledger root.
 
@@ -237,6 +243,34 @@ def _eligible_pair_evidence(
         "baseline": endpoints[0],
         "candidate": endpoints[1],
     }
+    if study_protocol_digest is not None:
+        if (
+            not all(
+                type(value) is str and len(value) == 64
+                for value in (
+                    study_protocol_digest,
+                    risk_config_digest,
+                    execution_policy_digest,
+                    candidate_roster_digest,
+                )
+            )
+            or horizon_bars is None
+            or observation_available_at_ns is None
+        ):
+            raise ValueError("TD8 v4 requires a complete economic/protocol contract")
+        payload.update(
+            {
+                "schema": "decision_value_eligible_pair_evidence_v2",
+                "study_protocol_digest": study_protocol_digest,
+                "risk_config_digest": risk_config_digest,
+                "execution_policy_digest": execution_policy_digest,
+                "source_runtime_digest": vintage.source_runtime_digest,
+                "initial_capital": float(initial_capital),
+                "horizon_bars": horizon_bars,
+                "candidate_roster_digest": candidate_roster_digest,
+                "observation_available_at_ns": observation_available_at_ns,
+            }
+        )
     return {**payload, "evidence_digest": content_digest(payload)}
 
 
@@ -273,6 +307,8 @@ def collect_reachable_state_labels(
     fit_cutoff: np.datetime64,
     source_scope: str,
     require_reference_vintage: bool = False,
+    require_v4_evidence: bool = False,
+    study_protocol_digest: str | None = None,
 ) -> ReachableLabelCollection:
     """Collect one HOLD-relative native label per (branch time, candidate)."""
     if type(branch_indices) is not tuple or not branch_indices:
@@ -283,6 +319,19 @@ def collect_reachable_state_labels(
         raise ValueError("horizon_bars must be a positive native integer")
     if type(candidate_actions) is not tuple or len(candidate_actions) < 2:
         raise ValueError("candidate roster requires HOLD and non-HOLD actions")
+    if require_v4_evidence:
+        if source_scope != "synthetic_only" or not require_reference_vintage:
+            raise ValueError(
+                "TD8 v4 evidence requires synthetic source and teacher vintage"
+            )
+        if (
+            type(study_protocol_digest) is not str
+            or len(study_protocol_digest) != 64
+            or any(c not in "0123456789abcdef" for c in study_protocol_digest)
+        ):
+            raise ValueError("TD8 v4 study protocol digest is required")
+    risk_digest = content_digest(asdict(risk_config))
+    roster_digest = content_digest([list(action) for action in candidate_actions])
     baseline_action = candidate_actions[0]
     samples: list[SyntheticPairedLabel] = []
     invalid_outcomes: list[IneligiblePairOutcome] = []
@@ -311,7 +360,7 @@ def collect_reachable_state_labels(
         if vintage is not None and (
             vintage.source_dataset_id != dataset.dataset_id
             or vintage.prefix_start_index != start
-            or vintage.fit_cutoff_ns > int(dataset.timestamps[start].astype(np.int64))
+            or vintage.fit_cutoff_ns != int(dataset.timestamps[start].astype(np.int64))
         ):
             raise ValueError("reference vintage/source/prefix identity mismatch")
         windows.append((t, start, stop))
@@ -404,6 +453,18 @@ def collect_reachable_state_labels(
                     reference_policy_digest=reference_policy_digest,
                     prefix_start_index=start,
                     initial_capital=initial_capital,
+                    study_protocol_digest=study_protocol_digest
+                    if require_v4_evidence
+                    else None,
+                    risk_config_digest=risk_digest,
+                    execution_policy_digest=execution_cost.execution_policy_digest,
+                    horizon_bars=horizon_bars,
+                    candidate_roster_digest=roster_digest,
+                    observation_available_at_ns=int(
+                        np.max(
+                            dataset.resolved_array("available_at")[t].astype(np.int64)
+                        )
+                    ),
                 )
                 label = replace(
                     label,

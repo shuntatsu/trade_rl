@@ -17,7 +17,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from fractions import Fraction
 from pathlib import Path
 
@@ -290,7 +290,7 @@ def compute_real_scope_authorization_digest(
 
 @dataclass(frozen=True, slots=True)
 class DecisionValueDevStudyProtocol:
-    """Frozen TD8 parameters; real v2 is archival and synthetic v3 is runnable."""
+    """Frozen TD8 parameters; real v2 is archival and synthetic v4 is runnable."""
 
     study_plan: DecisionValueStudyPlan
     dataset_id: str
@@ -485,6 +485,27 @@ class DecisionValueDevStudyProtocol:
             unexcited_prior_std=self.unexcited_prior_std,
         )
         if self.study_plan.data_scope == "real_development":
+            historical_execution = ExecutionCostConfig(
+                fee_rate=self.base_execution_cost.fee_rate,
+                spread_rate=self.base_execution_cost.spread_rate,
+                impact_rate=self.base_execution_cost.impact_rate,
+                max_participation_rate=self.base_execution_cost.max_participation_rate,
+                order_latency_bars=self.base_execution_cost.order_latency_bars,
+            )
+            historical_risk = PreTradeRiskConfig(
+                max_gross=self.risk_config.max_gross,
+                max_abs_weight=self.risk_config.max_abs_weight,
+                max_turnover=self.risk_config.max_turnover,
+                drawdown_start=self.risk_config.drawdown_start,
+                drawdown_stop=self.risk_config.drawdown_stop,
+            )
+            if (
+                self.base_execution_cost != historical_execution
+                or self.risk_config != historical_risk
+            ):
+                raise ValueError(
+                    "historical v2 authorization rejects undeclared execution/risk options"
+                )
             if self.study_plan.real_scope_authorization_digest != expected_digest:
                 raise ValueError(
                     "study_plan real_scope_authorization_digest does not match pre-authorization specification"
@@ -495,7 +516,7 @@ class DecisionValueDevStudyProtocol:
     def to_mapping(self) -> dict[str, object]:
         return {
             "schema_version": (
-                "decision_value_dev_study_protocol_v3_software"
+                "decision_value_dev_study_protocol_v4_software"
                 if self.study_plan.data_scope == "synthetic_only"
                 else "decision_value_dev_study_protocol_v2"
             ),
@@ -521,20 +542,28 @@ class DecisionValueDevStudyProtocol:
             "expected_artifact_digest": self.expected_artifact_digest,
             "blocks": [b.to_mapping() for b in self.blocks],
             "target_abs_weights": list(self.target_abs_weights),
-            "risk_config": {
-                "max_gross": self.risk_config.max_gross,
-                "max_abs_weight": self.risk_config.max_abs_weight,
-                "max_turnover": self.risk_config.max_turnover,
-                "drawdown_start": self.risk_config.drawdown_start,
-                "drawdown_stop": self.risk_config.drawdown_stop,
-            },
-            "base_execution_cost": {
-                "fee_rate": self.base_execution_cost.fee_rate,
-                "spread_rate": self.base_execution_cost.spread_rate,
-                "impact_rate": self.base_execution_cost.impact_rate,
-                "max_participation_rate": self.base_execution_cost.max_participation_rate,
-                "order_latency_bars": self.base_execution_cost.order_latency_bars,
-            },
+            "risk_config": (
+                asdict(self.risk_config)
+                if self.study_plan.data_scope == "synthetic_only"
+                else {
+                    "max_gross": self.risk_config.max_gross,
+                    "max_abs_weight": self.risk_config.max_abs_weight,
+                    "max_turnover": self.risk_config.max_turnover,
+                    "drawdown_start": self.risk_config.drawdown_start,
+                    "drawdown_stop": self.risk_config.drawdown_stop,
+                }
+            ),
+            "base_execution_cost": (
+                self.base_execution_cost.execution_policy_payload()
+                if self.study_plan.data_scope == "synthetic_only"
+                else {
+                    "fee_rate": self.base_execution_cost.fee_rate,
+                    "spread_rate": self.base_execution_cost.spread_rate,
+                    "impact_rate": self.base_execution_cost.impact_rate,
+                    "max_participation_rate": self.base_execution_cost.max_participation_rate,
+                    "order_latency_bars": self.base_execution_cost.order_latency_bars,
+                }
+            ),
             "ridge_feature_indices": list(self.ridge_feature_indices),
             "ridge_horizon_hours": self.ridge_horizon_hours,
             "ridge_alpha": self.ridge_alpha,
@@ -783,8 +812,24 @@ class DecisionValueBlockResult:
     covariate_shift: tuple[dict[str, object], ...]
     ineligible_pair_outcomes: tuple[dict[str, object], ...] = ()
     eligible_pair_outcomes: tuple[dict[str, object], ...] = ()
+    label_evidence_digest: str | None = None
+    label_bound_reference_digest: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
+        if self.label_evidence_digest is not None:
+            if (
+                not self.eligible_pair_outcomes
+                or content_digest(self.eligible_pair_outcomes)
+                != self.label_evidence_digest
+            ):
+                raise ValueError(
+                    "TD8 eligible label evidence population digest mismatch"
+                )
+            for receipt in self.eligible_pair_outcomes:
+                if receipt.get("evidence_digest") != content_digest(
+                    {k: v for k, v in receipt.items() if k != "evidence_digest"}
+                ):
+                    raise ValueError("TD8 per-pair evidence digest mismatch")
         return {
             "block_id": self.block_id,
             "paired_replay_runs": self.paired_replay_runs,
@@ -810,6 +855,14 @@ class DecisionValueBlockResult:
                 dict(r) for r in self.ineligible_pair_outcomes
             ],
             "eligible_pair_outcomes": [dict(r) for r in self.eligible_pair_outcomes],
+            **(
+                {
+                    "label_evidence_digest": self.label_evidence_digest,
+                    "label_bound_reference_digest": self.label_bound_reference_digest,
+                }
+                if self.label_evidence_digest is not None
+                else {}
+            ),
             "nonflat_branch_states": self.nonflat_branch_states,
             "skipped_branches_without_reference": (
                 self.skipped_branches_without_reference
@@ -1398,6 +1451,8 @@ class _BlockTraining:
     margins: dict[str, MarginSelection]
     ineligible_pair_outcomes: tuple[dict[str, object], ...]
     eligible_pair_outcomes: tuple[dict[str, object], ...]
+    label_evidence_digest: str
+    label_bound_reference_digest: str
 
 
 def _train_block(
@@ -1483,15 +1538,40 @@ def _train_block(
         fit_cutoff=fit_cutoff,
         source_scope=protocol.study_plan.data_scope,
         require_reference_vintage=True,
+        require_v4_evidence=True,
+        study_protocol_digest=protocol.protocol_digest,
     )
     _require_complete_reachable_labels(collection, block_id=block.block_id)
     if not collection.samples:
         raise ValueError(f"block {block.block_id} produced no admissible labels")
+    if len(collection.eligible_pair_outcomes) != len(collection.samples):
+        raise ValueError("TD8 v4 eligible evidence must cover every training row")
+    label_evidence_digest = content_digest(collection.eligible_pair_outcomes)
+    # Bind the model to the *observed* teacher/outcome population, not only the
+    # common recipe. The pre-binding receipts retain the original recipe root
+    # to avoid a circular hash dependency.
+    bound_ref_digest = content_digest(
+        {
+            "schema_version": "td8_reference_with_label_population_v1",
+            "reference_recipe_digest": ref_digest,
+            "label_evidence_digest": label_evidence_digest,
+        }
+    )
+    bound_samples = tuple(
+        replace(
+            sample,
+            reference_policy_digest=bound_ref_digest,
+            reference_policy_recipe_digest=ref_digest,
+            label_population_digest=label_evidence_digest,
+        )
+        for sample in collection.samples
+    )
     batch = build_synthetic_paired_label_batch(
-        collection.samples,
+        bound_samples,
         fit_cutoff=fit_cutoff,
         evaluation_start=eval_start,
-        expected_reference_policy_digest=ref_digest,
+        expected_reference_policy_digest=bound_ref_digest,
+        require_v4_evidence=True,
     )
     dof: list[float] = []
     models = _fit_all_learners(batch, protocol, train_switch_cost, dof)
@@ -1516,7 +1596,7 @@ def _train_block(
 
         margins[arm] = select_margin_multiplier(
             dataset=view,
-            samples=collection.samples,
+            samples=bound_samples,
             fit_model=fit_for_arm,
             make_policy=policy_for_arm,
             grid=protocol.margin_multiplier_grid,
@@ -1525,10 +1605,11 @@ def _train_block(
             initial_capital=plan.initial_capital,
             execution_cost=protocol.base_execution_cost,
             risk_config=protocol.risk_config,
-            reference_policy_digest=ref_digest,
+            reference_policy_digest=bound_ref_digest,
             raw_dataset=raw_dataset,
             train_start_index=block.train_start_index,
             feature_clip=protocol.feature_clip,
+            require_v4_evidence=True,
         )
     return _BlockTraining(
         dataset=view,
@@ -1548,6 +1629,8 @@ def _train_block(
             record.to_mapping() for record in collection.ineligible_outcomes
         ),
         eligible_pair_outcomes=collection.eligible_pair_outcomes,
+        label_evidence_digest=label_evidence_digest,
+        label_bound_reference_digest=bound_ref_digest,
     )
 
 
@@ -2000,6 +2083,8 @@ def run_decision_value_dev_study(
                 ineligible_pairs=ineligible_pairs,
                 ineligible_pair_outcomes=training.ineligible_pair_outcomes,
                 eligible_pair_outcomes=training.eligible_pair_outcomes,
+                label_evidence_digest=training.label_evidence_digest,
+                label_bound_reference_digest=training.label_bound_reference_digest,
                 nonflat_branch_states=nonflat_states,
                 skipped_branches_without_reference=skipped_branches,
                 feature_transform_digest=transform_digest,
@@ -2107,7 +2192,7 @@ def run_decision_value_dev_study(
         )
 
     result = DecisionValueDevStudyResult(
-        schema_version="decision_value_dev_study_result_v3_software",
+        schema_version="decision_value_dev_study_result_v4_software",
         protocol_digest=protocol.protocol_digest,
         dataset_id=dataset.dataset_id,
         actual_artifact_digest=resolved_artifact_digest,

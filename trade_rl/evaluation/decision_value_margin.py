@@ -104,6 +104,7 @@ def select_margin_multiplier(
     raw_dataset: MarketDataset | None = None,
     train_start_index: int | None = None,
     feature_clip: float | None = None,
+    require_v4_evidence: bool = False,
 ) -> MarginSelection:
     """Select the margin multiplier using time-ordered train-internal data only."""
     multipliers = _validate_grid(grid)
@@ -211,6 +212,7 @@ def select_margin_multiplier(
         fit_cutoff=fit_cutoff,
         evaluation_start=dataset.timestamps[cal_start_index],
         expected_reference_policy_digest=reference_policy_digest,
+        require_v4_evidence=require_v4_evidence,
     )
     model = fit_model(batch)
 

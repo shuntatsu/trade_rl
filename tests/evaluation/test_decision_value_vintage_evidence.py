@@ -56,7 +56,7 @@ def _context():
     return raw, view, provider
 
 
-def _labels(view, provider):
+def _labels(view, provider, *, require_v4_evidence: bool = False):
     return collect_reachable_state_labels(
         view,
         reference_policy_provider=provider,
@@ -77,6 +77,8 @@ def _labels(view, provider):
         fit_cutoff=view.timestamps[330],
         source_scope="synthetic_only",
         require_reference_vintage=True,
+        require_v4_evidence=require_v4_evidence,
+        study_protocol_digest="b" * 64 if require_v4_evidence else None,
     )
 
 
@@ -195,3 +197,141 @@ def test_block_result_serializes_every_eligible_pair_receipt():
         == collection.samples[0].pair_evidence_digest
     )
     assert serialized["training_rows"] == len(collection.samples)
+
+
+def test_v4_source_bound_label_evidence_rejects_mixed_risk_capital_and_protocol() -> (
+    None
+):
+    _, view, provider = _context()
+    collection = _labels(view, provider, require_v4_evidence=True)
+    samples = collection.samples
+    assert len(samples) == 4
+    assert all(
+        s.pair_evidence
+        and s.pair_evidence["schema"] == "decision_value_eligible_pair_evidence_v2"
+        for s in samples
+    )
+
+    def fit_batch(rows):
+        return build_synthetic_paired_label_batch(
+            tuple(rows),
+            fit_cutoff=view.timestamps[330],
+            evaluation_start=view.timestamps[331],
+            expected_reference_policy_digest="d" * 64,
+            require_v4_evidence=True,
+        )
+
+    assert len(fit_batch(samples).samples) == 4
+
+    def tamper(field: str, wrong: object):
+        sample = samples[1]
+        payload = {
+            key: value
+            for key, value in sample.pair_evidence.items()
+            if key != "evidence_digest"
+        }
+        payload[field] = wrong
+        digest = content_digest(payload)
+        revised = {**payload, "evidence_digest": digest}
+        return replace(sample, pair_evidence=revised, pair_evidence_digest=digest)
+
+    for field, wrong in (
+        ("risk_config_digest", "f" * 64),
+        ("initial_capital", 50_000.0),
+        ("horizon_bars", 12),
+        ("study_protocol_digest", "e" * 64),
+    ):
+        with pytest.raises(ValueError, match="risk|capital|economic|contract|protocol"):
+            fit_batch((samples[0], tamper(field, wrong), *samples[2:]))
+
+
+def test_td8_v4_fitted_reference_digest_is_bound_to_label_population() -> None:
+    """No model may claim a different root from its admitted paired outcomes."""
+    _, view, provider = _context()
+    collection = _labels(view, provider, require_v4_evidence=True)
+    root = content_digest(collection.eligible_pair_outcomes)
+    bound = content_digest(
+        {
+            "schema_version": "td8_reference_with_label_population_v1",
+            "reference_recipe_digest": "d" * 64,
+            "label_evidence_digest": root,
+        }
+    )
+    samples = tuple(
+        replace(
+            row,
+            reference_policy_digest=bound,
+            reference_policy_recipe_digest="d" * 64,
+            label_population_digest=root,
+        )
+        for row in collection.samples
+    )
+
+    def admit(rows, ref=bound):
+        return build_synthetic_paired_label_batch(
+            tuple(rows),
+            fit_cutoff=view.timestamps[330],
+            evaluation_start=view.timestamps[331],
+            expected_reference_policy_digest=ref,
+            require_v4_evidence=True,
+        )
+
+    assert len(admit(samples).samples) == len(samples)
+    with pytest.raises(ValueError, match="population|reference"):
+        admit((replace(samples[0], label_population_digest="e" * 64), *samples[1:]))
+    forged_ref = "f" * 64
+    with pytest.raises(ValueError, match="reference"):
+        admit(
+            tuple(
+                replace(sample, reference_policy_digest=forged_ref)
+                for sample in samples
+            ),
+            ref=forged_ref,
+        )
+
+
+def test_v4_same_decision_candidates_must_share_teacher_and_baseline() -> None:
+    """One state cannot splice different reference teachers or HOLD baselines."""
+    _, view, provider = _context()
+    collection = _labels(view, provider, require_v4_evidence=True)
+    rows = collection.samples
+    assert rows[0].decision_time_ns == rows[1].decision_time_ns
+    assert rows[2].reference_vintage != rows[1].reference_vintage
+
+    def admit(entries):
+        return build_synthetic_paired_label_batch(
+            tuple(entries),
+            fit_cutoff=view.timestamps[330],
+            evaluation_start=view.timestamps[331],
+            expected_reference_policy_digest="d" * 64,
+            require_v4_evidence=True,
+        )
+
+    assert len(admit(rows).samples) == len(rows)
+
+    def forged(index, **updates):
+        original = rows[index]
+        receipt = dict(original.pair_evidence)
+        receipt.update(updates)
+        receipt["evidence_digest"] = content_digest(
+            {k: v for k, v in receipt.items() if k != "evidence_digest"}
+        )
+        return replace(
+            original,
+            pair_evidence=receipt,
+            pair_evidence_digest=receipt["evidence_digest"],
+            reference_vintage=(
+                rows[2].reference_vintage
+                if "reference_vintage" in updates
+                else original.reference_vintage
+            ),
+        )
+
+    later = rows[2].reference_vintage
+    assert later is not None
+    with pytest.raises(ValueError, match="teacher|prefix|state|vintage|baseline"):
+        admit((rows[0], forged(1, reference_vintage=later.to_mapping()), *rows[2:]))
+    altered = dict(rows[1].pair_evidence["baseline"])
+    altered["ledger_digest"] = "f" * 64
+    with pytest.raises(ValueError, match="teacher|prefix|state|vintage|baseline"):
+        admit((rows[0], forged(1, baseline=altered), *rows[2:]))

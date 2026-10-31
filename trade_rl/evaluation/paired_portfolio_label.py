@@ -100,6 +100,8 @@ class SyntheticPairedLabel:
     reference_vintage: ReferenceVintage | None = None
     pair_evidence_digest: str | None = None
     pair_evidence: dict[str, object] | None = None
+    reference_policy_recipe_digest: str | None = None
+    label_population_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,9 +426,14 @@ def _validate_sample_pair_evidence(sample: SyntheticPairedLabel) -> None:
         or digest
         != content_digest({k: v for k, v in receipt.items() if k != "evidence_digest"})
         or receipt.get("evidence_digest") != digest
-        or receipt.get("schema") != "decision_value_eligible_pair_evidence_v1"
+        or receipt.get("schema")
+        not in (
+            "decision_value_eligible_pair_evidence_v1",
+            "decision_value_eligible_pair_evidence_v2",
+        )
         or receipt.get("reference_vintage") != vintage.to_mapping()
-        or receipt.get("reference_policy_digest") != sample.reference_policy_digest
+        or receipt.get("reference_policy_digest")
+        != (sample.reference_policy_recipe_digest or sample.reference_policy_digest)
         or receipt.get("dataset_id") != sample.dataset_id
         or receipt.get("decision_time_ns") != sample.decision_time_ns
         or receipt.get("candidate_action") != list(sample.candidate_action)
@@ -447,6 +454,35 @@ def _validate_sample_pair_evidence(sample: SyntheticPairedLabel) -> None:
         ):
             raise ValueError("sample paired evidence native branch is invalid")
         _digest(record["ledger_digest"], field=f"{arm} ledger digest")
+    if receipt.get("schema") == "decision_value_eligible_pair_evidence_v2":
+        baseline_record = receipt.get("baseline")
+        candidate_record = receipt.get("candidate")
+        bars = receipt.get("horizon_bars")
+        observation_time = receipt.get("observation_available_at_ns")
+        capital_value = receipt.get("initial_capital")
+        if (
+            not isinstance(baseline_record, dict)
+            or not isinstance(candidate_record, dict)
+            or not isinstance(capital_value, (int, float))
+            or type(bars) is not int
+            or bars <= 0
+            or type(observation_time) is not int
+            or observation_time > sample.decision_time_ns
+            or receipt.get("source_runtime_digest") != vintage.source_runtime_digest
+            or receipt.get("execution_policy_digest") != sample.execution_policy_digest
+            or str(float(capital_value)) != baseline_record.get("initial_capital")
+            or str(float(capital_value)) != candidate_record.get("initial_capital")
+        ):
+            raise ValueError("TD8 risk/capital/economic contract mismatch")
+        for field_name in (
+            "study_protocol_digest",
+            "risk_config_digest",
+            "candidate_roster_digest",
+        ):
+            value = receipt.get(field_name)
+            if not isinstance(value, str):
+                raise ValueError(f"TD8 {field_name} is missing")
+            _digest(value, field=field_name)
     prefix_digest = receipt.get("prefix_identity_digest")
     if not isinstance(prefix_digest, str):
         raise ValueError("sample prefix identity digest is missing")
@@ -476,6 +512,7 @@ def build_synthetic_paired_label_batch(
     fit_cutoff: np.datetime64,
     evaluation_start: np.datetime64,
     expected_reference_policy_digest: str,
+    require_v4_evidence: bool = False,
 ) -> SyntheticPairedLabelBatch:
     """Bind a small fit-only roster and disclose overlapping market horizons."""
     if type(samples) is not tuple or not samples:
@@ -490,6 +527,12 @@ def build_synthetic_paired_label_batch(
     first = samples[0]
     if not isinstance(first, SyntheticPairedLabel):
         raise TypeError("samples must contain SyntheticPairedLabel rows")
+    if require_v4_evidence and (
+        not isinstance(first.pair_evidence, dict)
+        or first.pair_evidence.get("schema")
+        != "decision_value_eligible_pair_evidence_v2"
+    ):
+        raise ValueError("TD8 v4 requires complete study/economic sample evidence")
     if first.source_scope not in _ALLOWED_SOURCE_SCOPES:
         raise ValueError(
             "only synthetic or real_development paired labels with matching source_scope may be batched"
@@ -505,10 +548,72 @@ def build_synthetic_paired_label_batch(
     )
     rows: list[SyntheticPairedLabel] = []
     used: set[tuple[str, int, int, tuple[int, ...], tuple[int, ...]]] = set()
+    state_origins: dict[tuple[str, int], tuple[str, str, str]] = {}
     for sample in samples:
         if not isinstance(sample, SyntheticPairedLabel):
             raise TypeError("samples must contain SyntheticPairedLabel rows")
         _validate_sample_pair_evidence(sample)
+        if require_v4_evidence:
+            receipt = sample.pair_evidence
+            first_receipt = first.pair_evidence
+            if (
+                type(receipt) is not dict
+                or type(first_receipt) is not dict
+                or receipt.get("schema") != "decision_value_eligible_pair_evidence_v2"
+                or sample.source_scope != "synthetic_only"
+            ):
+                raise ValueError("TD8 v4 requires complete study/economic evidence")
+            for field_name in (
+                "study_protocol_digest",
+                "risk_config_digest",
+                "execution_policy_digest",
+                "initial_capital",
+                "horizon_bars",
+                "candidate_roster_digest",
+                "source_runtime_digest",
+            ):
+                if receipt.get(field_name) != first_receipt.get(field_name):
+                    raise ValueError("TD8 risk/capital/economic contract mismatch")
+            if (
+                sample.reference_policy_recipe_digest is not None
+                or sample.label_population_digest is not None
+            ):
+                if (
+                    sample.reference_policy_recipe_digest is None
+                    or sample.label_population_digest is None
+                    or sample.reference_policy_recipe_digest
+                    != first.reference_policy_recipe_digest
+                    or sample.label_population_digest != first.label_population_digest
+                ):
+                    raise ValueError("TD8 label population identity is incomplete")
+                expected_bound = content_digest(
+                    {
+                        "schema_version": "td8_reference_with_label_population_v1",
+                        "reference_recipe_digest": sample.reference_policy_recipe_digest,
+                        "label_evidence_digest": sample.label_population_digest,
+                    }
+                )
+                if sample.reference_policy_digest != expected_bound:
+                    raise ValueError("TD8 label-bound reference digest mismatch")
+            vintage = sample.reference_vintage
+            baseline = receipt.get("baseline")
+            if not isinstance(vintage, ReferenceVintage) or not isinstance(
+                baseline, dict
+            ):
+                raise ValueError("TD8 state is missing teacher/baseline evidence")
+            prefix_identity = receipt.get("prefix_identity_digest")
+            ledger_digest = baseline.get("ledger_digest")
+            if not isinstance(prefix_identity, str) or not isinstance(
+                ledger_digest, str
+            ):
+                raise ValueError("TD8 state prefix/baseline digest is missing")
+            state_key = (sample.dataset_id, sample.decision_time_ns)
+            identity = (vintage.vintage_digest, prefix_identity, ledger_digest)
+            previous = state_origins.setdefault(state_key, identity)
+            if previous != identity:
+                raise ValueError(
+                    "TD8 same-state teacher/prefix/baseline identity mismatch"
+                )
         if sample.source_scope != first.source_scope:
             raise ValueError(
                 "only synthetic or real_development paired labels with matching source_scope may be batched"

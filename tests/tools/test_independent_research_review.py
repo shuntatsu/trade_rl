@@ -86,11 +86,12 @@ def _software_payload(*, publisher_id: int = 20) -> dict[str, object]:
     }
 
 
-def _software_review(*, publisher_id: int = 20, state: str = "APPROVED") -> dict[str, object]:
+def _software_review(
+    *, publisher_id: int = 20, state: str = "APPROVED"
+) -> dict[str, object]:
     review = _review(reviewer_id=publisher_id, state=state, receipt=False)
-    review["body"] = (
-        f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n"
-        + _receipt_body(_software_payload(publisher_id=publisher_id))
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        _software_payload(publisher_id=publisher_id)
     )
     return review
 
@@ -549,9 +550,7 @@ def test_software_review_accepts_actual_review_jobs_without_historical_task_ids(
 ) -> None:
     review = _software_review(publisher_id=publisher_id, state=state)
     assert (
-        resolve_review_outcome(
-            _pull_request(), [review], expected_head_sha=HEAD_SHA
-        )
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.APPROVED
     )
 
@@ -582,14 +581,11 @@ def test_software_review_rejects_missing_stale_or_fabricated_evidence_fields(
     payload = _software_payload()
     payload[field] = value
     review = _software_review()
-    review["body"] = (
-        f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n"
-        + _receipt_body(payload)
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        payload
     )
     assert (
-        resolve_review_outcome(
-            _pull_request(), [review], expected_head_sha=HEAD_SHA
-        )
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.PENDING
     )
 
@@ -598,25 +594,18 @@ def test_software_review_rejects_unknown_fields_and_wrong_hash() -> None:
     payload = _software_payload()
     payload["synthetic_implementation_task_id"] = "invented"
     review = _software_review()
-    review["body"] = (
-        f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n"
-        + _receipt_body(payload)
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        payload
     )
     assert (
-        resolve_review_outcome(
-            _pull_request(), [review], expected_head_sha=HEAD_SHA
-        )
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.PENDING
     )
 
     review = _software_review()
-    review["body"] = str(review["body"]).replace(
-        "f" * 64, "e" * 64
-    )
+    review["body"] = str(review["body"]).replace("f" * 64, "e" * 64)
     assert (
-        resolve_review_outcome(
-            _pull_request(), [review], expected_head_sha=HEAD_SHA
-        )
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.PENDING
     )
 
@@ -624,8 +613,11 @@ def test_software_review_rejects_unknown_fields_and_wrong_hash() -> None:
 def test_software_review_blocked_precedence_and_latest_actor_revocation() -> None:
     accepted = _software_review(publisher_id=20)
     blocked = _review(
-        reviewer_id=30, state="COMMENTED", disposition="BLOCKED",
-        receipt=False, review_id=101,
+        reviewer_id=30,
+        state="COMMENTED",
+        disposition="BLOCKED",
+        receipt=False,
+        review_id=101,
     )
     assert (
         resolve_review_outcome(
@@ -659,9 +651,7 @@ def test_software_review_renderer_and_exact_head_cli(tmp_path: Path) -> None:
     review = _software_review(publisher_id=10, state="COMMENTED")
     review["body"] = rendered.stdout
     assert (
-        resolve_review_outcome(
-            _pull_request(), [review], expected_head_sha=HEAD_SHA
-        )
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.APPROVED
     )
 

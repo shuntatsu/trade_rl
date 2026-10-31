@@ -573,6 +573,7 @@ def build_synthetic_paired_label_batch(
     rows: list[SyntheticPairedLabel] = []
     used: set[tuple[str, int, int, tuple[int, ...], tuple[int, ...]]] = set()
     state_origins: dict[tuple[str, int], tuple[str, str, str]] = {}
+    state_observations: dict[tuple[str, int], SyntheticPairedLabel] = {}
     for sample in samples:
         if not isinstance(sample, SyntheticPairedLabel):
             raise TypeError("samples must contain SyntheticPairedLabel rows")
@@ -632,6 +633,11 @@ def build_synthetic_paired_label_batch(
             ):
                 raise ValueError("TD8 state prefix/baseline digest is missing")
             state_key = (sample.dataset_id, sample.decision_time_ns)
+            first_state = state_observations.setdefault(state_key, sample)
+            if first_state.observation != sample.observation:
+                raise ValueError(
+                    "TD8 candidates disagree on pre-intervention state observation"
+                )
             identity = (vintage.vintage_digest, prefix_identity, ledger_digest)
             previous = state_origins.setdefault(state_key, identity)
             if previous != identity:

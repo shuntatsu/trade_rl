@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from trade_rl.evaluation.paired_portfolio_label import (
+    SyntheticPairedLabel,
     SyntheticPairedLabelBatch,
 )
 from trade_rl.strategies.decision_value import (
@@ -96,6 +97,7 @@ def _collect_training(
     dataset_ids: list[list[str]] = [[] for _ in codes[1:]]
     used: set[tuple[str, int, tuple[int, ...]]] = set()
     action_groups: dict[tuple[str, int], dict[tuple[int, ...], int]] = {}
+    first_state_rows: dict[tuple[str, int], SyntheticPairedLabel] = {}
     group = -1
     group_end = -(2**63)
     for i, sample in enumerate(batch.samples):
@@ -136,6 +138,11 @@ def _collect_training(
         used.add(key)
         if require_complete_candidate_roster:
             state_key = (sample.dataset_id, sample.decision_time_ns)
+            first_state = first_state_rows.setdefault(state_key, sample)
+            if first_state.observation != sample.observation:
+                raise ValueError(
+                    "TD8 candidate population contains different state observations"
+                )
             action_groups.setdefault(state_key, {})[sample.candidate_action] = (
                 sample.terminal_time_ns
             )

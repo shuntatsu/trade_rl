@@ -13,7 +13,7 @@ Local repository tooling (`python -m tools.agent_repo`) は preflight / context 
 
 新規のproduction function/classは、production sourceへ追加する前に、可能な範囲でlocalの最小mock/fake/stubを使い、意図した入出力・状態変化・主要failureを実行確認する。実装後はtargeted test/smokeとfinal diff/statusをlocalで確認してからpushする。mock/smokeは重要境界の実Integration/E2Eを置き換えない。
 
-CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Core + PPO Runtime + Guideを実行する。PPO Runtimeは`train-sb3` extraの実SB3/Torchを使うintegration smokeである。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
+CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Lean Core + PPO Runtime + Human Guide + Market Store PostgreSQLを実行する。PPO Runtimeは`train-sb3` extraの実SB3/Torchを使うintegration smokeである。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
 
 ## Git / PR boundary
 
@@ -36,9 +36,11 @@ Generic receiptはsoftware PRの統合確認だけを担い、G4 economic execut
 
 Remote branchは「作業履歴の保管庫」として増やさない。activeなwrite Task / PRごとにdurableなremote branchを原則1本だけ持ち、RED・format・verification・one-shot automationのための補助branchは可能な限りlocal branch/worktreeまたはGitHub Actionsのrun/artifactで扱う。remote補助branchが必要だった場合も、そのtipをdurable anchorへ取り込める形で終了し、孤立した一時refを恒久保存しない。
 
-`main`、open PRのhead/base、実行中またはqueuedのGitHub Actionsが参照するbranch、protected branch、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`research/`・`seal/`・`freeze/`・`run/` というbranch名だけでは永久anchorにしない。研究provenanceは、Issue/PR/Artifactに記録したexact commit SHAと、`provenance/branch-retention` のmerge-historyで保持する。
+`main`、open PRのhead/base、未完了（requested/waiting/pending/queued/in_progress）のGitHub Actionsが参照するbranch、protected branch、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`research/`・`seal/`・`freeze/`・`run/` というbranch名だけでは永久anchorにしない。研究provenanceは、Issue/PR/Artifactに記録したexact commit SHAと、`provenance/branch-retention` のmerge-historyで保持する。
 
-`.github/workflows/branch-hygiene.yml` は、非anchor branchを初めて観測したrunでは、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ保存し、そのtip SHA自体もretention commitのparentとして到達可能にしたうえで元refを残す。同じbranch名・同じtip SHAが少なくとも1時間retentionで観測済みで、その間にopen PR / active workflow / protected anchorにならず、tip SHAがdurable anchorから到達可能である場合に限り元refを削除してよい。tipが変われば新しい観測として猶予をやり直す。したがってcompleted research refを削除しても、`git branch <元branch名> <記録済みSHA>` で復元できるexact provenanceを失わない。
+現行の `.github/workflows/branch-hygiene.yml` は、Coordinator のactive Task / leaseと未登録作業を完全に照合する機能が未接続のため、`main` push・schedule・手動起動のすべてで **dry-run のみ**を行う。`tools.branch_hygiene --apply` もverified Coordinator Task/leaseの完全な保護情報が未実装の間はfail-closedで拒否する。自動削除の再開はTask連携と独立した競合・保全テストを経た後とする。
+
+将来の再有効化に向けて保持している `tools.branch_hygiene` のapply用アルゴリズムは、非anchor branchを初めて観測したrunでは、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ保存し、そのtip SHA自体もretention commitのparentとして到達可能にしたうえで元refを残す。同じbranch名・同じtip SHAが少なくとも1時間retentionで観測済みで、その間にopen PR / active workflow / protected anchorにならず、tip SHAがdurable anchorから到達可能である場合に限り元refを削除してよい。tipが変われば新しい観測として猶予をやり直す。したがってcompleted research refを削除しても、`git branch <元branch名> <記録済みSHA>` で復元できるexact provenanceを失わない。
 
 削除直前にはopen PR head/baseとactive workflow branchを再取得し、削除自体は計画時のexact tip SHAを `git push --force-with-lease=<ref>:<sha> --atomic` で条件付き実行する。tipが変化した、protectedになった、open PR/active workflowから参照されるようになったbranchは削除しない。削除後にもbranch一覧を再取得し、削除対象refが残っていればworkflowを失敗させる。これはAgentによる手動branch削除の許可ではない。
 

@@ -529,8 +529,7 @@ def test_unfinished_workflow_overfull_final_page_fails_closed(
         return {
             "total_count": 101,
             "workflow_runs": [
-                {"id": i, "status": status, "head_branch": f"task/{i}"}
-                for i in ids
+                {"id": i, "status": status, "head_branch": f"task/{i}"} for i in ids
             ],
         }
 
@@ -565,8 +564,7 @@ def test_unfinished_workflow_exact_final_page_is_accepted(
         return {
             "total_count": 101,
             "workflow_runs": [
-                {"id": i, "status": status, "head_branch": f"task/{i}"}
-                for i in ids
+                {"id": i, "status": status, "head_branch": f"task/{i}"} for i in ids
             ],
         }
 

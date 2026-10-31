@@ -366,3 +366,31 @@ def test_a_canonical_unavailable_protocol_passes_the_collector_gate(tmp_path):
         )
         == []
     )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["attempt_float", "predecessor_bool", "attestation_integer"],
+)
+def test_collector_rejects_canonical_looking_type_mutations_from_raw_engine(
+    tmp_path, mutation
+):
+    """JSON values must retain their exact types, even when Python == coerces them."""
+    lineage = attempt2_lineage("unavailable")
+    if mutation == "attempt_float":
+        lineage["attempt_number"] = 2.0
+    elif mutation == "predecessor_bool":
+        lineage["predecessor"]["attempt_number"] = True
+    else:
+        lineage["predecessor_root"]["re_verified_at_seal"] = 0
+    with pytest.raises(ValueError):
+        operations.validate_attempt_lineage(lineage)
+    valid_plan = operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable"))
+    tampered_plan = dict(valid_plan, attempt_lineage=lineage)
+    digest = seal_raw(tmp_path, tampered_plan)
+    root = tmp_path / "attempt2"
+    before = listing(root)
+    with pytest.raises(ValueError, match="lineage_v3_not_canonical"):
+        with PaperCollector(root, expected_protocol_sha256=digest):
+            pytest.fail("not a canonical lineage")
+    assert listing(root) == before

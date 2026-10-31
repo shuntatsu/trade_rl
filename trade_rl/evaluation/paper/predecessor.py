@@ -224,6 +224,29 @@ def _is_available(lineage: object) -> bool:
     return isinstance(record, dict) and record.get("status") == "available"
 
 
+def _same_canonical_record(actual: object, expected: object) -> bool:
+    """Compare JSON-shaped lineage records without Python's bool/int/float coercion.
+
+    The collector reads a persisted protocol, so this must enforce the schema's
+    exact JSON value types rather than Python ``dict.__eq__`` semantics.
+    """
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        return actual.keys() == expected.keys() and all(
+            _same_canonical_record(actual[key], canonical)
+            for key, canonical in expected.items()
+        )
+    if isinstance(expected, list):
+        assert isinstance(actual, list)
+        return len(actual) == len(expected) and all(
+            _same_canonical_record(value, canonical)
+            for value, canonical in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
 def lineage_problems(
     lineage: object,
     *,
@@ -251,7 +274,11 @@ def lineage_problems(
         expected = canonical_lineage("available", path)
     else:
         return ["lineage_v3_not_canonical"]
-    reasons = [] if lineage == expected else ["lineage_v3_not_canonical"]
+    reasons = (
+        []
+        if _same_canonical_record(lineage, expected)
+        else ["lineage_v3_not_canonical"]
+    )
     if status == "available":
         reasons += available_root_problems(lineage, read=read, reverify=reverify)
     return reasons

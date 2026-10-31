@@ -246,7 +246,9 @@ lineage is part of the sealed research plan and therefore of the protocol
 digest. An `observation_gap` disposition is accepted only after the predecessor
 has exceeded the fixed 180-second gap limit at the new seal time. `seal` requires
 an explicit `--attempt-lineage-json` input; it never guesses that a new root is
-the first attempt.
+the first attempt. Since lineage v3, the v2 label is accepted only for attempt 1
+(a tightening of the earlier v2 rule, which accepted any successor with
+caller-asserted predecessor values); attempt 2 uses the canonical v3 record below.
 
 Predecessor dispositions are limited to `invalidated` or `incomplete`, and
 reason codes are limited to `clock_reversal`, `collector_failure`,
@@ -298,15 +300,20 @@ shared classifier (`predecessor.lineage_structure_problems`):
 
 * No lineage is allowed. Otherwise the lineage must be an exact `dict` with an exact
   `str` schema. The v2 label requires exactly the v2 key set, so a
-  `predecessor_root` (or any other v3-only field) cannot ride under it. The v3 label
+  `predecessor_root` (or any other v3-only field) cannot ride under it, and only
+  attempt 1 may use it: `attempt_number` >= 2 under the v2 label is refused at every
+  gate. This tightens a pre-existing v2 rule (v2 used to accept any successor with
+  caller-asserted predecessor values); attempt 2 now has exactly the canonical v3
+  record, and a later attempt needs a new, reviewed lineage version. The v3 label
   requires the type-strict canonical record for its status (`available`: for its
   recorded root path). Any other schema, including spelling variants, is refused.
 * `seal_collection`, `seal_paper_study` and `paper.cli seal` apply that classifier
   and also refuse a v3 lineage unless given a module-private token that only
   `attempt2` holds (a caller contract, not authentication). `PaperEngine.initialize`
-  applies the same rules, and `PaperEngine(root)` refuses to open, hence to append
-  to, a root whose lineage the classifier rejects; opening reads no predecessor
-  root. `validate_attempt_lineage` (hence `cli evaluate`) uses it for every v3-shaped
+  applies the same rules (it requires a plain `dict` study and research plan, so a
+  `dict` subclass cannot hide the plan), and `PaperEngine(root)` refuses to open,
+  hence to append to, a root whose lineage the classifier rejects; opening reads no
+  predecessor root. `validate_attempt_lineage` (hence `cli evaluate`) uses it for every v3-shaped
   record. `attempt2`'s own sealing preconditions (authorization URL shape, start
   notice, checkout identity, free space) are only enforced by `attempt2 seal`.
 * Every `attempt2 launch`, including a supervisor relaunch after the start,
@@ -315,7 +322,8 @@ shared classifier (`predecessor.lineage_structure_problems`):
 * The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
   before taking the lock and without writing a failure marker, any lineage the
   classifier rejects, a research plan that is not a plain `dict`, and a
-  `protocol.json` that repeats a JSON object key. An `available` record must also
+  `protocol.json` that is not canonical (a repeated, extra or reordered key, NaN or
+  other non-canonical bytes). An `available` record must also
   re-read its recorded root on **every** collector entry, including restarts after
   the first journal event. A predecessor root that is lost or unreadable (for
   example a corrupt or locked journal) stops the collection and the restart exits

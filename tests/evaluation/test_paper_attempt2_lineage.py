@@ -150,16 +150,24 @@ def test_available_record_carries_the_verification_it_was_built_from():
         attempt2_lineage("available")  # an available record must name its root
 
 
-def test_both_lineages_validate_and_v2_is_unchanged():
+def test_both_lineages_validate_and_v2_attempt_one_is_unchanged():
     for lineage in (
         attempt2_lineage("available", "D:/old/root"),
         attempt2_lineage("unavailable"),
     ):
         operations.validate_attempt_lineage(lineage, sealed_at=NOW)
+    first = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 1,
+        "predecessor": None,
+    }
+    assert operations.validate_attempt_lineage(first, sealed_at=NOW) == first
+    # Tightened pre-existing v2 rule: attempt 2 and later must use v3.
     legacy = attempt2_lineage("unavailable")
     legacy.pop("predecessor_root")
     legacy["schema"] = "carry_paper_attempt_lineage_v2"
-    assert operations.validate_attempt_lineage(legacy, sealed_at=NOW) == legacy
+    with pytest.raises(ValueError, match="lineage_v2_attempt_requires_v3"):
+        operations.validate_attempt_lineage(legacy, sealed_at=NOW)
 
 
 @pytest.mark.parametrize(

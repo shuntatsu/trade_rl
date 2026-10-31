@@ -156,8 +156,35 @@ def require_seal_token(research_plan: object, token: object) -> None:
         )
 
 
-class DuplicateKeyError(ValueError):
+class ProtocolFormatError(ValueError):
+    """``protocol.json`` is not the canonical bytes a sealed root contains."""
+
+
+class DuplicateKeyError(ProtocolFormatError):
     """A protocol JSON object repeats a key (``json.loads`` would keep the last)."""
+
+
+def load_canonical_protocol(raw: bytes) -> dict[str, Any]:
+    """Parse ``protocol.json`` and refuse anything but its canonical form.
+
+    Duplicate keys, extra or reordered top-level keys, NaN and non-canonical bytes are
+    refused here, before the collector takes the lock, so no failure marker is written
+    for that input. The store enforces the same canonical-bytes rule after the lock.
+    """
+    from trade_rl.artifacts import canonical_json_bytes
+
+    value = loads_without_duplicate_keys(raw)
+    try:
+        canonical = canonical_json_bytes(value)
+    except (TypeError, ValueError) as error:
+        raise ProtocolFormatError("protocol JSON is not canonical") from error
+    if (
+        type(value) is not dict
+        or set(value) != {"schema", "protocol"}
+        or canonical != raw
+    ):
+        raise ProtocolFormatError("protocol JSON is not canonical")
+    return value
 
 
 def loads_without_duplicate_keys(raw: bytes | str) -> Any:
@@ -229,14 +256,14 @@ def available_root_problems(
     so a post-start restart is not grounds to skip this check. Missing roots fail
     closed even after the attempt has begun.
     """
-    if not isinstance(lineage, dict) or lineage.get("schema") != LINEAGE_V3_SCHEMA:
+    if type(lineage) is not dict or lineage.get("schema") != LINEAGE_V3_SCHEMA:
         return []
     record = lineage.get("predecessor_root")
-    if not isinstance(record, dict) or record.get("status") != "available":
+    if type(record) is not dict or record.get("status") != "available":
         return []
     proof = record.get("verification")
-    path = proof.get("root_path") if isinstance(proof, dict) else None
-    if not isinstance(path, str) or not path:
+    path = proof.get("root_path") if type(proof) is dict else None
+    if type(path) is not str or not path:
         return ["predecessor_root_path_not_recorded"]
     return [
         f"predecessor_root_not_reverifiable:{problem}"
@@ -276,7 +303,8 @@ def lineage_structure_problems(lineage: object) -> list[str]:
     * ``None`` (no lineage) is allowed.
     * Only an exact ``dict`` with an exact ``str`` schema is considered.
     * The v2 label requires exactly the v2 key set, so a ``predecessor_root`` (or any
-      other v3-only field) cannot ride under it.
+      other v3-only field) cannot ride under it, and only attempt 1 may use it
+      (``attempt_number`` >= 2 must use v3).
     * The v3 label requires the type-strict canonical record for its status
       (``available`` for its recorded root path).
     * Any other schema, including spelling variants, is unsupported.
@@ -289,6 +317,12 @@ def lineage_structure_problems(lineage: object) -> list[str]:
     if type(schema) is str and schema == LINEAGE_V2_SCHEMA:
         if set(lineage) != _V2_KEYS:
             return ["lineage_v2_unexpected_fields"]
+        number = lineage.get("attempt_number")
+        if type(number) is int and number >= 2:
+            # Pre-existing v2 rule, tightened: v2 asserts predecessor values the
+            # caller supplies, so only attempt 1 (no predecessor) may use the v2
+            # label. Attempt 2 and later must use the canonical v3 record.
+            return ["lineage_v2_attempt_requires_v3"]
         return []
     if type(schema) is not str or schema != LINEAGE_V3_SCHEMA:
         return ["lineage_schema_unsupported"]

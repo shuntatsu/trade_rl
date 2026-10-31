@@ -39,11 +39,11 @@ class PaperEngine:
         study: dict[str, Any],
         attempt2_seal_token: object | None = None,
     ) -> str:
-        if not isinstance(study, dict):
-            raise ValueError("paper study must be an object")
+        if type(study) is not dict:
+            raise ValueError("paper study must be a plain dict")
         plan = study.get("research_plan")
-        if isinstance(plan, dict):
-            # The same classifier and token rule as ``seal_collection``.
+        if plan is not None:
+            # The same plain-dict, classifier and token rules as ``seal_collection``.
             require_seal_token(plan, attempt2_seal_token)
         return PaperJournal.initialize(
             root, dict(engine=_SCHEMA, settings=settings.to_dict(), study=study)
@@ -63,10 +63,12 @@ class PaperEngine:
         ):
             raise ValueError("unsupported paper engine protocol")
         plan = protocol["study"].get("research_plan")
-        if isinstance(plan, dict):
+        if plan is not None:
             # Refuse to open (hence to append to) a root whose lineage the shared
             # classifier rejects. No root is read here, so evaluation after the
             # screen does not depend on the old predecessor root.
+            if type(plan) is not dict:
+                raise ValueError("paper protocol research plan must be a plain dict")
             problems = lineage_structure_problems(plan.get("attempt_lineage"))
             if problems:
                 raise ValueError(

@@ -23,9 +23,9 @@ from trade_rl.evaluation.paper.operations import (
     seal_paper_study,
 )
 from trade_rl.evaluation.paper.predecessor import (
-    DuplicateKeyError,
+    ProtocolFormatError,
     collection_lineage_problems,
-    loads_without_duplicate_keys,
+    load_canonical_protocol,
 )
 from trade_rl.evaluation.paper.supervisor import PaperCollector
 from trade_rl.evaluation.paper.watchdog import (
@@ -60,10 +60,10 @@ def _refuse_non_screen_root(root: Path, protocol_sha256: str) -> None:
     if hashlib.sha256(raw).hexdigest() != protocol_sha256:
         return
     try:
-        protocol = loads_without_duplicate_keys(raw)["protocol"]
+        protocol = load_canonical_protocol(raw)["protocol"]
         plan = protocol["study"]["research_plan"]
         start_at = timestamp(protocol["settings"]["start_at"])
-    except DuplicateKeyError:
+    except ProtocolFormatError:
         raise
     except (KeyError, TypeError, ValueError):
         return

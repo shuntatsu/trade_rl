@@ -20,7 +20,7 @@ from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_fai
 from trade_rl.evaluation.paper.lock import acquire_collector_lock
 from trade_rl.evaluation.paper.predecessor import (
     collection_lineage_problems,
-    loads_without_duplicate_keys,
+    load_canonical_protocol,
     require_seal_token,
 )
 from trade_rl.evaluation.runs import build_candidate_run_provenance
@@ -105,7 +105,7 @@ class PaperCollector:
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != self.digest:
             raise ValueError("collection protocol digest mismatch")
-        protocol = loads_without_duplicate_keys(raw)["protocol"]
+        protocol = load_canonical_protocol(raw)["protocol"]
         study = protocol["study"]
         if (
             study.get("schema") != _SCHEMA

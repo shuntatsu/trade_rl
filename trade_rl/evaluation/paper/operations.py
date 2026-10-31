@@ -257,6 +257,11 @@ def validate_attempt_lineage(
             _validate_predecessor_root(
                 value["predecessor_root"], predecessor, sealed_at=sealed_at
             )
+    # The shared classifier has the last word for every lineage, including the v2
+    # rule that only attempt 1 may use the v2 label.
+    problems = lineage_structure_problems(value)
+    if problems:
+        raise ValueError("attempt lineage is not canonical: " + "; ".join(problems))
     return deepcopy(value)
 
 

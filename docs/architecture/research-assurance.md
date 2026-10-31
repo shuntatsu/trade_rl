@@ -1310,12 +1310,37 @@ Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and le
 v2 valid and unchanged. `available` embeds the verification of a root that the
 existing v1 journal reader read read-only (protocol digest, event count, final tip,
 last observation, root path); `attempt2` cannot build it without a root path that
-passes that read, the generic `seal_paper_study`/`paper.cli seal` refuse any v3
-lineage, and a first `attempt2 launch` re-reads the recorded root and refuses if it
-is gone or differs.
+passes that read. `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse a
+v3 lineage unless given a module-private token that only `attempt2` holds (a caller
+contract, not authentication). One shared classifier decides every lineage at every
+supported entry point (`seal_collection`, `seal_paper_study`, `paper.cli seal`,
+`PaperEngine` initialization and opening, `validate_attempt_lineage`, the collector):
+in-memory study/plan/lineage keys must all have the exact native `str` type,
+recursively before any mapping lookup (a `str` subclass can hide a v3 lineage
+from `dict.get` while serializing to ordinary JSON text);
+the v2 label requires exactly the v2 key set, exact integer attempt number `1`
+and null predecessor (float/boolean/int subclass values are refused); it is accepted
+only for attempt 1 (this
+tightens the earlier v2 rule, which accepted any successor with caller-asserted
+predecessor values), and the v3 label requires the type-strict canonical record, so a
+`predecessor_root` cannot ride under another label. These
+gates guard against accidental or non-canonical records through the supported entry
+points; they do not authenticate against a malicious local operator. In scope is
+crafted data through JSON files, the CLI and plain built-in Python values; out of scope
+are objects whose classes override dunder methods to deceive a check, monkeypatching,
+private internals, and editing code or sealed roots. The exact-type checks on
+containers and mapping keys are defence in depth, not a security boundary. Every
+`attempt2 launch` re-reads an `available` root, including a relaunch after start; a
+heartbeat never substitutes for an independently verified prior-root receipt. The
+collector (`PaperCollector`, `cli run`, `cli supervise`) re-reads an `available`
+predecessor on **every** entry, including after a journal event; a public
+`PaperEngine.gap` event does not attest the prior root. A predecessor root that is
+lost or unreadable then permanently prevents that available-lineage collector from
+restarting (the watchdog records the refusal). This stricter fail-closed rule is
+fixed before any attempt-2 seal.
 `unavailable` is the honest case where the preserved root is lost: it records that the
 lineage values come from the prior public result-blind review record (document and
-commit), that they were not re-verified at seal time, the user's statement quoted
+commit), that they were not re-verified at seal time, the user's chat statement quoted
 verbatim with its date, and the replacement review rule. For attempt 2 the root is
 unavailable, so the G0 requirement that a fresh review resolve the preserved root is
 replaced, for this case only, by a fresh result-blind review of the lineage

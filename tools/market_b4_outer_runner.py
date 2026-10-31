@@ -749,6 +749,7 @@ def build_frozen_h_launch_plan(
                     "bytes": review_record_pin.byte_count,
                     "sha256": review_record_pin.sha256,
                 },
+                "dataset": authority["dataset"],
                 "native_source": {
                     "head_sha": static_inputs.source_pin.head_sha,
                     "snapshot_sha256": static_inputs.source_pin.snapshot_sha256,
@@ -1117,6 +1118,25 @@ def _assert_artificial_h_plan_current(
     plan: ArtificialHComponentPlan, *, input_plan_written: bool = False
 ) -> None:
     authority = _artificial_h_plan_authority_payload(plan)
+    from tools.market_b4_oracle.artificial_component import (
+        artificial_component_binding,
+        build_artificial_component_inputs,
+    )
+
+    q_inputs = build_artificial_component_inputs(plan.component_spec)
+    nonrl_binding, _ = artificial_component_binding(q_inputs, "NONRL")
+    cash_binding, _ = artificial_component_binding(q_inputs, "CASH")
+    expected_binding_digest = hashlib.sha256(
+        nonrl_binding.protocol_canonical
+    ).hexdigest()
+    if (
+        q_inputs.spec_sha256 != plan.component_spec_sha256
+        or authority.get("component_spec_sha256") != q_inputs.spec_sha256
+        or nonrl_binding.protocol_canonical != cash_binding.protocol_canonical
+        or authority.get("binding_digest") != expected_binding_digest
+        or authority.get("dataset") != {"dataset_id": q_inputs.content.dataset_id}
+    ):
+        raise ValueError("Q input authority differs from its fixed component plan")
     if plan.progress_jsonl_path is not None:
         progress_path = _validate_artificial_progress_path(
             plan.progress_jsonl_path,

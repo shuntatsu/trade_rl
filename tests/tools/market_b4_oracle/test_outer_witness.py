@@ -650,7 +650,9 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
 
     import tools.tier_d_nonrl.tier_d_process_tree as process_tree_module
     from tools.market_b4_oracle.output_index import ArtifactPin
-    from tools.market_b4_outer_runner import _run_root_observed_attempt
+    from tools.market_b4_outer_runner import (
+        _run_root_observed_attempt,
+    )
     from tools.tier_d_nonrl.tier_d_process_tree import ProcessTree, ProcessUsage
 
     monkeypatch.setattr(
@@ -700,7 +702,11 @@ def test_unobserved_root_never_certifies_empty_tree_in_failure_witness(
     created_trees = []
 
     def capture_tree(launched):
-        tree = ProcessTree.from_popen(launched)
+        # Exercise the real ownership sampler with controlled inputs. The outer
+        # factory itself is Windows-only and is covered by native process tests.
+        tree = ProcessTree.from_popen(
+            launched, provider=process_tree_module.windows_process_snapshot
+        )
         created_trees.append(tree)
         return tree
 

@@ -43,23 +43,17 @@ from trade_rl.evaluation.forward_study.seal import (
 from trade_rl.evaluation.paper.account import PaperSettings, timestamp
 from trade_rl.evaluation.paper.lock import collector_lock_held
 from trade_rl.evaluation.paper.operations import (
-    _ATTEMPT2_SEAL_TOKEN,
-    PREDECESSOR_ROOT_STATUSES,
     STORAGE_PROBE_PLAN_SCHEMA,
-    UNAVAILABLE_NOT_ESTABLISHED,
-    USER_STATEMENT_DOES_NOT_ATTEST,
-    USER_STATEMENT_STATES,
     screen_plan,
     seal_paper_study,
     validate_attempt_lineage,
 )
 from trade_rl.evaluation.paper.predecessor import (
-    ATTEMPT_ONE_EVENT_COUNT,
-    ATTEMPT_ONE_FINAL_TIP_SHA256,
-    ATTEMPT_ONE_LAST_OBSERVED_AT,
-    ATTEMPT_ONE_PROTOCOL_SHA256,
+    _ATTEMPT2_SEAL_TOKEN,
     LINEAGE_V3_SCHEMA,
+    PREDECESSOR_ROOT_STATUSES,
     available_root_problems,
+    canonical_lineage,
     read_predecessor_status,
     verify_predecessor_root,
 )
@@ -74,25 +68,6 @@ from trade_rl.evaluation.paper.watchdog import (
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 
 DRAFT_SCHEMA = "carry_paper_attempt2_draft_v1"
-# The public record of the fresh result-blind review (2026-09-27/28) that verified
-# the values above against attempt 1's root while that root still existed.
-LINEAGE_RECORD_DOCUMENT = "docs/research/current-status.md"
-LINEAGE_RECORD_COMMIT = "b9f1ca65b26dcff7acbb089c7643e95702d474c9"
-# Verbatim chat statement (Japanese). It says: "I do not know that data. I also do not
-# know where the saved results are, so you may collect new data."
-USER_STATEMENT_QUOTE = (
-    "そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ"
-)
-USER_STATEMENT_DATE = "2026-10-30"
-UNAVAILABLE_REVIEW_RULE = (
-    "Attempt 1's evidence root is lost; its lineage rests on a prior recorded review "
-    "and was not re-verified against the root at seal time. The review that resolves "
-    "the preserved root cannot be performed. It is replaced, for this case only, by a "
-    "fresh result-blind review of the lineage documentation and the pull request that "
-    "introduced this rule. That replacement review cannot confirm the predecessor "
-    "protocol digest, final tip or observation gap, and it does not exclude an "
-    "earlier unreported attempt."
-)
 SCREEN_DAYS = 90
 TERMINAL_GRACE_SECONDS = 180
 MINIMUM_SEAL_NOTICE = timedelta(minutes=5)
@@ -111,49 +86,6 @@ class Attempt2Refusal(ValueError):
         super().__init__("; ".join(self.reasons))
 
 
-def predecessor_verification() -> dict[str, Any]:
-    """What a successful v1 read of attempt 1's root proves; fixed by the constants."""
-    return {
-        "reader": "paper_journal_protocol_v1",
-        "event_count": ATTEMPT_ONE_EVENT_COUNT,
-        "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
-        "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
-        "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
-    }
-
-
-def _predecessor_root_record(
-    status: str, root_path: str | None = None
-) -> dict[str, Any]:
-    if status == "available":
-        if not root_path:
-            raise ValueError("an available predecessor root records its path")
-        return {
-            "status": "available",
-            "verification": dict(predecessor_verification(), root_path=root_path),
-        }
-    if status == "unavailable":
-        return {
-            "status": "unavailable",
-            "re_verified_at_seal": False,
-            "lineage_source": {
-                "kind": "prior_result_blind_review_record",
-                "document": LINEAGE_RECORD_DOCUMENT,
-                "commit": LINEAGE_RECORD_COMMIT,
-            },
-            "user_statement": {
-                "quote": USER_STATEMENT_QUOTE,
-                "date": USER_STATEMENT_DATE,
-                "channel": "chat",
-                "states": list(USER_STATEMENT_STATES),
-                "does_not_attest": list(USER_STATEMENT_DOES_NOT_ATTEST),
-            },
-            "not_established": list(UNAVAILABLE_NOT_ESTABLISHED),
-            "review_rule": UNAVAILABLE_REVIEW_RULE,
-        }
-    raise ValueError("predecessor root status must be available or unavailable")
-
-
 def attempt2_lineage(
     predecessor_root_status: str, predecessor_root: str | Path | None = None
 ) -> dict[str, Any]:
@@ -163,22 +95,10 @@ def attempt2_lineage(
     the root path and is only built by :func:`resolve_lineage` (after the root has
     been read) or by ``launch`` (which re-reads it).
     """
-    return {
-        "schema": "carry_paper_attempt_lineage_v3",
-        "attempt_number": 2,
-        "predecessor": {
-            "attempt_number": 1,
-            "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
-            "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
-            "disposition": "invalidated",
-            "reason_codes": ["observation_gap"],
-            "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
-        },
-        "predecessor_root": _predecessor_root_record(
-            predecessor_root_status,
-            None if predecessor_root is None else str(predecessor_root),
-        ),
-    }
+    return canonical_lineage(
+        predecessor_root_status,
+        None if predecessor_root is None else str(predecessor_root),
+    )
 
 
 def resolve_lineage(

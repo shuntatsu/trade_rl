@@ -26,6 +26,120 @@ ATTEMPT_ONE_FINAL_TIP_SHA256 = (
 ATTEMPT_ONE_LAST_OBSERVED_AT = "2026-09-17T23:11:01.134389+00:00"
 ATTEMPT_ONE_EVENT_COUNT = 188
 LINEAGE_V3_SCHEMA = "carry_paper_attempt_lineage_v3"
+ROOT_READER = "paper_journal_protocol_v1"
+PREDECESSOR_ROOT_STATUSES = ("available", "unavailable")
+# The public record of the fresh result-blind review (2026-09-27/28) that verified
+# the attempt-1 values above against its root while that root still existed.
+LINEAGE_RECORD_DOCUMENT = "docs/research/current-status.md"
+LINEAGE_RECORD_COMMIT = "b9f1ca65b26dcff7acbb089c7643e95702d474c9"
+# Verbatim chat statement (Japanese). It says: "I do not know that data. I also do not
+# know where the saved results are, so you may collect new data."
+# Two lines in the chat message, joined by a single newline (exact text supplied by
+# the planner from the chat of 2026-10-30).
+USER_STATEMENT_QUOTE = (
+    "そのデータはしらない。結果保存もどこにあるわからないから、\n新しくとっていいよ"
+)
+USER_STATEMENT_DATE = "2026-10-30"
+USER_STATEMENT_STATES = (
+    "attempt_1_data_location_unknown",
+    "attempt_1_result_storage_location_unknown",
+    "new_data_collection_permitted",
+)
+USER_STATEMENT_DOES_NOT_ATTEST = (
+    "predecessor_lineage_values",
+    "absence_of_an_earlier_attempt",
+)
+UNAVAILABLE_NOT_ESTABLISHED = (
+    "predecessor_protocol_digest",
+    "predecessor_final_tip",
+    "predecessor_observation_gap",
+    "absence_of_an_earlier_unreported_attempt",
+)
+UNAVAILABLE_REVIEW_RULE = (
+    "Attempt 1's evidence root is lost; its lineage rests on a prior recorded review "
+    "and was not re-verified against the root at seal time. The review that resolves "
+    "the preserved root cannot be performed. It is replaced, for this case only, by a "
+    "fresh result-blind review of the lineage documentation and the pull request that "
+    "introduced this rule. That replacement review cannot confirm the predecessor "
+    "protocol digest, final tip or observation gap, and it does not exclude an "
+    "earlier unreported attempt."
+)
+# Module-private capability for sealing lineage v3; ``attempt2`` is its only user.
+_ATTEMPT2_SEAL_TOKEN = object()
+
+
+def predecessor_verification() -> dict[str, Any]:
+    """What a successful v1 read of attempt 1's root proves; fixed by the constants."""
+    return {
+        "reader": ROOT_READER,
+        "event_count": ATTEMPT_ONE_EVENT_COUNT,
+        "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
+        "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
+        "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
+    }
+
+
+def canonical_root_record(status: str, root_path: str | None = None) -> dict[str, Any]:
+    """The only ``predecessor_root`` record each status may carry."""
+    if status == "available":
+        if not root_path:
+            raise ValueError("an available predecessor root records its path")
+        return {
+            "status": "available",
+            "verification": dict(predecessor_verification(), root_path=root_path),
+        }
+    if status == "unavailable":
+        return {
+            "status": "unavailable",
+            "re_verified_at_seal": False,
+            "lineage_source": {
+                "kind": "prior_result_blind_review_record",
+                "document": LINEAGE_RECORD_DOCUMENT,
+                "commit": LINEAGE_RECORD_COMMIT,
+            },
+            "user_statement": {
+                "quote": USER_STATEMENT_QUOTE,
+                "date": USER_STATEMENT_DATE,
+                "channel": "chat",
+                "states": list(USER_STATEMENT_STATES),
+                "does_not_attest": list(USER_STATEMENT_DOES_NOT_ATTEST),
+            },
+            "not_established": list(UNAVAILABLE_NOT_ESTABLISHED),
+            "review_rule": UNAVAILABLE_REVIEW_RULE,
+        }
+    raise ValueError("predecessor root status must be available or unavailable")
+
+
+def canonical_lineage(status: str, root_path: str | None = None) -> dict[str, Any]:
+    """The attempt-2 lineage v3 for a predecessor root status."""
+    return {
+        "schema": LINEAGE_V3_SCHEMA,
+        "attempt_number": 2,
+        "predecessor": {
+            "attempt_number": 1,
+            "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
+            "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
+            "disposition": "invalidated",
+            "reason_codes": ["observation_gap"],
+            "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
+        },
+        "predecessor_root": canonical_root_record(status, root_path),
+    }
+
+
+def require_seal_token(research_plan: object, token: object) -> None:
+    """Refuse to seal any research plan that carries a lineage v3 without the token."""
+    lineage = (
+        research_plan.get("attempt_lineage")
+        if isinstance(research_plan, dict)
+        else None
+    )
+    if (
+        isinstance(lineage, dict)
+        and lineage.get("schema") == LINEAGE_V3_SCHEMA
+        and token is not _ATTEMPT2_SEAL_TOKEN
+    ):
+        raise ValueError("attempt lineage v3 can only be sealed through attempt2")
 
 
 def read_predecessor_status(
@@ -110,6 +224,39 @@ def _is_available(lineage: object) -> bool:
     return isinstance(record, dict) and record.get("status") == "available"
 
 
+def lineage_problems(
+    lineage: object,
+    *,
+    read: Callable[..., dict[str, Any]] = read_predecessor_status,
+    reverify: bool = True,
+) -> list[str]:
+    """Reasons a lineage v3 is not one that a collector may enter.
+
+    Any v3 lineage must equal the canonical record for its status exactly
+    (``unavailable``), or the canonical record for its recorded root path
+    (``available``), and an ``available`` root must also re-verify when ``reverify``.
+    Lineages that are not v3 are not this module's business and return no reasons.
+    """
+    if not isinstance(lineage, dict) or lineage.get("schema") != LINEAGE_V3_SCHEMA:
+        return []
+    record = lineage.get("predecessor_root")
+    status = record.get("status") if isinstance(record, dict) else None
+    if status == "unavailable":
+        expected = canonical_lineage("unavailable")
+    elif status == "available":
+        proof = record.get("verification") if isinstance(record, dict) else None
+        path = proof.get("root_path") if isinstance(proof, dict) else None
+        if not isinstance(path, str) or not path:
+            return ["predecessor_root_path_not_recorded"]
+        expected = canonical_lineage("available", path)
+    else:
+        return ["lineage_v3_not_canonical"]
+    reasons = [] if lineage == expected else ["lineage_v3_not_canonical"]
+    if status == "available":
+        reasons += available_root_problems(lineage, read=read, reverify=reverify)
+    return reasons
+
+
 def journal_has_events(root: Path) -> bool:
     """Whether a collection root already holds a journal event (opened read-only)."""
     path = Path(root) / "journal.sqlite"
@@ -141,11 +288,13 @@ def collection_lineage_problems(
         return []
     lineage = research_plan.get("attempt_lineage")
     if not _is_available(lineage):
-        return []  # nothing to re-read; the clock and journal are not touched
+        # Nothing to re-read; the clock and journal are not touched. A v3
+        # ``unavailable`` record must still be the canonical one.
+        return lineage_problems(lineage)
     try:
         ran = journal_has_events(root)
     except sqlite3.Error:
         ran = False
-    return available_root_problems(
+    return lineage_problems(
         lineage, read=read, reverify=not (now() >= start_at and ran)
     )

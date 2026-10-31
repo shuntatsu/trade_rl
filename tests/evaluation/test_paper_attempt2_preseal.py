@@ -245,3 +245,124 @@ def test_predecessor_verification_fails_closed_on_a_hot_journal(tmp_path, monkey
         "predecessor_root_unreadable:OperationalError"
     ]
     assert listing(hot) == before
+
+
+# --------------------------- M1 (review 5720105406): the lowest sealing layer
+
+
+@pytest.mark.parametrize("status", ["available", "unavailable"])
+def test_seal_collection_refuses_a_v3_lineage_without_the_private_token(
+    tmp_path, status
+):
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    lineage = attempt2_lineage(status, "D:/old/root" if status == "available" else None)
+    plan = operations.screen_plan(attempt_lineage=lineage)
+    settings = PaperSettings(start_at=START, close_at=START + timedelta(days=90))
+    # No private token at all.
+    with pytest.raises(ValueError, match="only be sealed through attempt2"):
+        seal_collection(
+            tmp_path / "plain", settings=settings, research_plan=plan, clock=clock
+        )
+    for token in (None, True, object(), "attempt2"):
+        with pytest.raises(ValueError, match="only be sealed through attempt2"):
+            seal_collection(
+                tmp_path / "wrong",
+                settings=settings,
+                research_plan=plan,
+                attempt2_seal_token=token,
+                clock=clock,
+            )
+    assert not (tmp_path / "plain").exists() and not (tmp_path / "wrong").exists()
+
+
+def tampered_unavailable_plan():
+    lineage = attempt2_lineage("unavailable")
+    lineage["predecessor_root"]["user_statement"]["quote"] = "different words"
+    return dict(
+        operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable")),
+        attempt_lineage=lineage,
+    )
+
+
+def seal_raw(tmp_path, plan):
+    """Seal without any attempt2 precondition and without the private token."""
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.engine import PaperEngine
+    from trade_rl.evaluation.runs import build_candidate_run_provenance
+
+    return PaperEngine.initialize(
+        tmp_path / "attempt2",
+        settings=PaperSettings(start_at=START, close_at=START + timedelta(days=90)),
+        study=dict(
+            schema="paper_public_collection_v1",
+            created_at=(START - timedelta(hours=2)).isoformat(),
+            interval_seconds=60,
+            terminal_grace_seconds=180,
+            provenance=build_candidate_run_provenance(),
+            research_plan=plan,
+        ),
+    )
+
+
+def test_a_non_canonical_unavailable_protocol_is_refused_everywhere(tmp_path, capsys):
+    # Sealed through the lowest layer (PaperEngine.initialize), with no token.
+    digest = seal_raw(tmp_path, tampered_unavailable_plan())
+    forged = tmp_path / "attempt2"
+    before = listing(forged)
+    log = tmp_path / "child.log"
+    for arguments in (
+        ["run", "--root", str(forged), "--protocol-sha256", digest],
+        [
+            "supervise",
+            "--root",
+            str(forged),
+            "--protocol-sha256",
+            digest,
+            "--log-file",
+            str(log),
+        ],
+    ):
+        assert cli.main(arguments) == 2
+        error = json.loads(capsys.readouterr().err)["error"]
+        assert "lineage_v3_not_canonical" in error
+    with pytest.raises(ValueError, match="lineage_v3_not_canonical"):
+        with PaperCollector(forged, expected_protocol_sha256=digest):
+            pytest.fail("the collector must not open")
+    assert listing(forged) == before and not log.exists()
+    recorder = Recorder()
+    reasons = refusal_of(lambda **kw: launch(tmp_path, digest, recorder, **kw))
+    assert "protocol_not_attempt2_lineage" in reasons
+    assert recorder.calls == []
+
+
+def test_an_available_record_that_is_not_canonical_for_its_path_is_refused(tmp_path):
+    root = tmp_path / "attempt1-root"
+    root.mkdir()
+    lineage = attempt2_lineage("available", root)
+    lineage["predecessor"]["reason_codes"] = ["manual_abort"]
+    plan = dict(
+        operations.screen_plan(attempt_lineage=attempt2_lineage("available", root)),
+        attempt_lineage=lineage,
+    )
+    seal_raw(tmp_path, plan)
+    problems = predecessor.collection_lineage_problems(
+        plan,
+        root=tmp_path / "attempt2",
+        start_at=START,
+        now=lambda: START - timedelta(minutes=10),
+        read=FakeReader(),
+    )
+    assert problems == ["lineage_v3_not_canonical"]
+
+
+def test_a_canonical_unavailable_protocol_passes_the_collector_gate(tmp_path):
+    plan = operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable"))
+    seal_raw(tmp_path, plan)
+    assert (
+        predecessor.collection_lineage_problems(
+            plan, root=tmp_path / "attempt2", start_at=START, now=lambda: START
+        )
+        == []
+    )

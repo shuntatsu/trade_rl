@@ -1003,7 +1003,10 @@ profitability evidence was produced. The runbook is in
 2026-10-31: attempt 1's evidence root is lost; its lineage rests on a prior
 recorded review. The `funding-carry-forward-20260918` worktree is not on the
 collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
-2026-10-30 the user stated in chat, quoted verbatim: 「そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ」
+2026-10-30 the user stated in chat, quoted verbatim (two chat lines, joined by one
+newline in the sealed record):
+「そのデータはしらない。結果保存もどこにあるわからないから、
+新しくとっていいよ」
 (they do not know that data or where its results were saved, and new data may be
 collected). The attempt-1 protocol digest, final tip and last observation above were
 verified against the root by the 2026-09-27/28 result-blind review recorded earlier in

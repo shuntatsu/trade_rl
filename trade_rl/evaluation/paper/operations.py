@@ -13,31 +13,18 @@ from typing import Any, TypedDict
 
 from trade_rl._validation import require_aware_datetime
 from trade_rl.evaluation.paper.account import PaperAccount, PaperSettings, timestamp
+from trade_rl.evaluation.paper.predecessor import (
+    _ATTEMPT2_SEAL_TOKEN,
+    LINEAGE_V3_SCHEMA,
+    PREDECESSOR_ROOT_STATUSES,
+    ROOT_READER,
+    canonical_root_record,
+)
 from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.evaluation.paper.supervisor import PaperCollector, seal_collection
 
 _ATTEMPT_LINEAGE_SCHEMA = "carry_paper_attempt_lineage_v2"
-_ATTEMPT_LINEAGE_SCHEMA_V3 = "carry_paper_attempt_lineage_v3"
-PREDECESSOR_ROOT_STATUSES = ("available", "unavailable")
-# What an ``unavailable`` record must list as not established, and what the quoted
-# user statement does and does not cover. The validator requires exactly these.
-UNAVAILABLE_NOT_ESTABLISHED = (
-    "predecessor_protocol_digest",
-    "predecessor_final_tip",
-    "predecessor_observation_gap",
-    "absence_of_an_earlier_unreported_attempt",
-)
-USER_STATEMENT_STATES = (
-    "attempt_1_data_location_unknown",
-    "attempt_1_result_storage_location_unknown",
-    "new_data_collection_permitted",
-)
-USER_STATEMENT_DOES_NOT_ATTEST = (
-    "predecessor_lineage_values",
-    "absence_of_an_earlier_attempt",
-)
-# Module-private capability for sealing lineage v3; ``attempt2`` is its only user.
-_ATTEMPT2_SEAL_TOKEN = object()
+_ATTEMPT_LINEAGE_SCHEMA_V3 = LINEAGE_V3_SCHEMA
 STORAGE_PROBE_PLAN_SCHEMA = "carry_paper_storage_probe_v1"
 _ATTEMPT_DISPOSITIONS = {
     "invalidated",
@@ -73,7 +60,6 @@ REQUIRED_FILL_SYMBOL_INDICES = tuple(
 )
 
 
-_ROOT_READER = "paper_journal_protocol_v1"
 _SHA1_HEX = r"[0-9a-f]{40}"
 
 
@@ -105,7 +91,7 @@ def _validate_predecessor_root(
                 "last_observed_at",
                 "root_path",
             }
-            or proof["reader"] != _ROOT_READER
+            or proof["reader"] != ROOT_READER
             or not isinstance(proof["root_path"], str)
             or not proof["root_path"]
             or type(proof["event_count"]) is not int
@@ -142,13 +128,14 @@ def _validate_predecessor_root(
         or not statement["quote"]
         or not isinstance(statement["date"], str)
         or statement["channel"] != "chat"
-        or statement["states"] != list(USER_STATEMENT_STATES)
-        or statement["does_not_attest"] != list(USER_STATEMENT_DOES_NOT_ATTEST)
         or not isinstance(value["review_rule"], str)
         or not value["review_rule"]
-        or value["not_established"] != list(UNAVAILABLE_NOT_ESTABLISHED)
     ):
         raise ValueError("unavailable predecessor root record is invalid")
+    if value != canonical_root_record("unavailable"):
+        # The quote, states, limits, source and review rule are fixed text, not
+        # free-form: anything but the canonical record is refused.
+        raise ValueError("unavailable predecessor root record is not the canonical one")
     try:
         said = datetime.strptime(statement["date"], "%Y-%m-%d").date()
     except ValueError as error:
@@ -317,6 +304,7 @@ def seal_paper_study(
         root,
         settings=PaperSettings(start_at=start, close_at=start + timedelta(days=90)),
         research_plan=screen_plan(attempt_lineage=lineage),
+        attempt2_seal_token=attempt2_seal_token,
         clock=lambda: now,
     )
 

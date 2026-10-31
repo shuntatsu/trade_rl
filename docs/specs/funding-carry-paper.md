@@ -274,27 +274,38 @@ that new data may be collected. Attempt 2 therefore uses lineage
   events, final tip and last observation. The reader opens the database read-only
   (no hot-journal recovery), so a preserved root is not mutated; a root with a hot
   journal fails verification. The sealed protocol embeds that verification and the
-  root path, and a first `launch` (before the start) reads the root again and
-  refuses if it is gone or differs; a supervisor relaunch after the start does not
-  need the root. The generic collector path (`PaperCollector`, `cli run`,
-  `cli supervise`) applies the same re-read before the start or while the root has no
-  journal event yet, and refuses without writing a failure marker if it cannot
-  re-verify. Lineage v3 can only be sealed through `attempt2`: `seal_paper_study`
-  and `paper.cli seal` refuse a v3 lineage unless given a module-private token that
-  only `attempt2` holds (a caller contract, not authentication; the re-reads on
-  every path that starts collection are what make a forged `available` fail);
+  root path;
 * `unavailable` accepts no root path. The sealed protocol records that the lineage
   values are taken from the public 2026-09-27/28 result-blind review record
   (`docs/research/current-status.md`, commit
   `b9f1ca65b26dcff7acbb089c7643e95702d474c9`), that they were NOT re-verified
   against the root at seal time, and the user's chat statement (`user_statement`),
-  quoted verbatim with its date (2026-10-30). The statement covers only what the
-  user said: attempt 1's data and result-storage locations are unknown, and new data
-  may be collected; the record says it does not attest the predecessor lineage values
-  or the absence of an earlier attempt. A `not_established` list names the predecessor
-  protocol digest, final tip, observation gap, and the absence of an earlier
-  unreported attempt; the validator requires exactly these items. The disposition stays `invalidated` with reason
-  `observation_gap`.
+  quoted verbatim with its date (2026-10-30). The quote is the two chat lines
+  joined by one newline, and the record must equal the canonical record exactly.
+  The statement covers only what the user said: attempt 1's data and
+  result-storage locations are unknown, and new data may be collected; the record
+  says it does not attest the predecessor lineage values or the absence of an
+  earlier attempt. A `not_established` list names the predecessor protocol digest,
+  final tip, observation gap, and the absence of an earlier unreported attempt.
+  The disposition stays `invalidated` with reason `observation_gap`.
+
+Enforcement has three layers, and the last one is the one that cannot be bypassed:
+
+* `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse any research
+  plan with a lineage v3 unless given a module-private token that only `attempt2`
+  holds. This is a caller contract, not authentication: a deliberate caller can
+  still write any protocol with `PaperEngine.initialize`, and `attempt2`'s sealing
+  preconditions (authorization URL shape, start notice, checkout identity, free
+  space) are only enforced by `attempt2 seal` itself.
+* A first `attempt2 launch` re-reads an `available` root and refuses if it is gone
+  or differs; a supervisor relaunch after the start does not need the root.
+* The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
+  before taking the lock and without writing a failure marker, any v3 lineage that
+  is not the canonical record for its status: an `unavailable` record must equal
+  the canonical one, and an `available` record must equal the canonical one for its
+  recorded path and re-read that root before the start or while the root has no
+  journal event yet. A restart after the collector has recorded events does not
+  need the old root. This gate holds however the protocol was sealed.
 
 Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded
 review. The predecessor was not re-verified. For this case only, the runbook's
@@ -418,9 +429,10 @@ journal; measure it before relying on the margin.
 
 Attempt 2 is prepared offline but is neither sealed nor started. Attempt 1's root
 is never resumed, backfilled or edited (and, if it exists, is preserved evidence that
-is only ever opened read-only; see the lost-root rule above). `python -m trade_rl.evaluation.paper.attempt2` has three
-commands (`plan`, `seal`, `launch`) and `storage_probe` one more; each of which
-refuses unless `--authorization` is an Issue #810 comment URL
+is only ever opened read-only; see the lost-root rule above).
+`python -m trade_rl.evaluation.paper.attempt2` has three commands (`plan`, `seal`,
+`launch`) and `storage_probe` one more; each of which refuses unless
+`--authorization` is an Issue #810 comment URL
 (`https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>`). The URL
 shape is all that code can check, so a human must post the authorization comment
 first; nothing here proves the comment exists or says what it should say.
@@ -489,9 +501,9 @@ first; nothing here proves the comment exists or says what it should say.
    Use `--predecessor-root-status available --predecessor-root <ATTEMPT_1_ROOT>`
    only when the root exists and the v1 reader verifies it.
 
-   The draft binds the exact attempt-1 lineage and its root status, the fixed `carry_paper_screen_v2`
-   plan, the checkout commit, and the implementation and runtime digests, and lists
-   `seal_blockers`. The start must be at least five minutes after the wall clock.
+   The draft binds the exact attempt-1 lineage and its root status, the fixed
+   `carry_paper_screen_v2` plan, the checkout commit, and the implementation and
+   runtime digests, and lists `seal_blockers`. The start must be at least five minutes after the wall clock.
 4. Seal (offline) with the same arguments and `seal`. It refuses a missing or
    unknown predecessor-root status, `available` without a verifiable root,
    `unavailable` with a root path, a dirty or

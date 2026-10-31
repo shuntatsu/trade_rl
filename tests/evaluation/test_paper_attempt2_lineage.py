@@ -29,19 +29,21 @@ from tests.evaluation.test_paper_attempt2 import (  # noqa: F401  (autouse fixtu
 )
 from trade_rl.evaluation.paper import attempt2, operations, predecessor
 from trade_rl.evaluation.paper.attempt2 import (
-    ATTEMPT_ONE_FINAL_TIP_SHA256,
-    ATTEMPT_ONE_LAST_OBSERVED_AT,
-    ATTEMPT_ONE_PROTOCOL_SHA256,
     attempt2_lineage,
     launch_attempt2,
     seal_attempt2,
+)
+from trade_rl.evaluation.paper.predecessor import (
+    ATTEMPT_ONE_FINAL_TIP_SHA256,
+    ATTEMPT_ONE_LAST_OBSERVED_AT,
+    ATTEMPT_ONE_PROTOCOL_SHA256,
 )
 
 
 def v1_report(**overrides):
     """What `collection_status` returns for an intact attempt-1 root."""
     report = dict(
-        events=attempt2.ATTEMPT_ONE_EVENT_COUNT,
+        events=predecessor.ATTEMPT_ONE_EVENT_COUNT,
         tip=ATTEMPT_ONE_FINAL_TIP_SHA256,
         status=dict(observed_at=ATTEMPT_ONE_LAST_OBSERVED_AT),
     )
@@ -87,7 +89,7 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         "commit": "b9f1ca65b26dcff7acbb089c7643e95702d474c9",
     }
     assert record["user_statement"] == {
-        "quote": "そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ",
+        "quote": "そのデータはしらない。結果保存もどこにあるわからないから、\n新しくとっていいよ",
         "date": "2026-10-30",
         "channel": "chat",
         "states": [
@@ -101,6 +103,11 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         ],
     }
     assert "user_attestation" not in record
+    # The planner supplied the exact two-line text from the chat of 2026-10-30.
+    assert record["user_statement"]["quote"].split("\n") == [
+        "そのデータはしらない。結果保存もどこにあるわからないから、",
+        "新しくとっていいよ",
+    ]
     rule = record["review_rule"]
     assert "cannot confirm the predecessor" in rule
     assert "does not exclude an earlier unreported attempt" in rule
@@ -186,6 +193,14 @@ def test_a_hand_made_available_claim_without_matching_verification_is_invalid(mu
         lambda r: r.pop("user_statement"),
         lambda r: r.update(user_attestation=r.pop("user_statement")),
         lambda r: r["user_statement"].update(quote=""),
+        lambda r: r["user_statement"].update(
+            quote=r["user_statement"]["quote"].replace("\n", "")  # lines joined
+        ),
+        lambda r: r["user_statement"].update(quote="different words"),
+        lambda r: r["user_statement"].update(quote=r["user_statement"]["quote"] + " "),
+        lambda r: r["lineage_source"].update(document="docs/other.md"),
+        lambda r: r["lineage_source"].update(commit="0" * 40),
+        lambda r: r.update(review_rule="a different rule"),
         lambda r: r["user_statement"].update(date="2026-13-40"),
         lambda r: r["user_statement"].update(date="2999-01-01"),
         lambda r: r["user_statement"].update(states=["new_data_collection_permitted"]),
@@ -410,21 +425,18 @@ def test_launch_accepts_either_recorded_status(tmp_path):
             assert len(reader.calls) == 2  # once at seal, once re-read at launch
 
 
-def test_launch_refuses_a_tampered_unavailable_record(tmp_path):
+def test_the_validator_refuses_to_seal_a_tampered_unavailable_record(tmp_path):
     lineage = attempt2_lineage("unavailable")
     lineage["predecessor_root"]["user_statement"]["quote"] = "different words"
-    digest = operations.seal_paper_study(
-        tmp_path / "attempt2",
-        start_at=START,
-        attempt_lineage=lineage,
-        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
-        clock=clock,
-    )
-    recorder = Recorder()
-    assert refusal_of(lambda **kw: launch(tmp_path, digest, recorder, **kw)) == [
-        "protocol_not_attempt2_lineage"
-    ]
-    assert recorder.calls == []
+    with pytest.raises(ValueError, match="canonical|invalid"):
+        operations.seal_paper_study(
+            tmp_path / "attempt2",
+            start_at=START,
+            attempt_lineage=lineage,
+            attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+            clock=clock,
+        )
+    assert not (tmp_path / "attempt2").exists()
 
 
 # ------------------------------------------- v3 can only come from attempt2 (M1)

@@ -217,12 +217,15 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
-Lineage v3 is sealable only through `attempt2` (`seal_paper_study` and `cli seal`
-refuse it without a module-private token held by `attempt2`). `paper/predecessor.py`
-holds attempt 1's recorded identity and the read-only re-verification of a recorded
-predecessor root; `attempt2`, `PaperCollector`, `cli run` and `cli supervise` all
-use it, so a forged `available` record is refused on every path that starts
-collection. Among paper modules it imports only `account` at load time. These operations contain no production routing.
+`seal_collection`, `seal_paper_study` and `cli seal` refuse a lineage v3 research
+plan unless given a module-private token held by `attempt2` (a caller contract, not
+authentication). `paper/predecessor.py` holds attempt 1's recorded identity, the
+canonical lineage v3 records and the read-only re-verification of a recorded
+predecessor root. `attempt2`, `PaperCollector`, `cli run` and `cli supervise` all use
+it, and the collector refuses any v3 lineage that is not the canonical record
+(re-reading an `available` root first), whichever way it was sealed. Among paper
+modules it imports only `account` at load time. These operations contain no
+production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

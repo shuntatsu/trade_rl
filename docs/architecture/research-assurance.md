@@ -1310,10 +1310,14 @@ Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and le
 v2 valid and unchanged. `available` embeds the verification of a root that the
 existing v1 journal reader read read-only (protocol digest, event count, final tip,
 last observation, root path); `attempt2` cannot build it without a root path that
-passes that read. `seal_paper_study` and `paper.cli seal` refuse a v3 lineage unless
-given a module-private token that only `attempt2` holds (a caller contract, not
-authentication). A first `attempt2 launch`, `PaperCollector`, `cli run` and
-`cli supervise` each re-read the recorded root and refuse if it is gone or differs.
+passes that read. `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse a
+v3 lineage unless given a module-private token that only `attempt2` holds (a caller
+contract, not authentication). A first `attempt2 launch` re-reads the recorded root
+and refuses if it is gone or differs. The collector (`PaperCollector`, `cli run`,
+`cli supervise`) refuses any v3 lineage that is not the canonical record for its
+status, and re-reads an `available` root before the start or while the root has no
+journal event yet; once the collector has recorded events, a restart after the start
+does not need the old root (exactly like a supervisor relaunch in `launch`).
 `unavailable` is the honest case where the preserved root is lost: it records that the
 lineage values come from the prior public result-blind review record (document and
 commit), that they were not re-verified at seal time, the user's chat statement quoted

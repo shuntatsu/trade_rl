@@ -126,7 +126,7 @@ PRに独立レビューゲート（CI check: `Generic Independent Research Revie
    - 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
 
-Generic gateは `architecture/research-assurance.md` の `independent_model_review_v1` receiptを必須とする。authenticated GitHub review APIのactorとexact `commit_id`へbindされた同一accountの`COMMENTED`を、`APPROVED`と同じreceipt条件で受理する。receiptのmodel/task IDsは実harness構成と実review outputから取得し、publisherがattestする。CIは構造・digest・HEAD・宣言identityを検証するが、providerの実model weightsを暗号学的に証明しない。これはsoftware-only統合確認であり、G0-G3のsource-bound oracle、G4 economic execution、sealed PPO、unused/final、liveの個別authorizationを代替しない。4h PPO smokeの専用review/trigger契約は別に維持する。
+Generic gateは `architecture/research-assurance.md` の厳格な従来`independent_model_review_v1`または実在レビューを記録する軽量`software_source_review_v1`を受理する。後者は過去の実装Task IDを必須とせず、exact HEADに対する実際のread-onlyレビューのmodel、job ID、full diff hash、PASS/0 blocking、具体的reportを投稿者がattestする。GitHub review APIのactorとexact `commit_id`・SHA-256へbindされた同一accountの`COMMENTED`も受理し、古いSHAや不明IDを創作して承認としない。CIは記述した証拠の整合性を検査するが、provider実稼働・model weightsまで証明しない。これはsoftware-only統合確認に限り、G0–G5のsource-bound oracle、経済実行、sealed PPO、unused/final、liveの追加認可や4h PPO専用review契約は緩めない。
 
 ## 更新matrix
 

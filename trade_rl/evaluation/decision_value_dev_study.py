@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import shutil
 import tempfile
 import time
@@ -1313,8 +1314,11 @@ def _persist_incomplete_pair_attempt(
         # directory on POSIX. Atomic mkdir is the write-once ownership gate.
         destination.mkdir(exist_ok=False)
         try:
-            (stage / "incomplete-pairs.json").rename(
-                destination / "incomplete-pairs.json"
+            # Hard-link creation is O_EXCL-like for the destination file:
+            # even a writer racing *inside* our claimed directory cannot have
+            # their pre-existing evidence replaced by a file rename.
+            os.link(
+                stage / "incomplete-pairs.json", destination / "incomplete-pairs.json"
             )
         except OSError:
             # Best effort cleanup of our empty reservation. A failed receipt

@@ -362,3 +362,43 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
         )
     assert destination.is_dir()
     assert tuple(destination.iterdir()) == ()
+
+
+def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
+    tmp_path, monkeypatch
+) -> None:
+    """A competing file writer after our directory reservation must win safely."""
+    from pathlib import Path
+
+    from trade_rl.evaluation.decision_value_reachable_labels import (
+        IneligiblePairOutcome,
+    )
+
+    row = IneligiblePairOutcome(
+        intervention_index=1,
+        prefix_start_index=0,
+        terminal_index=7,
+        candidate_action=(1, 0),
+        reason_codes=("candidate_terminated",),
+        baseline={"terminal_marked_equity": "1000"},
+        candidate={"terminal_marked_equity": "900"},
+    )
+    error = study.IncompletePairedLabelsError("b1", (row,))
+    destination = tmp_path / "race-file"
+    real_mkdir = Path.mkdir
+
+    def concurrently_create_receipt(path: Path, *args, **kwargs):
+        result = real_mkdir(path, *args, **kwargs)
+        if path == destination:
+            (destination / "incomplete-pairs.json").write_text("other-writer")
+        return result
+
+    monkeypatch.setattr(Path, "mkdir", concurrently_create_receipt)
+    with pytest.raises(FileExistsError):
+        study._persist_incomplete_pair_attempt(
+            destination,
+            error,
+            dataset_id="1" * 64,
+            protocol_digest="f" * 64,
+        )
+    assert (destination / "incomplete-pairs.json").read_text() == "other-writer"

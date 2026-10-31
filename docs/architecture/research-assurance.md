@@ -1325,7 +1325,11 @@ tightens the earlier v2 rule, which accepted any successor with caller-asserted
 predecessor values), and the v3 label requires the type-strict canonical record, so a
 `predecessor_root` cannot ride under another label. These
 gates guard against accidental or non-canonical records through the supported entry
-points; they do not authenticate against a malicious local operator. Every
+points; they do not authenticate against a malicious local operator. In scope is
+crafted data through JSON files, the CLI and plain built-in Python values; out of scope
+are objects whose classes override dunder methods to deceive a check, monkeypatching,
+private internals, and editing code or sealed roots. The exact-type checks on
+containers and mapping keys are defence in depth, not a security boundary. Every
 `attempt2 launch` re-reads an `available` root, including a relaunch after start; a
 heartbeat never substitutes for an independently verified prior-root receipt. The
 collector (`PaperCollector`, `cli run`, `cli supervise`) re-reads an `available`

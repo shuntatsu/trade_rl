@@ -90,3 +90,91 @@ def test_plain_native_keys_remain_accepted_for_canonical_attempt_one():
         "predecessor": None,
     }
     assert predecessor.lineage_structure_problems(lineage) == []
+
+
+class LookalikeKey(str):
+    """Text "stat us" that compares equal to "status" (review L-e)."""
+
+    def __hash__(self) -> int:
+        return hash("status")
+
+    def __eq__(self, other: object) -> bool:
+        return other == "status"
+
+
+def _blind_lineage_plan():
+    """A plan whose *lineage* key (not the plan key) lies about its own text."""
+    return {
+        "schema": "carry_paper_screen_v2",
+        BlindKey("attempt_lineage"): attempt2_lineage("unavailable"),
+    }
+
+
+def test_blind_lineage_key_is_refused_at_initialize_and_seal_with_no_root(tmp_path):
+    plan = _blind_lineage_plan()
+    study = {"schema": "paper_public_collection_v1", "research_plan": plan}
+    for token in (None, operations._ATTEMPT2_SEAL_TOKEN):
+        with pytest.raises(ValueError, match="key|plain"):
+            PaperEngine.initialize(
+                tmp_path / "engine",
+                settings=_settings(),
+                study=study,
+                attempt2_seal_token=token,
+            )
+        with pytest.raises(ValueError, match="key|plain"):
+            seal_collection(
+                tmp_path / "seal",
+                settings=_settings(),
+                research_plan=plan,
+                attempt2_seal_token=token,
+                clock=clock,
+            )
+    assert not (tmp_path / "engine").exists() and not (tmp_path / "seal").exists()
+
+
+def test_require_seal_token_checks_keys_before_any_lookup():
+    with pytest.raises(ValueError, match="key|plain"):
+        predecessor.require_seal_token(_blind_lineage_plan(), None)
+
+
+def test_lookalike_key_text_that_equals_status_is_refused_not_sealed(tmp_path):
+    lineage = attempt2_lineage("unavailable")
+    record = lineage["predecessor_root"]
+    lineage["predecessor_root"] = {
+        (LookalikeKey("stat us") if key == "status" else key): value
+        for key, value in record.items()
+    }
+    assert predecessor.lineage_structure_problems(lineage) == [
+        "json_key_not_plain_string"
+    ]
+    with pytest.raises(ValueError, match="key|plain"):
+        seal_collection(
+            tmp_path / "seal",
+            settings=_settings(),
+            research_plan={"attempt_lineage": lineage},
+            attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+            clock=clock,
+        )
+    assert not (tmp_path / "seal").exists()
+
+
+def test_non_plain_keys_and_mappings_inside_lists_are_found():
+    assert predecessor.plain_json_key_problems({"a": [{"b": 1}, [{"c": 2}]]}) == []
+    assert predecessor.plain_json_key_problems({"a": [{BlindKey("b"): 1}]}) == [
+        "json_key_not_plain_string"
+    ]
+    assert predecessor.plain_json_key_problems({"a": ({"b": 1}, {1: 2})}) == [
+        "json_key_not_plain_string"
+    ]
+
+    class SubDict(dict):
+        pass
+
+    assert predecessor.plain_json_key_problems({"a": [SubDict(b=1)]}) == [
+        "json_mapping_not_plain_dict"
+    ]
+    # shared and self-referencing containers terminate
+    shared = {"x": 1}
+    cyclic: dict = {"a": shared, "b": shared}
+    cyclic["self"] = cyclic
+    assert predecessor.plain_json_key_problems(cyclic) == []

@@ -295,8 +295,21 @@ Threat model. These gates prevent accidental or non-canonical attempt-2 records
 from being sealed or run through the supported entry points (`attempt2`,
 `paper.cli`, `seal_paper_study`, `seal_collection`, `PaperEngine`, `PaperCollector`).
 They are not authentication against a malicious local operator, who can always edit
-code or files; no layer is claimed to be impossible to bypass. All gates use one
-shared classifier (`predecessor.lineage_structure_problems`):
+code or files; no layer is claimed to be impossible to bypass.
+
+Scope of these checks. In scope are crafted **data** passed through the supported
+entry points: JSON files, CLI arguments and plain built-in Python values (`dict`,
+`list`, `str`, `int`, `float`, `bool`, `None`) given to `attempt2`, `paper.cli`,
+`seal_paper_study`, `seal_collection`, `PaperCollector` and `PaperEngine`
+initialization or open. A bypass by such data is a defect. Out of scope are objects
+whose classes override dunder methods (`__eq__`, `__hash__`, `__getitem__`, `get`
+and so on) to deceive a check, monkeypatching, private internals, and editing code or
+sealed roots on disk: these are code-level manipulation by a local operator. The
+exact-type checks on containers and mapping keys (an exact `dict`, and `type(key) is
+str` at every level, before any lookup) are defence in depth, not a security
+boundary.
+
+All gates use one shared classifier (`predecessor.lineage_structure_problems`):
 
 * No lineage is allowed. Otherwise the lineage must be an exact `dict` with an exact
   `str` schema. **Every key** in the in-memory study, research plan and nested

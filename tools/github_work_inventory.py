@@ -150,6 +150,15 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
             if branch_tips.get(head_name) != head_sha:
                 raise RuntimeError(f"local PR head tip is absent or changed: #{number}")
             open_names.add(head_name)
+        # A forked or unavailable head is not comparable as a local branch tip.
+        # Unknown ancestry remains explicit; this inventory never permits cleanup.
+        relation_to_main = "not_checked"
+        if compare_prs:
+            relation_to_main = (
+                api.compare_head_to_main(head_sha, main_sha)
+                if head_name is not None
+                else "nonlocal_head_uncompared"
+            )
         pulls.append(
             {
                 "number": number,
@@ -157,11 +166,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
                 "head_ref": head_name,
                 "base": base_name,
                 "base_sha": base_sha,
-                "relation_to_main": (
-                    api.compare_head_to_main(head_sha, main_sha)
-                    if compare_prs
-                    else "not_checked"
-                ),
+                "relation_to_main": relation_to_main,
             }
         )
 

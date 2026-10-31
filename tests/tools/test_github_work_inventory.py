@@ -93,6 +93,23 @@ def test_compare_rejects_missing_or_conflicting_github_status() -> None:
         classify_ancestry({"status": "ahead", "ahead_by": 0, "behind_by": 10})
 
 
+def test_live_adapter_compare_uses_head_to_main_direction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+    requested: list[tuple[str, str]] = []
+
+    def fake_request(method: str, suffix: str) -> dict[str, object]:
+        requested.append((method, suffix))
+        return {"status": "behind", "ahead_by": 0, "behind_by": 13}
+
+    monkeypatch.setattr(api._reader, "_request_json", fake_request)
+    head_sha = "c" * 40
+    main_sha = "a" * 40
+    assert api.compare_head_to_main(head_sha, main_sha) == "main_in_head"
+    assert requested == [("GET", f"compare/{head_sha}...{main_sha}")]
+
+
 def test_unregistered_branch_is_never_deletion_authority() -> None:
     report = build_inventory(FakeWorkApi())  # type: ignore[arg-type]
     assert report["cleanup_authorized"] is False
@@ -127,6 +144,46 @@ def test_open_stacked_pr_refs_are_protected_and_ancestry_is_explicit() -> None:
     assert reasons["stack/base"] == "open_pr_ref"
     assert report["pull_requests"][0]["relation_to_main"] == "head_in_main"
     assert report["cleanup_authorized"] is False
+
+
+@pytest.mark.parametrize(
+    "head_repo",
+    [
+        pytest.param({"full_name": "someone/fork"}, id="foreign-fork"),
+        pytest.param(None, id="unavailable-head-repo"),
+    ],
+)
+def test_nonlocal_pr_ancestry_is_explicitly_uncompared(
+    monkeypatch: pytest.MonkeyPatch,
+    head_repo: dict[str, str] | None,
+) -> None:
+    api = FakeWorkApi()
+    api.pull_rows = [
+        {
+            "number": 123,
+            "head": {
+                "ref": "feature/fork",
+                "sha": "d" * 40,
+                "repo": head_repo,
+            },
+            "base": {
+                "ref": "main",
+                "sha": "a" * 40,
+                "repo": {"full_name": api.repository},
+            },
+        }
+    ]
+
+    def unexpected_compare(head_sha: str, main_sha: str) -> str:
+        raise AssertionError("nonlocal head cannot be compared as a local SHA")
+
+    monkeypatch.setattr(api, "compare_head_to_main", unexpected_compare)
+    report = build_inventory(api, compare_prs=True)  # type: ignore[arg-type]
+    pull = report["pull_requests"][0]
+    assert pull["head_ref"] is None
+    assert pull["relation_to_main"] == "nonlocal_head_uncompared"
+    assert report["cleanup_authorized"] is False
+    assert report["task_registry_complete"] is False
 
 
 def test_local_pr_head_must_match_branch_but_base_sha_can_be_old() -> None:

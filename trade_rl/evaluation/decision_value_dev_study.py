@@ -52,15 +52,18 @@ from trade_rl.evaluation.decision_value_plan import DecisionValueStudyPlan
 from trade_rl.evaluation.decision_value_reachable_labels import (
     IneligiblePairOutcome,
     ReachableLabelCollection,
+    ReferencePolicyFactory,
     collect_reachable_state_labels,
 )
 from trade_rl.evaluation.paired_portfolio_label import (
+    ReferenceVintage,
     build_synthetic_paired_label_batch,
 )
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
@@ -779,6 +782,7 @@ class DecisionValueBlockResult:
     feature_transform_digest: str
     covariate_shift: tuple[dict[str, object], ...]
     ineligible_pair_outcomes: tuple[dict[str, object], ...] = ()
+    eligible_pair_outcomes: tuple[dict[str, object], ...] = ()
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -805,6 +809,7 @@ class DecisionValueBlockResult:
             "ineligible_pair_outcomes": [
                 dict(r) for r in self.ineligible_pair_outcomes
             ],
+            "eligible_pair_outcomes": [dict(r) for r in self.eligible_pair_outcomes],
             "nonflat_branch_states": self.nonflat_branch_states,
             "skipped_branches_without_reference": (
                 self.skipped_branches_without_reference
@@ -1130,6 +1135,20 @@ def causal_b0_reference_provider(
     ):
         raise ValueError("reference raw source differs from replay source")
     cache: dict[int, tuple[RidgeForecastModel, MarketDataset]] = {}
+    # Bind the actual source and runtime that produced each reference teacher.
+    # Compute this once per provider, not for every paired candidate.
+    source_runtime_digest: str | None = None
+    if raw_dataset is not None:
+        provenance = build_candidate_run_provenance()
+        source_runtime_digest = content_digest(
+            {
+                "implementation_digest": provenance["implementation_digest"],
+                "runtime_environment_digest": provenance["runtime_environment_digest"],
+                "dataset_id": raw_dataset.dataset_id,
+                "source_normalization_digest": raw_dataset.normalization_digest,
+                "feature_config_digest": raw_dataset.feature_config_digest,
+            }
+        )
 
     def provider(_t: int, start: int) -> Callable[[], PortfolioPolicy] | None:
         minimum = max(min_fit_bars, 2) if raw_dataset is not None else min_fit_bars
@@ -1173,7 +1192,36 @@ def causal_b0_reference_provider(
                 ),
             )
 
-        return factory
+        if raw_dataset is None:
+            return factory  # legacy reference contract is unchanged
+        assert source_runtime_digest is not None
+        model_digest = content_digest(
+            {
+                "schema": "decision_value_b0_reference_model_v1",
+                "fit_cutoff_ns": int(model.fit_cutoff.astype(np.int64)),
+                "feature_indices": list(model.feature_indices),
+                "feature_mean": model.feature_mean.tolist(),
+                "feature_scale": model.feature_scale.tolist(),
+                "coefficients": model.coefficients.tolist(),
+                "intercept": model.intercept,
+                "horizon_hours": model.horizon_hours,
+                "alpha": model.alpha,
+                "n_samples": model.n_samples,
+                "entry_threshold": entry_threshold,
+                "exit_threshold": exit_threshold,
+                "one_way_switch_cost": one_way_switch_cost,
+                "target_abs_weights": list(target_abs_weights),
+            }
+        )
+        vintage = ReferenceVintage(
+            source_dataset_id=dataset.dataset_id,
+            prefix_start_index=start,
+            fit_cutoff_ns=int(model.fit_cutoff.astype(np.int64)),
+            normalization_digest=vintage_view.normalization_digest,
+            model_digest=model_digest,
+            source_runtime_digest=source_runtime_digest,
+        )
+        return ReferencePolicyFactory(factory, vintage)
 
     return provider
 
@@ -1278,6 +1326,10 @@ def _require_complete_reachable_labels(
         raise ValueError("incomplete paired-label evidence count mismatch")
     if collection.ineligible_outcomes:
         raise IncompletePairedLabelsError(block_id, collection.ineligible_outcomes)
+    if collection.samples and len(collection.eligible_pair_outcomes) != len(
+        collection.samples
+    ):
+        raise ValueError("TD8 eligible paired evidence count mismatch")
 
 
 def _persist_incomplete_pair_attempt(
@@ -1345,6 +1397,7 @@ class _BlockTraining:
     b1c_dof: tuple[float, ...]
     margins: dict[str, MarginSelection]
     ineligible_pair_outcomes: tuple[dict[str, object], ...]
+    eligible_pair_outcomes: tuple[dict[str, object], ...]
 
 
 def _train_block(
@@ -1429,6 +1482,7 @@ def _train_block(
         risk_config=protocol.risk_config,
         fit_cutoff=fit_cutoff,
         source_scope=protocol.study_plan.data_scope,
+        require_reference_vintage=True,
     )
     _require_complete_reachable_labels(collection, block_id=block.block_id)
     if not collection.samples:
@@ -1493,6 +1547,7 @@ def _train_block(
         ineligible_pair_outcomes=tuple(
             record.to_mapping() for record in collection.ineligible_outcomes
         ),
+        eligible_pair_outcomes=collection.eligible_pair_outcomes,
     )
 
 
@@ -1944,6 +1999,7 @@ def run_decision_value_dev_study(
                 distinct_decision_times=distinct_times,
                 ineligible_pairs=ineligible_pairs,
                 ineligible_pair_outcomes=training.ineligible_pair_outcomes,
+                eligible_pair_outcomes=training.eligible_pair_outcomes,
                 nonflat_branch_states=nonflat_states,
                 skipped_branches_without_reference=skipped_branches,
                 feature_transform_digest=transform_digest,

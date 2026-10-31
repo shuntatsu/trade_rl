@@ -31,17 +31,22 @@ Losing and zero eligible increments are kept, never fabricated.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.decision_value_ledger_oracle import (
     verify_paired_economic_ledger,
 )
-from trade_rl.evaluation.paired_portfolio_action import run_paired_portfolio_action
+from trade_rl.evaluation.paired_portfolio_action import (
+    PairedPortfolioActionResult,
+    run_paired_portfolio_action,
+)
 from trade_rl.evaluation.paired_portfolio_label import (
+    ReferenceVintage,
     SyntheticPairedLabel,
     build_synthetic_paired_label,
 )
@@ -50,6 +55,17 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.accounting import EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.portfolio import PortfolioPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class ReferencePolicyFactory:
+    """Fresh reference instances with content-addressed teacher vintage."""
+
+    build: Callable[[], PortfolioPolicy]
+    vintage: ReferenceVintage
+
+    def __call__(self) -> PortfolioPolicy:
+        return self.build()
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +83,10 @@ class IneligiblePairOutcome:
     reason_codes: tuple[str, ...]
     baseline: dict[str, object]
     candidate: dict[str, object]
+    reference_vintage: ReferenceVintage | None = None
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "schema": "decision_value_ineligible_pair_v1",
             "intervention_index": self.intervention_index,
             "prefix_start_index": self.prefix_start_index,
@@ -80,6 +97,9 @@ class IneligiblePairOutcome:
             "candidate": dict(self.candidate),
             "admissible_for_fit": False,
         }
+        if self.reference_vintage is not None:
+            value["reference_vintage"] = self.reference_vintage.to_mapping()
+        return value
 
 
 def _ineligible_arm_endpoint(
@@ -147,6 +167,79 @@ def _ineligible_arm_endpoint(
     return record, problems
 
 
+def _eligible_pair_evidence(
+    pair: PairedPortfolioActionResult,
+    label: SyntheticPairedLabel,
+    *,
+    vintage: ReferenceVintage,
+    reference_policy_digest: str,
+    prefix_start_index: int,
+    initial_capital: float,
+) -> dict[str, object]:
+    """Persist both native endpoints and a common pre-intervention ledger root.
+
+    The full ledgers can be regenerated and checked against their digests. This
+    compact record preserves actual losses and native outcomes rather than
+    replacing them with a signed label alone.
+    """
+    stop = pair.baseline_result.ledger_evidence
+    if stop is None:
+        raise ValueError("eligible paired replay lacks native ledger evidence")
+    terminal = stop.intervals.stop_index
+    expected = terminal - prefix_start_index
+    endpoints: list[dict[str, object]] = []
+    prefix_digests: list[str] = []
+    for arm, result in (
+        ("baseline", pair.baseline_result),
+        ("candidate", pair.candidate_result),
+    ):
+        endpoint, problems = _ineligible_arm_endpoint(
+            result,
+            expected_intervals=expected,
+            arm=arm,
+            initial_capital=initial_capital,
+        )
+        if problems:
+            raise ValueError("eligible paired evidence contains an invalid endpoint")
+        ledger = result.ledger_evidence
+        assert ledger is not None
+        mapping = ledger.to_mapping()
+        interval_rows = mapping["intervals"]
+        assert isinstance(interval_rows, (tuple, list))
+        prefix = interval_rows[: pair.intervention_index - prefix_start_index]
+        prefix_digests.append(content_digest(prefix))
+        endpoint["ledger_digest"] = content_digest(mapping)
+        endpoints.append(endpoint)
+    if prefix_digests[0] != prefix_digests[1]:
+        raise ValueError("paired native prefix ledgers diverged before intervention")
+    prefix_identity = content_digest(
+        {
+            "dataset_id": label.dataset_id,
+            "prefix_start_index": prefix_start_index,
+            "intervention_index": pair.intervention_index,
+            "native_prefix_digest": prefix_digests[0],
+            "reference_vintage_digest": vintage.vintage_digest,
+        }
+    )
+    payload: dict[str, object] = {
+        "schema": "decision_value_eligible_pair_evidence_v1",
+        "dataset_id": label.dataset_id,
+        "prefix_start_index": prefix_start_index,
+        "prefix_identity_digest": prefix_identity,
+        "intervention_index": pair.intervention_index,
+        "decision_time_ns": label.decision_time_ns,
+        "terminal_index": terminal,
+        "candidate_action": list(label.candidate_action),
+        "baseline_action": list(label.baseline_action),
+        "reference_policy_digest": reference_policy_digest,
+        "reference_vintage": vintage.to_mapping(),
+        "label_delta": label.label_delta,
+        "baseline": endpoints[0],
+        "candidate": endpoints[1],
+    }
+    return {**payload, "evidence_digest": content_digest(payload)}
+
+
 @dataclass(frozen=True, slots=True)
 class ReachableLabelCollection:
     """Labels plus the accounting needed to audit the training population."""
@@ -158,6 +251,7 @@ class ReachableLabelCollection:
     nonflat_branch_states: int
     skipped_branches_without_reference: int
     ineligible_outcomes: tuple[IneligiblePairOutcome, ...]
+    eligible_pair_outcomes: tuple[dict[str, object], ...] = ()
 
 
 def collect_reachable_state_labels(
@@ -178,6 +272,7 @@ def collect_reachable_state_labels(
     risk_config: PreTradeRiskConfig,
     fit_cutoff: np.datetime64,
     source_scope: str,
+    require_reference_vintage: bool = False,
 ) -> ReachableLabelCollection:
     """Collect one HOLD-relative native label per (branch time, candidate)."""
     if type(branch_indices) is not tuple or not branch_indices:
@@ -191,6 +286,7 @@ def collect_reachable_state_labels(
     baseline_action = candidate_actions[0]
     samples: list[SyntheticPairedLabel] = []
     invalid_outcomes: list[IneligiblePairOutcome] = []
+    eligible_outcomes: list[dict[str, object]] = []
     windows: list[tuple[int, int, int]] = []
     runs = 0
     ineligible = 0
@@ -205,6 +301,19 @@ def collect_reachable_state_labels(
         if factory is None:
             skipped += 1
             continue
+        vintage = (
+            factory.vintage if isinstance(factory, ReferencePolicyFactory) else None
+        )
+        if require_reference_vintage and vintage is None:
+            raise ValueError(
+                "TD8 reference vintage must be bound to its policy factory"
+            )
+        if vintage is not None and (
+            vintage.source_dataset_id != dataset.dataset_id
+            or vintage.prefix_start_index != start
+            or vintage.fit_cutoff_ns > int(dataset.timestamps[start].astype(np.int64))
+        ):
+            raise ValueError("reference vintage/source/prefix identity mismatch")
         windows.append((t, start, stop))
         branch_counted = False
         for candidate in candidate_actions[1:]:
@@ -253,6 +362,7 @@ def collect_reachable_state_labels(
                         reason_codes=tuple(problems or ("invalid_endpoint",)),
                         baseline=baseline,
                         candidate=candidate_endpoint,
+                        reference_vintage=vintage,
                     )
                 )
                 ineligible += 1
@@ -271,23 +381,38 @@ def collect_reachable_state_labels(
                 for arm in (pair.baseline_result, pair.candidate_result)
             ):
                 raise ValueError("TD8 independent training ledger accounting failed")
-            samples.append(
-                build_synthetic_paired_label(
-                    dataset,
-                    pair,
-                    baseline_action=baseline_action,
-                    candidate_action=candidate,
-                    target_abs_weights=target_abs_weights,
-                    reference_policy_digest=reference_policy_digest,
-                    expected_execution_policy_digest=(
-                        execution_cost.execution_policy_digest
-                    ),
-                    observation_record_available_at=dataset.timestamps[t],
-                    settlement_record_available_at=dataset.timestamps[stop],
-                    fit_cutoff=fit_cutoff,
-                    source_scope=source_scope,
-                )
+            label = build_synthetic_paired_label(
+                dataset,
+                pair,
+                baseline_action=baseline_action,
+                candidate_action=candidate,
+                target_abs_weights=target_abs_weights,
+                reference_policy_digest=reference_policy_digest,
+                expected_execution_policy_digest=(
+                    execution_cost.execution_policy_digest
+                ),
+                observation_record_available_at=dataset.timestamps[t],
+                settlement_record_available_at=dataset.timestamps[stop],
+                fit_cutoff=fit_cutoff,
+                source_scope=source_scope,
             )
+            if vintage is not None:
+                evidence = _eligible_pair_evidence(
+                    pair,
+                    label,
+                    vintage=vintage,
+                    reference_policy_digest=reference_policy_digest,
+                    prefix_start_index=start,
+                    initial_capital=initial_capital,
+                )
+                label = replace(
+                    label,
+                    reference_vintage=vintage,
+                    pair_evidence_digest=str(evidence["evidence_digest"]),
+                    pair_evidence=evidence,
+                )
+                eligible_outcomes.append(evidence)
+            samples.append(label)
     return ReachableLabelCollection(
         samples=tuple(samples),
         branch_windows=tuple(windows),
@@ -296,11 +421,13 @@ def collect_reachable_state_labels(
         nonflat_branch_states=nonflat,
         skipped_branches_without_reference=skipped,
         ineligible_outcomes=tuple(invalid_outcomes),
+        eligible_pair_outcomes=tuple(eligible_outcomes),
     )
 
 
 __all__ = [
     "IneligiblePairOutcome",
+    "ReferencePolicyFactory",
     "ReachableLabelCollection",
     "collect_reachable_state_labels",
 ]

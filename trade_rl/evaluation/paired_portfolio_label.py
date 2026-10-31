@@ -12,6 +12,7 @@ from numbers import Real
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.paired_portfolio_action import PairedPortfolioActionResult
@@ -23,6 +24,53 @@ from trade_rl.strategies.portfolio_policy_codec import (
 )
 
 _ALLOWED_SOURCE_SCOPES = ("synthetic_only", "real_development")
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceVintage:
+    """The actual source-bound B0 teacher used before one native pair prefix.
+
+    A block-wide policy recipe digest alone cannot attest which refitted
+    normalizer and model generated an individual TD8 training label.
+    """
+
+    source_dataset_id: str
+    prefix_start_index: int
+    fit_cutoff_ns: int
+    normalization_digest: str
+    model_digest: str
+    source_runtime_digest: str
+
+    def __post_init__(self) -> None:
+        for field in (
+            "source_dataset_id",
+            "normalization_digest",
+            "model_digest",
+            "source_runtime_digest",
+        ):
+            _digest(getattr(self, field), field=field)
+        if type(self.prefix_start_index) is not int or self.prefix_start_index < 0:
+            raise ValueError("reference prefix start must be a native index")
+        if type(self.fit_cutoff_ns) is not int:
+            raise ValueError("reference fit cutoff must be an integer nanosecond time")
+
+    @property
+    def vintage_digest(self) -> str:
+        return content_digest(self._identity())
+
+    def _identity(self) -> dict[str, object]:
+        return {
+            "schema": "decision_value_reference_vintage_v1",
+            "source_dataset_id": self.source_dataset_id,
+            "prefix_start_index": self.prefix_start_index,
+            "fit_cutoff_ns": self.fit_cutoff_ns,
+            "normalization_digest": self.normalization_digest,
+            "model_digest": self.model_digest,
+            "source_runtime_digest": self.source_runtime_digest,
+        }
+
+    def to_mapping(self) -> dict[str, object]:
+        return {**self._identity(), "vintage_digest": self.vintage_digest}
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +97,9 @@ class SyntheticPairedLabel:
     label_first_available_ns: int
     fit_cutoff_ns: int
     label_delta: float
+    reference_vintage: ReferenceVintage | None = None
+    pair_evidence_digest: str | None = None
+    pair_evidence: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,6 +410,66 @@ def build_synthetic_paired_label(
     )
 
 
+def _validate_sample_pair_evidence(sample: SyntheticPairedLabel) -> None:
+    """A source-bound TD8 sample cannot swap teacher or financial evidence."""
+    vintage = sample.reference_vintage
+    receipt = sample.pair_evidence
+    digest = sample.pair_evidence_digest
+    if vintage is None and receipt is None and digest is None:
+        return  # The historical general-purpose v1 label has no TD8 evidence.
+    if (
+        not isinstance(vintage, ReferenceVintage)
+        or type(receipt) is not dict
+        or type(digest) is not str
+        or digest
+        != content_digest({k: v for k, v in receipt.items() if k != "evidence_digest"})
+        or receipt.get("evidence_digest") != digest
+        or receipt.get("schema") != "decision_value_eligible_pair_evidence_v1"
+        or receipt.get("reference_vintage") != vintage.to_mapping()
+        or receipt.get("reference_policy_digest") != sample.reference_policy_digest
+        or receipt.get("dataset_id") != sample.dataset_id
+        or receipt.get("decision_time_ns") != sample.decision_time_ns
+        or receipt.get("candidate_action") != list(sample.candidate_action)
+        or receipt.get("baseline_action") != list(sample.baseline_action)
+        or receipt.get("label_delta") != sample.label_delta
+        or vintage.source_dataset_id != sample.dataset_id
+        or not vintage.fit_cutoff_ns < sample.decision_time_ns
+    ):
+        raise ValueError(
+            "sample reference vintage or paired evidence identity mismatch"
+        )
+    for arm in ("baseline", "candidate"):
+        record = receipt.get(arm)
+        if (
+            type(record) is not dict
+            or record.get("settled_label_eligible") is not True
+            or not isinstance(record.get("ledger_digest"), str)
+        ):
+            raise ValueError("sample paired evidence native branch is invalid")
+        _digest(record["ledger_digest"], field=f"{arm} ledger digest")
+    prefix_digest = receipt.get("prefix_identity_digest")
+    if not isinstance(prefix_digest, str):
+        raise ValueError("sample prefix identity digest is missing")
+    _digest(prefix_digest, field="prefix identity digest")
+    try:
+        base = receipt["baseline"]
+        candidate = receipt["candidate"]
+        assert isinstance(base, dict) and isinstance(candidate, dict)
+        capital = float(base["initial_capital"])
+        native_delta = (
+            float(candidate["terminal_marked_equity"])
+            - float(base["terminal_marked_equity"])
+        ) / capital
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as error:
+        raise ValueError(
+            "sample paired evidence lacks comparable native outcomes"
+        ) from error
+    if not math.isfinite(native_delta) or not math.isclose(
+        native_delta, sample.label_delta, abs_tol=1e-9, rel_tol=0.0
+    ):
+        raise ValueError("sample label differs from both native branch outcomes")
+
+
 def build_synthetic_paired_label_batch(
     samples: tuple[SyntheticPairedLabel, ...],
     *,
@@ -397,6 +508,7 @@ def build_synthetic_paired_label_batch(
     for sample in samples:
         if not isinstance(sample, SyntheticPairedLabel):
             raise TypeError("samples must contain SyntheticPairedLabel rows")
+        _validate_sample_pair_evidence(sample)
         if sample.source_scope != first.source_scope:
             raise ValueError(
                 "only synthetic or real_development paired labels with matching source_scope may be batched"

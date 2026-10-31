@@ -301,8 +301,9 @@ shared classifier (`predecessor.lineage_structure_problems`):
 * No lineage is allowed. Otherwise the lineage must be an exact `dict` with an exact
   `str` schema. The v2 label requires exactly the v2 key set, so a
   `predecessor_root` (or any other v3-only field) cannot ride under it, and only
-  attempt 1 may use it: `attempt_number` >= 2 under the v2 label is refused at every
-  gate. This tightens a pre-existing v2 rule (v2 used to accept any successor with
+  attempt 1 may use it: its `attempt_number` must be the exact integer `1` and
+  `predecessor` must be null. Float/boolean/subclassed or larger/smaller numbers
+  are refused at every gate. This tightens a pre-existing v2 rule (v2 used to accept any successor with
   caller-asserted predecessor values); attempt 2 now has exactly the canonical v3
   record, and a later attempt needs a new, reviewed lineage version. The v3 label
   requires the type-strict canonical record for its status (`available`: for its

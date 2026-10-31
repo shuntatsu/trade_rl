@@ -318,11 +318,10 @@ def lineage_structure_problems(lineage: object) -> list[str]:
         if set(lineage) != _V2_KEYS:
             return ["lineage_v2_unexpected_fields"]
         number = lineage.get("attempt_number")
-        if type(number) is int and number >= 2:
-            # Pre-existing v2 rule, tightened: v2 asserts predecessor values the
-            # caller supplies, so only attempt 1 (no predecessor) may use the v2
-            # label. Attempt 2 and later must use the canonical v3 record.
+        if type(number) is not int or number != 1:
             return ["lineage_v2_attempt_requires_v3"]
+        if lineage.get("predecessor") is not None:
+            return ["lineage_v2_first_attempt_has_predecessor"]
         return []
     if type(schema) is not str or schema != LINEAGE_V3_SCHEMA:
         return ["lineage_schema_unsupported"]

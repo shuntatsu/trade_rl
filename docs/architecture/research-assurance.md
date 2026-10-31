@@ -1315,7 +1315,9 @@ v3 lineage unless given a module-private token that only `attempt2` holds (a cal
 contract, not authentication). One shared classifier decides every lineage at every
 supported entry point (`seal_collection`, `seal_paper_study`, `paper.cli seal`,
 `PaperEngine` initialization and opening, `validate_attempt_lineage`, the collector):
-the v2 label requires exactly the v2 key set and is accepted only for attempt 1 (this
+the v2 label requires exactly the v2 key set, exact integer attempt number `1`
+and null predecessor (float/boolean/int subclass values are refused); it is accepted
+only for attempt 1 (this
 tightens the earlier v2 rule, which accepted any successor with caller-asserted
 predecessor values), and the v3 label requires the type-strict canonical record, so a
 `predecessor_root` cannot ride under another label. These

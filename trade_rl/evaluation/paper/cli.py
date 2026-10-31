@@ -26,6 +26,7 @@ from trade_rl.evaluation.paper.predecessor import (
     ProtocolFormatError,
     collection_lineage_problems,
     load_canonical_protocol,
+    loads_without_duplicate_keys,
 )
 from trade_rl.evaluation.paper.supervisor import PaperCollector
 from trade_rl.evaluation.paper.watchdog import (
@@ -127,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             lineage_path = args.attempt_lineage_json
             if lineage_path.is_symlink() or not lineage_path.is_file():
                 raise ValueError("attempt lineage must be a regular JSON file")
-            attempt_lineage = json.loads(lineage_path.read_bytes())
+            attempt_lineage = loads_without_duplicate_keys(lineage_path.read_bytes())
             digest = seal_paper_study(
                 args.root,
                 start_at=args.start_at,

@@ -365,8 +365,19 @@ def test_unfinished_workflow_statuses_all_protect_branch_refs(
     assert seen_statuses == ["requested", "waiting", "pending", "queued", "in_progress"]
 
 
+@pytest.mark.parametrize(
+    "head_branch_fields",
+    [
+        pytest.param({}, id="missing"),
+        pytest.param({"head_branch": None}, id="null"),
+        pytest.param({"head_branch": ""}, id="empty"),
+        pytest.param({"head_branch": " \t "}, id="whitespace-only"),
+        pytest.param({"head_branch": 7}, id="invalid-type"),
+    ],
+)
 def test_unfinished_workflow_without_branch_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
+    head_branch_fields: dict[str, object],
 ) -> None:
     from tools.branch_hygiene import GitHubApi
 
@@ -385,7 +396,7 @@ def test_unfinished_workflow_without_branch_fails_closed(
         return {
             "total_count": 1,
             "workflow_runs": [
-                {"id": 1, "status": query["status"], "head_branch": None}
+                {"id": 1, "status": query["status"], **head_branch_fields}
             ],
         }
 
@@ -394,8 +405,14 @@ def test_unfinished_workflow_without_branch_fails_closed(
         api.active_workflow_branch_names()
 
 
+@pytest.mark.parametrize(
+    ("count", "should_raise"),
+    [(999, False), (1000, True), (1001, True)],
+)
 def test_unfinished_workflow_search_limit_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
+    count: int,
+    should_raise: bool,
 ) -> None:
     from tools.branch_hygiene import GitHubApi
 
@@ -410,11 +427,28 @@ def test_unfinished_workflow_search_limit_fails_closed(
     ) -> dict[str, object]:
         assert method == "GET"
         assert suffix == "actions/runs"
-        return {"total_count": 1000, "workflow_runs": []}
+        assert query is not None
+        if query["status"] != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        start = (page - 1) * 100 + 1
+        end = min(page * 100, count) + 1
+        return {
+            "total_count": count,
+            "workflow_runs": [
+                {"id": i, "status": "requested", "head_branch": f"task/{i}"}
+                for i in range(start, end)
+            ],
+        }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
-    with pytest.raises(RuntimeError, match="1000-result limit"):
-        api.active_workflow_branch_names()
+    if should_raise:
+        with pytest.raises(RuntimeError, match="1000-result limit"):
+            api.active_workflow_branch_names()
+    else:
+        assert api.active_workflow_branch_names() == frozenset(
+            f"task/{i}" for i in range(1, count + 1)
+        )
 
 
 def test_unfinished_workflow_missing_result_count_fails_closed(
@@ -572,6 +606,53 @@ def test_unfinished_workflow_exact_final_page_is_accepted(
     assert api.active_workflow_branch_names() == frozenset(
         f"task/{i}" for i in range(1, 102)
     )
+
+
+def test_unfinished_workflow_multiple_status_pages_are_all_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+    statuses = ("requested", "waiting", "pending", "queued", "in_progress")
+    observed_requests: list[tuple[str, int]] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        assert query["per_page"] == "100"
+        status = query["status"]
+        page = int(query["page"])
+        observed_requests.append((status, page))
+        assert status in statuses
+        assert page in (1, 2)
+        ids = range(1, 101) if page == 1 else range(101, 102)
+        return {
+            "total_count": 101,
+            "workflow_runs": [
+                {
+                    "id": statuses.index(status) * 1000 + i,
+                    "status": status,
+                    "head_branch": f"{status}/task/{i}",
+                }
+                for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    assert api.active_workflow_branch_names() == frozenset(
+        f"{status}/task/{i}" for status in statuses for i in range(1, 102)
+    )
+    assert observed_requests == [
+        (status, page) for status in statuses for page in (1, 2)
+    ]
 
 
 def test_dry_run_summary_does_not_claim_archival_or_grace_as_anchor() -> None:

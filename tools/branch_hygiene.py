@@ -245,7 +245,7 @@ class GitHubApi:
                             "workflow run status differs from requested status"
                         )
                     head_branch = run.get("head_branch")
-                    if not isinstance(head_branch, str) or not head_branch:
+                    if not isinstance(head_branch, str) or not head_branch.strip():
                         raise RuntimeError(
                             "unfinished workflow run is missing its head_branch"
                         )

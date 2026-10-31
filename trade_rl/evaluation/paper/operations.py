@@ -18,6 +18,7 @@ from trade_rl.evaluation.paper.predecessor import (
     LINEAGE_V3_SCHEMA,
     PREDECESSOR_ROOT_STATUSES,
     ROOT_READER,
+    _same_canonical_record,
     canonical_root_record,
 )
 from trade_rl.evaluation.paper.store import PaperJournal
@@ -132,7 +133,7 @@ def _validate_predecessor_root(
         or not value["review_rule"]
     ):
         raise ValueError("unavailable predecessor root record is invalid")
-    if value != canonical_root_record("unavailable"):
+    if not _same_canonical_record(value, canonical_root_record("unavailable")):
         # The quote, states, limits, source and review rule are fixed text, not
         # free-form: anything but the canonical record is refused.
         raise ValueError("unavailable predecessor root record is not the canonical one")

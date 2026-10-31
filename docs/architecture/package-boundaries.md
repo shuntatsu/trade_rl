@@ -110,7 +110,10 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
+    ├── paper/
+    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py}
+    │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
+    │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/

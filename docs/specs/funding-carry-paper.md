@@ -297,15 +297,17 @@ Enforcement has three layers, and the last one is the one that cannot be bypasse
   still write any protocol with `PaperEngine.initialize`, and `attempt2`'s sealing
   preconditions (authorization URL shape, start notice, checkout identity, free
   space) are only enforced by `attempt2 seal` itself.
-* A first `attempt2 launch` re-reads an `available` root and refuses if it is gone
-  or differs; a supervisor relaunch after the start does not need the root.
+* Every `attempt2 launch`, including supervisor relaunch after the start,
+  re-reads an `available` root and refuses if it is missing or differs. A gap
+  event or heartbeat does not prove an earlier valid predecessor-root read.
 * The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
   before taking the lock and without writing a failure marker, any v3 lineage that
   is not the canonical record for its status: an `unavailable` record must equal
   the canonical one, and an `available` record must equal the canonical one for its
-  recorded path and re-read that root before the start or while the root has no
-  journal event yet. A restart after the collector has recorded events does not
-  need the old root. This gate holds however the protocol was sealed.
+  recorded path and re-read that root on **every** collector entry, including
+  restarts after the first journal event. An unavailable old root stops the
+  collection rather than being inferred from its own journal. A malformed v3-like
+  schema is also rejected; this gate holds however the protocol was sealed.
 
 Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded
 review. The predecessor was not re-verified. For this case only, the runbook's
@@ -503,7 +505,8 @@ first; nothing here proves the comment exists or says what it should say.
 
    The draft binds the exact attempt-1 lineage and its root status, the fixed
    `carry_paper_screen_v2` plan, the checkout commit, and the implementation and
-   runtime digests, and lists `seal_blockers`. The start must be at least five minutes after the wall clock.
+   runtime digests, and lists `seal_blockers`. The start must be at least five
+   minutes after the wall clock.
 4. Seal (offline) with the same arguments and `seal`. It refuses a missing or
    unknown predecessor-root status, `available` without a verifiable root,
    `unavailable` with a root path, a dirty or

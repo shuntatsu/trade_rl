@@ -523,17 +523,21 @@ def test_launch_accepts_an_available_protocol_only_when_the_root_still_verifies(
     assert outcome["exit_code"] == 0 and len(reader.calls) == 1
 
 
-def test_a_supervisor_relaunch_after_the_start_does_not_need_the_old_root(tmp_path):
+def test_supervisor_relaunch_does_not_trust_a_missing_predecessor_root(tmp_path):
     root = tmp_path / "attempt1-root"
     root.mkdir()
     digest = forged_available(tmp_path, root)
     gone = FakeReader(error=ValueError("root gone"))
-    # `launch` passes reverify=False once the start has passed: the first launch
-    # already re-read the root, and a relaunch must not depend on it still existing.
+    # One forged event or heartbeat cannot attest a prior successful root read.
     reasons = attempt2._protocol_reasons(
-        tmp_path / "attempt2", digest, START, read=gone, reverify=False
+        tmp_path / "attempt2", digest, START, read=gone
     )
-    assert reasons == [] and gone.calls == []
+    assert (
+        "predecessor_root_not_reverifiable:predecessor_root_unreadable:ValueError"
+        in reasons
+    )
+    assert "protocol_not_attempt2_lineage" in reasons
+    assert len(gone.calls) == 1
 
 
 def test_cli_plan_refuses_available_without_a_root(tmp_path, capsys):

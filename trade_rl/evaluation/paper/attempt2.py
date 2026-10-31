@@ -52,6 +52,7 @@ from trade_rl.evaluation.paper.predecessor import (
     _ATTEMPT2_SEAL_TOKEN,
     LINEAGE_V3_SCHEMA,
     PREDECESSOR_ROOT_STATUSES,
+    _same_canonical_record,
     available_root_problems,
     canonical_lineage,
     read_predecessor_status,
@@ -132,15 +133,13 @@ def accepted_lineage(
     recorded: object,
     *,
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
-    reverify: bool = True,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """The lineage `launch` accepts for a sealed protocol's recorded lineage.
 
     ``unavailable`` is canonical. ``available`` is accepted only if the root path it
     records is read again now by the v1 reader and matches the recorded digests; a
-    missing, moved or changed root is refused. ``reverify=False`` (a supervisor
-    relaunch after the start, when the first launch already re-read the root) only
-    checks that the record is the canonical one for its recorded path.
+    missing, moved or changed root is refused, even for a restart. Journal
+    events and heartbeat records do not attest an earlier successful root read.
     """
     if not isinstance(recorded, dict) or recorded.get("schema") != LINEAGE_V3_SCHEMA:
         return None, []
@@ -151,7 +150,7 @@ def accepted_lineage(
         return None, []
     if record["status"] == "unavailable":
         return attempt2_lineage("unavailable"), []
-    problems = available_root_problems(recorded, read=read, reverify=reverify)
+    problems = available_root_problems(recorded, read=read)
     if problems:
         return None, problems
     path = record["verification"]["root_path"]
@@ -477,7 +476,6 @@ def _protocol_reasons(
     start: datetime,
     *,
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
-    reverify: bool = True,
 ) -> list[str]:
     import hashlib
 
@@ -495,10 +493,11 @@ def _protocol_reasons(
     lineage, root_problems = accepted_lineage(
         plan.get("attempt_lineage") if isinstance(plan, dict) else None,
         read=read,
-        reverify=reverify,
     )
     reasons += root_problems
-    if lineage is None or plan != screen_plan(attempt_lineage=lineage):
+    if lineage is None or not _same_canonical_record(
+        plan, screen_plan(attempt_lineage=lineage)
+    ):
         reasons.append("protocol_not_attempt2_lineage")
     if protocol["study"].get("provenance") != build_candidate_run_provenance():
         reasons.append("protocol_provenance_changed")
@@ -549,7 +548,6 @@ def launch_attempt2(
             protocol_sha256,
             start,
             read=read_predecessor,
-            reverify=start > now,
         )
         reasons += protocol
         # A first launch must precede the start. A supervisor relaunch after the

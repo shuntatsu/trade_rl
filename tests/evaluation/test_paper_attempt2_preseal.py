@@ -28,7 +28,7 @@ from tests.evaluation.test_paper_attempt2_lineage import (
     forged_available,
     v1_report,
 )
-from trade_rl.evaluation.paper import cli, operations, predecessor
+from trade_rl.evaluation.paper import attempt2, cli, operations, predecessor
 from trade_rl.evaluation.paper.attempt2 import attempt2_lineage
 from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.evaluation.paper.supervisor import PaperCollector
@@ -107,15 +107,17 @@ def test_the_collector_gate_reads_before_the_start_and_for_a_fresh_root(tmp_path
     assert problems(timedelta(minutes=-10), mismatch) == [
         "predecessor_root_not_reverifiable:predecessor_root_tip_differs"
     ]
-    # Once the collector has recorded an event, a restart after the start does not
-    # depend on the old root.
+    # A recorded event is not proof that a lost predecessor was verified before
+    # that event: a public PaperEngine.gap can write it without root validation.
     journal = PaperJournal(sealed, expected_protocol_sha256=_digest(sealed))
     journal.append(
         "k0", "gap", {"request": {}, "result": {}}, expected_parent=_digest(sealed)
     )
     gone = FakeReader(error=ValueError("root gone"))
-    assert problems(timedelta(minutes=5), gone) == [] and gone.calls == []
-    # ... but before the start it is still re-read.
+    assert problems(timedelta(minutes=5), gone) == [
+        "predecessor_root_not_reverifiable:predecessor_root_unreadable:ValueError"
+    ]
+    # A restart before the start also refuses the unavailable predecessor.
     assert problems(timedelta(minutes=-10), gone) == [
         "predecessor_root_not_reverifiable:predecessor_root_unreadable:ValueError"
     ]
@@ -394,3 +396,132 @@ def test_collector_rejects_canonical_looking_type_mutations_from_raw_engine(
         with PaperCollector(root, expected_protocol_sha256=digest):
             pytest.fail("not a canonical lineage")
     assert listing(root) == before
+
+
+@pytest.mark.parametrize(
+    "wrong_schema",
+    [
+        "carry_paper_attempt_lineage_v3 ",
+        "carry_paper_attempt_lineage_v3\u200b",
+    ],
+)
+def test_forged_v3_schema_is_refused_before_collection_or_seal(tmp_path, wrong_schema):
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    lineage = attempt2_lineage("available", tmp_path / "root-missing")
+    lineage["schema"] = wrong_schema
+    plan = dict(
+        operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable")),
+        attempt_lineage=lineage,
+    )
+    with pytest.raises(ValueError, match="lineage|schema"):
+        seal_collection(
+            tmp_path / "ordinary-seal",
+            settings=PaperSettings(start_at=START, close_at=START + timedelta(days=90)),
+            research_plan=plan,
+            clock=clock,
+        )
+    assert not (tmp_path / "ordinary-seal").exists()
+    digest = seal_raw(tmp_path, plan)
+    root = tmp_path / "attempt2"
+    before = listing(root)
+    with pytest.raises(ValueError, match="lineage|schema"):
+        with PaperCollector(root, expected_protocol_sha256=digest):
+            pytest.fail("forged schema must not start acquisition")
+    assert listing(root) == before
+
+
+@pytest.mark.parametrize(
+    "mutation", ["attempt_float", "predecessor_bool", "attestation_integer"]
+)
+def test_attempt2_launch_refuses_canonical_looking_numeric_mutations(
+    tmp_path, mutation
+):
+    lineage = attempt2_lineage("unavailable")
+    if mutation == "attempt_float":
+        lineage["attempt_number"] = 2.0
+    elif mutation == "predecessor_bool":
+        lineage["predecessor"]["attempt_number"] = True
+    else:
+        lineage["predecessor_root"]["re_verified_at_seal"] = 0
+    plan = dict(
+        operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable")),
+        attempt_lineage=lineage,
+    )
+    digest = seal_raw(tmp_path, plan)
+    reasons = attempt2._protocol_reasons(tmp_path / "attempt2", digest, START)
+    assert "protocol_not_attempt2_lineage" in reasons
+    recorder = Recorder()
+    launch_reasons = refusal_of(
+        lambda **kwargs: launch(tmp_path, digest, recorder, **kwargs)
+    )
+    assert "protocol_not_attempt2_lineage" in launch_reasons
+    assert recorder.calls == []
+
+
+def test_seal_refuses_dict_subclass_that_forges_get_method(tmp_path):
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    class HiddenLineage(dict):
+        def get(self, key, default=None):
+            if key == "attempt_lineage":
+                return None
+            return super().get(key, default)
+
+    plan = HiddenLineage(
+        operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable"))
+    )
+    with pytest.raises(ValueError, match="lineage|plan"):
+        seal_collection(
+            tmp_path / "forged",
+            settings=PaperSettings(start_at=START, close_at=START + timedelta(days=90)),
+            research_plan=plan,
+            clock=clock,
+        )
+    assert not (tmp_path / "forged").exists()
+
+
+def test_forged_native_gap_event_cannot_skip_predecessor_root_read(tmp_path):
+    """An event from public PaperEngine.gap is not lineage verification evidence."""
+    from trade_rl.evaluation.paper.engine import PaperEngine
+
+    root = tmp_path / "attempt2"
+    digest = forged_available(tmp_path, tmp_path / "predecessor-never-existed")
+    engine = PaperEngine(root, expected_protocol_sha256=digest)
+    engine.gap("forged-gap", at=START + timedelta(seconds=2), reason="observation_gap")
+    before = listing(root)
+    with pytest.raises(ValueError, match="predecessor_root_not_a_directory"):
+        with PaperCollector(
+            root,
+            expected_protocol_sha256=digest,
+            clock=lambda: START + timedelta(minutes=5),
+        ):
+            pytest.fail("forged journal evidence must not authorize acquisition")
+    assert listing(root) == before
+
+
+def test_v3_lineage_dict_subclass_cannot_hide_schema_from_sealer(tmp_path):
+    from trade_rl.evaluation.paper.account import PaperSettings
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    class HiddenSchema(dict):
+        def get(self, key, default=None):
+            if key == "schema":
+                return "carry_paper_attempt_lineage_v2"
+            return super().get(key, default)
+
+    lineage = HiddenSchema(attempt2_lineage("unavailable"))
+    plan = dict(
+        operations.screen_plan(attempt_lineage=attempt2_lineage("unavailable")),
+        attempt_lineage=lineage,
+    )
+    with pytest.raises(ValueError, match="schema|lineage"):
+        seal_collection(
+            tmp_path / "forged-nested",
+            settings=PaperSettings(start_at=START, close_at=START + timedelta(days=90)),
+            research_plan=plan,
+            clock=clock,
+        )
+    assert not (tmp_path / "forged-nested").exists()

@@ -9,7 +9,6 @@ read-only (no hot-journal recovery), and never writes.
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +25,7 @@ ATTEMPT_ONE_FINAL_TIP_SHA256 = (
 ATTEMPT_ONE_LAST_OBSERVED_AT = "2026-09-17T23:11:01.134389+00:00"
 ATTEMPT_ONE_EVENT_COUNT = 188
 LINEAGE_V3_SCHEMA = "carry_paper_attempt_lineage_v3"
+LINEAGE_V2_SCHEMA = "carry_paper_attempt_lineage_v2"
 ROOT_READER = "paper_journal_protocol_v1"
 PREDECESSOR_ROOT_STATUSES = ("available", "unavailable")
 # The public record of the fresh result-blind review (2026-09-27/28) that verified
@@ -128,17 +128,23 @@ def canonical_lineage(status: str, root_path: str | None = None) -> dict[str, An
 
 
 def require_seal_token(research_plan: object, token: object) -> None:
-    """Refuse to seal any research plan that carries a lineage v3 without the token."""
-    lineage = (
-        research_plan.get("attempt_lineage")
-        if isinstance(research_plan, dict)
-        else None
-    )
-    if (
-        isinstance(lineage, dict)
-        and lineage.get("schema") == LINEAGE_V3_SCHEMA
-        and token is not _ATTEMPT2_SEAL_TOKEN
+    """Reject unrecognized lineages and unauthorized v3 seal entry points.
+
+    An ordinary dict is required; allowing an overridden ``dict.get`` to hide
+    the lineage would undermine the seal-time contract. The private token is
+    still a caller contract, not an authentication credential.
+    """
+    if type(research_plan) is not dict:
+        raise ValueError("collection research plan must be a plain dict")
+    lineage = research_plan.get("attempt_lineage")
+    if lineage is None:
+        return
+    if type(lineage) is not dict or lineage.get("schema") not in (
+        LINEAGE_V2_SCHEMA,
+        LINEAGE_V3_SCHEMA,
     ):
+        raise ValueError("unsupported collection attempt lineage schema")
+    if lineage.get("schema") == LINEAGE_V3_SCHEMA and token is not _ATTEMPT2_SEAL_TOKEN:
         raise ValueError("attempt lineage v3 can only be sealed through attempt2")
 
 
@@ -192,13 +198,12 @@ def available_root_problems(
     lineage: object,
     *,
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
-    reverify: bool = True,
 ) -> list[str]:
-    """Reasons a lineage v3 ``available`` record cannot be re-verified now.
+    """Re-read a v3 available predecessor root on *every* collector entry.
 
-    Anything that is not an ``available`` v3 record returns no reasons (canonical
-    checks of ``unavailable`` and of the rest belong to ``attempt2``). With
-    ``reverify=False`` only the presence of the recorded root path is required.
+    A native journal event or heartbeat can be forged without prior root verification,
+    so a post-start restart is not grounds to skip this check. Missing roots fail
+    closed even after the attempt has begun.
     """
     if not isinstance(lineage, dict) or lineage.get("schema") != LINEAGE_V3_SCHEMA:
         return []
@@ -209,19 +214,10 @@ def available_root_problems(
     path = proof.get("root_path") if isinstance(proof, dict) else None
     if not isinstance(path, str) or not path:
         return ["predecessor_root_path_not_recorded"]
-    if not reverify:
-        return []
     return [
         f"predecessor_root_not_reverifiable:{problem}"
         for problem in verify_predecessor_root(path, read=read)
     ]
-
-
-def _is_available(lineage: object) -> bool:
-    if not isinstance(lineage, dict) or lineage.get("schema") != LINEAGE_V3_SCHEMA:
-        return False
-    record = lineage.get("predecessor_root")
-    return isinstance(record, dict) and record.get("status") == "available"
 
 
 def _same_canonical_record(actual: object, expected: object) -> bool:
@@ -251,17 +247,21 @@ def lineage_problems(
     lineage: object,
     *,
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
-    reverify: bool = True,
 ) -> list[str]:
-    """Reasons a lineage v3 is not one that a collector may enter.
+    """Check a recorded v3 lineage with type-strict canonical values and root proof.
 
-    Any v3 lineage must equal the canonical record for its status exactly
-    (``unavailable``), or the canonical record for its recorded root path
-    (``available``), and an ``available`` root must also re-verify when ``reverify``.
-    Lineages that are not v3 are not this module's business and return no reasons.
+    Older v2 has its own historical contract. Unknown and v3-like schema spellings
+    cannot escape this gate by using a whitespace or Unicode variant.
     """
-    if not isinstance(lineage, dict) or lineage.get("schema") != LINEAGE_V3_SCHEMA:
+    if lineage is None:
         return []
+    if not isinstance(lineage, dict):
+        return ["lineage_not_a_mapping"]
+    schema = lineage.get("schema")
+    if schema == LINEAGE_V2_SCHEMA:
+        return []
+    if schema != LINEAGE_V3_SCHEMA:
+        return ["lineage_schema_unsupported"]
     record = lineage.get("predecessor_root")
     status = record.get("status") if isinstance(record, dict) else None
     if status == "unavailable":
@@ -280,20 +280,8 @@ def lineage_problems(
         else ["lineage_v3_not_canonical"]
     )
     if status == "available":
-        reasons += available_root_problems(lineage, read=read, reverify=reverify)
+        reasons += available_root_problems(lineage, read=read)
     return reasons
-
-
-def journal_has_events(root: Path) -> bool:
-    """Whether a collection root already holds a journal event (opened read-only)."""
-    path = Path(root) / "journal.sqlite"
-    if path.is_symlink() or not path.is_file():
-        return False
-    connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=5)
-    try:
-        return connection.execute("SELECT 1 FROM events LIMIT 1").fetchone() is not None
-    finally:
-        connection.close()
 
 
 def collection_lineage_problems(
@@ -304,24 +292,15 @@ def collection_lineage_problems(
     now: Callable[[], datetime],
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> list[str]:
-    """Generic collector gate: re-verify a v3 ``available`` lineage like ``launch``.
+    """Reject malformed lineage before the lock, regardless of start or journal.
 
-    The recorded root is read again before the start or while the root has no journal
-    event yet. A restart of a collector that already recorded events (after the start)
-    does not need the old root, exactly like a supervisor relaunch in ``launch``. If
-    the journal cannot be inspected the root is re-read.
+    The original root must remain independently verifiable for available v3
+    lineage. A public engine can append gap events without this check, so events
+    and heartbeats are never proof that a past read occurred.
     """
+    # These arguments remain in the generic collector signature for existing
+    # callers; time and own-journal state cannot grant lineage authority.
+    _ = root, start_at, now
     if not isinstance(research_plan, dict):
         return []
-    lineage = research_plan.get("attempt_lineage")
-    if not _is_available(lineage):
-        # Nothing to re-read; the clock and journal are not touched. A v3
-        # ``unavailable`` record must still be the canonical one.
-        return lineage_problems(lineage)
-    try:
-        ran = journal_has_events(root)
-    except sqlite3.Error:
-        ran = False
-    return lineage_problems(
-        lineage, read=read, reverify=not (now() >= start_at and ran)
-    )
+    return lineage_problems(research_plan.get("attempt_lineage"), read=read)

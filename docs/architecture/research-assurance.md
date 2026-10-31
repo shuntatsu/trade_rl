@@ -1312,12 +1312,14 @@ existing v1 journal reader read read-only (protocol digest, event count, final t
 last observation, root path); `attempt2` cannot build it without a root path that
 passes that read. `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse a
 v3 lineage unless given a module-private token that only `attempt2` holds (a caller
-contract, not authentication). A first `attempt2 launch` re-reads the recorded root
-and refuses if it is gone or differs. The collector (`PaperCollector`, `cli run`,
-`cli supervise`) refuses any v3 lineage that is not the canonical record for its
-status, and re-reads an `available` root before the start or while the root has no
-journal event yet; once the collector has recorded events, a restart after the start
-does not need the old root (exactly like a supervisor relaunch in `launch`).
+contract, not authentication). Every `attempt2 launch` re-reads an `available`
+root, including a relaunch after start; a heartbeat never substitutes for an
+independently verified prior-root receipt. The collector (`PaperCollector`, `cli run`,
+`cli supervise`) refuses non-canonical v3 or unknown lineage schemas and re-reads an
+`available` predecessor on **every** entry, including after a journal event;
+a public `PaperEngine.gap` event does not attest the prior root. Loss of the
+previous root then permanently prevents that available-lineage collector from
+restarting. This stricter fail-closed rule is fixed before any attempt-2 seal.
 `unavailable` is the honest case where the preserved root is lost: it records that the
 lineage values come from the prior public result-blind review record (document and
 commit), that they were not re-verified at seal time, the user's chat statement quoted

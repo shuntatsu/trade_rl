@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from trade_rl.evaluation.paper.operations import (
     collection_status,
     seal_paper_study,
 )
+from trade_rl.evaluation.paper.predecessor import collection_lineage_problems
 from trade_rl.evaluation.paper.supervisor import PaperCollector
 from trade_rl.evaluation.paper.watchdog import (
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -39,8 +41,12 @@ from trade_rl.evaluation.paper.watchdog import (
 )
 
 
-def _refuse_storage_probe(root: Path, protocol_sha256: str) -> None:
-    """A probe root is capacity evidence only; only its own entry point runs it."""
+def _refuse_non_screen_root(root: Path, protocol_sha256: str) -> None:
+    """Refuse a probe root, and a lineage v3 ``available`` root that cannot be re-read.
+
+    A probe is capacity evidence only (only its own entry point runs it). A forged
+    ``available`` record is re-verified exactly as ``attempt2 launch`` does.
+    """
     path = root / "protocol.json"
     if root.is_symlink() or path.is_symlink() or not path.is_file():
         return
@@ -48,11 +54,20 @@ def _refuse_storage_probe(root: Path, protocol_sha256: str) -> None:
     if hashlib.sha256(raw).hexdigest() != protocol_sha256:
         return
     try:
-        plan = json.loads(raw)["protocol"]["study"]["research_plan"]
+        protocol = json.loads(raw)["protocol"]
+        plan = protocol["study"]["research_plan"]
+        start_at = timestamp(protocol["settings"]["start_at"])
     except (KeyError, TypeError, ValueError):
         return
     if isinstance(plan, dict) and plan.get("schema") == STORAGE_PROBE_PLAN_SCHEMA:
         raise ValueError("a storage probe root is not a screen; the probe runs itself")
+    problems = collection_lineage_problems(
+        plan, root=root, start_at=start_at, now=lambda: datetime.now(UTC)
+    )
+    if problems:
+        raise ValueError(
+            "collection lineage cannot be re-verified: " + "; ".join(problems)
+        )
 
 
 def _print(value: dict[str, Any]) -> None:
@@ -130,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             return EXIT_FAILED if report["severity"] == "failed" else EXIT_DEGRADED
         elif args.command == "supervise":
-            _refuse_storage_probe(args.root, args.protocol_sha256)
+            _refuse_non_screen_root(args.root, args.protocol_sha256)
             outcome = supervise_collector(
                 args.root,
                 protocol_sha256=args.protocol_sha256,
@@ -140,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return int(outcome["exit_code"])
         elif args.command == "run":
-            _refuse_storage_probe(args.root, args.protocol_sha256)
+            _refuse_non_screen_root(args.root, args.protocol_sha256)
             with PaperCollector(
                 args.root, expected_protocol_sha256=args.protocol_sha256
             ) as collector:

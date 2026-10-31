@@ -19,6 +19,7 @@ from trade_rl.evaluation.paper.control import CollectionControl
 from trade_rl.evaluation.paper.engine import EvidenceRef, PaperEngine, PaperSettings
 from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_failure
 from trade_rl.evaluation.paper.lock import acquire_collector_lock
+from trade_rl.evaluation.paper.predecessor import collection_lineage_problems
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.integrations.binance.forward import capture_forward_snapshot
 from trade_rl.integrations.binance.forward_rules import capture_forward_rules
@@ -107,6 +108,18 @@ class PaperCollector:
         self.close_at = timestamp(protocol["settings"]["close_at"])
         if timestamp(study["created_at"]) >= self.start_at:
             raise ValueError("collection was not sealed before start")
+        # A lineage v3 ``available`` record is re-read like ``attempt2 launch`` does,
+        # before the lock is taken, so a refusal writes no failure marker.
+        problems = collection_lineage_problems(
+            study.get("research_plan"),
+            root=self.root,
+            start_at=self.start_at,
+            now=self.clock,
+        )
+        if problems:
+            raise ValueError(
+                "collection lineage cannot be re-verified: " + "; ".join(problems)
+            )
         self._lock = acquire_collector_lock(self.root)
         try:
             self._guard()

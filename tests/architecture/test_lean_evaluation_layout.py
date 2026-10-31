@@ -125,6 +125,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "paper/failure.py",
         "paper/lock.py",
         "paper/watchdog.py",
+        "paper/predecessor.py",
         "paper/attempt2.py",
         "paper/storage_probe.py",
         "paper/assessment.py",

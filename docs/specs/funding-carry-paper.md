@@ -276,17 +276,24 @@ that new data may be collected. Attempt 2 therefore uses lineage
   journal fails verification. The sealed protocol embeds that verification and the
   root path, and a first `launch` (before the start) reads the root again and
   refuses if it is gone or differs; a supervisor relaunch after the start does not
-  need the root. Lineage v3 can only be sealed through `attempt2`: `seal_paper_study`
-  and `paper.cli seal` refuse a v3 lineage otherwise (this is a caller contract, not
-  authentication; the launch re-read is what makes a forged `available` fail);
+  need the root. The generic collector path (`PaperCollector`, `cli run`,
+  `cli supervise`) applies the same re-read before the start or while the root has no
+  journal event yet, and refuses without writing a failure marker if it cannot
+  re-verify. Lineage v3 can only be sealed through `attempt2`: `seal_paper_study`
+  and `paper.cli seal` refuse a v3 lineage unless given a module-private token that
+  only `attempt2` holds (a caller contract, not authentication; the re-reads on
+  every path that starts collection are what make a forged `available` fail);
 * `unavailable` accepts no root path. The sealed protocol records that the lineage
   values are taken from the public 2026-09-27/28 result-blind review record
   (`docs/research/current-status.md`, commit
   `b9f1ca65b26dcff7acbb089c7643e95702d474c9`), that they were NOT re-verified
-  against the root at seal time, and the user's statement as an attestation, quoted
-  verbatim with its date (2026-10-30), plus a `not_established` list (predecessor
+  against the root at seal time, and the user's chat statement (`user_statement`),
+  quoted verbatim with its date (2026-10-30). The statement covers only what the
+  user said: attempt 1's data and result-storage locations are unknown, and new data
+  may be collected; the record says it does not attest the predecessor lineage values
+  or the absence of an earlier attempt. A `not_established` list names the predecessor
   protocol digest, final tip, observation gap, and the absence of an earlier
-  unreported attempt). The disposition stays `invalidated` with reason
+  unreported attempt; the validator requires exactly these items. The disposition stays `invalidated` with reason
   `observation_gap`.
 
 Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded

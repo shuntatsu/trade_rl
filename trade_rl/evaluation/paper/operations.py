@@ -19,6 +19,25 @@ from trade_rl.evaluation.paper.supervisor import PaperCollector, seal_collection
 _ATTEMPT_LINEAGE_SCHEMA = "carry_paper_attempt_lineage_v2"
 _ATTEMPT_LINEAGE_SCHEMA_V3 = "carry_paper_attempt_lineage_v3"
 PREDECESSOR_ROOT_STATUSES = ("available", "unavailable")
+# What an ``unavailable`` record must list as not established, and what the quoted
+# user statement does and does not cover. The validator requires exactly these.
+UNAVAILABLE_NOT_ESTABLISHED = (
+    "predecessor_protocol_digest",
+    "predecessor_final_tip",
+    "predecessor_observation_gap",
+    "absence_of_an_earlier_unreported_attempt",
+)
+USER_STATEMENT_STATES = (
+    "attempt_1_data_location_unknown",
+    "attempt_1_result_storage_location_unknown",
+    "new_data_collection_permitted",
+)
+USER_STATEMENT_DOES_NOT_ATTEST = (
+    "predecessor_lineage_values",
+    "absence_of_an_earlier_attempt",
+)
+# Module-private capability for sealing lineage v3; ``attempt2`` is its only user.
+_ATTEMPT2_SEAL_TOKEN = object()
 STORAGE_PROBE_PLAN_SCHEMA = "carry_paper_storage_probe_v1"
 _ATTEMPT_DISPOSITIONS = {
     "invalidated",
@@ -101,13 +120,13 @@ def _validate_predecessor_root(
         "status",
         "re_verified_at_seal",
         "lineage_source",
-        "user_attestation",
+        "user_statement",
         "not_established",
         "review_rule",
     }:
         raise ValueError("unavailable predecessor root record is incomplete")
     source = value["lineage_source"]
-    attestation = value["user_attestation"]
+    statement = value["user_statement"]
     if (
         value["re_verified_at_seal"] is not False
         or not isinstance(source, dict)
@@ -117,33 +136,29 @@ def _validate_predecessor_root(
         or not source["document"]
         or not isinstance(source["commit"], str)
         or re.fullmatch(_SHA1_HEX, source["commit"]) is None
-        or not isinstance(attestation, dict)
-        or set(attestation) != {"quote", "date", "channel"}
-        or not isinstance(attestation["quote"], str)
-        or not attestation["quote"]
-        or not isinstance(attestation["date"], str)
-        or attestation["channel"] != "chat"
+        or not isinstance(statement, dict)
+        or set(statement) != {"quote", "date", "channel", "states", "does_not_attest"}
+        or not isinstance(statement["quote"], str)
+        or not statement["quote"]
+        or not isinstance(statement["date"], str)
+        or statement["channel"] != "chat"
+        or statement["states"] != list(USER_STATEMENT_STATES)
+        or statement["does_not_attest"] != list(USER_STATEMENT_DOES_NOT_ATTEST)
         or not isinstance(value["review_rule"], str)
         or not value["review_rule"]
-        or not isinstance(value["not_established"], list)
-        or not value["not_established"]
-        or any(
-            not isinstance(item, str) or not item for item in value["not_established"]
-        )
+        or value["not_established"] != list(UNAVAILABLE_NOT_ESTABLISHED)
     ):
         raise ValueError("unavailable predecessor root record is invalid")
     try:
-        said = datetime.strptime(attestation["date"], "%Y-%m-%d").date()
+        said = datetime.strptime(statement["date"], "%Y-%m-%d").date()
     except ValueError as error:
-        raise ValueError(
-            "unavailable predecessor attestation date is invalid"
-        ) from error
+        raise ValueError("unavailable predecessor statement date is invalid") from error
     if (
         sealed_at is not None
         and said
         > require_aware_datetime(sealed_at, field="paper seal").astimezone(UTC).date()
     ):
-        raise ValueError("unavailable predecessor attestation is newer than the seal")
+        raise ValueError("unavailable predecessor statement is newer than the seal")
 
 
 def validate_attempt_lineage(
@@ -276,22 +291,27 @@ def seal_paper_study(
     *,
     start_at: datetime,
     attempt_lineage: dict[str, Any],
-    via_attempt2: bool = False,
+    attempt2_seal_token: object | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> str:
     """Seal a screen. Lineage v3 is accepted only from ``attempt2``.
 
-    A v3 ``predecessor_root`` record asserts a root read (``available``) or an
-    explicit attestation (``unavailable``) that only ``attempt2`` produces after its
-    own checks, so the generic CLI cannot seal one. ``via_attempt2`` is a caller
-    contract, not authentication: ``attempt2 launch`` re-verifies ``available``.
+    A v3 ``predecessor_root`` record asserts a root read (``available``) or a recorded
+    statement (``unavailable``) that only ``attempt2`` produces after its own checks,
+    so this generic function and ``paper.cli seal`` refuse it unless given the
+    module-private token. The token is a caller contract, not authentication: every
+    path that starts collection (``attempt2 launch``, ``PaperCollector``, ``cli run``,
+    ``cli supervise``) re-reads an ``available`` root before the start.
     """
     start = require_aware_datetime(start_at, field="paper start").astimezone(UTC)
     now = require_aware_datetime(clock(), field="paper seal").astimezone(UTC)
     if start < now + timedelta(minutes=5):
         raise ValueError("paper study requires at least five minutes before start")
     lineage = validate_attempt_lineage(attempt_lineage, sealed_at=now)
-    if lineage["schema"] == _ATTEMPT_LINEAGE_SCHEMA_V3 and not via_attempt2:
+    if (
+        lineage["schema"] == _ATTEMPT_LINEAGE_SCHEMA_V3
+        and attempt2_seal_token is not _ATTEMPT2_SEAL_TOKEN
+    ):
         raise ValueError("attempt lineage v3 can only be sealed through attempt2")
     return seal_collection(
         root,

@@ -1011,7 +1011,7 @@ this document (introduced in commit `b9f1ca65b26d`, full SHA in the lineage reco
 were NOT re-verified against the root now, and global attempt uniqueness remains
 unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 (`available` only with a root path that the existing v1 reader verifies; otherwise
-`unavailable` with the source record and the attestation) and keeps the
+`unavailable` with the source record and the user's quoted statement) and keeps the
 disposition `invalidated` with reason `observation_gap`. For this case the G0
 requirement that a fresh review resolve the preserved root is replaced by a fresh
 result-blind review of the lineage documentation and the pull request that introduced

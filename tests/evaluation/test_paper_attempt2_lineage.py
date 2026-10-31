@@ -27,7 +27,7 @@ from tests.evaluation.test_paper_attempt2 import (  # noqa: F401  (autouse fixtu
     roomy,
     seal,
 )
-from trade_rl.evaluation.paper import attempt2, operations
+from trade_rl.evaluation.paper import attempt2, operations, predecessor
 from trade_rl.evaluation.paper.attempt2 import (
     ATTEMPT_ONE_FINAL_TIP_SHA256,
     ATTEMPT_ONE_LAST_OBSERVED_AT,
@@ -86,11 +86,21 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         "document": "docs/research/current-status.md",
         "commit": "b9f1ca65b26dcff7acbb089c7643e95702d474c9",
     }
-    assert record["user_attestation"] == {
+    assert record["user_statement"] == {
         "quote": "そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ",
         "date": "2026-10-30",
         "channel": "chat",
+        "states": [
+            "attempt_1_data_location_unknown",
+            "attempt_1_result_storage_location_unknown",
+            "new_data_collection_permitted",
+        ],
+        "does_not_attest": [
+            "predecessor_lineage_values",
+            "absence_of_an_earlier_attempt",
+        ],
     }
+    assert "user_attestation" not in record
     rule = record["review_rule"]
     assert "cannot confirm the predecessor" in rule
     assert "does not exclude an earlier unreported attempt" in rule
@@ -173,10 +183,20 @@ def test_a_hand_made_available_claim_without_matching_verification_is_invalid(mu
     "mutate",
     [
         lambda r: r.update(re_verified_at_seal=True),
-        lambda r: r.pop("user_attestation"),
-        lambda r: r["user_attestation"].update(quote=""),
-        lambda r: r["user_attestation"].update(date="2026-13-40"),
-        lambda r: r["user_attestation"].update(date="2999-01-01"),
+        lambda r: r.pop("user_statement"),
+        lambda r: r.update(user_attestation=r.pop("user_statement")),
+        lambda r: r["user_statement"].update(quote=""),
+        lambda r: r["user_statement"].update(date="2026-13-40"),
+        lambda r: r["user_statement"].update(date="2999-01-01"),
+        lambda r: r["user_statement"].update(states=["new_data_collection_permitted"]),
+        lambda r: r["user_statement"].update(
+            states=r["user_statement"]["states"] + ["predecessor_lineage_values"]
+        ),
+        lambda r: r["user_statement"].update(does_not_attest=[]),
+        lambda r: r.update(not_established=["one_arbitrary_item"]),
+        lambda r: r.update(not_established=r["not_established"][:-1]),
+        lambda r: r.update(not_established=r["not_established"][::-1]),
+        lambda r: r.update(not_established=r["not_established"] + ["extra"]),
         lambda r: r["lineage_source"].update(commit="abc"),
         lambda r: r["lineage_source"].update(kind="root_read"),
         lambda r: r.update(review_rule=""),
@@ -317,26 +337,26 @@ def test_the_real_v1_reader_verifies_a_synthetic_root(tmp_path, monkeypatch):
             expected_parent=parent,
         )
         parent = record["sha256"]
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_PROTOCOL_SHA256", digest)
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_FINAL_TIP_SHA256", parent)
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_EVENT_COUNT", 3)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_PROTOCOL_SHA256", digest)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_FINAL_TIP_SHA256", parent)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_EVENT_COUNT", 3)
     before = {
         path.name: (path.stat().st_size, path.stat().st_mtime_ns, path.read_bytes())
         for path in root.iterdir()
     }
-    assert attempt2.verify_predecessor_root(root) == []
+    assert predecessor.verify_predecessor_root(root) == []
     after = {
         path.name: (path.stat().st_size, path.stat().st_mtime_ns, path.read_bytes())
         for path in root.iterdir()
     }
     assert after == before  # verification neither wrote nor created any file
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_EVENT_COUNT", 188)
-    assert attempt2.verify_predecessor_root(root) == [
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_EVENT_COUNT", 188)
+    assert predecessor.verify_predecessor_root(root) == [
         "predecessor_root_event_count_differs"
     ]
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_EVENT_COUNT", 3)
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_PROTOCOL_SHA256", "f" * 64)
-    assert attempt2.verify_predecessor_root(root) == [
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_EVENT_COUNT", 3)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_PROTOCOL_SHA256", "f" * 64)
+    assert predecessor.verify_predecessor_root(root) == [
         "predecessor_root_unreadable:ValueError"
     ]
 
@@ -392,12 +412,12 @@ def test_launch_accepts_either_recorded_status(tmp_path):
 
 def test_launch_refuses_a_tampered_unavailable_record(tmp_path):
     lineage = attempt2_lineage("unavailable")
-    lineage["predecessor_root"]["user_attestation"]["quote"] = "different words"
+    lineage["predecessor_root"]["user_statement"]["quote"] = "different words"
     digest = operations.seal_paper_study(
         tmp_path / "attempt2",
         start_at=START,
         attempt_lineage=lineage,
-        via_attempt2=True,
+        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
         clock=clock,
     )
     recorder = Recorder()
@@ -443,7 +463,7 @@ def forged_available(tmp_path, root_path):
         tmp_path / "attempt2",
         start_at=START,
         attempt_lineage=attempt2_lineage("available", root_path),
-        via_attempt2=True,
+        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
         clock=clock,
     )
     return digest

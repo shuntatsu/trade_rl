@@ -297,6 +297,22 @@ def test_research_status_preserves_newer_main_market_store_and_carry_evidence() 
         assert required in research
 
 
+def test_p2_invalid_terminal_dust_summary_matches_provenance() -> None:
+    record_path = ROOT / "report" / "dev-realdata-study-p2-20261029-provenance.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    residual = record["latency_72h_terminal_residual"]
+    assert "0.006 ETHUSDT short" in residual["residual_position"]
+    assert "20 USDT" in residual["terminal_orders"]
+    assert "no reduce-only exemption" in residual["cause"]
+
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    start = research.index("## Issue #810 P2: development real-data")
+    end = research.index("## Issue #810 P2: Phase 2 trial", start)
+    section = research[start:end]
+    for required in ("0.006 ETH short", "20 USDT", "no reduce-only exemption"):
+        assert required in section
+
+
 def test_current_p2_p3_labels_match_committed_evidence_records() -> None:
     status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     expected_reports = (

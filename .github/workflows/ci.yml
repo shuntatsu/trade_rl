@@ -45,6 +45,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Format diff diagnostic (temporary)
+        run: uv run ruff format --diff tests/tools/test_branch_hygiene.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

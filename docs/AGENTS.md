@@ -77,7 +77,19 @@ GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run pyt
 
 `tools.github_coordination_registry_reader.GitHubRegistryObjectReader` は将来のdisposable test統合のための **read-only Git object adapter** で、明示されたrepositoryとexact commit SHAからGitHub RESTの GET commit → GET recursive tree → GET blob を辿る。配置pathはcallerが指定し、nontruncated tree内に普通の `100644` blobが一意であること、commit/tree/blobの返却OIDが要求値と一致すること、blob sizeとstrict Base64 decode後bytesのGit SHA-1一致、canonical registry parseとrepository一致をfail-closedで確認する。APIに対してはGET以外を呼ばない。API object自体の認証済みrepository binding・commit/treeのraw-object暗号学的証明はこのadapter単独では成立せず、許可信頼できるCoordinator・protected ref・remote CAS・GitHub実E2E・complete roster・cleanup authorityの代替ではない。canonical payloadへの実readbackに使用できても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。
 
-`tools.github_coordination_registry_snapshot.observe_registry_snapshot` は、このGET-only object readerを使って `refs/heads/coordination/*` の**read-only時点観測**を作る。最初と最後にrepositoryのexact name / GitHub node ID / native numeric IDを確認し、同じref名・commit OIDを2回確認して、その間にcommit→tree→blobからcanonical registry digestを取得する。ref・repository identity変動、存在しないref、型不正、payload不一致、API不達はfail-closedで拒否し、部分取得をempty registryや完全rosterへ変換しない。前後一致は瞬間的な観測であって、認証済みCoordinatorの証明、外部protected ref、roster完全性、全workflow/Taskリコンサイル、remote CAS linearizabilityやinterruption E2Eの保証ではない。`RegistryRefSnapshot` の `authoritative_registry_established` / `task_registry_complete` / `cleanup_authorized` は常にfalseで、branch削除は引き続き禁止する。
+`tools.github_coordination_registry_snapshot.observe_registry_snapshot` は、このGET-only object readerを使って `refs/heads/coordination/*` の**read-only時点観測**を作る。最初と最後にrepositoryのexact name / GitHub node ID / native numeric IDを確認し、同じref名・commit OIDを2回確認して、その間にcommit→tree→blobからcanonical registry digestを取得する。ref・repository identity変動、存在しないref、型不正、payload不一致、API不達はfail-closedで拒否し、部分取得をempty registryや完全rosterへ変換しない。前後一致は瞬間的な観測であって、認証済みCoordinatorの証明、外部protected ref、roster完全性、全workflow/Taskリコンサイル、remote CAS linearizabilityやinterruption E2Eの保証ではない。`RegistryRefSnapshot` の `authoritative_registry_established` / `task_registry_complete` / `cleanup_authorized` は常にfalseで、このsnapshot単独ではbranch削除を認めない。統合済みPR sourceの個別削除は、後述の独立した厳格な判定のみを使用する。
+
+## Research Assurance Gate (#687)
+
+新規economic research protocol・material changeではG0–G3 result-blind author packet
+research_assurance_v1 と別個の research_assurance_review_v1 を扱う。
+python -m tools.agent_repo assurance inspect assurance.json は独立性を自動証明しない。
+python -m tools.agent_repo assurance check assurance.json はPASS以外で非0終了する。
+外部認証済みのレビューprincipal、record digest、protocol/implementation HEADが
+一致しないとPASSはなく、PASSもG4/G5/unused/final/liveを自動認可しない。
+G1–G2 mechanism/runtime監査のIssue #667とは目的が違い、並行して確認する。
+正本は architecture/research-assurance.md、例は
+tools/agent_repo/examples/research_assurance.json に置く。
 
 ## Agent Coordination Plane
 
@@ -107,7 +119,9 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - `tools.agent_repo.coordination.registry` は将来の専用Coordinator refへ保存する**off-tree canonical payload schema**だけを定義する。既存 `EnrollmentProjection` をTask entryとして再利用し、同一repository・Task ID一意性・Task ID順のdeterministic JSON・canonical UTF-8 bytes / SHA-256 digest・strict parseを保証する。重複JSON key、未知/欠落field、schema不一致、cross-repository entry、malformed nested status、non-canonical bytesをfail-closedで拒否する。empty registryを表現できても完全列挙の証拠ではなく、checked-in mutable ledger、Coordinator認証、CAS成功、`task_registry_complete=true`、cleanup/delete許可にはしない。
 - registryの更新候補は `plan_registry_transition` でpureに計画する。plannerはregistry自身からTask roster/previous entryを導出し、既存enrollment transition ruleを再利用し、callerが指定したexact before payload SHA-256とdeterministic after registry/digestをbindする。stale digest、no-op、cross-repository、illegal phase、revision/lease/head driftを拒否するが、これはremote OID CAS・GitHub認証・完全列挙・branch ancestry verificationの代替ではない。返却planのauthority/registry-complete/cleanup flagは常にfalseである。
 - Task/Issue/lease identityのrevision・Issue番号・epochはPython上でも**native positive integer**を要求し、`1.0 == 1`のようなinteger-shaped floatを受理しない。GitHub projectionやhandoffも同じ型境界を共有し、malformed inputを例外型の漏れや暗黙の同値比較で通さない。
-- 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行し、CLIの`--apply`もfail-closedで拒否する。GitHub Actionsの検索結果が1000件上限に達する、総件数が不明・ページ間で変化する、run IDが重複・欠落する、取得statusが不一致、head_branchが欠落・空文字・空白のみ、またはページが不完全な場合もfail-closedとする。Taskの保護情報が完全に取得・検証できない間は削除を再開しない。
+- 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行し、CLIの`--apply`もfail-closedで拒否する。GitHub Actionsの検索結果が1000件上限に達する、総件数が不明・ページ間で変化する、run IDが重複・欠落する、取得statusが不一致、head_branchが欠落・空文字・空白のみ、またはページが不完全な場合もfail-closedとする。Taskの保護情報が完全に取得・検証できない間、汎用/一括削除は再開しない。例外はすでにmainに統合済みで復元可能なclosed/merged PR exact source branchを明示して1本ずつ整理する独立した手動経路に限る。
+- 個別pruneでは、対象となるclosed/merged PRの番号・現在のsource branch名・exact final HEAD SHAと、該当tipを追加parentに持つretention record SHAを、その都度GitHubの実データから取得して照合する。具体的なPR番号やSHAをこの現行規範文書へ固定しない。正本repositoryのHTTPS `origin`と認証済みtokenが必要で、日付や名称の古さだけから候補を自動決定しない。初回は`--apply`なしでpreviewし、すべての条件が成立する場合に限り同じ引数へ`--apply`を追加する。実際に検証した個別SHAと結果はIssue #1057の監査記録へ残す。
+- GitHub UIから実行する場合は `.github/workflows/prune-merged-branch.yml` の **Run workflow（手動`workflow_dispatch`のみ）** を利用する。入力は `branch`、`expected_sha`、`merged_pr_number`、`retention_record_sha` と明示的な `confirm=true`。Workflowはdefault branchのコードだけをcheckoutし、読取preflightと適用直前の再検証を独立に実行する。既存 `.github/workflows/branch-hygiene.yml` はread-onlyのままで自動削除を再開しない。WorkflowsのUIからの実行権限と`GITHUB_TOKEN`のcontents write設定が必要で、拒否された場合にGitHub保護設定を迂回して削除してはならない。
 - dry-run summaryの`first-observation archival candidates`は候補数でありarchive済みの件数ではない。`durable anchors kept`はdefault/protected/open PR/active workflow/provenanceの理由だけを数え、grace中やretentionに未到達の一時branchは含めない。CLI helpに`--apply`が残っても破壊的cleanupの再開許可ではない。
 
 ## Agent Eval protocol
@@ -214,6 +228,6 @@ Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを�
 
 ## 作業線の終了と変更の証拠
 
-不要な作業線は、mainへのancestor関係、同一tree、または後継実装が固有差分を包含する独立した証拠で判断する。open PRのhead/baseと進行中の実行は保護し、削除直前のexact SHA確認と削除後の一覧確認を行う。名称が古いことだけでは削除しない。未統合の実験設定・非再生成可能な証拠は残す。superseded PRは理由と後継の正本を会話へ記録し、旧設計を再mergeしない。
+不要な作業線のうち、**closed/merged PRのexact final HEADと一致するローカルsource branch** だけは、mainと`provenance/branch-retention`へのcommit到達性、retentionのexact branch名/SHA記録と追加parent、1時間以上のgrace、open PR head/base・未完了workflow非参照、最新SHAの前後一致をすべて満たせば、`tools.verified_merged_branch_prune` の明示的な1本指定を使って削除できる。コマンドは初回previewのみ、`--apply`を指定した場合だけ正しいGitHub originのcheckoutから`git push --atomic --force-with-lease`で条件付き削除し、削除後もref不存在とmain/retention保持を読み戻す。fail/unknownでは削除しない。研究/封印/provenance/未統合/曖昧なsource、active Task関連は保全する。一般の`tools.branch_hygiene --apply`、直接`apply_cleanup()`、Actionによる自動/一括削除は拒否を維持する。これはCoordinator authority/Task完全登録/`cleanup_authorized=true`の根拠ではない。
 
 ソース移動やPython docstring変更でも、Runのimplementation manifestは相対パスとraw bytesにbindするため実装digestが変化する。同じStudyの比較途中へ移行を混ぜず、元のsource/runtimeを保持する。計算の意味保存と、期待されるprovenance変化は別々に検証する。

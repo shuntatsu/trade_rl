@@ -218,15 +218,20 @@ def _schemas(tree: ast.Module) -> dict[str, str]:
                 for target in targets
             ):
                 continue
-            value = statement.value
-            if not isinstance(value, (ast.Tuple, ast.List)) or not all(
-                isinstance(member, ast.Constant) and isinstance(member.value, str)
-                for member in value.elts
-            ):
+            roster_value = statement.value
+            if not isinstance(roster_value, (ast.Tuple, ast.List)):
                 result[f"{node.name}.JSON_FIELDS"] = "<nonliteral>"
                 continue
-            result[f"{node.name}.JSON_FIELDS"] = repr(
-                tuple(member.value for member in value.elts)
+            values: list[str] = []
+            for member in roster_value.elts:
+                if not isinstance(member, ast.Constant) or not isinstance(
+                    member.value, str
+                ):
+                    values = []
+                    break
+                values.append(member.value)
+            result[f"{node.name}.JSON_FIELDS"] = (
+                repr(tuple(values)) if values else "<nonliteral>"
             )
     return result
 

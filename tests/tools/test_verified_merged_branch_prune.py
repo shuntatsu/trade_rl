@@ -48,7 +48,9 @@ class FakeGitHub:
             "sha": RECORD,
             "message": (
                 "Observe non-anchor branch tips before cleanup grace period\n\n"
-                + NAME + "\t" + TIP
+                + NAME
+                + "\t"
+                + TIP
             ),
             "committer": {"date": "2026-11-01T12:00:00Z"},
             "parents": [
@@ -148,9 +150,7 @@ def test_single_merged_branch_is_deleted_with_exact_sha_lease(
     assert result.deleted is True
     assert api.deleted == [BranchInfo(NAME, TIP, False)]
     assert api.branch_reads >= 3
-    assert {b.name for b in api.branches()} == {
-        "main", "provenance/branch-retention"
-    }
+    assert {b.name for b in api.branches()} == {"main", "provenance/branch-retention"}
 
 
 def test_candidate_tip_change_before_deletion_fails_without_mutation(

@@ -11,6 +11,7 @@
 - [architecture/final-evaluation-authorization.md](architecture/final-evaluation-authorization.md) — sealed unused-future認可境界
 - [architecture/research-assurance.md](architecture/research-assurance.md) — G0–G5、反証条件、研究証拠の妥当性
 - [architecture/ppo-rollout-boundary.md](architecture/ppo-rollout-boundary.md) — Issue #810 P3 synthetic PPOのrollout境界診断とソース契約
+- [architecture/synthetic-ridge-outer-refit.md](architecture/synthetic-ridge-outer-refit.md) — 合成データ限定のRidge再学習・モデル切替・口座継続性の契約
 - [research/current-status.md](research/current-status.md) — 現行の研究判断・証拠リンク・未完了gate
 - [research/ppo-rollout-boundary-protocol.md](research/ppo-rollout-boundary-protocol.md) — 固定48/72-step synthetic比較条件と受入基準
 - [research/ppo-rollout-boundary-results.md](research/ppo-rollout-boundary-results.md) — synthetic結果・不成立の判定・provenance・限界

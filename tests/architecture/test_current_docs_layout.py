@@ -20,6 +20,7 @@ REQUIRED_DOC_FILES = {
     "architecture/final-evaluation-authorization.md",
     "architecture/research-assurance.md",
     "architecture/ppo-rollout-boundary.md",
+    "architecture/synthetic-ridge-outer-refit.md",
     "research/current-status.md",
     "research/ppo-rollout-boundary-protocol.md",
     "research/ppo-rollout-boundary-results.md",
@@ -41,6 +42,7 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
     DOCS / "architecture" / "ppo-rollout-boundary.md",
+    DOCS / "architecture" / "synthetic-ridge-outer-refit.md",
     DOCS / "research" / "current-status.md",
     DOCS / "research" / "ppo-rollout-boundary-protocol.md",
     DOCS / "research" / "ppo-rollout-boundary-results.md",
@@ -59,6 +61,7 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
+    DOCS / "architecture" / "synthetic-ridge-outer-refit.md",
     DOCS / "research" / "current-status.md",
 )
 
@@ -199,6 +202,7 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/final-evaluation-authorization.md",
         "architecture/research-assurance.md",
         "architecture/ppo-rollout-boundary.md",
+        "architecture/synthetic-ridge-outer-refit.md",
         "research/current-status.md",
         "research/ppo-rollout-boundary-protocol.md",
         "research/ppo-rollout-boundary-results.md",

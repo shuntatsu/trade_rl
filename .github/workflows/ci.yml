@@ -45,6 +45,10 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Agent maintenance Ruff diff (temporary diagnostic)
+        continue-on-error: true
+        run: uv run ruff format --diff tools/agent_repo tests/agent_repo
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

@@ -45,6 +45,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Temporary merged-prune format diff (remove before merge)
+        run: uv run ruff format --diff tools/verified_merged_branch_prune.py tests/tools/test_verified_merged_branch_prune.py tools/branch_hygiene.py tests/tools/test_branch_hygiene.py || true
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

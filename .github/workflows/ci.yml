@@ -45,6 +45,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Temporary Ruff formatting diagnostic (remove)
+        run: uv run ruff format --diff tools/github_coordination_registry_reader.py || true
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

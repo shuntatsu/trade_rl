@@ -342,7 +342,7 @@ def test_manual_prune_workflow_is_never_automatically_triggered() -> None:
     assert "pull-requests: read" in workflow
     assert "actions: read" in workflow
     assert "persist-credentials: false" in workflow
-    assert "test \"$CONFIRM\" = \"true\"" in workflow
-    assert "--expected-sha \"$PRUNE_SHA\"" in workflow
-    assert "--retention-record-sha \"$PRUNE_RETENTION\"" in workflow
+    assert 'test "$CONFIRM" = "true"' in workflow
+    assert '--expected-sha "$PRUNE_SHA"' in workflow
+    assert '--retention-record-sha "$PRUNE_RETENTION"' in workflow
     assert "--apply" in workflow

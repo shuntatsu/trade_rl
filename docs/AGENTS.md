@@ -75,6 +75,8 @@ GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run pyt
 
 `tools.github_coordination_ref_cas.compare_and_swap_registry_plan` は同じdisposable/test-only mutation gateに従う追加検証である。既存pure `RegistryTransitionPlan` をexact before/after commit OIDに結び付け、caller-supplied object readerから取得したcanonical registry bytesをstrict parseし、before/after digest・1-Task transition・CAS後payload再readbackを照合する。読み出し元の認証・Git object identityをこのfakeable Protocol自体が証明するわけではなく、post-mutation readback失敗時はref変更済みの可能性があるため成功やrollbackを主張しない。`shuntatsu/trade_rl`でのmutation禁止・既定hard-refuse・authority/roster-complete/cleanup=falseは不変で、実GitHub disposable E2Eと保護されたproduction writerの代替ではない。
 
+`tools.github_coordination_registry_reader.GitHubRegistryObjectReader` は将来のdisposable test統合のための **read-only Git object adapter** で、明示されたrepositoryとexact commit SHAからGitHub RESTの GET commit → GET recursive tree → GET blob を辿る。配置pathはcallerが指定し、nontruncated tree内に普通の `100644` blobが一意であること、commit/tree/blobの返却OIDが要求値と一致すること、blob sizeとstrict Base64 decode後bytesのGit SHA-1一致、canonical registry parseとrepository一致をfail-closedで確認する。APIに対してはGET以外を呼ばない。API object自体の認証済みrepository binding・commit/treeのraw-object暗号学的証明はこのadapter単独では成立せず、許可信頼できるCoordinator・protected ref・remote CAS・GitHub実E2E・complete roster・cleanup authorityの代替ではない。canonical payloadへの実readbackに使用できても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。
+
 ## Agent Coordination Plane
 
 複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。

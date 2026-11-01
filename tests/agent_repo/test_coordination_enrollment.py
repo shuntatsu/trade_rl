@@ -49,11 +49,8 @@ def _packet() -> TaskPacket:
 
 def _snapshot() -> tuple[TaskPacket, LeaseRecord, TaskStatusRecord]:
     packet = _packet()
-    lease = heartbeat(
-        grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=timedelta(minutes=15)),
-        head_sha=HEAD,
-        observed_at=NOW + timedelta(minutes=1),
-    )
+    lease = grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=timedelta(minutes=15))
+    lease = heartbeat(lease, head_sha=HEAD, observed_at=NOW + timedelta(minutes=1))
     status = TaskStatusRecord(
         task_id=packet.task_id,
         task_revision=packet.task_revision,
@@ -88,11 +85,9 @@ def _enrollment() -> EnrollmentProjection:
 def test_preflight_binds_existing_task_packet_lease_and_status() -> None:
     enrolled = _enrollment()
     assert enrolled.status.task_id == "T1067-01"
-    assert (
-        enrolled.canonical_payload()["schema"]
-        == "coordinator_enrollment_projection_v1"
-    )
-    assert enrolled.canonical_payload()["status"] == enrolled.status.canonical_payload()
+    payload = enrolled.canonical_payload()
+    assert payload["schema"] == "coordinator_enrollment_projection_v1"
+    assert payload["status"] == enrolled.status.canonical_payload()
     require_local_registry_preflight(
         None,
         enrolled,
@@ -200,53 +195,48 @@ def test_initial_registration_preflight_rejects_duplicate_task_and_stale_ref() -
 
 
 @pytest.mark.parametrize(
-    ("mutate", "message"),
+    ("case", "message"),
     [
-        (lambda x: replace(x, issue_node_id="I_kwFORGED"), "immutable"),
-        (
-            lambda x: replace(
-                x, status=replace(x.status, task_contract_digest="d" * 64)
-            ),
-            "digest changed",
-        ),
-        (
-            lambda x: replace(
-                x,
-                status=replace(
-                    x.status,
-                    lease_epoch=2,
-                    lease_branch=lease_branch_name("T1067-01", 2, "agent-a"),
-                ),
-            ),
-            "reconciliation",
-        ),
-        (
-            lambda x: replace(
-                x,
-                status=replace(
-                    x.status,
-                    owner="agent-b",
-                    lease_branch=lease_branch_name("T1067-01", 1, "agent-b"),
-                ),
-            ),
-            "owner or fenced",
-        ),
-        (
-            lambda x: replace(x, status=replace(x.status, head_sha="e" * 40)),
-            "remote ancestry",
-        ),
+        ("issue", "immutable"),
+        ("digest", "digest changed"),
+        ("epoch", "reconciliation"),
+        ("owner", "owner or fenced"),
+        ("head", "remote ancestry"),
+        ("base", "Task base changed"),
     ],
 )
-def test_update_requires_stable_binding_and_fenced_epoch(mutate, message: str) -> None:
+def test_update_requires_stable_binding_and_fenced_epoch(
+    case: str, message: str
+) -> None:
     prior = _enrollment()
-    proposed = mutate(prior)
+    status = prior.status
+    if case == "issue":
+        proposed = replace(prior, issue_node_id="I_kwFORGED")
+    elif case == "digest":
+        proposed = replace(
+            prior, status=replace(status, task_contract_digest="d" * 64)
+        )
+    elif case == "epoch":
+        next_branch = lease_branch_name("T1067-01", 2, "agent-a")
+        proposed = replace(
+            prior, status=replace(status, lease_epoch=2, lease_branch=next_branch)
+        )
+    elif case == "owner":
+        new_branch = lease_branch_name("T1067-01", 1, "agent-b")
+        proposed = replace(
+            prior, status=replace(status, owner="agent-b", lease_branch=new_branch)
+        )
+    elif case == "head":
+        proposed = replace(prior, status=replace(status, head_sha="e" * 40))
+    else:
+        proposed = replace(prior, status=replace(status, base_sha="e" * 40))
     with pytest.raises(ValueError, match=message):
         require_local_registry_preflight(
             prior,
             proposed,
             expected_registry_oid=OID,
             observed_registry_oid=OID,
-            enumerated_task_ids=(prior.status.task_id,),
+            enumerated_task_ids=(status.task_id,),
         )
 
 

@@ -213,9 +213,7 @@ def test_update_requires_stable_binding_and_fenced_epoch(
     if case == "issue":
         proposed = replace(prior, issue_node_id="I_kwFORGED")
     elif case == "digest":
-        proposed = replace(
-            prior, status=replace(status, task_contract_digest="d" * 64)
-        )
+        proposed = replace(prior, status=replace(status, task_contract_digest="d" * 64))
     elif case == "epoch":
         next_branch = lease_branch_name("T1067-01", 2, "agent-a")
         proposed = replace(

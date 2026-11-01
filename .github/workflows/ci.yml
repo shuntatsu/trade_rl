@@ -48,10 +48,6 @@ jobs:
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 
-      - name: Show enrollment formatting diff after failure (temporary diagnostic)
-        if: failure()
-        run: uv run ruff format --diff tests/agent_repo/test_coordination_enrollment.py
-
       - name: Mypy
         run: uv run mypy trade_rl
 

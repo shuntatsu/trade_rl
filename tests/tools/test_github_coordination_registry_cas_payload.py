@@ -51,9 +51,7 @@ class FakeGraphQL:
         self.calls: list[str] = []
         self.fail_mutation = False
 
-    def execute(
-        self, document: str, variables: dict[str, object]
-    ) -> dict[str, object]:
+    def execute(self, document: str, variables: dict[str, object]) -> dict[str, object]:
         if "mutation UpdateCoordinationRef" in document:
             self.calls.append("mutation")
             if self.fail_mutation:
@@ -187,9 +185,7 @@ def test_missing_object_fails_before_mutation() -> None:
 
 def test_post_cas_payload_readback_drift_fails_closed() -> None:
     plan, api, objects = _fixture()
-    objects.drift_after_readback = CoordinatorRegistry(
-        REPOSITORY, ()
-    ).canonical_bytes()
+    objects.drift_after_readback = CoordinatorRegistry(REPOSITORY, ()).canonical_bytes()
     with pytest.raises(ValueError, match="after registry"):
         _cas(plan, api, objects)
     # Ref may already have changed: never claim rollback or success.

@@ -5,13 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from tools.agent_repo.coordination.enrollment import EnrollmentProjection
+from tools.agent_repo.coordination.enrollment import (
+    EnrollmentProjection,
+    validate_enrollment_transition,
+)
 from tools.agent_repo.coordination.github_state import TaskStatusRecord
 
 _SCHEMA = "coordinator_registry_v1"
+_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _PROJECTION_SCHEMA = "coordinator_enrollment_projection_v1"
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REGISTRY_FIELDS = frozenset({"schema", "repository", "entries"})
@@ -115,6 +119,80 @@ class CoordinatorRegistry:
         return hashlib.sha256(self.canonical_bytes()).hexdigest()
 
 
+
+@dataclass(frozen=True)
+class RegistryTransitionPlan:
+    """Deterministic local before/after registry plan without write authority."""
+
+    operation: str
+    task_id: str
+    before_digest: str
+    after_digest: str
+    after_registry: CoordinatorRegistry
+    authoritative_registry_established: bool = field(default=False, init=False)
+    task_registry_complete: bool = field(default=False, init=False)
+    cleanup_authorized: bool = field(default=False, init=False)
+
+
+def plan_registry_transition(
+    registry: CoordinatorRegistry,
+    candidate: EnrollmentProjection,
+    *,
+    expected_before_digest: str,
+) -> RegistryTransitionPlan:
+    """Plan one canonical registry create/update; never persist or authorize it."""
+
+    if not isinstance(registry, CoordinatorRegistry):
+        raise ValueError("registry must be a CoordinatorRegistry")
+    if not isinstance(candidate, EnrollmentProjection):
+        raise ValueError("candidate must be an EnrollmentProjection")
+    if (
+        not isinstance(expected_before_digest, str)
+        or not _DIGEST_RE.fullmatch(expected_before_digest)
+    ):
+        raise ValueError("expected registry digest must be a lowercase SHA-256")
+    before_digest = registry.digest()
+    if expected_before_digest != before_digest:
+        raise ValueError("expected registry digest does not match current registry")
+    if candidate.repository != registry.repository:
+        raise ValueError("candidate repository differs from registry")
+
+    task_id = candidate.status.task_id
+    task_ids = tuple(entry.status.task_id for entry in registry.entries)
+    previous = next(
+        (entry for entry in registry.entries if entry.status.task_id == task_id),
+        None,
+    )
+    validate_enrollment_transition(
+        previous,
+        candidate,
+        enumerated_task_ids=task_ids,
+    )
+    if previous == candidate:
+        raise ValueError("registry transition is a no-op")
+
+    if previous is None:
+        operation = "create"
+        entries = (*registry.entries, candidate)
+    else:
+        operation = "update"
+        entries = tuple(
+            candidate if entry.status.task_id == task_id else entry
+            for entry in registry.entries
+        )
+    after_registry = CoordinatorRegistry(registry.repository, entries)
+    after_digest = after_registry.digest()
+    if after_digest == before_digest:
+        raise ValueError("registry transition is a no-op")
+
+    return RegistryTransitionPlan(
+        operation=operation,
+        task_id=task_id,
+        before_digest=before_digest,
+        after_digest=after_digest,
+        after_registry=after_registry,
+    )
+
 def parse_registry_bytes(data: bytes) -> CoordinatorRegistry:
     """Parse only exact canonical registry bytes, rejecting ambiguous JSON."""
 
@@ -146,4 +224,9 @@ def parse_registry_bytes(data: bytes) -> CoordinatorRegistry:
     return registry
 
 
-__all__ = ["CoordinatorRegistry", "parse_registry_bytes"]
+__all__ = [
+    "CoordinatorRegistry",
+    "RegistryTransitionPlan",
+    "parse_registry_bytes",
+    "plan_registry_transition",
+]

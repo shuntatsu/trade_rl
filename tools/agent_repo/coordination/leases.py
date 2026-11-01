@@ -119,7 +119,10 @@ class LeaseReconciliation:
             raise ValueError("reconciliation task_id is invalid")
         if type(self.expired_epoch) is not int or self.expired_epoch < 1:
             raise ValueError("reconciliation expired_epoch must be positive")
-        if not isinstance(self.observed_branch, str) or not self.observed_branch.strip():
+        if (
+            not isinstance(self.observed_branch, str)
+            or not self.observed_branch.strip()
+        ):
             raise ValueError("reconciliation observed_branch must be non-empty")
         if self.observed_head_sha is not None:
             _require_sha(self.observed_head_sha, field_name="observed_head_sha")

@@ -283,9 +283,7 @@ def test_evidence_rejects_malformed_sha_and_integration_without_main() -> None:
     ("field", "value"),
     [("task_revision", 1.0), ("parent_issue", 500.0)],
 )
-def test_task_packet_rejects_integer_shaped_floats(
-    field: str, value: object
-) -> None:
+def test_task_packet_rejects_integer_shaped_floats(field: str, value: object) -> None:
     kwargs = {
         "task_id": "T500-01",
         "task_revision": 1,

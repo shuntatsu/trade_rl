@@ -45,9 +45,7 @@ class FakeGraphQL:
                 raise RuntimeError("beforeOid rejected")
             self.oid = item["afterOid"]  # type: ignore[assignment]
             return {
-                "data": {
-                    "updateRefs": {"clientMutationId": update["clientMutationId"]}
-                }
+                "data": {"updateRefs": {"clientMutationId": update["clientMutationId"]}}
             }
 
         self.reads += 1

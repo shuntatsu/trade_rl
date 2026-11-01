@@ -223,15 +223,16 @@ def _schemas(tree: ast.Module) -> dict[str, str]:
                 result[f"{node.name}.JSON_FIELDS"] = "<nonliteral>"
                 continue
             values: list[str] = []
+            literal = True
             for member in roster_value.elts:
                 if not isinstance(member, ast.Constant) or not isinstance(
                     member.value, str
                 ):
-                    values = []
+                    literal = False
                     break
                 values.append(member.value)
             result[f"{node.name}.JSON_FIELDS"] = (
-                repr(tuple(values)) if values else "<nonliteral>"
+                repr(tuple(values)) if literal else "<nonliteral>"
             )
     return result
 

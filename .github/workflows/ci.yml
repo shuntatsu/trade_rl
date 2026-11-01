@@ -45,6 +45,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Temporary formatting diagnostic (remove before final PR)
+        run: uv run ruff format --diff tests/tools/test_github_coordination_registry_cas_payload.py || true
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

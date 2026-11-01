@@ -125,13 +125,10 @@ def _cas(
         "allow_unprotected_test_mutation": True,
     }
     args.update(kwargs)
-    return compare_and_swap_registry_plan(
-        api, objects, **args  # type: ignore[arg-type]
-    )
+    return compare_and_swap_registry_plan(api, objects, **args)
 
 
-def test_payload_bound_test_only_cas_checks_before_after_and_independent_readback(
-) -> None:
+def test_payload_bound_cas_validates_bytes_and_independent_readback() -> None:
     plan, api, objects = _fixture()
     result = _cas(plan, api, objects)
     assert api.oid == B

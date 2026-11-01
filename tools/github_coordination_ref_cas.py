@@ -281,7 +281,9 @@ def _require_plan_payload(
     if expected_oid == ZERO_OID:
         before = CoordinatorRegistry(repository)
     else:
-        before = parse_registry_bytes(objects.read_registry_bytes(repository, expected_oid))
+        before = parse_registry_bytes(
+            objects.read_registry_bytes(repository, expected_oid)
+        )
     if before.repository != repository or before.digest() != plan.before_digest:
         raise ValueError("before registry differs from transition plan")
 

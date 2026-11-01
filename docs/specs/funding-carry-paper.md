@@ -261,6 +261,43 @@ identities and elapsed gap, and check for an unreported earlier attempt. The
 schema does not authenticate external roots or prevent a caller from claiming a
 new attempt 1.
 
+Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) is lost:
+a search of the collection machine found no preserved root, and on 2026-10-30 the
+user said in chat that they do not know that data or where its results were saved and
+that new data may be collected. Attempt 2 therefore uses lineage
+`carry_paper_attempt_lineage_v3`, which adds `predecessor_root.status` with value
+`available` or `unavailable` (v2 stays valid and unchanged). `plan` and `seal` require
+`--predecessor-root-status`:
+
+* `available` needs `--predecessor-root <PATH>` and is accepted only if the existing
+  v1 journal reader verifies the root against the recorded protocol digest, 188
+  events, final tip and last observation. The reader opens the database read-only
+  (no hot-journal recovery), so a preserved root is not mutated; a root with a hot
+  journal fails verification. The sealed protocol embeds that verification and the
+  root path, and a first `launch` (before the start) reads the root again and
+  refuses if it is gone or differs; a supervisor relaunch after the start does not
+  need the root. Lineage v3 can only be sealed through `attempt2`: `seal_paper_study`
+  and `paper.cli seal` refuse a v3 lineage otherwise (this is a caller contract, not
+  authentication; the launch re-read is what makes a forged `available` fail);
+* `unavailable` accepts no root path. The sealed protocol records that the lineage
+  values are taken from the public 2026-09-27/28 result-blind review record
+  (`docs/research/current-status.md`, commit
+  `b9f1ca65b26dcff7acbb089c7643e95702d474c9`), that they were NOT re-verified
+  against the root at seal time, and the user's statement as an attestation, quoted
+  verbatim with its date (2026-10-30), plus a `not_established` list (predecessor
+  protocol digest, final tip, observation gap, and the absence of an earlier
+  unreported attempt). The disposition stays `invalidated` with reason
+  `observation_gap`.
+
+Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded
+review. The predecessor was not re-verified. For this case only, the runbook's
+"fresh review resolves the preserved root" requirement is replaced by a fresh
+result-blind review of the lineage documentation (this section and the
+current-status record) and the pull request that introduced the rule. That review
+cannot confirm the predecessor digests, tip or gap against the root, and it does not
+establish that no earlier unreported attempt exists; the sealed record lists these
+as `not_established`.
+
 Require positive net profit after actual simulated exits, positive marked equity
 change in every block, and total net profit greater than recorded fees. The last
 condition is fee headroom at the realized trajectory, not a recomputed doubled-fee
@@ -372,9 +409,10 @@ journal; measure it before relying on the margin.
 
 ### Attempt 2 operator runbook
 
-Attempt 2 is prepared offline but is neither sealed nor started. The preserved
-attempt-1 root is read-only evidence and is never resumed, backfilled or edited.
-`python -m trade_rl.evaluation.paper.attempt2` has three commands, each of which
+Attempt 2 is prepared offline but is neither sealed nor started. Attempt 1's root
+is never resumed, backfilled or edited (and, if it exists, is preserved evidence that
+is only ever opened read-only; see the lost-root rule above). `python -m trade_rl.evaluation.paper.attempt2` has three
+commands (`plan`, `seal`, `launch`) and `storage_probe` one more; each of which
 refuses unless `--authorization` is an Issue #810 comment URL
 (`https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>`). The URL
 shape is all that code can check, so a human must post the authorization comment
@@ -382,10 +420,14 @@ first; nothing here proves the comment exists or says what it should say.
 
 1. Human prerequisites, before any command:
    * post the Issue #810 authorization comment naming the intended UTC start;
-   * obtain a fresh result-blind review that resolves the preserved attempt-1 root
-     with its v1 reader and confirms protocol, event chain, final tip, last
-     observation and elapsed gap, and checks for an unreported earlier attempt;
-     the lineage values are assertions until that review exists;
+   * if the attempt-1 root is available: obtain a fresh result-blind review that
+     resolves it with its v1 reader and confirms protocol, event chain, final tip,
+     last observation and elapsed gap, and checks for an unreported earlier attempt;
+     the lineage values are assertions until that review exists. If it is lost
+     (`--predecessor-root-status unavailable`, the current case): obtain a fresh
+     result-blind review of the lineage documentation and the pull request that
+     introduced the lost-predecessor rule instead; it does not re-verify the
+     predecessor;
    * create a dedicated detached worktree of the merged commit and a private locked
      environment; keep it unmodified until the screen ends (the sealed
      implementation and runtime digests are rechecked before every acquisition);
@@ -394,24 +436,58 @@ first; nothing here proves the comment exists or says what it should say.
      backwards halts collection), and use stable power and network.
 2. Storage and runtime check (the screen needs 129,604 sixty-second slots, 90 days
    plus the 180-second grace, without interruption). Measure the bytes per
-   observation read-only from the preserved attempt-1 root (total bytes, including
-   rule captures, divided by its 188 observations) and add a safety margin. The
+   observation: from the preserved attempt-1 root, measured without opening it for
+   writing (total bytes, including
+   rule captures, divided by its 188 observations) if it exists; otherwise with the
+   storage probe below. The
    plan multiplies that rate by the slot count and a 1.25 headroom factor and
    compares it with free space on the target volume; `seal` refuses unless the
    result is `ok`. Also reserve enough memory and time for journal replay on a
    restart, which is not measurable offline.
+   The storage probe is the only networked step before launch. It runs the real
+   collector for a bounded trial (default 20 one-minute slots, about 24 minutes
+   including the 60-second lead and the 180-second grace) into a new scratch root
+   outside the repository and outside any sealed root, and prints the bytes per
+   observation:
+
+   ```
+   python -m trade_rl.evaluation.paper.storage_probe --root <NEW_SCRATCH_ROOT> \
+     --authorization <COMMENT_URL> --allow-network --output <NEW_REPORT.json>
+   ```
+
+   Pass `conservative_bytes_per_observation` from the report as the rate. It is
+   `total bytes / observations + mean snapshot bytes + journal bytes / events`: the
+   measured rate plus one extra snapshot capture and one extra journal event per
+   observation, because a trade cycle takes a second capture (decision, then
+   execution) and appends a second event, and a probe that does not trade measures
+   neither. The journal term uses the whole database file and an execution event is
+   about as large as a decision event (both store the full account status), so it errs
+   high, and the fixed files and one rule capture of a short probe are spread over
+   few observations. Growth specific to fills beyond that is not measured; the plan's
+   own 1.25 headroom is the only further margin. The probe root's research plan is
+   `carry_paper_storage_probe_v1` with no attempt lineage: `attempt2 seal` (it only
+   writes new roots), `attempt2 launch`, `cli evaluate`, `cli run` and `cli supervise`
+   all refuse it, so only the probe's own entry point runs it. It is capacity
+   evidence only, consumes no screen data and is never an attempt. A source error in
+   the probe halts it (no retry) and yields no rate.
 3. Plan (no side effects; `--output` writes a new draft file once):
 
    ```
    python -m trade_rl.evaluation.paper.attempt2 plan --root <NEW_ROOT> \
      --start-at <FUTURE_UTC_ISO> --authorization <COMMENT_URL> \
+     --predecessor-root-status unavailable \
      --bytes-per-observation <MEASURED_RATE> --output <NEW_DRAFT.json>
    ```
 
-   The draft binds the exact attempt-1 lineage, the fixed `carry_paper_screen_v2`
+   Use `--predecessor-root-status available --predecessor-root <ATTEMPT_1_ROOT>`
+   only when the root exists and the v1 reader verifies it.
+
+   The draft binds the exact attempt-1 lineage and its root status, the fixed `carry_paper_screen_v2`
    plan, the checkout commit, and the implementation and runtime digests, and lists
    `seal_blockers`. The start must be at least five minutes after the wall clock.
-4. Seal (offline) with the same arguments and `seal`. It refuses a dirty or
+4. Seal (offline) with the same arguments and `seal`. It refuses a missing or
+   unknown predecessor-root status, `available` without a verifiable root,
+   `unavailable` with a root path, a dirty or
    unidentifiable checkout, an existing root, a missing authorization, a start not
    at least five minutes in the future at seal time, and insufficient storage. It
    prints `protocol_sha256`; record that digest, and post it with the start time.

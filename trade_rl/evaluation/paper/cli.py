@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
 import json
 import os
 import sys
@@ -15,6 +16,7 @@ from trade_rl.evaluation.paper.account import timestamp
 from trade_rl.evaluation.paper.assessment import evaluate_paper_study
 from trade_rl.evaluation.paper.lock import CollectorLockHeld
 from trade_rl.evaluation.paper.operations import (
+    STORAGE_PROBE_PLAN_SCHEMA,
     collect_until_finished,
     collection_status,
     seal_paper_study,
@@ -35,6 +37,22 @@ from trade_rl.evaluation.paper.watchdog import (
     popen_launcher,
     supervise_collector,
 )
+
+
+def _refuse_storage_probe(root: Path, protocol_sha256: str) -> None:
+    """A probe root is capacity evidence only; only its own entry point runs it."""
+    path = root / "protocol.json"
+    if root.is_symlink() or path.is_symlink() or not path.is_file():
+        return
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != protocol_sha256:
+        return
+    try:
+        plan = json.loads(raw)["protocol"]["study"]["research_plan"]
+    except (KeyError, TypeError, ValueError):
+        return
+    if isinstance(plan, dict) and plan.get("schema") == STORAGE_PROBE_PLAN_SCHEMA:
+        raise ValueError("a storage probe root is not a screen; the probe runs itself")
 
 
 def _print(value: dict[str, Any]) -> None:
@@ -112,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             return EXIT_FAILED if report["severity"] == "failed" else EXIT_DEGRADED
         elif args.command == "supervise":
+            _refuse_storage_probe(args.root, args.protocol_sha256)
             outcome = supervise_collector(
                 args.root,
                 protocol_sha256=args.protocol_sha256,
@@ -121,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return int(outcome["exit_code"])
         elif args.command == "run":
+            _refuse_storage_probe(args.root, args.protocol_sha256)
             with PaperCollector(
                 args.root, expected_protocol_sha256=args.protocol_sha256
             ) as collector:

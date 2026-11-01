@@ -60,6 +60,7 @@ def plan(tmp_path, **overrides):
         start_at=START,
         authorization=AUTH,
         bytes_per_observation=2_000_000,
+        predecessor_root_status="unavailable",
         clock=clock,
         code_identity=lambda: CLEAN,
         disk_usage=roomy,
@@ -73,6 +74,7 @@ def seal(tmp_path, **overrides):
         start_at=START,
         authorization=AUTH,
         bytes_per_observation=2_000_000,
+        predecessor_root_status="unavailable",
         clock=clock,
         code_identity=lambda: CLEAN,
         disk_usage=roomy,
@@ -91,7 +93,7 @@ def refusal_of(call, **kwargs):
 
 
 def test_lineage_constants_match_the_recorded_attempt_one_facts():
-    lineage = attempt2_lineage()
+    lineage = attempt2_lineage("unavailable")
     assert lineage["attempt_number"] == 2
     assert lineage["predecessor"] == {
         "attempt_number": 1,
@@ -133,9 +135,9 @@ def test_plan_is_an_unsealed_draft_that_creates_nothing(tmp_path):
     assert draft["sealed"] is False and draft["launched"] is False
     assert draft["production_eligible"] is False
     assert not (tmp_path / "attempt2").exists()
-    assert draft["attempt_lineage"] == attempt2_lineage()
+    assert draft["attempt_lineage"] == attempt2_lineage("unavailable")
     assert draft["research_plan"] == operations.screen_plan(
-        attempt_lineage=attempt2_lineage()
+        attempt_lineage=attempt2_lineage("unavailable")
     )
     assert draft["start_at"] == START.isoformat()
     assert draft["close_at"] == (START + timedelta(days=90)).isoformat()
@@ -319,7 +321,7 @@ def test_seal_writes_a_new_root_bound_to_attempt_one_and_current_identity(tmp_pa
     protocol = json.loads(raw)["protocol"]
     assert protocol["settings"]["start_at"] == START.isoformat()
     plan_ = protocol["study"]["research_plan"]
-    assert plan_["attempt_lineage"] == attempt2_lineage()
+    assert plan_["attempt_lineage"] == attempt2_lineage("unavailable")
     assert plan_["schema"] == "carry_paper_screen_v2"
     assert protocol["study"]["provenance"] == build_candidate_run_provenance()
     assert protocol["study"]["created_at"] == NOW.isoformat()
@@ -525,6 +527,8 @@ def test_cli_plan_prints_and_writes_only_the_requested_draft(tmp_path, capsys):
         start,
         "--authorization",
         AUTH,
+        "--predecessor-root-status",
+        "unavailable",
         "--output",
         str(output),
     ]

@@ -110,7 +110,7 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,assessment.py,cli.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -212,7 +212,13 @@ failure. `paper/attempt2.py` composes the
 existing lineage validator, `screen_plan`, `seal_paper_study`, FS1's authorization
 pattern and the supervisor into plan/seal/launch gates for the successor attempt
 with no network call (it loads the collector stack at import through
-`seal_paper_study`, so the offline property is proved at call level). These operations contain no production routing.
+`seal_paper_study`, so the offline property is proved at call level). It imports
+neither the collector nor `paper/storage_probe.py`. The probe is the one other
+networked step: it runs the real `PaperCollector` for a few slots into a scratch root
+whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
+`cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
+refuse it otherwise. These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and
@@ -770,7 +776,7 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 このGit tree内のproseやarchitecture testだけでbranch protectionが有効とは判断しない。ruleset/protectionの設定変更後はGitHub stateをread-backし、required check、PR requirement、force-push/deletion、maintainer/admin bypassを確認する。管理surfaceが利用できない場合は未設定/未検証として扱う。
 
-`Generic Independent Research Review` は、実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerによるexact HEADのsoftware-onlyレビューを要求する。authenticated GitHub review APIの `COMMENTED` または `APPROVED` 投稿に、本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しと、model/task IDs・actual report・publisher・HEADをdigestへbindした `independent_model_review_v1` receiptを必須とする。同一GitHub accountでもこの条件を満たせば受理し、別principalであることだけでは独立性を認めない。receiptの正本は [research assurance](research-assurance.md#generic-software-pr-review-receipt) とする。
+`Generic Independent Research Review` は、exact HEADのsoftware-only source reviewを要求する。authenticated GitHub review APIの`COMMENTED`または`APPROVED`に、単独marker/dispositionとdigest付きreceiptを必須とする。旧`independent_model_review_v1`（全実装Task IDを含む）と新`software_source_review_v1`（`reviewer_model_id`・`review_jobs`（AGYジョブIDのlist）・`diff_sha256`・`review_result=PASS`・`blocking_findings=0`・具体的`report`を含む）を受理する。同一GitHub accountの投稿もtransportとして受理するが、無検証のモデル独立性や経済実行を承認する意味ではない。正本は[research assurance](research-assurance.md#generic-software-pr-review-receipt)とする。
 
 同じexact HEADのactive submitted marked `### Disposition: BLOCKED` が一つでもあれば承認より優先し、後続の同一actorによる承認でも消去しない。保留・曖昧・dismissed・古いHEAD・不整合なreceiptはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みsoftwareレビューはIntegratorによるマージ・クローズの対象となる。このGeneric receiptは `Independent Research Review` の4h PPO smoke専用review/triggerやG4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。
 

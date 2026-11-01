@@ -1038,7 +1038,7 @@ date plus the settlement margin and both user authorizations exist.
 
 `Generic Independent Research Review` はsoftware-onlyのPR統合確認であり、GitHub account分離ではなくconfigured AIモデルの分離を要求する。同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
 
-review inputには、対象HEADの正確なsourceと対応する完全なpatch、現行のauthoritative contractに加え、目的・業務上の目標・因果的な理由、関連する親planと実装planの完全な本文、代替案・受入条件・反証方法・test strategy・既知の限界を含める。現在のphase、未完了のwhole-program項目、plan間の優先順位も明示する。短い要約は、レビューに必要な完全なplan/sourceの代替にならない。歴史的な結果を含むsoftware auditは、fresh result-blind G0-G2 reviewとは別の範囲である。
+software-onlyのreview inputは、対象のexact HEADと完全なchanged-file patch、影響するcurrent source/tests/authoritative contracts、目的・受入条件・重要なfailure mode・既知の限界を含める。影響しない歴史的な親plan全文や過去のWorker Task IDは必須としない。ただし、検証が必要な境界は省略せず、結論を裏付けるsource・test evidenceを確認する。歴史的なresult-bearing software auditは、fresh result-blind G0–G2 reviewとは別の範囲である。
 
 review本文にはcode fence外に一つの `<!-- independent-research-review-audit -->` と唯一の `### Disposition: APPROVED` を置き、閉じた `independent-review-receipt` fenceを一つ置く。そのJSON envelopeのfieldは `payload` と `sha256` だけである。payloadのfieldは次に限定する。
 
@@ -1055,6 +1055,14 @@ supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の�
 
 model/task IDは実harness configuration・provider receiptまたは実conversation/task identifierから取得し、publisherがその対応をattestする。`UNKNOWN` / `NOT_ESTABLISHED` 等の未確立値、空値、control character、未知field、重複JSON keyは拒否する。IDsはlowercase ASCIIのcanonical identifierを使い、modelのseparator variantsを同じidentityとして比較する。reviewerのmodelは全implementation modelと異なること、reviewerのtaskは全implementation taskと異なること、implementation task IDsが重複しないことを検証する。宣言値を作り替えるだけで実モデルの分離が成立したとは扱わない。
 
+**軽量software-only receipt（`software_source_review_v1`）:** 過去の実装Task IDが入手できなくても、実際に実施したsource reviewを使える。従来の`independent_model_review_v1`は後方互換として引き続き受理する。review本文・GitHub APIのcommit/state/actor・single marker/disposition/fence/envelope/SHA-256は共通であり、軽量形式のpayloadは以下の**11 fieldのみ**とする。
+
+- `schema: software_source_review_v1`、`head_sha`、`publisher_user_id`、`scope: software-only`、`disposition: APPROVED`。
+- `reviewer_model_id`: 実際に呼び出した別モデルのconfigured name（lowercase ASCII）。`review_jobs`: そのソースレビューの実在する管理ジョブID（16桁lowercase hex）の重複なしlist（1–10件）。複数ページの全レビューjobを含める。
+- `review_result: PASS`、`blocking_findings: 0`、`diff_sha256`: 当該HEADの実レビューが返したfull-diff SHA-256、`report`: 監査内容・判断・残存リスクの具体的な本文（80文字以上）。
+
+CIはこれらの型、レビューのexact HEAD・authenticated publisher・visible disposition・単一receipt・payload digestをfail-closed検査するが、外部AGY job/モデルの実稼働をGitHub Actionsから直接照合するものではない。レビュー投稿者はGitHub上の原資料（review job、モデル、diff hash、result、findings）を読み戻して**実在情報だけ**をattestする。歴史上のWorker/Reviewer Task IDを創作せず、未確認を承認済みに改称しない。Medium/Highの未解消問題を含むレビューはPASSとして投稿しない。これはsoftware PRの統合監査を実務的に簡素化するルール変更であり、結果を見てからの研究判定変更、経済実行、unused/final、注文、G0–G5の追加認可を一切変更しない。
+
 `sha256` は **payloadだけ**を `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")` したbytesのSHA-256であり、envelopeのhashをpayloadへ入れない。CIはhashの存在確認だけでなく実payloadから再計算する。authenticated publisher、exact HEAD、disposition、report、model/task metadataがこのdigestへbindされる。これはpublisher attestationの整合性検査であり、providerの実model weightsや真の実装履歴を暗号学的に証明しない。
 
 実reviewのpayloadを用意した後、network-free rendererで投稿本文を作れる。
@@ -1065,7 +1073,7 @@ uv run python tools/independent_research_review.py --render-payload-json receipt
 
 最新GitHub API evidenceを毎回refetchし、approvalはactorごとの最新marked review IDで評価する。dismissed/pending/changes-requested、stale HEAD、重複review ID、receipt不整合や曖昧なdispositionはapprovalにならない。一方、同じexact HEADのactive submitted marked `BLOCKED` はreceiptがなくても全actor・全review recordで優先し、同じactorの後続APPROVEDでも消去しない。
 
-このreceiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のsame-model fresh-agent reviewを自動で新policyのformal approvalへ昇格しない。
+これらのsoftware-only receiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のsame-model fresh-agent reviewを自動で新policyのformal approvalへ昇格しない。
 
 ### Separate economic reviewer authority
 
@@ -1305,6 +1313,24 @@ roots. The lineage fields remain caller assertions: the schema alone does not
 authenticate external roots, prevent a caller from claiming a new attempt 1, or
 prove that the declared disposition is truthful. G0 review must verify the
 complete predecessor chain before a successor is sealed.
+
+Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
+v2 valid and unchanged. `available` embeds the verification of a root that the
+existing v1 journal reader read read-only (protocol digest, event count, final tip,
+last observation, root path); `attempt2` cannot build it without a root path that
+passes that read, the generic `seal_paper_study`/`paper.cli seal` refuse any v3
+lineage, and a first `attempt2 launch` re-reads the recorded root and refuses if it
+is gone or differs.
+`unavailable` is the honest case where the preserved root is lost: it records that the
+lineage values come from the prior public result-blind review record (document and
+commit), that they were not re-verified at seal time, the user's statement quoted
+verbatim with its date, and the replacement review rule. For attempt 2 the root is
+unavailable, so the G0 requirement that a fresh review resolve the preserved root is
+replaced, for this case only, by a fresh result-blind review of the lineage
+documentation and the pull request that introduced the rule. This is weaker than
+resolving the root: the predecessor protocol, tip and gap are carried forward from a
+recorded review and are not re-verified, and global attempt uniqueness stays
+unestablished. Disposition remains `invalidated` with reason `observation_gap`.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 

@@ -332,9 +332,9 @@ def test_origin_checkout_must_be_exact_repository(
 
 def test_manual_prune_workflow_is_never_automatically_triggered() -> None:
     root = Path(__file__).resolve().parents[2]
-    workflow = (
-        root / ".github/workflows/prune-merged-branch.yml"
-    ).read_text(encoding="utf-8")
+    workflow = (root / ".github/workflows/prune-merged-branch.yml").read_text(
+        encoding="utf-8"
+    )
     assert "workflow_dispatch:" in workflow
     assert "\n  push:" not in workflow
     assert "\n  schedule:" not in workflow

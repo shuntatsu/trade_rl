@@ -69,6 +69,8 @@ uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HE
 
 GitHub上のIssue/PR/branchを読取照合するときは `python -m tools.github_work_inventory --repository shuntatsu/trade_rl` を使う。この外部adapterは `tools.agent_repo` の外に置き、read-onlyの非正本snapshotを返す。open IssueコメントのTask projectionは発行者の真正性が未確認であり、未登録作業やclosed Issueも網羅しないため、結果をbranch削除・Issue close・研究認可の根拠にしない。 監査中にPR/Issue rosterまたはbranch SHA/protectionが変化した場合はsnapshot生成を拒否し、GitHub Repository名の大文字小文字を区別せず同一Repositoryを照合し、PR head SHAは現在のbranch tipと照合する。一方、PR base.shaは過去の参照時点であり、現在のmain tipとの一致を要求しない。forkやhead repository不明のPRはローカルbranch tipとの照合ができず、`--compare-prs`でも`nonlocal_head_uncompared`と記録して祖先関係を推測しない。これも原子的な状態証明や削除許可ではない。
 
+GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run python -m tools.github_workflow_attempts --repository shuntatsu/trade_rl --run-id <ID>` を使う。この外部adapterは実runの `run_attempt` に対応する `/attempts/{n}/jobs` を全page取得し、run/attempt/head/branch/job identityと重複・ページ件数・前後のrun readbackを検証する。通常の `/runs/{id}/jobs` が空でも作業不在とは判定しない。取得が欠落・変化・矛盾した場合はfail-closedで拒否する。出力の `workflow_activity_checked=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持し、単一runの観測を全Task・全workflowの証明やbranch削除許可へ昇格させない。
+
 ## Agent Coordination Plane
 
 複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。

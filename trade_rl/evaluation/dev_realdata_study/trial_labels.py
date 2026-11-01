@@ -41,11 +41,15 @@ def _select(
     protocol: DevStudyProtocol,
 ) -> dict[str, Any]:
     scenarios = protocol.scenarios
+    arms_table = result.get("arms", {})
     runnable = tuple(
         arm
         for arm in CANDIDATE_POOL
-        if all(
-            "terminal_net_profit_pct" in result["arms"][arm][scenario]
+        if arm in arms_table
+        and all(
+            scenario in arms_table[arm]
+            and isinstance(arms_table[arm][scenario], Mapping)
+            and "terminal_net_profit_pct" in arms_table[arm][scenario]
             for scenario in scenarios
         )
     )
@@ -69,8 +73,9 @@ def _select(
     )
     # A candidate cannot be promoted when either control has not produced
     # valid replay evidence, even though CASH's theoretical profit is zero.
+    # Rule-specific validity, not stale cached labels, controls admission.
     invalid_controls = tuple(
-        arm for arm in CONTROL_ARMS if not result["validity"].get(arm, False)
+        arm for arm in CONTROL_ARMS if not validity.get(arm, False)
     )
     diagnostic_only = result.get("status") == "diagnostic_only"
     rows: dict[str, Any] = dict(selection.rows)
@@ -151,14 +156,26 @@ def labels_under_both_rules(
                 or (
                     arm in probes
                     and probes[arm] is not None
-                    and result["validity_detail"][arm]["causality_matrix_passed"]
+                    and result["validity_detail"][arm].get(
+                        "causality_matrix_passed", False
+                    )
                     and pr_c_probe_passed(probes[arm])
                 )
             )
         )
         for arm in replay_ok
     }
-    amended_validity = {arm: bool(value) for arm, value in result["validity"].items()}
+    amended_validity = {
+        arm: bool(
+            value
+            and replay_ok.get(arm, False)
+            and (
+                arm in CONTROL_ARMS
+                or result["validity_detail"][arm].get("causality_matrix_passed", False)
+            )
+        )
+        for arm, value in result["validity"].items()
+    }
     return {
         "label_pr_c_probe_rule": _select(
             result, pr_c_validity, RULE_PR_C, protocol=protocol

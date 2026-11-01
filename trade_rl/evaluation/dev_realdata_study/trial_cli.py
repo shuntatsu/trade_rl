@@ -87,6 +87,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         print("refusing an existing or overlapping study output", file=sys.stderr)
         return 2
+    # Validate summary destination before starting an expensive replay.
+    if not summary_path.parent.is_dir():
+        print("summary parent directory must exist", file=sys.stderr)
+        return 2
     try:
         output_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:

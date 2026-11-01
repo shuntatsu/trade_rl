@@ -132,6 +132,56 @@ def test_an_invalid_control_blocks_any_development_promotion(
     assert missing_control in result["selection_amended_rule"]["invalid_controls"]
 
 
+@pytest.mark.parametrize("missing", ["arm", "scenario"])
+def test_partial_arm_report_is_ineligible_without_key_error(missing: str) -> None:
+    from trade_rl.evaluation.dev_realdata_study.trial_labels import (
+        labels_under_both_rules,
+    )
+    from trade_rl.evaluation.dev_realdata_study.trials import LABEL_FAILED_TO_RUN
+
+    result = _assemble()
+    if missing == "arm":
+        del result["arms"]["t1_tsmom"]
+    else:
+        del result["arms"]["t1_tsmom"]["cost_x2"]
+    for selection in labels_under_both_rules(result).values():
+        assert selection["selected_arm"] is None
+        assert selection["arms"]["t1_tsmom"]["status"] == LABEL_FAILED_TO_RUN
+
+
+def test_stale_control_validity_cannot_bypass_replay_falsifier() -> None:
+    from trade_rl.evaluation.dev_realdata_study.trial_labels import (
+        labels_under_both_rules,
+    )
+
+    result = _assemble()
+    assert result["validity"]["cash"] is True
+    result["validity_detail"]["cash"]["no_termination_all_scenarios"] = False
+    for selection in labels_under_both_rules(result).values():
+        assert selection["label"] == "NO_WINNER"
+        assert selection["selected_arm"] is None
+        assert "cash" in selection["invalid_controls"]
+
+
+def test_missing_causality_matrix_evidence_never_promotes_candidate() -> None:
+    from trade_rl.evaluation.dev_realdata_study.trial_labels import (
+        labels_under_both_rules,
+    )
+
+    result = _assemble()
+    del result["validity_detail"]["t1_tsmom"]["causality_matrix_passed"]
+    for selection in labels_under_both_rules(result).values():
+        assert selection["validity"]["t1_tsmom"] is False
+        assert selection["selected_arm"] is None
+
+
+def test_bootstrap_omission_records_missing_arm_scenario() -> None:
+    runs = _runs()
+    del runs["t1_tsmom"].outcomes["cost_x2"]
+    result, _ = trial_study.assemble(synthetic_market(), small_protocol(), runs)
+    assert result["bootstrap_omissions"]["cost_x2"]["t1_tsmom"] == "missing_outcome"
+
+
 def test_probe_matrix_failure_disqualifies_under_both_rules() -> None:
     result = _assemble(matrix_failure=True)
     assert result["label"] == result["label_amended_rule"] == "NO_WINNER"
@@ -177,6 +227,26 @@ def test_run_phase2_propagates_the_effective_matrix_cut(
     )
     assert result["causality_matrix_cut"] == custom_cut
     assert result["status"] == "diagnostic_only"
+
+
+def test_sequential_worker_exception_becomes_failed_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def run_or_fail(
+        _dataset: Any, _protocol: Any, arm: str, **_kwargs: Any
+    ) -> trial_study.ArmRun:
+        if arm == "t1_tsmom":
+            raise RuntimeError("synthetic arm crash")
+        return trial_study.ArmRun(
+            arm, {}, {"worker": {"status": "FAILED_TO_RUN"}}, None
+        )
+
+    monkeypatch.setattr(trial_study, "run_arm", run_or_fail)
+    result, _ = trial_study.run_phase2(
+        synthetic_market(), small_protocol(), parallel_loader=None
+    )
+    assert result["label"] == "NO_WINNER"
+    assert result["failures"]["t1_tsmom"]["worker"]["status"] == "FAILED_TO_RUN"
 
 
 def test_bootstrap_skips_terminated_shorter_paths_without_aborting() -> None:
@@ -257,11 +327,31 @@ def test_t7_preserves_fail_closed_hold_when_overlay_would_trim(
     summary = policy.overlay_summary()
     assert policy.scales[-1][1] == pytest.approx(expected_scale)
     assert summary["n_fail_closed_hold_preserved"] == 1
+    assert summary["n_zero_scale_fail_closed_hold_preserved"] == int(
+        expected_scale == 0.0
+    )
     if expected_scale == 0.0:
         # An already-exposed book is not silently liquidated when the
         # allocator cannot safely issue a new target. Risk remains observable.
         assert summary["latched_at_end"] is True
         assert summary["n_decisions_at_zero"] == 1
+
+
+@pytest.mark.parametrize(
+    "hours, anchor",
+    [(0, 0), (-1, 0), (4, -1), (4, 4), (4, 8)],
+)
+def test_t7_rejects_schedule_that_can_never_fire(hours: int, anchor: int) -> None:
+    class Inner:
+        records: tuple[object, ...] = ()
+
+    with pytest.raises(ValueError, match="interval|anchor"):
+        DrawdownOverlayPolicy(
+            Inner(),
+            gross_max=0.95,
+            decision_interval_hours=hours,
+            decision_anchor_hour_utc=anchor,
+        )
 
 
 def test_pre_cut_trade_check_rejects_flat_no_fill_intervals() -> None:
@@ -339,6 +429,13 @@ def test_cli_refuses_preexisting_and_overlapping_outputs_before_loading(
     argv[argv.index(str(tmp_path / "summary.json"))] = str(out2 / "summary.json")
     assert trial_cli.main(argv) == 2
     assert not out2.exists()
+    out3 = tmp_path / "new3"
+    argv[argv.index(str(out2))] = str(out3)
+    argv[argv.index(str(out2 / "summary.json"))] = str(
+        tmp_path / "missing_parent" / "summary.json"
+    )
+    assert trial_cli.main(argv) == 2
+    assert not out3.exists()
 
 
 def test_runner_records_interval_units_and_all_cashflow_components(
@@ -405,6 +502,28 @@ def test_runner_records_interval_units_and_all_cashflow_components(
     assert result.summary["gross_price_pnl_usdt"] == pytest.approx(97.0)
     assert result.summary["dividend_pnl_usdt"] == 4.0
     assert result.summary["cash_interest_pnl_usdt"] == 5.0
+    adapter.history = []
+    empty = runner.run_replay(
+        dataset,
+        protocol,
+        "t8_blend_weekly",
+        "base",
+        {},
+        start_index=0,
+        stop_index=200,
+    )
+    forecast_empty = cast(dict[str, Any], empty.summary["forecast"])
+    for key in (
+        "mean_abs_mu_per_interval",
+        "median_abs_mu_per_interval",
+        "mean_abs_mu_per_day",
+        "median_abs_mu_per_day",
+        "share_abs_mu_above_one_way_cost",
+    ):
+        assert forecast_empty[key] is None
+    import json
+
+    json.dumps(empty.summary, allow_nan=False)
 
 
 def test_compact_summary_retains_cashflow_and_native_forecast_units() -> None:
@@ -477,6 +596,7 @@ def test_compact_summary_retains_cashflow_and_native_forecast_units() -> None:
         "share_abs_mu_above_one_way_cost": 0.5,
         "mean_abs_mu_per_day": 0.01,
     }
+    legacy["allocator_decisions"] = {"n_decisions": 2}
     result["arms"] = {
         "t8_blend_weekly": {"base": row},
         "legacy_day": {"base": legacy},
@@ -506,3 +626,4 @@ def test_compact_summary_retains_cashflow_and_native_forecast_units() -> None:
     assert "borrow_cost_usdt" not in old_saved
     assert "cash_interest_pnl_usdt" not in old_saved
     assert "decision_interval_hours" not in old_saved
+    assert old_saved["fail_closed_hold_count"] is None

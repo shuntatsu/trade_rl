@@ -559,18 +559,23 @@ def run_replay(
             built.forecast_interval_hours or protocol.decision_interval_hours
         )
         days_per_interval = interval_hours / 24.0
-        mean_abs_mu = float(np.mean(np.abs(history)))
-        median_abs_mu = float(np.median(np.abs(history)))
+        abs_history = np.abs(history)
+        mean_abs_mu = float(np.mean(abs_history)) if history.size else None
+        median_abs_mu = float(np.median(abs_history)) if history.size else None
         summary["forecast"] = {
             "decision_calls": built.adapter.calls,
             "null_packets": built.adapter.null_packets,
             "decision_interval_hours": interval_hours,
             "mean_abs_mu_per_interval": mean_abs_mu,
             "median_abs_mu_per_interval": median_abs_mu,
-            "mean_abs_mu_per_day": mean_abs_mu / days_per_interval,
-            "median_abs_mu_per_day": median_abs_mu / days_per_interval,
-            "share_abs_mu_above_one_way_cost": float(
-                np.mean(np.abs(history) > cost_rate)
+            "mean_abs_mu_per_day": (
+                None if mean_abs_mu is None else mean_abs_mu / days_per_interval
+            ),
+            "median_abs_mu_per_day": (
+                None if median_abs_mu is None else median_abs_mu / days_per_interval
+            ),
+            "share_abs_mu_above_one_way_cost": (
+                float(np.mean(abs_history > cost_rate)) if history.size else None
             ),
             "one_way_cost": cost_rate,
         }

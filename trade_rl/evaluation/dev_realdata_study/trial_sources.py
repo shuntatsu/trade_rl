@@ -499,12 +499,20 @@ class DrawdownOverlayPolicy:
         constants: Phase2Constants = CONSTANTS,
     ) -> None:
         self._inner = inner
+        if type(decision_interval_hours) is not int or decision_interval_hours <= 0:
+            raise ValueError("decision interval must be a positive integer")
+        if (
+            type(decision_anchor_hour_utc) is not int
+            or not 0 <= decision_anchor_hour_utc < decision_interval_hours
+        ):
+            raise ValueError("decision anchor must be within the interval")
         self._gross_max = gross_max
         self._interval_ns = decision_interval_hours * _NS_PER_HOUR
         self._anchor_ns = decision_anchor_hour_utc * _NS_PER_HOUR
         self._latch = DrawdownLatch(constants)
         self.scales: list[tuple[int, float]] = []
         self._fail_closed_hold_preserved = 0
+        self._zero_scale_fail_closed_hold_preserved = 0
 
     @property
     def records(self) -> Any:
@@ -523,6 +531,9 @@ class DrawdownOverlayPolicy:
             ),
             "latched_at_end": bool(self._latch.latched),
             "n_fail_closed_hold_preserved": self._fail_closed_hold_preserved,
+            "n_zero_scale_fail_closed_hold_preserved": (
+                self._zero_scale_fail_closed_hold_preserved
+            ),
         }
 
     def decide_portfolio(
@@ -544,6 +555,8 @@ class DrawdownOverlayPolicy:
             and latest.outcome == "fail_closed"
         ):
             self._fail_closed_hold_preserved += 1
+            if scale == 0.0:
+                self._zero_scale_fail_closed_hold_preserved += 1
             return proposal
         if scale >= 1.0:
             return proposal

@@ -230,15 +230,18 @@ def run_phase2(
                 say(f"arm {arm} complete")
     else:
         for arm in arms:
-            runs[arm] = run_arm(
-                dataset,
-                protocol,
-                arm,
-                start_index=start_index,
-                stop_index=stop_index,
-                say=say,
-                matrix_cut=matrix_cut,
-            )
+            try:
+                runs[arm] = run_arm(
+                    dataset,
+                    protocol,
+                    arm,
+                    start_index=start_index,
+                    stop_index=stop_index,
+                    say=say,
+                    matrix_cut=matrix_cut,
+                )
+            except Exception as exc:  # Match worker isolation in parallel mode.
+                runs[arm] = ArmRun(arm, {}, {"worker": _failure(exc)}, None)
     return assemble(dataset, protocol, runs, matrix_cut=matrix_cut)
 
 
@@ -335,6 +338,7 @@ def assemble(
         for arm in ALL_ARMS:
             outcome = runs[arm].outcomes.get(scenario)
             if outcome is None:
+                omissions[arm] = "missing_outcome"
                 continue
             if outcome.summary["terminated"]:
                 omissions[arm] = "terminated"
@@ -509,10 +513,10 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
                     row[name] = summary[name]
             decisions = summary.get("allocator_decisions")
             row["fail_closed_hold_count"] = (
-                None if decisions is None else decisions["fail_closed_hold_count"]
+                None if decisions is None else decisions.get("fail_closed_hold_count")
             )
             row["n_allocator_decisions"] = (
-                None if decisions is None else decisions["n_decisions"]
+                None if decisions is None else decisions.get("n_decisions")
             )
             row["ledger_reconciled"] = summary["reconciliation"]["passed"]
             row["terminal_flat"] = summary["reconciliation"]["terminal_flat"]

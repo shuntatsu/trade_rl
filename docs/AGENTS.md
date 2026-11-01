@@ -87,6 +87,7 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Task状態は単一statusではなく `phase + condition` で表す。`review / stale` や `executing / blocked` を区別する。
 - `execution_mode=read_only` はimmutable snapshotを共有してよく、writable lease/branchを持たない。`write` Taskはactive ownerを1つに限定し、isolated writable worktree/branchを使う。
 - write ownershipはCoordinator-issued **lease epoch** をfencing tokenとして扱う。reassignment時はepochを増加し、new epoch専用branch/worktreeを作る。expired leaseはbranch/PR/CI/artifact side effectをreconcileするまで即reassignしない。
+- `LeaseRecord` は正の有限TTLと最終heartbeatからの厳密なexpiry算出を要求する。`lease_is_current` は最終heartbeat以降、expiryより前の時刻だけを有効とする。時刻の逆行や延長された見かけのexpiryをTask登録・再割当権限へ昇格させない。
 - file overlapだけでなく `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` Resource Keyでsemantic collisionを判定する。hard conflictは同時実行しない。
 - CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。
 - Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。

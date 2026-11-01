@@ -226,3 +226,32 @@ def test_lease_requires_timezone_aware_time_and_positive_ttl() -> None:
         )
     with pytest.raises(ValueError, match="positive"):
         grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=timedelta())
+
+
+@pytest.mark.parametrize("bad_ttl", [float("nan"), float("inf"), -float("inf")])
+def test_manual_lease_refuses_nonfinite_ttl(bad_ttl: float) -> None:
+    from dataclasses import replace
+
+    lease = grant_lease(_packet(), "agent-a", epoch=1, now=NOW, ttl=TTL)
+    with pytest.raises(ValueError, match="finite and positive"):
+        replace(lease, ttl_seconds=bad_ttl)
+
+
+def test_manual_lease_refuses_expiry_extended_beyond_recorded_ttl() -> None:
+    from dataclasses import replace
+
+    lease = grant_lease(_packet(), "agent-a", epoch=1, now=NOW, ttl=TTL)
+    with pytest.raises(ValueError, match="plus TTL"):
+        replace(lease, expires_at=lease.expires_at + timedelta(hours=24))
+
+
+def test_lease_freshness_does_not_precede_last_heartbeat() -> None:
+    packet = _packet()
+    lease = grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=TTL)
+    assert not lease_is_current(lease, packet, now=NOW - timedelta(seconds=1))
+
+    updated = heartbeat(
+        lease, head_sha=HEAD_SHA, observed_at=NOW + timedelta(minutes=2)
+    )
+    assert not lease_is_current(updated, packet, now=NOW + timedelta(minutes=1))
+    assert lease_is_current(updated, packet, now=NOW + timedelta(minutes=2))

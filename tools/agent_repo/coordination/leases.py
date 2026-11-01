@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -87,10 +88,19 @@ class LeaseRecord:
             raise ValueError("lease_branch does not match task/epoch/owner fence")
         _require_aware(self.last_heartbeat_at, field_name="last_heartbeat_at")
         _require_aware(self.expires_at, field_name="expires_at")
-        if self.ttl_seconds <= 0.0:
-            raise ValueError("ttl_seconds must be positive")
+        if (
+            isinstance(self.ttl_seconds, bool)
+            or not isinstance(self.ttl_seconds, (int, float))
+            or not math.isfinite(self.ttl_seconds)
+            or self.ttl_seconds <= 0.0
+        ):
+            raise ValueError("ttl_seconds must be finite and positive")
         if self.expires_at <= self.last_heartbeat_at:
             raise ValueError("expires_at must be after last_heartbeat_at")
+        if self.expires_at != self.last_heartbeat_at + timedelta(
+            seconds=self.ttl_seconds
+        ):
+            raise ValueError("expires_at must match last heartbeat plus TTL")
 
 
 @dataclass(frozen=True)
@@ -247,7 +257,7 @@ def lease_is_current(
         and lease.task_revision == packet.task_revision
         and lease.task_contract_digest == packet.contract_digest()
         and lease.base_sha == packet.base_sha
-        and now < lease.expires_at
+        and lease.last_heartbeat_at <= now < lease.expires_at
     )
 
 

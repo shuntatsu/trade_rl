@@ -322,14 +322,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--merged-pr-number", type=int, required=True)
     parser.add_argument("--retention-record-sha", required=True)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--api-url", default="https://api.github.com")
-    parser.add_argument(
-        "--token", default=os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
-    )
     args = parser.parse_args(argv)
-    if not args.token:
+    token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if not token:
         raise RuntimeError("GH_TOKEN or GITHUB_TOKEN is required")
-    api = GitHubApi(repository=args.repository, token=args.token, api_url=args.api_url)
+    # An alternative API host could falsify PR, branch and retention evidence.
+    api = GitHubApi(
+        repository=args.repository, token=token, api_url="https://api.github.com"
+    )
     result = prune_verified_merged_branch(
         api,
         repository=args.repository,

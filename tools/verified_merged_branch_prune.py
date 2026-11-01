@@ -268,6 +268,8 @@ def prune_verified_merged_branch(
 ) -> VerifiedMergedPrune:
     """Preview by default; explicitly apply one exact-SHA leased branch deletion."""
 
+    if type(apply) is not bool:
+        raise ValueError("apply must be a native boolean")
     _request_inputs(
         repository, branch, expected_sha, merged_pr_number, retention_record_sha, now
     )

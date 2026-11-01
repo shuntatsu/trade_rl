@@ -250,3 +250,30 @@ def test_serialized_class_fields_and_dataclass_shape_changes_are_detected(
         and item.name == "CandidateRunConfig.version"
         for item in signals
     )
+
+
+def test_empty_literal_persistence_roster_differs_from_dynamic_expression(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/example.py",
+        "class Config:\n"
+        "    JSON_FIELDS = build_fields()\n",
+    )
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "dynamic serialization roster")
+    _write(
+        tmp_path,
+        "trade_rl/example.py",
+        "class Config:\n"
+        "    JSON_FIELDS = ()\n",
+    )
+    signals = semantic_diff(tmp_path, base_ref="main")
+    assert any(
+        item.kind == "SCHEMA"
+        and item.change == "changed"
+        and item.name == "Config.JSON_FIELDS"
+        for item in signals
+    )

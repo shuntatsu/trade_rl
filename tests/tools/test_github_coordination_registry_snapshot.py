@@ -47,13 +47,15 @@ class FakeGet:
             return {
                 "sha": TREE,
                 "truncated": False,
-                "tree": [{
-                    "path": PATH,
-                    "mode": "100644",
-                    "type": "blob",
-                    "sha": self.blob,
-                    "size": len(self.data),
-                }],
+                "tree": [
+                    {
+                        "path": PATH,
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": self.blob,
+                        "size": len(self.data),
+                    }
+                ],
             }
         if suffix == f"git/blobs/{self.blob}":
             return {
@@ -84,9 +86,13 @@ def test_stable_snapshot_binds_ref_oid_and_canonical_digest() -> None:
     assert result.task_registry_complete is False
     assert result.cleanup_authorized is False
     assert api.calls == [
-        "", "git/ref/heads/coordination/task-registry",
-        f"git/commits/{COMMIT}", f"git/trees/{TREE}",
-        f"git/blobs/{api.blob}", "git/ref/heads/coordination/task-registry", "",
+        "",
+        "git/ref/heads/coordination/task-registry",
+        f"git/commits/{COMMIT}",
+        f"git/trees/{TREE}",
+        f"git/blobs/{api.blob}",
+        "git/ref/heads/coordination/task-registry",
+        "",
     ]
 
 

@@ -570,7 +570,6 @@ def apply_cleanup(
     raise RuntimeError("bulk apply_cleanup is disabled; use verified merged-PR pruning")
 
 
-
 def render_summary(
     decisions: Sequence[BranchDecision], *, deleted: Sequence[str], apply: bool
 ) -> str:

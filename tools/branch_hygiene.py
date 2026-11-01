@@ -554,7 +554,6 @@ def archive_observed_tips(
     return parent_sha
 
 
-
 def apply_cleanup(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
@@ -568,9 +567,7 @@ def apply_cleanup(
     durable retention before invoking the conditional lease primitive.
     """
 
-    raise RuntimeError(
-        "bulk apply_cleanup is disabled; use verified merged-PR pruning"
-    )
+    raise RuntimeError("bulk apply_cleanup is disabled; use verified merged-PR pruning")
 
 
 

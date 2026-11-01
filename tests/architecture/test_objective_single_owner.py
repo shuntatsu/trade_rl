@@ -8,6 +8,7 @@ import-only facade may re-export existing types without a second type identity.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -24,30 +25,73 @@ CONTRACT_OWNERS = {
 FINANCIAL_SYMBOLS = frozenset().union(*CONTRACT_OWNERS.values())
 
 
+def _module_scope_statements(path: Path) -> Iterator[ast.stmt]:
+    """Follow executable module suites, never local function or class scopes."""
+
+    def visit(node: ast.AST) -> Iterator[ast.stmt]:
+        if isinstance(node, ast.stmt):
+            yield node
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                return
+        # Compound suites (if/try/for/with/match) share module bindings.
+        # Expressions and comprehension-local names are not module statements.
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.stmt, ast.ExceptHandler, ast.match_case)):
+                yield from visit(child)
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for statement in tree.body:
+        yield from visit(statement)
+
+
+def _binding_names(target: ast.AST) -> set[str]:
+    return {name.id for name in ast.walk(target) if isinstance(name, ast.Name)}
+
+
 def _top_level_bindings(path: Path) -> frozenset[str]:
-    """Detect real definitions and shadowing assignments, not import facades."""
+    """Detect module-visible definitions and shadowing, including compound suites."""
     result: set[str] = set()
-    for node in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
+    for node in _module_scope_statements(path):
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             result.add(node.name)
         elif isinstance(node, ast.Assign):
             for target in node.targets:
-                result.update(
-                    name.id for name in ast.walk(target) if isinstance(name, ast.Name)
-                )
-        elif isinstance(node, ast.AnnAssign):
-            result.update(
-                name.id for name in ast.walk(node.target) if isinstance(name, ast.Name)
-            )
+                result.update(_binding_names(target))
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            result.update(_binding_names(node.target))
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            result.update(_binding_names(node.target))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    result.update(_binding_names(item.optional_vars))
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            for handler in node.handlers:
+                if handler.name:
+                    result.add(handler.name)
+        elif isinstance(node, ast.Match):
+            for case in node.cases:
+                for pattern in ast.walk(case.pattern):
+                    if (
+                        isinstance(pattern, (ast.MatchAs, ast.MatchStar))
+                        and pattern.name
+                    ):
+                        result.add(pattern.name)
     return frozenset(result)
 
 
 def _legacy_owner_imports(path: Path) -> frozenset[str]:
-    """Allow direct canonical imports, not aliases from another owner."""
+    """Allow direct canonical re-exports, but reject foreign or shadowing imports."""
     aliases: set[str] = set()
     canonical = "trade_rl.simulation.objectives"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in tree.body:
+    for node in _module_scope_statements(path):
+        if isinstance(node, ast.Import):
+            for symbol in node.names:
+                # Without "as", Python binds the first dotted name only.
+                bound = symbol.asname or symbol.name.split(".", 1)[0]
+                if bound in FINANCIAL_SYMBOLS:
+                    aliases.add(bound)
+            continue
         if not isinstance(node, ast.ImportFrom):
             continue
         imported_module = node.module if node.level == 0 else None
@@ -71,12 +115,12 @@ def _duplicate_owners(directory: Path) -> dict[str, frozenset[str]]:
     if not directory.exists():
         return {}
     duplicates: dict[str, frozenset[str]] = {}
-    for source in sorted(directory.glob("*.py")):
+    for source in sorted(directory.rglob("*.py")):
         definitions = _top_level_bindings(source)
         noncanonical = _legacy_owner_imports(source)
         overlap = (definitions | noncanonical) & FINANCIAL_SYMBOLS
         if overlap:
-            duplicates[source.name] = overlap
+            duplicates[source.relative_to(directory).as_posix()] = overlap
     return duplicates
 
 
@@ -130,4 +174,49 @@ def test_import_only_legacy_source_is_not_mistaken_for_canonical_facade(
     tmp_path: Path, import_source: str
 ) -> None:
     (tmp_path / "__init__.py").write_text(import_source, encoding="utf-8")
+    assert _duplicate_owners(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import third_party as CapitalContract\n",
+        "import third_party.contract as ObjectiveContract\n",
+        "if True:\n    class CapitalContract: pass\n",
+        "try:\n    from third_party import FinancialClockContract\nexcept ImportError:\n    pass\n",
+        "for item in ():\n    BoundObjectiveClock = item\n",
+        "with ignored_context():\n    ObjectiveContract = object\n",
+        "match 1:\n    case 1:\n        def net_equity_increment(): pass\n",
+        "for CapitalContract in ():\n    pass\n",
+        "with ignored_context() as ObjectiveContract:\n    pass\n",
+        "try:\n    pass\nexcept Exception as FinancialClockContract:\n    pass\n",
+        "match 1:\n    case BoundObjectiveClock:\n        pass\n",
+    ],
+)
+def test_module_scope_nested_or_plain_import_cannot_hide_objective_owner(
+    tmp_path: Path, source: str
+) -> None:
+    (tmp_path / "contract.py").write_text(source, encoding="utf-8")
+    assert _duplicate_owners(tmp_path)
+
+
+def test_nested_local_function_or_class_definition_is_not_module_owner(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "contract.py").write_text(
+        "def unrelated():\n"
+        "    CapitalContract = object\n"
+        "class Helper:\n"
+        "    FinancialClockContract = object\n",
+        encoding="utf-8",
+    )
+    assert _duplicate_owners(tmp_path) == {}
+
+
+def test_nested_legacy_subpackage_is_checked(tmp_path: Path) -> None:
+    subdir = tmp_path / "other"
+    subdir.mkdir()
+    (subdir / "contract.py").write_text(
+        "class CapitalContract: pass\n", encoding="utf-8"
+    )
     assert _duplicate_owners(tmp_path)

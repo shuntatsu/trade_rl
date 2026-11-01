@@ -29,3 +29,37 @@ def test_book_state_still_rejects_economically_lower_peak() -> None:
             mark_prices=np.array([100.0]),
             peak_value=100.0,
         )
+
+
+def test_opt_in_legacy_target_execution_preserves_unchanged_exact_split_quantity() -> (
+    None
+):
+    book = BookState.from_weights(
+        weights=np.array([0.2123456789123456, 0.3]),
+        capital=1_000.0,
+        prices=np.array([100.0, 100.0]),
+    )
+    book.apply_split(np.array([1.234567891234567, 1.3333333333333333]))
+    previous = book.exact_quantities
+    targets = book.quantities.copy()
+    targets[1] = 0.0
+
+    default_book = book.clone()
+    default_book.execute(
+        fill_prices=book.mark_prices,
+        target_quantities=targets,
+        cost_amount=0.0,
+        turnover=0.3,
+    )
+    assert default_book.exact_quantities[0] != previous[0]
+
+    book.execute(
+        fill_prices=book.mark_prices,
+        target_quantities=targets,
+        cost_amount=0.0,
+        turnover=0.3,
+        preserve_unchanged_exact=True,
+    )
+    assert book.exact_quantities[0] == previous[0]
+    assert book.exact_quantities[1] == 0
+    assert book.fill_count == 1

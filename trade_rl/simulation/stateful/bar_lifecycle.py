@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from trade_rl.simulation.accounting import _cash_interest_amount
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 if TYPE_CHECKING:
@@ -144,11 +145,12 @@ class StatefulBarLifecycle:
                 year_fraction=context.processing_year_fraction,
             )
 
-        interest_basis = runtime.book.clone()
-        interest_basis.cash -= context.gap_cash_carry_delta
-        amount = interest_basis.apply_cash_interest(
+        # The pre-mark book can temporarily exceed its saved peak after dividends.
+        # Compute on the processing cash basis without cloning that transient state.
+        amount = _cash_interest_amount(
+            runtime.book.cash - context.gap_cash_carry_delta,
             annual_rate,
-            year_fraction=context.processing_year_fraction,
+            context.processing_year_fraction,
         )
         runtime.book.cash += amount
         runtime.book.revalue(runtime.book.mark_prices)

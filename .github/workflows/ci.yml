@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: "3.12"
           enable-cache: true
@@ -107,7 +107,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: "3.12"
           enable-cache: true
@@ -217,7 +217,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: "3.12"
           enable-cache: true
@@ -320,7 +320,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: "3.12"
           enable-cache: true
@@ -379,7 +379,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: "3.12"
 
@@ -413,9 +413,9 @@ jobs:
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**READY / APPROVED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
-            echo "Different-model receipt verified for software-only review." >> "$GITHUB_STEP_SUMMARY"
+            echo "Authenticated exact-head software-only model source review receipt accepted; same-model review is allowed and model independence/provider execution is not asserted." >> "$GITHUB_STEP_SUMMARY"
             echo "Economic execution authorization remains separate." >> "$GITHUB_STEP_SUMMARY"
-            echo "Independent model source review audit passed."
+            echo "Generic software model source review passed."
             exit 0
           elif [ "$OUTCOME" = "BLOCKED" ]; then
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
@@ -427,7 +427,7 @@ jobs:
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**PENDING** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
-            echo "Independent research review audit is pending."
+            echo "Exact-head software/model source review is pending."
             exit 1
           else
             echo "Unrecognized review outcome: ${OUTCOME}" >&2
@@ -461,7 +461,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: "3.12"
           enable-cache: true

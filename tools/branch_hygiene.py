@@ -554,76 +554,24 @@ def archive_observed_tips(
     return parent_sha
 
 
+
 def apply_cleanup(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
     *,
     default_branch: str,
 ) -> tuple[str, ...]:
-    first_snapshot = {branch.name: branch for branch in api.branches()}
-    first_open_names = open_pull_request_branch_names(api.open_pull_request_refs())
-    first_active_names = api.active_workflow_branch_names()
+    """Hard-refuse the obsolete bulk deletion entry even if imported directly.
 
-    archive_candidates: list[BranchInfo] = []
-    for decision in decisions:
-        if decision.action != "archive-keep":
-            continue
-        expected = decision.branch
-        current = first_snapshot.get(expected.name)
-        if (
-            expected.name not in first_open_names
-            and expected.name not in first_active_names
-            and current is not None
-            and not current.protected
-            and current.sha == expected.sha
-        ):
-            archive_candidates.append(expected)
+    The only manual prune path is tools.verified_merged_branch_prune, which
+    checks a single closed merged PR, exact Git SHAs, active references, and
+    durable retention before invoking the conditional lease primitive.
+    """
 
-    retention_sha = archive_observed_tips(
-        api,
-        default_branch=default_branch,
-        current_by_name=first_snapshot,
-        branches=archive_candidates,
+    raise RuntimeError(
+        "bulk apply_cleanup is disabled; use verified merged-PR pruning"
     )
 
-    current_by_name = {branch.name: branch for branch in api.branches()}
-    if archive_candidates:
-        retention = current_by_name.get(RETENTION_BRANCH)
-        if retention is None or retention.sha != retention_sha:
-            raise RuntimeError(
-                "retention branch did not reach the expected archive commit"
-            )
-
-    delete_candidates: list[BranchInfo] = []
-    for decision in decisions:
-        if decision.action != "delete":
-            continue
-        expected = decision.branch
-        current = current_by_name.get(expected.name)
-        if current is None or current.protected or current.sha != expected.sha:
-            continue
-        delete_candidates.append(expected)
-
-    deleted: list[str] = []
-    for batch in chunks(tuple(delete_candidates), DELETE_BATCH_SIZE):
-        open_names = open_pull_request_branch_names(api.open_pull_request_refs())
-        active_names = api.active_workflow_branch_names()
-        safe_batch = tuple(
-            branch
-            for branch in batch
-            if branch.name not in open_names and branch.name not in active_names
-        )
-        if not safe_batch:
-            continue
-        api.delete_branches_with_leases(safe_batch)
-        deleted.extend(branch.name for branch in safe_batch)
-
-    remaining_names = {branch.name for branch in api.branches()}
-    unexpectedly_remaining = sorted(set(deleted) & remaining_names)
-    if unexpectedly_remaining:
-        joined = ", ".join(unexpectedly_remaining)
-        raise RuntimeError(f"deleted branches still present after cleanup: {joined}")
-    return tuple(deleted)
 
 
 def render_summary(

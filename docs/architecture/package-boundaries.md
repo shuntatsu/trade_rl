@@ -45,7 +45,9 @@ trade_rl/
 │       ├── forward_evidence.py
 │       ├── forward_rules.py
 │       ├── market_order_profile.py
+│       ├── derived_klines.py
 │       └── dataset.py
+│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,cli.py,migrations/*.sql}
 ├── risk/
 │   ├── inputs.py
 │   ├── portfolio.py
@@ -61,7 +63,7 @@ trade_rl/
 │   ├── quantities.py
 │   ├── depth.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
-│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
+│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py,portfolio_session.py}
 │   ├── targets/execution.py
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
@@ -73,13 +75,21 @@ trade_rl/
 │   ├── portfolio_observation.py
 │   ├── portfolio_adapter.py
 │   ├── portfolio_policy_codec.py
+│   ├── decision_value.py
+│   ├── decision_value_shallow.py
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py,prequential.py}
+│   ├── allocation/{solver.py,cost_aware.py,buy_and_hold.py,costs.py}
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
+    ├── paired_portfolio_action.py
+    ├── paired_portfolio_label.py
+    ├── decision_value_fit.py
+    ├── decision_value_plan.py
+    ├── decision_value_dev_study.py
     ├── portfolio_inference.py
     ├── bot.py
     ├── metrics.py
@@ -91,13 +101,16 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
+    ├── dev_realdata_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,cli.py,dataset_build.py,trials.py,trial_sources.py,trial_study.py,trial_cli.py,trial_labels.py,phase3_registry.py,phase3_sources.py,phase3_study.py,phase3_cli.py}
+    ├── forward_study/{__init__.py,__main__.py,registry.py,labels.py,seal.py,fs1.py,cli.py}
+    ├── forward_acquisition/{__init__.py,__main__.py,plan.py,acquire.py,seal_record.py,cli.py}
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
     ├── ppo_normalization_replication.py
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -106,7 +119,7 @@ trade_rl/
     │   ├── fold_metrics.py
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
-    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_scenario_attempt_v2.py,portfolio_family_scenario_result_artifact_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py}
+    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_scenario_attempt_v2.py,portfolio_family_scenario_result_artifact_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py,synthetic_value_attempt.py,synthetic_value_costaware_attempt.py}
     ├── final_test/{__init__.py,contracts.py,workflow.py}
     └── experiments/
         ├── errors.py
@@ -124,6 +137,8 @@ trade_rl/
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
 
 `evaluation/rl_family_comparison/` はPPO/A2C比較の固定設定、replay-cell schema validation、および純粋な開発判定oracleだけを所有する。SB3 constructor mocksと合成セルが固定設定・判定規則の回帰を検査する。このpackageはDataset/artifact I/O、fit/replay、ledger、paper、production/live authorizationを所有せず、`trade_rl.evaluation` の公開APIも拡張しない。
+
+`evaluation/residual_rl/` is the synthetic-only residual-PPO study over the cost-aware allocator (Issue #810). `market.py` generates deterministic multi-asset markets with an explicitly planted alpha (or none); `env.py` is a Gymnasium environment that reuses the real `strategies.allocation.cost_aware.CostAwareAllocationPolicy` read-only and owns a separate value ledger, a discrete trade-throttle residual and the explicit fee/spread charge; `protocol.py` freezes every outcome-relevant constant behind a source-bound digest; `evaluate.py` holds rollouts, metrics and the pre-declared decision rules; `train.py` imports stable-baselines3 and torch lazily (optional `train-sb3` extra); `study.py` and `cli.py` run the study and append every execution to a provenance JSON. It reads no Dataset, artifact store, network or live source, depends only on `strategies.allocation`, `strategies.portfolio`, `artifacts` and NumPy/Gymnasium at import time, is not re-exported from `trade_rl.evaluation`, and its labels (`SYNTHETIC_PASS` / `SYNTHETIC_FAIL`) are synthetic evidence only, never a profitability claim and never a clearance of the real-data fee-only learnability gate.
 
 ## Provider evidence boundary
 
@@ -182,9 +197,28 @@ the ninety-day economic screen, runs sixty-second slots and exposes explicitly
 chain-only operational status. `paper/assessment.py` excludes a running collector,
 replays the pinned event tip and all financial inputs, audits control/source
 rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
-run, status and write-once evaluation commands. The account/engine expose due
-announced funding for previously held exact quantities, including after exits.
-These operations contain no production routing.
+run, status, check, supervise and write-once evaluation commands. The account/engine
+expose due announced funding for previously held exact quantities, including after
+exits. `paper/failure.py` is the single exclusive-create failure-marker writer and
+`paper/lock.py` the single collector lock plus a non-destructive probe; both are
+import-light so the watchdog never loads the Binance stack. `paper/watchdog.py`
+owns only operational liveness: the atomic collector
+heartbeat, exit/signal/console failure hooks, the stateless stale check and the
+child supervisor. It never opens the journal, control writer or market surfaces; it
+reads the control database read-only through `control.incomplete_cycle_exists`
+and creates failure markers through the one `failure.write_collection_failure`
+writer (re-exported by `supervisor`). A held collector lock is contention, never a
+failure. `paper/attempt2.py` composes the
+existing lineage validator, `screen_plan`, `seal_paper_study`, FS1's authorization
+pattern and the supervisor into plan/seal/launch gates for the successor attempt
+with no network call (it loads the collector stack at import through
+`seal_paper_study`, so the offline property is proved at call level). It imports
+neither the collector nor `paper/storage_probe.py`. The probe is the one other
+networked step: it runs the real `PaperCollector` for a few slots into a scratch root
+whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
+`cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
+refuse it otherwise. These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and
@@ -399,7 +433,7 @@ the order reference. With no held quantities, it resolves current dataset marks
 before entry sizing so default initial book marks are harmless. The accounting
 and execution owners remain unchanged.
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持ち、evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。`strategies/portfolio_adapter.py` は固定roster・明示budgetでexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy` をnumeric `PortfolioPolicy` proposalへ写すopt-in adapterと、明示cash zero-target policyを持つ。filled sideはsnapshotのexact quantityから導き、risk・pending-order reconciliation・fill・cost・accountingは共有portfolio session / native ownerに残す。legacy cached-target、minimum-hold、pending-aware intent、exact-quantity HOLD、任意strategy parityは提供しない。adapterはruntime/evaluationから独立し、strategy facadeへも再exportしない。`strategies/portfolio_policy_codec.py` はこのDTOとNumPy配列のraw-v1 Dict projection、strict joint action-code decoder、target proposal mappingを共有する純粋なstrategy-layer ownerであり、Gym/SB3/evaluation/simulation/riskをimportしない。`PortfolioInferencePolicy.decide_portfolio` はloaded bundleのsymbol/feature roster、decision window、native timestampを検証して同じcodecを使う。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsとfit-scope validationを所有し、両fit pathはestimator / solverより前にこれを通る。`fit_cutoff` / `label_end_times` の元unit、正のmultiplier、範囲、sub-nanosecond精度のexact integer validationは `data/_timestamps.py` が単一ownerとして提供する。fixed-duration unitとcalendar `Y` / `M`は値を正確にnsへ表せる場合だけ受け入れ、cast後の逆変換をoverflow判定の根拠にしない。Ridge / LightGBMのcausal rowsと`fit_cutoff`にはlosslessな`datetime64[ns]` validationを適用する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持ち、evaluationを知らない。`strategies/portfolio.py` はnumeric full-vector policy proposalと、tuple-backedな現在行・account・active-order・risk snapshotのdata-only contractを持ち、evaluation/simulation/riskのruntime objectをimportしない。`strategies/portfolio_observation.py` はsource-owned `MarketDataset`、現在の`BookState`、active-order tuple、risk config、decision windowからこのsnapshotを組み立てる。`strategies/portfolio_adapter.py` は固定roster・明示budgetでexact built-in `ConstantIntentStrategy`、`TrendIntentStrategy`、`RidgeForecastStrategy` をnumeric `PortfolioPolicy` proposalへ写すopt-in adapterと、明示cash zero-target policyを持つ。filled sideはsnapshotのexact quantityから導き、risk・pending-order reconciliation・fill・cost・accountingは共有portfolio session / native ownerに残す。legacy cached-target、minimum-hold、pending-aware intent、exact-quantity HOLD、任意strategy parityは提供しない。adapterはruntime/evaluationから独立し、strategy facadeへも再exportしない。`strategies/portfolio_policy_codec.py` はこのDTOとNumPy配列のraw-v1 Dict projection、strict joint action-code decoder、target proposal mappingを共有する純粋なstrategy-layer ownerであり、Gym/SB3/evaluation/simulation/riskをimportしない。`PortfolioInferencePolicy.decide_portfolio` はloaded bundleのsymbol/feature roster、decision window、native timestampを検証して同じcodecを使う。evaluation replayは既存のaccountingや実行経路を変えず、このbuilderを呼び出す。pending-order snapshotはintentのlimit・stop・submission-reference price factsもコピーする。3値すべてNoneのlegacy snapshotはconstructor互換だが、価格contextとしては不完全である。`strategies/allocation/` はcaller供給のforecast sourceに対する数値`PortfolioPolicy` seamを持つ。`solver.py` は`mu.w - gamma/2 w'Sigma w - sum c_i|w_i-w0_i|`をbox・gross制約の下でcyclic coordinate descent・active-set Newton加速・gross Lagrange乗数のbisectionで解く、NumPyだけに依存する純粋なsolverである（`trade_rl`内の他packageはimportしない）。解は許容誤差内の精度で、返す前にKKT最適性certificate（subgradient条件・box normal cone・gross相補性）を検証する。非収束・非有限・制約違反・certificate不合格は例外にして呼び出し側をfail-closedにする。`cost_aware.py` の`CostAwareAllocationPolicy`は固定decision schedule（既定は毎日00:00 UTC）でのみretargetし、decision時刻以前のmark価格だけからEWMA共分散を作り、tiny tradeはexact-quantity HOLDにし、solver/forecast/履歴不足の失敗時は全symbolをHOLDして注文を出さない。`buy_and_hold.py` は初回に等weightを取り以後exact quantityを保持する対照policyである。これらはaccountもP&L ledgerも持たず、risk・fill・cost・accountingは共有portfolio sessionに残る。`costs.py` だけが`simulation.execution.ExecutionCostConfig`を読んで一方向cost（impact・slippage・per-row overrideを含まないlower bound）を導出し、他のallocation moduleは`strategies.portfolio`以外のtrade_rl packageをimportしない。`trade_rl.strategies`のfacadeへ再exportしない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`forecasts/supervised.py` はRidge / LightGBMが共有するcausal training rowsとfit-scope validationを所有し、両fit pathはestimator / solverより前にこれを通る。`fit_cutoff` / `label_end_times` の元unit、正のmultiplier、範囲、sub-nanosecond精度のexact integer validationは `data/_timestamps.py` が単一ownerとして提供する。fixed-duration unitとcalendar `Y` / `M`は値を正確にnsへ表せる場合だけ受け入れ、cast後の逆変換をoverflow判定の根拠にしない。Ridge / LightGBMのcausal rowsと`fit_cutoff`にはlosslessな`datetime64[ns]` validationを適用する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `strategies/rl/portfolio_env.py` はopt-in `SharedPortfolioGymEnv` adapterを提供する。固定shapeのjoint action/observationを、strategy-owned snapshot builderとsimulation-owned `SharedPortfolioSession`へ接続するが、`evaluation`には依存しない。shared risk・execution・accounting、native clock、reserved terminal settlementは既存ownerが引き続き処理する。これはGym adapterであり、それ自体はtrainerや学習済みjoint policyを提供せず、legacy PPO defaultも変更しない。RL facadeからは再exportしない。
 
@@ -624,6 +658,10 @@ Transport receipts also bind the actual checkout and workflow revision. A
 failed producer job may supply a completed checkpoint, but its failure status
 must remain visible; a success conclusion is not an evidence-integrity oracle.
 
+## Prequential forecast packet boundary
+
+`forecasts/prequential.py` owns causal prequential forecast packets for a downstream allocator. `PrequentialSchedule` fixes an expanding-window refit calendar (`first_fit_time`, `refit_interval_days`, optional `activation_delay_hours`); `PrequentialForecastSource` lazily fits one frozen vintage per scheduled cutoff through the existing `build_causal_forecast_training_set` and a small `PrequentialForecastFitter` protocol (`RidgeForecastFitter`; optional `LightGBMForecastFitter`), and serves `ForecastPacket(symbol, horizon_hours, decision_time, log point_forecast, vintage residual_variance, vintage_id, fit_time, fit_cutoff, max_training_label_available_at, digests)`. `ForecastPacket` enforces `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` at construction; the vintage residual variance is the sample-weighted in-sample squared residual of the training rows, so a caller can convert log to simple expectation with `expm1(mu + 0.5 * s2)`. The source builds the causal training set itself and hands a fitter only that frozen `CausalForecastTrainingSet` (never the `MarketDataset`), so a fitter cannot read rows after the cutoff; training residuals and every served point forecast go through the same `fitter.predict_rows` path and `model.predict` must agree with it. The module reads only the decision-row features and cutoff-bounded training rows, owns no account, ledger, or order logic, does not import evaluation, simulation or risk, and persists nothing. Unusable decision features yield `None` (caller treats it as no forecast); a non-dataset decision time, an unavailable decision row, or a vintage whose labels were not strictly earlier than its fit time raises.
+
 ## Dependency direction
 
 `tests/architecture/test_lean_dependency_boundaries.py` が実行可能な正本であり、少なくとも次を禁止する。
@@ -686,6 +724,50 @@ Coordinationの耐久契約は次である。
 
 このlayerは複数Coordinator間のdistributed consensusを保証しない。v1のoperational invariantはactive Coordinatorが1つであることとし、Worker自身の完了主張やlabelだけをmerge authorityにしない。
 
+## Forward study FS1 boundary
+
+`evaluation/forward_study/` は Issue #810 の sealed forward study FS1 だけを所有する。`registry.py` はFS1-A/B/C + CASHのroster・scoring window・falsifier・validity guardの凍結値と `FROZEN_PARAMS_DIGEST`（JSON exportは `report/issue810-fs1-registry-20261030.json`）だけを持ち、dataset・clock・resultを読まない。`labels.py` は数値だけを受け取る純粋な `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` ruleで、`WINNER` を返さない。`seal.py` はscoring前提条件（scoring end date経過、Issue commentのauthorization reference、凍結params digest、checkout済みcode SHAとclean tree、dataset seal manifest、読み込んだdatasetのidentity・window・tradable割合）を全て集めて `Fs1Refusal` で拒否し、満たしたときだけ `ScoringPermit` を返す。`fs1.py` はpermitを必須とする唯一のscoring entrypointで、Phase 3 policy builderと `dev_realdata_study.runner` を変更せず再利用し、write-onceでresultを書く。`fs1.py` の公開 `run_fs1` はregistry・digest・clock・code identity・dataset loaderを引数に取らず、private factory `_environment`（frozen registry、実wall clock、`git`）だけがそれらを供給する（testsはこのfactoryをmonkeypatchする）。code identityは `git rev-parse --show-toplevel` が解決したtrade_rl repository（pinned root commit）の追跡済み `seal.py` であること、HEADがsealed SHAに一致すること、変更済み・未追跡fileがないことを要求する。scoringはscoring end + 24h settlement marginの後だけで、manifestはfetch時刻とpinned build-policy digestを持つ。`cli.py` (`python -m trade_rl.evaluation.forward_study`) は引数をそのまま渡すだけでseamを持たない。
+
+このpackageはnetworkへ出ず（`integrations` を import しない）、データを取得せず、`final_test` authorization chain・paper/live・RLを使わず、`trade_rl.evaluation` の公開APIを拡張しない。`dev_realdata_study`・`strategies`・`simulation`・`data` はこのpackageへ依存しない。account・P&L ledger・fill modelは持たない。実データのscoringはscoring end date後にuserが取得とscoring runを別々に認可するまで実行しない。Contractの詳細は `architecture/research-assurance.md` の FS1 section、状態は `research/current-status.md`。
+
+### Forward study FS1 acquisition tooling
+
+`evaluation/forward_acquisition/` はFS1のdata acquisition・dataset build・seal manifest・seal-record textを一つの文書化されたcommand（`python -m trade_rl.evaluation.forward_acquisition acquire` / `seal-record`）として提供し、ad-hocなscriptやmonkeypatchでFS1 datasetを作らせない。`forward_study/` はnetworkを一切importしないため、acquisitionは別packageに置く。`plan.py` はFS1 span・archive URL・date range・build policy照合・出力layoutを持つ純粋moduleで `trade_rl.integrations` をimportしない。`acquire.py` の `run_acquire` は `--allow-network` が無ければplanだけを返し（network clientをimportせず、fileを作らず、development inputも読まない）、ある場合だけ（Issue #810 authorization URL、新規output root、settlement margin経過、clean checkout、developmentのidentity検証が揃ったときに）`trade_rl.integrations.binance` をlazy importしてfetchする。`run_acquire` はregistry・digest・clock・code identity・transportを引数に取らず、private factory `_run_acquire` / `_environment` だけがそれらを供給する（testsが置換する）。development期間のarchiveは再取得せず、published development Datasetのidentity（pinned `dataset_id`・artifact digest・内部にbindされた `raw_source_roster_digest`）に対してread-onlyで検証して再利用する。manifest（`manifest_bytes_from_dataset`）は最後に書き、receiptがbuilder commit・exact command・exchange snapshot・development reuse identityを持つ。`seal_record.py` はmanifestとreceiptを凍結registryと相互に検証してseal commentのMarkdownを返すだけで、投稿しない。このpackageはscoring・replay・strategyに依存せず、`forward_study` からは `registry` と `seal` だけをimportする。それ以外のmodule scope依存は `trade_rl.artifacts`、`trade_rl.data`（`data.artifacts.publication`・`data.market`）とnumpyで、`trade_rl.integrations.binance`・`trade_rl.data.build` は認可された経路（`acquire.py` の関数内）でだけlazy importする。output rootはcheckout外でなければならず、`forward_study`・`dev_realdata_study`・`strategies`・`simulation`・`data`・`integrations` から参照されない。手順の正本は `architecture/research-assurance.md` の *FS1 acquisition procedure*、状態は `research/current-status.md`。
+
+## Market-data store runbook
+
+`integrations/market_store/` is a reusable, generic PostgreSQL store of public Binance market data (Issue #810). It is an adapter beside `integrations/binance/`: it depends only on `data`, `artifacts` and `integrations.binance`, never on strategies, evaluation, simulation or risk, and it is not re-exported from `trade_rl.integrations`. It stores USD-M perpetual and spot 1h klines and USD-M funding rates for a configurable universe (default BTC, ETH, BNB, XRP, ADA, SOL against USDT), reuses the Vision URL planner (`plan_vision_kline_urls`, `vision_funding_url`) and the unchanged `build_binance_market_dataset`, and owns no strategy, execution or P&L semantics. `psycopg` is imported only by `store.py` and is the optional `store` extra (also in `dev`); `plan` and a dry-run `ingest` need neither PostgreSQL nor the extra, and only `fetch.py` imports a network client.
+
+Schema (plain SQL, `migrations/NNNN_name.sql`, applied in order with a `schema_version` ledger that records each file's SHA-256 and refuses an edited or unknown applied migration): `instruments`, `exchange_info_snapshots` + `instrument_rule_snapshots` (current-snapshot rules valid from retrieval, not historical rules), `sources` (one row per archive: URL, kind, period, archive sha256, the `.CHECKSUM` line digest, the sha256 of the `.CHECKSUM` file, size, HTTP status, fetched_at), `ingestion_runs` (code commit, command line, counts, status, FS1 warm-up flag and authorization URL), `klines`, `funding_rates` and `ingestion_conflicts`. Every price, quantity and rate is exact `NUMERIC`; natural keys are primary keys; CHECK constraints enforce `high >= max(open, close)`, `low <= min(open, close)` and non-negative volume. `klines`, `funding_rates`, `sources` (once ingested) and the exchange snapshots are append-only (triggers reject UPDATE and DELETE). TRUNCATE is also blocked on every evidence table, and a 404 `sources` record may only gain its evidence, never change its identity. What is committed outside the per-archive transaction: before the run, `ingest --allow-network` snapshots `exchangeInfo` (`exchange_info_snapshots`, `instrument_rule_snapshots`, `instruments`, `run_id` NULL); during the run, `instruments` rows and 404 `missing` source markers are committed as they occur, plus the `ingestion_runs` audit row; none of these holds a price, a funding rate or a boundary state. Re-ingesting an archive is a no-op; a changed value for an existing key rolls the archive back, is written to `ingestion_conflicts`, fails the run and is never applied.
+
+FS1 data-protection boundaries. The FS1 forward study controls two spans (constants pinned by tests against the FS1 registry `warmup_only_start` / `scoring_start` and against the SQL functions of the migration). (1) The **warm-up span** `[2026-08-01T00:00Z, 2026-11-01T00:00Z)` may, per *FS1 acquisition procedure* in `research-assurance.md`, be fetched only with a separate Issue #810 data-fetch authorization, so the store refuses it **by default**; a run may admit it only with `--allow-fs1-warmup-span` together with `--fs1-warmup-authorization-url` naming that Issue #810 comment (both or neither). The flag, the URL and the run are recorded in `ingestion_runs`, the database triggers admit warm-up rows only for that still-running authorized run, and the URL is an attestation of the user's authorization, not a verified one. The boundaries are module constants (`FS1_WARMUP_START`, `SEALED_WINDOW_START`), not parameters of any public constructor, planner, ingester or exporter, so no caller can move them. Even then FS1 scoring does not use the store: it re-acquires and re-verifies its own data through its sealed tool (`evaluation/forward_acquisition`), and store rows never feed FS1 scoring. (2) The **sealed window** `>= 2026-11-01T00:00Z` (scored once after 2027-05-02) is refused **unconditionally**: there is no flag, parameter, table or SQL function that lifts it, and no sealed or warm-up row, authorization or release state is ever stored by a failed or empty run. Lifting it after FS1 is scored needs a future reviewed migration (replacing `market_sealed_from()`) and pull request. Both spans are enforced at five layers, and the decision is always made from the period parsed out of the Vision URL itself (`archive_url.py`), never from caller-declared metadata: `ingest` refuses any `ArchiveSpec` whose kind, market, symbol, interval, cadence or period disagrees with its URL before a run starts or anything is requested; `VisionFetcher.fetch` independently refuses, before any network call, every URL that is not a recognised Vision archive or `.CHECKSUM` path with a period entirely before 2026-08-01 (a fetcher constructed with the warm-up authorization URL may also take periods entirely before 2026-11-01; none can take a URL touching the sealed window) and never follows redirects; the planner never plans an archive whose period passes a closed span (a straddling monthly archive is replaced by its in-bounds daily archives; a funding month that cannot be published inside the bound is reported and skipped) and a requested range end inside a closed span exits with code 4; every parsed row is checked before any write; and PostgreSQL triggers on `klines`, `funding_rates` and `sources` reject such rows even under a direct INSERT. By default `plan`/`ingest` therefore end at 2026-08-01. The database guard for the warm-up span is an accident guard, not an authorization boundary: it admits warm-up rows only to the backend session that started a still-`running` authorized run no older than 12 hours (a hard-killed run is closed by the next `begin_run`, and an old one stops admitting rows), run identity and authorization columns are immutable and a finished run cannot be reopened; but the session variable `trade_rl.fs1_warmup_run_id` is an ordinary custom setting that any login role may `SET`, any role that may INSERT into `ingestion_runs` can create an authorized-looking run, and PostgreSQL cannot verify that an Issue #810 comment exists. Keep the store's write role with trusted operators; the sealed window has no such path.
+
+Export. `export_market_dataset` serves stored rows through the same transport interface as the Vision file path (Vision column layout from exact values, funding events with the Vision inclusive range, one stored raw `exchangeInfo` applied statically) so the unchanged builder, gap policy, 4h/1d aggregation and identity produce the `MarketDataset`. Digests of every row read, the exchange snapshot and an `fs1_warmup` record (whether any exported bar lies in the warm-up span, the last bar time and the authorizing run ids and Issue #810 URLs) enter the identity as `metadata_evidence` and the export receipt; the same store content and parameters give the same `dataset_id` (pin the rules snapshot with `--rules-snapshot-sha256`), and a test proves a store-backed build equals a file-backed build from the same archives.
+
+Operating it (Windows, PowerShell; install Docker Desktop first, then `uv sync --extra store`):
+
+```powershell
+Copy-Item deploy/market-store/.env.example deploy/market-store/.env
+# put a random password into MARKET_STORE_PASSWORD (never commit .env)
+$pw = -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+(Get-Content deploy/market-store/.env) -replace 'CHANGE_ME_generate_a_random_password', $pw | Set-Content deploy/market-store/.env
+docker compose -f deploy/market-store/compose.yml --env-file deploy/market-store/.env up -d
+docker compose -f deploy/market-store/compose.yml ps    # wait for "healthy"
+$env:TRADE_RL_MARKET_STORE_URL = "postgresql://market_store:$pw@127.0.0.1:55432/market_store"
+uv run python -m trade_rl.integrations.market_store migrate
+# default form: stops before the FS1 warm-up span (2026-08-01); --end is shown explicitly
+uv run python -m trade_rl.integrations.market_store plan --start 2021-01-01 --end 2026-08-01   # offline
+uv run python -m trade_rl.integrations.market_store ingest --start 2021-01-01 --end 2026-08-01  # dry run
+uv run python -m trade_rl.integrations.market_store ingest --start 2021-01-01 --end 2026-08-01 --allow-network
+# authorized form (only after the user's Issue #810 data-fetch authorization; never past 2026-11-01):
+#   ... ingest --start 2026-08-01 --end 2026-10-30 --allow-network `
+#       --allow-fs1-warmup-span --fs1-warmup-authorization-url https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<id>
+uv run python -m trade_rl.integrations.market_store status
+uv run python -m trade_rl.integrations.market_store export --market usds_m --start 2021-01-01 --end 2026-08-01 --output-dir C:/data/exports/usds_m_2021_2026
+```
+
+The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.4` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
+
 ## Repository integration boundary
 
 GitHub PR / CI / branch-protection・ruleset設定はRepository統合の安全性を管理するが、`trade_rl` runtime packageのauthorityではない。checked-in architecture testはPR/CI policy fileの契約を検証できるが、実際のbranch protection状態はGitHub側のread-backで別途確認する。
@@ -694,11 +776,19 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 このGit tree内のproseやarchitecture testだけでbranch protectionが有効とは判断しない。ruleset/protectionの設定変更後はGitHub stateをread-backし、required check、PR requirement、force-push/deletion、maintainer/admin bypassを確認する。管理surfaceが利用できない場合は未設定/未検証として扱う。
 
-`Generic Independent Research Review` は、実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerによるexact HEADのsoftware-onlyレビューを要求する。authenticated GitHub review APIの `COMMENTED` または `APPROVED` 投稿に、本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しと、model/task IDs・actual report・publisher・HEADをdigestへbindした `independent_model_review_v1` receiptを必須とする。同一GitHub accountでもこの条件を満たせば受理し、別principalであることだけでは独立性を認めない。receiptの正本は [research assurance](research-assurance.md#generic-software-pr-review-receipt) とする。
+`Generic Independent Research Review` は、exact HEADのsoftware-only source reviewを要求する。authenticated GitHub review APIの`COMMENTED`または`APPROVED`に、単独marker/dispositionとdigest付きreceiptを必須とする。旧`independent_model_review_v1`（全実装Task IDを含む）と新`software_source_review_v1`（`reviewer_model_id`・`review_jobs`（AGYジョブIDのlist）・`diff_sha256`・`review_result=PASS`・`blocking_findings=0`・具体的`report`を含む）を受理する。同一GitHub accountの投稿もtransportとして受理するが、無検証のモデル独立性や経済実行を承認する意味ではない。正本は[research assurance](research-assurance.md#generic-software-pr-review-receipt)とする。
 
 同じexact HEADのactive submitted marked `### Disposition: BLOCKED` が一つでもあれば承認より優先し、後続の同一actorによる承認でも消去しない。保留・曖昧・dismissed・古いHEAD・不整合なreceiptはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みsoftwareレビューはIntegratorによるマージ・クローズの対象となる。このGeneric receiptは `Independent Research Review` の4h PPO smoke専用review/triggerやG4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。
 
 `tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、(1) targetをdataとして読むpacket生成job、(2) Gemini secretを持たずexact reviewed SHAへ固定command setを実行するCore / PPO Runtime / Human Guide verification jobs、(3) canonical packetだけを受け取るfresh secret-bearing review jobを分離する。review jobはtarget checkoutやtarget-generated executable artifactをauthorityとして受け取らず、trusted runner/workflow identity、request/tag identity、packet digest、trusted verification job identity、Gemini request/response identityをreviewer-run attestationへbindする。Gemini API key/model selectionはworkflow configurationであり、concrete model versionはprovenanceとして記録するがproduction trading/runtime schemaやvalidator allow-listへ固定しない。
+
+## Development real-data study boundary
+
+`evaluation/dev_realdata_study/` は Issue #810 P2 の development-only real-data walk-forward study だけを所有する。`protocol.py` は事前固定した全parameter・5 arm roster・3 scenario・selection ruleの定数とSHA-256 digestを持ち、実データ実行の前にcommitする。`runner.py` は `strategies/forecasts/prequential.py` の causal packet を log→simple return に写す adapter、`strategies/allocation/` の policy、armごと・scenarioごとに1回の連続 `run_shared_portfolio_replay`（terminal flat settle、ledger capture）、raw fill からの独立 ledger reconciliation、未来perturbation causality probeを束ねる。`metrics.py` は equity-path metrics、20日block bootstrap、`DEVELOPMENT_PROMISING` / `NO_WINNER` だけを返す選定ruleを持つ。このpackageは `WINNER` を出さず、unused-future窓を開かず、account・P&L ledger・fill modelを持たず、`trade_rl.evaluation` の公開APIを拡張しない。CLI (`python -m trade_rl.evaluation.dev_realdata_study`) は新規出力のみを書き、既存出力を上書きしない。`dataset_build.py` は同study用Datasetをlocalの Binance Vision archiveだけから作る **offline・opt-in** builder（`python -m trade_rl.evaluation.dev_realdata_study.dataset_build`）で、networkへ出ず、非空の出力先を拒否し、economic replayを実行しない。gap policy (`non_tradable_rows`: 欠損1h barはnon-tradable row・forward-fill mark・funding非計上、4h/1d barは完全な1h windowからaggregate、欠損windowは `available_at=range end` のplaceholderにして再帰的な上位clock featureを以降unavailable化) と入力rosterを `DATASET_BUILD_POLICY` とそのdigestとしてreceiptへ固定する。gap許容は `integrations/binance/dataset.py` の明示的な `BinanceGapPolicy` option（default `STRICT` = 従来どおり欠損barを拒否）と `integrations/binance/derived_klines.py` の1h→4h/1d aggregation transportが所有し、monkeypatchは使わない。
+
+Phase 2 trial registry は同じpackage内の `trials.py`（T1-T8の事前固定spec・定数・実装判断、JSON exportは `report/issue810-phase2-trial-registry-20261029.json`）、`trial_sources.py`（`ExpectedReturnSource` registry、causalなTSMOM/XS-momentum/funding carry/blend source、T7のdrawdown overlay policy wrapper）、`trial_study.py`（armごとの隔離実行・FAILED_TO_RUN記録・13 arm Bonferroni・同一selection rule）、`trial_cli.py`、事後ラベル再計算の `trial_labels.py`（PR-C probe ruleとamended ruleの両ラベルをcommit済み証拠からcodeで計算）が所有する。PR-Cの `runner.py` を `arm_builder` / `build_allocator` / 汎用causality probeで拡張して再利用し、複製しない。同じくaccount・P&L ledgerは持たず、`WINNER` を出さない。
+
+Phase 3 roster（turnover aversion `kappa` とex-ante volatility target `VT12`、POST_HOC_EXPLORATORY・事前登録ではない）は `phase3_registry.py`（8 armの凍結roster・公開事前記録のverbatim本文とSHA-256・実装判断notes・JSON exportは `report/issue810-phase3-trial-registry-20261029.json`）、`phase3_sources.py`（T4×7 source、T2/T4 z-blend、vol-scaled passive comparatorのpolicy、arm builder）、`phase3_study.py`（armごとの隔離実行・causality probe/matrix・PR-C probe rule主ラベルと補助のamended rule・Phase 3 family 8とall-arms 21のBonferroni）、`phase3_cli.py`（新規出力のみ・全実行を数える`--execution-ledger`）が所有する。`kappa`（optimizerのL1 cost penalty倍率のみ。実行costは不変）とVT（解いたtargetをmin-trade rule前に`cap/sigma_p`倍へ縮小）は `strategies/allocation/cost_aware.py` のopt-in引数で、defaultでは従来のdecisionとbit-identical。label語彙は `POST_HOC_PROMISING` / `NO_WINNER` で、`WINNER` は出さない。
 
 ## Public API policy
 

@@ -246,3 +246,6 @@ guide/dist/
 guide/coverage/
 guide/playwright-report/
 guide/test-results/
+
+# Local market-data store credentials (Issue 810); only .env.example is committed
+deploy/market-store/.env

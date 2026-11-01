@@ -430,12 +430,13 @@ def test_cli_refuses_preexisting_and_overlapping_outputs_before_loading(
     assert trial_cli.main(argv) == 2
     assert not out2.exists()
     out3 = tmp_path / "new3"
+    blocked_parent = tmp_path / "not_a_directory"
+    blocked_parent.write_text("do not overwrite", encoding="utf-8")
     argv[argv.index(str(out2))] = str(out3)
-    argv[argv.index(str(out2 / "summary.json"))] = str(
-        tmp_path / "missing_parent" / "summary.json"
-    )
+    argv[argv.index(str(out2 / "summary.json"))] = str(blocked_parent / "summary.json")
     assert trial_cli.main(argv) == 2
     assert not out3.exists()
+    assert blocked_parent.read_text(encoding="utf-8") == "do not overwrite"
 
 
 def test_runner_records_interval_units_and_all_cashflow_components(

@@ -87,9 +87,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         print("refusing an existing or overlapping study output", file=sys.stderr)
         return 2
-    # Validate summary destination before starting an expensive replay.
-    if not summary_path.parent.is_dir():
-        print("summary parent directory must exist", file=sys.stderr)
+    # Keep the original auto-create contract, but fail before replay when a
+    # summary parent cannot be created (for example a file in its ancestry).
+    try:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        print("cannot create summary parent directory", file=sys.stderr)
         return 2
     try:
         output_dir.mkdir(parents=True, exist_ok=False)

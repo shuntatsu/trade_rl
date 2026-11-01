@@ -54,6 +54,7 @@ def test_strategy_family_packages_exist() -> None:
     for relative in (
         "dataset_scope.py",
         "position_duration.py",
+        "portfolio_adapter.py",
         "carry.py",
         "rules/__init__.py",
         "rules/trend.py",
@@ -64,6 +65,7 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/supervised.py",
         "forecasts/ridge.py",
         "forecasts/lightgbm.py",
+        "forecasts/prequential.py",
         "rl/__init__.py",
         "rl/intent.py",
         "rl/a2c.py",
@@ -71,6 +73,7 @@ def test_strategy_family_packages_exist() -> None:
         "rl/ppo.py",
         "rl/ppo_normalization.py",
         "rl/ppo_artifact.py",
+        "rl/portfolio_runtime_scenario.py",
     ):
         assert (STRATEGIES / relative).is_file(), relative
 
@@ -126,6 +129,87 @@ def test_supervised_module_preserves_dataset_scope_exports() -> None:
     )
 
 
+def test_supervised_cutoff_validation_has_one_forecast_owner() -> None:
+    supervised_path = STRATEGIES / "forecasts" / "supervised.py"
+    tree = ast.parse(supervised_path.read_text(encoding="utf-8"))
+    definitions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    validator = next(
+        node for node in definitions if node.name == "_validated_fit_cutoff_ns"
+    )
+    assert validator is not None
+
+    training_set = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "CausalForecastTrainingSet"
+    )
+    for owner in (validator, training_set):
+        calls_shared_converter = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_datetime64_values_to_ns_exact"
+            for node in ast.walk(owner)
+        )
+        assert calls_shared_converter
+    builder = next(
+        node
+        for node in definitions
+        if node.name == "build_causal_forecast_training_set"
+    )
+    for owner in (training_set, builder):
+        calls_validator = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_validated_fit_cutoff_ns"
+            for node in ast.walk(owner)
+        )
+        assert calls_validator
+
+    for relative, model_name, fit_name in (
+        ("forecasts/ridge.py", "RidgeForecastModel", "fit_ridge_forecast"),
+        (
+            "forecasts/lightgbm.py",
+            "LightGBMForecastModel",
+            "fit_lightgbm_forecast",
+        ),
+    ):
+        fit_tree = ast.parse((STRATEGIES / relative).read_text(encoding="utf-8"))
+        model_class = next(
+            node
+            for node in fit_tree.body
+            if isinstance(node, ast.ClassDef) and node.name == model_name
+        )
+        model_post_init = next(
+            node
+            for node in model_class.body
+            if isinstance(node, ast.FunctionDef) and node.name == "__post_init__"
+        )
+        uses_shared_cutoff_validator = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_validated_fit_cutoff_ns"
+            for node in ast.walk(model_post_init)
+        )
+        assert uses_shared_cutoff_validator
+
+        fit_function = next(
+            node
+            for node in fit_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == fit_name
+        )
+        calls_shared_builder = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "build_causal_forecast_training_set"
+            for node in ast.walk(fit_function)
+        )
+        assert calls_shared_builder
+
+
 def test_strategy_families_do_not_depend_on_evaluation() -> None:
     for family in ("rules", "forecasts", "rl"):
         root = STRATEGIES / family
@@ -179,3 +263,35 @@ def test_shared_rl_observation_contract_has_one_owner() -> None:
         from_ppo = _imported_names(path, "trade_rl.strategies.rl.ppo")
         assert from_intent & contract_names
         assert not (from_ppo & contract_names)
+
+
+def test_prequential_packets_reuse_the_shared_causal_training_rows() -> None:
+    path = STRATEGIES / "forecasts" / "prequential.py"
+    imports = _imports(path)
+    assert "trade_rl.strategies.forecasts.supervised" in imports
+    assert not any(
+        name.startswith(
+            (
+                "trade_rl.evaluation",
+                "trade_rl.simulation",
+                "trade_rl.risk",
+                "trade_rl.runtime",
+            )
+        )
+        for name in imports
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "build_causal_forecast_training_set" in called
+    # Label construction stays in supervised.py: no log-return label math here.
+    assert not any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "log"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in {"math", "np"}
+        for node in ast.walk(tree)
+    )

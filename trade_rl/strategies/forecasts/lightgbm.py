@@ -15,7 +15,11 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentConfig,
     ForecastIntentController,
 )
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
+    _validated_fit_cutoff_ns,
+    build_causal_forecast_training_set,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -45,6 +49,7 @@ class LightGBMForecastModel:
     fit_cutoff: np.datetime64
 
     def __post_init__(self) -> None:
+        fit_cutoff = _validated_fit_cutoff_ns(self.fit_cutoff)
         indices = tuple(self.feature_indices)
         if not indices or len(set(indices)) != len(indices):
             raise ValueError("feature_indices must be non-empty and unique")
@@ -68,7 +73,7 @@ class LightGBMForecastModel:
         ):
             raise ValueError("n_samples must be a positive integer")
         object.__setattr__(self, "feature_indices", indices)
-        object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "fit_cutoff", fit_cutoff)
 
     def predict(self, features: np.ndarray) -> float:
         vector = np.asarray(features, dtype=np.float64).reshape(-1)
@@ -112,6 +117,12 @@ class LightGBMForecastStrategy:
         )
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
+        if np.isnat(observation.timestamp):
+            raise ValueError("observation timestamp must not be NaT")
+        if self.model.fit_cutoff > observation.timestamp:
+            raise ValueError(
+                "model fit_cutoff must not be later than observation timestamp"
+            )
         indices = self.model.feature_indices
         if max(indices) >= observation.features.size:
             raise ValueError("model feature index is outside observation features")
@@ -121,6 +132,18 @@ class LightGBMForecastStrategy:
         if not np.isfinite(selected).all():
             return PositionIntent.FLAT
         forecast = self.model.predict(observation.features)
+        if (
+            isinstance(self.controller, CostAwareForecastIntentController)
+            and observation.intent_gross_budget is not None
+        ):
+            return self.controller.decide_for_position(
+                forecast,
+                current_weight=observation.current_weight,
+                current_position_quantity=observation.current_position_quantity,
+                gross_budget=observation.intent_gross_budget,
+                current_intent=observation.current_intent,
+                same_intent_target_weight=observation.same_intent_target_weight,
+            )
         return self.controller.decide(forecast, current=observation.current_intent)
 
 
@@ -157,6 +180,18 @@ def fit_lightgbm_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
+    return fit_lightgbm_forecast_from_training_set(training, random_state=random_state)
+
+
+def fit_lightgbm_forecast_from_training_set(
+    training: CausalForecastTrainingSet,
+    *,
+    random_state: int = 0,
+) -> LightGBMForecastModel:
+    """Fit the same shallow LightGBM from an already built causal training set."""
+
+    if isinstance(random_state, bool) or not isinstance(random_state, int):
+        raise ValueError("random_state must be an integer")
     regressor_factory = _lightgbm_regressor_factory()
     predictor = cast(
         _TrainableRegressor,
@@ -183,7 +218,7 @@ def fit_lightgbm_forecast(
     return LightGBMForecastModel(
         feature_indices=training.feature_indices,
         predictor=predictor,
-        horizon_hours=horizon_hours,
+        horizon_hours=training.horizon_hours,
         n_samples=training.n_samples,
         fit_cutoff=training.fit_cutoff,
     )
@@ -193,4 +228,5 @@ __all__ = [
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
     "fit_lightgbm_forecast",
+    "fit_lightgbm_forecast_from_training_set",
 ]

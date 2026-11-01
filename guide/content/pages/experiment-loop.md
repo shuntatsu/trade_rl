@@ -24,6 +24,10 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 途中でoperational failureが起きた場合は`FAILED`、一因子契約を破った場合は`INVALID`としてfail closedにします。
 
+すでに消費済みとprovenanceで確認できるdevelopment入力はTier Dとして扱います。Tierは自動判定ではなく、Dataset全体とscopeの消費をprovenanceから確認します。確認できれば、同じ科学的parametersでのdeterministic reconstruction/evaluation、通常のtest/debug、harness error後のtechnical retryを行えます。wrapperやharnessの不備だけで消費済みデータを永久retireしません。各attemptにDataset manifestとNPZのSHA-256、scope、exact code HEAD、run recipe/parametersを記録し、成功outputにはfinal output SHA-256を加えます。失敗attemptもparametersとlogsを含めてappend-onlyで残します。これは技術作業の再試行であり、scientific `FAILED` / `INVALID`を消したり、結果を見て候補や採用ruleを変えたりするものではありません。
+
+unused/final/sealed、既消費と未使用が混ざるscope、または消費済みだと立証できない入力はTier Uです。従来のauthorization・candidate freeze・one-shot controlsを維持し、Tier Dへ自動変更しません。
+
 新しい経済仮説やobservation、risk、execution semanticsを変えるStudyでは、結果を作る前にG0-G2の問い・機構・反証条件を固定し、freshなresult-blind AI reviewと独立oracleを通します。G3のevidence検証はこの前提審査の代わりになりません。条件が未確立の間はStudyPlanの準備までに留め、baselineやcandidateの経済結果は生成しません。
 
 現行のStudy CLIは、外部reviewやoracleの完了を認証する自動gateを持ちません。G0-G2が閉じる前に経済実験を始めないことは、実行者が守るrelease prerequisiteです。
@@ -31,6 +35,8 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 ## 1. Studyを作る
 
 Studyは、Dataset、baseline config、PPO seed方針、変更を許すControlled Factor、実験budgetなどの研究authorityを固定します。
+
+現行のcanonical StudyではRidge / LightGBMの予測期間も24時間に固定されます。Run Coreでsigned `datetime64[ns]`に収まる別の正の時間数（最大2,562,047時間）を指定できるようになっても、それだけではStudyの比較factorや24時間対72時間の研究設計にはなりません。
 
 final evaluationへ進める一般の新規Studyでは、execution economics、unused window、`StudyResearchContext`をbootstrap config v4へ事前登録し、context-bound StudyPlan v3へ固定します。PPO保有期間protocolはbootstrap config v5とStudyPlan v5を使い、protocolと明示baseline/riskも同じ事前登録へbindします。historical StudyPlan v1/v2へ後からfinal windowやcontextを追加することはしません。final startはdevelopment Datasetに含まれる最後のtimestampと申告済みconsumed-evidence scopeの両方より後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
 
@@ -117,12 +123,14 @@ freeze後もControlled Experiment Loop自身はunused futureへ触れません�
 
 どちらも利益結果として解釈しません。
 
+Tier Dのtechnical retryは失敗attemptをappend-onlyで残し、同じ科学的parametersでの技術的再構成に限ります。元のscientific failureや結果、事前登録した採用基準を置き換えません。
+
 ## Overfittingを防ぐ不変条件
 
 - 一度に変えるfactorは一つ。
 - candidate result前に仮説とdecision ruleを固定する。
 - candidateだけDataset / scope / economicsを変えない。
-- failureを別runで都合よく置換しない。
+- scientific failureを別runで都合よく置換しない。Tier D technical retryは同じparametersで行い、全attemptを記録する。
 - raw evidenceとprovenanceを保持する。
 - final-eligibleなStudyではunused window自体をdevelopment resultより前に固定する。
 - winner判断後までsealed unused-futureを開けない。

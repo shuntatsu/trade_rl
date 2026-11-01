@@ -26,6 +26,36 @@ independent per-symbol replay
 metrics / comparison / robustness / immutable run artifact
 ```
 
+## Financial objective declarations
+
+`trade_rl.simulation.objectives` は、新しいfinite-horizon Study用のpure contractを
+宣言する。`CapitalContract` は銘柄別の独立accountなら各bookの初期equityを、shared
+portfolioなら一つのbookの初期equityを保持し、分母を初期capitalの合計へ固定する。
+`ObjectiveContract` の `net_profit_objective_v1` は、callerが渡すterminal after-cost
+equityとnet external cash flowから、一回のrealized endpointを
+`(Σ terminal equity − Σ initial equity − Σ net external flow) / Σ initial equity`
+として表す。depositは正、withdrawalは負で、external flowはprofitに数えない。
+`net_equity_increment` は同じfixed capitalを使うinterval incrementであり、ledgerの
+equityやcostを再計算しない。従って、after-cost valuesの供給元と端末処理は既存の
+accounting/replay ownerに残る。canonical ID `expected_terminal_net_profit_v1` は
+objective identityであり、この宣言が期待値を推定したり利益を保証したりはしない。
+
+`ObjectiveContract` はaware UTCへ正規化した `[evaluation_start,
+evaluation_stop_exclusive)`、`settled` / `marked_continuation` endpoint、economics・risk・
+deployment recipe digests、最大drawdownの宣言をidentityへ含める。`FinancialClockContract`
+は正のinteger秒単位のdecision/execution/reward intervalとfinite horizon、gamma、
+GAE lambda、reward schemaを検証し、discountを経過時間から計算する。
+`BoundObjectiveClock` は評価期間のelapsed secondsが宣言horizonと完全一致する場合だけ
+両contractを結ぶ。`terminal_profit_aligned` は `equity_delta_v1` と `gamma == 1.0`
+の代数的条件だけを示し、実環境でのreward parityを証明しない。
+
+これらはopt-in declarationsであり、宣言そのものは台帳検算・Study認可・profitabilityを
+証明しない。現行のopt-in `SharedPortfolioGymEnv` は `BoundObjectiveClock` を要求し、
+`fit_shared_portfolio_ppo` は金融clockとgamma-one equity-delta rewardを接続する。
+ただしlegacy単銘柄PPOの従来reward `log1p(interval_net_return)`、`gamma=0.99`、
+`settle_terminal_position=False` の既定は変わらない。これらの接続も新しいfinancial
+ledger、winner rule、実市場学習・収益性の証拠を成立させない。
+
 ## Data contract
 
 `MarketDataset` はpoint-in-timeで観測可能な情報だけをdecisionへ渡す。
@@ -33,13 +63,24 @@ metrics / comparison / robustness / immutable run artifact
 必須条件:
 
 - `feature_available_time <= decision_time` を満たす。featureのinformation/availability timeはdecision timeを越えない。
-- supervised labelはfit cutoffの内側だけで完結する。
+- `MarketDataset.periods_per_year` はannualization clockを表すpositive integerであり、booleanやfractional/non-finite frequencyは拒否する。
+- `trade_rl.data._timestamps` はtyped `datetime64` 値をsigned nanosecond clockへ正確に正規化するinternal helperを一つだけ所有する。raw tickとunit multiplierを整数演算し、範囲とsub-nanosecond precisionをcast前に検証する。public data facadeへはexportしない。
+- `timestamps` と明示された `available_at` は、計算に使う `datetime64[ns]` へlosslessに変換できる値だけを受け入れる。nanosecond範囲外へのunit変換によるwrapと、sub-nanosecond精度の切り捨ては拒否する。NaTも拒否し、有効なcoarser-unit timestampの表現は維持する。
+- `CsvMarketDataSource` はISO日時本体のfractionをnanosecondまで整数で保持し、integer epochは従来どおり `abs(value) >= 10^12` をmillisecond、それ未満をsecondとして正確に変換する。日時本体のnanosecond範囲外とnon-zero sub-nanosecond fractionは拒否する。小数秒を含むtimezone offsetはmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあるoffsetは拒否する（余分な桁がすべてzeroなら値は失われない）。`RawMarketSeries` のtyped datetime配列もshared helperの整数演算でnsへ正確に変換し、1ns遅れた `available_at` を同時刻へ丸めず後段へ渡す。時系列順序は隣接値を直接比較し、Datasetのperiod deltaが正のint64 nanosecondsへ収まらない入力は拒否する。
+- `CandidateRunConfig` の `fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive` もresolve前に元のISO calendar/range/precisionを検証してからnsへ正規化する。timezone offsetのUTC等価化を維持し、nanosecond範囲外の元時刻とnon-zero sub-nanosecond桁は拒否する。typed `datetime64` はshared data helperのexact integer arithmeticで検証するが、呼出し前に既にwrapされた `datetime64[ns]` から元時刻を復元することはできない。
+- supervised labelは `label_end_time < fit_cutoff` で完結し、Datasetが宣言するstart/end価格sourceの `available_at <= fit_cutoff` を満たす。
+- forecast training builderへ渡す`fit_cutoff`と、`CausalForecastTrainingSet`へ直接渡す`label_end_times`は、`data._timestamps`のshared helperを通し、元のdatetime64 unitと正のmultiplier metadataから正確な整数演算でns値を求めてからsigned-nanosecond範囲を確認する。multiplierが0以下のmetadata、`NaT`、範囲外へのwrap、nanosecond未満の端数はscopeやmaturity比較より前に拒否し、正確に表現できるfixed-duration unitとcalendar `Y` / `M` unitを受け入れる。cast後の逆変換一致だけをoverflow判定には使わない。
+- Ridge / LightGBM model constructorも同じlossless cutoff normalizerを使う。両strategy adapterは、保存済みobservation timestampが`NaT`の場合と`fit_cutoff > observation.timestamp`の場合に、feature fallbackやpredictionより前に拒否し、同時刻は許す。これはmodelの宣言fit cutoffに対するas-of floorであり、modelの生成・配布時刻、vintage、decision時点での実運用可能性を証明しない。`StrategyObservation`構築前のtimestamp変換で既にwrapされた入力時刻も復元できない。
+- `LeanCandidateConfig`と`CandidateRunConfig`のtyped `datetime64` 値も同じshared helperで正確に正規化する。`NaT`、signed-nanosecond範囲外へのwrap、nanosecond未満の端数は拒否し、losslessなcoarser / multiplier / fine unitは受け入れる。ISO文字列のparse semanticsは変えない。入力前に既にwrapされた`datetime64[ns]`から元時刻は復元できない。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
+- CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
 - developmentやfinal futureをthreshold/model選択へ戻さない。
 - 15分barの行数を独立標本数と解釈しない。
 - 同calendar shockを共有する複数銘柄を完全独立標本と仮定しない。
 
 `fit_symbol_indices` はtraining rowの選択だけでなく、**選択featureが依存してよいsymbol universeの情報scope**でもある。content-verified Datasetで全symbolより狭いfit scopeを使う場合、cross-sectional rank / dispersionのように全universeへ依存するselected featureはrejectし、reference-relative / correlation / betaはそのreference symbolがfit scope内にある場合だけ許す。依存kindはfeature名のheuristicではなくDataset build identityのFeatureKindから復元する。source Dataset identityをネストして保持する正式transformでは元build configまで遡って同じ検査を行い、verified identityなのにdependency provenanceを復元できないstrict subsetはfail closedにする。full-symbol trainingは従来どおり許し、identity provenanceを持たないlegacy/synthetic Datasetの互換は維持するが、その経路だけをunseen-symbol isolationの強い証拠にはしない。
+
+このCandidateSuite preflightが検証するのはDatasetが宣言する `available_at` であり、過去のvenue arrivalを独立に証明しない。runtimeではsingle-symbol replay、shared-cash replay、PPO環境が、処理する行のraw-row markについて `available_at[row, symbol] > timestamps[row]` なら、その行を初期帳簿・観測・risk・約定・terminal settlementへ渡す前にfail closedにする。同時刻は許し、`information_available=False`だけでは拒否しない。single-symbol replayとPPOは選択銘柄および実保有中の銘柄を対象とし、shared-cash replayはstrategy rosterの全銘柄を対象とする。unselectedなflat銘柄と未処理のdataset tailは走査しない。直接`MarketExecutor.execute_interval`のtarget admissionも、既存のshape・finite・gross検証を満たす有効targetについて、nonzero target weightと`BookState`のnonzero exact quantityの和集合を同じrow clockで確認し、遅着ならvaluation・reconciliation・注文作成より前にfail closedにする。flat accountのzero targetからpending orderをcancelする処理は、現在markに依存しないため許す。この範囲はDatasetが宣言する行時刻の保護であり、独立時刻のない明示`mark_price`や外部`BookState.mark_prices`、明示`OrderIntent`を実行するAPI、直接`liquidate_at_close`、過去のvenue arrivalを保証しない。full runtime account-mark point-in-time authorityは未確立である。
 
 Dataset identityは内容にbindされ、canonical artifactはdeterministicでなければならない。publication先が既に存在する場合は上書きせずfailする。
 
@@ -66,6 +107,32 @@ Strategyの責任:
 - signal / forecast / policyに基づく経済判断
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
+
+`strategies/portfolio_adapter.py` は、exact built-in `ConstantIntentStrategy`、
+`TrendIntentStrategy`、`RidgeForecastStrategy` だけを、固定symbol/feature rosterと
+有限な`(0, 1]`範囲の明示per-symbol intent budgetを持つnumeric `PortfolioPolicy` adapterへ
+接続するopt-in pathである。各snapshotの`exact_quantities`から実filled sideを導き、
+current weight / quantity、current rowとbudgetを既存`StrategyObservation`へ渡して、
+SHORT / FLAT / LONGを`-budget / 0 / +budget`へ写す。cash armには固定rosterの明示zero-target
+policyを使える。全snapshotとroster/window contextはstrategy callback前に検証し、
+callbackまたはoutput失敗がsymbol走査の途中で起きたadapterはpoisonされ、後続proposalを
+返さない。factoryはadapter内でdistinct instanceを返す必要があり、比較orchestratorは各armの
+ためにfresh instanceを構築する。このadapterはarm間の共有を検出しない。strategy factoryは
+caller codeでありprovenance/sandboxではない。
+
+このadapterはlegacy replayのcached target、minimum-hold、pending-aware intent、
+exact-quantity HOLDを再現せず、任意の`SingleSymbolStrategy`やsubclassにも対応しない。
+それらのsemanticsが必要ならdirect `PortfolioPolicy`を実装する。native sessionは同じ
+BookState/MarketExecutorでrisk、order reconciliation、fill、cost、accountingと終端処理を
+引き続き行う。Ridgeの`one_way_switch_cost`はintent選択のproxyであり、ledger feeを変更しない。
+
+`strategies/allocation/` は同じ`PortfolioPolicy` seamへ、forecast sourceが供給するper-symbolの期待単純収益から費用控除後のtarget weightを作るallocatorと、等weight buy-and-hold対照を追加する。`CostAwareAllocationPolicy`は各scheduled decisionで`mu.w - (gamma/2) w'Sigma w - sum_i c_i |w_i - w_cur_i|`（`|w_i| <= w_max`、`sum|w| <= gross_max`、任意でlong-only）を許容誤差内で解き、KKT最適性certificateが通った解だけを採用する（通らなければHOLD）。L1 costがno-trade regionを作り、`min_trade_fraction`未満の変更は`hold_current_quantity_symbols`にする。Sigmaはdecision時刻以前の日次mark価格のEWMA共分散を対角へshrinkしたもので、未来barは使わない。decision schedule以外のbar、forecast/共分散/solverの失敗、口座終端では全symbolをHOLDし、黙ってtradeしない。account・P&L ledger・fill・feeは持たず、既存のshared portfolio sessionが所有する。`forecast_source`の中身（モデル・fit・provenance）はこのcontractの外にある。この実装はsoftware seamであり、経済結果やprofitability evidenceではない。
+このstrategy wrapperはjoint PPO learner、training parity、Dataset/profile/fit provenance、
+経済的比較やprofitability evidenceを作らない。
+
+Canonical replayは各`StrategyObservation`へoptionalな`intent_gross_budget`と`same_intent_target_weight`を渡す。後者はbudgetがある場合だけ有効で、cached desired quantityを現在のmark/equityで表したweightである。`one_way_switch_cost`を設定したRidge / LightGBM adapterは、budgetがある場合に`CostAwareForecastIntentController.decide_for_position`を呼び、signed filled quantity（quantityが`None`ならcurrent weight）の符号からactual sideを求める。candidateは`[actual side, actual sideからのbaseline hysteresis proposal, FLAT]`の重複を除いた順序で比べる。candidateのtarget exposure `a`は通常`intent * budget`だが、candidateがlogical `current_intent`と一致しhintがある場合はcached weightを使う。従ってsame-intent holdは価格変動後の旧targetへ不要な再約定を要求せず、partial fillやpending residualは`current_weight`からcached targetまでのturnoverとして残る。direct callerも同じmethodを使えるが、返すのは`PositionIntent`だけで、fillや会計は行わない。
+
+各target exposure `a`のutilityは`U(a) = a*expm1(f) - c*abs(a - w)`で、`f`はlog forecast、`w`はactual weight、`c`はone-way costである。選択はutilityが厳密に高い場合だけ置き換えるため、tieは先のcandidateを維持する。minimum-hold中およびunlock decisionではhintを渡さず、既存constraintがquantity holdとnominal target resetを制御する。pairwise比較はtarget間のturnover傾斜をboundedな相対値として求め、`log1p`と比較する。`1 + c*k`がfloat精度で0へ潰れる境界だけexact binary-rational fallbackを使い、正のgapを保持する。相対値は比較のためだけに使い、actual weightやcached targetをclipしない。任意の部分数量を連続最適化するものではなく、選択後には通常のhard-risk projectionとexecutionが適用される。`intent_gross_budget=None`の直接callerは従来のintent-based controller経路を保つ。
 
 Split changes the units of both the filled book and the cached strategy proposal.
 PPO training, single-symbol replay, and shared-cash replay rebase the proposal by
@@ -122,22 +189,195 @@ explicit risk config is shared by PPO training and every strategy replay. A
 drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
 or terminal move cannot exceed 20% realized drawdown.
 
+Run Core also binds a strict positive-integer
+`supervised_forecast_horizon_hours` (default 24, at most 2,562,047 hours so the
+exact duration fits signed `datetime64[ns]`) for both Ridge and LightGBM.
+The shared training-set builder uses that exact elapsed-hour endpoint and only
+admits labels that mature strictly before `fit_cutoff`; fitted strategy names
+include the horizon. `resolved_run_config_v6` and candidate result schemas v8
+(per-symbol) / v9 (shared-cash) persist the selected value. This is a per-run
+capability: canonical Studies remain fixed to 24 hours and reject another value
+before Dataset resolution or candidate fitting. It adds no controlled factor,
+paired-comparison authorization, PPO behavior change, or economic claim.
+
 `run_shared_cash_replay` is a separate multi-symbol evaluation boundary. Each
 symbol has one fresh strategy instance, all instances observe the same pre-trade
-portfolio snapshot, and their complete target vector passes through the shared
-`PreTradeRisk` and `MarketExecutor` once per interval. `current_weight` is measured
+portfolio snapshot, and their complete target vector passes through
+`simulation.native_transition.execute_native_target_transition`, which applies
+the shared `PreTradeRisk` then advances the canonical `MarketExecutor` once per
+interval. `current_weight` is measured
 against the single portfolio value. Its optional `minimum_hold_bars` can be one
 common duration or an ordered per-symbol vector; age advances from actual signed
 fills, the locked target is rebound to the exact filled quantity, and risk
 projection still runs afterward. Optional terminal settlement reserves the
 latency-aware close interval and sends a portfolio-wide flat target through the
-same risk and execution path. Any residual quantity or active order remains
-visible at the end. Duration/settlement runs emit shared-cash ledger schema v2,
-including requested/effective intents, per-symbol ages and quantities, and
-suppression/unlock evidence; calls without those options retain v1 ledger shape.
+same risk and execution path. In this explicit terminal-only step, an
+`emergency_flatten_mask` covers nonzero holdings in the selected strategy
+roster, so ordinary `max_turnover` does not scale down the requested close;
+ordinary strategy decisions continue to obey that turnover bound. The target
+still passes through the configured hard-risk and execution stages. Venue
+rules, available liquidity, fill capacity, fees and pending-order handling are
+unchanged: if they prevent a full close, the actual residual quantity or active
+order remains visible and exact-flat validation still fails. Duration/settlement
+runs emit shared-cash ledger schema v2, including requested/effective intents,
+per-symbol ages and quantities, and suppression/unlock evidence; calls without
+those options retain v1 ledger shape.
 This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
+
+`run_shared_portfolio_replay` is the opt-in batch consumer over the
+simulation-owned `SharedPortfolioSession`. It invokes one
+`PortfolioPolicy.decide_portfolio` for each eligible native decision row. The
+session retains the exact returned `BookState` and one `MarketExecutor` across
+calls, advances its native index once per target, and uses the existing
+`execute_native_target_transition` for hard risk and execution. Its public
+account view is a detached clone, and evidence collection remains in evaluation.
+`strategies/portfolio_observation.py` builds the detached snapshot from the
+current `MarketDataset` row, `BookState`, active-order tuple, risk config, and
+decision window; evaluation passes those source-owned inputs without giving the
+strategy an executor or evaluation config. The complete symbol-ordered numeric
+target vector is validated before a native transition can mutate execution
+state. The snapshot copies only the current `StrategyObservation` row,
+primitive account facts, active-order quantities/status/timing and available
+order price context (`limit_price`, `stop_price`, and
+`submission_reference_price`), and risk-limit scalars into tuples and immutable
+values. Snapshots built through the current observation builder carry the
+source intent's price context; directly constructed legacy pending-order
+snapshots may leave all three price fields `None` and are explicitly incomplete
+for price-aware consumers. The snapshot does not include the
+`MarketDataset`, executor, risk or book objects, opaque order IDs, or future
+rows. Cash is reported as raw account
+cash, not as free or reserved cash, so this input is not a complete Markov account
+state. An explicit exact-quantity HOLD is accepted only when its target exactly
+matches the current book weight, and it survives only if hard risk leaves that
+weight unchanged; the normal executor then cancels any residual order while
+preserving the signed filled quantity. Reconciliation applies that cancellation
+before processing the next execution interval, so an unfilled remainder cannot
+fill in that interval after a HOLD decision. The actor cannot request the terminal
+emergency-flatten mask. Policy calls stop at the existing latency-aware agent
+boundary, after which the session reserves terminal intervals for its existing
+risk-owned emergency-flatten path. A failed observer/transition consumes the
+session because executor state may already have advanced; it cannot be retried.
+The raw-v1 codec's `account` matrix columns are exported as `ACCOUNT_FIELDS`
+(`quantity`, `weight`, `mark_price`, `contract_multiplier`). Its 21-column
+`active_orders` matrix supports at most one order per symbol and rejects
+out-of-roster symbol indices. Optional limit, stop, or submission-reference
+prices use their existing presence flags; absent values are encoded as zero
+with a zero flag. This keeps all-`None` legacy snapshots encodable without
+inventing missing price facts.
+This
+numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
+the existing intent replay result and ledger schemas remain unchanged. This seam
+does not change PPO's per-symbol training path or establish an economic result.
+
+`evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
+coordinator for four fixed families: explicit cash, built-in Trend, a
+caller-pinned Ridge artifact, and a verified joint-PPO inference bundle. It
+loads and validates the paired Dataset, Ridge binding, PPO bundle, roster,
+window, and shared configuration before starting any native arm. The PPO Gym
+is validation-only and is not reset or stepped. Each arm gets a fresh policy,
+risk controller, `SharedPortfolioSession`, and ledger while sharing the same
+Dataset and immutable execution/risk/profile configuration values. Every arm
+uses terminal settlement and ledger capture. Raw early termination and
+insolvency remain visible in the outcome flags. An optional completion observer
+receives each outcome immediately before the next arm begins; callback failure
+or a later arm failure propagates without starting subsequent arms. The
+coordinator does not reserve attempts, persist results, fit models, select a
+winner, or establish research or profitability evidence.
+
+`evaluation/runs/portfolio_family_attempt.py` is a separate opt-in filesystem
+wrapper around that comparator. It reserves one attempt root, records declared
+identity and before/after provenance, and persists each raw family outcome in
+the comparator's completion callback before the next family begins. It then
+publishes and strictly reloads the result before writing the completion marker;
+the public attempt loader accepts only a complete, nonfailed root. A failure
+record retains the phase and already completed family rows, while the native
+executor and ledger remain the sole financial-state owners. The wrapper records
+failure phase and earlier rows when its failure journal is writable; if that
+journal write also fails, the original exception remains primary and the
+secondary write error is attached as an exception note. This local write-once
+boundary is not a global retry budget and adds no fit, winner selection,
+research approval, or profitability evidence.
+If the comparator raises inside a family before its completion callback, that
+callback does not expose the in-flight family's partial native ledger; the
+failure record therefore contains only rows delivered by earlier callbacks.
+It does not infer a zero count for the unfinished family.
+
+`strategies/rl/portfolio_transform.py` owns opt-in preprocessing for the joint
+Gym Dict. Its versioned payload binds the raw/transformed layouts and
+Dataset/objective/clock/risk/execution context. Local features use the existing
+PPO normalizer; global features and per-symbol geometric mark-price references
+are fitted only on `[start_index, agent_stop_index)`. Availability masks remain
+explicit, account and active-order notionals use fixed initial capital, while
+the dimensionless maintenance-margin rate remains a rate. UTC nanoseconds are
+differenced before conversion to floating point. Loading serialized transform
+parameters requires an independently retained expected digest; this detects
+payload changes but does not prove authorship or fit provenance. Raw validation
+also checks risk flags and order-index fields against their declared types. The
+wrapper preserves native rewards and termination facts, uses absorbing padding
+after termination, and records then poisons itself if transformation fails after
+a raw step may have advanced. This does not make observations a complete account
+state, synthesize free/reserved cash, refit on evaluation rows, train a policy,
+or change legacy PPO behavior.
+
+`PortfolioRuntimeExecutionScenarioV2` is the typed declaration used by a
+separate opt-in scenario inference path. The v2 loader requires the typed
+declaration and external scenario digest, all existing bundle/context/checkpoint
+pins, and a separately expected current scenario-source digest. Before PPO
+deserialization it validates that the declared base execution policy matches
+the fitted context and the transform's existing execution-config digest, while
+the runtime policy matches the actual forward `SharedPortfolioGymEnv`. The
+versioned runtime binding retains both execution identities, the original fit
+and actor-stop window, the runtime bound/window/actor stop, and scenario,
+checkpoint, context, transform, and source identities. Fit statistics and
+checkpoint bytes stay unchanged: the training actor stop uses base latency,
+while runtime clock/order features and the native terminal reservation use
+runtime latency. A dedicated v2 observation wrapper checks the actual runtime
+environment before reset, each native step, and observation transformation;
+it poisons itself after a failed post-step transform. The v1 loader, binding, payloads, and strict full-cost
+matching remain unchanged; no compatibility bridge admits older selected
+source/runtime checkpoints. Selected source manifests are direct-owner records,
+not a complete transitive source or in-memory-code proof. The explicit
+`portfolio_family_scenario_replay_v2` evaluation entry now wires this loader
+into four actual native arms under the scenario's runtime cost configuration.
+The v2 coordinator rechecks its scenario digest and current source digest, then
+validates the loaded PPO policy's bound runtime environment before each arm and
+before each completion observer. A mismatch stops before the next arm or before
+an observer receives the completed outcome; the strict v1 entry leaves this
+private boundary check unset.
+The in-memory entry remains separate from the opt-in
+`run_four_family_portfolio_scenario_attempt_v2` one-shot local wrapper. That
+wrapper records a versioned external identity, started marker, before/after
+provenance and scenario-source records, and each existing native family row
+before starting the next arm. A strict result reload checks the caller-held
+identity and expected result digest before completion; failures retain the
+primary error and rows already written. This is software-integrity evidence:
+it does not select a numeric stress recipe, repeat native accounting, alter the
+v1 artifact schema, or establish economic validation, profitability,
+unused-period approval, or live eligibility.
+`PortfolioPolicySampleJournal` is a separate opt-in SB3 forward-hook recorder.
+It stores actual policy forward inputs, sampled action codes, the returned joint
+log-probability, and critic value before the caller advances the environment.
+Each sample-v2 row also records the forward batch size and actual action/value/
+log-probability tensor dtype and full batch shape, without changing the saved
+action or scalar values. Attachment requires empty policy-local and global
+forward-hook layouts; those layouts and their dispatch flags are frozen after
+attachment. Any later change fails closed before a sample is written, preventing
+a replacing hook from silently changing what SB3 receives. Caller-declared
+context, transform, and policy-version labels are not Dataset, weight, or
+checkpoint-lineage attestations. The recorder does not store optimizer updates
+or join policy samples to native financial transitions, and it leaves legacy
+PPO defaults and serialization unchanged.
+
+`run_scripted_shared_cash_replay` is an opt-in evaluation seam for fixed action
+sequences. It validates every symbol schedule before execution. `None` means no
+new actor decision and keeps the cached target and pending order progressing;
+`HOLD_QUANTITY` derives the side from the actual signed book quantity, cancels
+any remaining order, and carries the book's exact quantity through reconciliation
+only while the post-risk weight still equals the current book weight. Risk-driven
+shrink or flatten remains effective. The strategy protocol and shared-cash ledger
+schemas are unchanged.
 
 Adaptive rule exits use the optional `StrategyObservation.gross_position_return`
 provided by canonical replay. Replay derives it from the actual average entry
@@ -270,6 +510,13 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+`simulation.native_transition.execute_native_target_transition` owns the shared
+one-bar numeric-target → pre-trade-risk → canonical-executor step. It returns
+the existing `RiskConstrainedTarget` and `ExecutionResult`; it does not add a
+second account or ledger. Replay and PPO callers keep their policy/action state,
+pre-execution cached-target rebinding, split handling and evidence capture around
+that transition. PPO's historical no-risk shortcut remains unchanged.
+
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
 basis as its equity and weights. An entirely cash book uses the current dataset
 mark for its first entry sizing, including `BookState.zero` callers that omitted
@@ -297,15 +544,26 @@ retain their explicit reference-price sizing contract.
 
 Explicit `OrderIntent.reduce_only=True` supports MARKET orders only. Admission
 rejects absent, same-direction or insufficient actual exact inventory, independently
-of hypothetical pending fills in the economic projection. Allocation then
+of hypothetical pending fills in the economic projection. When the solvent
+processing-open book is already above the gross leverage cap, an otherwise valid
+MARKET reduce-only close may be admitted only if it lowers gross exposure. Such
+recovery closes reserve their exact accepted inventory during the admission pass
+and do not reduce projected exposure before a fill, so an unfilled recovery close
+cannot authorize a duplicate close or later opening. Under-cap passes keep their
+existing priority projection and fill-time expiry behavior. Allocation then
 checks the actual priority sequence, including ordinary fills, and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional
 and all existing constraints still apply. A legacy zero-target MARKET request is
 represented internally as a reduce-only exact-inventory close, but this does not
-waive its minimum-notional or other execution constraints; ordinary same-side
-reductions remain ordinary orders without an explicit profile.
+waive its minimum-notional or other execution constraints. Without an explicit
+reduce-only roster, a same-side smaller MARKET target is also represented as
+reduce-only only when actual holdings at decision reference prices exceed
+`maximum_gross`. This inference does not apply to LIMIT/STOP orders or when a
+roster is explicit, including an empty roster. The omitted-roster legacy
+zero-target behavior remains unchanged; an explicit roster controls whether its
+symbols' zero targets are reduce-only.
 
 The optional `MarketOrderProfile` binds verified Dataset identity/full symbol order,
 selected source rules, raw source hash/retrieval, one-way USD-M assumption and the
@@ -341,9 +599,11 @@ exchange-filter emulator or a strategy qualification.
 Shared-cash directional evaluation accepts this optional profile through the
 common replay/executor path. Explicit-profile results use
 `directional_market_profile_arm_v1`, bind the evaluated policy/profile identity,
-and retain exact terminal quantities. Their flatness gate requires exact zeros;
-the omitted-profile `directional_arm_v1` result and historical float tolerance
-remain unchanged. Strategy factories, costs, hard risk and training are not
+and retain exact terminal quantities. Every current arm result, including the
+omitted-profile `directional_arm_v1` schema, requires exact zeros from the
+account's exact quantities for terminal flatness. Previously saved results are
+not rewritten; their recorded terminal fields continue to describe their
+original evaluation. Strategy factories, costs, hard risk and training are not
 altered by passing a profile.
 
 Stateful execution rechecks exact inventory immediately before each closing fill:
@@ -390,13 +650,25 @@ universal frozen model/policy
 
 Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益で別銘柄の損失を隠さず、各symbol × strategyについてreturns、drawdown、turnover、execution cost、funding、borrow、trade/fill/rebalance diagnostics、terminationを保持する。
 
+共通のwalk-forward OOS stitching API (`stitch_oos`) は、明示されたfold `elapsed_years` を合計し、durationがないfoldは `len(values) / periods_per_year` のdefault clockを加える。独立fold間のgapは別に記録し、returnやdurationを補わない。全foldがdefault clockなら stitched `elapsed_years` は未設定のまま保つ。
+
+`compare_shared_cash_strategy_factories` は、順序付きの各strategy armを一つのshared-cash accountで全Dataset銘柄に適用する比較APIである。armごとに各symbol用のfresh strategy adapterを作り、frozen model objectの共有は許すが、adapter instanceはarm間・symbol間で共有しない。全adapterの検証後、armごとに同じDataset、range、capital、gross budget、execution cost、risk、market-order profile、minimum hold、terminal settlement設定で既存shared-cash replayを一度実行し、各replayのreturnsとexecution diagnosticsからmetricsを作る。gross budgetは既存replayどおりsymbolごとのintent sizingへ適用され、その後portfolio hard-risk projectionを受ける。shared initial capitalはarmごとに一口座であり、銘柄数倍にはしない。fitting、ranking、selectionは行わない。
+
+`evaluation/runs/ridge_artifact_comparison.py` は、同じ仕組みを使う限定的なfilesystem比較入口である。公開済みDatasetのpaired loaderと、呼出し側が期待digest・typed bindingを渡したfrozen Ridge artifactを一度ずつ読み、Dataset identity / schema / artifact digest / ordered feature names、Ridgeのselected featuresとfit-symbol mapping、decision開始時刻に対するfit cutoffをreplay前に照合する。`cash`、`legacy_hysteresis`、`position_aware_zero_cost`、`position_aware_cost` の4 armへ同じ明示的なcapital・risk・execution・range設定を渡し、既存shared-cash replayのterminal settlementとledger evidenceを返す。返り値は使用した正確なvalidated configを保持する。legacyからzero-costへの差はcontroller semanticsも含むbundleで、zero-costから正costへの差がposition-aware経路上のcost proxyを変える。proxyはexecution feeを帳簿へ加算せず、既存ledgerがexecution economicsを一度だけ計上する。このAPIはmodelをfitせず、winnerを選ばず、result artifactをpublishしない。artifact bindingは宣言されたfit contextを固定するもので、過去のfit手順を独立証明するものではない。
+
+The comparator can opt in to forecast-versus-zero diagnostics. It calls the same frozen Ridge model's `predict` with the model's ordered feature indices and scores log-return labels only when the model features and decision-time starting close are available, and the exact horizon endpoint is strictly before the requested stop timestamp while the target close is available by that scoring-as-of timestamp. Forecast and zero-baseline errors use identical pairs; candidate, eligible, and per-reason exclusion counts are retained. The opt-in result uses comparison artifact v2; default calls continue to publish v1. Hourly horizon labels overlap, so pair counts are not independent market samples or significance evidence. This diagnostic is out-of-sample relative to the bound fit cutoff, but supplied predictions are not prequential vintages and the metric is not a P&L or causal-alpha claim.
+
+`evaluation/runs/ridge_comparison_artifact.py` は、その返り値を一つのcanonical `comparison.json` へwrite-onceで保存し、外部digest必須のloaderで完全な4 arm・ledger・config・Dataset/model境界・caller-supplied provenanceを検証する。returnsはproducerが返す`BASE_BAR`、`elapsed_years=None`、全arm共通の正の`periods_per_year`に固定する。flatでorder/capacity eventがない区間は、cash/equity変化を記録済みのcash interest/dividendへ結び、funding boundary合計をinterval fundingへ照合する。cash armはintent・quantityともFLATで、order/capacity、execution cost、funding amount、borrow、dividend、turnoverを持たず、trade/rebalance、closed/open-position、realized net/gross P&Lのdiagnosticsもゼロでなければならない。正負どちらの明示cash interestも保持できる。interval-end returnsから再計算したdrawdownとledgerのintrainterval maximum drawdownは別の測定値であり、前者が後者を超えないことだけを確認する。ledger v2は一部のdelisting/split settlement proceedsを独立fieldに記録しないため、全armに対するuniversal fill-to-cash再構築は行わない。profileは保存された宣言データとして扱い、verifiedな実行profileを復元しない。publisherは渡されたprovenanceを検証するだけで、replay前後のsource/runtime採取、Dataset cadenceの再認証、fitの独立証明は行わない。これは保存・再読込のsoftware capabilityであり、Study protocol、比較結果の採否、G0-G3やprofitability evidenceを追加しない。
+
+`evaluation/runs/ridge_comparison_attempt.py` は上記比較を一回のwrite-once attemptとして実行する薄いfilesystem wrapperである。typed入力とcallerが宣言するresearch-context digestを検証した後、attempt rootを排他予約し、supplied path・binding・configの開始記録を残す。既存provenance ownerを比較の前後で呼び、実際のimplementation/runtime/contextが変化しない場合だけ既存result publisherを一度呼び、strict loaderで再読込してからcompletionを記録する。失敗時はfailure recordを残し、比較が返った後のpublication失敗では利用可能なarm ledger mappingsをpartial evidenceとして保存する。比較呼出しが返る前の内部partial ledgerはpublic APIから取得できない。root単位のwrite-onceはlocal attempt reservationであり、global retry budgetではない。context digestはcaller declarationで、approvalやauthorizationの証明ではない。このsoftware boundaryはfit・data retrieval・winner selection・research approvalを行わない。
+
 ### Trading-bot tuning and holdout reporting
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。
 
 Bot CLIの`--signal-feature`はDatasetの一意なfeature名を実行前に解決し、対応する`signal_index`をbaseline、cash、全candidate、全walk-forward foldへ固定する。未指定時は従来の0列目を維持する。公開tuning/comparison APIも同じindexを明示でき、boolean・負値・非整数・source Dataset範囲外のindexはchannel追加やreplay前に拒否する。configのindexとDataset identityがfeature semanticsをbindする。channel戦略とconstant/cash controlは従来どおり各自の入力・intent契約を使い、この指定でchannel定義やcontrolを変更しない。
 
-上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
+上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。`MarketDataset` と `ReturnSeries` の `periods_per_year` はpositive integerであり、booleanやfractional/non-finite frequencyは拒否する。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
 
 CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちらかを要求する。省略時や明示されたpathが存在しない・directoryでない場合は入力errorとして終了し、optimize/compareをsynthetic demo dataへ暗黙にフォールバックしない。
 
@@ -416,17 +688,40 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 `AdaptiveProfitConfig`はfinite・nonnegativeなthresholdと、nonnegative integerのfeature index / max holdingを要求し、booleanも拒否する。entryはpositiveで対応exitより大きいことを要求する。zero regime thresholdによるtrend固定と、zero protective thresholdによるexit無効化は明示的な有効設定として維持する。NaNでprotective comparisonを黙って無効にする設定はreplay前に拒否する。
 
+### Direct decision-value study contract
+
+`trade_rl.evaluation.decision_value_dev_study` は、事前固定されたプロトコルと実開発データに対する直接的意思決定価値学習（Direct Decision-Value Learning）の研究検証契約を定義する。
+
+- **Source scope契約**: `source_scope` は従来の `"synthetic_only"` に加え、事前認可ダイジェストを要求する `"real_development"` を明示的に許容する。scopeの不一致や未認可の実データ実行はfail-closedで拒否される。
+- **事前認可ダイジェスト**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定、および既消費開示文言を含む完全な仕様からSHA-256ダイジェストを導出し、プロトコル内の `real_scope_authorization_digest` と完全一致することを事前検証する。
+- **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B1c 保守的線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
+- **保守的意思決定価値モデルと不確実性割引 (B1c)**: `ConservativeLinearDecisionValueModel`（`schema_version="conservative_linear_decision_value_v2"`）は、候補行動ごとの回帰係数ベクトルに加え、重なり群の平均多重度 $\bar{m}_k = \frac{1}{N_k} \sum_i m_i$ と有効自由度 $\text{dof}_k = \max(1.0, N_k / \bar{m}_k - p_{\text{eff}})$ に基づく残差共分散行列 `covariance_matrices`、不確実性ペナルティ重み `uncertainty_penalty_weight`、および片道切替コスト `one_way_switch_cost` を保持する。標準化特徴空間でのRidge回帰係数および共分散行列は、元座標系 $x$ へのアフィン変換行列 $A$ により $w = A^\top \beta$、$Cov(w) = A^\top Cov(\beta) A$ として代数的に折りたたまれ、モデルのシリアル表現および推論コードとの完全な互換性を維持する。ポリシー `ConservativeLinearDecisionValuePolicy` は、予測標準誤差 $se = \sqrt{x^\top \Sigma_k x}$ を用いた下側信頼限界（LCB: `mean - lambda * se - c * extra_turnover`）により不確実性と切替ターンオーバーを保守的に割り引く。
+- **姿勢認識プロポーザルと未約定注文保全 (TD7)**: `preserve_posture_aware_proposal` は、`LinearDecisionValuePolicy`、`ConservativeLinearDecisionValuePolicy`、`ShallowDecisionValuePolicy`、および `_FixedEntryPolicy` に共通する統一的な姿勢保全セマンティクスを提供する。(1) レイテンシ下（`latency_1bar`, `latency_2bar`）で未約定注文が進行中の場合、目標ウェイトを実効ウェイト $w_{\text{eff}} = w_{\text{account}} + w_{\text{pending}}$ に一致させつつ `hold_current_quantity_symbols` への追加を避けることで、`reconcile_target` による進行中注文の早期キャンセルを防止して約定を保護する。(2) 約定完了後は `hold_current_quantity_symbols` に追加して毎時の微小ドリフトによるリバランスターンオーバーを完全に抑止する。(3) 損失ポジションを保有中に全候補の方向スコアが非正となった場合、自動的に現金化（`ACTION_FLAT`）を選択して損失の拡大を防止する。
+- **因果性プローブと台帳突合**: 各ブロックの評価開始直前に、未来データ（t+1以降）を無作為摂動させたデータセット上での意思決定が元データセットと完全一致することを確認する因果性プローブ（Causality Perturbation Probe）を実行する。また、各ブロックの全アーム・全シナリオについて、台帳の注文・約定・資産推移・手数料・終端清算が整合していることを検証する（Ledger Evidence Reconciliation）。
+- **Write-once出力**: 結果は `write_decision_value_dev_study_bundle` により一度だけ `protocol.json`、`result.json`、`summary.md` として書き出され、既存ファイルの上書きを防止する。
+
 ## Artifact and evidence rules
 
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
 - Market dataset artifactのcodec/publicationは `trade_rl.data.artifacts` が持つ。
 - Candidate/evaluation runはimmutable filesystem artifactとして残す。
-- Candidate RunとStudy EvidenceSetのdirectory publicationはstagingからatomic renameする。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyへ切り替えない。
+- Candidate Run、Study EvidenceSet、canonical market datasetのdirectory publicationはstagingから**OS側で既存先の置換を禁止するatomic rename**で行う。Linuxは`renameat2(RENAME_NOREPLACE)`、macOSは`renamex_np(RENAME_EXCL)`、Windowsは既存先を拒否するrenameを使う。未対応のOS/ファイルシステムではfail-closedとし、チェック後に空ディレクトリが作られても置き換えない。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyや通常POSIX renameへ切り替えない。
 - Candidate Runはresolved result `summary.json`、raw interval return `returns.npz`、implementation/runtime/research-context evidence `provenance.json` の3ファイルを一体としてpublishする。
 - Candidate Runは実行前後でimplementation/runtime provenanceが一致する場合だけpublishする。実行中にsource/runtime provenanceが変化したRunを正当なevidenceとして残さない。
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。
+- Opt-in conditional PPO software diagnosticのcompleted resultは `ppo_conditional_diagnostic_result_v2` / `evidence_contract_version=2` を使う。fit済みpolicyを既存の `ppo_inference_bundle_v2` 形式で一度保存した後、manifest digestと完全なfeed feature schemaを指定して既存loaderで再読込し、observation schema等がfit契約と一致するpolicyだけをheld-out deterministic実行に使う。pre-action observation、action、step info、各step後のBookState、callback時点でcopyしたstateful execution evidenceは実行順を保つtraceとして保存する。evidence manifestはprotocol/source/recipe/runtime/held-out Dataset identityと、再読込・hash確認したbundleおよびtraceのdigest/raw SHA-256/sizeへbindする。`result.json` のpublish直前にもbundle manifest/policy、trace、evidence manifestのbytes・digest・SHA-256・sizeを再照合し、各artifactが同じreadbackのままの場合だけpublishする。失敗時はphase・fit回数・残存artifactのhashをfailure sidecarへ記録して再fitしない。旧completed resultは変更・backfillせず、policy bytesやtraceが保存されていない過去fitからは復元できない。このsynthetic software diagnostic evidenceはlearnability、G0-G3、economic performance、production/live authorityを与えない。PPO環境のexecution observerは省略時 `None` であり、通常のfitへ自動接続しない。
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
+
+## Verified Dataset artifact pair
+
+`load_published_market_dataset_artifact` returns
+`(PublishedDatasetArtifact, MarketDataset)` in identity-first order from one
+verified manifest parse and its matching array payload. The inspector delegates
+to this pair loader; the existing dataset-only loader keeps returning
+`MarketDataset`. The pair represents one loader verification pass and does not
+lock the directory or promise an operating-system-level atomic filesystem
+snapshot.
 
 ## Separate directional development composition
 
@@ -563,6 +858,20 @@ the terminal observation window ends 180 seconds after the fixed close, includin
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.
 
+Collection liveness is separate from that evidence. The collector process writes an
+atomic heartbeat; every exit, signal or console-close path and the external stale
+check create the same permanent failure marker exclusively, so the first cause is
+kept. A supervisor may relaunch only a child that died between cycles, inside the
+frozen 180-second gap including a launch margin, with no marker, no unacknowledged
+cycle and a bounded restart count. It never resumes an interrupted cycle, retries a
+failed source request or edits the journal; a hard kill during acquisition therefore
+still ends the screen. A duplicate or restarted launch against a live collector is
+detected through the collector lock and ends as non-destructive contention (exit 4,
+no marker). The external check defers its stale limit only while a live supervisor
+is inside the bounded startup grace of a relaunched child. The attempt-2 tooling is plan-only until an explicit seal
+and, separately, an explicit network launch, both gated by an Issue #810
+authorization URL; they do not prove authorization or establish profitability.
+
 New forward captures use `binance_forward_market_snapshot_v2`, explicitly binding
 100 requested depth levels per side for each spot/perpetual symbol. All returned
 levels are retained; more than the requested bound fails. The offline reader
@@ -594,6 +903,10 @@ the journal chain only and must not claim raw-source financial validation.
 Even `PAPER_SCREEN_PASSED` retains `production_eligible=false`: observed paper
 marks, cost assumptions and public depth do not establish live fill guarantees,
 intraminute drawdown, optimal returns or private-account suitability.
+
+## Prequential forecast availability
+
+Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
 ## 非目標
 

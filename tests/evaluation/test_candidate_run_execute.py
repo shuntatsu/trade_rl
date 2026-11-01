@@ -8,11 +8,15 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
 from trade_rl.evaluation.runs.config import (
+    CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+    LEGACY_DATASET_EXECUTION_OVERLAY,
     CandidateRunConfig,
     resolve_candidate_run_spec,
 )
 from trade_rl.evaluation.runs.execute import execute_candidate_run
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 
@@ -65,13 +69,22 @@ def resolved_spec(dataset: MarketDataset):
     )
 
 
+@pytest.mark.parametrize(
+    ("execution_overlay", "expected_capacity"),
+    [
+        (LEGACY_DATASET_EXECUTION_OVERLAY, True),
+        (CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY, False),
+    ],
+)
 def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     monkeypatch,
+    execution_overlay: str,
+    expected_capacity: bool,
 ) -> None:
     from trade_rl.evaluation.runs import execute as execute_module
 
     dataset = market()
-    spec = resolved_spec(dataset)
+    spec = replace(resolved_spec(dataset), execution_overlay=execution_overlay)
     comparison = UniversalStrategyComparison(by_symbol=(), ppo_training_timesteps=2048)
     calls: list[tuple[object, object, dict[str, object]]] = []
 
@@ -97,10 +110,73 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     assert kwargs["initial_capital"] == spec.config.initial_capital
     execution_cost = kwargs["execution_cost"]
     assert isinstance(execution_cost, ExecutionCostConfig)
-    assert execution_cost == ExecutionCostConfig.zero()
-    assert execution_cost.processing_bar_volume_capacity is True
+    assert execution_cost == replace(
+        ExecutionCostConfig.zero(),
+        borrow_rate_multiplier=1.0,
+        processing_bar_volume_capacity=expected_capacity,
+    )
     assert kwargs["risk"] is None
     assert kwargs["include_ppo_shared_cash_replay"] is False
+
+
+@pytest.mark.parametrize(
+    ("execution_overlay", "borrow_rate", "expected_borrow"),
+    [
+        (LEGACY_DATASET_EXECUTION_OVERLAY, 0.0, 0.0),
+        (
+            LEGACY_DATASET_EXECUTION_OVERLAY,
+            0.365,
+            500.0 * 0.365 / (365.0 * 24.0),
+        ),
+        (CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY, 0.0, 0.0),
+        (
+            CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+            0.365,
+            500.0 * 0.365 / (365.0 * 24.0),
+        ),
+    ],
+)
+def test_execute_candidate_run_overlay_charges_dataset_borrow(
+    monkeypatch: pytest.MonkeyPatch,
+    execution_overlay: str,
+    borrow_rate: float,
+    expected_borrow: float,
+) -> None:
+    from trade_rl.evaluation.runs import execute as execute_module
+
+    dataset = replace(
+        market(),
+        borrow_rate=np.full((8, 2), borrow_rate, dtype=np.float64),
+        cash_rate=np.zeros(8, dtype=np.float64),
+    )
+    spec = replace(resolved_spec(dataset), execution_overlay=execution_overlay)
+    comparison = UniversalStrategyComparison(by_symbol=(), ppo_training_timesteps=256)
+    captured_costs: list[ExecutionCostConfig] = []
+
+    def fake_suite(loaded, lean_config, **kwargs):
+        assert loaded is dataset
+        assert lean_config is spec.lean_config
+        captured_costs.append(kwargs["execution_cost"])
+        return comparison
+
+    monkeypatch.setattr(execute_module, "run_lean_candidate_suite", fake_suite)
+    execute_candidate_run(dataset, spec)
+
+    assert len(captured_costs) == 1
+    book = BookState.from_weights(
+        weights=np.array([-0.5, 0.0]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    execution = MarketExecutor(dataset, captured_costs[0]).execute_interval(
+        book,
+        np.array([-0.5, 0.0]),
+        start_index=0,
+        bars=1,
+    )
+
+    assert execution.interval_borrow_cost == pytest.approx(expected_borrow)
 
 
 def test_execute_candidate_run_rejects_dataset_identity_mismatch() -> None:

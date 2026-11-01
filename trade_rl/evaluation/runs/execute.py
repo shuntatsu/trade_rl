@@ -18,11 +18,15 @@ from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
 def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
+    dataset_authoritative_cost = replace(
+        ExecutionCostConfig.zero(),
+        borrow_rate_multiplier=1.0,
+    )
     if execution_overlay == LEGACY_DATASET_EXECUTION_OVERLAY:
-        return ExecutionCostConfig.zero()
+        return dataset_authoritative_cost
     if execution_overlay == CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
         return replace(
-            ExecutionCostConfig.zero(),
+            dataset_authoritative_cost,
             processing_bar_volume_capacity=False,
         )
     raise ValueError(f"unsupported execution_overlay: {execution_overlay}")

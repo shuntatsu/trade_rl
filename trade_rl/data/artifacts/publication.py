@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME as MARKET_ARTIFACT_ARRAYS,
 )
@@ -19,6 +19,7 @@ from trade_rl.data.artifacts.codec import (
 )
 from trade_rl.data.artifacts.codec import (
     DatasetArtifactFiles,
+    _load_dataset_files_with_digest,
     load_dataset_files,
     write_market_dataset_files,
 )
@@ -47,18 +48,31 @@ def inspect_published_market_dataset_artifact(
 ) -> PublishedDatasetArtifact:
     """Validate and reconstruct the typed identity of an existing artifact."""
 
+    artifact, _ = load_published_market_dataset_artifact(root)
+    return artifact
+
+
+def load_published_market_dataset_artifact(
+    root: str | Path,
+) -> tuple[PublishedDatasetArtifact, MarketDataset]:
+    """Load a verified artifact identity and the Dataset it identifies.
+
+    Both values come from one manifest parse and its verified array payload.
+    This binds the returned pair to one loader pass; it does not lock the
+    directory or guarantee an operating-system-level atomic filesystem snapshot.
+    """
+
     artifact_root = Path(root)
-    load_dataset_files(artifact_root)
+    dataset, artifact_digest = _load_dataset_files_with_digest(artifact_root)
     manifest_path = artifact_root / MARKET_ARTIFACT_MANIFEST
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    artifact_digest = manifest.get("artifact_digest")
-    if not isinstance(artifact_digest, str):
-        raise ValueError("dataset artifact manifest is missing artifact_digest")
-    return PublishedDatasetArtifact(
-        root=artifact_root,
-        manifest_path=manifest_path,
-        arrays_path=artifact_root / MARKET_ARTIFACT_ARRAYS,
-        artifact_digest=artifact_digest,
+    return (
+        PublishedDatasetArtifact(
+            root=artifact_root,
+            manifest_path=manifest_path,
+            arrays_path=artifact_root / MARKET_ARTIFACT_ARRAYS,
+            artifact_digest=artifact_digest,
+        ),
+        dataset,
     )
 
 
@@ -81,7 +95,7 @@ def publish_market_dataset_artifact(
         loaded = load_dataset_files(staging)
         if loaded.dataset_id != dataset.dataset_id:
             raise ValueError("staged market artifact changed dataset identity")
-        staging.rename(output)
+        atomic_rename_directory(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -104,5 +118,6 @@ __all__ = [
     "PublishedDatasetArtifact",
     "inspect_published_market_dataset_artifact",
     "load_market_dataset_artifact",
+    "load_published_market_dataset_artifact",
     "publish_market_dataset_artifact",
 ]

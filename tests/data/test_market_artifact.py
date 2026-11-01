@@ -11,7 +11,11 @@ import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data import load_market_dataset_artifact, publish_market_dataset_artifact
+from trade_rl.data import (
+    load_market_dataset_artifact,
+    load_published_market_dataset_artifact,
+    publish_market_dataset_artifact,
+)
 from trade_rl.data.build import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -91,6 +95,29 @@ def test_atomic_publish_rejects_existing_destination_without_changes(
     assert tuple(root.iterdir()) == (sentinel,)
 
 
+def test_market_dataset_publisher_never_replaces_racing_empty_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trade_rl.data.artifacts import publication
+
+    root = tmp_path / "artifact"
+    original_write = publication._write_arrays
+
+    def stage_then_publish_competing_directory(path: Path, dataset):
+        files = original_write(path, dataset)
+        root.mkdir()
+        return files
+
+    monkeypatch.setattr(
+        publication, "_write_arrays", stage_then_publish_competing_directory
+    )
+    with pytest.raises(FileExistsError):
+        publish_market_dataset_artifact(root, _dataset())
+
+    assert root.is_dir() and not tuple(root.iterdir())
+    assert not tuple(tmp_path.glob(".artifact.staging-*"))
+
+
 def test_failed_staging_is_removed_without_publishing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -122,6 +149,95 @@ def test_publish_market_dataset_artifact_returns_typed_result(tmp_path: Path) ->
     assert len(result.artifact_digest) == 64
 
 
+def test_inspection_does_not_pair_dataset_with_a_second_manifest_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.data import inspect_published_market_dataset_artifact
+
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_dataset = _dataset()
+    second_dataset = replace(
+        first_dataset,
+        dataset_id="0" * 64,
+        identity_payload_json=None,
+        features=first_dataset.features + np.float32(0.125),
+    ).with_content_identity()
+    first_artifact = publish_market_dataset_artifact(first_root, first_dataset)
+    second_artifact = publish_market_dataset_artifact(second_root, second_dataset)
+    second_manifest = second_artifact.manifest_path.read_text(encoding="utf-8")
+
+    original_read_text = Path.read_text
+    manifest_reads = 0
+
+    def replace_manifest_on_second_read(
+        path: Path, *args: object, **kwargs: object
+    ) -> str:
+        nonlocal manifest_reads
+        if path == first_artifact.manifest_path:
+            manifest_reads += 1
+            if manifest_reads == 2:
+                return second_manifest
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", replace_manifest_on_second_read)
+
+    inspected = inspect_published_market_dataset_artifact(first_root)
+
+    assert inspected == first_artifact
+    assert manifest_reads == 1
+
+
+def test_published_dataset_loader_returns_one_verified_identity_data_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.data.artifacts import codec
+
+    dataset = _dataset()
+    published = publish_market_dataset_artifact(tmp_path / "artifact", dataset)
+    manifest_path = published.manifest_path
+    arrays_path = published.arrays_path
+    original_read_text = Path.read_text
+    original_read_bytes = Path.read_bytes
+    original_np_load = codec.np.load
+    manifest_reads = 0
+    array_reads = 0
+    array_decodes = 0
+
+    def count_manifest_reads(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal manifest_reads
+        if path == manifest_path:
+            manifest_reads += 1
+        return original_read_text(path, *args, **kwargs)
+
+    def count_array_reads(path: Path) -> bytes:
+        nonlocal array_reads
+        if path == arrays_path:
+            array_reads += 1
+        return original_read_bytes(path)
+
+    def count_array_decodes(*args: object, **kwargs: object):
+        nonlocal array_decodes
+        array_decodes += 1
+        return original_np_load(*args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", count_manifest_reads)
+    monkeypatch.setattr(Path, "read_bytes", count_array_reads)
+    monkeypatch.setattr(codec.np, "load", count_array_decodes)
+
+    identity, restored = load_published_market_dataset_artifact(published.root)
+
+    assert identity == published
+    assert restored.dataset_id == dataset.dataset_id
+    np.testing.assert_array_equal(restored.features, dataset.features)
+    np.testing.assert_array_equal(restored.close, dataset.close)
+    assert manifest_reads == 1
+    assert array_reads == 1
+    assert array_decodes == 1
+
+
 def test_deprecated_direct_dataset_writer_is_removed() -> None:
     import trade_rl.data as data
 
@@ -150,7 +266,10 @@ def test_loader_reads_frozen_market_build_v2_artifact(tmp_path: Path) -> None:
     }
 
     dataset = load_market_dataset_artifact(root)
+    artifact_identity, paired_dataset = load_published_market_dataset_artifact(root)
     assert dataset.dataset_id == provenance["dataset_id"]
+    assert paired_dataset.dataset_id == provenance["dataset_id"]
+    assert artifact_identity.artifact_digest == provenance["artifact_digest"]
     assert dataset.feature_config_digest == provenance["feature_config_digest"]
     assert dataset.normalization_digest == provenance["normalization_digest"]
     identity = json.loads(dataset.identity_payload_json or "{}")

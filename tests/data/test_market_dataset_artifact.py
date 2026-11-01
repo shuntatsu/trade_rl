@@ -5,7 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
+from trade_rl.data import (
+    load_market_dataset_artifact,
+    load_published_market_dataset_artifact,
+    write_market_dataset_files,
+)
+from trade_rl.data.artifacts import load_dataset_files
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.view import MarketDatasetView
 
@@ -46,7 +51,11 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
 
     manifest_path = write_market_dataset_files(tmp_path, original).manifest_path
     restored = load_market_dataset_artifact(tmp_path)
+    direct_restored = load_dataset_files(tmp_path)
 
+    assert isinstance(restored, MarketDataset)
+    assert isinstance(direct_restored, MarketDataset)
+    assert direct_restored.dataset_id == original.dataset_id
     assert manifest_path == tmp_path / "manifest.json"
     assert restored.dataset_id == original.dataset_id
     assert restored.symbols == original.symbols
@@ -81,6 +90,8 @@ def test_market_dataset_artifact_rejects_tampered_npz(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="digest"):
         load_market_dataset_artifact(tmp_path)
+    with pytest.raises(ValueError, match="digest"):
+        load_published_market_dataset_artifact(tmp_path)
 
 
 def test_market_dataset_view_rejects_escape_and_materializes_range() -> None:

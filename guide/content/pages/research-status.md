@@ -4,6 +4,57 @@
 
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
+Issue #810のM34固定4方式screenは1 fit・3 scenario・12 armを完了しました。screen全体は FAILED_SCREEN です。全てのnon-cash armのreturnは正でしたが、latency-2ではcost-proxy armがposition-aware cost=0 controlを下回りました。
+M34 screenはIssue #810 P4の残差PPO比較armとzero-residual parityを含まず、元の段階比較計画を完了していません。
+別のversioned execution-scenario declarationは、同じfrozen PPO checkpointを宣言済みのcost / order-latency runtimeへ明示的にloadします。scenario-bound v2 evaluation entryはそのpolicyをcash・Trend・Ridge・joint PPOの4つのnative armへ渡します。inference/replay entry自体はin-memoryですが、別のv2 attempt wrapperがnative arm rowとprovenanceを保存し、strict result reload後にcompletionを記録します。専用のv2 result publisher/loaderもあります。これはsoftware persistence/integration capabilityであり、scenarioやstress値の選択、fit、M34 screenの再解釈、economic evidenceは追加しません。以前のbase-only runtime-bindingの記述を更新するのはこのsoftware capabilityだけで、v1 strict matchや実験の承認条件は変わりません。
+
+`FourFamilyPostFreezeInputManifest`はDataset pin、chronological training/selection/evaluation windows、PPO training declaration、およびselection/evaluation各1件のattemptをbindするtyped metadataです。fit capは0で、windowsはstaticです。これはouter walk-forward refitやmodel-update boundaryをまたぐcontinuous portfolio accountingを実装するものではなく、実行可能なstudy planやrun authorizationでもありません。
+
+新しい`PortfolioEpisodeJournalWrapper`は明示的に使う場合だけGymのaction、reward、native interval・terminal factsをevent journalへ保存します。observation、PPO log-probability、policy versionは記録しないため、このjournal単体はtrainerや完全な学習記録ではありません。
+
+別の`PortfolioPolicySampleJournal`は明示的に使う場合だけSB3 policyの実forward入力、sampled action code、joint log-probability、critic valueを記録します。これはoptimizer updateやnative financial eventとのjoinを記録せず、context・transform・policy versionもcaller宣言のlabelです。このjournal単体はtrainerやweights/checkpoint lineageのattestation、学習結果や利益の証拠ではありません。
+
+`fit_shared_portfolio_ppo`は、これらを結ぶ明示的な1環境・CPUのopt-in software trainerです。joint environmentはgamma-oneのterminal-profit-aligned clockを要求し、rewardには固定初期資本で正規化したnet-equity incrementを使います。trainerもeffective gammaを1.0、reward normalizationを無効に固定します。rolloutのactor sampleとnative event、checkpoint、実optimizer-step呼出数、failure/incomplete factsを記録します。別の`portfolio_inference_bundle.py`は、strictly verified completed attemptからversioned inference bundleを明示的にpublish/loadします。これらのsoftware testsやbundle integrityは利益、model selection、実データ学習、research gate完了、deployment readinessの証拠ではありません。実データで学習したpolicyや実データinferenceは主張せず、legacy PPO defaultも変更しません。
+
+## Shared portfolio inferenceのsoftware path
+
+strategy-owned codecはcurrent snapshotをraw-v1観測配列へ写し、HOLD / SHORT / FLAT / LONGをnumeric proposalへ変換します。opt-in paired runnerはexpected digest付きDataset artifactを一度読み、unreset Gym shellでbundle/runtime contextを検証した後、同じDataset objectと渡されたrisk/execution設定でnative shared replayを一度実行し、terminal settlementまで通します。HOLDは既存のrisk/execution経路へquantity-preserving requestとして渡ります。固定actionと正のfee・funding・borrowを使うsynthetic testは配線とcash計算の回帰確認で、学習済みpolicyの挙動や金融結果ではありません。M34 screen、legacy PPO default、利益性・winner・unused validation・deploymentの状態は変わりません。
+
+同じverified bundleには別のopt-in v2 loaderがあり、scenario digestとcurrent v2 source digest、training context/checkpoint pins、base / runtime cost identity、実際のforward Dataset・clock・risk・profile・spaceをcheckpoint読込み前に検証します。元のfit statisticsとv1 strict loaderは維持し、runtime latencyからruntime actor windowを作ります。scenario-bound comparatorはこの同じpolicyを4つのfresh native accountへ接続し、各armとcompletion observerの直前にscenario/source pinとloaded policyのruntime environment bindingを再検証します。不一致なら次armまたはobserverの前に停止します。このloader/comparatorだけではattempt/resultを保存しませんが、前段落の明示的v2 attempt/result APIがその責務を持ちます。synthetic software behaviorは経済性能を示しません。
+
+別のopt-in software adapterは、固定roster上のconstant・trend・Ridge intentをnumeric shared-portfolio policyへ渡せます。これはM34 screenの条件や結果を変えず、joint PPO学習・追加replay・利益の証拠も作りません。
+
+`portfolio_family_comparison.py` adds a separate in-memory coordinator for cash, fixed Trend, pinned Ridge, and verified joint-PPO policies. It preflights their inputs, runs each through a fresh session over the same Dataset and common settings, and can deliver each raw outcome to a completion observer before starting the next arm. A separate `portfolio_family_attempt.py` wrapper can reserve a local one-shot attempt root and persist each completed raw outcome before the next arm, then strictly reload the result before marking completion. If its failure journal is writable it retains the failure phase and earlier rows; otherwise the original exception remains primary. Neither path fits a model, selects a winner, or reports an economic result.
+
+
+## Issue #810：M34固定screenの結果（FAILED_SCREEN; 2026-10-24）
+
+4方式比較のソフトウェアはレビューと必須CIを通してmainに統合され、M34で固定した一度のscreenを実行しました。cash / legacy hysteresis / position-aware cost=0 / position-aware cost-proxyの12行はすべて計算を完了しましたが、latency-2のnet returnはcost-proxyが2.6777%、cost=0が2.8971%となり、screenの比較条件は不成立です。各行の結果、費用・drawdown・fundingとsource bindingは[研究状態の正本](../../../docs/research/current-status.md)および[M34 evidence release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)を参照してください。
+
+各armは独立した100,000 USDT口座を持ち、BTC/ETHは口座内で資金を共有します。Datasetのfee_rate 5 bpとspread_rate 2 bpを使い、追加execution overlayは0です。10 bp/weight-turnoverのdecision proxyはledger feeと別で、execution costやfundingを二重計上しません。fundingは完成barのrow-close proxy、marginと市場filterは固定した研究仮定です。
+
+入力の過去利用範囲はTier Uで、unused/finalの証拠ではありません。元のNONRL 48-cell gateは別のgateとして未完了（1 interrupted・47 unattempted・0 complete）のままです。screenはPPO/RLを含まず、将来利益、winner、live運用を確立しません。このscreenは再実行・retuneせず、固定結果として保持します。次の検証は別protocolと結果前のreviewで条件を固定します。
+
+joint Gym向けのopt-in observation transformは、actor-fit rowsだけの統計とsource/context bindingを持つ前処理です。serialized statisticsはtrusted expected digestで検証しますが、これは署名やfit実施の証明ではありません。通常は同じobjective/clock windowだけにbindし、別の明示runtime bindingを使う場合もtypedなtraining Bound、同じDataset・資本・risk・execution context、同じ非時間contract、exclusive training stop以後のruntime startを要求します。forward bindingは統計を再fitせず、featureのpoint-in-time availabilityやpolicy学習を証明しません。このforward binding自体は学習済みjoint policy・利益性の証拠を追加せず、既存PPO defaultも変えません。
+
+## Task 18 Datasetの準備状況と次のゲート
+
+以下のTask 18節は2026-10-14時点のtechnical attemptの記録です。後続R2も48 armを完走せず、1 arm `INTERRUPTED`・47 arm `UNATTEMPTED`のままであり、上記4方式screenの実行完了を示しません。
+
+Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v7` Datasetをpublic loaderで読み、Dataset identity・scalar・aliasを確認しました。これはloader/source適合の確認で、48-cell比較やP&Lの証拠ではありません。Tier D preparation attemptでは4つのcost producerを開始し、4 configuration × 3 vintageで12 fitが計画されていましたが、保持されたprovenanceから完了は確認できません。その後、Windows RSS samplerがvenv redirector（約4.4 MB）だけを測り、実Python child（約248.8 MB）を含まなかったためtechnical stopとなりました。native比較は0 / 48 armsで全arm未着手、このattemptではnative replayとP&Lを実行していません。attemptとprovenanceは保持され、科学的parameterは変えていません。同じ既消費Dataset・同じ設定はsampler修正後のTier D technical retryに再利用できます。
+
+比較protocolのdeclared fee/spread/impactとfunding仮定は結果を見る前に固定済みですが、歴史的な市場実績へのcalibrationは未確立です。Funding markはbar-close proxyとraw rateの仮定に基づき、実際のsettlement markではありません。
+
+Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
+
+### 条件付きfour-arm Ridge開発screen
+
+attempt 01では全12行の計算が完了しましたが、screen全体の判定は `FAILED_SCREEN` です。3つのシナリオすべてでcash以外の3 armの費用反映後リターンは正でした。一方、latency 2 barsでは正のcost proxy armが2.6777%で、position-aware `cost=0` の2.8971%を下回り、必要な比較条件を満たしませんでした。全行は終端flat・残注文0で、実現ledger最大DDは20%未満でしたが、勝者や将来利益の証拠ではありません。全12行とDD・費用・fundingの詳細は正本の研究statusに記録しています。rootの別readbackとN2の71/71 source-M34 metadata/public-loader checksは完了しました。詳細reportとevidence packageは[M34のGitHub release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に公開済みです（release ID `422708600`、tagはM34）。
+
+別のopt-in software診断では、frozen Ridge予測とzero forecastを同一の成熟済みlog-return pairで比較できます。target endpointはscoring-as-of stopより前、target closeはその時刻までに利用可能であることを求めます。horizon labelが時間足で重なる場合、pair countは独立sample数や有意性を表しません。この診断はM34のscreenを再計算せず、予測vintage、portfolio return、winner、利益性の証拠にはなりません。
+
+費用はDatasetの `fee_rate=0.0005`（5 bp）と `spread_rate=0.0002`（2 bp）を使い、追加overlayは0です。10 bp/weight-turnoverは意思決定用proxyで、ledger feeではありません。ledgerの費用とfundingは最終wealthに含まれ、再度差し引きません。fundingはbar-close proxyで、実際のexchange settlement markとの一致は未確認です。元の48-cell gateは未完了で、registryには1 interrupted・47 unattempted・0 completeが残っています。入力は過去利用のclosureが不明なTier Uです。PPO/RL、unused-period、将来利益、live運用の証拠ではありません。再実行やretuneはしません。
+
 ## PPO中期保有期間の次期設計
 
 従来の独立口座版 `ppo_holding_duration_v1` は、PPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較します。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。

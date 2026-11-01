@@ -19,6 +19,7 @@ _SPOT = "https://data-api.binance.vision/api/v3"
 _FUTURES = "https://fapi.binance.com/fapi/v1"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT")
 _DEPTH_LIMIT = 100
+_MAX_RESPONSE_BYTES = 64 * 1024
 
 
 def _number(value: object, *, positive: bool = False) -> float:
@@ -151,7 +152,7 @@ def capture_forward_snapshot(
             nonlocal last_receipt
             requested = _aware_utc(clock(), field="request_start")
             before = monotonic()
-            raw = client._request_bytes(url)
+            raw = client._request_bytes(url, max_response_bytes=_MAX_RESPONSE_BYTES)
             after = monotonic()
             elapsed = after - before
             span = after - capture_tick

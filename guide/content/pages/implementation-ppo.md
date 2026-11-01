@@ -63,6 +63,8 @@ interleaved（opt-in）
 
 PPOへ渡す主要constructor/policy設定もコードで明示します。learning rate、rollout長、batch/epoch、discount/GAE、clip、advantage normalization、entropy/value係数、gradient clip、gSDE/target-KLに加え、MlpPolicyのTanh、orthogonal init、FlattenExtractor、shared feature extractor、Adam epsを固定します。これはSB3 2.3.2で既に有効だった値を明文化するもので、performanceを見た調整ではありません。ただしSB3/PyTorch内部の学習実装そのものを複製しているわけではないため、依存versionは引き続きimplementation identityの一部です。
 
+CandidateSuiteでは、event-time window `timestamp < fit_cutoff` を維持し、選択fit symbolのDataset-declared `available_at` がPPOのinclusiveなtraining intervalとreward / terminal-settlement endpoint全体でcutoff以下かを、Ridge / LightGBM / PPOのどのfitよりも先に検証します。同時刻のavailabilityは許し、late rowを切り落として学習を続けずfail closedにします。これはdeclared cutoffを持つ `run_lean_candidate_suite` のpreflightです。generic `fit_ppo_strategy` へのcutoff追加や、runtime account-mark visibilityの保証ではありません。
+
 ## 学習stepの全体像
 
 ```text
@@ -103,7 +105,7 @@ actionが直接rewardになるわけではありません。必ずriskとexecuti
 
 保存したPPOは、標準化の有無にかかわらずモデルbytesだけでは再利用しません。fit済みstrategy自身がtraining Datasetから得た選択feature名を保持し、inference bundleへObservation schema、選択featureのindex/name、model bytes、必要なら標準化係数を一つのdigestで固定します。保存時はcallerが渡したfeedの選択feature名をstrategy自身のbindingと照合し、読み込み時もmanifestからそのbindingを復元して現在のfeature順序と照合します。featureの意味がずれた、model bytesが置き換わった、必要な係数が一致しない、といった場合はpolicyを読み込む前にfail closedにします。過去のnormalized-only bundleは読み取り互換を維持しますが、単独のhistorical `model.zip`を自動的に安全なdeployment artifactへ昇格させません。利益が改善するかは、別の実データ比較で判定します。
 
-保存は一時領域で完成させてからまとめて公開します。Windowsの短いファイルロックには有限回の再試行を行い、保存先が現れた場合や再試行が尽きた場合は失敗として扱います。途中までコピーしたモデルを成功として公開することはありません。
+保存は一時領域で完成させてからまとめて公開します。保存先ディレクトリが別プロセスによって直前に作られた場合も、空であっても置換しないOS側の排他renameを使います。Linux/macOSでは専用のno-replace操作を必須とし、利用できない環境では安全に公開を拒否します。Windowsの短いファイルロックには有限回の再試行を行い、保存先が現れた場合や再試行が尽きた場合は失敗として扱います。途中までコピーしたモデルを成功として公開することはありません。
 
 このcontractを固定することで、学習時にだけ便利な情報を後から追加してバックテストを有利にする余地を減らします。
 
@@ -132,6 +134,8 @@ PPOでも `max_turnover` と `drawdown_deleveraging` はそのstepのtransient r
 制約済みtargetを`MarketExecutor`へ渡し、fill、cost、funding、borrow、BookState、区間net returnを共通経路で更新します。
 
 stepの`info`では、risk後の`target_weight`と約定後の`realized_weight`を分け、risk理由、fill ratio、requested/filled turnover、cost・funding・borrow・dividend・cash-interestの金額、termination理由も返します。policy判断・risk制約・partial fill・carryを同じ値として扱わないための診断情報です。
+
+PPO環境はreset開始行、stepの現在行と処理対象行、各terminal-settlement行を確認し、raw rowの `available_at` が同じ行のtimestampより後なら処理を停止します。これにより宣言された遅着価格を初期weight、risk、約定、terminal observationへ通しません。`information_available=False`だけでは拒否せず、同時刻は許します。独立availability clockのない明示`mark_price`や、PPO外の直接`MarketExecutor`利用に対する全体保証ではありません。
 
 Directional PPOでは学習とdevelopment評価が同じbase execution設定を共有し、Datasetにあるborrowも両方で課します。過去のPPO実験は当時の実装へ固定された証拠であり、この修正後の学習経済へ自動的に読み替えません。
 
@@ -174,3 +178,5 @@ reward = log1p(interval_net_return)
 ## まだ保証していないこと
 
 Observation contractがcausalであることと、PPOが儲かることは別です。現行研究はPPO superiorityやproduction profitabilityを証明していません。
+
+Opt-in conditional PPO software diagnosticは、fit後のpolicyを既存の `ppo_inference_bundle_v2` として保存して読み直し、held-outのdeterministic実行を記録します。execution observerは環境constructorで渡す任意callbackで、通常のPPO fitでは `None` のままです。診断時はpre-action observation、action、step info、各step後のBookState、execution eventを実行順のtraceへ保存し、policy bundleとtraceのidentityを再確認します。これはsoftware evidenceの整合性を示すもので、learnability、実データの収益性、G0-G3を示しません。過去fitに保存されていないpolicy bytesやtraceを後から復元する機能でもありません。

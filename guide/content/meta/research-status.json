@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "検証済みdevelopment evidence、未証明事項、実装済みfinal authorization境界と未実行のfinal evaluationを分離して表示します。",
+  "summary": "Task 18準備状況、opt-in shared-portfolio inference software path、Ridge forecast-versus-zero diagnostics、FAILED_SCREENとなったM34開発screen、未完了の48-cell比較と研究上の未証明事項を表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -14,13 +14,32 @@
     "profitability",
     "winner",
     "limitations",
-    "final authorization"
+    "final authorization",
+    "Task 18",
+    "NONRL 48",
+    "fee-only learnability",
+    "four-arm comparison",
+    "FAILED_SCREEN",
+    "12 arms",
+    "frozen Ridge",
+    "portfolio policy codec",
+    "paired shared-portfolio inference"
   ],
   "source_sections": [
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
+      "sha256": "18ce948e28479102fa70cef7f97164e79350baa202ff3880d78e55167d410cbe"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Shared-portfolioのopt-in policy inference software path",
+      "sha256": "c3d3088e2f60e8b04826f058bbcfd3cb7fb5e95fa3ab092073ae660157bae056"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: fixed four-arm development screen (FAILED_SCREEN; 2026-10-24)",
+      "sha256": "f581b41bd3b1e42c8fcf66cdc6bcfcdf806f6bd18aba92296a20ad7a1fc9c28e"
     },
     {
       "path": "docs/research/current-status.md",
@@ -36,6 +55,11 @@
       "path": "docs/research/current-status.md",
       "heading": "Active PPO medium-term holding-duration design",
       "sha256": "8948da7817c8ce7038eb9e08f02ca42341e2e85d595517a0d1e7a69aef916513"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: Task 18 feasibility and next research gates (2026-10-14)",
+      "sha256": "e1c0c394450a67fceac740a611e1d911d997204af9d3dccb88aaed9882e15559"
     }
   ],
   "code_references": []

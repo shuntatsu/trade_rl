@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from enum import Enum
 
 import numpy as np
 
-from trade_rl.data.market import MarketDataset
+from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRisk
-from trade_rl.risk.pretrade import should_rebind_strategy_proposal
+from trade_rl.risk.pretrade import (
+    RiskConstrainedTarget,
+    should_rebind_strategy_proposal,
+)
 from trade_rl.simulation import (
     BookState,
     EconomicTerminationReason,
@@ -23,9 +27,21 @@ from trade_rl.simulation import (
 )
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
+from trade_rl.simulation.native_transition import (
+    execute_native_target_transition,
+    validate_risk_execution_compatibility,
+)
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
+from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
+from trade_rl.strategies.portfolio import (
+    PortfolioPolicy,
+    PortfolioTargetProposal,
+)
+from trade_rl.strategies.portfolio_observation import (
+    build_portfolio_decision_snapshot,
+)
 from trade_rl.strategies.position_duration import (
     constrain_intent_for_minimum_hold,
     next_position_age_bars,
@@ -232,6 +248,79 @@ class SharedCashReplayResult:
     ledger_evidence: SharedCashReplayLedgerEvidence | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SharedCashPortfolioReplayDecision:
+    """One full-vector portfolio proposal and its native risk result."""
+
+    index: int
+    proposal_weights: tuple[float, ...]
+    target_weights: tuple[float, ...]
+    risk_reasons: tuple[str, ...]
+    requested_hold_symbols: tuple[int, ...]
+    effective_hold_symbols: tuple[int, ...]
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "effective_hold_symbols": self.effective_hold_symbols,
+            "index": self.index,
+            "proposal_weights": self.proposal_weights,
+            "requested_hold_symbols": self.requested_hold_symbols,
+            "risk_reasons": self.risk_reasons,
+            "target_weights": self.target_weights,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SharedCashPortfolioReplayLedgerEvidence:
+    """Shared native execution evidence with explicit numeric portfolio actions."""
+
+    intervals: SharedCashReplayLedgerEvidence
+    decisions: tuple[SharedCashPortfolioReplayDecision, ...]
+
+    def to_mapping(self) -> dict[str, object]:
+        payload = self.intervals.to_mapping()
+        payload.pop("decisions", None)
+        payload["schema_version"] = "shared_cash_portfolio_replay_ledger_v1"
+        payload["portfolio_decisions"] = tuple(
+            decision.to_mapping() for decision in self.decisions
+        )
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class SharedCashPortfolioReplayResult:
+    """One-bar portfolio-policy replay on the shared native execution loop."""
+
+    book: BookState
+    returns: ReturnSeries
+    diagnostics: ExecutionDiagnostics
+    decisions: tuple[SharedCashPortfolioReplayDecision, ...]
+    ledger_evidence: SharedCashPortfolioReplayLedgerEvidence | None = None
+
+
+class ScriptedReplayAction(Enum):
+    """Explicit shared-replay action that is not a directional intent."""
+
+    HOLD_QUANTITY = "hold_quantity"
+
+
+@dataclass(frozen=True, slots=True)
+class _ScriptedReplayStrategy:
+    actions: tuple[PositionIntent | ScriptedReplayAction | None, ...]
+    start_index: int
+    minimum_hold_bars: int = 0
+
+    def action_at(self, index: int) -> PositionIntent | ScriptedReplayAction | None:
+        offset = index - self.start_index
+        if not 0 <= offset < len(self.actions):
+            raise RuntimeError("scripted replay advanced outside its validated actions")
+        return self.actions[offset]
+
+    def decide(self, observation: StrategyObservation) -> PositionIntent:
+        del observation
+        raise RuntimeError("scripted replay actions must bypass strategy decisions")
+
+
 class _ExecutedEntryPrices:
     """Track actual average fill prices for currently open signed positions."""
 
@@ -340,16 +429,32 @@ def _weight_for_desired_quantity(
     )
 
 
+def _cached_same_intent_target_weight(
+    book: BookState,
+    desired_quantity: float,
+    *,
+    symbol_index: int,
+    current_quantity: float,
+    position_age_bars: int,
+    minimum_hold_bars: int,
+    minimum_hold_locked: bool,
+) -> float | None:
+    if minimum_hold_locked or (
+        current_quantity != 0.0 and position_age_bars < minimum_hold_bars
+    ):
+        return None
+    return _weight_for_desired_quantity(
+        book,
+        desired_quantity,
+        symbol_index=symbol_index,
+    )
+
+
 def _validate_risk_execution_compatibility(
     risk: PreTradeRisk,
     executor: MarketExecutor,
 ) -> None:
-    execution_limit = float(executor.cost.max_leverage)
-    if (
-        risk.config.max_gross > execution_limit
-        or risk.config.max_abs_weight > execution_limit
-    ):
-        raise ValueError("risk exposure limits must not exceed execution max_leverage")
+    validate_risk_execution_compatibility(risk, executor)
 
 
 def _protective_exit_pending(strategy: SingleSymbolStrategy) -> bool:
@@ -366,6 +471,8 @@ def _observation(
     symbol_index: int,
     book: BookState,
     current_intent: PositionIntent,
+    intent_gross_budget: float | None,
+    same_intent_target_weight: float | None = None,
     position_age_bars: int = 0,
     gross_position_return: float | None = None,
 ) -> StrategyObservation:
@@ -385,6 +492,8 @@ def _observation(
         current_intent=current_intent,
         current_weight=float(book.weights[symbol_index]),
         current_position_quantity=float(book.quantities[symbol_index]),
+        intent_gross_budget=intent_gross_budget,
+        same_intent_target_weight=same_intent_target_weight,
         position_age_bars=position_age_bars,
         gross_position_return=gross_position_return,
     )
@@ -467,6 +576,11 @@ def run_single_symbol_replay(
         raise ValueError("PPO minimum hold requires the age-aware observation")
     target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
 
+    _require_available_marks_at_row(
+        dataset,
+        row_index=start_index,
+        selected_symbol_indices=(symbol_index,),
+    )
     initial_prices = dataset.resolved_array("mark_price")[start_index]
     book = BookState.zero(
         dataset.n_symbols,
@@ -506,6 +620,12 @@ def run_single_symbol_replay(
     index = start_index
 
     while index < agent_stop_index:
+        _require_available_marks_at_row(
+            dataset,
+            row_index=index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=book.quantities,
+        )
         quantity_before = float(book.quantities[symbol_index])
         position_age_before = position_age_bars
         observation = _observation(
@@ -514,6 +634,16 @@ def run_single_symbol_replay(
             symbol_index=symbol_index,
             book=book,
             current_intent=current_intent,
+            intent_gross_budget=gross_budget,
+            same_intent_target_weight=_cached_same_intent_target_weight(
+                book,
+                desired_quantity,
+                symbol_index=symbol_index,
+                current_quantity=quantity_before,
+                position_age_bars=position_age_before,
+                minimum_hold_bars=resolved_minimum_hold_bars,
+                minimum_hold_locked=minimum_hold_locked,
+            ),
             position_age_bars=position_age_bars,
             gross_position_return=executed_entry_prices.mark_gross_return(
                 symbol_index,
@@ -565,6 +695,12 @@ def run_single_symbol_replay(
                 target_weight,
                 symbol_index=symbol_index,
             )
+        _require_available_marks_at_row(
+            dataset,
+            row_index=index + 1,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=book.quantities,
+        )
         execution = executor.execute_interval(
             book,
             constrained.weights,
@@ -622,12 +758,24 @@ def run_single_symbol_replay(
         current_intent = PositionIntent.FLAT
         desired_quantity = 0.0
         while index < stop_index and book.termination_reason is None:
+            _require_available_marks_at_row(
+                dataset,
+                row_index=index,
+                selected_symbol_indices=(symbol_index,),
+                held_quantities=book.quantities,
+            )
             quantity_before = float(book.quantities[symbol_index])
             flat_target = np.zeros(dataset.n_symbols, dtype=np.float64)
             constrained = risk_controller.constrain(
                 flat_target,
                 current=book.weights,
                 drawdown=book.max_drawdown,
+            )
+            _require_available_marks_at_row(
+                dataset,
+                row_index=index + 1,
+                selected_symbol_indices=(symbol_index,),
+                held_quantities=book.quantities,
             )
             execution = executor.execute_interval(
                 book,
@@ -694,13 +842,13 @@ def run_single_symbol_replay(
     )
 
 
-def run_shared_cash_replay(
+def _run_shared_cash_replay_core(
     dataset: MarketDataset,
-    strategies: Sequence[SingleSymbolStrategy],
+    strategies: Sequence[SingleSymbolStrategy] | None,
     *,
     start_index: int,
     stop_index: int,
-    gross_budget: float,
+    gross_budget: float | None,
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
@@ -708,7 +856,8 @@ def run_shared_cash_replay(
     minimum_hold_bars: int | Sequence[int] | None = None,
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
-) -> SharedCashReplayResult:
+    _portfolio_policy: PortfolioPolicy | None = None,
+) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
 
     Every strategy observes the same pre-execution book snapshot for a decision
@@ -718,13 +867,29 @@ def run_shared_cash_replay(
     hidden mutable strategy state leaking across symbols.
     """
 
-    strategy_tuple = tuple(strategies)
-    if len(strategy_tuple) != dataset.n_symbols:
-        raise ValueError("shared-cash replay requires one strategy per dataset symbol")
-    if len({id(strategy) for strategy in strategy_tuple}) != len(strategy_tuple):
-        raise ValueError(
-            "shared-cash replay requires a distinct strategy instance per symbol"
-        )
+    portfolio_mode = _portfolio_policy is not None
+    if portfolio_mode:
+        if strategies is not None or gross_budget is not None:
+            raise ValueError(
+                "portfolio replay cannot receive symbol strategies or a gross budget"
+            )
+        if not callable(getattr(_portfolio_policy, "decide_portfolio", None)):
+            raise TypeError("portfolio policy must define decide_portfolio")
+        strategy_tuple: tuple[SingleSymbolStrategy, ...] = ()
+    else:
+        if strategies is None or gross_budget is None:
+            raise ValueError(
+                "shared-cash replay requires strategies and a gross budget"
+            )
+        strategy_tuple = tuple(strategies)
+        if len(strategy_tuple) != dataset.n_symbols:
+            raise ValueError(
+                "shared-cash replay requires one strategy per dataset symbol"
+            )
+        if len({id(strategy) for strategy in strategy_tuple}) != len(strategy_tuple):
+            raise ValueError(
+                "shared-cash replay requires a distinct strategy instance per symbol"
+            )
     if (
         isinstance(start_index, bool)
         or not isinstance(start_index, int)
@@ -733,11 +898,17 @@ def run_shared_cash_replay(
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+    start_index = int(start_index)
+    stop_index = int(stop_index)
     if not math.isfinite(initial_capital) or initial_capital <= 0.0:
         raise ValueError("initial_capital must be finite and positive")
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("settle_terminal_position must be boolean")
-    if minimum_hold_bars is None:
+    if portfolio_mode:
+        if minimum_hold_bars is not None:
+            raise ValueError("portfolio replay does not accept per-symbol minimum hold")
+        hold_bars_by_symbol = (0,) * dataset.n_symbols
+    elif minimum_hold_bars is None:
         hold_bars_by_symbol = tuple(
             getattr(strategy, "minimum_hold_bars", 0) for strategy in strategy_tuple
         )
@@ -758,15 +929,23 @@ def run_shared_cash_replay(
         for value in hold_bars_by_symbol
     ):
         raise ValueError("minimum_hold_bars must contain non-negative integers")
-    for strategy, hold_bars in zip(strategy_tuple, hold_bars_by_symbol, strict=True):
-        observation_schema = getattr(strategy, "observation_schema", None)
-        if (
-            hold_bars > 0
-            and observation_schema is not None
-            and observation_schema != PPO_OBSERVATION_SCHEMA_V3
+    if not portfolio_mode:
+        for strategy, hold_bars in zip(
+            strategy_tuple, hold_bars_by_symbol, strict=True
         ):
-            raise ValueError("PPO minimum hold requires the age-aware observation")
-    target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
+            observation_schema = getattr(strategy, "observation_schema", None)
+            if (
+                hold_bars > 0
+                and observation_schema is not None
+                and observation_schema != PPO_OBSERVATION_SCHEMA_V3
+            ):
+                raise ValueError("PPO minimum hold requires the age-aware observation")
+    if not portfolio_mode:
+        assert gross_budget is not None
+        target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
+        resolved_gross_budget = gross_budget
+    else:
+        resolved_gross_budget = 0.0
 
     resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
     agent_stop_index = _agent_stop_index(
@@ -775,12 +954,11 @@ def run_shared_cash_replay(
         execution_cost=resolved_execution_cost,
         settle_terminal_position=settle_terminal_position,
     )
-    initial_prices = dataset.resolved_array("mark_price")[start_index]
-    book = BookState.zero(
-        dataset.n_symbols,
-        initial_capital,
-        initial_prices,
-        contract_multipliers=dataset.contract_multipliers,
+    roster_symbol_indices = tuple(range(dataset.n_symbols))
+    _require_available_marks_at_row(
+        dataset,
+        row_index=start_index,
+        selected_symbol_indices=roster_symbol_indices,
     )
     executed_entry_prices = _ExecutedEntryPrices(dataset.n_symbols)
     execution_observation: StatefulExecutionObservation | None = None
@@ -793,33 +971,71 @@ def run_shared_cash_replay(
         execution_observation = observation
         execution_observation_count += 1
 
-    executor = MarketExecutor(
-        dataset,
-        resolved_execution_cost,
-        market_order_profile=market_order_profile,
-        execution_observer=retain_latest_execution_observation,
-    )
-    risk_controller = risk or PreTradeRisk.default_for_execution(
-        max_leverage=executor.cost.max_leverage
-    )
-    _validate_risk_execution_compatibility(risk_controller, executor)
+    portfolio_session: SharedPortfolioSession | None = None
+    executor: MarketExecutor | None = None
+    if portfolio_mode:
+        portfolio_session = SharedPortfolioSession(
+            dataset,
+            start_index=start_index,
+            stop_index=stop_index,
+            initial_capital=initial_capital,
+            execution_cost=execution_cost,
+            risk=risk,
+            market_order_profile=market_order_profile,
+            settle_terminal_position=settle_terminal_position,
+            execution_observer=retain_latest_execution_observation,
+        )
+        if portfolio_session.agent_stop_index != agent_stop_index:
+            raise RuntimeError("portfolio session agent stop differs from replay")
+        book = portfolio_session.book
+        risk_controller = portfolio_session.risk_controller
+        execution_policy_digest = portfolio_session.execution_policy_digest
+    else:
+        initial_prices = dataset.resolved_array("mark_price")[start_index]
+        book = BookState.zero(
+            dataset.n_symbols,
+            initial_capital,
+            initial_prices,
+            contract_multipliers=dataset.contract_multipliers,
+        )
+        executor = MarketExecutor(
+            dataset,
+            resolved_execution_cost,
+            market_order_profile=market_order_profile,
+            execution_observer=retain_latest_execution_observation,
+        )
+        risk_controller = risk or PreTradeRisk.default_for_execution(
+            max_leverage=executor.cost.max_leverage
+        )
+        _validate_risk_execution_compatibility(risk_controller, executor)
+        execution_policy_digest = executor.execution_policy_digest
     current_intents = [PositionIntent.FLAT for _ in range(dataset.n_symbols)]
     position_age_bars = [0 for _ in range(dataset.n_symbols)]
     minimum_hold_locked = [False for _ in range(dataset.n_symbols)]
+    exact_hold_active = [False for _ in range(dataset.n_symbols)]
     desired_quantities = np.zeros(dataset.n_symbols, dtype=np.float64)
     decisions: list[SharedCashReplayDecision] = []
     returns: list[float] = []
     ledger_intervals: list[SharedCashLedgerIntervalEvidence] = []
     active_order_remainders: tuple[tuple[str, float], ...] = ()
     terminal_order_reasons: tuple[tuple[str, str], ...] = ()
+    portfolio_decisions: list[SharedCashPortfolioReplayDecision] = []
     index = start_index
 
     def execute_and_record(
-        target_weights: np.ndarray,
+        proposal_weights: np.ndarray,
         *,
         interval_index: int,
-    ) -> ExecutionResult:
+        hold_current_quantity_symbols: tuple[int, ...] = (),
+        emergency_flatten_mask: np.ndarray | None = None,
+    ) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
         nonlocal active_order_remainders, book, terminal_order_reasons
+        _require_available_marks_at_row(
+            dataset,
+            row_index=interval_index + 1,
+            selected_symbol_indices=roster_symbol_indices,
+            held_quantities=book.quantities,
+        )
         observations_before = execution_observation_count
         exact_quantities_before = tuple(str(value) for value in book.exact_quantities)
         cash_before = float(book.cash)
@@ -829,12 +1045,29 @@ def run_shared_cash_replay(
         borrow_cost_before = float(book.borrow_cost)
         turnover_total_before = float(book.turnover_total)
         max_drawdown_before = float(book.max_drawdown)
-        execution = executor.execute_interval(
-            book,
-            target_weights,
-            start_index=interval_index,
-            bars=1,
-        )
+        if portfolio_session is not None:
+            if interval_index != portfolio_session.current_index:
+                raise RuntimeError("portfolio session index differs from replay")
+            if emergency_flatten_mask is None:
+                risk_target, execution, effective_holds = portfolio_session.advance(
+                    proposal_weights,
+                    hold_current_quantity_symbols=hold_current_quantity_symbols,
+                )
+            else:
+                risk_target, execution, effective_holds = (
+                    portfolio_session.settle_next_interval()
+                )
+        else:
+            assert executor is not None
+            risk_target, execution, effective_holds = execute_native_target_transition(
+                executor,
+                book,
+                risk_controller,
+                proposal_weights,
+                start_index=interval_index,
+                hold_current_quantity_symbols=hold_current_quantity_symbols,
+                emergency_flatten_mask=emergency_flatten_mask,
+            )
         if execution.next_index <= interval_index:
             raise RuntimeError("execution did not advance replay index")
         if (
@@ -896,9 +1129,79 @@ def run_shared_cash_replay(
             terminal_order_reasons = stateful_evidence.terminal_order_reasons
         book = execution.book
         returns.append(execution.interval_net_return)
-        return execution
+        return risk_target, execution, effective_holds
 
     while index < agent_stop_index:
+        _require_available_marks_at_row(
+            dataset,
+            row_index=index,
+            selected_symbol_indices=roster_symbol_indices,
+            held_quantities=book.quantities,
+        )
+        if portfolio_mode:
+            assert _portfolio_policy is not None
+            assert portfolio_session is not None
+            snapshot = build_portfolio_decision_snapshot(
+                dataset,
+                index=index,
+                agent_stop_index=agent_stop_index,
+                book=portfolio_session.book,
+                active_orders=portfolio_session.active_orders,
+                risk_config=risk_controller.config,
+            )
+            proposal = _portfolio_policy.decide_portfolio(snapshot)
+            if not isinstance(proposal, PortfolioTargetProposal):
+                raise TypeError(
+                    "portfolio policy must return a PortfolioTargetProposal"
+                )
+            # Reconstruct the DTO so even an instance modified through low-level
+            # means is checked before the shared executor can mutate its book.
+            proposal = PortfolioTargetProposal(
+                target_weights=proposal.target_weights,
+                hold_current_quantity_symbols=(proposal.hold_current_quantity_symbols),
+            )
+            if len(proposal.target_weights) != dataset.n_symbols:
+                raise ValueError("portfolio target vector must match dataset symbols")
+            if any(
+                symbol_index >= dataset.n_symbols
+                for symbol_index in proposal.hold_current_quantity_symbols
+            ):
+                raise ValueError("portfolio HOLD symbols must be in the symbol roster")
+            if any(
+                proposal.target_weights[symbol_index]
+                != snapshot.account.weights[symbol_index]
+                for symbol_index in proposal.hold_current_quantity_symbols
+            ):
+                raise ValueError("portfolio HOLD target must equal current book weight")
+
+            decision_index = index
+            quantities_before = tuple(float(value) for value in book.quantities)
+            constrained, execution, effective_holds = execute_and_record(
+                np.asarray(proposal.target_weights, dtype=np.float64),
+                interval_index=decision_index,
+                hold_current_quantity_symbols=(proposal.hold_current_quantity_symbols),
+            )
+            portfolio_decisions.append(
+                SharedCashPortfolioReplayDecision(
+                    index=decision_index,
+                    proposal_weights=proposal.target_weights,
+                    target_weights=tuple(float(value) for value in constrained.weights),
+                    risk_reasons=constrained.reasons,
+                    requested_hold_symbols=proposal.hold_current_quantity_symbols,
+                    effective_hold_symbols=effective_holds,
+                )
+            )
+            for symbol_index in range(dataset.n_symbols):
+                position_age_bars[symbol_index] = next_position_age_bars(
+                    position_age_bars[symbol_index],
+                    previous_quantity=quantities_before[symbol_index],
+                    filled_quantity=float(book.quantities[symbol_index]),
+                )
+            index = execution.next_index
+            if book.termination_reason is not None:
+                break
+            continue
+
         intents: list[PositionIntent] = []
         effective_intents: list[PositionIntent] = []
         changed_intents: list[bool] = []
@@ -907,12 +1210,30 @@ def run_shared_cash_replay(
         ages_before = tuple(position_age_bars)
         quantities_before = tuple(float(value) for value in book.quantities)
         for symbol_index, strategy in enumerate(strategy_tuple):
+            scripted_strategy = (
+                strategy if isinstance(strategy, _ScriptedReplayStrategy) else None
+            )
+            action = (
+                scripted_strategy.action_at(index)
+                if scripted_strategy is not None
+                else None
+            )
             observation = _observation(
                 dataset,
                 index=index,
                 symbol_index=symbol_index,
                 book=book,
                 current_intent=current_intents[symbol_index],
+                intent_gross_budget=resolved_gross_budget,
+                same_intent_target_weight=_cached_same_intent_target_weight(
+                    book,
+                    float(desired_quantities[symbol_index]),
+                    symbol_index=symbol_index,
+                    current_quantity=quantities_before[symbol_index],
+                    position_age_bars=position_age_bars[symbol_index],
+                    minimum_hold_bars=hold_bars_by_symbol[symbol_index],
+                    minimum_hold_locked=minimum_hold_locked[symbol_index],
+                ),
                 position_age_bars=position_age_bars[symbol_index],
                 gross_position_return=executed_entry_prices.mark_gross_return(
                     symbol_index,
@@ -920,62 +1241,106 @@ def run_shared_cash_replay(
                     mark_price=float(book.mark_prices[symbol_index]),
                 ),
             )
-            requested_intent = strategy.decide(observation)
-            if not isinstance(requested_intent, PositionIntent):
-                raise TypeError("strategy.decide must return PositionIntent")
-            hold_decision = constrain_intent_for_minimum_hold(
-                requested_intent,
-                current_quantity=quantities_before[symbol_index],
-                position_age_bars=position_age_bars[symbol_index],
-                minimum_hold_bars=hold_bars_by_symbol[symbol_index],
-                allow_protective_exit=_protective_exit_pending(strategy),
-            )
-            effective_intent = hold_decision.effective_intent
-            changed_intent = effective_intent is not current_intents[symbol_index]
-            minimum_hold_unlocked = (
-                minimum_hold_locked[symbol_index] and not hold_decision.suppressed
-            )
-            if hold_decision.target_quantity_override is not None:
-                desired_quantities[symbol_index] = (
-                    hold_decision.target_quantity_override
+            if scripted_strategy is not None and action is None:
+                requested_intent = current_intents[symbol_index]
+                effective_intent = current_intents[symbol_index]
+                changed_intent = False
+                minimum_hold_suppressed = False
+                minimum_hold_unlocked = False
+            else:
+                if (
+                    scripted_strategy is not None
+                    and action is ScriptedReplayAction.HOLD_QUANTITY
+                ):
+                    exact_quantity = book.exact_quantities[symbol_index]
+                    requested_intent = (
+                        PositionIntent.LONG
+                        if exact_quantity > 0
+                        else (
+                            PositionIntent.SHORT
+                            if exact_quantity < 0
+                            else PositionIntent.FLAT
+                        )
+                    )
+                    exact_hold_active[symbol_index] = True
+                    desired_quantities[symbol_index] = float(
+                        book.quantities[symbol_index]
+                    )
+                elif scripted_strategy is not None:
+                    if not isinstance(action, PositionIntent):
+                        raise RuntimeError("validated scripted action changed type")
+                    requested_intent = action
+                    exact_hold_active[symbol_index] = False
+                else:
+                    requested_intent = strategy.decide(observation)
+                    if not isinstance(requested_intent, PositionIntent):
+                        raise TypeError("strategy.decide must return PositionIntent")
+                hold_decision = constrain_intent_for_minimum_hold(
+                    requested_intent,
+                    current_quantity=quantities_before[symbol_index],
+                    position_age_bars=position_age_bars[symbol_index],
+                    minimum_hold_bars=hold_bars_by_symbol[symbol_index],
+                    allow_protective_exit=_protective_exit_pending(strategy),
                 )
-            elif changed_intent or minimum_hold_unlocked:
-                proposal_weight = target_weight_for_intent(
-                    effective_intent,
-                    gross_budget=gross_budget,
+                effective_intent = hold_decision.effective_intent
+                changed_intent = effective_intent is not current_intents[symbol_index]
+                minimum_hold_suppressed = hold_decision.suppressed
+                minimum_hold_unlocked = (
+                    minimum_hold_locked[symbol_index] and not hold_decision.suppressed
                 )
-                desired_quantities[symbol_index] = _desired_quantity_from_weight(
-                    book,
-                    proposal_weight,
-                    symbol_index=symbol_index,
-                )
+                if hold_decision.target_quantity_override is not None:
+                    desired_quantities[symbol_index] = (
+                        hold_decision.target_quantity_override
+                    )
+                elif changed_intent or minimum_hold_unlocked:
+                    proposal_weight = target_weight_for_intent(
+                        effective_intent,
+                        gross_budget=resolved_gross_budget,
+                    )
+                    desired_quantities[symbol_index] = _desired_quantity_from_weight(
+                        book,
+                        proposal_weight,
+                        symbol_index=symbol_index,
+                    )
             intents.append(requested_intent)
             effective_intents.append(effective_intent)
             changed_intents.append(changed_intent)
-            suppressed.append(hold_decision.suppressed)
+            suppressed.append(minimum_hold_suppressed)
             unlocked.append(minimum_hold_unlocked)
 
         proposal_weights = np.asarray(
             [
-                _weight_for_desired_quantity(
-                    book,
-                    desired_quantities[symbol_index],
-                    symbol_index=symbol_index,
+                (
+                    float(book.weights[symbol_index])
+                    if exact_hold_active[symbol_index]
+                    else _weight_for_desired_quantity(
+                        book,
+                        desired_quantities[symbol_index],
+                        symbol_index=symbol_index,
+                    )
                 )
                 for symbol_index in range(dataset.n_symbols)
             ],
             dtype=np.float64,
         )
-        constrained = risk_controller.constrain(
-            proposal_weights,
-            current=book.weights,
-            drawdown=book.max_drawdown,
+        exact_hold_symbols = tuple(
+            symbol_index
+            for symbol_index, hold_active in enumerate(exact_hold_active)
+            if hold_active
         )
+        decision_index = index
+        pre_execution_book = book
+        constrained, execution, effective_hold_symbols = execute_and_record(
+            proposal_weights,
+            interval_index=decision_index,
+            hold_current_quantity_symbols=exact_hold_symbols,
+        )
+        split_factors = dataset.resolved_array("split_factor")[execution.next_index]
         if should_rebind_strategy_proposal(constrained):
-            desired_quantities = np.asarray(
+            desired_quantities[:] = np.asarray(
                 [
                     _desired_quantity_from_weight(
-                        book,
+                        pre_execution_book,
                         float(constrained.weights[symbol_index]),
                         symbol_index=symbol_index,
                     )
@@ -983,12 +1348,17 @@ def run_shared_cash_replay(
                 ],
                 dtype=np.float64,
             )
-
-        decision_index = index
-        execution = execute_and_record(
-            constrained.weights,
-            interval_index=decision_index,
-        )
+            desired_quantities[:] *= split_factors
+        effective_hold_set = set(effective_hold_symbols)
+        for symbol_index, hold_active in enumerate(exact_hold_active):
+            if not hold_active or symbol_index in effective_hold_set:
+                continue
+            exact_hold_active[symbol_index] = False
+            desired_quantities[symbol_index] = _desired_quantity_from_weight(
+                pre_execution_book,
+                float(constrained.weights[symbol_index]),
+                symbol_index=symbol_index,
+            ) * float(split_factors[symbol_index])
         for symbol_index in range(dataset.n_symbols):
             position_age_bars[symbol_index] = next_position_age_bars(
                 position_age_bars[symbol_index],
@@ -1029,15 +1399,21 @@ def run_shared_cash_replay(
     ):
         flat_proposal = np.zeros(dataset.n_symbols, dtype=np.float64)
         while index < stop_index and book.termination_reason is None:
-            quantities_before = tuple(float(value) for value in book.quantities)
-            constrained = risk_controller.constrain(
-                flat_proposal,
-                current=book.weights,
-                drawdown=book.max_drawdown,
+            _require_available_marks_at_row(
+                dataset,
+                row_index=index,
+                selected_symbol_indices=roster_symbol_indices,
+                held_quantities=book.quantities,
             )
-            execution = execute_and_record(
-                constrained.weights,
+            quantities_before = tuple(float(value) for value in book.quantities)
+            emergency_flatten_mask = np.zeros(dataset.n_symbols, dtype=np.bool_)
+            emergency_flatten_mask[list(roster_symbol_indices)] = (
+                book.quantities[list(roster_symbol_indices)] != 0.0
+            )
+            _, execution, _ = execute_and_record(
+                flat_proposal,
                 interval_index=index,
+                emergency_flatten_mask=emergency_flatten_mask,
             )
             for symbol_index in range(dataset.n_symbols):
                 position_age_bars[symbol_index] = next_position_age_bars(
@@ -1078,7 +1454,7 @@ def run_shared_cash_replay(
         )
         ledger_evidence = SharedCashReplayLedgerEvidence(
             dataset_id=dataset.dataset_id,
-            execution_policy_digest=executor.execution_policy_digest,
+            execution_policy_digest=execution_policy_digest,
             start_index=start_index,
             stop_index=stop_index,
             intervals=tuple(ledger_intervals),
@@ -1102,16 +1478,207 @@ def run_shared_cash_replay(
                 else "shared_cash_replay_ledger_v1"
             ),
         )
-    return SharedCashReplayResult(
-        book=book.clone(),
-        returns=ReturnSeries(
-            values=tuple(returns),
-            kind=ReturnKind.BASE_BAR,
-            periods_per_year=dataset.periods_per_year,
+    return (
+        SharedCashReplayResult(
+            book=book.clone(),
+            returns=ReturnSeries(
+                values=tuple(returns),
+                kind=ReturnKind.BASE_BAR,
+                periods_per_year=dataset.periods_per_year,
+            ),
+            diagnostics=diagnostics,
+            decisions=tuple(decisions),
+            ledger_evidence=ledger_evidence,
         ),
-        diagnostics=diagnostics,
-        decisions=tuple(decisions),
-        ledger_evidence=ledger_evidence,
+        tuple(portfolio_decisions),
+    )
+
+
+def run_shared_cash_replay(
+    dataset: MarketDataset,
+    strategies: Sequence[SingleSymbolStrategy],
+    *,
+    start_index: int,
+    stop_index: int,
+    gross_budget: float,
+    initial_capital: float = 100_000.0,
+    execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
+    minimum_hold_bars: int | Sequence[int] | None = None,
+    settle_terminal_position: bool = False,
+    capture_ledger_evidence: bool = False,
+) -> SharedCashReplayResult:
+    """Replay per-symbol intents through the established shared-cash loop."""
+
+    result, _ = _run_shared_cash_replay_core(
+        dataset,
+        strategies,
+        start_index=start_index,
+        stop_index=stop_index,
+        gross_budget=gross_budget,
+        initial_capital=initial_capital,
+        execution_cost=execution_cost,
+        risk=risk,
+        market_order_profile=market_order_profile,
+        minimum_hold_bars=minimum_hold_bars,
+        settle_terminal_position=settle_terminal_position,
+        capture_ledger_evidence=capture_ledger_evidence,
+    )
+    return result
+
+
+def run_shared_portfolio_replay(
+    dataset: MarketDataset,
+    policy: PortfolioPolicy,
+    *,
+    start_index: int,
+    stop_index: int,
+    initial_capital: float = 100_000.0,
+    execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
+    settle_terminal_position: bool = False,
+    capture_ledger_evidence: bool = False,
+) -> SharedCashPortfolioReplayResult:
+    """Call one simultaneous portfolio policy once for each native bar."""
+
+    if execution_cost is not None and not isinstance(
+        execution_cost, ExecutionCostConfig
+    ):
+        raise TypeError("execution_cost must be an ExecutionCostConfig or None")
+    if risk is not None and not isinstance(risk, PreTradeRisk):
+        raise TypeError("risk must be a PreTradeRisk or None")
+
+    result, decisions = _run_shared_cash_replay_core(
+        dataset,
+        None,
+        start_index=start_index,
+        stop_index=stop_index,
+        gross_budget=None,
+        initial_capital=initial_capital,
+        execution_cost=execution_cost,
+        risk=risk,
+        market_order_profile=market_order_profile,
+        minimum_hold_bars=None,
+        settle_terminal_position=settle_terminal_position,
+        capture_ledger_evidence=capture_ledger_evidence,
+        _portfolio_policy=policy,
+    )
+    ledger = (
+        None
+        if result.ledger_evidence is None
+        else SharedCashPortfolioReplayLedgerEvidence(
+            intervals=result.ledger_evidence,
+            decisions=decisions,
+        )
+    )
+    return SharedCashPortfolioReplayResult(
+        book=result.book,
+        returns=result.returns,
+        diagnostics=result.diagnostics,
+        decisions=decisions,
+        ledger_evidence=ledger,
+    )
+
+
+def run_scripted_shared_cash_replay(
+    dataset: MarketDataset,
+    actions_by_symbol: Mapping[
+        str, Sequence[PositionIntent | ScriptedReplayAction | None]
+    ],
+    *,
+    start_index: int,
+    stop_index: int,
+    gross_budget: float,
+    initial_capital: float = 100_000.0,
+    execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
+    minimum_hold_bars: int | Sequence[int] | None = None,
+    settle_terminal_position: bool = False,
+    capture_ledger_evidence: bool = False,
+) -> SharedCashReplayResult:
+    """Replay a prevalidated per-symbol action script through shared execution.
+
+    One action is required for each native agent interval. ``None`` means the
+    actor has no new decision and leaves the current target and pending order
+    intact. ``HOLD_QUANTITY`` pins an unchanged, risk-approved target to the
+    book's exact signed quantity and cancels any remaining order.
+    """
+
+    if not isinstance(dataset, MarketDataset):
+        raise TypeError("dataset must be a MarketDataset")
+    if not isinstance(actions_by_symbol, Mapping):
+        raise TypeError("actions_by_symbol must be a symbol-to-actions mapping")
+    if (
+        isinstance(start_index, bool)
+        or not isinstance(start_index, int)
+        or isinstance(stop_index, bool)
+        or not isinstance(stop_index, int)
+        or not 0 <= start_index < stop_index < dataset.n_bars
+    ):
+        raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+    start_index = int(start_index)
+    stop_index = int(stop_index)
+    if not isinstance(settle_terminal_position, bool):
+        raise ValueError("settle_terminal_position must be boolean")
+    if execution_cost is not None and not isinstance(
+        execution_cost, ExecutionCostConfig
+    ):
+        raise TypeError("execution_cost must be an ExecutionCostConfig or None")
+    resolved_execution_cost = (
+        ExecutionCostConfig.zero() if execution_cost is None else execution_cost
+    )
+    agent_stop_index = _agent_stop_index(
+        start_index=start_index,
+        stop_index=stop_index,
+        execution_cost=resolved_execution_cost,
+        settle_terminal_position=settle_terminal_position,
+    )
+    if any(not isinstance(symbol, str) for symbol in actions_by_symbol):
+        raise ValueError("scripted action symbols must be dataset symbol names")
+    if set(actions_by_symbol) != set(dataset.symbols):
+        raise ValueError(
+            "scripted actions must match the complete dataset symbol roster"
+        )
+
+    decisions_required = agent_stop_index - start_index
+    scripted_strategies: list[_ScriptedReplayStrategy] = []
+    for symbol in dataset.symbols:
+        source_actions = actions_by_symbol[symbol]
+        if isinstance(source_actions, (str, bytes)) or not isinstance(
+            source_actions, Sequence
+        ):
+            raise TypeError("each scripted action schedule must be a sequence")
+        actions = tuple(source_actions)
+        if len(actions) != decisions_required:
+            raise ValueError(
+                "each scripted action schedule must cover every agent interval"
+            )
+        if any(
+            action is not None
+            and not isinstance(action, (PositionIntent, ScriptedReplayAction))
+            for action in actions
+        ):
+            raise ValueError("unsupported scripted action")
+        scripted_strategies.append(
+            _ScriptedReplayStrategy(actions=actions, start_index=start_index)
+        )
+
+    return run_shared_cash_replay(
+        dataset,
+        tuple(scripted_strategies),
+        start_index=start_index,
+        stop_index=stop_index,
+        gross_budget=gross_budget,
+        initial_capital=initial_capital,
+        execution_cost=resolved_execution_cost,
+        risk=risk,
+        market_order_profile=market_order_profile,
+        minimum_hold_bars=minimum_hold_bars,
+        settle_terminal_position=settle_terminal_position,
+        capture_ledger_evidence=capture_ledger_evidence,
     )
 
 
@@ -1121,7 +1688,9 @@ __all__ = [
     "SharedCashReplayDecision",
     "SharedCashReplayLedgerEvidence",
     "SharedCashReplayResult",
+    "ScriptedReplayAction",
     "SingleSymbolReplayResult",
+    "run_scripted_shared_cash_replay",
     "run_shared_cash_replay",
     "run_single_symbol_replay",
 ]

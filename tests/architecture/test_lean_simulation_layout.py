@@ -14,6 +14,7 @@ EXPECTED_ROOT_FILES = {
     "bar_path.py",
     "execution.py",
     "liquidity.py",
+    "native_transition.py",
     "quantities.py",
     "depth.py",
 }
@@ -27,6 +28,7 @@ EXPECTED_PACKAGE_FILES = {
         "bar_lifecycle.py",
         "order_transitions.py",
         "symbol_fills.py",
+        "portfolio_session.py",
     },
     "targets": {"__init__.py", "execution.py"},
     "diagnostics": {
@@ -36,6 +38,7 @@ EXPECTED_PACKAGE_FILES = {
         "runtime_performance.py",
         "runtime_performance_io.py",
     },
+    "objectives": {"__init__.py", "binding.py", "clock.py", "contract.py"},
 }
 
 RETIRED_FLAT_FILES = {

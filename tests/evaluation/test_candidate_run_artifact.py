@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -154,7 +155,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v6"
+    assert summary["schema_version"] == "lean_candidate_result_v8"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -184,7 +185,32 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "ppo_training_timesteps": 2048,
         "ppo_training_minimum_hold_suppressed_count": 0,
         "pretrade_risk_config": None,
+        "supervised_forecast_horizon_hours": 24,
     }
+
+    for invalid_horizon in (None, True, 0, -1, 24.0, float("nan"), 2_562_048):
+        malformed = dict(summary)
+        malformed["candidate_config"] = {
+            **summary["candidate_config"],
+            "supervised_forecast_horizon_hours": invalid_horizon,
+        }
+        with pytest.raises(ValueError, match="supervised forecast horizon"):
+            candidate_artifact._validate_ppo_training_evidence(
+                malformed,
+                result_schema="lean_candidate_result_v8",
+            )
+
+    missing_horizon = dict(summary)
+    missing_horizon["candidate_config"] = {
+        key: value
+        for key, value in summary["candidate_config"].items()
+        if key != "supervised_forecast_horizon_hours"
+    }
+    with pytest.raises(ValueError, match="supervised forecast horizon"):
+        candidate_artifact._validate_ppo_training_evidence(
+            missing_horizon,
+            result_schema="lean_candidate_result_v8",
+        )
 
     age_aware_without_risk = dict(summary)
     age_aware_without_risk["candidate_config"] = {
@@ -202,7 +228,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     with pytest.raises(ValueError, match="explicit.*risk"):
         candidate_artifact._validate_ppo_training_evidence(
             age_aware_without_risk,
-            result_schema="lean_candidate_result_v6",
+            result_schema="lean_candidate_result_v8",
         )
     assert summary["evaluation"] == {
         "start": "2026-01-01T04:00:00.000000000",
@@ -246,6 +272,23 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "execution_cost": None,
         "risk": None,
     }
+
+    summary["shared_cash_ppo"] = {
+        "return_key": "shared_cash_ppo",
+        "metrics": {"total_return": 999.0},
+    }
+    artifact.summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    with np.load(artifact.returns_path, allow_pickle=False) as archive:
+        returns = {key: archive[key].copy() for key in archive.files}
+    returns["shared_cash_ppo"] = np.zeros(3, dtype=np.float64)
+    with artifact.returns_path.open("wb") as stream:
+        np.savez_compressed(stream, **returns)
+
+    with pytest.raises(ValueError, match="shared-cash.*v8|v8.*shared-cash"):
+        candidate_artifact.load_candidate_run_artifact(artifact.root)
 
 
 def test_run_candidate_artifact_rejects_unknown_config_keys(
@@ -416,7 +459,8 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     loaded = candidate_artifact.load_candidate_run_artifact(published.root)
 
     assert loaded.has_verified_full_evaluation_coverage
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v7"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v9"
+    assert loaded.summary["candidate_config"]["supervised_forecast_horizon_hours"] == 24
     portfolio = loaded.summary["shared_cash_ppo"]
     assert portfolio["name"] == "ppo"
     assert portfolio["final_portfolio_value"] == 1_000.0
@@ -424,3 +468,17 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     assert portfolio["ledger_evidence"]["interval_count"] == 3
     assert len(portfolio["ledger_evidence"]["digest"]) == 64
     assert np.array_equal(loaded.returns["shared_cash_ppo"], np.zeros(3))
+
+    legacy_root = tmp_path / "legacy-shared-cash-result"
+    shutil.copytree(published.root, legacy_root)
+    legacy_summary_path = legacy_root / "summary.json"
+    legacy_summary = json.loads(legacy_summary_path.read_text(encoding="utf-8"))
+    legacy_summary["schema_version"] = "lean_candidate_result_v7"
+    legacy_summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    legacy_summary_path.write_text(
+        json.dumps(legacy_summary, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    legacy_loaded = candidate_artifact.load_candidate_run_artifact(legacy_root)
+    assert legacy_loaded.summary["schema_version"] == "lean_candidate_result_v7"
+    assert np.array_equal(legacy_loaded.returns["shared_cash_ppo"], np.zeros(3))

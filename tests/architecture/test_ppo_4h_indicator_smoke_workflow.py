@@ -100,3 +100,15 @@ def test_generic_review_guard_is_type_checked_by_repository_ci() -> None:
         )
         == 2
     )
+
+
+def test_generic_model_receipt_gate_keeps_software_only_authority() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    generic = text.split("  independent-review:\n", 1)[1].split(
+        "  ppo-4h-independent-review:\n", 1
+    )[0]
+
+    assert 'gh api "repos/${REPO}/pulls/${PR_NUMBER}" > "$PULL_JSON"' in generic
+    assert 'gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews"' in generic
+    assert "software-only" in generic
+    assert "Economic execution authorization remains separate." in generic

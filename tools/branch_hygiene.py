@@ -196,8 +196,10 @@ class GitHubApi:
 
     def active_workflow_branch_names(self) -> frozenset[str]:
         names: set[str] = set()
-        for status in ("in_progress", "queued"):
+        for status in ("requested", "waiting", "pending", "queued", "in_progress"):
             page = 1
+            expected_total: int | None = None
+            seen_run_ids: set[int] = set()
             while True:
                 payload = self._request_json(
                     "GET",
@@ -211,15 +213,44 @@ class GitHubApi:
                 if not isinstance(payload, dict):
                     raise RuntimeError("workflow run list is not an object")
                 runs = payload.get("workflow_runs")
+                count = payload.get("total_count")
                 if not isinstance(runs, list):
                     raise RuntimeError("workflow_runs is not a list")
+                if type(count) is not int or count < 0:
+                    raise RuntimeError("workflow run total_count is missing or invalid")
+                if count >= 1000:
+                    raise RuntimeError(
+                        "workflow run search meets GitHub's 1000-result limit"
+                    )
+                if expected_total is None:
+                    expected_total = count
+                elif count != expected_total:
+                    raise RuntimeError("workflow run total_count changed between pages")
+                remaining = count - (page - 1) * 100
+                if remaining < 0 or len(runs) != min(100, remaining):
+                    raise RuntimeError(
+                        "workflow run pagination is incomplete or exceeds total_count"
+                    )
                 for run in runs:
                     if not isinstance(run, dict):
                         raise RuntimeError("workflow run entry is not an object")
+                    run_id = run.get("id")
+                    if type(run_id) is not int or run_id <= 0:
+                        raise RuntimeError("workflow run id is missing or invalid")
+                    if run_id in seen_run_ids:
+                        raise RuntimeError("duplicate workflow run id within status")
+                    seen_run_ids.add(run_id)
+                    if run.get("status") != status:
+                        raise RuntimeError(
+                            "workflow run status differs from requested status"
+                        )
                     head_branch = run.get("head_branch")
-                    if isinstance(head_branch, str) and head_branch:
-                        names.add(head_branch)
-                if len(runs) < 100:
+                    if not isinstance(head_branch, str) or not head_branch.strip():
+                        raise RuntimeError(
+                            "unfinished workflow run is missing its head_branch"
+                        )
+                    names.add(head_branch)
+                if len(seen_run_ids) == count:
                     break
                 page += 1
         return frozenset(names)
@@ -604,7 +635,18 @@ def render_summary(
     archive_candidates = [
         item.branch.name for item in decisions if item.action == "archive-keep"
     ]
-    anchors = [item.branch.name for item in decisions if item.action == "keep"]
+    durable_reasons = {
+        "default-branch",
+        "protected",
+        "open-pr-ref",
+        "active-workflow",
+        "provenance",
+    }
+    anchors = [
+        item.branch.name
+        for item in decisions
+        if item.action == "keep" and item.reason in durable_reasons
+    ]
     lines = [
         "## Branch hygiene",
         "",
@@ -612,10 +654,11 @@ def render_summary(
         f"- branches inspected: {len(decisions)}",
         f"- durable anchors kept: {len(anchors)}",
         f"- direct deletion candidates: {len(direct_candidates)}",
-        f"- first-observation branches archived and kept: {len(archive_candidates)}",
+        f"- first-observation archival candidates: {len(archive_candidates)}",
         f"- grace period: {RETENTION_GRACE_SECONDS} seconds",
         f"- branches deleted: {len(deleted)}",
         f"- retention branch: `{RETENTION_BRANCH}`",
+        f"- ref/retention mutations: {'apply mode' if apply else 'none (dry-run)'}",
         "",
     ]
     if deleted:
@@ -630,8 +673,9 @@ def render_summary(
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Observe non-anchor branch tips first, preserve them in retention history, "
-            "and delete only unchanged tips that survive the grace period."
+            "Report branch retention and cleanup candidates without changing refs. "
+            "Destructive --apply is disabled until verified Coordinator Task/lease "
+            "protection is integrated."
         )
     )
     parser.add_argument(
@@ -645,13 +689,22 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--token",
         default=os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"),
     )
-    parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="disabled until verified Coordinator Task/lease protection is integrated",
+    )
     parser.add_argument("--summary", type=Path)
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.apply:
+        raise RuntimeError(
+            "branch cleanup apply is disabled until verified Coordinator Task/lease "
+            "protection is integrated"
+        )
     if not args.token:
         raise RuntimeError("GH_TOKEN or GITHUB_TOKEN is required")
     api = GitHubApi(repository=args.repository, token=args.token, api_url=args.api_url)

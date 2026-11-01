@@ -99,6 +99,7 @@ def reconcile_target(
     tick_sizes: np.ndarray | None = None,
     maximum_gross: float = 1.0,
     reduce_only_symbols: tuple[int, ...] | None = None,
+    hold_current_quantity_symbols: tuple[int, ...] = (),
     valuation_prices: np.ndarray | None = None,
 ) -> ReconciliationResult:
     """Size weights at valuation prices and quote orders at reference prices.
@@ -188,6 +189,25 @@ def reconcile_target(
         raise OrderReconciliationError(
             "reduce-only symbols require unique valid indices and MARKET orders"
         )
+    if (
+        type(hold_current_quantity_symbols) is not tuple
+        or any(
+            type(index) is not int or not 0 <= index < weights.size
+            for index in hold_current_quantity_symbols
+        )
+        or len(set(hold_current_quantity_symbols)) != len(hold_current_quantity_symbols)
+    ):
+        raise OrderReconciliationError(
+            "exact quantity hold requires unique valid symbol indices"
+        )
+    current_weights = book.weights
+    if any(
+        weights[index] != current_weights[index]
+        for index in hold_current_quantity_symbols
+    ):
+        raise OrderReconciliationError(
+            "exact quantity hold target must equal the current book weight"
+        )
 
     desired = weights * decision_equity / (sizing_prices * multipliers)
     state = order_book
@@ -195,16 +215,38 @@ def reconcile_target(
     intents: list[OrderIntent] = []
     residuals = np.zeros_like(desired)
     exact_quantities = book.exact_quantities
+    decision_reference_gross = float(np.sum(np.abs(quantities * prices * multipliers)))
+    decision_reference_over_cap = (
+        math.isfinite(decision_reference_gross)
+        and decision_reference_gross > decision_equity * maximum_gross + _TOLERANCE
+    )
 
     for symbol_index in range(weights.size):
         current = exact_quantities[symbol_index]
-        wanted = exact_quantity(float(desired[symbol_index]))
-        target_delta = desired[symbol_index] - quantities[symbol_index]
+        if symbol_index in hold_current_quantity_symbols:
+            # The marker is accepted only for the exact current risk-approved
+            # weight. Preserve the book's native quantity without a float
+            # weight-to-quantity round trip.
+            desired[symbol_index] = quantities[symbol_index]
+            wanted = current
+            target_delta = 0.0
+        else:
+            wanted = exact_quantity(float(desired[symbol_index]))
+            target_delta = desired[symbol_index] - quantities[symbol_index]
         legacy_flatten = bool(
             reduce_only_symbols is None
             and order_type is OrderType.MARKET
             and current
             and wanted == 0
+        )
+        legacy_over_cap_partial_reduction = bool(
+            reduce_only_symbols is None
+            and order_type is OrderType.MARKET
+            and decision_reference_over_cap
+            and current
+            and wanted
+            and current * wanted > 0
+            and abs(wanted) < abs(current)
         )
         profile_reduce = bool(
             reduce_only_symbols is not None
@@ -215,7 +257,9 @@ def reconcile_target(
                 and abs(wanted) < abs(current)
             )
         )
-        reduce_only = legacy_flatten or profile_reduce
+        reduce_only = (
+            legacy_flatten or legacy_over_cap_partial_reduction or profile_reduce
+        )
         if reduce_only:
             target_delta = project_quantity(wanted - current)
         active = state.active_for_symbol(symbol_index)
@@ -226,11 +270,15 @@ def reconcile_target(
             and order.intent.reduce_only == reduce_only
             for order in active
         )
-        if compatible and math.isclose(
-            target_delta,
-            active_residual,
-            rel_tol=0.0,
-            abs_tol=_TOLERANCE,
+        if (
+            symbol_index not in hold_current_quantity_symbols
+            and compatible
+            and math.isclose(
+                target_delta,
+                active_residual,
+                rel_tol=0.0,
+                abs_tol=_TOLERANCE,
+            )
         ):
             continue
 

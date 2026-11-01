@@ -99,15 +99,24 @@ class PaperJournal:
             os.fsync(stream.fileno())
         return hashlib.sha256(raw).hexdigest()
 
-    def __init__(self, root: str | Path, *, expected_protocol_sha256: str) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        expected_protocol_sha256: str,
+        read_only: bool = False,
+    ) -> None:
         _digest(expected_protocol_sha256)
         self.root = Path(root).absolute()
         self.protocol_sha256 = expected_protocol_sha256
         # A read-only connection cannot recover a hot rollback journal. Verify
         # the protocol first, then allow SQLite to restore its committed prefix.
-        with self._connection(writable=True) as connection:
-            connection.execute("SELECT sequence FROM events LIMIT 1").fetchone()
-        self.events()
+        # ``read_only`` never opens the database for writing, so preserved evidence
+        # is not mutated; a hot journal then fails verification instead of recovering.
+        if not read_only:
+            with self._connection(writable=True) as connection:
+                connection.execute("SELECT sequence FROM events LIMIT 1").fetchone()
+        self._verify_chain()
 
     def _protocol(self) -> None:
         path = self.root / "protocol.json"
@@ -151,21 +160,74 @@ class PaperJournal:
                 connection.rollback()
             connection.close()
 
-    def events(self) -> list[dict[str, Any]]:
-        """Read and verify the contiguous committed prefix without creating files."""
-        result: list[dict[str, Any]] = []
+    def _chain_records(
+        self, connection: sqlite3.Connection
+    ) -> Iterator[dict[str, Any]]:
         parent = self.protocol_sha256
-        with self._connection(writable=False) as connection:
-            for row in connection.execute("SELECT * FROM events ORDER BY sequence"):
+        expected_sequence = 0
+        cursor = connection.execute("SELECT * FROM events ORDER BY sequence")
+        try:
+            for row in cursor:
                 record = _record(row)
                 event = record["event"]
-                if event["sequence"] != len(result) or event["parent"] != parent:
+                if event["sequence"] != expected_sequence or event["parent"] != parent:
                     raise ValueError(
                         "paper event chain is gapped or has a wrong parent"
                     )
-                result.append(record)
                 parent = record["sha256"]
-        return result
+                expected_sequence += 1
+                yield record
+        finally:
+            cursor.close()
+
+    def _verify_chain(self) -> None:
+        with self._connection(writable=False) as connection:
+            connection.execute("BEGIN")
+            for _ in self._chain_records(connection):
+                pass
+
+    def events(self) -> list[dict[str, Any]]:
+        """Read and verify the contiguous committed prefix without creating files."""
+        with self._connection(writable=False) as connection:
+            connection.execute("BEGIN")
+            return list(self._chain_records(connection))
+
+    def _record_at(
+        self, sequence: int, *, expected_key: str, expected_sha256: str
+    ) -> dict[str, Any]:
+        """Read one previously trusted event and fail closed if it changed."""
+        if type(sequence) is not int or sequence < 0:
+            raise ValueError("paper event sequence is invalid")
+        if not isinstance(expected_key, str):
+            raise ValueError("paper event key is invalid")
+        _digest(expected_sha256)
+        with self._connection(writable=False) as connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                "SELECT * FROM events WHERE sequence=?", (sequence,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("paper indexed event is missing")
+            record = _record(row)
+            event = record["event"]
+            if event["sequence"] != sequence or event["key"] != expected_key:
+                raise ValueError("paper indexed event identity changed")
+            if record["sha256"] != expected_sha256:
+                raise ValueError("paper event expected digest mismatch")
+            return record
+
+    def iter_events(self) -> Iterator[dict[str, Any]]:
+        """Stream a fully validated chain from one read snapshot.
+
+        The read transaction remains open until iteration finishes or the
+        iterator is closed. The complete chain is checked before the first
+        record is yielded.
+        """
+        with self._connection(writable=False) as connection:
+            connection.execute("BEGIN")
+            for _ in self._chain_records(connection):
+                pass
+            yield from self._chain_records(connection)
 
     def append(
         self,

@@ -4,6 +4,8 @@ import tomllib
 from pathlib import Path
 
 import trade_rl.evaluation as evaluation
+from trade_rl.evaluation.paper.engine import PaperEngine
+from trade_rl.evaluation.paper.store import PaperJournal
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl" / "evaluation"
@@ -14,6 +16,11 @@ EXPECTED_PUBLIC_API = (
     "CapacityPoint",
     "ClosedTradeDiagnostics",
     "ClosedTradeTracker",
+    "DecisionValueArmMetrics",
+    "DecisionValueBlockResult",
+    "DecisionValueBlockSpec",
+    "DecisionValueDevStudyProtocol",
+    "DecisionValueDevStudyResult",
     "ExecutionDiagnostics",
     "IndependentFoldSummary",
     "LeanCandidateConfig",
@@ -28,20 +35,26 @@ EXPECTED_PUBLIC_API = (
     "SeedEvaluation",
     "SeedResult",
     "SeedRobustnessSummary",
+    "SharedCashStrategyComparisonEntry",
     "SingleSymbolReplayResult",
     "StrategyComparison",
     "StrategyComparisonEntry",
     "SymbolStrategyComparison",
     "UniversalStrategyComparison",
     "compare_paired_returns",
+    "compare_shared_cash_strategy_factories",
     "compare_strategies",
     "compare_strategies_by_symbol",
     "compare_strategy_factories_by_symbol",
+    "compute_real_scope_authorization_digest",
     "compound_return",
+    "default_2024q1_decision_value_dev_protocol",
     "evaluate_capacity_grid",
     "evaluate_performance",
+    "fit_conservative_linear_decision_value",
     "moving_block_mean_test",
     "resolve_gate",
+    "run_decision_value_dev_study",
     "run_lean_candidate_suite",
     "run_single_symbol_replay",
     "solve_perfect_information_bound",
@@ -73,6 +86,35 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "rl_family_comparison/cells.py",
         "rl_family_comparison/comparison.py",
         "ppo_risk_study.py",
+        "dev_realdata_study/__init__.py",
+        "dev_realdata_study/__main__.py",
+        "dev_realdata_study/protocol.py",
+        "dev_realdata_study/metrics.py",
+        "dev_realdata_study/runner.py",
+        "dev_realdata_study/cli.py",
+        "dev_realdata_study/trials.py",
+        "dev_realdata_study/trial_sources.py",
+        "dev_realdata_study/trial_study.py",
+        "dev_realdata_study/trial_cli.py",
+        "dev_realdata_study/trial_labels.py",
+        "dev_realdata_study/phase3_registry.py",
+        "dev_realdata_study/phase3_sources.py",
+        "dev_realdata_study/phase3_study.py",
+        "dev_realdata_study/phase3_cli.py",
+        "dev_realdata_study/dataset_build.py",
+        "forward_study/__init__.py",
+        "forward_study/__main__.py",
+        "forward_study/registry.py",
+        "forward_study/labels.py",
+        "forward_study/seal.py",
+        "forward_study/fs1.py",
+        "forward_study/cli.py",
+        "forward_acquisition/__init__.py",
+        "forward_acquisition/__main__.py",
+        "forward_acquisition/plan.py",
+        "forward_acquisition/acquire.py",
+        "forward_acquisition/seal_record.py",
+        "forward_acquisition/cli.py",
         "paper/__init__.py",
         "paper/store.py",
         "paper/account.py",
@@ -80,6 +122,11 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "paper/control.py",
         "paper/supervisor.py",
         "paper/operations.py",
+        "paper/failure.py",
+        "paper/lock.py",
+        "paper/watchdog.py",
+        "paper/attempt2.py",
+        "paper/storage_probe.py",
         "paper/assessment.py",
         "paper/cli.py",
         "comparison/__init__.py",
@@ -106,6 +153,12 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/execute.py",
         "runs/provenance.py",
         "runs/artifact.py",
+        "runs/portfolio_family_comparison.py",
+        "runs/portfolio_family_scenario_replay_v2.py",
+        "runs/portfolio_family_scenario_attempt_v2.py",
+        "runs/portfolio_family_scenario_result_artifact_v2.py",
+        "runs/portfolio_family_attempt.py",
+        "runs/portfolio_family_result_artifact.py",
         "experiments/__init__.py",
         "experiments/errors.py",
         "experiments/codec.py",
@@ -130,6 +183,13 @@ def test_evaluation_responsibility_packages_exist() -> None:
     )
     missing = [path for path in required if not (PACKAGE / path).is_file()]
     assert missing == []
+
+
+def test_paper_journal_streaming_stays_within_its_existing_owner() -> None:
+    assert PaperJournal.iter_events.__module__ == "trade_rl.evaluation.paper.store"
+    assert PaperEngine.__module__ == "trade_rl.evaluation.paper.engine"
+    assert "PaperJournal" not in evaluation.__all__
+    assert "PaperEngine" not in evaluation.__all__
 
 
 def test_retired_evaluation_private_paths_are_absent() -> None:

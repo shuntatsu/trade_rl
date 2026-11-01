@@ -24,6 +24,10 @@ class MeanReversionIntentConfig:
             or self.signal_index < 0
         ):
             raise ValueError("signal_index must be a non-negative integer")
+        if isinstance(self.entry_threshold, bool):
+            raise ValueError("entry_threshold must not be a boolean")
+        if isinstance(self.exit_threshold, bool):
+            raise ValueError("exit_threshold must not be a boolean")
         if not math.isfinite(self.entry_threshold) or self.entry_threshold <= 0.0:
             raise ValueError("entry_threshold must be finite and positive")
         if not math.isfinite(self.exit_threshold) or self.exit_threshold < 0.0:

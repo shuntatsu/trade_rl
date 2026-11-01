@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import importlib
 import math
+from collections.abc import Callable
 from functools import partial
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from trade_rl.data.market import MarketDataset
+from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.native_transition import execute_native_target_transition
 from trade_rl.strategies.dataset_scope import (
     validated_symbol_indices,
     validated_training_scope,
@@ -52,6 +54,9 @@ from trade_rl.strategies.rl.ppo_training import (
     validated_interleaved_rollout_steps,
     validated_training_layout,
 )
+
+if TYPE_CHECKING:
+    from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 
 _PPO_LEARNING_RATE = 3e-4
 _PPO_DEFAULT_N_STEPS = PPO_DEFAULT_N_STEPS
@@ -184,6 +189,8 @@ class PPOTradingEnv(gym.Env):
         execution_cost: ExecutionCostConfig | None = None,
         risk_config: PreTradeRiskConfig | None = None,
         feature_normalizer: PPOFeatureNormalizer | None = None,
+        execution_observer: Callable[[StatefulExecutionObservation], None]
+        | None = None,
         settle_terminal_position: bool = False,
         minimum_hold_bars: int = 0,
         observation_schema: str = PPO_OBSERVATION_SCHEMA,
@@ -215,6 +222,8 @@ class PPOTradingEnv(gym.Env):
             raise ValueError(
                 "environment range must satisfy 0 <= start < stop < n_bars"
             )
+        start_index = int(start_index)
+        stop_index = int(stop_index)
         if not math.isfinite(initial_capital) or initial_capital <= 0.0:
             raise ValueError("initial_capital must be finite and positive")
         target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
@@ -265,6 +274,7 @@ class PPOTradingEnv(gym.Env):
                 self.agent_stop_index,
             )
         self.feature_normalizer = feature_normalizer
+        self.execution_observer = execution_observer
         if risk_config is not None and (
             risk_config.max_gross > self.execution_cost.max_leverage
             or risk_config.max_abs_weight > self.execution_cost.max_leverage
@@ -289,7 +299,11 @@ class PPOTradingEnv(gym.Env):
         self.active_symbol_index = -1
         self._active_symbol_offset = -1
         self._execution_seed_stream: np.random.Generator | None = None
-        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor = MarketExecutor(
+            self.dataset,
+            self.execution_cost,
+            execution_observer=self.execution_observer,
+        )
         self.risk = (
             PreTradeRisk.default_for_execution(
                 max_leverage=self.executor.cost.max_leverage
@@ -313,7 +327,14 @@ class PPOTradingEnv(gym.Env):
         self._terminated = False
 
     def _initial_book(self) -> BookState:
-        initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
+        initial_prices: np.ndarray | None = None
+        if self.active_symbol_index >= 0:
+            _require_available_marks_at_row(
+                self.dataset,
+                row_index=self.start_index,
+                selected_symbol_indices=(self.active_symbol_index,),
+            )
+            initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
         return BookState.zero(
             self.dataset.n_symbols,
             self.initial_capital,
@@ -386,7 +407,11 @@ class PPOTradingEnv(gym.Env):
             execution_seed = int(
                 self._execution_seed_stream.integers(0, np.iinfo(np.int64).max)
             )
-        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor = MarketExecutor(
+            self.dataset,
+            self.execution_cost,
+            execution_observer=self.execution_observer,
+        )
         self.executor.reset_random_state(execution_seed)
         self.risk = (
             PreTradeRisk.default_for_execution(
@@ -416,6 +441,12 @@ class PPOTradingEnv(gym.Env):
             return 0.0, {}
 
         symbol_index = self.active_symbol_index
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
+        )
         settlement_start_weight = float(self.book.weights[symbol_index])
         settlement_log_return = 0.0
         settlement_intervals = 0
@@ -431,20 +462,22 @@ class PPOTradingEnv(gym.Env):
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
         while self.index < self.stop_index and self.book.termination_reason is None:
+            _require_available_marks_at_row(
+                self.dataset,
+                row_index=self.index + 1,
+                selected_symbol_indices=(symbol_index,),
+                held_quantities=self.book.quantities,
+            )
             quantity_before = float(self.book.quantities[symbol_index])
             proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-            constrained = self.risk.constrain(
+            constrained, execution, _ = execute_native_target_transition(
+                self.executor,
+                self.book,
+                self.risk,
                 proposal_weights,
-                current=self.book.weights,
-                drawdown=self.book.max_drawdown,
+                start_index=self.index,
             )
             settlement_risk_reasons.extend(constrained.reasons)
-            execution = self.executor.execute_interval(
-                self.book,
-                constrained.weights,
-                start_index=self.index,
-                bars=1,
-            )
             if execution.next_index <= self.index:
                 raise RuntimeError(
                     "terminal settlement did not advance PPO environment"
@@ -493,6 +526,18 @@ class PPOTradingEnv(gym.Env):
             raise RuntimeError("PPOTradingEnv must be reset before stepping")
 
         symbol_index = self.active_symbol_index
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
+        )
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index + 1,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
+        )
         requested_intent = _intent_from_action(action)
         was_minimum_hold_locked = self._minimum_hold_locked
         hold_decision = constrain_intent_for_minimum_hold(
@@ -539,35 +584,44 @@ class PPOTradingEnv(gym.Env):
             target_weights = proposal_weights
             was_constrained = False
             risk_reasons: tuple[str, ...] = ()
+            use_native_transition = False
         else:
-            constrained = self.risk.constrain(
-                proposal_weights,
-                current=self.book.weights,
-                drawdown=drawdown,
-            )
-            target_weights = constrained.weights
-            was_constrained = constrained.was_constrained
-            risk_reasons = constrained.reasons
-            target_weight = float(target_weights[symbol_index])
-            if should_rebind_strategy_proposal(constrained):
-                self.desired_quantity = _desired_quantity_from_weight(
-                    self.book,
-                    target_weight,
-                    symbol_index=symbol_index,
-                )
-        target_weight = float(target_weights[symbol_index])
+            target_weights = proposal_weights
+            was_constrained = False
+            risk_reasons = ()
+            use_native_transition = True
 
         # The environment owns this history; avoid copying its full prefix into
         # the transactional execution clone on every one-bar training step.
         return_history = self.book.returns_history
         self.book.returns_history = []
         try:
-            execution = self.executor.execute_interval(
-                self.book,
-                target_weights,
-                start_index=self.index,
-                bars=1,
-            )
+            if use_native_transition:
+                constrained, execution, _ = execute_native_target_transition(
+                    self.executor,
+                    self.book,
+                    self.risk,
+                    proposal_weights,
+                    start_index=self.index,
+                )
+                target_weights = constrained.weights
+                was_constrained = constrained.was_constrained
+                risk_reasons = constrained.reasons
+                target_weight = float(target_weights[symbol_index])
+                if should_rebind_strategy_proposal(constrained):
+                    self.desired_quantity = _desired_quantity_from_weight(
+                        self.book,
+                        target_weight,
+                        symbol_index=symbol_index,
+                    )
+            else:
+                execution = self.executor.execute_interval(
+                    self.book,
+                    target_weights,
+                    start_index=self.index,
+                    bars=1,
+                )
+                target_weight = float(target_weights[symbol_index])
             if execution.next_index <= self.index:
                 raise RuntimeError("execution did not advance PPO environment index")
         except BaseException:
@@ -608,6 +662,12 @@ class PPOTradingEnv(gym.Env):
             reward += settlement_log_return
         self._terminated = (
             self.index >= self.stop_index or self.book.termination_reason is not None
+        )
+        _require_available_marks_at_row(
+            self.dataset,
+            row_index=self.index,
+            selected_symbol_indices=(symbol_index,),
+            held_quantities=self.book.quantities,
         )
         observation = self._encoded_observation()
         info: dict[str, object] = {

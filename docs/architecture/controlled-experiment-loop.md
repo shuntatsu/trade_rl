@@ -104,7 +104,9 @@ Canonical bootstrapではDatasetの最終timestampが `data_stop_exclusive` と�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-Historical v3 Studies remain immutable. Current Run Core creates `resolved_run_config_v5`, which binds PPO Observation schema, global policy roster, training layout, minimum-hold duration, terminal settlement, and optional explicit pre-trade risk config. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair. New duration/risk runs use `lean_candidate_result_v6` and record the risk config, full evaluation-period coverage, plus training/replay suppression counts. Historical v5 results remain readable without claiming verified full coverage.
+Historical v3 Studies remain immutable. Current Run Core creates `resolved_run_config_v6`, which binds PPO Observation schema, global policy roster, training layout, minimum-hold duration, terminal settlement, optional explicit pre-trade risk config, and the supervised forecast horizon. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair. New duration/risk runs use `lean_candidate_result_v8` for per-symbol evaluation and `lean_candidate_result_v9` when shared-cash evaluation is present; both bind the positive-integer supervised horizon and record the risk config, full evaluation-period coverage, plus training/replay suppression counts. The v9 schema preserves the additional shared-cash portfolio evidence from v7, while v8 is the matching version of the standard result shape. Historical result schemas remain readable without changing their persisted meaning.
+
+The supervised forecast horizon defaults to 24 hours, accepts only positive integers whose exact duration fits signed `datetime64[ns]` (at most 2,562,047 hours), and is passed unchanged to both forecast fitters. Canonical Study creation and Experiment definition reject any other value before Dataset resolution or candidate fitting. The per-run capability does not add a `FORECAST_HORIZON` controlled factor or authorize a 24-hour versus longer-horizon Study; such a comparison still requires a separate preregistered design with common eligible feature anchors and label-maturity cutoffs.
 
 historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
 
@@ -112,7 +114,7 @@ historical `resolved_run_config_v1` / Study artifactはread/inspection互換の�
 
 Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。
 
-EvidenceSet内で変えてよいのは `ppo_seed` だけである。EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。
+EvidenceSet内で変えてよいのは `ppo_seed` だけである。EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。Load・Study reconstructionは各Run artifactのpersisted candidate/evaluation fieldsからresolved configを再構成し、EvidenceSet semantic config、凍結した `StudyPlan` baseline、`ExperimentDefinition` candidateと照合する。Studyの各Runは `StudyPlan` のdataset ID、artifact schema、artifact digestにも一致しなければならない。Run schemaが古く実際のfieldを保持しない場合、そのfieldをmanifestから補完せず、検証可能なschema範囲だけで照合する。宣言されたRun schemaより新しいparameter、observation、replay fieldが残っている場合は、config projection前に拒否する。config identityはcanonical JSONで比較し、boolと整数の型差を保持する。この照合はpersisted parameter evidenceを凍結configへbindするものであり、artifactをself-consistentに全面書換えした場合の実行・学習真正性を証明しない。
 
 Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そのうちPPO seedを変えてもraw returnsが完全一致しなければならないrosterは `StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES` をsource contractの正本とする。現行契約では `ppo` だけがPPO seed依存を許される。rosterをarchitecture docs側で別途列挙・管理しない。
 
@@ -216,6 +218,10 @@ loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch�
 
 Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
 
+`research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
+
+unused/final/sealed、mixed、または消費済みを立証できない入力はTier Uとして、既存のstrict authorization・candidate freeze・one-shot・consumed-ledger controlsに従う。technical retryはsealed dataをunsealせず、Tier UをTier Dへ自動変更しない。
+
 ## What this does not prove
 
-このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。Canonical M2 bootstrap toolingの実装完了も同様に研究結果ではない。次の研究作業はcanonical real development bootstrapを実際に作成し、そのStudyでbaselineとControlled Experimentを実行して、`WINNER`または`NO_WINNER`へfreezeすることである。
+このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。Canonical M2 bootstrap toolingの実装完了も同様に研究結果ではない。Canonical M2 Study lineの次の研究作業は、canonical real development bootstrapを実際に作成し、そのStudyでbaselineとControlled Experimentを実行して、`WINNER`または`NO_WINNER`へfreezeすることである。

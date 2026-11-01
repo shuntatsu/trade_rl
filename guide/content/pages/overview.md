@@ -17,21 +17,26 @@ hard riskで実行可能な目標へ制約
         ↓
 MarketExecutor + BookStateで約定・会計
         ↓
-銘柄ごとの独立リプレイ
+銘柄別の独立口座リプレイ／対応方式の共有資金リプレイ
         ↓
 metrics / comparison / robustness / immutable evidence
 ```
 
 この流れでは、戦略が直接P&Lを作りません。戦略は売買意図を出し、riskとexecution/accountingを必ず通った後の結果だけを比較します。
 
+共有資金のnumeric policy経路には、既存のconstant・trend・Ridge戦略を固定rosterと明示budgetで接続する限定的なopt-in adapterもあります。これはjoint PPO learnerや経済結果ではなく、risk・約定・会計は引き続き共通ownerが処理します。
+
 ## 現在どこまで分かっているか
 
 | 区分 | 現在の状態 |
 | --- | --- |
 | 検証済み | `market_build_v3` と `portable_feature_numerics_v1` を固定した実データDataset、PPO Observation v2、共通execution/accounting、結果前の事前登録からartifact後の独立検証までの研究経路 |
+| 固定screen完了・FAILED_SCREEN | Issue #810のM34固定4方式比較は1 fit / 3 scenario / 12 armを完了。latency-2でcost-proxy armがcost=0 controlを下回り、winnerは成立していない |
 | 観測したが不十分 | Portable Controlled Experiment 0001ではmean-reversionがbaseline比で5 / 5銘柄改善しturnoverも低下したが、candidate total returnが正だったのは1 / 5銘柄 |
 | 正式判断 | Experiment 0001は事前登録したruleに従い **KEEP_BASELINE** |
 | 未証明 | 継続的なprofitability、winner strategy、unused future dataでの勝利、Production/live order authorization |
+
+同じfrozen PPOを明示的なruntime execution scenarioへloadし、cash・Trend・Ridge・joint PPOの4つを同じnative replayへ渡すopt-in v2 software pathもあります。別のv2 attempt/result APIはnative rowsとprovenanceを保存し、strict reloadを行います。v1のstrict matchingとTier-2 facadeは維持され、このsoftware persistenceはscenario選択や経済性能の証拠を追加しません。
 
 **再現可能な研究基盤が成立したことと、儲かる戦略が見つかったことは別です。** 現時点では後者を主張しません。
 

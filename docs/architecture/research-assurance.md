@@ -23,6 +23,26 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
 
+### Declarative financial objective and clock
+
+`trade_rl.simulation.objectives` declares the P0 financial objective without
+owning a ledger or calculating future expected profitability. Its canonical endpoint is one realized
+after-cost terminal-equity delta, net of explicitly declared external cash
+flows and divided by fixed total initial capital. Independent books contribute
+their capital and terminal values to the same capital-weighted sum; a shared
+portfolio has exactly one declared capital book. The scalar helper consumes
+caller-supplied values and does not create another accounting authority.
+
+The objective interval is UTC-normalized and half-open. A bound clock requires
+its exact elapsed duration to equal the declared finite horizon; decision,
+execution and reward intervals must align, and gamma / GAE values must be
+finite and in range. `terminal_profit_aligned` is only an algebraic declaration
+for equity-delta rewards with gamma one. The opt-in `SharedPortfolioGymEnv` requires the bound objective/clock and
+gamma-one equity-delta reward; `fit_shared_portfolio_ppo` checks its bound clock.
+This connection does not itself prove actual reward/ledger parity, economic
+learnability, Study authorization, or real-data profitability. The historical
+per-symbol PPO defaults are unchanged; G0–G2 independent oracles still apply.
+
 ## G0: Research Question Validity
 
 研究を実行する前に、最低限次のResearch Question Contractを明示する。
@@ -79,6 +99,81 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 - **Known limitations** — Greenでも証明しないこと。
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
+
+### Synthetic software invariant: prospective paper carry ledger
+
+- **Statement:** For explicit signed lot requests and a small, literal source
+  fixture, the paper engine's financial state agrees with a separate Decimal
+  reference calculation. The reference derives capacity-limited fills and
+  adverse prices from displayed depth, charges venue fees once, applies signed
+  principal to cash, values positions at spot-mid / perpetual-mark prices, and
+  applies each funding event to the position held strictly before its settlement
+  time. A terminal request is complete only after actual fills leave no position
+  or pending decision.
+- **Scope:** `tests/evaluation/paper_ledger_oracle.py` consumes synthetic source
+  literals and declared target quantities. The driver checks that the current
+  fixed rule emits the fixture's literal target and feeds the same raw fixture
+  through the existing capture/parser and paper engine. The reference itself
+  imports no production accounting, strategy, or depth-execution helper, and it
+  never uses reported fills, fees, or account metrics as inputs. Comparisons use
+  fixed `2e-9` absolute and `2e-12` relative tolerances for binary64 projections.
+- **Counterexamples:** Funding must not accrue to a position first filled at the
+  same settlement timestamp; a settlement at the retry timestamp uses only the
+  earlier partial holding. A trade's adverse fill price determines signed cash
+  and fees while the independent market mark determines equity. A matched
+  partial leaves an unfilled request for a later decision; an asymmetric partial
+  stops increases and funding/close calculations use the actual leg quantities.
+  Terminal intent does not make the account flat before its closing fills.
+- **Oracle:** `tests/evaluation/test_paper_ledger_oracle.py` compares cash,
+  quantities, marks, equity, peak/drawdown, fees, turnover, funding, futures
+  collateral, each fill, pending state, and terminal flatness over entry,
+  partial completion, funding, and terminal close.
+- **Known limitations:** This is synthetic software coverage for the supported
+  four-instrument paper ledger. It does not independently parse or attest raw
+  capture bytes or exchange-rule metadata; those remain covered by their own
+  source-contract tests. Its strategy check covers only the fixture's declared
+  target, not ranking, general sizing, or candidate selection. It does not
+  establish complete risk or liquidation conformance, full source-to-ledger
+  conformance, formal G2 approval, real-feed behavior, or economic performance.
+
+### Synthetic software diagnostic: conditional PPO under delayed gains and fees
+
+- **Statement:** A literal fixed-action ledger must charge the entry fee before
+  the delayed gain, charge the exit fee once, leave a flat control untouched,
+  and lose both fees on a fee-only round trip. A separate opt-in policy
+  diagnostic may record whether one frozen PPO fit chooses the conditional
+  action on a renamed and column-swapped synthetic holdout.
+- **Scope:** `python -m tools.ppo_conditional_diagnostic prepare <new-dir>`
+  writes the fixed protocol and pre-fit ledger without fitting. `run <dir>`
+  performs one fit with 8,192 transitions, seed 83, two interleaved symbol
+  environments, and 512 rollout steps per environment. The fixture has 64
+  hourly rows, a constant feature that labels A/B from row zero, an eight-row
+  one-percent rise for A beginning at training row 8 and heldout row 12, and a
+  0.5% fee on each side. Other dataset cost overlays are zero; one-bar order
+  latency and the existing risk defaults remain explicit. The protocol records
+  the PPO gamma, GAE, and network defaults without changing them. Every price
+  row must be available no later than its own timestamp. The source binding
+  covers all tracked `trade_rl/**/*.py` files, `pyproject.toml`, `uv.lock`, and
+  the diagnostic's own bytes; runtime and source identity are rechecked before
+  fitting, after fitting, and after heldout evaluation.
+- **Oracle:** `run_prefit_oracle()` compares LONG, FLAT, and fee-only actions
+  against literal cash, fee, fill-count, and log-return calculations, then
+  checks terminal flatness and empty active orders. The heldout clauses use the
+  same fitted policy through the public v3 observation and environment APIs.
+  Each output directory is single-use: existing output is not overwritten,
+  `attempt-start.json` precedes the only fit call, and a failed attempt cannot
+  be retried in that directory. A completed run with failed behavior clauses
+  is recorded as `status=completed`, `diagnostic_verdict=fail`, and exits with
+  code 3; a completed pass exits 0, execution failure exits 1, and preflight
+  validation failure exits 2. CI uses fake policies to test these software
+  contracts and does not require stochastic learning to pass.
+- **Known limitations:** Every protocol, result, and failure record reports
+  `p3_status=NOT_ATTEMPTED`. Even a diagnostic pass only demonstrates this
+  synthetic conditional-action behavior. It is not real-market evidence,
+  profitability evidence, a shared-cash result, a G0-G4 or P3 completion, a
+  hard CI learnability gate, or authorization for production or live use. The
+  one-shot recipe does not authorize retrying with another seed or tuning after
+  observing its verdict.
 
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
@@ -573,6 +668,357 @@ identity; a constant checkout SHA alone does not establish constant transport
 behavior. Terminated child processes must be reaped before evidence upload.
 
 
+## Research-specific contract: forward study FS1
+
+This contract applies only to the sealed forward study in
+`trade_rl.evaluation.forward_study` (Issue #810). It is a result-blind design record: the
+scoring window starts after the date of this record, so no return, drawdown, Sharpe
+or label of the window exists, and none may be generated before the preconditions
+below hold. The frozen parameters are `Fs1Registry` (`registry.py`), exported to
+`report/issue810-fs1-registry-20261030.json`; their SHA-256 digest is
+`9350734ca6ba920ebfcb47cd7b81b633df5457bfcfe7da37eba6d96fab5f1c56` (`FROZEN_PARAMS_DIGEST`,
+pinned by a test). Changing any frozen value is a new study (FS2), never an edit.
+
+### G0 — FS1 question, falsifiers, and claim scope
+
+**Headline rule (read this first).** `FORWARD_PASS` is only the minimum bar: it means
+the arm beat CASH net of costs at cost x2 (95% lower bound above zero) and stayed within
+the 20% drawdown gate. An arm can be `FORWARD_PASS` and `NO_BETTER_THAN_PASSIVE`, and
+both candidates can pass at the unadjusted 5% level by chance. **The only headline claim
+flag is `edge_claim_supported`**, true only for `FORWARD_PASS` together with
+`BETTER_THAN_PASSIVE` and `survives_bonferroni_k2`. Without it the result supports no
+claim that the forecast or allocation mechanism adds value, and a report must not
+present `FORWARD_PASS` alone as a positive finding.
+
+**Question:** After fees, spread and participation costs, does the frozen configuration
+FS1-A (the Phase 3 P3-6 mechanism: z-blend of the T2 and T4 expected returns, kappa 3,
+12% volatility target, long/short) beat CASH, and does it beat the vol-targeted passive
+control FS1-C (the Phase 3 P3-7 mechanism: equal-weight buy-and-hold with the same 12%
+target), over 2026-11-01..2027-05-01 (181 days, final endpoint closing the last 2027-04-30
+bar)? FS1-B (the P3-3 mechanism: T2 + VT12) is the secondary arm. The roster is exactly
+CASH, FS1-A, FS1-B and FS1-C; no arm may be added, removed or retuned after this record.
+
+**Hypothesis and causal story.** Cross-sectional momentum (T2) and a Ridge forecast on
+the 1h/4h/1d features (T4) may each carry a small, slowly decaying cross-sectional
+signal in USDT-perpetual returns; a turnover penalty (kappa) keeps the book from paying
+more in costs than the signal earns, and an ex-ante volatility cap keeps the drawdown
+inside the 20% budget. Part of the Phase 3 development return was available from the
+volatility cap alone (the passive control), so beating CASH is the minimum bar and
+beating FS1-C is what would support a forecasting or allocation edge.
+
+**Falsifiers** (per candidate; frozen numbers in the registry):
+
+1. Maximum drawdown above 20% in the base **or** cost x2 scenario.
+2. The 95% percentile block-bootstrap lower bound (20-day moving blocks, 2000 resamples,
+   seed 0) of the annualised mean daily excess return over CASH at cost x2 is not above
+   zero.
+3. The same lower bound of the excess over FS1-C (cost x2) not above zero marks the arm
+   `NO_BETTER_THAN_PASSIVE`. This does not by itself make the arm `FORWARD_FAIL`, but it
+   keeps `edge_claim_supported` false.
+
+The +1 bar latency scenario is reported and enters validity, not the label.
+Bonferroni with k = 2 (FS1-A, FS1-B) is reported for every excess interval and
+summarised as `survives_bonferroni_k2` (the Bonferroni lower bound over CASH at cost x2
+above zero); the per-arm label uses the unadjusted 95% bound as specified, and the
+family-wise statement enters only through `edge_claim_supported`.
+
+**Label vocabulary:** `FORWARD_PASS`, `FORWARD_FAIL`, `FORWARD_INVALID`. There is no
+`WINNER`, no profitability guarantee and no deployment label. `FORWARD_INVALID` is
+returned (never `FORWARD_FAIL`) when a measurement is not valid: a replay failed, the
+ledger does not reconcile or the account terminated, the equity path does not cover the
+whole window, an arm made fewer than one trade or more than 10% of its decisions
+fail-closed (pipeline degradation, not market evidence), the future-perturbation
+causality matrix is not identical, CASH is not exactly flat, or **any control (CASH,
+FS1-C) is invalid** (every candidate is then invalid; a broken baseline is never skipped).
+
+**Disclosure — selection contamination.** The Phase 2/3 development results are public.
+FS1-A, FS1-B and FS1-C were chosen from them (P3-6 and P3-3 were the only arms that
+passed the development rule; P3-7 is the passive comparator), after 21 development
+arms were compared on data already used by earlier studies. That selection is why a
+forward test is needed. FS1 can falsify the chosen configurations; it cannot re-select
+or tune them, and the Phase 3 development numbers are not evidence for FS1.
+
+**When each constant was fixed relative to the development results** (git commit times
+are local clocks, not publicly verifiable timestamps; the only GitHub-timestamped record
+is the Issue #810 comment of 2026-10-29T10:10:07Z):
+
+* *Before the first allocator result of the development real-data study (PR-C):* the
+  20% drawdown gate, the 20-day block bootstrap (2000 resamples, seed 0, 95%), the
+  costs and stresses, 10,000 USDT capital, daily 00:00 UTC decisions, and the allocator
+  constants gamma 5, EWMA halflife 60 days, shrinkage 0.2, `w_max` 0.5, `gross_max`
+  0.95, minimum trade 0.5%. The protocol commit says 'freeze before any run'; that is
+  not publicly verifiable. The 20% budget itself predates the study (earlier directional
+  work), but PR-C was designed in knowledge of an earlier breakeven diagnostic on the
+  same development data.
+* *After the PR-C results and before the Phase 2 results:* the T1-T8 trial registry
+  (T2 cross-sectional momentum, T4 Ridge on all features and the T6 z-blend
+  construction) and its constants; the registry was committed before the first Phase 2
+  run, with its implementation details pinned after the PR-C result (not publicly
+  verifiable).
+* *After the Phase 2 results:* kappa 3, the 12% volatility target, the P3-3/P3-6/P3-7
+  mechanisms and therefore the choice of FS1-A, FS1-B and FS1-C. They are post hoc
+  exploratory (the public record is the Issue #810 comment above, posted before any
+  Phase 3 code existed).
+* *After the Phase 3 results:* the FS1 window, Bonferroni k = 2, the FS1 roster, the
+  validity guards (at most 10% fail-closed decisions, at least one trade, at least 99%
+  tradable bars, the settlement margin) and the label rule. These are fixed before any
+  forward bar exists.
+
+**What FS1 can prove.** Whether, in one future regime, these three frozen
+configurations earned after-cost excess return inside the drawdown budget. **What it
+cannot prove:** a durable edge (one window of about 181 days is a single regime with
+about nine independent 20-day blocks, so a wide interval means 'not demonstrated', not
+'zero edge'); that the forecast adds value unless `BETTER_THAN_PASSIVE`; capacity,
+live execution quality or point-in-time source availability; deployment (G5) eligibility;
+anything about other configurations.
+
+### G1 — FS1 fixed mechanism, window, and seal
+
+* **Universe and clock:** BTCUSDT, ETHUSDT, BNBUSDT, XRPUSDT, ADAUSDT USDT-perpetuals,
+  1h bars, one decision per day at 00:00 UTC, orders eligible per the shared replay.
+* **Account:** one continuous shared 10,000 USDT account per arm and scenario, no reset
+  at refit boundaries, terminal positions settled flat at the final endpoint, funding
+  accrued by the replay. CASH is the all-zero book and earns no yield.
+* **Costs:** fee 0.05%/side, spread 0.02%, impact rate and 5% participation cap of the
+  development protocol. Stresses: cost x2 (fee and spread doubled) and +1 bar order
+  latency. The allocator keeps its base `c_i` (fee + spread, a lower bound) in every
+  scenario, as in the development study.
+* **Mechanism:** the Phase 3 builders and the development runner unchanged: gamma 5,
+  EWMA halflife 60 days, shrinkage 0.2, `w_max` 0.5, `gross_max` 0.95, minimum trade
+  0.5% of equity; kappa 3 and VT12 (`sqrt(w' Sigma w * 365)` cap at 12%, applied to the
+  solved target before the minimum-trade rule) for FS1-A, VT12 only for FS1-B.
+* **Data scope:** development data through 2026-08-01 (the end of the consumed
+  development window) is the only data this study holds or has used at
+  registration. Exchange bars for 2026-08-01..2026-10-30 already exist, but this
+  study has not fetched them, fetching them needs the user's separate
+  authorization, and no constant was chosen with reference to them (author
+  attestation). Bars from 2026-08-01 to 2026-11-01 (and any later bars before the
+  scoring start) may enter
+  features, forecasts and the covariance warm-up **only if separately authorized, and
+  are never scored**: the replay starts at the 2026-11-01 row. The Ridge forecast
+  sources refit every 30 days from the scoring start, expanding from the first
+  dataset row; each refit uses only labels matured before its fit time, including
+  scoring-window bars that precede that fit time (causal prequential refit).
+  Without a contiguous dataset the evaluator refuses: the data must be regular hourly
+  rows over the whole span and at least 99% tradable per symbol over
+  2026-08-01..2027-05-01, so an unauthorized three-month hole cannot be scored.
+* **Dataset construction (pinned, with a procedural remainder).** `FS1_BUILD_POLICY` in
+  the registry fixes the construction: USDT-M perpetuals, 1h bars from 2021-01-01 to
+  2027-05-01, 4h/1d aggregated from complete 1h windows, the `non_tradable_rows` gap
+  policy (a missing 1h bar is a non-tradable row with a forward-filled mark and no
+  funding accrual; a higher-clock window touching a gap is a placeholder with
+  `available_at` at the range end, so recursive features stay unavailable), zero baked-in
+  fees and spread, and the `dataset_build` builder. Its digest
+  (`13d404e9a8b0a87d02cf7a90f9af2bbbad412d439dae42f730e4f416efd03a34`) is part of the
+  params digest and must appear in the manifest (`manifest_build_policy_mismatch`
+  otherwise). What cannot be pinned today is that a concrete builder run obeyed the
+  policy: the forward-window build does not exist yet and the existing builder carries
+  the development span as constants. That compliance is **procedural**: the seal record
+  must name the builder commit and the exact command, the exchange-rule snapshot, and the
+  source archive digests that the manifest repeats.
+* **Seal procedure (all recorded before any scoring):**
+  1. This record and the code are merged through the normal review path. A fresh
+     result-blind G0-G2 review of the design record and the code is recorded on the
+     merging change. Reviewers are told not to open `report/` or any study output; they
+     cannot be blind to the public development results, only to the forward window, which
+     does not exist.
+  2. A seal record on Issue #810 names the sealed code commit (a commit on `main`
+     that contains this contract; mechanism-affecting merges after this record require
+     re-running the G2 tests and a new seal), the params digest above, and later the
+     dataset manifest SHA-256, the dataset builder commit and command, the
+     exchange-rule snapshot and the UTC time of the data fetch.
+  3. The user separately authorizes (a) fetching the post-2026-08-31 data and
+     (b) the single scoring run, each by an Issue #810 comment (the evaluator accepts
+     only `https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-<digits>`,
+     both for the scoring authorization and for the manifest's fetch authorization).
+     Neither is implied by this record.
+  4. After the authorized fetch the dataset is built offline under `FS1_BUILD_POLICY`
+     and `manifest_bytes_from_dataset` writes the dataset seal manifest (dataset id,
+     symbols, first and last timestamp, bar count, build-policy digest, source
+     archive digests, fetch authorization, UTC fetch time, UTC seal time). The
+     manifest SHA-256 is recorded in the seal record before scoring. Steps 3-4 are
+     performed by the single documented tool described in *FS1 acquisition procedure*
+     below, never by an ad-hoc script.
+* **Settlement.** The final scored row is the 2027-05-01T00:00Z endpoint that closes the
+  2027-04-30T23:00Z bar. Scoring requires the wall clock at or after the scoring end
+  plus a 24 h settlement margin (2027-05-02T00:00Z), and the manifest's recorded fetch
+  time must be at or after that instant and not after the seal time, so a partially
+  published final bar cannot be scored.
+* **Code identity.** The checkout must be the trade_rl repository: the evaluator runs
+  `git rev-parse --show-toplevel` from the package location, requires this module file
+  to be that repository's tracked `seal.py` (a non-editable install or a copy inside
+  another repository is refused), requires the pinned root commit in the history, the
+  HEAD to equal the sealed code SHA, and no modified tracked file and no non-ignored
+  untracked file.
+* **Scoring** happens once per output path: `python -m trade_rl.evaluation.forward_study`
+  writes a write-once result file and never overwrites. The public entrypoint takes no
+  registry, digest, clock, code-identity or loader argument; those exist only in a
+  private factory that tests replace. There is no durable cross-path scoring ledger, so
+  a second run with a new output path is possible; deterministic inputs give the same
+  labels, and any second result file is a protocol violation to be reported.
+
+#### FS1 acquisition procedure
+
+The acquisition, dataset build, seal manifest and seal-record text are produced by one
+documented tool, `trade_rl.evaluation.forward_acquisition`, so that no ad-hoc or
+monkeypatched script ever builds the FS1 dataset. It lives outside
+`evaluation/forward_study/` on purpose: the scoring package never imports a network
+client, and the tool imports neither the replay, the strategies nor `forward_study.fs1`.
+The tool changes no registry value or digest and scores nothing. As of this record **no
+data has been fetched**, and the data-fetch authorization is still pending.
+
+1. **Plan (default, offline).**
+   `python -m trade_rl.evaluation.forward_acquisition acquire --authorization <Issue #810 comment URL> --output-root <new dir>`
+   without `--allow-network` checks the authorization pattern, that the output root does
+   not exist and that the registry's build policy is the one the tool implements, then
+   prints the exact request list and ranges and exits 0. It creates nothing, reads no
+   development input, and imports no network client (a subprocess test pins that, also
+   for every pre-flight refusal and the seal-record printer). The plan is 760 monthly
+   archives (5 symbols, 1h klines and `fundingRate`, 2021-01..2027-04); 670 of them
+   (2021-01..2026-07, before the development data end) are reused read-only, 90
+   (2026-08..2027-04: warm-up only `[2026-08-01, 2026-11-01)`, scored
+   `[2026-11-01, 2027-05-01)`) are the ones to fetch, each with its official `.CHECKSUM`
+   file, plus one REST request for the exchange rules.
+2. **Authorized run.** Only after the user's Issue #810 data-fetch authorization comment:
+   `... acquire --authorization <URL> --output-root <new dir> --allow-network --dev-archive-root <dir> --dev-source-evidence <source-evidence.json> --dev-dataset <published development Dataset>`.
+   Every refusal knowable before the first request is collected and raised together and
+   nothing is created: the authorization pattern; an existing output root; any build
+   policy deviation (the policy must hash to the digest the tool was written against and
+   each field must be one the tool can build; `build_policy_*` reasons); a registry that
+   differs from the frozen digest; the wall clock before the scoring end plus the 24 h
+   settlement margin (`settlement_not_reached`: a manifest fetched earlier would be
+   refused by the scoring evaluator, and the final monthly archive does not exist
+   earlier); a trade_rl checkout that is unavailable or dirty (the builder commit is
+   provenance); an output root inside that checkout (`output_root_inside_checkout`: a new
+   untracked directory there would fail the scoring evaluator's clean-tree check, so the
+   root must lie outside the repository); and the development reuse proof below. One
+   documented exception: when the build policy cannot be parsed there is no plan and so
+   no list of development archives to prove, hence the identity proof is skipped (the
+   policy, settlement, checkout and missing-input reasons are still reported together).
+   The clock is the local, unauthenticated wall clock, the same trust basis as the
+   scoring evaluator. If the final monthly archive is not yet published at the first
+   permitted instant, the fetch answers 404 and the run refuses with `fetch_failed`,
+   leaving a partial root; the operator retries with a new root after publication.
+3. **Development reuse by identity (never refetched).** The published development Dataset
+   is loaded read-only and must be identity-verified, equal the pinned development
+   `dataset_id` and artifact digest (copies of `dataset_build.STUDY_*`, pinned equal by a
+   test); its identity payload binds `raw_source_roster_digest`; the evidence file's
+   roster must hash to it and list exactly the planned development archives; and every
+   local archive must equal its roster SHA-256 and size (`dev_*` reasons; a malformed
+   identity payload and duplicate roster URLs are refusals too). Only then are the files
+   copied into the new transport cache. The reused archives have **no official
+   `.CHECKSUM` check**: the development evidence recorded those files as absent offline,
+   so the roster SHA-256 bound inside the identity-verified Dataset is their only
+   evidence.
+4. **Fetch, verify, build.** The tool fetches only the 90 archives, their `.CHECKSUM`
+   files and the exchange rules, through the maintained transport; refuses a missing
+   archive (`fetch_failed`), an unexpected or missing cache member (`archives_*`; any
+   file other than a planned `.bin` with its `.json` sidecar, such as a leftover
+   `.bin.tmp`, is unexpected) and an archive that does not equal its official checksum
+   (`archive_checksum_*`); builds the
+   dataset offline (`allow_network=False`) under `FS1_BUILD_POLICY` (`non_tradable_rows`,
+   4h/1d aggregated from complete 1h windows, zero baked-in costs, the frozen exchange
+   snapshot applied statically); and refuses a gap the policy does not admit
+   (`gap_*`: an irregular timeline, or less than the registry's tradable fraction per
+   symbol over `[2026-08-01, 2027-05-01)`; a few missing bars stay non-tradable rows).
+   That guard reads only timestamps and tradable flags, never a price, return, feature
+   or funding value, and decides nothing about any arm. The span `[2021-01-01,
+   2026-08-01)` is then compared with the identity-verified development Dataset
+   (`dev_span_rebuild_differs`): every identity array must be exactly equal on those
+   rows, except (a) the exchange-rule arrays (`minimum_notional`, `lot_size`,
+   `tick_size`), which come from the freshly retrieved snapshot and are only recorded
+   as equal or not, and (b) on the last development row only, the feature-derived arrays,
+   because a higher-clock placeholder window is visible there in the development build
+   (its `available_at` is the development range end) but not in the longer FS1 build.
+   The result is recorded in the receipt (`development_span_equality`).
+5. **Outputs (the manifest is written last).** The root holds `vision-cache/`,
+   `exchange-info/`, `dataset/` (the published artifact that `--dataset` takes),
+   `acquisition-receipt.json` and `fs1-dataset-seal-manifest.json`. The manifest is the
+   strict seal manifest (`manifest_bytes_from_dataset`): dataset id, symbols, first and
+   last timestamp, bar count, build-policy digest, the fetch authorization, `fetched_utc`
+   (the clock reading before the first request) and `sealed_utc`; its `source_manifest`
+   maps every archive URL to its SHA-256 and binds, under `fs1:` keys, the receipt, the
+   exchange-rule payload, the dataset artifact digest and the development roster digest.
+   The receipt carries what the manifest format has no field for: the builder commit and
+   clean-tree flag, the exact command line, the exchange snapshot, the development reuse
+   identity, the archive roster with its origin and, for fetched archives, the SHA-256
+   of the raw `.CHECKSUM` bytes, the development-span equality result, the gap report
+   and `economic_replay_executed: false`. A refusal after the fetch leaves a partial root with
+   no manifest; it is inspected and removed by hand, and a new run needs a new root (the
+   tool never deletes and never reuses a root).
+6. **Seal record.** `... seal-record --output-root <dir> --sealed-code-sha <sha>` prints
+   (and never posts) the Markdown body of the Issue #810 seal comment after checking the
+   manifest and receipt against the frozen registry and each other: the sealed code
+   commit, `FROZEN_PARAMS_DIGEST`, the build-policy digest, the manifest SHA-256,
+   `fetched_utc`, the authorization URL, the scoring-allowed time (2027-05-02T00:00Z),
+   the builder commit and command, the exchange snapshot, the scoring command with the
+   G4 authorization left as a placeholder, and two procedure notes. **LOW-A:** pre-seal
+   Revision 2 above is covered by the independent-review receipt of the #1049 change.
+   **LOW-B:** a hard kill of the scoring process can leave a zero-byte claimed output
+   file; it is reported on Issue #810 and removed by hand, never silently, and a
+   non-empty output is never removed or replaced.
+
+Limits: the checks are procedural for what no digest can pin (a concrete run's compliance
+with the build policy rests on the receipt's builder commit and command, as G1 says); the
+authorization is a recorded URL, not a verified GitHub identity; the `.CHECKSUM` format
+and the live endpoints are exercised only against fixtures until the authorized run; and
+the tool authorizes nothing: scoring still needs the seal, the manifest, the clock and the
+separate G4 scoring authorization.
+
+### G2 — FS1 independent oracles and the sealed evaluator
+
+The evaluator and the mechanism checks are tested on synthetic data only; the frozen
+registry itself is never scored in tests.
+
+| Oracle | Statement | Test |
+|---|---|---|
+| ORACLE-1 | A pure-Python (no numpy) reference of the annualised portfolio volatility, the VT scale `min(1, cap / vol)`, the kappa-scaled cost vector `kappa * (fee + taker fee + spread)`, the EWMA covariance and the minimum-trade hold rule equals production on 40 random instances and, decision by decision, inside a replay of the FS1-A mechanism, once with reduced parameters and once at the frozen FS1-A parameters read from the pinned protocol (60-day halflife, 0.5% minimum trade, 30-period history; the cap binds on at least ten decisions and the hold rule on at least five); the builders are checked to carry those frozen settings | `tests/evaluation/test_forward_study_mechanism_oracles.py` |
+| ORACLE-2 | The kappa-scaled solve is not beaten by an exhaustive grid plus pattern-search polish on two-asset instances (long/short and long-only). On three-asset instances no random feasible perturbation (single coordinate, pairwise transfer, uniform draw, and a coordinate set exactly onto a kink: its current weight or zero) improves it over 3,000 trials per case; larger kappa never increases trading | same |
+| ORACLE-3 | With `kappa = 1` and no volatility target the policy is bit-identical to a policy with those values spelled out, and its proposals equal an independently written pre-Phase-3 pipeline (pure-Python EWMA covariance, a pure-Python derivative-free solve over all sign directions, its own history and hold rules) to 2e-4 in weight and exactly in the hold set away from the hold threshold; an active mechanism is not identical | same |
+| ORACLE-4 | Future perturbation after the causality cut leaves every decision, quantity, cash and equity value at or before the cut identical for FS1-A, FS1-B and FS1-C in all three scenarios; the probe has power (a deliberate look-ahead arm is detected and its label is `FORWARD_INVALID`) | `tests/evaluation/test_forward_study_fs1.py` |
+| ORACLE-5 | The sealed evaluator refuses, listing every unmet precondition, and reads no dataset and writes no result, unless: the wall clock is at or after 2027-05-02T00:00Z (scoring end plus the 24 h settlement margin); an Issue #810 comment URL is supplied as `--authorization`; the registry equals the frozen digest and the operator-supplied params digest; the checked-out HEAD equals the sealed code SHA in the trade_rl repository with no modified or untracked files; the manifest bytes match the recorded manifest SHA-256, the frozen roster/window and build-policy digest, and record a fetch after settlement; the loaded dataset has a verified content identity equal to the manifest, regular hourly rows, the exact last row and enough tradable bars; the output path does not exist | `tests/evaluation/test_forward_study_seal.py`, `tests/evaluation/test_forward_study_fs1.py`, `tests/architecture/test_forward_study_boundary.py` |
+| Labels | The label rule on fabricated numbers: both falsifiers, the exact 20% boundary, the passive annotation, Bonferroni, and every INVALID path | `tests/evaluation/test_forward_study_labels.py` |
+
+**Known limitations of the machine checks.** The authorization reference is recorded,
+not verified: no code can check who wrote a GitHub comment, so the human decision is
+the real gate. The permit object guards against accidental use, not against a
+developer who bypasses the module on purpose. The code identity relies on the git
+checkout at the sealed commit (the digest of the parameters, not of every transitive
+source file, is pinned in the tree). Scoring is once per output path, not once
+globally. The dataset build policy is pinned as a digest, but a concrete builder run's
+compliance is procedural (see G1). The G2 oracles establish the declared
+mechanism, not its profitability; the solver's fail-closed certificate can reject
+extreme instances (for example a very large kappa with the book exactly on the gross
+limit), which the policy turns into a hold, and a fail-closed share above 10% makes
+the arm `FORWARD_INVALID`. The synthetic scoring path shows that the evaluator runs,
+labels and refuses as specified; it says nothing about the real window.
+
+**Pre-seal revision log.** FS1 is not sealed, so the frozen digest may change, but only
+with a record here and no data in existence.
+
+* Revision 2 (2026-10-30, follow-ups from the result-blind review): no change to the
+  params digest, the falsifiers, the thresholds or the arms. A missing Bonferroni bound
+  now makes the candidate `FORWARD_INVALID` like every other missing number, a
+  candidate summary without `allocator_decisions` is invalid, and a dataset-load failure
+  or output write race is reported as a refusal with no partial output.
+* Revision 1 (2026-10-30, first review): the params digest changed from
+  `2b19ddd3178244f0265723cb471e6d3bbe166b2f453152cf6d0da5529e2e8283` to the digest
+  above. Reasons: the dataset build policy is pinned in the registry (finding L4); a
+  24 h settlement margin is added to the scoring clock (L5); the claim limits state the
+  headline rule. The label rule changed in the output only: `edge_claim_supported` now
+  also requires `survives_bonferroni_k2` (L9); the falsifiers, thresholds and the
+  meaning of `FORWARD_PASS` / `FORWARD_FAIL` / `FORWARD_INVALID` did not change.
+
+**Gate state of this record:** G0, G1 and G2 were recorded ESTABLISHED by the
+result-blind independent review 5702477777 of the FS1 design change at head
+51b8b435a (a design and code review only: it does not seal FS1 and does not replace
+CI, the seal record or the user's authorizations). The FS1 seal record, the
+data-fetch authorization and the G4 scoring authorization are pending; the sealed
+code commit is a later commit that the future Issue #810 seal record will name. G3 is
+not applicable (no forward evidence exists); G4 NOT ESTABLISHED; G5 NOT ESTABLISHED.
+Scoring may not start until the seal record, the dataset manifest, the scoring end
+date plus the settlement margin and both user authorizations exist.
+
 ## AI adversarial review
 
 **AI semantic review is mandatory.** 研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを新設・変更する場合、G4のeconomic resultを生成・閲覧する前にAIがG0-G2をadversarial reviewする。これは任意のコメント欄ではなく、研究を次段階へ進めるためのsemantic gateである。
@@ -586,7 +1032,45 @@ behavior. Terminated child processes must be reaped before evidence upload.
 
 ### Reviewer independence / freshness
 
-既定は、実装Workerとは別の **fresh reviewer context** を持つAI reviewer/sessionで、対象branchへwriteしない **read-only** roleとする。reviewはexact target revisionへbindする。
+研究G0–G5・結果解釈・4h PPO専用reviewでは、実装Workerとは別のfresh reviewer contextと必要なconfigured-model分離を従来どおり使い、reviewをexact target revisionへbindする。一方、Generic software PRの`software_source_review_v2`は運用コストを下げるため**同じconfigured modelを許容**する。このv2はexact-HEADのsoftware source reviewであって、model independence・provider-run provenance・研究result-blind independenceの証明ではない。
+
+### Generic software PR review receipt
+
+`Generic Independent Research Review` はhistorical job名を維持するが、Generic software PRではexact-HEADの**model source review**を要求する。`software_source_review_v2`ではconfigured AIモデルの分離を要求せず、同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
+
+software-onlyのreview inputは、対象のexact HEADと完全なchanged-file patch、影響するcurrent source/tests/authoritative contracts、目的・受入条件・重要なfailure mode・既知の限界を含める。影響しない歴史的な親plan全文や過去のWorker Task IDは必須としない。ただし、検証が必要な境界は省略せず、結論を裏付けるsource・test evidenceを確認する。歴史的なresult-bearing software auditは、fresh result-blind G0–G2 reviewとは別の範囲である。
+
+review本文にはcode fence外に一つの `<!-- independent-research-review-audit -->` と唯一の `### Disposition: APPROVED` を置き、閉じた `independent-review-receipt` fenceを一つ置く。そのJSON envelopeのfieldは `payload` と `sha256` だけである。payloadのfieldは次に限定する。
+
+supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の正規化に使う。indented code、HTML/comment内の見出しやfence、Unicode space/line separatorを使う見出しはstructured dispositionにならない。fenced content外のraw HTMLは必須markerを除きapprovalをfail-closedにする。receipt内のactual reportはJSON dataとしてそのまま保持し、Markdown全体をrender/解釈するauthorityとはしない。
+
+- `schema`: `independent_model_review_v1`。
+- `head_sha`: GitHub APIのcurrent PR headとreviewの`commit_id`と一致する40桁lowercase commit SHA。
+- `publisher_user_id`: review APIのauthenticated actorと一致するnative positive integer。
+- `scope`: `software-only`。
+- `disposition`: visible dispositionと一致する `APPROVED`（rendererは `BLOCKED` も記録できる）。
+- `implementation`: 全実装担当の `{model_id, task_id}` の非空list。
+- `reviewer`: reviewerの `{model_id, task_id}`。
+- `report`: reviewerが実際に出した非空の監査結果本文。model設定の根拠と限界も残す。
+
+model/task IDは実harness configuration・provider receiptまたは実conversation/task identifierから取得し、publisherがその対応をattestする。`UNKNOWN` / `NOT_ESTABLISHED` 等の未確立値、空値、control character、未知field、重複JSON keyは拒否する。IDsはlowercase ASCIIのcanonical identifierを使い、modelのseparator variantsを同じidentityとして比較する。reviewerのmodelは全implementation modelと異なること、reviewerのtaskは全implementation taskと異なること、implementation task IDsが重複しないことを検証する。宣言値を作り替えるだけで実モデルの分離が成立したとは扱わない。
+
+**Generic software-only receipt（`software_source_review_v2`）:** 2026-11-01のowner directionにより、software PRのsemantic reviewは厳密な別model/provenance証明を必須としない。v2 payloadは `schema`、`head_sha`、`publisher_user_id`、`scope=software-only`、`disposition=APPROVED`、`reviewer_model_id`、`review_result=PASS`、`blocking_findings=0`、具体的な`report`の**9 fieldだけ**とする。GitHub review APIのauthenticated actor、review `commit_id`、visible marker/disposition、payload SHA-256は従来どおり検証する。同じconfigured model（例: `gpt-5.6-sol`）を許容し、reviewer model名はpublisher-attested metadataとして記録するが、model independenceやprovider実行を証明したとは扱わない。reportはexact HEADの差分・関連tests/contracts・主要failure modeを実際に読んだreview結果で、80文字未満、unknown model、PASS以外、blocking finding非zeroは拒否する。
+
+旧`software_source_review_v1`は、検証できない`review_jobs`や`diff_sha256`をreceiptに含めていたため**廃止しPENDINGのまま**とする。架空job IDやdigestを新v2へ移植しない。従来`independent_model_review_v1`は互換経路として残し、必要な厳密reviewで使ってよい。Generic v2は経済的review、G0–G5、4h PPO専用review、sealed/unused/final、live authorizationを代替しない。
+`sha256` は **payloadだけ**を `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")` したbytesのSHA-256であり、envelopeのhashをpayloadへ入れない。CIはhashの存在確認だけでなく実payloadから再計算する。authenticated publisher、exact HEAD、disposition、report、model/task metadataがこのdigestへbindされる。これはpublisher attestationの整合性検査であり、providerの実model weightsや真の実装履歴を暗号学的に証明しない。
+
+実reviewのpayloadを用意した後、network-free rendererで投稿本文を作れる。
+
+```bash
+uv run python tools/independent_research_review.py --render-payload-json receipt-payload.json
+```
+
+最新GitHub API evidenceを毎回refetchし、approvalはactorごとの最新marked review IDで評価する。dismissed/pending/changes-requested、stale HEAD、重複review ID、receipt不整合や曖昧なdispositionはapprovalにならない。一方、同じexact HEADのactive submitted marked `BLOCKED` はreceiptがなくても全actor・全review recordで優先し、同じactorの後続APPROVEDでも消去しない。
+
+現行で承認可能なsoftware-only receiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のreview本文を自動でv2 formal approvalへ昇格せず、新しいexact HEADごとにreview APIへv2 receiptを投稿する。
+
+### Separate economic reviewer authority
 
 GitHub上のposting principalはreview transportであり、それ自体をAI reviewerの独立性authorityとしない。同じGitHub principalをauthor/transportとして使う場合、review bodyやtagに `reviewer_independence=ESTABLISHED` と自己申告しただけではG4をauthorizeしない。独立性をmachine-boundに扱う経路では、default branch上でpre-reviewed/frozenされたtrusted reviewer workflow/runnerがfresh Gemini requestを発行し、そのrunからimmutable reviewer attestationを生成する。4h PPO smoke向け `ppo_4h_gemini_reviewer_run_v2` は最低限、reviewed code SHA、annotated review-tag object SHA、trusted workflow SHA/refとworkflow/runner content digest、canonical request PR/comment/requester authority、result-blind packet digest、同じtrusted run内のCore / PPO Runtime / Human Guide verification job identity、canonical system-instruction / Gemini request digest、raw Gemini response digest、Gemini `modelVersion` / `responseId`、G0/G1/G2/dispositionをbindする。具体的なGemini model versionはprovenanceでありvalidator allow-listにはしない。
 
@@ -702,6 +1186,69 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Known limitations:** constraint整合性はpolicyが良いallocationを学習することを証明しない。
 
+### GYM-001 — joint Gym uses the existing native portfolio session
+
+**Statement:** The opt-in `SharedPortfolioGymEnv` maps one fixed-shape action
+vector per native decision into one `SharedPortfolioSession`. It carries the
+same returned book, executor, pending-order state, clock, and hard-risk path
+forward. Reward is the net equity increment divided by fixed initial capital,
+including every interval advanced for reserved terminal settlement. The actor
+cannot bypass risk-owned reductions or emergency flattening.
+
+**Counterexample:** Resetting a per-symbol book between decisions, dropping a
+reserved terminal interval, or marking an unsettled/capacity-limited endpoint
+as a usable settled valuation.
+
+**Oracle:** A literal synthetic account checks action validation before state
+advancement, continuous native settlement, actual fee/equity reward, and the
+terminal book and active-order state. A price-gap case also verifies that the
+reported maximum drawdown is retained even when it exceeds the configured
+stop.
+
+**Known limitations:** The fixed observation is partial; it does not invent
+free/reserved cash and rejects more than one active order per symbol or
+incomplete pending-order price context. `objective_endpoint_valid` only means
+the endpoint is settled, flat, order-free, non-insolvent, and has no
+termination reason. It does not establish all objective/risk/digest checks or
+study admission. A stop cannot prevent a larger realized drawdown after a
+price gap. The existing native insolvency path floors terminal cash/equity at
+zero; the adapter adds no reward clipping but does not establish debt-loss
+semantics below -100% of fixed initial capital. Insolvent episodes remain
+invalid rather than being filtered. This adapter is not a trainer and
+establishes no learned-policy or economic result.
+
+### GYM-002 — forward observation-transform binding
+
+**Statement:** An opt-in forward runtime may reuse a frozen
+`PortfolioObservationTransform` only with its typed training
+`BoundObjectiveClock`. The binding must match the transform's canonical
+training digests and fit window, use the same Dataset, ordered symbols and
+features, capital, risk, execution, and market-order-profile context, and
+preserve every objective and financial-clock field except evaluation start,
+evaluation stop, and economic horizon. The runtime's start index is at or
+after the transform's exclusive training stop. Runtime actor-clock and
+pending-order offsets use the runtime window; fitted statistics are not
+refit.
+
+**Counterexample:** Reusing the statistics on an overlapping window, a changed
+capital/risk/execution context, a different reward or discount contract, or a
+runtime bound whose timestamps do not match the Dataset rows.
+
+**Oracle:** Synthetic tests bind a transform to a contiguous forward window,
+check the runtime clock fractions and unchanged transform payload, and reject
+overlap, mismatched training-bound identity, changed non-temporal objective or
+clock semantics, timestamp mismatch, and tampered runtime-window metadata.
+
+**Known limitations:** This binding does not prove that statistics were
+actually fit using the declared training rows, that feature values were
+available at their historical source time, or that a model/policy was trained
+or is valid for deployment. A direct low-level
+`transform_observation(..., runtime_binding=...)` call assumes the binding was
+already checked against the typed training bound and actual runtime environment
+with `create` or `validate_environment`; the Gym wrapper performs this check.
+Deserializing a binding alone validates its schema and digest, not its live
+environment context. It adds no trainer and no economic evidence.
+
 ### TRAIN-EVAL-001 — train/evaluation account semantics
 
 **Statement:** trainingとevaluationが同じ経済能力を比較すると主張する場合、資本・観測・action・reward・risk・execution/accounting scopeは同じ意味を持つか、差分が事前に研究factorとして明示されていなければならない。
@@ -740,6 +1287,14 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
 
+#### Development reuse tiers
+
+`Tier D` は、入力Datasetと対象scope全体が既にdevelopmentで消費済みだと、既存provenanceから確認できる場合に限る。正確なDataset manifestと`arrays.npz`のSHA-256、既消費scopeを確認し、同じ科学的parameterでのdeterministic reconstruction/evaluation、通常のcode/test/debug、harness起因のtechnical retryを繰り返せる。wrapper・transport・harness errorだけで既消費データを永久retireしない。各attemptは入力manifest/NPZ hash、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはerror・parameters・log参照をappend-onlyで記録する。
+
+`Tier U` はunused、final/sealed、既消費と未使用を含むmixed scope、または消費済みであることを証明できないscopeである。unknown/mixedはTier Uのままにし、既存のauthorization、candidate freeze、one-shot execution、consumed-evidence ledgerを維持する。harness failureを理由に自動downgrade・unsealせず、network fallbackやlive authorityも与えない。
+
+Tier判定は既存provenanceとevidenceを確認する運用policyであり、自動classifierの実装を主張しない。`StudyResearchContext`がbindするのは申告済みconsumptionで、全閲覧を自動証明するものではない。Tier D retryはtechnical reproducibilityのための同じ科学的設定の再実行であり、以前のscientific `FAILED` / `INVALID` を消去・置換したり、結果を見て採用基準や候補parameterを変えたりできない。繰り返し出力はfresh sample、独立generalization、profitabilityの証拠にならない。どちらのtierでも、P&L解釈前のcausal/source/scalar確認、ledger・independent-oracle照合、result-blind semantic reviewを省略できず、経済採用では同じcapital/risk/execution-cost/stress条件を結果前に固定する。
+
 Forward paper screens additionally bind a `carry_paper_attempt_lineage_v2` object
 inside the sealed screen plan. Attempt numbers are consecutive; every successor
 records the predecessor protocol digest, final journal tip, disposition, reason
@@ -755,6 +1310,24 @@ roots. The lineage fields remain caller assertions: the schema alone does not
 authenticate external roots, prevent a caller from claiming a new attempt 1, or
 prove that the declared disposition is truthful. G0 review must verify the
 complete predecessor chain before a successor is sealed.
+
+Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
+v2 valid and unchanged. `available` embeds the verification of a root that the
+existing v1 journal reader read read-only (protocol digest, event count, final tip,
+last observation, root path); `attempt2` cannot build it without a root path that
+passes that read, the generic `seal_paper_study`/`paper.cli seal` refuse any v3
+lineage, and a first `attempt2 launch` re-reads the recorded root and refuses if it
+is gone or differs.
+`unavailable` is the honest case where the preserved root is lost: it records that the
+lineage values come from the prior public result-blind review record (document and
+commit), that they were not re-verified at seal time, the user's statement quoted
+verbatim with its date, and the replacement review rule. For attempt 2 the root is
+unavailable, so the G0 requirement that a fresh review resolve the preserved root is
+replaced, for this case only, by a fresh result-blind review of the lineage
+documentation and the pull request that introduced the rule. This is weaker than
+resolving the root: the predecessor protocol, tip and gap are carried forward from a
+recorded review and are not re-verified, and global attempt uniqueness stays
+unestablished. Disposition remains `invalidated` with reason `observation_gap`.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 

@@ -28,8 +28,10 @@ class Feed(PublicFeed):
         self.next_funding = next_funding
         self.events = events
 
-    def _request_bytes(self, url):
-        payload = json.loads(super()._request_bytes(url))
+    def _request_bytes(self, url, *, max_response_bytes=None):
+        payload = json.loads(
+            super()._request_bytes(url, max_response_bytes=max_response_bytes)
+        )
         milliseconds = int(self.at.timestamp() * 1000)
         if isinstance(payload, dict):
             for key in ("serverTime", "E", "T", "time"):

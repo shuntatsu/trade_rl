@@ -68,6 +68,8 @@ def _reconcile(
     expiry_index: int | None = None,
     limit_offset_rate: float = 0.01,
     tick_size: float | None = None,
+    reduce_only_symbols: tuple[int, ...] | None = None,
+    hold_current_quantity_symbols: tuple[int, ...] = (),
 ):
     return reconcile_target(
         dataset_id="d" * 64,
@@ -86,6 +88,8 @@ def _reconcile(
         limit_offset_rate=limit_offset_rate,
         tick_sizes=None if tick_size is None else np.array([tick_size]),
         maximum_gross=1.0,
+        reduce_only_symbols=reduce_only_symbols,
+        hold_current_quantity_symbols=hold_current_quantity_symbols,
     )
 
 
@@ -102,6 +106,24 @@ def test_reconciliation_does_not_double_submit_matching_active_residual() -> Non
     assert result.order_book.active_orders == (active,)
     np.testing.assert_allclose(result.desired_quantities, [5.0])
     np.testing.assert_allclose(result.residual_quantities, [0.0])
+
+
+def test_exact_quantity_hold_rejects_weight_drift_before_reconciliation() -> None:
+    book = _book(2.0)
+    active = _active(1.0)
+    order_book = OrderBookState(active_orders=(active,), terminal_orders=())
+
+    with pytest.raises(ValueError, match="must equal the current book weight"):
+        _reconcile(
+            target_weight=0.2001,
+            book=book,
+            order_book=order_book,
+            hold_current_quantity_symbols=(0,),
+        )
+
+    assert book.exact_quantities == (Fraction(2),)
+    assert order_book.active_orders == (active,)
+    assert order_book.terminal_orders == ()
 
 
 @pytest.mark.parametrize("order_type", tuple(OrderType))
@@ -213,6 +235,60 @@ def test_legacy_market_flatten_uses_exact_reduce_only_inventory() -> None:
     intent = result.new_intents[0]
     assert intent.requested_quantity == -float(exact_position)
     assert intent.reduce_only
+
+
+@pytest.mark.parametrize(
+    ("reduce_only_symbols", "expected_reduce_only"),
+    (((), False), ((0,), True)),
+)
+def test_zero_target_flatten_keeps_explicit_profile_authority(
+    reduce_only_symbols: tuple[int, ...], expected_reduce_only: bool
+) -> None:
+    result = _reconcile(
+        target_weight=0.0,
+        book=_book(1.0),
+        reduce_only_symbols=reduce_only_symbols,
+    )
+
+    assert result.new_intents[0].requested_quantity == pytest.approx(-1.0)
+    assert result.new_intents[0].reduce_only is expected_reduce_only
+
+
+def test_legacy_partial_market_reduction_is_reduce_only_only_when_over_cap() -> None:
+    over_cap = _reconcile(target_weight=0.9, book=_book(12.0))
+    under_cap = _reconcile(target_weight=0.4, book=_book(8.0))
+
+    assert over_cap.new_intents[0].requested_quantity == pytest.approx(-3.0)
+    assert over_cap.new_intents[0].reduce_only
+    assert under_cap.new_intents[0].requested_quantity == pytest.approx(-4.0)
+    assert not under_cap.new_intents[0].reduce_only
+
+
+@pytest.mark.parametrize("order_type", (OrderType.LIMIT, OrderType.STOP_MARKET))
+def test_legacy_over_cap_partial_reduction_does_not_enable_non_market_reduce_only(
+    order_type: OrderType,
+) -> None:
+    result = _reconcile(
+        target_weight=0.9,
+        book=_book(12.0),
+        order_type=order_type,
+    )
+
+    assert result.new_intents[0].requested_quantity == pytest.approx(-3.0)
+    assert not result.new_intents[0].reduce_only
+
+
+def test_empty_explicit_profile_roster_is_authoritative_for_partial_reductions() -> (
+    None
+):
+    result = _reconcile(
+        target_weight=0.9,
+        book=_book(12.0),
+        reduce_only_symbols=(),
+    )
+
+    assert result.new_intents[0].requested_quantity == pytest.approx(-3.0)
+    assert not result.new_intents[0].reduce_only
 
 
 def test_multi_symbol_reconciliation_reads_exact_inventory_once(

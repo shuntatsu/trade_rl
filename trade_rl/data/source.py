@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 
 
 def _readonly(
@@ -22,6 +25,28 @@ def _readonly(
         contiguous.tobytes(order="C"),
         dtype=contiguous.dtype,
     ).reshape(contiguous.shape)
+
+
+def _timestamp_ns_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    source = np.asarray(value)
+    if source.dtype.kind != "M":
+        return _readonly(value, dtype=np.dtype("datetime64[ns]"))
+
+    unit, _ = np.datetime_data(source.dtype)
+    if unit == "generic":
+        raise ValueError(f"{field_name} must use an explicit datetime64 unit")
+
+    nat_value = np.iinfo(np.int64).min
+    if np.any(source.astype(np.int64) == nat_value):
+        raise ValueError(f"{field_name} must not contain NaT")
+
+    try:
+        normalized = _datetime64_values_to_ns_exact(source)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"{field_name} values must be exactly representable as datetime64[ns]"
+        ) from error
+    return _readonly(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +66,7 @@ class RawMarketSeries:
     funding_event_count: np.ndarray | None = None
 
     def __post_init__(self) -> None:
-        timestamps = _readonly(
-            self.timestamps,
-            dtype=np.dtype("datetime64[ns]"),
-        )
+        timestamps = _timestamp_ns_array(self.timestamps, field_name="timestamps")
         if timestamps.ndim != 1 or not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must be a one-dimensional datetime64 array")
         timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
@@ -52,15 +74,14 @@ class RawMarketSeries:
             raise ValueError("raw market series must not be empty")
         if np.any(timestamp_ns == np.iinfo(np.int64).min):
             raise ValueError("timestamps must not contain NaT")
-        if np.any(np.diff(timestamp_ns) <= 0):
+        if np.any(timestamp_ns[1:] <= timestamp_ns[:-1]):
             raise ValueError("timestamps must be strictly increasing")
 
         available_at_value = (
             timestamps if self.available_at is None else self.available_at
         )
-        available_at = _readonly(
-            available_at_value,
-            dtype=np.dtype("datetime64[ns]"),
+        available_at = _timestamp_ns_array(
+            available_at_value, field_name="available_at"
         )
         if available_at.ndim != 1 or not np.issubdtype(
             available_at.dtype, np.datetime64
@@ -157,6 +178,22 @@ class InMemoryMarketDataSource:
             raise KeyError(f"market source has no symbol {symbol}") from exc
 
 
+_CLOCK_FRACTION = re.compile(
+    r"\d{2}(?:(?::\d{2}(?::\d{2})?)|(?:\d{2}(?:\d{2})?))?"
+    r"[.,](?P<fraction>\d+)\Z"
+)
+_ISO_OFFSET_SUFFIX = re.compile(r"[+-]\d{2}(?::?\d{2})?(?::?\d{2})?(?:[.,]\d+)?\Z")
+_OFFSET_FRACTION = re.compile(r"[.,](?P<fraction>\d+)\Z")
+
+
+def _datetime64_from_ns(timestamp_ns: int) -> np.datetime64:
+    min_value = np.iinfo(np.int64).min + 1
+    max_value = np.iinfo(np.int64).max
+    if not min_value <= timestamp_ns <= max_value:
+        raise ValueError("timestamp is not losslessly representable as datetime64[ns]")
+    return np.datetime64(timestamp_ns, "ns")
+
+
 def _parse_timestamp(value: str) -> np.datetime64:
     raw = value.strip()
     if not raw:
@@ -165,15 +202,71 @@ def _parse_timestamp(value: str) -> np.datetime64:
         numeric = int(raw)
     except ValueError:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        timestamp_text = raw[:-1] if raw.endswith("Z") else raw
+        if parsed.tzinfo is not None and not raw.endswith("Z"):
+            offset_match = _ISO_OFFSET_SUFFIX.search(timestamp_text)
+            if offset_match is None:
+                raise ValueError("timestamp timezone offset is not lossless")
+            offset_text = offset_match.group()
+            offset_fraction_match = _OFFSET_FRACTION.search(offset_text)
+            if offset_fraction_match is not None:
+                offset_fraction = offset_fraction_match.group("fraction")
+                if any(digit != "0" for digit in offset_fraction[6:]):
+                    raise ValueError(
+                        "timestamp fractional precision is not losslessly representable"
+                    )
+                expected_offset_microseconds = int(offset_fraction[:6].ljust(6, "0"))
+                offset = parsed.utcoffset()
+                if (
+                    offset is None
+                    or abs(offset).microseconds != expected_offset_microseconds
+                ):
+                    raise ValueError(
+                        "timestamp timezone offset fraction is not lossless"
+                    )
+            timestamp_text = timestamp_text[: offset_match.start()]
+
+        fractional_ns = 0
+        for time_start in (8, 9, 11):
+            if len(timestamp_text) <= time_start:
+                continue
+            fraction_match = _CLOCK_FRACTION.fullmatch(timestamp_text[time_start:])
+            if fraction_match is not None:
+                fraction = fraction_match.group("fraction")
+                if any(digit != "0" for digit in fraction[9:]):
+                    raise ValueError(
+                        "timestamp fractional precision is not losslessly representable"
+                    )
+                expected_microseconds = int(fraction[:6].ljust(6, "0"))
+                if parsed.microsecond != expected_microseconds:
+                    raise ValueError("timestamp fractional seconds are not lossless")
+                fractional_ns = int(fraction[:9].ljust(9, "0"))
+                break
+        else:
+            if any(
+                separator in timestamp_text[time_start:]
+                for time_start in (8, 9, 11)
+                if len(timestamp_text) > time_start
+                for separator in (".", ",")
+            ):
+                raise ValueError(
+                    "timestamp fractional precision is not losslessly representable"
+                )
+            if parsed.microsecond != 0:
+                raise ValueError("timestamp fractional seconds are not lossless")
+
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-        return np.datetime64(parsed, "ns")
-    scale = 1_000.0 if abs(numeric) >= 1_000_000_000_000 else 1.0
-    parsed = datetime.fromtimestamp(numeric / scale, tz=timezone.utc).replace(
-        tzinfo=None
-    )
-    return np.datetime64(parsed, "ns")
+        parsed = parsed.replace(microsecond=0).astimezone(timezone.utc)
+        delta = parsed - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        timestamp_ns = (
+            (delta.days * 86_400 + delta.seconds) * 1_000_000_000
+            + delta.microseconds * 1_000
+            + fractional_ns
+        )
+        return _datetime64_from_ns(timestamp_ns)
+    scale_ns = 1_000_000 if abs(numeric) >= 1_000_000_000_000 else 1_000_000_000
+    return _datetime64_from_ns(numeric * scale_ns)
 
 
 def _parse_bool(value: str | None, *, default: bool) -> bool:

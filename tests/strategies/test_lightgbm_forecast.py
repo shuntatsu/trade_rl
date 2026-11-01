@@ -4,7 +4,9 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+import trade_rl.strategies.forecasts.lightgbm as lightgbm_module
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastModel,
@@ -69,10 +71,23 @@ def market() -> MarketDataset:
     )
 
 
-def observation(*, available: bool = True) -> StrategyObservation:
+def observation(
+    *,
+    timestamp: np.datetime64 | None = None,
+    available: bool = True,
+    current_intent: PositionIntent = PositionIntent.FLAT,
+    current_weight: float = 0.0,
+    current_position_quantity: float | None = None,
+    intent_gross_budget: float | None = None,
+    same_intent_target_weight: float | None = None,
+) -> StrategyObservation:
     return StrategyObservation(
         index=10,
-        timestamp=np.datetime64("2026-01-01T10:00:00", "ns"),
+        timestamp=(
+            np.datetime64("2026-01-01T10:00:00", "ns")
+            if timestamp is None
+            else timestamp
+        ),
         symbol="BTCUSDT",
         features=np.asarray([10.0, 100.0]),
         feature_available=np.asarray([available, True]),
@@ -81,8 +96,24 @@ def observation(*, available: bool = True) -> StrategyObservation:
         ),
         global_features=np.asarray([0.0]),
         global_feature_available=np.asarray([True]),
-        current_intent=PositionIntent.FLAT,
-        current_weight=0.0,
+        current_intent=current_intent,
+        current_weight=current_weight,
+        current_position_quantity=current_position_quantity,
+        intent_gross_budget=intent_gross_budget,
+        same_intent_target_weight=same_intent_target_weight,
+    )
+
+
+def forecast_model(
+    fit_cutoff: np.datetime64,
+    predictor: FakeRegressor | None = None,
+) -> LightGBMForecastModel:
+    return LightGBMForecastModel(
+        feature_indices=(0,),
+        predictor=FakeRegressor() if predictor is None else predictor,
+        horizon_hours=24,
+        n_samples=100,
+        fit_cutoff=fit_cutoff,
     )
 
 
@@ -115,6 +146,27 @@ def test_fit_uses_shared_causal_rows_and_one_shallow_configuration(monkeypatch) 
     assert model.n_samples == 6
 
 
+def test_fit_rejects_unrepresentable_cutoff_before_estimator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_estimator_is_created() -> object:
+        pytest.fail("LightGBM estimator was created before fit_cutoff validation")
+
+    monkeypatch.setattr(
+        lightgbm_module,
+        "_lightgbm_regressor_factory",
+        fail_if_estimator_is_created,
+    )
+
+    with pytest.raises(ValueError, match=r"fit_cutoff.*datetime64\[ns\]"):
+        fit_lightgbm_forecast(
+            market(),
+            feature_indices=(0, 1),
+            fit_cutoff=np.datetime64("1677-01-01T00:00:00", "s"),
+            horizon_hours=1,
+        )
+
+
 def test_lightgbm_strategy_uses_shared_forecast_controller() -> None:
     model = LightGBMForecastModel(
         feature_indices=(0, 1),
@@ -131,3 +183,170 @@ def test_lightgbm_strategy_uses_shared_forecast_controller() -> None:
 
     assert strategy.decide(observation()) is PositionIntent.LONG
     assert strategy.decide(observation(available=False)) is PositionIntent.FLAT
+
+
+def test_lightgbm_strategy_rejects_future_fit_cutoff_before_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    predictor = FakeRegressor()
+    model = forecast_model(
+        np.datetime64("2026-01-01T10:00:00.000000001", "ns"),
+        predictor,
+    )
+    strategy = LightGBMForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    calls = 0
+
+    def track_prediction(features: np.ndarray) -> np.ndarray:
+        nonlocal calls
+        calls += 1
+        return np.asarray([0.20])
+
+    monkeypatch.setattr(predictor, "predict", track_prediction)
+
+    with pytest.raises(ValueError, match="fit_cutoff must not be later"):
+        strategy.decide(observation(available=False))
+
+    assert calls == 0
+
+
+def test_lightgbm_strategy_allows_observation_at_fit_cutoff() -> None:
+    cutoff = np.datetime64("2026-01-01T10:00:00", "ns")
+    strategy = LightGBMForecastStrategy(
+        forecast_model(cutoff),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+
+    assert strategy.decide(observation(timestamp=cutoff)) is PositionIntent.LONG
+
+
+def test_lightgbm_strategy_rejects_nat_observation_before_unavailable_fallback() -> (
+    None
+):
+    strategy = LightGBMForecastStrategy(
+        forecast_model(np.datetime64("2026-01-01T09:00:00", "ns")),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+
+    with pytest.raises(ValueError, match="observation timestamp must not be NaT"):
+        strategy.decide(
+            observation(
+                timestamp=np.datetime64("NaT", "ns"),
+                available=False,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "fit_cutoff",
+    (
+        np.datetime64("NaT", "ns"),
+        np.datetime64("1677-01-01T00:00:00", "s"),
+        np.datetime64("2026-01-01T00:00:00.000000000001", "ps"),
+    ),
+)
+def test_lightgbm_model_rejects_cutoffs_not_exactly_representable_in_nanoseconds(
+    fit_cutoff: np.datetime64,
+) -> None:
+    with pytest.raises(ValueError, match="fit_cutoff"):
+        forecast_model(fit_cutoff)
+
+
+def test_cost_aware_lightgbm_uses_filled_position_only_when_budget_is_present() -> None:
+    weak_positive_forecast = float(np.log1p(0.005))
+
+    class WeakRegressor:
+        def __init__(self, forecast: float) -> None:
+            self.forecast = forecast
+
+        def predict(self, features: np.ndarray) -> np.ndarray:
+            return np.full(np.asarray(features).shape[0], self.forecast)
+
+    model = LightGBMForecastModel(
+        feature_indices=(0,),
+        predictor=WeakRegressor(weak_positive_forecast),
+        horizon_hours=24,
+        n_samples=100,
+        fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+    )
+    strategy = LightGBMForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.01,
+    )
+
+    same_intent_strategy = LightGBMForecastStrategy(
+        LightGBMForecastModel(
+            feature_indices=(0,),
+            predictor=WeakRegressor(float(np.log1p(-0.0095))),
+            horizon_hours=24,
+            n_samples=100,
+            fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+        ),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.01,
+    )
+    assert (
+        strategy.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+                intent_gross_budget=0.5,
+            )
+        )
+        is PositionIntent.FLAT
+    )
+    assert (
+        strategy.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+            )
+        )
+        is PositionIntent.LONG
+    )
+
+    assert (
+        same_intent_strategy.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.45,
+                current_position_quantity=5.0,
+                intent_gross_budget=0.5,
+                same_intent_target_weight=0.45,
+            )
+        )
+        is PositionIntent.LONG
+    )
+
+    baseline = LightGBMForecastStrategy(
+        LightGBMForecastModel(
+            feature_indices=(0,),
+            predictor=WeakRegressor(0.05),
+            horizon_hours=24,
+            n_samples=100,
+            fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+        ),
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    assert (
+        baseline.decide(
+            observation(
+                current_intent=PositionIntent.LONG,
+                current_weight=0.0,
+                current_position_quantity=0.0,
+                intent_gross_budget=0.5,
+            )
+        )
+        is PositionIntent.LONG
+    )

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from numbers import Integral
 
 import numpy as np
 
 from trade_rl._validation import require_sha256, require_unique_non_empty
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.identity import (
     canonical_identity_json,
@@ -31,6 +33,21 @@ def _readonly_array(
         contiguous.tobytes(order="C"),
         dtype=contiguous.dtype,
     ).reshape(contiguous.shape)
+
+
+def _datetime64_ns_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    source = np.asarray(value)
+    if not np.issubdtype(source.dtype, np.datetime64):
+        raise ValueError(f"{field_name} must use a datetime64 dtype")
+    if np.isnat(source).any():
+        raise ValueError(f"{field_name} must not contain NaT")
+    try:
+        normalized = _datetime64_values_to_ns_exact(source)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"{field_name} must be exactly representable as datetime64[ns]"
+        ) from error
+    return _readonly_array(normalized, dtype=np.dtype("datetime64[ns]"))
 
 
 def _optional_array(
@@ -140,8 +157,14 @@ class MarketDataset:
             self.global_feature_names,
             field="global_feature_names",
         )
-        if self.periods_per_year <= 0:
-            raise ValueError("periods_per_year must be positive")
+        periods_per_year: object = self.periods_per_year
+        if (
+            isinstance(periods_per_year, bool)
+            or not isinstance(periods_per_year, Integral)
+            or periods_per_year <= 0
+        ):
+            raise ValueError("periods_per_year must be a positive integer")
+        object.__setattr__(self, "periods_per_year", int(periods_per_year))
         try:
             calendar_kind = MarketCalendarKind(self.calendar_kind)
         except ValueError as error:
@@ -169,17 +192,25 @@ class MarketDataset:
             raise ValueError("timestamps must be one-dimensional")
         if not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must use a datetime64 dtype")
+        normalized_timestamps = _datetime64_ns_array(
+            timestamps,
+            field_name="timestamps",
+        )
         timestamp_ns = _readonly_array(
-            timestamps.astype("datetime64[ns]").astype(np.int64),
+            normalized_timestamps.astype(np.int64),
             dtype=np.dtype(np.int64),
         )
         n_bars = timestamp_ns.shape[0]
         n_symbols = len(symbols)
         if n_bars < 3:
             raise ValueError("market dataset requires at least three bars")
+        if np.any(timestamp_ns[1:] <= timestamp_ns[:-1]):
+            raise ValueError("timestamps must be strictly increasing")
         deltas = np.diff(timestamp_ns)
         if np.any(deltas <= 0):
-            raise ValueError("timestamps must be strictly increasing")
+            raise ValueError(
+                "timestamp intervals must be representable as positive nanoseconds"
+            )
 
         bar_duration_ns: int | None
         if calendar_kind is MarketCalendarKind.CONTINUOUS:
@@ -238,13 +269,20 @@ class MarketDataset:
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
 
-        event_times = np.broadcast_to(
-            timestamps.astype("datetime64[ns]")[:, None], price_shape
-        )
-        available_at = _readonly_array(
-            event_times if self.available_at is None else self.available_at,
-            dtype=np.dtype("datetime64[ns]"),
-        )
+        event_times = np.broadcast_to(normalized_timestamps[:, None], price_shape)
+        if self.available_at is None:
+            available_at = _readonly_array(
+                event_times,
+                dtype=np.dtype("datetime64[ns]"),
+            )
+        else:
+            available_source = np.asarray(self.available_at)
+            if available_source.shape != price_shape:
+                raise ValueError("available_at shape does not match bars and symbols")
+            available_at = _datetime64_ns_array(
+                available_source,
+                field_name="available_at",
+            )
         if available_at.shape != price_shape:
             raise ValueError("available_at shape does not match bars and symbols")
         available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
@@ -1031,3 +1069,42 @@ class MarketDataset:
                     raw * multipliers[symbol_index] * price_vector[symbol_index]
                 )
         return result
+
+
+def _require_available_marks_at_row(
+    dataset: MarketDataset,
+    *,
+    row_index: int,
+    selected_symbol_indices: Sequence[int],
+    held_quantities: np.ndarray | None = None,
+) -> None:
+    """Reject declared-late row marks before a named consumer processes them."""
+
+    if isinstance(row_index, bool) or not isinstance(row_index, int):
+        raise ValueError("decision-time mark row index must be an integer")
+    if not 0 <= row_index < dataset.n_bars:
+        raise ValueError("decision-time mark row index is outside the dataset")
+    if held_quantities is not None and held_quantities.shape != (dataset.n_symbols,):
+        raise ValueError("held quantities do not match market symbols")
+
+    relevant_symbols = set(selected_symbol_indices)
+    if held_quantities is not None:
+        relevant_symbols.update(
+            int(symbol_index) for symbol_index in np.flatnonzero(held_quantities != 0.0)
+        )
+    available_at = dataset.available_at
+    assert available_at is not None
+    timestamp = dataset.timestamps[row_index]
+    late_symbols = sorted(
+        symbol_index
+        for symbol_index in relevant_symbols
+        if available_at[row_index, symbol_index] > timestamp
+    )
+    if late_symbols:
+        names = ", ".join(dataset.symbols[index] for index in late_symbols)
+        raise ValueError(
+            "decision-time mark unavailable for "
+            f"{names} at row {row_index}: "
+            f"available_at={available_at[row_index, late_symbols[0]]}, "
+            f"timestamp={timestamp}"
+        )

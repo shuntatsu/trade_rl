@@ -9,6 +9,10 @@ import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -104,6 +108,27 @@ def _two_symbol_market() -> MarketDataset:
     )
 
 
+def _with_late_mark(
+    dataset: MarketDataset,
+    *,
+    row_index: int,
+    symbol_index: int = 0,
+) -> MarketDataset:
+    assert dataset.available_at is not None
+    assert dataset.information_available is not None
+    available_at = dataset.available_at.copy()
+    information_available = dataset.information_available.copy()
+    available_at[row_index, symbol_index] = dataset.timestamps[
+        row_index
+    ] + np.timedelta64(1, "h")
+    information_available[row_index, symbol_index] = False
+    return replace(
+        dataset,
+        available_at=available_at,
+        information_available=information_available,
+    )
+
+
 def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> None:
     run_replay = getattr(evaluation, "run_single_symbol_replay", None)
     assert callable(run_replay), "lean single-symbol replay is not implemented"
@@ -131,8 +156,170 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     first_observation = strategy.observations[0]
     assert getattr(first_observation, "symbol") == "BTCUSDT"
     assert getattr(first_observation, "index") == 0
+    assert getattr(first_observation, "intent_gross_budget") == 0.5
     features = getattr(first_observation, "features")
     assert features.flags.writeable is False
+
+
+def test_cost_aware_replay_cancels_unfilled_stale_long_before_latency_fill() -> None:
+    weak_forecast = float(np.log1p(0.005))
+    forecast_values = np.asarray(
+        [0.11, weak_forecast, weak_forecast, -0.02, -0.02, -0.02],
+        dtype=np.float32,
+    )
+    n_bars = forecast_values.size
+    price = np.full((n_bars, 1), 100.0, dtype=np.float64)
+    dataset = MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("SYNTH",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=forecast_values.reshape(n_bars, 1, 1),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=price.copy(),
+        high=price.copy(),
+        low=price.copy(),
+        close=price.copy(),
+        volume=np.full((n_bars, 1), 10.0),
+        funding_rate=np.zeros((n_bars, 1)),
+        tradable=np.ones((n_bars, 1), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
+        feature_names=("literal_forecast",),
+        global_feature_names=("constant",),
+        periods_per_year=8_760,
+    )
+    model = RidgeForecastModel(
+        feature_indices=(0,),
+        feature_mean=np.asarray([0.0]),
+        feature_scale=np.asarray([1.0]),
+        coefficients=np.asarray([1.0]),
+        intercept=0.0,
+        horizon_hours=1,
+        alpha=1.0,
+        n_samples=1,
+        fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+    )
+    strategy = RidgeForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.01,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=0.5,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+            emergency_turnover_override=True,
+            fail_closed_tolerance=1e-10,
+        )
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        strategy,
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            fee_rate=0.01,
+            max_participation_rate=0.01,
+            order_latency_bars=2,
+        ),
+        risk=risk,
+        minimum_hold_bars=0,
+        settle_terminal_position=False,
+    )
+
+    assert result.decisions[0].intent is PositionIntent.LONG
+    assert result.decisions[1].intent is PositionIntent.FLAT
+    assert result.decisions[1].changed_intent
+    assert result.book.fill_count == 0
+    assert result.book.total_cost == pytest.approx(0.0)
+    assert result.book.turnover_total == pytest.approx(0.0)
+    np.testing.assert_array_equal(result.book.quantities, np.zeros(1))
+    assert result.active_order_remainders == ()
+
+
+def test_replay_rejects_late_start_mark_before_strategy_observation() -> None:
+    strategy = AlwaysLong()
+
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        evaluation.run_single_symbol_replay(
+            _with_late_mark(_rising_market(), row_index=0),
+            strategy,
+            start_index=0,
+            stop_index=4,
+            gross_budget=0.5,
+        )
+
+    assert strategy.observations == []
+
+
+def test_replay_allows_on_time_row_with_false_information_flag() -> None:
+    dataset = _rising_market()
+    assert dataset.available_at is not None
+    assert dataset.information_available is not None
+    information_available = dataset.information_available.copy()
+    information_available[2, 0] = False
+    on_time_unavailable = replace(
+        dataset,
+        information_available=information_available,
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        on_time_unavailable,
+        AlwaysLong(),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+    )
+
+    assert len(result.decisions) == 4
+
+
+def test_replay_ignores_late_unused_tail_and_unselected_flat_symbol() -> None:
+    late_tail = _with_late_mark(_rising_market(), row_index=4)
+    tail_result = evaluation.run_single_symbol_replay(
+        late_tail,
+        AlwaysLong(),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+    )
+    assert len(tail_result.returns.values) == 3
+
+    late_unselected = _with_late_mark(_two_symbol_market(), row_index=2, symbol_index=1)
+    selected_result = evaluation.run_single_symbol_replay(
+        late_unselected,
+        AlwaysLong(),
+        symbol_index=0,
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+    )
+    assert selected_result.book.quantities[1] == 0.0
+    assert len(selected_result.decisions) == 4
+
+
+def test_terminal_settlement_rejects_late_target_before_processing_it() -> None:
+    strategy = AlwaysLong()
+
+    with pytest.raises(ValueError, match="decision-time mark unavailable"):
+        evaluation.run_single_symbol_replay(
+            _with_late_mark(_rising_market(), row_index=4),
+            strategy,
+            start_index=0,
+            stop_index=4,
+            gross_budget=0.5,
+            settle_terminal_position=True,
+        )
+
+    assert [item.index for item in strategy.observations] == [0, 1, 2]
 
 
 def test_replay_exposes_terminal_active_order_remainders() -> None:

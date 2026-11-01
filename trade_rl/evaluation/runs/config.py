@@ -4,20 +4,26 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import ClassVar, cast
 
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import (
     LeanCandidateConfig,
     require_age_aware_hourly_clock,
 )
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
+)
 from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMA,
     PPO_OBSERVATION_SCHEMA_V3,
@@ -38,6 +44,14 @@ _SUPPORTED_EXECUTION_OVERLAYS = frozenset(
         CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
     }
 )
+_ISO_YEAR_OR_MONTH = re.compile(r"\d{4}(?:-\d{2})?\Z")
+_ISO_SECOND_FRACTION = re.compile(
+    r"[Tt ]\d{2}:\d{2}:\d{2}[.,](?P<fraction>\d+)"
+    r"(?:[zZ]|[+-]\d{2}(?::?\d{2})?)?\Z"
+)
+_ANY_SECOND_FRACTION = re.compile(r".\d{2}:\d{2}:\d{2}[.,]\d+")
+_MIN_DATETIME64_NS = -(1 << 63) + 1  # The int64 minimum is reserved for NaT.
+_MAX_DATETIME64_NS = (1 << 63) - 1
 
 
 def _validated_execution_overlay(value: object) -> str:
@@ -72,6 +86,7 @@ class CandidateRunConfig:
         "ppo_observation_schema",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
+        "supervised_forecast_horizon_hours",
     )
 
     signal_name: str
@@ -94,6 +109,7 @@ class CandidateRunConfig:
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    supervised_forecast_horizon_hours: int = 24
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -188,6 +204,10 @@ class CandidateRunConfig:
             raise ValueError(
                 "pretrade_risk_config must be a PreTradeRiskConfig or null"
             )
+        supervised_forecast_horizon_hours = validate_supervised_forecast_horizon_hours(
+            self.supervised_forecast_horizon_hours,
+            field="supervised_forecast_horizon_hours",
+        )
         if self.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
             if not self.ppo_settle_terminal_position:
                 raise ValueError(
@@ -213,6 +233,11 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(
+            self,
+            "supervised_forecast_horizon_hours",
+            supervised_forecast_horizon_hours,
+        )
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""
@@ -281,13 +306,92 @@ def _normalized_timestamp(
     *,
     field: str,
 ) -> np.datetime64:
-    try:
-        resolved = np.datetime64(value, "ns")
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field} must be an ISO datetime") from error
-    if np.isnat(resolved):
+    if not isinstance(value, str):
+        return _normalized_datetime64(value, field=field)
+    if value.casefold() == "nat":
         raise ValueError(f"{field} must not be NaT")
-    return resolved
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        # NumPy accepts year-only and year-month ISO values that
+        # datetime.fromisoformat does not. Keep those coarse forms while
+        # validating the conversion against their original unit below.
+        if _ISO_YEAR_OR_MONTH.fullmatch(value) is None:
+            raise ValueError(f"{field} must be an ISO datetime") from error
+        try:
+            coarse_timestamp = np.datetime64(value)
+        except (TypeError, ValueError, OverflowError) as conversion_error:
+            raise ValueError(f"{field} must be an ISO datetime") from conversion_error
+        return _normalized_datetime64(coarse_timestamp, field=field)
+
+    # Keep NumPy's original RunConfig ISO syntax admission, but discard its
+    # converted value because that cast can wrap or truncate precision.
+    try:
+        np.datetime64(value, "ns")
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{field} must be an ISO datetime") from error
+
+    fraction_match = _ISO_SECOND_FRACTION.search(value)
+    if fraction_match is None:
+        if parsed.microsecond != 0 or _ANY_SECOND_FRACTION.search(value):
+            raise ValueError(
+                f"{field} must be losslessly representable as datetime64[ns]"
+            )
+        fractional_ns = 0
+    else:
+        fraction = fraction_match.group("fraction")
+        if any(digit != "0" for digit in fraction[9:]):
+            raise ValueError(
+                f"{field} must be losslessly representable as datetime64[ns]"
+            )
+        expected_microseconds = int(fraction[:6].ljust(6, "0"))
+        if parsed.microsecond != expected_microseconds:
+            raise ValueError(
+                f"{field} must be losslessly representable as datetime64[ns]"
+            )
+        fractional_ns = int(fraction[:9].ljust(9, "0"))
+
+    # datetime.fromisoformat validates the original calendar before narrowing.
+    # Compute with Python integers so an out-of-range instant cannot wrap into a
+    # different, apparently valid datetime64[ns] value.
+    wall_time = parsed.replace(tzinfo=None, microsecond=0)
+    elapsed = wall_time - datetime(1970, 1, 1)
+    timestamp_ns = (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000
+    timestamp_ns += fractional_ns
+    offset = parsed.utcoffset()
+    if offset is not None:
+        offset_ns = (offset.days * 86_400 + offset.seconds) * 1_000_000_000
+        timestamp_ns -= offset_ns + offset.microseconds * 1_000
+
+    if not _MIN_DATETIME64_NS <= timestamp_ns <= _MAX_DATETIME64_NS:
+        raise ValueError(f"{field} must be losslessly representable as datetime64[ns]")
+    return np.datetime64(timestamp_ns, "ns")
+
+
+def _normalized_datetime64(
+    value: np.datetime64,
+    *,
+    field: str,
+) -> np.datetime64:
+    try:
+        source = np.datetime64(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{field} must be an ISO datetime") from error
+    if np.isnat(source):
+        raise ValueError(f"{field} must not be NaT")
+    if np.datetime_data(source.dtype)[0] == "generic":
+        raise ValueError(f"{field} must be an ISO datetime")
+
+    try:
+        resolved = _datetime64_values_to_ns_exact(np.asarray(source))
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            f"{field} must be losslessly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(resolved):
+        raise ValueError(f"{field} must be losslessly representable as datetime64[ns]")
+    return cast(np.datetime64, resolved[()])
 
 
 def _require_finite(value: object, *, field: str) -> float:
@@ -374,6 +478,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     settle_terminal_position = raw.get("ppo_settle_terminal_position", False)
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("ppo_settle_terminal_position must be boolean")
+    supervised_forecast_horizon_hours = raw.get("supervised_forecast_horizon_hours", 24)
     risk_payload = raw.get("pretrade_risk_config")
     risk_config: PreTradeRiskConfig | None = None
     if risk_payload is not None:
@@ -442,6 +547,9 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         ppo_observation_schema=observation_schema,
         ppo_settle_terminal_position=settle_terminal_position,
         pretrade_risk_config=risk_config,
+        supervised_forecast_horizon_hours=(
+            supervised_forecast_horizon_hours  # type: ignore[arg-type]
+        ),
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
     )
@@ -535,6 +643,7 @@ def resolve_candidate_run_spec(
         ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
         ppo_observation_schema=config.ppo_observation_schema,
         ppo_settle_terminal_position=config.ppo_settle_terminal_position,
+        supervised_forecast_horizon_hours=(config.supervised_forecast_horizon_hours),
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

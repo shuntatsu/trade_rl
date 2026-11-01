@@ -5,9 +5,11 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import cast
 
 import numpy as np
 
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
     SharedCashStrategyComparisonEntry,
@@ -19,6 +21,7 @@ from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.dataset_scope import validated_symbol_indices
 from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
@@ -26,6 +29,9 @@ from trade_rl.strategies.forecasts.lightgbm import (
 from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
+)
+from trade_rl.strategies.forecasts.supervised import (
+    validate_supervised_forecast_horizon_hours,
 )
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
@@ -47,6 +53,29 @@ from trade_rl.strategies.rules.mean_reversion import (
 from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
 
 
+def _normalized_fit_cutoff(value: np.datetime64 | str | int) -> np.datetime64:
+    if not isinstance(value, np.datetime64):
+        # Keep the pre-existing convenience conversion for non-typed callers.
+        # Canonical raw ISO RunConfig values are validated before reaching here.
+        return np.datetime64(value, "ns")
+
+    if np.isnat(value):
+        raise ValueError("fit_cutoff must not be NaT")
+    if np.datetime_data(value.dtype)[0] == "generic":
+        raise ValueError("fit_cutoff must have a datetime unit")
+    try:
+        normalized = _datetime64_values_to_ns_exact(np.asarray(value))
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            "fit_cutoff must be losslessly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(normalized):
+        raise ValueError(
+            "fit_cutoff must be losslessly representable as datetime64[ns]"
+        )
+    return cast(np.datetime64, normalized[()])
+
+
 @dataclass(frozen=True, slots=True)
 class LeanCandidateConfig:
     """Only the pre-registered degrees of freedom for the initial M2 suite."""
@@ -66,6 +95,7 @@ class LeanCandidateConfig:
     ppo_minimum_hold_bars: int = 0
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
+    supervised_forecast_horizon_hours: int = 24
 
     def __post_init__(self) -> None:
         if (
@@ -94,12 +124,16 @@ class LeanCandidateConfig:
             ("rule_entry_threshold", self.rule_entry_threshold),
             ("forecast_entry_threshold", self.forecast_entry_threshold),
         ):
+            if isinstance(value, bool):
+                raise ValueError(f"{field_name} must not be a boolean")
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{field_name} must be finite and positive")
         for field_name, value in (
             ("rule_exit_threshold", self.rule_exit_threshold),
             ("forecast_exit_threshold", self.forecast_exit_threshold),
         ):
+            if isinstance(value, bool):
+                raise ValueError(f"{field_name} must not be a boolean")
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
         if self.rule_exit_threshold >= self.rule_entry_threshold:
@@ -151,19 +185,41 @@ class LeanCandidateConfig:
             raise ValueError("PPO minimum hold requires the age-aware observation")
         if not isinstance(self.ppo_settle_terminal_position, bool):
             raise ValueError("ppo_settle_terminal_position must be boolean")
+        supervised_forecast_horizon_hours = validate_supervised_forecast_horizon_hours(
+            self.supervised_forecast_horizon_hours,
+            field="supervised_forecast_horizon_hours",
+        )
+        fit_cutoff = _normalized_fit_cutoff(self.fit_cutoff)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
-        object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "fit_cutoff", fit_cutoff)
+        object.__setattr__(
+            self,
+            "supervised_forecast_horizon_hours",
+            supervised_forecast_horizon_hours,
+        )
 
 
 def _ppo_training_stop_index(
     dataset: MarketDataset,
     fit_cutoff: np.datetime64,
+    fit_symbol_indices: tuple[int, ...],
 ) -> int:
     eligible = np.flatnonzero(dataset.timestamps < fit_cutoff)
     if eligible.size < 2:
         raise ValueError("PPO fitting requires at least two bars before fit_cutoff")
-    return int(eligible[-1])
+    stop_index = int(eligible[-1])
+    fit_symbols = validated_symbol_indices(dataset, fit_symbol_indices)
+    symbol_index_array = np.asarray(fit_symbols, dtype=np.intp)
+    training_availability = dataset.resolved_array("available_at")[: stop_index + 1, :][
+        :, symbol_index_array
+    ]
+    if np.any(training_availability > fit_cutoff):
+        raise ValueError(
+            "PPO training bar price availability exceeds fit_cutoff "
+            "for selected fit symbols"
+        )
+    return stop_index
 
 
 def require_age_aware_hourly_clock(
@@ -235,12 +291,18 @@ def run_lean_candidate_suite(
     if dataset.timestamps[start_index] < config.fit_cutoff:
         raise ValueError("evaluation must not start before fit_cutoff")
 
+    ppo_training_stop_index = _ppo_training_stop_index(
+        dataset,
+        config.fit_cutoff,
+        config.fit_symbol_indices,
+    )
+
     ridge_model = fit_ridge_forecast(
         dataset,
         feature_indices=config.feature_indices,
         fit_symbol_indices=config.fit_symbol_indices,
         fit_cutoff=config.fit_cutoff,
-        horizon_hours=24,
+        horizon_hours=config.supervised_forecast_horizon_hours,
         alpha=1.0,
     )
     lightgbm_model = fit_lightgbm_forecast(
@@ -248,7 +310,7 @@ def run_lean_candidate_suite(
         feature_indices=config.feature_indices,
         fit_symbol_indices=config.fit_symbol_indices,
         fit_cutoff=config.fit_cutoff,
-        horizon_hours=24,
+        horizon_hours=config.supervised_forecast_horizon_hours,
         random_state=0,
     )
     ppo_strategy = fit_ppo_strategy(
@@ -256,7 +318,7 @@ def run_lean_candidate_suite(
         feature_indices=config.feature_indices,
         fit_symbol_indices=config.fit_symbol_indices,
         start_index=0,
-        stop_index=_ppo_training_stop_index(dataset, config.fit_cutoff),
+        stop_index=ppo_training_stop_index,
         gross_budget=gross_budget,
         total_timesteps=config.ppo_total_timesteps,
         seed=config.ppo_seed,
@@ -293,15 +355,19 @@ def run_lean_candidate_suite(
         "constant_short": lambda: ConstantIntentStrategy(PositionIntent.SHORT),
         "trend": lambda: TrendIntentStrategy(trend_config),
         "mean_reversion": lambda: MeanReversionIntentStrategy(mean_reversion_config),
-        "ridge24": lambda: RidgeForecastStrategy(
-            ridge_model,
-            entry_threshold=config.forecast_entry_threshold,
-            exit_threshold=config.forecast_exit_threshold,
+        f"ridge{config.supervised_forecast_horizon_hours}": lambda: (
+            RidgeForecastStrategy(
+                ridge_model,
+                entry_threshold=config.forecast_entry_threshold,
+                exit_threshold=config.forecast_exit_threshold,
+            )
         ),
-        "lightgbm24": lambda: LightGBMForecastStrategy(
-            lightgbm_model,
-            entry_threshold=config.forecast_entry_threshold,
-            exit_threshold=config.forecast_exit_threshold,
+        f"lightgbm{config.supervised_forecast_horizon_hours}": lambda: (
+            LightGBMForecastStrategy(
+                lightgbm_model,
+                entry_threshold=config.forecast_entry_threshold,
+                exit_threshold=config.forecast_exit_threshold,
+            )
         ),
         "ppo": lambda: PPOIntentStrategy(
             ppo_strategy.policy,

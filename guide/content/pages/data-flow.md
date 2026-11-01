@@ -34,6 +34,8 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 source URL、SHA-256、size、取引所metadata等を保存し、再取得時にも同じ入力だったか照合できる状態にします。
 
+CSVのevent timeと `available_at` は、ISO日時本体のfractionをnanosecondまで保って読み込みます。timezone offsetに小数秒を含む場合はmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあれば拒否します（余分な桁がすべてzeroなら値は失われません）。integer epochは既存の秒/millisecond判定を整数演算で適用し、範囲外やnanosecond未満の精度を失う値は拒否します。1ns遅れたavailabilityも同時刻へ丸めず、後段の特徴量生成まで遅れとして保ちます。
+
 ## 3. 未来情報を混ぜずに特徴量を作る
 
 基本条件は次です。
@@ -42,7 +44,15 @@ source URL、SHA-256、size、取引所metadata等を保存し、再取得時に
 feature_available_time <= decision_time
 ```
 
-加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelもfit boundaryの内側で完結させます。
+加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelは終了時刻がfit cutoffより前で、Datasetが宣言するstart/end価格sourceの利用可能時刻もcutoffまでのものだけを使います。forecast training builderのcutoffと`CausalForecastTrainingSet`へ直接渡す`label_end_times`は、元のdatetime64 unitと正のmultiplier metadataから正確な整数演算でns値を求め、signed-nanosecond範囲を確認してから正規化します。multiplierが0以下のunit metadataは値の意味が定まらないため拒否します。固定長unitでは正確な整数比を使い、calendar `Y` / `M`は暦日の境界をns値へ変換します。`NaT`、範囲外へのwrap、nanosecond未満の端数はscopeやlabel maturity比較より前に拒否します。cast後に元unitへ戻るかだけでは、overflowを検出できません。availabilityはDatasetが宣言する値であり、独立したvenue到着証拠ではありません。Dataset境界ではtimestampsと明示available_atもns時計で検証し、範囲外へのwrap、nanosecond未満の端数の切り捨て、NaTを拒否します。有効なcoarser-unit timestampsの入力表現は維持し、available_atはnsへ正規化します。Candidate Runの`fit_cutoff`、`evaluation_start`、`evaluation_stop_exclusive`も、元ISO値のcalendar/range/precisionを確認してからnsへ正規化し、範囲外のwrapとnon-zero sub-nanosecond桁を拒否します。timezone offsetのUTC等価化は維持します。入力前に既にwrapされた`datetime64[ns]`値の元時刻は復元できません。
+
+`LeanCandidateConfig`を直接構築するときのtyped `fit_cutoff`も、Dataset、`RawMarketSeries`、forecast cutoff/labelsと共有するinternal data helperで整数演算のlosslessなns正規化を行います。範囲外、`NaT`、nanosecond未満の端数を拒否します。入力前に既にwrapされた`datetime64[ns]`から元時刻を復元することはできません。
+
+Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否します。同時刻は許します。これは宣言fit cutoffに対するas-of floorで、modelの生成・配布時刻や過去のvintage availabilityは証明しません。`StrategyObservation`構築前に既にwrapされたtimestampも復元できません。
+
+PPOを含む候補群を学習する前に、学習対象の銘柄について、学習に使う価格の利用可能時刻が締切までとDatasetに記録されているかを確認します。報酬計算や最終決済で使う末尾の価格も対象です。遅れて届いた価格があれば、学習期間を短くして続けずに停止します。ここで確認するのはDatasetに記録された利用可能時刻であり、実際のvenue arrivalを独立に証明するものではありません。
+
+fit cutoffとは別に、single-symbol/shared-cash replayとPPO環境は、次に処理する各bar行の `available_at` がその行のtimestampより後なら、帳簿・risk・strategy・executionへ渡す前に停止します。直接`MarketExecutor.execute_interval`のtarget admissionでも、有効なtargetが非zero、または帳簿にnonzeroのexact holdingがある銘柄のtarget rowが遅着なら、valuation・reconciliation前に停止します。同時刻のavailabilityは通し、`information_available=False`だけでは拒否しません。flat accountのzero targetによるpending order cancelは許し、未選択flat銘柄や未処理tailは調べません。これはDatasetの宣言時刻に対する範囲限定runtime guardです。明示`mark_price`・外部帳簿markの独立時刻、明示`OrderIntent`実行、直接close liquidation、過去のvenue arrivalまでは保証しません。cutoff preflightが通っても、実行行のavailability contractを代替するものではありません。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。
 
@@ -56,6 +66,8 @@ feature_available_time <= decision_time
 
 MarketDatasetの配列、availability、staleness、execution economics、identityをartifactへ固定し、publish後に再読込してcontent identityを検証します。
 
+annualization clockの`periods_per_year`はpositive integerで固定し、boolean・fractional・non-finiteな値はDataset境界で拒否します。
+
 同じpublication先が既に存在する場合は、静かに上書きせずfail closedにします。
 
 ## 6. 候補strategyは同じDatasetを見る
@@ -68,9 +80,12 @@ strategy出力はhard riskと`MarketExecutor + BookState`を通し、summaryだ�
 
 結果の意味を後から検証できるようにするためです。
 
+Scenario v2には、その既存native four-arm結果を各arm後に保存し、before/after provenanceとsource records、外部identity、expected result digestをstrict reloadで確認してからcompleteにするone-shot local attemptもあります。これはsoftware-integrity recordであり、別の帳簿や損益計算、研究判定を追加しません。
+
 ## 不変条件
 
 - `feature_available_time <= decision_time`。
+- forecast training cutoffはlosslessな`datetime64[ns]`値である。
 - fit-scope外の情報をtraining transformへ戻さない。
 - Dataset identityを一致させるための後付けroundingをしない。
 - strategy間でDataset、risk、execution/accounting条件を変えない。

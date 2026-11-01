@@ -32,7 +32,12 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
+      "sha256": "9499883e61c9115abf73def2a69a1d27fa77f118eedc68e6a89076b99a14d64c"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Artifact and evidence rules",
+      "sha256": "0b310e4a5c3bf66993babe901063aaf6f0fe99bf3b7ab4b1bc70952bab619f5e"
     }
   ],
   "code_references": [
@@ -128,7 +133,7 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "e5dc261e179dd94193b854923766847cce554dd2207d7553b074ecf2436bf481",
+      "source_sha256": "66cf83cd1e352ed2d0bf050cbe9a36e64f279640aa8c6af337faba170b2c9510",
       "label_ja": "PPO環境を1ステップ進める",
       "description_ja": "actionを売買意図へ変換します。最小保有期間中はFLAT・反対方向を実約定側へ抑制しますが、hard riskはいつでも縮小・flattenできます。約定後の年齢を更新し、terminal settlement有効時は最後に同じrisk/execution経路でFLATを処理します。",
       "variables": [
@@ -223,6 +228,25 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "env-execution-observer",
+      "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.__init__",
+      "kind": "method",
+      "source_sha256": "02dab6a016f7018b54939395f45ff7c392fe7dcc1b33f27196441335171f1f26",
+      "label_ja": "PPO環境へ任意のexecution observerを渡す",
+      "description_ja": "指定したobserverだけをMarketExecutorへ渡します。省略時はNoneで、通常のfitへ診断traceを接続しません。",
+      "variables": [
+        {
+          "name": "execution_observer",
+          "label_ja": "任意の実行観測callback",
+          "description_ja": "指定した場合だけexecution observationを呼び出し元へ通知します。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_ppo_execution_observer.py",
+        "tests/tools/test_ppo_conditional_diagnostic.py"
       ]
     }
   ]

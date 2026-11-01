@@ -54,6 +54,7 @@ uv run python -m tools.agent_repo impact trade_rl/evaluation/runs/config.py
 uv run python -m tools.agent_repo diff --base main
 uv run python -m tools.agent_repo verify --base main
 uv run python -m tools.agent_repo eval-list
+uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HEAD_COMMIT_SHA --output C:/temp/source-packet
 ```
 
 - `preflight`: local branch/HEAD/base/worktree/Active docs/workflow rosterを表示する。
@@ -62,8 +63,11 @@ uv run python -m tools.agent_repo eval-list
 - `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
 - `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
 - `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task promptとgeneric rubricを表示・Evaluator入力から採点する。task-specificなEvaluator answer keyはchecked-in corpusへ保存しない。
+- `source-packet`: full commit SHAで固定した二つのGit snapshotからsource transport packetを作る。changed fileはGit blobのraw bytes、patch rendererはmanifestでGit versionとempty-tree attribute policyを固定し、lazy fetchは無効にする。patchのcross-version byte identityは主張しない。出力TARに含めるchanged HEAD fileはcase-insensitiveなfile/directory prefix collisionを拒否し、削除済みbase pathは判定対象にしない。outputは全てのregistered Git worktree外にある未使用directoryに限り、生成物をcommitしない。
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
+
+GitHub上のIssue/PR/branchを読取照合するときは `python -m tools.github_work_inventory --repository shuntatsu/trade_rl` を使う。この外部adapterは `tools.agent_repo` の外に置き、read-onlyの非正本snapshotを返す。open IssueコメントのTask projectionは発行者の真正性が未確認であり、未登録作業やclosed Issueも網羅しないため、結果をbranch削除・Issue close・研究認可の根拠にしない。 監査中にPR/Issue rosterまたはbranch SHA/protectionが変化した場合はsnapshot生成を拒否し、GitHub Repository名の大文字小文字を区別せず同一Repositoryを照合し、PR head SHAは現在のbranch tipと照合する。一方、PR base.shaは過去の参照時点であり、現在のmain tipとの一致を要求しない。forkやhead repository不明のPRはローカルbranch tipとの照合ができず、`--compare-prs`でも`nonlocal_head_uncompared`と記録して祖先関係を推測しない。これも原子的な状態証明や削除許可ではない。
 
 ## Agent Coordination Plane
 
@@ -88,6 +92,8 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
 - Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
 - `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
+- 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行し、CLIの`--apply`もfail-closedで拒否する。GitHub Actionsの検索結果が1000件上限に達する、総件数が不明・ページ間で変化する、run IDが重複・欠落する、取得statusが不一致、head_branchが欠落・空文字・空白のみ、またはページが不完全な場合もfail-closedとする。Taskの保護情報が完全に取得・検証できない間は削除を再開しない。
+- dry-run summaryの`first-observation archival candidates`は候補数でありarchive済みの件数ではない。`durable anchors kept`はdefault/protected/open PR/active workflow/provenanceの理由だけを数え、grace中やretentionに未到達の一時branchは含めない。CLI helpに`--apply`が残っても破壊的cleanupの再開許可ではない。
 
 ## Agent Eval protocol
 
@@ -118,11 +124,13 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
 
 1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **外部監査の実行**: 独立したAI（Gemini 3.8 Flash等）または外部レビュアーがPR exact HEADの差分・契約整合性をresult-blindで監査する。
+2. **software model reviewの実行**: Generic software PRでは、PR exact HEADの差分・関連source/tests/contractsをAI reviewerがread-onlyで監査する。`software_source_review_v2`では実装担当と同じconfigured model（例: `gpt-5.6-sol`）を許容し、fresh contextや別providerは必須にしない。これはsoftware source reviewであり、model independence・provider実行・研究result-blind independenceの証明ではない。4h PPO専用reviewやG0–G5/economic reviewは従来の独立性要件を維持する。
 3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
 4. **承認とマージ・クローズ (APPROVED)**:
-   - 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。
+   - 未解消のblocking指摘がないことを確認し、当該receipt形式の有効な証拠が揃った場合だけ `### Disposition: APPROVED` を記録する。Lowの改善提案はreportへ残してよい。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
+
+Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbindする。従来の`independent_model_review_v1`は互換のため受理し、新しい`software_source_review_v2`は`reviewer_model_id`・`review_result=PASS`・`blocking_findings=0`・具体的reportだけをpublisher-attested software review metadataとして受理する。同じconfigured modelを許容し、外部review job、provider attestation、diff digest、実装Task ID、model independenceは要求・主張しない。旧`software_source_review_v1`は未検証のjob/diff値を権威ある証拠のように見せるためfail-closedのまま廃止する。G0–G5・sealed/unused/final・live・4h PPO専用reviewはこの軽量化の対象外で、従来どおり別ゲート。
 
 ## 更新matrix
 
@@ -165,7 +173,7 @@ PRに独立レビューゲート（CI check: `Generic Independent Research Revie
 - private old pathを残すだけのcompatibility shimは、明示的public contractの証拠がない限り作らない。
 - 変更前にTest Oracleとfailure modeを決める。
 - 研究・経済mechanismを変更する場合は、経済結果を確認する前に `architecture/research-assurance.md` のG0-G2、falsifier、semantic invariant、Known limitationsを定義する。P&Lやwinner判定でG0-G2の不備を救済しない。
-- **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと別のfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
+- **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと異なるconfiguredモデルのfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
 - refactor/bugfixはTDDでREDを観測してからproductionを変える。
 - Greenにするためにassertionを弱めたり、skipや古いforwarderを残したりしない。
 - 移動だけのrefactorでは、可能ならAST/serialization/public facade等の独立oracleでsemantic driftを反証する。
@@ -183,7 +191,7 @@ uv run mypy tools/ppo_checkpoint_actions.py
 uv run pytest -q tests
 ```
 
-さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。PPO/SB3境界を含む変更では、PR-only `PPO Runtime` jobで`train-sb3` extraの実Stable-Baselines3/Torchを導入し、environment API・実rollout・interleaved fit・model save/loadをsmokeする。fake/mockだけをintegration oracleにしない。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
+さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。 Full PR CIは`Lean Core`・`PPO Runtime`・`Human Guide`・`Market Store PostgreSQL`の4ジョブを要求し、Market Storeでは実PostgreSQL serviceによるintegration test（skipなし）とmigrate/status smokeも確認する。古い3ジョブのみのGreenは現行Full gateの代替としない。PPO/SB3境界を含む変更では、PR-only `PPO Runtime` jobで`train-sb3` extraの実Stable-Baselines3/Torchを導入し、environment API・実rollout・interleaved fit・model save/loadをsmokeする。fake/mockだけをintegration oracleにしない。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
 
 Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。
 

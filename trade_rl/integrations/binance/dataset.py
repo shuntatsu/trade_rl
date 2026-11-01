@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
@@ -42,12 +43,34 @@ from trade_rl.integrations.binance.vision import (
 )
 
 
+class BinanceGapPolicy(StrEnum):
+    """How a kline range with missing bars is admitted.
+
+    ``STRICT`` (the default everywhere) rejects any missing or irregular bar.
+    ``NON_TRADABLE_ROWS`` is an explicit, opt-in policy for development data
+    with known archive holes:
+
+    * a missing bar on the base clock is simply absent from that symbol's raw
+      series, so the builder materializes it as a ``row_present=False``,
+      non-tradable row with forward-filled marks;
+    * a missing bar on a higher native clock keeps the regular native grid with
+      a price-carried zero-volume placeholder whose ``available_at`` is the end
+      of the requested range, so every recursive/rolling feature that touches
+      it stays unavailable (causal masking) instead of using invented data;
+    * funding events inside a missing base bar are not accrued.
+    """
+
+    STRICT = "strict"
+    NON_TRADABLE_ROWS = "non_tradable_rows"
+
+
 @dataclass(frozen=True, slots=True)
 class BinanceDatasetBuildResult:
     dataset: MarketDataset
     metadata: tuple[BinanceInstrumentMetadata, ...]
     sources_used: tuple[str, ...]
     feature_timeframes: tuple[str, ...] = ()
+    gap_report: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
 
 
 def _parse_kline_rows(
@@ -121,6 +144,83 @@ def _align_funding(
     return funding, counts > 0, counts
 
 
+def _gap_tolerant_series(
+    rows: Sequence[Sequence[object]],
+    *,
+    symbol: str,
+    interval_ms: int,
+    start_ms: int,
+    end_ms: int,
+    is_base_clock: bool,
+    events: Sequence[tuple[int, float]],
+    range_end: np.datetime64,
+) -> tuple[RawMarketSeries, dict[str, int]]:
+    """Build one series under :attr:`BinanceGapPolicy.NON_TRADABLE_ROWS`."""
+
+    parsed: dict[int, tuple[float, float, float, float, float]] = {}
+    for row in rows:
+        if len(row) < 8:
+            raise ValueError("Binance kline row must contain at least eight fields")
+        open_ms = _normalize_epoch_ms(row[0])
+        if not start_ms <= open_ms < end_ms or open_ms + interval_ms > end_ms:
+            continue
+        if open_ms in parsed:
+            raise ValueError(f"duplicate Binance kline {symbol} {open_ms}")
+        parsed[open_ms] = (
+            _finite_float(row[1], field="open"),
+            _finite_float(row[2], field="high"),
+            _finite_float(row[3], field="low"),
+            _finite_float(row[4], field="close"),
+            _finite_float(row[7], field="quote volume"),
+        )
+    opens = np.arange(start_ms, end_ms, interval_ms, dtype=np.int64)
+    present = np.fromiter(
+        (int(open_ms) in parsed for open_ms in opens),
+        dtype=np.bool_,
+        count=len(opens),
+    )
+    if len(parsed) < 2 or not bool(present[0]):
+        raise ValueError("Binance series must start with a present closed bar")
+    values = np.empty((len(opens), 5), dtype=np.float64)
+    last_close = 0.0
+    for index, open_ms in enumerate(opens):
+        if present[index]:
+            values[index] = parsed[int(open_ms)]
+            last_close = values[index, 3]
+        else:
+            values[index] = (last_close, last_close, last_close, last_close, 0.0)
+    close_ns = (opens + interval_ms).astype("datetime64[ms]").astype("datetime64[ns]")
+    funding, funding_available, funding_count = _align_funding(close_ns, events)
+    if is_base_clock:
+        keep = present
+        timestamps = close_ns[keep]
+        available_at = timestamps
+    else:
+        keep = np.ones(len(opens), dtype=np.bool_)
+        timestamps = close_ns
+        available_at = np.where(present, close_ns, range_end)
+    series = RawMarketSeries(
+        timestamps=timestamps,
+        available_at=available_at,
+        open=values[keep, 0],
+        high=values[keep, 1],
+        low=values[keep, 2],
+        close=values[keep, 3],
+        volume=values[keep, 4],
+        funding_rate=funding[keep],
+        funding_available=funding_available[keep],
+        funding_event_count=funding_count[keep],
+        tradable=np.ones(int(keep.sum()), dtype=np.bool_),
+    )
+    report = {
+        "expected_bars": int(len(opens)),
+        "present_bars": int(present.sum()),
+        "missing_bars": int((~present).sum()),
+        "funding_events_in_missing_bars": int(funding_count[~present].sum()),
+    }
+    return series, report
+
+
 class BinanceMarketDataSource(MarketDataSource):
     """Load one fixed Binance range on one or more causal native clocks."""
 
@@ -133,8 +233,11 @@ class BinanceMarketDataSource(MarketDataSource):
         end_time: datetime,
         transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
         transport: Any | None = None,
+        gap_policy: BinanceGapPolicy | str = BinanceGapPolicy.STRICT,
     ) -> None:
         self.market = _market(market)
+        self.gap_policy = BinanceGapPolicy(gap_policy)
+        self.gap_report: dict[str, dict[str, int]] = {}
         self.interval = interval
         self.interval_ms = _interval_ms(interval)
         self.start_time = _aware_utc(start_time, field="start_time")
@@ -205,6 +308,23 @@ class BinanceMarketDataSource(MarketDataSource):
             mode=self.transport_mode,
         )
         self._record_source(kline_source)
+        if self.gap_policy is BinanceGapPolicy.NON_TRADABLE_ROWS:
+            gap_series, report = _gap_tolerant_series(
+                rows,
+                symbol=symbol,
+                interval_ms=interval_ms,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                is_base_clock=timeframe == self.interval,
+                events=self._funding_events(symbol),
+                range_end=np.datetime64(
+                    self.end_time.replace(tzinfo=None),
+                    "ns",
+                ),
+            )
+            self.gap_report[f"{symbol}:{timeframe}"] = report
+            self._series_cache[key] = gap_series
+            return gap_series
         timestamps, open_price, high, low, close, volume = _parse_kline_rows(
             rows,
             interval_ms=interval_ms,
@@ -567,6 +687,7 @@ def build_binance_market_dataset(
     | None = None,
     metadata_evidence: Mapping[str, object] | None = None,
     execution_economics: ExecutionEconomicsProfile | None = None,
+    gap_policy: BinanceGapPolicy | str = BinanceGapPolicy.STRICT,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
@@ -699,6 +820,7 @@ def build_binance_market_dataset(
         end_time=end_time,
         transport_mode=resolved_mode,
         transport=client,
+        gap_policy=gap_policy,
     )
     dataset = MarketDatasetBuilder(
         MarketBuildConfig(
@@ -729,11 +851,13 @@ def build_binance_market_dataset(
                 key=_interval_ms,
             )
         ),
+        gap_report={key: dict(value) for key, value in source.gap_report.items()},
     )
 
 
 __all__ = [
     "BinanceDatasetBuildResult",
+    "BinanceGapPolicy",
     "BinanceMarketDataSource",
     "binance_multitimeframe_feature_specs",
     "build_binance_market_dataset",

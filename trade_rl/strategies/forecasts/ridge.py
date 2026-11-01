@@ -14,7 +14,9 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentController,
 )
 from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
     _immutable_array,
+    _validated_fit_cutoff_ns,
     build_causal_forecast_training_set,
 )
 from trade_rl.strategies.interface import StrategyObservation
@@ -38,6 +40,7 @@ class RidgeForecastModel:
     fit_cutoff: np.datetime64
 
     def __post_init__(self) -> None:
+        fit_cutoff = _validated_fit_cutoff_ns(self.fit_cutoff)
         indices = tuple(self.feature_indices)
         mean = _immutable_array(
             np.asarray(self.feature_mean).reshape(-1),
@@ -91,7 +94,7 @@ class RidgeForecastModel:
         object.__setattr__(self, "feature_mean", mean)
         object.__setattr__(self, "feature_scale", scale)
         object.__setattr__(self, "coefficients", coefficients)
-        object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "fit_cutoff", fit_cutoff)
 
     def predict(self, features: np.ndarray) -> float:
         vector = np.asarray(features, dtype=np.float64).reshape(-1)
@@ -130,6 +133,12 @@ class RidgeForecastStrategy:
         )
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
+        if np.isnat(observation.timestamp):
+            raise ValueError("observation timestamp must not be NaT")
+        if self.model.fit_cutoff > observation.timestamp:
+            raise ValueError(
+                "model fit_cutoff must not be later than observation timestamp"
+            )
         indices = self.model.feature_indices
         if max(indices) >= observation.features.size:
             raise ValueError("model feature index is outside observation features")
@@ -139,6 +148,18 @@ class RidgeForecastStrategy:
         if not np.isfinite(selected).all():
             return PositionIntent.FLAT
         forecast = self.model.predict(observation.features)
+        if (
+            isinstance(self.controller, CostAwareForecastIntentController)
+            and observation.intent_gross_budget is not None
+        ):
+            return self.controller.decide_for_position(
+                forecast,
+                current_weight=observation.current_weight,
+                current_position_quantity=observation.current_position_quantity,
+                gross_budget=observation.intent_gross_budget,
+                current_intent=observation.current_intent,
+                same_intent_target_weight=observation.same_intent_target_weight,
+            )
         return self.controller.decide(forecast, current=observation.current_intent)
 
 
@@ -162,6 +183,19 @@ def fit_ridge_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
+    return fit_ridge_forecast_from_training_set(training, alpha=alpha)
+
+
+def fit_ridge_forecast_from_training_set(
+    training: CausalForecastTrainingSet,
+    *,
+    alpha: float = 1.0,
+) -> RidgeForecastModel:
+    """Fit the same shared Ridge from an already built causal training set."""
+
+    if not math.isfinite(alpha) or alpha <= 0.0:
+        raise ValueError("alpha must be finite and positive")
+    horizon_hours = training.horizon_hours
     x = training.features
     y = training.labels
     weights = training.sample_weights
@@ -202,4 +236,9 @@ def fit_ridge_forecast(
     )
 
 
-__all__ = ["RidgeForecastModel", "RidgeForecastStrategy", "fit_ridge_forecast"]
+__all__ = [
+    "RidgeForecastModel",
+    "RidgeForecastStrategy",
+    "fit_ridge_forecast",
+    "fit_ridge_forecast_from_training_set",
+]

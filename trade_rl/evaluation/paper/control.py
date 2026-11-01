@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,10 @@ class CollectionControl:
                 (protocol_sha256,)
             ]:
                 raise ValueError("collection control protocol digest mismatch")
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS cycles_incomplete_idx "
+                "ON cycles(id) WHERE complete=0"
+            )
             if (
                 self.connection.execute(
                     "SELECT id FROM cycles WHERE complete=0 LIMIT 1"
@@ -68,3 +73,25 @@ class CollectionControl:
 
     def close(self) -> None:
         self.connection.close()
+
+
+def incomplete_cycle_exists(root: Path) -> bool:
+    """Read-only probe for a begun-but-unacknowledged cycle (no schema creation).
+
+    Owned here so the cycles table layout has one definition. Raises on a symlink,
+    an unreadable database or a missing ``cycles`` table; absent file means False.
+    """
+    path = root / "collection-control.sqlite"
+    if path.is_symlink():
+        raise ValueError("collection control must be a regular file")
+    if not path.exists():
+        return False
+    with contextlib.closing(
+        sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
+    ) as connection:
+        return (
+            connection.execute(
+                "SELECT 1 FROM cycles WHERE complete=0 LIMIT 1"
+            ).fetchone()
+            is not None
+        )

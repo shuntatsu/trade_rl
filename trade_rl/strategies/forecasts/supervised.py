@@ -7,12 +7,58 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
     validated_symbol_indices,
     validated_training_scope,
 )
+
+_NANOSECONDS_PER_HOUR = 3_600_000_000_000
+MAX_SUPERVISED_FORECAST_HORIZON_HOURS = ((2**63) - 1) // _NANOSECONDS_PER_HOUR
+
+
+def validate_supervised_forecast_horizon_hours(
+    value: object,
+    *,
+    field: str = "horizon_hours",
+) -> int:
+    """Validate that an hour horizon fits the signed datetime64[ns] range."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{field} must be a positive integer")
+    if value > MAX_SUPERVISED_FORECAST_HORIZON_HOURS:
+        raise ValueError(
+            f"{field} must be representable as a signed int64 nanosecond "
+            f"duration (maximum {MAX_SUPERVISED_FORECAST_HORIZON_HOURS} hours)"
+        )
+    return value
+
+
+def _validated_fit_cutoff_ns(value: np.datetime64) -> np.datetime64:
+    """Normalize an exact, finite cutoff without datetime64 precision loss."""
+
+    try:
+        source = np.datetime64(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            "fit_cutoff must be exactly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(source):
+        raise ValueError("fit_cutoff must not be NaT")
+    try:
+        cutoff_ns = int(
+            _datetime64_values_to_ns_exact(np.asarray(source)).astype(np.int64)
+        )
+        cutoff = np.datetime64(cutoff_ns, "ns")
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            "fit_cutoff must be exactly representable as datetime64[ns]"
+        ) from error
+    if np.isnat(cutoff):
+        raise ValueError("fit_cutoff must be exactly representable as datetime64[ns]")
+    return cutoff
 
 
 def _immutable_array(
@@ -40,21 +86,34 @@ class CausalForecastTrainingSet:
     horizon_hours: int
 
     def __post_init__(self) -> None:
+        cutoff = _validated_fit_cutoff_ns(self.fit_cutoff)
         indices = tuple(self.feature_indices)
         features = _immutable_array(self.features, dtype=np.dtype(np.float64))
         labels = _immutable_array(
             np.asarray(self.labels).reshape(-1),
             dtype=np.dtype(np.float64),
         )
+        raw_label_end_times = np.asarray(self.label_end_times).reshape(-1)
+        if raw_label_end_times.dtype.kind != "M":
+            raise ValueError("label_end_times must use a datetime64 dtype")
+        if np.isnat(raw_label_end_times).any():
+            raise ValueError("label_end_times must not contain NaT")
+        try:
+            normalized_label_end_times = _datetime64_values_to_ns_exact(
+                raw_label_end_times
+            )
+        except (OverflowError, TypeError, ValueError) as error:
+            raise ValueError(
+                "label_end_times must be exactly representable in nanoseconds"
+            ) from error
         label_end_times = _immutable_array(
-            np.asarray(self.label_end_times).reshape(-1),
+            normalized_label_end_times,
             dtype=np.dtype("datetime64[ns]"),
         )
         sample_weights = _immutable_array(
             np.asarray(self.sample_weights).reshape(-1),
             dtype=np.dtype(np.float64),
         )
-        cutoff = np.datetime64(self.fit_cutoff, "ns")
         if features.ndim != 2 or features.shape[0] == 0:
             raise ValueError("features must be a non-empty two-dimensional array")
         if features.shape[1] != len(indices):
@@ -71,18 +130,14 @@ class CausalForecastTrainingSet:
             raise ValueError("sample_weights must be finite and positive")
         if np.any(label_end_times >= cutoff):
             raise ValueError("all label_end_times must be strictly before fit_cutoff")
-        if (
-            isinstance(self.horizon_hours, bool)
-            or not isinstance(self.horizon_hours, int)
-            or self.horizon_hours <= 0
-        ):
-            raise ValueError("horizon_hours must be a positive integer")
+        horizon_hours = validate_supervised_forecast_horizon_hours(self.horizon_hours)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "features", features)
         object.__setattr__(self, "labels", labels)
         object.__setattr__(self, "label_end_times", label_end_times)
         object.__setattr__(self, "sample_weights", sample_weights)
         object.__setattr__(self, "fit_cutoff", cutoff)
+        object.__setattr__(self, "horizon_hours", horizon_hours)
 
     @property
     def n_samples(self) -> int:
@@ -99,25 +154,19 @@ def build_causal_forecast_training_set(
 ) -> CausalForecastTrainingSet:
     """Pool exact-horizon rows without adding symbol identity to model features."""
 
+    horizon_hours = validate_supervised_forecast_horizon_hours(horizon_hours)
+    cutoff = _validated_fit_cutoff_ns(fit_cutoff)
     indices, symbols = validated_training_scope(
         dataset,
         feature_indices=feature_indices,
         fit_symbol_indices=fit_symbol_indices,
     )
-    if (
-        isinstance(horizon_hours, bool)
-        or not isinstance(horizon_hours, int)
-        or horizon_hours <= 0
-    ):
-        raise ValueError("horizon_hours must be a positive integer")
 
-    cutoff = np.datetime64(fit_cutoff, "ns")
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps = dataset.timestamps.astype("datetime64[ns]")
     timestamps_ns = timestamps.astype(np.int64)
-    horizon_ns = int(
-        np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
-    )
+    price_available_at = dataset.resolved_array("available_at")
+    horizon_ns = horizon_hours * _NANOSECONDS_PER_HOUR
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
 
     rows_by_symbol: list[list[np.ndarray]] = [[] for _ in range(dataset.n_symbols)]
@@ -138,6 +187,11 @@ def build_causal_forecast_training_set(
                 continue
             end_index = time_to_index.get(end_ns)
             if end_index is None or end_index <= start_index:
+                continue
+            if (
+                price_available_at[start_index, symbol_index] > cutoff
+                or price_available_at[end_index, symbol_index] > cutoff
+            ):
                 continue
             if not bool(np.all(availability[start_index, list(indices)])):
                 continue

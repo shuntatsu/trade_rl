@@ -93,14 +93,14 @@ class CoordinatorRegistry:
         task_ids = [entry.status.task_id for entry in entries]
         if len(set(task_ids)) != len(task_ids):
             raise ValueError("registry contains duplicate Task IDs")
-        object.__setattr__(self, "entries", entries)
+        ordered = tuple(sorted(entries, key=lambda entry: entry.status.task_id))
+        object.__setattr__(self, "entries", ordered)
 
     def canonical_payload(self) -> dict[str, object]:
-        ordered = sorted(self.entries, key=lambda entry: entry.status.task_id)
         return {
             "schema": _SCHEMA,
             "repository": self.repository,
-            "entries": [entry.canonical_payload() for entry in ordered],
+            "entries": [entry.canonical_payload() for entry in self.entries],
         }
 
     def canonical_bytes(self) -> bytes:

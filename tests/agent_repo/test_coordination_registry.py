@@ -60,6 +60,8 @@ def test_registry_order_bytes_and_digest_are_deterministic() -> None:
     left = CoordinatorRegistry(REPOSITORY, (first, second))
     right = CoordinatorRegistry(REPOSITORY, (second, first))
 
+    assert left == right
+    assert left.entries == right.entries
     assert left.canonical_bytes() == right.canonical_bytes()
     assert left.digest() == right.digest()
     assert [
@@ -68,6 +70,7 @@ def test_registry_order_bytes_and_digest_are_deterministic() -> None:
         "T1067-01",
         "T1067-02",
     ]
+    assert parse_registry_bytes(left.canonical_bytes()) == left
 
 
 def test_registry_round_trip_requires_exact_canonical_bytes() -> None:

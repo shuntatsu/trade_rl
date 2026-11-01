@@ -69,6 +69,10 @@ uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HE
 
 GitHub上のIssue/PR/branchを読取照合するときは `python -m tools.github_work_inventory --repository shuntatsu/trade_rl` を使う。この外部adapterは `tools.agent_repo` の外に置き、read-onlyの非正本snapshotを返す。open IssueコメントのTask projectionは発行者の真正性が未確認であり、未登録作業やclosed Issueも網羅しないため、結果をbranch削除・Issue close・研究認可の根拠にしない。 監査中にPR/Issue rosterまたはbranch SHA/protectionが変化した場合はsnapshot生成を拒否し、GitHub Repository名の大文字小文字を区別せず同一Repositoryを照合し、PR head SHAは現在のbranch tipと照合する。一方、PR base.shaは過去の参照時点であり、現在のmain tipとの一致を要求しない。forkやhead repository不明のPRはローカルbranch tipとの照合ができず、`--compare-prs`でも`nonlocal_head_uncompared`と記録して祖先関係を推測しない。これも原子的な状態証明や削除許可ではない。
 
+GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run python -m tools.github_workflow_attempts --repository shuntatsu/trade_rl --run-id <ID>` を使う。この外部adapterは実runの `run_attempt` に対応する `/attempts/{n}/jobs` を全page取得し、run/attempt/head/branch/job identityと重複・ページ件数・前後のrun readbackを検証する。通常の `/runs/{id}/jobs` が空でも作業不在とは判定しない。取得が欠落・変化・矛盾した場合はfail-closedで拒否する。出力の `workflow_activity_checked=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持し、単一runの観測を全Task・全workflowの証明やbranch削除許可へ昇格させない。
+
+`tools.github_coordination_ref_cas` は、将来の**使い捨てGitHub integration test専用**のGraphQL `updateRefs` CAS primitiveである。`beforeOid` / `afterOid`・authenticated viewer・repository identity・独立readbackを検証し、`refs/heads/coordination/*` 以外、ref削除、no-opを拒否する。通常呼出しではmutationをhard-refuseし、明示的なtest-only opt-inがある場合だけ `force=false` の1-ref updateを構成する。**production repository `shuntatsu/trade_rl` 自体はopt-inの有無にかかわらずmutation targetとして拒否し、さらにrepository名が `-coordination-disposable` で終わる明示的な使い捨てintegration repositoryだけを対象にする。** 成功しても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。これはprotected registry、single Coordinator、完全なroster、実GitHub並行競合E2Eの代替ではなく、production repository上のTask登録CLIとして使わない。
+
 ## Agent Coordination Plane
 
 複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。
@@ -87,11 +91,14 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Task状態は単一statusではなく `phase + condition` で表す。`review / stale` や `executing / blocked` を区別する。
 - `execution_mode=read_only` はimmutable snapshotを共有してよく、writable lease/branchを持たない。`write` Taskはactive ownerを1つに限定し、isolated writable worktree/branchを使う。
 - write ownershipはCoordinator-issued **lease epoch** をfencing tokenとして扱う。reassignment時はepochを増加し、new epoch専用branch/worktreeを作る。expired leaseはbranch/PR/CI/artifact side effectをreconcileするまで即reassignしない。
+- `LeaseRecord` は正の有限TTLと最終heartbeatからの厳密なexpiry算出を要求する。`lease_is_current` は最終heartbeat以降、expiryより前の時刻だけを有効とする。時刻の逆行や延長された見かけのexpiryをTask登録・再割当権限へ昇格させない。
 - file overlapだけでなく `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` Resource Keyでsemantic collisionを判定する。hard conflictは同時実行しない。
-- CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。
+- CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。 projectionのJSON parseでは重複fieldをfail-closedで拒否する（最後の値を採用しない）。
 - Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
 - Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
 - `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
+- `tools.agent_repo.coordination.enrollment` は既存の `TaskPacket`・`LeaseRecord`・`TaskStatusRecord` とIssue identity / main・branch SHAの整合性を検証する、**非正本・read-only preflight** である。引数に渡されたIssue open状態、Task roster、registry OID、readbackは認証済み・網羅済みの証拠ではない。外部Coordinator認証、GitHub上のatomic CAS、実際の読み戻しと競合E2Eが揃うまでは、preflight成功をTask登録、`task_registry_complete=true`、cleanup/delete許可として扱わない。同一leaseのままTask revisionを増やす更新や、`complete`後の状態変更もこのpreflightでは拒否する。実際のrevision更新には新lease・外部reconciliation・transaction検証が必要である。
+- Task/Issue/lease identityのrevision・Issue番号・epochはPython上でも**native positive integer**を要求し、`1.0 == 1`のようなinteger-shaped floatを受理しない。GitHub projectionやhandoffも同じ型境界を共有し、malformed inputを例外型の漏れや暗黙の同値比較で通さない。
 - 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行し、CLIの`--apply`もfail-closedで拒否する。GitHub Actionsの検索結果が1000件上限に達する、総件数が不明・ページ間で変化する、run IDが重複・欠落する、取得statusが不一致、head_branchが欠落・空文字・空白のみ、またはページが不完全な場合もfail-closedとする。Taskの保護情報が完全に取得・検証できない間は削除を再開しない。
 - dry-run summaryの`first-observation archival candidates`は候補数でありarchive済みの件数ではない。`durable anchors kept`はdefault/protected/open PR/active workflow/provenanceの理由だけを数え、grace中やretentionに未到達の一時branchは含めない。CLI helpに`--apply`が残っても破壊的cleanupの再開許可ではない。
 
@@ -124,13 +131,13 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
 
 1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **独立監査の実行**: 実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerが、PR exact HEADの差分・契約整合性をresult-blindで監査する。fresh sessionや別GitHub accountだけではmodel independenceを確立しない。
+2. **software model reviewの実行**: Generic software PRでは、PR exact HEADの差分・関連source/tests/contractsをAI reviewerがread-onlyで監査する。`software_source_review_v2`では実装担当と同じconfigured model（例: `gpt-5.6-sol`）を許容し、fresh contextや別providerは必須にしない。これはsoftware source reviewであり、model independence・provider実行・研究result-blind independenceの証明ではない。4h PPO専用reviewやG0–G5/economic reviewは従来の独立性要件を維持する。
 3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
 4. **承認とマージ・クローズ (APPROVED)**:
    - 未解消のblocking指摘がないことを確認し、当該receipt形式の有効な証拠が揃った場合だけ `### Disposition: APPROVED` を記録する。Lowの改善提案はreportへ残してよい。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
 
-Generic gateは `architecture/research-assurance.md` の厳格な従来`independent_model_review_v1`または実在レビューを記録する軽量`software_source_review_v1`を受理する。後者は過去の実装Task IDを必須とせず、exact HEADに対する実際のread-onlyレビューのmodel、job ID、full diff hash、PASS/0 blocking、具体的reportを投稿者がattestする。GitHub review APIのactorとexact `commit_id`・SHA-256へbindされた同一accountの`COMMENTED`も受理し、古いSHAや不明IDを創作して承認としない。CIは記述した証拠の整合性を検査するが、provider実稼働・model weightsまで証明しない。これはsoftware-only統合確認に限り、G0–G5のsource-bound oracle、経済実行、sealed PPO、unused/final、liveの追加認可や4h PPO専用review契約は緩めない。
+Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbindする。従来の`independent_model_review_v1`は互換のため受理し、新しい`software_source_review_v2`は`reviewer_model_id`・`review_result=PASS`・`blocking_findings=0`・具体的reportだけをpublisher-attested software review metadataとして受理する。同じconfigured modelを許容し、外部review job、provider attestation、diff digest、実装Task ID、model independenceは要求・主張しない。旧`software_source_review_v1`は未検証のjob/diff値を権威ある証拠のように見せるためfail-closedのまま廃止する。G0–G5・sealed/unused/final・live・4h PPO専用reviewはこの軽量化の対象外で、従来どおり別ゲート。
 
 ## 更新matrix
 

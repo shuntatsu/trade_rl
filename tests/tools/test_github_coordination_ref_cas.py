@@ -84,10 +84,20 @@ def _cas(api: FakeGraphQL, **changes: object) -> dict[str, object]:
     return compare_and_swap_coordination_ref(api, **kwargs)  # type: ignore[arg-type]
 
 
-def test_production_repository_is_never_a_mutation_target() -> None:
+@pytest.mark.parametrize(
+    ("repository", "message"),
+    [
+        ("shuntatsu/trade_rl", "production repository"),
+        ("shuntatsu/not-disposable", "explicitly disposable"),
+        ("other-owner/trade_rl", "explicitly disposable"),
+    ],
+)
+def test_only_explicit_disposable_repository_is_a_mutation_target(
+    repository: str, message: str
+) -> None:
     api = _api()
-    with pytest.raises(ValueError, match="production repository"):
-        _cas(api, repository="shuntatsu/trade_rl")
+    with pytest.raises(ValueError, match=message):
+        _cas(api, repository=repository)
     assert api.calls == []
 
 

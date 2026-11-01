@@ -16,7 +16,14 @@ from typing import Any, NamedTuple, Protocol
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _RUN_STATES = frozenset(
-    {"requested", "waiting", "pending", "queued", "in_progress", "completed"}
+    {
+        "requested",
+        "waiting",
+        "pending",
+        "queued",
+        "in_progress",
+        "completed",
+    }
 )
 _JOB_STATES = _RUN_STATES
 _PAGE_SIZE = 100
@@ -82,7 +89,9 @@ def _sha(value: Any, name: str) -> str:
 
 
 def _state_and_conclusion(
-    value: dict[str, Any], *, name: str
+    value: dict[str, Any],
+    *,
+    name: str,
 ) -> tuple[str, str | None]:
     status = _text(value.get("status"), f"{name} status")
     allowed = _RUN_STATES if name == "run" else _JOB_STATES
@@ -110,7 +119,12 @@ def _run_identity(raw: Any, *, run_id: int) -> _RunIdentity:
 
 
 def _job_identity(
-    raw: Any, *, run_id: int, attempt: int, branch: str, head: str
+    raw: Any,
+    *,
+    run_id: int,
+    attempt: int,
+    branch: str,
+    head: str,
 ) -> dict[str, Any]:
     job = _mapping(raw, "workflow job")
     job_id = _positive_int(job.get("id"), "job id")

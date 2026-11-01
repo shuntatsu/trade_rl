@@ -51,7 +51,9 @@ class FakeGraphQL:
         self.calls: list[str] = []
         self.fail_mutation = False
 
-    def execute(self, document: str, variables: dict[str, object]) -> dict[str, object]:
+    def execute(
+        self, document: str, variables: dict[str, object]
+    ) -> dict[str, object]:
         if "mutation UpdateCoordinationRef" in document:
             self.calls.append("mutation")
             if self.fail_mutation:
@@ -64,7 +66,9 @@ class FakeGraphQL:
             assert isinstance(update, dict)
             assert update["beforeOid"] == (self.oid or ZERO_OID)
             self.oid = update["afterOid"]  # type: ignore[assignment]
-            return {"data": {"updateRefs": {"clientMutationId": value["clientMutationId"]}}}
+            return {
+                "data": {"updateRefs": {"clientMutationId": value["clientMutationId"]}}
+            }
         self.calls.append("read")
         return {
             "data": {
@@ -93,9 +97,13 @@ class FakeObjects:
 
 
 def _fixture(*, initial: bool = False) -> tuple[object, FakeGraphQL, FakeObjects]:
-    before = CoordinatorRegistry(REPOSITORY, () if initial else (_entry(TaskPhase.EXECUTING),))
+    before = CoordinatorRegistry(
+        REPOSITORY, () if initial else (_entry(TaskPhase.EXECUTING),)
+    )
     after = _entry(TaskPhase.EXECUTING if initial else TaskPhase.REVIEW)
-    plan = plan_registry_transition(before, after, expected_before_digest=before.digest())
+    plan = plan_registry_transition(
+        before, after, expected_before_digest=before.digest()
+    )
     objects = FakeObjects(
         {B: plan.after_registry.canonical_bytes()}
         if initial
@@ -104,7 +112,9 @@ def _fixture(*, initial: bool = False) -> tuple[object, FakeGraphQL, FakeObjects
     return plan, FakeGraphQL(None if initial else A), objects
 
 
-def _cas(plan: object, api: FakeGraphQL, objects: FakeObjects, **kwargs: object) -> dict[str, object]:
+def _cas(
+    plan: object, api: FakeGraphQL, objects: FakeObjects, **kwargs: object
+) -> dict[str, object]:
     args: dict[str, object] = {
         "plan": plan,
         "repository": REPOSITORY,
@@ -115,10 +125,13 @@ def _cas(plan: object, api: FakeGraphQL, objects: FakeObjects, **kwargs: object)
         "allow_unprotected_test_mutation": True,
     }
     args.update(kwargs)
-    return compare_and_swap_registry_plan(api, objects, **args)  # type: ignore[arg-type]
+    return compare_and_swap_registry_plan(
+        api, objects, **args  # type: ignore[arg-type]
+    )
 
 
-def test_payload_bound_test_only_cas_checks_before_after_and_independent_readback() -> None:
+def test_payload_bound_test_only_cas_checks_before_after_and_independent_readback(
+) -> None:
     plan, api, objects = _fixture()
     result = _cas(plan, api, objects)
     assert api.oid == B
@@ -177,10 +190,13 @@ def test_missing_object_fails_before_mutation() -> None:
 
 def test_post_cas_payload_readback_drift_fails_closed() -> None:
     plan, api, objects = _fixture()
-    objects.drift_after_readback = CoordinatorRegistry(REPOSITORY, ()).canonical_bytes()
+    objects.drift_after_readback = CoordinatorRegistry(
+        REPOSITORY, ()
+    ).canonical_bytes()
     with pytest.raises(ValueError, match="after registry"):
         _cas(plan, api, objects)
-    assert api.oid == B  # Ref may already have changed: never claim rollback or success.
+    # Ref may already have changed: never claim rollback or success.
+    assert api.oid == B
 
 
 def test_stale_remote_oid_fails_even_if_payloads_match() -> None:

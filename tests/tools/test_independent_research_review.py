@@ -693,7 +693,14 @@ def test_unverified_software_receipt_renderer_refuses_authorizing_template(
 
 
 def test_software_review_blocked_precedence_and_latest_actor_revocation() -> None:
-    unverified = _software_review(publisher_id=20)
+    accepted = _software_v2_review(publisher_id=20, review_id=100)
+    assert (
+        resolve_review_outcome(
+            _pull_request(), [accepted], expected_head_sha=HEAD_SHA
+        )
+        is ReviewOutcome.APPROVED
+    )
+
     blocked = _review(
         reviewer_id=30,
         state="COMMENTED",
@@ -703,17 +710,21 @@ def test_software_review_blocked_precedence_and_latest_actor_revocation() -> Non
     )
     assert (
         resolve_review_outcome(
-            _pull_request(), [unverified, blocked], expected_head_sha=HEAD_SHA
+            _pull_request(), [accepted, blocked], expected_head_sha=HEAD_SHA
         )
         is ReviewOutcome.BLOCKED
     )
 
-    revoked = _software_review(publisher_id=20)
-    revoked["id"] = 102
-    revoked["body"] = f"{REVIEW_MARKER}\n\n### Disposition: PENDING\n"
+    revoked = _review(
+        reviewer_id=20,
+        state="COMMENTED",
+        disposition="PENDING",
+        receipt=False,
+        review_id=102,
+    )
     assert (
         resolve_review_outcome(
-            _pull_request(), [unverified, revoked], expected_head_sha=HEAD_SHA
+            _pull_request(), [accepted, revoked], expected_head_sha=HEAD_SHA
         )
         is ReviewOutcome.PENDING
     )

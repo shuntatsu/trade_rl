@@ -396,7 +396,7 @@ jobs:
           gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
             | jq -s 'add' > "$REVIEWS_JSON"
 
-      - name: Evaluate exact-head software/model source review
+      - name: Evaluate exact-head independent research review
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |

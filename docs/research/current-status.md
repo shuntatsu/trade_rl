@@ -1508,7 +1508,7 @@ provider-error diagnostics that expose only code/status/message while suppressin
 bodies, nested details, credentials, and packet content. Its exact-head review-event CI
 run `36319375502` was Green and the merged reviewer implementation was frozen as
 `seal/ppo-4h-gemini-review-authority-20260927-v5` at anchor commit
-`b35d1b76...`. Those authority bytes remained stable until PR #772 deliberately changed
+`b35d1b76...`. Those authority bytes remained stable until the v2 retry-oracle repair deliberately changed
 the retry oracle and reviewer protocol; v5 is therefore historical and must not authorize
 a new #767 review request.
 
@@ -1521,10 +1521,10 @@ refetches/hashes the trusted workflow and runner at the exact run head. Unrelate
 advances are accepted only while those bytes remain identical; any reviewer-byte drift
 fails closed.
 
-PR #772 replaced the ambiguous continue-on-error retry oracle with immutable terminal
+The v2 retry-oracle repair replaced the ambiguous continue-on-error retry oracle with immutable terminal
 review artifacts, was independently reviewed on exact HEAD
-`1b08d1be50de316789a014062be950814f4074d2`, and was merged to `main` at
-`01d583c844ef271a8399858ec637717b42e08d19`. Authority v6 freezes that merged commit as
+`1b08d1be…`, and was merged to `main` at
+`01d583c84…`. Authority v6 freezes that merged commit as
 `seal/ppo-4h-gemini-review-authority-20261101-v6`, with workflow SHA-256
 `8a6606890fe11cc07eb1ddbf60efa6b46c3e620012f830d23552a20f85f44528`, runner SHA-256
 `e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7`,

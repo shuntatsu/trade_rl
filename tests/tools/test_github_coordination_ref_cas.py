@@ -9,7 +9,7 @@ from tools.github_coordination_ref_cas import (
     compare_and_swap_coordination_ref,
 )
 
-REPO = "shuntatsu/trade_rl"
+REPO = "shuntatsu/trade-rl-coordination-disposable"
 REF = "refs/heads/coordination/task-registry"
 A = "a" * 40
 B = "b" * 40
@@ -82,6 +82,13 @@ def _cas(api: FakeGraphQL, **changes: object) -> dict[str, object]:
     }
     kwargs.update(changes)
     return compare_and_swap_coordination_ref(api, **kwargs)  # type: ignore[arg-type]
+
+
+def test_production_repository_is_never_a_mutation_target() -> None:
+    api = _api()
+    with pytest.raises(ValueError, match="production repository"):
+        _cas(api, repository="shuntatsu/trade_rl")
+    assert api.calls == []
 
 
 def test_mutation_is_disabled_by_default() -> None:

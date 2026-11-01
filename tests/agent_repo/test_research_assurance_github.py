@@ -89,7 +89,7 @@ def test_pr_review_is_authenticated_at_exact_head_with_distinct_principal() -> N
     assert result.economic_execution_authorized is False
     assert result.errors == ()
     assert calls.count("repos/shuntatsu/trade_rl/pulls/432") == 2
-    assert calls.count("repos/shuntatsu/trade_rl/pulls/432/reviews/9815") == 1
+    assert calls.count("repos/shuntatsu/trade_rl/pulls/432/reviews/9815") == 2
 
 
 @pytest.mark.parametrize(
@@ -155,6 +155,42 @@ def test_second_pr_readback_detects_head_change_race() -> None:
         api_read=fake,
     )
     assert result.status == "BLOCKED"
+
+
+@pytest.mark.parametrize("mutation", ["body", "state", "reviewer", "commit"])
+def test_second_review_readback_detects_revocation_or_edit(mutation: str) -> None:
+    author, _, pr, review = samples()
+    counts = {"review": 0, "pull": 0}
+
+    def fake(path: str):
+        if path.endswith("/reviews/9815"):
+            counts["review"] += 1
+            result = copy.deepcopy(review)
+            if counts["review"] == 2:
+                if mutation == "body":
+                    result["body"] = result["body"].replace(
+                        '"g0":"PASS"', '"g0":"FAIL"'
+                    )
+                elif mutation == "state":
+                    result["state"] = "DISMISSED"
+                elif mutation == "reviewer":
+                    result["user"]["id"] = pr["user"]["id"]
+                else:
+                    result["commit_id"] = "f" * 40
+            return result
+        counts["pull"] += 1
+        return copy.deepcopy(pr)
+
+    outcome = verify_github_review(
+        author,
+        repository="shuntatsu/trade_rl",
+        pr_number=432,
+        review_id=9815,
+        api_read=fake,
+    )
+    assert outcome.status == "BLOCKED"
+    assert outcome.economic_execution_authorized is False
+    assert counts == {"review": 2, "pull": 2}
 
 
 def test_untrusted_pr_review_body_cannot_force_approval() -> None:

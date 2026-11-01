@@ -64,7 +64,7 @@ inspect は状態を表示するだけ、check はPASS以外で非0終了。ネ�
 
 版付きJSON Schemaは tools/agent_repo/schemas/research_assurance_v1.schema.json と tools/agent_repo/schemas/research_assurance_review_v1.schema.json。schema検証だけでは承認にならず、Python verifierがstage/claim/protocol/HEADと各changed boundaryへの独立counterexample/oracleを検証する。review bodyのモデル判断は外部adversarial reviewによる意味の検証が必要。
 
-**認証済みGitHub reviewerの照合**：network-free parserの外側に、読み取り専用の tools.research_assurance_github adapterを置く。review JSONを正確なcanonical JSON本文として、対象PRのGitHub公式reviewに**著者とは別のprincipal**から投稿する。GitHubレビューID・投稿主体の数値ID・実 review commit_id ・実本文bytesとpacket digest、reviewed headを比較し、PRのHEADをもう一度取得して変更がないことを確かめる。Review本文の自行の自己申告だけでは認証扱いしない。
+**認証済みGitHub reviewerの照合**：network-free parserの外側に、読み取り専用の tools.research_assurance_github adapterを置く。review JSONを正確なcanonical JSON本文として、対象PRのGitHub公式reviewに**著者とは別のprincipal**から投稿する。GitHubレビューID・投稿主体の数値ID・実 review commit_id ・実本文bytesとpacket digest、reviewed headを比較し、PRのHEADと対象review objectをもう一度取得して、途中のHEAD移動・review編集・dismissalを拒否する。Review本文の自行の自己申告だけでは認証扱いしない。
 
     python -m tools.research_assurance_github --repository OWNER/REPO --pr 123 --review-id 456 --packet author-packet.json
 

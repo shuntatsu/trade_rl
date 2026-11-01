@@ -180,6 +180,18 @@ def verify_github_review(
         )
         if final_author_id != author_id or final_author_login != author_login:
             raise ValueError("PR author identity changed across readback")
+        # A review can be edited or dismissed independently of the PR head.
+        # Re-fetch it after the PR-head check to reject mid-check revocation.
+        source_again = _object(api_read(review_url), "GitHub PR review readback")
+        final_reviewer = _object(source_again.get("user"), "PR reviewer readback")
+        if any(
+            source_again.get(field) != source.get(field)
+            for field in ("id", "commit_id", "state", "submitted_at", "body")
+        ) or any(
+            final_reviewer.get(field) != reviewer.get(field)
+            for field in ("id", "login")
+        ):
+            raise ValueError("PR review changed between authenticated readbacks")
         return evaluate_assurance(record, review=review, authority=source_kind)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         return _block(record, str(error))

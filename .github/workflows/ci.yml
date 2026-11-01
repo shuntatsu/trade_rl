@@ -45,8 +45,8 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Diagnose Ruff source formatting
-        run: uv run ruff format --diff tools/github_workflow_attempts.py
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
 
       - name: Mypy
         run: uv run mypy trade_rl

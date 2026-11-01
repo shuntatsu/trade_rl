@@ -196,8 +196,12 @@ def observe_workflow_attempt(reader: WorkflowReadApi, *, run_id: int) -> dict[st
         raise ValueError("workflow run changed during attempt observation")
     if status == "completed" and any(item["status"] != "completed" for item in jobs):
         raise ValueError("completed run contains unfinished attempt jobs")
-    if status == "completed" and conclusion == "success" and any(
-        item["conclusion"] not in {"success", "skipped", "neutral"} for item in jobs
+    if (
+        status == "completed"
+        and conclusion == "success"
+        and any(
+            item["conclusion"] not in {"success", "skipped", "neutral"} for item in jobs
+        )
     ):
         raise ValueError("successful run contains failed or cancelled attempt jobs")
     return {

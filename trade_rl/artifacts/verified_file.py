@@ -46,18 +46,12 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
         and directory_flag
         and os.open in os.supports_dir_fd
     ):
-        directory_flags = (
-            getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
-        )
+        directory_flags = getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
         parent_fd = os.open(source.anchor, directory_flags)
         try:
             for component in source.parts[1:-1]:
                 try:
-                    next_fd = os.open(
-                        component,
-                        directory_flags,
-                        dir_fd=parent_fd,
-                    )
+                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
                 except OSError as error:
                     if error.errno in (errno.ELOOP, errno.ENOTDIR):
                         raise ValueError(
@@ -68,11 +62,7 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
                 parent_fd = next_fd
             # Even a concurrent replacement of an ancestor cannot redirect the
             # opened descriptor chain outside the inspected directory objects.
-            return os.open(
-                source.name,
-                os.O_RDONLY | nofollow,
-                dir_fd=parent_fd,
-            )
+            return os.open(source.name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
         finally:
             os.close(parent_fd)
 

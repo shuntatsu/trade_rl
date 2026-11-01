@@ -9,6 +9,8 @@ import pytest
 
 from tools.branch_hygiene import BranchInfo, OpenPullRequestRefs
 from tools.verified_merged_branch_prune import (
+    VerifiedMergedPrune,
+    main,
     prune_verified_merged_branch,
     require_origin_checkout,
 )
@@ -346,3 +348,42 @@ def test_manual_prune_workflow_is_never_automatically_triggered() -> None:
     assert '--expected-sha "$PRUNE_SHA"' in workflow
     assert '--retention-record-sha "$PRUNE_RETENTION"' in workflow
     assert "--apply" in workflow
+
+
+def test_cli_pins_api_github_and_never_accepts_token_on_command_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_api(*, repository: str, token: str, api_url: str) -> object:
+        captured.update(repository=repository, token=token, api_url=api_url)
+        return object()
+
+    def fake_prune(api: object, **kwargs: object) -> VerifiedMergedPrune:
+        assert api is not None
+        assert kwargs["apply"] is False
+        return VerifiedMergedPrune(NAME, TIP, MAIN, RETENTION, 1076)
+
+    monkeypatch.setenv("GH_TOKEN", "fixture-secret")
+    monkeypatch.setattr("tools.verified_merged_branch_prune.GitHubApi", fake_api)
+    monkeypatch.setattr(
+        "tools.verified_merged_branch_prune.prune_verified_merged_branch",
+        fake_prune,
+    )
+    args = [
+        "--repository", REPO,
+        "--branch", NAME,
+        "--expected-sha", TIP,
+        "--merged-pr-number", "1076",
+        "--retention-record-sha", RECORD,
+    ]
+    assert main(args) == 0
+    assert captured == {
+        "repository": REPO,
+        "token": "fixture-secret",
+        "api_url": "https://api.github.com",
+    }
+    with pytest.raises(SystemExit):
+        main([*args, "--api-url", "https://untrusted.example"])
+    with pytest.raises(SystemExit):
+        main([*args, "--token", "exposed-in-process-table"])

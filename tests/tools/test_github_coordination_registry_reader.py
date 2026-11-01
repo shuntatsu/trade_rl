@@ -231,3 +231,27 @@ def test_api_errors_propagate_and_do_not_fallback_to_unverified_content() -> Non
     with pytest.raises(RuntimeError, match="unavailable"):
         _reader(api).read_registry_bytes(REPOSITORY, COMMIT)
     assert len(api.calls) == 1
+
+
+def test_git_blob_sha_uses_independent_known_empty_object_vector() -> None:
+    assert _blob_sha(b"") == "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+
+
+def test_standard_github_linewrapped_base64_is_accepted() -> None:
+    api = FakeGitApi()
+    content = api.blob["content"]
+    assert isinstance(content, str)
+    api.blob["content"] = "\n".join(
+        content[index : index + 76] for index in range(0, len(content), 76)
+    ) + "\n"
+    assert _reader(api).read_registry_bytes(REPOSITORY, COMMIT) == api.raw
+
+
+def test_oversized_tree_blob_is_rejected_before_reading_content() -> None:
+    api = FakeGitApi()
+    entries = api.tree["tree"]
+    assert isinstance(entries, list)
+    entries[0]["size"] = 1024 * 1024 + 1
+    with pytest.raises(ValueError, match="payload limit"):
+        _reader(api).read_registry_bytes(REPOSITORY, COMMIT)
+    assert len(api.calls) == 2

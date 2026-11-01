@@ -45,15 +45,43 @@ def _module_scope_statements(path: Path) -> Iterator[ast.stmt]:
 
 
 def _binding_names(target: ast.AST) -> set[str]:
-    return {name.id for name in ast.walk(target) if isinstance(name, ast.Name)}
+    return {
+        name.id
+        for name in ast.walk(target)
+        if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store)
+    }
+
+
+def _module_expression_bindings(node: ast.stmt) -> set[str]:
+    """Find walrus bindings in module expressions, but not local lambda scopes."""
+    if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        return set()
+    found: set[str] = set()
+
+    def inspect(expr: ast.expr) -> None:
+        if isinstance(expr, ast.Lambda):
+            return
+        if isinstance(expr, ast.NamedExpr):
+            found.update(_binding_names(expr.target))
+        for child in ast.iter_child_nodes(expr):
+            if isinstance(child, ast.expr):
+                inspect(child)
+
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.expr):
+            inspect(child)
+    return found
 
 
 def _top_level_bindings(path: Path) -> frozenset[str]:
     """Detect module-visible definitions and shadowing, including compound suites."""
     result: set[str] = set()
     for node in _module_scope_statements(path):
+        result.update(_module_expression_bindings(node))
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             result.add(node.name)
+        elif isinstance(node, ast.TypeAlias):
+            result.update(_binding_names(node.name))
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 result.update(_binding_names(target))
@@ -220,3 +248,34 @@ def test_nested_legacy_subpackage_is_checked(tmp_path: Path) -> None:
         "class CapitalContract: pass\n", encoding="utf-8"
     )
     assert _duplicate_owners(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "(CapitalContract := object())\n",
+        "if (ObjectiveContract := False):\n    pass\n",
+        "type FinancialClockContract = object\n",
+    ],
+)
+def test_module_named_expression_or_type_alias_cannot_hide_owner(
+    tmp_path: Path, declaration: str
+) -> None:
+    (tmp_path / "contract.py").write_text(declaration, encoding="utf-8")
+    assert _duplicate_owners(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        "registry[CapitalContract] = handler\n",
+        "CapitalContract.attr = item\n",
+        "run = lambda: (CapitalContract := object())\n",
+        "def unrelated():\n    (CapitalContract := object())\n",
+    ],
+)
+def test_nonbinding_uses_and_local_walrus_are_not_module_owners(
+    tmp_path: Path, usage: str
+) -> None:
+    (tmp_path / "contract.py").write_text(usage, encoding="utf-8")
+    assert _duplicate_owners(tmp_path) == {}

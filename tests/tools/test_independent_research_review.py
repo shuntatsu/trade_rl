@@ -611,15 +611,12 @@ def test_lightweight_v2_exact_head_model_review_satisfies_software_gate(
         ("report", "too short"),
     ],
 )
-def test_lightweight_v2_rejects_invalid_review_claim(
-    field: str, value: object
-) -> None:
+def test_lightweight_v2_rejects_invalid_review_claim(field: str, value: object) -> None:
     payload = _software_v2_payload()
     payload[field] = value
     review = _software_v2_review()
-    review["body"] = (
-        f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n"
-        + _receipt_body(payload)
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        payload
     )
     assert (
         resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)

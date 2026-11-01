@@ -67,6 +67,8 @@ artifacts / evidence
 | immutable全銘柄snapshotとtarget proposal | `trade_rl.strategies.portfolio.PortfolioDecisionSnapshot` / `PortfolioTargetProposal` |
 | built-in単銘柄戦略をnumeric portfolio policyへ接続 | `trade_rl.strategies.portfolio_adapter.SingleSymbolPortfolioPolicyAdapter` |
 | 明示的なcash zero-target policy | `trade_rl.strategies.portfolio_adapter.CashPortfolioPolicy` |
+| 費用控除後の多銘柄allocator | `trade_rl.strategies.allocation.cost_aware.CostAwareAllocationPolicy` |
+| 等weight buy-and-hold対照 | `trade_rl.strategies.allocation.buy_and_hold.BuyAndHoldPortfolioPolicy` |
 | 共通資金でのstrategy factory比較 | `trade_rl.evaluation.comparison.strategies.compare_shared_cash_strategy_factories` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | filled exposureを使うforecast intent utility | `trade_rl.strategies.forecasts.controller.CostAwareForecastIntentController.decide_for_position` |
@@ -80,8 +82,10 @@ artifacts / evidence
 
 `simulation.objectives`はafter-cost ledgerから渡されたequity値を固定初期資本で
 正規化するpure declaration ownerです。`BoundObjectiveClock`はUTC evaluation windowと
-finite economic horizonの秒数一致を検証します。ここからcurrent PPOのreward、gamma、
-terminal settlementは変更されず、ledgerやwinner selectionも新設されません。
+finite economic horizonの秒数一致を検証します。opt-inの`SharedPortfolioGymEnv`と
+`fit_shared_portfolio_ppo`はこのboundとgamma-one equity-delta rewardを使用しますが、
+legacy単銘柄PPOのreward・gamma・terminal既定は変えません。宣言や接続だけで
+台帳検算、Study認可、winner selection、収益性の証拠は成立しません。
 
 `PortfolioRuntimeExecutionScenarioV2`はplan/training/transform/checkpointのdigestと、完全な
 base/runtime `ExecutionCostConfig`、canonical digest、10個のcost/latency allowlist差分を記録する

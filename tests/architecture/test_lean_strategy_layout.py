@@ -65,6 +65,7 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/supervised.py",
         "forecasts/ridge.py",
         "forecasts/lightgbm.py",
+        "forecasts/prequential.py",
         "rl/__init__.py",
         "rl/intent.py",
         "rl/a2c.py",
@@ -262,3 +263,35 @@ def test_shared_rl_observation_contract_has_one_owner() -> None:
         from_ppo = _imported_names(path, "trade_rl.strategies.rl.ppo")
         assert from_intent & contract_names
         assert not (from_ppo & contract_names)
+
+
+def test_prequential_packets_reuse_the_shared_causal_training_rows() -> None:
+    path = STRATEGIES / "forecasts" / "prequential.py"
+    imports = _imports(path)
+    assert "trade_rl.strategies.forecasts.supervised" in imports
+    assert not any(
+        name.startswith(
+            (
+                "trade_rl.evaluation",
+                "trade_rl.simulation",
+                "trade_rl.risk",
+                "trade_rl.runtime",
+            )
+        )
+        for name in imports
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "build_causal_forecast_training_set" in called
+    # Label construction stays in supervised.py: no log-return label math here.
+    assert not any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "log"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in {"math", "np"}
+        for node in ast.walk(tree)
+    )

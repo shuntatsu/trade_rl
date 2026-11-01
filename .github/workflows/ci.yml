@@ -45,10 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Debug order reuse test Ruff diff (temporary)
-        continue-on-error: true
-        run: uv run ruff format --diff tests/simulation/test_order_reconciliation.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

@@ -439,6 +439,7 @@ def test_invalid_shapes_gross_latency_and_offsets_fail_closed() -> None:
     with pytest.raises(OrderReconciliationError, match="offset"):
         _reconcile(target_weight=0.5, limit_offset_rate=1.0)
 
+
 @pytest.mark.parametrize(
     ("order_type", "time_in_force", "expiry_index"),
     (

@@ -106,7 +106,11 @@ def test_plan_rejects_stale_digest_noop_and_cross_repository_candidate() -> None
     registry = CoordinatorRegistry(REPOSITORY, (candidate,))
 
     with pytest.raises(ValueError, match="expected registry digest"):
-        _plan(registry, _projection("T1067-01", phase=TaskPhase.REVIEW), expected_before_digest="f" * 64)
+        _plan(
+            registry,
+            _projection("T1067-01", phase=TaskPhase.REVIEW),
+            expected_before_digest="f" * 64,
+        )
 
     with pytest.raises(ValueError, match="no-op"):
         _plan(registry, candidate)

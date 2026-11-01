@@ -1,53 +1,26 @@
 # Agent entry point
 
-Trade RL の変更を行う Agent は、この入口を読んだら、詳細文書・実装へ進む前に `main/current HEAD`、作業branch、open PRのhead/base、recent commitsを確認する。重複・競合する実装線がないことを確かめてから次を読む。
+作業前に current `main` HEAD、現在branch/worktree、open PRのhead/base、recent commitsを確認し、同目的の作業を重複させない。仕様については現行source・public API・近傍testsを優先し、docsとの不一致は同じ変更で修正する。
 
-1. `docs/README.md` — 現行ドキュメントの入口と正本の一覧
-2. `docs/AGENTS.md` — 読む順序、更新先、保持・削除ルール、検証契約
-3. 変更対象に応じて `docs/architecture/lean-core.md`、`docs/architecture/package-boundaries.md`、`docs/research/current-status.md`
+読む順序: [docs/README.md](docs/README.md) → [docs/AGENTS.md](docs/AGENTS.md) → 対象に応じたarchitecture/research docs → 対象source・tests・CI。全docsや旧計画を一律に読まず、必要な正本を選ぶ。
 
-Local repository tooling (`python -m tools.agent_repo`) は preflight / context / impact / semantic diff / verification routing をsource-derivedで要約するために利用してよい。ただし、その出力はsource review、GitHub open-PR/branch overlap確認、final full CIの代替ではない。生成reportはcommitしない。
+## Development
 
+- 最初にObjective、Acceptance Criteria、Invariants、Failure Modes、Test Oracleを定める。変更は最小限とし、過去の説明を追記するより現行記述を置換する。
+- 実装は専用branch/worktreeで行う。原則1 write Taskにつきdurable remote branchを1本とし、RED・format・smoke用のremote branchを増やさない。
+- Bugfixでは再現→RED→修正→GREENを基本とする。新function/classは可能ならproduction投入前に小さなfake/mockで主要な入出力・失敗を確認する。fakeだけで統合/E2Eを代替しない。
+- local-firstのtargeted tests・Ruff・format・mypy、影響に応じたintegrationを確認し、final diff/status/HEADを点検してpushする。詳細の実行コマンドはdocs/AGENTS.mdとCIを正本とする。
 
-## Development loop
+## PR / integration safety
 
-新規のproduction function/classは、production sourceへ追加する前に、可能な範囲でlocalの最小mock/fake/stubを使い、意図した入出力・状態変化・主要failureを実行確認する。実装後はtargeted test/smokeとfinal diff/statusをlocalで確認してからpushする。mock/smokeは重要境界の実Integration/E2Eを置き換えない。
+- 通常の統合経路はPR。Agentはmainへの直接変更、force-push、history rewrite、branch削除を行わない。
+- **tested PR head contains current `main`**。PR最終HEADに対応するFull CI・必要な独立レビューを確認し、merge直前にもmainの祖先関係を再確認する。HEADまたはmainが進めば旧Greenを使わず再検証する。Fast PushはFull CIの代わりではない。
+- Independent Research Review / Generic reviewのreceipt・差戻し・承認条件はdocs/AGENTS.mdとdocs/architecture/research-assurance.mdに従う。ソフトウェアPRのレビューがGreenでも経済実験、unused/final data、live注文は認可されない。
+- GitHubのbranch protection/rulesetはGit tree外の状態。必須チェック・force-push/削除禁止をread-back確認できない限り、設定済みと主張しない。
 
-CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Lean Core + PPO Runtime + Human Guide + Market Store PostgreSQLを実行する。PPO Runtimeは`train-sb3` extraの実SB3/Torchを使うintegration smokeである。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
+## Research / documentation / branch retention
 
-## Git / PR boundary
-
-Agentによる実装作業は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` を通常の作業branchとして直接変更しない。Integration invariant: tested PR head contains current `main`. merge直前にcurrent `main` のSHAを再確認し、tested PR headがそのcommitを包含していることと、その同一PR HEADに対する最新CI結果を確認する。`main` が進んだ場合、古いGreenを再利用せず、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作って再検証する。
-
-Agent作業で `main` へのforce-push、history rewrite、branch削除を行わない。Acceptance Criteriaと必要なverificationを満たし、current `main`を包含するfinal PR HEADのrequired checksがGreenなら、Integratorは追加のユーザー確認なしに通常のPR経路でmergeしてよい。branch protection / rulesetを有効化したと報告する場合は、GitHub側から設定をread-backして確認する。
-
-### Independent Research Review / PR lifecycle
-
-PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクルは次の通りとする。
-
-1. **レビューゲートの検知**: 先行CI（core, ppo-runtime, guide等）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **独立監査の実行**: 実装担当の全AIモデルと異なるモデルを明示して、fresh read-only reviewerがPRのexact HEAD差分をresult-blindで監査する。Generic gateは同一GitHub accountの`COMMENTED`投稿も、model/task identityとdigestを検証するreceiptがある場合に受理する。別accountだけでは独立性を満たさない。receipt契約は `docs/architecture/research-assurance.md` を正本とする。
-3. **差し戻し（BLOCKED）**: 重大な懸念や脆弱性、契約違反（Medium / High severity）が検出された場合、レビュー本文に指摘事項を記載し `### Disposition: BLOCKED` を記録してPRに投稿する。マージはブロックされ、修正対応（差し戻し）となる。
-4. **承認（APPROVED）とマージ・クローズ**: 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。全必須CIチェックがGreenとなり、`tested PR head contains current main` が満たされた段階でPRをマージ（`gh pr merge`）してクローズする。
-
-Generic receiptはsoftware PRの統合確認だけを担い、G4 economic execution、sealed PPO、unused/final評価、live注文の個別authorizationを代替しない。
-
-## Remote branch hygiene
-
-Remote branchは「作業履歴の保管庫」として増やさない。activeなwrite Task / PRごとにdurableなremote branchを原則1本だけ持ち、RED・format・verification・one-shot automationのための補助branchは可能な限りlocal branch/worktreeまたはGitHub Actionsのrun/artifactで扱う。remote補助branchが必要だった場合も、そのtipをdurable anchorへ取り込める形で終了し、孤立した一時refを恒久保存しない。
-
-`main`、open PRのhead/base、未完了（requested/waiting/pending/queued/in_progress）のGitHub Actionsが参照するbranch、protected branch、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`research/`・`seal/`・`freeze/`・`run/` というbranch名だけでは永久anchorにしない。研究provenanceは、Issue/PR/Artifactに記録したexact commit SHAと、`provenance/branch-retention` のmerge-historyで保持する。
-
-現行の `.github/workflows/branch-hygiene.yml` は、Coordinator のactive Task / leaseと未登録作業を完全に照合する機能が未接続のため、`main` push・schedule・手動起動のすべてで **dry-run のみ**を行う。`tools.branch_hygiene --apply` もverified Coordinator Task/leaseの完全な保護情報が未実装の間はfail-closedで拒否する。自動削除の再開はTask連携と独立した競合・保全テストを経た後とする。
-
-将来の再有効化に向けて保持している `tools.branch_hygiene` のapply用アルゴリズムは、非anchor branchを初めて観測したrunでは、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ保存し、そのtip SHA自体もretention commitのparentとして到達可能にしたうえで元refを残す。同じbranch名・同じtip SHAが少なくとも1時間retentionで観測済みで、その間にopen PR / active workflow / protected anchorにならず、tip SHAがdurable anchorから到達可能である場合に限り元refを削除してよい。tipが変われば新しい観測として猶予をやり直す。したがってcompleted research refを削除しても、`git branch <元branch名> <記録済みSHA>` で復元できるexact provenanceを失わない。
-
-削除直前にはopen PR head/baseとactive workflow branchを再取得し、削除自体は計画時のexact tip SHAを `git push --force-with-lease=<ref>:<sha> --atomic` で条件付き実行する。tipが変化した、protectedになった、open PR/active workflowから参照されるようになったbranchは削除しない。削除後にもbranch一覧を再取得し、削除対象refが残っていればworkflowを失敗させる。これはAgentによる手動branch削除の許可ではない。
-
-このRepositoryの現treeは現行システムだけを表す。完了済み設計・migration経緯・旧世代を保存するための `docs/history` / `docs/archive` は作らず、過去の内容は Git history から参照する。
-
-コード構造を変更した場合は対応するcurrent docsと `tests/architecture/` の契約を同じ変更で更新する。研究上の前提・比較対象・評価手順・研究状態を変更した場合は `docs/research/current-status.md` を更新する。
-
-ライセンス・provenance・third-party noticeは通常docsとは別の永久保持契約であり、`LICENSE` と `LICENSES/` を正本とする。明示的な法務目的なしに移動・削除・要約置換しない。
-
-完了を判断する前に、対象テストだけでなくRepositoryのquality gateを確認する。少なくとも現在のCIが要求する Ruff、Format、Mypy、repository-tooling type check、full `tests/`、build、tracked source / sdist / wheel closure、clean-installed package identity と、変更内容に応じたarchitecture/contract testを実行し、未検証事項を成功扱いしない。
+- causal/point-in-time data、現実的執行費用、common accounting、hard risk、unused data、研究証拠の不変性を維持する。結果後の合格条件変更・leakage・過去の封印結果の再分類は禁止。研究変更はG0–G2のresult-blind反証と必要な独立reviewを先に行う。
+- `tools.agent_repo` のsource-derived出力は便利な補助であり、GitHub PR/branch現況・実コード・Full CIの代替ではない。生成reportをcommitしない。
+- `main`、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、active Task、`provenance/branch-retention`等を保全する。Task/lease同期が不完全な間はbranch削除を認可しない。`.github/workflows/branch-hygiene.yml` と `tools.branch_hygiene` を正本として、Actionsがread-only dry-runであること、手動CLIの`tools.branch_hygiene --apply`がfail-closedで拒否されることを確認する。現在のsourceがまだその状態でなければ、安全化変更を先に統合してからdocsの「現行」記述を更新する。削除を再開する場合は完全なTask/PR/workflow保護、競合反証、retentionと復元を独立に検証する。
+- `docs/` は現行正本のみ。完了済みplan/specは必要な契約を昇格してGit historyに残し、`docs/history`・`docs/archive`を増やさない。`LICENSE`・`LICENSES/`と、immutable研究artifactは通常のdocs整理から除外する。

@@ -91,7 +91,10 @@ def _request_inputs(
         or branch.startswith(_PRESERVED)
         or "//" in branch
         or ".." in branch
-        or any(part.startswith(".") or part.endswith(".lock") for part in branch.split("/"))
+        or any(
+            part.startswith(".") or part.endswith(".lock")
+            for part in branch.split("/")
+        )
     ):
         raise ValueError("branch is not eligible for merged-PR pruning")
     _sha(expected_sha, "expected branch SHA")
@@ -158,7 +161,9 @@ def _require_merged_pr(
         or base.get("ref") != "main"
         or base_repo.get("full_name") != _REPOSITORY
     ):
-        raise ValueError("merged PR must be closed and bind the exact local source HEAD")
+        raise ValueError(
+            "merged PR must be closed and bind the exact local source HEAD"
+        )
 
 
 def _require_retention_record(

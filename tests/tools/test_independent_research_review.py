@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from tools.independent_research_review import ReviewOutcome, resolve_review_outcome
+from tools.independent_research_review import (
+    ReviewOutcome,
+    _valid_software_payload,
+    resolve_review_outcome,
+)
 
 HEAD_SHA = "a" * 40
 REVIEW_MARKER = "<!-- independent-research-review-audit -->"
@@ -64,6 +68,36 @@ def _review(
         "user": {"id": reviewer_id},
         "body": body,
     }
+
+
+def _software_payload(*, publisher_id: int = 20) -> dict[str, object]:
+    return {
+        "schema": "software_source_review_v1",
+        "head_sha": HEAD_SHA,
+        "publisher_user_id": publisher_id,
+        "scope": "software-only",
+        "disposition": "APPROVED",
+        "reviewer_model_id": "gemini-3.8-flash-high",
+        "review_jobs": ["a" * 16, "b" * 16],
+        "review_result": "PASS",
+        "blocking_findings": 0,
+        "diff_sha256": "f" * 64,
+        "report": (
+            "Reviewed the complete exact-head software diff with read-only AGY, "
+            "including the related contract tests. No blocking findings; "
+            "known limitations recorded; no economic authorization."
+        ),
+    }
+
+
+def _software_review(
+    *, publisher_id: int = 20, state: str = "APPROVED"
+) -> dict[str, object]:
+    review = _review(reviewer_id=publisher_id, state=state, receipt=False)
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        _software_payload(publisher_id=publisher_id)
+    )
+    return review
 
 
 def test_account_separation_alone_does_not_establish_model_independence() -> None:
@@ -509,6 +543,140 @@ def test_cli_validates_owner_commented_receipt_from_github_evidence(
     )
 
     assert result.stdout.strip() == "APPROVED"
+
+
+@pytest.mark.parametrize(
+    ("publisher_id", "state"),
+    [(10, "COMMENTED"), (20, "APPROVED")],
+)
+def test_software_review_accepts_actual_review_jobs_without_historical_task_ids(
+    publisher_id: int, state: str
+) -> None:
+    review = _software_review(publisher_id=publisher_id, state=state)
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.APPROVED
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema", "unrecognized_receipt_v1"),
+        ("head_sha", "b" * 40),
+        ("publisher_user_id", "20"),
+        ("scope", "economic"),
+        ("disposition", "BLOCKED"),
+        ("reviewer_model_id", "unknown"),
+        ("reviewer_model_id", "Gemini-3.8-Flash-High"),
+        ("review_jobs", []),
+        ("review_jobs", ["not-a-run"]),
+        ("review_jobs", ["a" * 16, "a" * 16]),
+        ("review_result", "PENDING"),
+        ("blocking_findings", 1),
+        ("blocking_findings", True),
+        ("diff_sha256", "c" * 40),
+        ("report", "PASS"),
+    ],
+)
+def test_software_review_rejects_missing_stale_or_fabricated_evidence_fields(
+    field: str, value: object
+) -> None:
+    payload = _software_payload()
+    payload[field] = value
+    review = _software_review()
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        payload
+    )
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_direct_software_payload_rejects_contradictory_or_wrong_schema() -> None:
+    payload = _software_payload()
+    payload["disposition"] = "BLOCKED"
+    assert not _valid_software_payload(payload, head_sha=HEAD_SHA, publisher_id=20)
+
+    payload["disposition"] = "APPROVED"
+    payload["schema"] = "not-a-review-schema"
+    assert not _valid_software_payload(payload, head_sha=HEAD_SHA, publisher_id=20)
+
+
+def test_software_review_rejects_unknown_fields_and_wrong_hash() -> None:
+    payload = _software_payload()
+    payload["synthetic_implementation_task_id"] = "invented"
+    review = _software_review()
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        payload
+    )
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+    review = _software_review()
+    review["body"] = str(review["body"]).replace("f" * 64, "e" * 64)
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_software_review_blocked_precedence_and_latest_actor_revocation() -> None:
+    accepted = _software_review(publisher_id=20)
+    blocked = _review(
+        reviewer_id=30,
+        state="COMMENTED",
+        disposition="BLOCKED",
+        receipt=False,
+        review_id=101,
+    )
+    assert (
+        resolve_review_outcome(
+            _pull_request(), [accepted, blocked], expected_head_sha=HEAD_SHA
+        )
+        is ReviewOutcome.BLOCKED
+    )
+
+    revoked = _software_review(publisher_id=20)
+    revoked["id"] = 102
+    revoked["body"] = f"{REVIEW_MARKER}\n\n### Disposition: PENDING\n"
+    assert (
+        resolve_review_outcome(
+            _pull_request(), [accepted, revoked], expected_head_sha=HEAD_SHA
+        )
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_software_review_renderer_and_exact_head_cli(tmp_path: Path) -> None:
+    payload = _software_payload(publisher_id=10)
+    payload_path = tmp_path / "software-payload.json"
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    tool = Path(__file__).resolve().parents[2] / "tools/independent_research_review.py"
+    rendered = subprocess.run(
+        [sys.executable, str(tool), "--render-payload-json", str(payload_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    review = _software_review(publisher_id=10, state="COMMENTED")
+    review["body"] = rendered.stdout
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.APPROVED
+    )
+
+    wrong_head = dict(review)
+    wrong_head["commit_id"] = "b" * 40
+    assert (
+        resolve_review_outcome(
+            _pull_request(), [wrong_head], expected_head_sha=HEAD_SHA
+        )
+        is ReviewOutcome.PENDING
+    )
 
 
 def test_missing_pull_request_author_identity_fails_closed() -> None:

@@ -26,6 +26,9 @@ train-sb3 = [
 oracle = [
     "scipy>=1.14,<1.18",
 ]
+store = [
+    "psycopg[binary]==3.3.6",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
@@ -33,6 +36,7 @@ dev = [
     "mypy>=1.14.0",
     "hypothesis>=6.120.0",
     "scipy>=1.14,<1.18",
+    "psycopg[binary]==3.3.6",
 ]
 
 [tool.setuptools.dynamic]
@@ -44,6 +48,7 @@ include = ["trade_rl*"]
 
 [tool.setuptools.package-data]
 "trade_rl.evaluation" = ["ppo_normalization_activation.json"]
+"trade_rl.integrations.market_store" = ["migrations/*.sql"]
 
 [tool.uv]
 required-version = "==0.10.0"

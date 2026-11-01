@@ -12,6 +12,7 @@ from tools.branch_hygiene import (
     apply_cleanup,
     parse_retention_log,
     plan_cleanup,
+    render_summary,
 )
 
 
@@ -319,12 +320,383 @@ def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     assert "schedule:" in workflow
     assert "workflow_dispatch:" in workflow
     assert "pull_request_target:" not in workflow
-    assert "contents: write" in workflow
+    assert "contents: read" in workflow
+    assert "contents: write" not in workflow
+    assert "--apply" not in workflow
+    assert "APPLY_REQUESTED" not in workflow
     assert "pull-requests: read" in workflow
     assert "actions: read" in workflow
     assert "ref: ${{ github.event.repository.default_branch }}" in workflow
     assert "persist-credentials: false" in workflow
     assert "python3 -m tools.branch_hygiene" in workflow
+
+
+def test_unfinished_workflow_statuses_all_protect_branch_refs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+    seen_statuses: list[str] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        seen_statuses.append(status)
+        return {
+            "total_count": 1,
+            "workflow_runs": [
+                {"id": 1, "head_branch": f"task/{status}", "status": status}
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    assert api.active_workflow_branch_names() == frozenset(
+        {f"task/{status}" for status in seen_statuses}
+    )
+    assert seen_statuses == ["requested", "waiting", "pending", "queued", "in_progress"]
+
+
+@pytest.mark.parametrize(
+    "head_branch_fields",
+    [
+        pytest.param({}, id="missing"),
+        pytest.param({"head_branch": None}, id="null"),
+        pytest.param({"head_branch": ""}, id="empty"),
+        pytest.param({"head_branch": " \t "}, id="whitespace-only"),
+        pytest.param({"head_branch": 7}, id="invalid-type"),
+    ],
+)
+def test_unfinished_workflow_without_branch_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    head_branch_fields: dict[str, object],
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        return {
+            "total_count": 1,
+            "workflow_runs": [
+                {"id": 1, "status": query["status"], **head_branch_fields}
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="head_branch"):
+        api.active_workflow_branch_names()
+
+
+@pytest.mark.parametrize(
+    ("count", "should_raise"),
+    [(999, False), (1000, True), (1001, True)],
+)
+def test_unfinished_workflow_search_limit_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    count: int,
+    should_raise: bool,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        if query["status"] != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        start = (page - 1) * 100 + 1
+        end = min(page * 100, count) + 1
+        return {
+            "total_count": count,
+            "workflow_runs": [
+                {"id": i, "status": "requested", "head_branch": f"task/{i}"}
+                for i in range(start, end)
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    if should_raise:
+        with pytest.raises(RuntimeError, match="1000-result limit"):
+            api.active_workflow_branch_names()
+    else:
+        assert api.active_workflow_branch_names() == frozenset(
+            f"task/{i}" for i in range(1, count + 1)
+        )
+
+
+def test_unfinished_workflow_missing_result_count_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        return {"workflow_runs": []}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="total_count"):
+        api.active_workflow_branch_names()
+
+
+@pytest.mark.parametrize(
+    ("variant", "error_pattern"),
+    [
+        ("duplicate-id", "duplicate workflow run id"),
+        ("count-drift", "total_count changed between pages"),
+        ("status-mismatch", "status differs from requested status"),
+        ("missing-id", "workflow run id is missing or invalid"),
+    ],
+)
+def test_unfinished_workflow_scan_rejects_inconsistent_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+    variant: str,
+    error_pattern: str,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        page = int(query["page"])
+        if status != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        if variant == "status-mismatch":
+            return {
+                "total_count": 1,
+                "workflow_runs": [
+                    {"id": 1, "status": "completed", "head_branch": "task/1"}
+                ],
+            }
+        if variant == "missing-id":
+            return {
+                "total_count": 1,
+                "workflow_runs": [{"status": status, "head_branch": "task/1"}],
+            }
+        if page == 1:
+            return {
+                "total_count": 101,
+                "workflow_runs": [
+                    {"id": i, "status": status, "head_branch": f"task/{i}"}
+                    for i in range(1, 101)
+                ],
+            }
+        if variant == "count-drift":
+            return {"total_count": 100, "workflow_runs": []}
+        return {
+            "total_count": 101,
+            "workflow_runs": [{"id": 1, "status": status, "head_branch": "task/1"}],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match=error_pattern):
+        api.active_workflow_branch_names()
+
+
+def test_unfinished_workflow_overfull_final_page_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        if status != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        ids = range(1, 101) if page == 1 else range(101, 103)
+        return {
+            "total_count": 101,
+            "workflow_runs": [
+                {"id": i, "status": status, "head_branch": f"task/{i}"} for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="pagination"):
+        api.active_workflow_branch_names()
+
+
+def test_unfinished_workflow_exact_final_page_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        status = query["status"]
+        if status != "requested":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        assert page in (1, 2)
+        ids = range(1, 101) if page == 1 else range(101, 102)
+        return {
+            "total_count": 101,
+            "workflow_runs": [
+                {"id": i, "status": status, "head_branch": f"task/{i}"} for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    assert api.active_workflow_branch_names() == frozenset(
+        f"task/{i}" for i in range(1, 102)
+    )
+
+
+def test_unfinished_workflow_multiple_status_pages_are_all_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test",
+    )
+    statuses = ("requested", "waiting", "pending", "queued", "in_progress")
+    observed_requests: list[tuple[str, int]] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET"
+        assert suffix == "actions/runs"
+        assert query is not None
+        assert query["per_page"] == "100"
+        status = query["status"]
+        page = int(query["page"])
+        observed_requests.append((status, page))
+        assert status in statuses
+        assert page in (1, 2)
+        ids = range(1, 101) if page == 1 else range(101, 102)
+        return {
+            "total_count": 101,
+            "workflow_runs": [
+                {
+                    "id": statuses.index(status) * 1000 + i,
+                    "status": status,
+                    "head_branch": f"{status}/task/{i}",
+                }
+                for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    assert api.active_workflow_branch_names() == frozenset(
+        f"{status}/task/{i}" for status in statuses for i in range(1, 102)
+    )
+    assert observed_requests == [
+        (status, page) for status in statuses for page in (1, 2)
+    ]
+
+
+def test_dry_run_summary_does_not_claim_archival_or_grace_as_anchor() -> None:
+    decisions = (
+        BranchDecision(BranchInfo("main", "a" * 40, False), "keep", "default-branch"),
+        BranchDecision(
+            BranchInfo("tmp/first", "b" * 40, False),
+            "archive-keep",
+            "first-seen-non-anchor-tip",
+        ),
+        BranchDecision(
+            BranchInfo("tmp/grace", "c" * 40, False),
+            "keep",
+            "observation-grace-period",
+        ),
+        BranchDecision(
+            BranchInfo("tmp/unreachable", "d" * 40, False),
+            "keep",
+            "retained-tip-not-reachable",
+        ),
+    )
+    summary = render_summary(decisions, deleted=(), apply=False)
+    assert "- durable anchors kept: 1" in summary
+    assert "- first-observation archival candidates: 1" in summary
+    assert "- ref/retention mutations: none (dry-run)" in summary
+    assert "archived and kept" not in summary
+
+
+def test_branch_hygiene_cli_help_marks_apply_disabled(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from tools.branch_hygiene import parse_args
+
+    with pytest.raises(SystemExit) as exited:
+        parse_args(["--help"])
+    assert exited.value.code == 0
+    assert "--apply is disabled" in capsys.readouterr().out
+
+
+def test_apply_cli_is_blocked_without_authoritative_task_registry() -> None:
+    from tools.branch_hygiene import main
+
+    with pytest.raises(RuntimeError, match="apply is disabled"):
+        main(["--repository", "owner/repo", "--apply"])
 
 
 def test_repository_root_url_has_no_trailing_slash() -> None:

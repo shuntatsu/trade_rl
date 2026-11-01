@@ -320,3 +320,25 @@ def test_terminal_task_cannot_mutate_condition_without_phase_change() -> None:
             observed_registry_oid=OID,
             enumerated_task_ids=(complete.status.task_id,),
         )
+
+
+def test_initial_registry_preflight_rejects_direct_terminal_projection() -> None:
+    candidate = _enrollment()
+    direct_terminal = replace(
+        candidate, status=replace(candidate.status, phase=TaskPhase.COMPLETE)
+    )
+    with pytest.raises(ValueError, match="completed Task cannot be newly enrolled"):
+        require_local_registry_preflight(
+            None,
+            direct_terminal,
+            expected_registry_oid=OID,
+            observed_registry_oid=OID,
+            enumerated_task_ids=(),
+        )
+
+
+def test_direct_projection_refuses_fractional_task_revision() -> None:
+    candidate = _enrollment()
+    fractional = replace(candidate.status, task_revision=1.5)
+    with pytest.raises(ValueError, match="exact integer"):
+        replace(candidate, status=fractional)

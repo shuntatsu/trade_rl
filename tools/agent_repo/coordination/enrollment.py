@@ -50,6 +50,8 @@ class EnrollmentProjection:
             )
         if not isinstance(self.status, TaskStatusRecord):
             raise ValueError("status must be a TaskStatusRecord")
+        if type(self.status.task_revision) is not int:
+            raise ValueError("Task revision must be an exact integer")
         if (
             self.status.owner is None
             or self.status.lease_epoch is None
@@ -137,6 +139,8 @@ def require_local_registry_preflight(
         raise ValueError("registry roster is malformed or duplicated")
     task_id = candidate.status.task_id
     if previous is None:
+        if candidate.status.phase is TaskPhase.COMPLETE:
+            raise ValueError("completed Task cannot be newly enrolled")
         if task_id in enumerated_task_ids:
             raise ValueError("duplicate Task ID in registry")
         return

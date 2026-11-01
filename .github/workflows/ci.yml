@@ -46,7 +46,9 @@ jobs:
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: uv run ruff format --check trade_rl tests tools
+        run: |
+          uv run ruff format --diff tests/agent_repo/test_coordination_registry_transition.py
+          uv run ruff format --check trade_rl tests tools
 
       - name: Mypy
         run: uv run mypy trade_rl

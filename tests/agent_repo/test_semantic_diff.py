@@ -211,3 +211,40 @@ def test_semantic_diff_fails_closed_for_mutated_all(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="__all__"):
         semantic_diff(tmp_path, base_ref="main")
+
+
+def test_serialized_class_fields_and_dataclass_shape_changes_are_detected(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/example.py",
+        "from dataclasses import dataclass\n"
+        "from typing import ClassVar\n\n"
+        "@dataclass(frozen=True)\nclass CandidateRunConfig:\n"
+        "    JSON_FIELDS: ClassVar[tuple[str, ...]] = ('name',)\n"
+        "    name: str\n",
+    )
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "typed config baseline")
+    _write(
+        tmp_path,
+        "trade_rl/example.py",
+        "from dataclasses import dataclass\n"
+        "from typing import ClassVar\n\n"
+        "@dataclass(frozen=True)\nclass CandidateRunConfig:\n"
+        "    JSON_FIELDS: ClassVar[tuple[str, ...]] = ('name', 'version')\n"
+        "    name: str\n    version: int\n",
+    )
+    signals = semantic_diff(tmp_path, base_ref="main")
+    assert any(
+        item.kind == "SCHEMA" and item.change == "changed"
+        and item.name == "CandidateRunConfig.JSON_FIELDS"
+        for item in signals
+    )
+    assert any(
+        item.kind == "DATA_FIELD" and item.change == "added"
+        and item.name == "CandidateRunConfig.version"
+        for item in signals
+    )

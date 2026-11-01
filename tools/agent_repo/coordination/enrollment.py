@@ -153,8 +153,14 @@ def require_local_registry_preflight(
         raise ValueError("Task revision regressed")
     if new.task_revision > old.task_revision + 1:
         raise ValueError("Task revision skipped a predecessor")
-    if new.task_revision == old.task_revision and new.base_sha != old.base_sha:
+    if new.task_revision > old.task_revision:
+        # A changed contract invalidates the old fenced lease. New epochs are
+        # deliberately refused until remote reconciliation has an authority.
+        raise ValueError("Task revision bump requires a new reconciled lease")
+    if new.base_sha != old.base_sha:
         raise ValueError("Task base changed without a revision bump")
+    if old.phase is TaskPhase.COMPLETE:
+        raise ValueError("complete is a terminal task phase")
     if new.phase != old.phase:
         validate_transition(old.phase, new.phase)
     if (

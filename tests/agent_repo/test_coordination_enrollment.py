@@ -282,3 +282,41 @@ def test_projection_constructor_refuses_missing_lease_and_invalid_repository() -
         replace(record, status=unleased_status)
     with pytest.raises(ValueError, match="repository"):
         replace(record, repository="../..")
+
+
+def test_revision_bump_with_old_fenced_lease_is_rejected() -> None:
+    old = _enrollment()
+    new = replace(
+        old,
+        status=replace(
+            old.status,
+            task_revision=old.status.task_revision + 1,
+            task_contract_digest="d" * 64,
+        ),
+    )
+    with pytest.raises(ValueError, match="new reconciled lease"):
+        require_local_registry_preflight(
+            old,
+            new,
+            expected_registry_oid=OID,
+            observed_registry_oid=OID,
+            enumerated_task_ids=(old.status.task_id,),
+        )
+
+
+def test_terminal_task_cannot_mutate_condition_without_phase_change() -> None:
+    started = _enrollment()
+    complete = replace(
+        started, status=replace(started.status, phase=TaskPhase.COMPLETE)
+    )
+    mutated = replace(
+        complete, status=replace(complete.status, condition=TaskCondition.BLOCKED)
+    )
+    with pytest.raises(ValueError, match="terminal task phase"):
+        require_local_registry_preflight(
+            complete,
+            mutated,
+            expected_registry_oid=OID,
+            observed_registry_oid=OID,
+            enumerated_task_ids=(complete.status.task_id,),
+        )

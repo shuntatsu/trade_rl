@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from tools.agent_repo.source_index import ImportCollector, within_module
@@ -44,7 +45,25 @@ def test_permanent_ci_lints_formats_and_types_repository_tooling() -> None:
     assert "uv run ruff check trade_rl tests tools" in workflow
     assert "uv run ruff format --check trade_rl tests tools" in workflow
     assert "uv run mypy tools/agent_repo tests/architecture/distribution.py" in workflow
-    assert workflow.count("tools/issue810_joint_fee_only_fixture.py") == 2
+    # Check the actual mypy commands, not incidental mentions in comments.
+    repo_commands = re.findall(
+        r"(?m)^      - name: Repository tooling types\n        run: (.*)$", workflow
+    )
+    ppo_commands = re.findall(
+        r"(?m)^      - name: Conditional PPO diagnostic types\n        run: (.*)$",
+        workflow,
+    )
+    assert len(repo_commands) == len(ppo_commands) == 2
+    for command in repo_commands:
+        arguments = command.split()
+        assert arguments[:3] == ["uv", "run", "mypy"]
+        assert "tools/issue810_joint_fee_only_fixture.py" in arguments
+        assert "tools/issue810_portfolio_probability_probe.py" not in arguments
+    for command in ppo_commands:
+        arguments = command.split()
+        assert arguments[:3] == ["uv", "run", "mypy"]
+        assert "tools/issue810_portfolio_probability_probe.py" in arguments
+        assert "tools/issue810_joint_fee_only_fixture.py" not in arguments
 
 
 def test_source_packet_contract_is_documented_at_the_repository_boundary() -> None:

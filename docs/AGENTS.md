@@ -73,6 +73,8 @@ GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run pyt
 
 `tools.github_coordination_ref_cas` は、将来の**使い捨てGitHub integration test専用**のGraphQL `updateRefs` CAS primitiveである。`beforeOid` / `afterOid`・authenticated viewer・repository identity・独立readbackを検証し、`refs/heads/coordination/*` 以外、ref削除、no-opを拒否する。通常呼出しではmutationをhard-refuseし、明示的なtest-only opt-inがある場合だけ `force=false` の1-ref updateを構成する。**production repository `shuntatsu/trade_rl` 自体はopt-inの有無にかかわらずmutation targetとして拒否し、さらにrepository名が `-coordination-disposable` で終わる明示的な使い捨てintegration repositoryだけを対象にする。** 成功しても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。これはprotected registry、single Coordinator、完全なroster、実GitHub並行競合E2Eの代替ではなく、production repository上のTask登録CLIとして使わない。
 
+`tools.github_coordination_ref_cas.compare_and_swap_registry_plan` は同じdisposable/test-only mutation gateに従う追加検証である。既存pure `RegistryTransitionPlan` をexact before/after commit OIDに結び付け、caller-supplied object readerから取得したcanonical registry bytesをstrict parseし、before/after digest・1-Task transition・CAS後payload再readbackを照合する。読み出し元の認証・Git object identityをこのfakeable Protocol自体が証明するわけではなく、post-mutation readback失敗時はref変更済みの可能性があるため成功やrollbackを主張しない。`shuntatsu/trade_rl`でのmutation禁止・既定hard-refuse・authority/roster-complete/cleanup=falseは不変で、実GitHub disposable E2Eと保護されたproduction writerの代替ではない。
+
 ## Agent Coordination Plane
 
 複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。

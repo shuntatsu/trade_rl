@@ -13,7 +13,7 @@
 
 ## PR / integration safety
 
-- 通常の統合経路はPR。Agentはmainへの直接変更、force-push、history rewrite、branch削除を行わない。
+- 通常の統合経路はPR。Agentはmainへの直接変更、force-push、history rewriteを行わない。branch削除は、次の厳格な **merged-PR sourceの個別整理** に限り許可する。
 - **tested PR head contains current `main`**。PR最終HEADに対応するFull CI・必要な独立レビューを確認し、merge直前にもmainの祖先関係を再確認する。HEADまたはmainが進めば旧Greenを使わず再検証する。Fast PushはFull CIの代わりではない。
 - Independent Research Review / Generic reviewのreceipt・差戻し・承認条件はdocs/AGENTS.mdとdocs/architecture/research-assurance.mdに従う。ソフトウェアPRのレビューがGreenでも経済実験、unused/final data、live注文は認可されない。
 - GitHubのbranch protection/rulesetはGit tree外の状態。必須チェック・force-push/削除禁止をread-back確認できない限り、設定済みと主張しない。
@@ -22,5 +22,7 @@
 
 - causal/point-in-time data、現実的執行費用、common accounting、hard risk、unused data、研究証拠の不変性を維持する。結果後の合格条件変更・leakage・過去の封印結果の再分類は禁止。研究変更はG0–G2のresult-blind反証と必要な独立reviewを先に行う。
 - `tools.agent_repo` のsource-derived出力は便利な補助であり、GitHub PR/branch現況・実コード・Full CIの代替ではない。生成reportをcommitしない。
-- `main`、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、active Task、`provenance/branch-retention`等を保全する。Task/lease同期が不完全な間はbranch削除を認可しない。`.github/workflows/branch-hygiene.yml` と `tools.branch_hygiene` を正本として、Actionsがread-only dry-runであること、手動CLIの`tools.branch_hygiene --apply`がfail-closedで拒否されることを確認する。現在のsourceがまだその状態でなければ、安全化変更を先に統合してからdocsの「現行」記述を更新する。削除を再開する場合は完全なTask/PR/workflow保護、競合反証、retentionと復元を独立に検証する。
+- `main`、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、active Task、保護branch、研究・freeze・seal・run・evidence、`provenance/branch-retention`を保持する。未統合・曖昧なbranch、Task/leaseの完全性を必要とする一般cleanupは引き続き削除不可とする。
+- 例外は **すでにmainに統合済みのローカルPRのexact final-head source branch** を1本ずつ明示して整理する場合のみ。`tools.verified_merged_branch_prune` が、closed/merged PRと最終HEADの一致、mainとretentionへのSHA祖先関係、retention commitのbranch名・exact SHA記録と追加parent、1時間以上の猶予、open PRとunfinished workflowからの非参照、前後main/retention/sourceの不変性を再検証し、Gitのexact-SHA leaseによるconditional deleteと削除後readbackを行う。失敗・不明なら削除しない。消してもcommitと復元記録は残す。Active Task等がなお使用中と判明したbranchはmerged済みでも保持する。
+- `tools.branch_hygiene --apply`と直接`apply_cleanup()`は一括削除のまま**常時拒否**し、Actions workflowもread-only dry-runに維持する。無差別・自動・日付だけによる削除は再開しない。上記の個別pruneは本番CoordinatorのTask登録/`cleanup_authorized`をtrueにしない。
 - `docs/` は現行正本のみ。完了済みplan/specは必要な契約を昇格してGit historyに残し、`docs/history`・`docs/archive`を増やさない。`LICENSE`・`LICENSES/`と、immutable研究artifactは通常のdocs整理から除外する。

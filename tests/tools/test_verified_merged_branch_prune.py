@@ -289,6 +289,32 @@ def test_post_delete_readback_failure_never_claims_success(
     assert api.deleted == [BranchInfo(NAME, TIP, False)]
 
 
+
+
+def test_apply_must_be_explicit_native_boolean() -> None:
+    api = FakeGitHub()
+    with pytest.raises(ValueError, match="apply must be a native boolean"):
+        prune_verified_merged_branch(
+            api,
+            repository=REPO,
+            branch=NAME,
+            expected_sha=TIP,
+            merged_pr_number=1076,
+            retention_record_sha=RECORD,
+            now=NOW,
+            apply="False",
+        )
+    assert api.requests == []
+
+
+def test_protected_merged_branch_stays_protected() -> None:
+    api = FakeGitHub()
+    api.records[-1] = BranchInfo(NAME, TIP, True)
+    with pytest.raises(ValueError, match="protected branch"):
+        _prune(api)
+    assert api.deleted == []
+
+
 def test_origin_checkout_must_be_exact_repository(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

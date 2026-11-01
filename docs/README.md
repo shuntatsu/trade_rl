@@ -10,6 +10,7 @@
 - [architecture/controlled-experiment-loop.md](architecture/controlled-experiment-loop.md) — Study/Experiment/EvidenceSet、lineage、freeze
 - [architecture/final-evaluation-authorization.md](architecture/final-evaluation-authorization.md) — sealed unused-future認可境界
 - [architecture/research-assurance.md](architecture/research-assurance.md) — G0–G5、反証条件、研究証拠の妥当性
+- [architecture/synthetic-ridge-outer-refit.md](architecture/synthetic-ridge-outer-refit.md) — 合成データ限定のRidge再学習・モデル切替・口座継続性の契約
 - [research/current-status.md](research/current-status.md) — 現行の研究判断・証拠リンク・未完了gate
 
 ## Active work（完了までは暫定）

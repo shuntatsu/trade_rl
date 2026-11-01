@@ -224,7 +224,10 @@ def _windows_creation_time_from_handle(
     try:
         from ctypes import wintypes
 
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        win_dll = cast(Callable[..., Any] | None, getattr(ctypes, "WinDLL", None))
+        if win_dll is None:
+            raise ProcessSnapshotError("Windows process handle API is unavailable")
+        kernel32 = win_dll("kernel32", use_last_error=True)
     except (AttributeError, OSError) as exc:
         raise ProcessSnapshotError("Windows process handle API is unavailable") from exc
     get_process_times = kernel32.GetProcessTimes
@@ -462,7 +465,7 @@ def _validate_snapshot(records: Iterable[ProcessUsage]) -> tuple[ProcessUsage, .
         if row.pid in pids:
             raise ProcessSnapshotError("duplicate PID in process snapshot")
         pids.add(row.pid)
-    return rows
+    return tuple(sorted(rows, key=lambda row: row.pid))
 
 
 def _parse_nonnegative_integer(value: object) -> int:

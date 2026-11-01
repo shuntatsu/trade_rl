@@ -232,7 +232,7 @@ def test_v7_stored_price_funding_can_trigger_retained_debt_insolvency() -> None:
     assert result.funding_evidence[0].funding_price_rates == pytest.approx((150.0,))
 
     terminal_funding_pnl = result.book.funding_pnl
-    with pytest.raises(ValueError, match="terminal insolvent book"):
+    with pytest.raises(ValueError, match="already terminated book"):
         executor.execute_orders(
             result.book,
             result.order_book,

@@ -19,7 +19,6 @@ REQUIRED_DOC_FILES = {
     "architecture/controlled-experiment-loop.md",
     "architecture/final-evaluation-authorization.md",
     "architecture/research-assurance.md",
-    "architecture/insolvency-valuation.md",
     "research/current-status.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
@@ -38,7 +37,6 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
-    DOCS / "architecture" / "insolvency-valuation.md",
     DOCS / "research" / "current-status.md",
     ROOT / "LICENSES" / "LICENSING.md",
     ROOT / "LICENSES" / "PROVENANCE.md",
@@ -55,7 +53,6 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
-    DOCS / "architecture" / "insolvency-valuation.md",
     DOCS / "research" / "current-status.md",
 )
 
@@ -195,7 +192,6 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/controlled-experiment-loop.md",
         "architecture/final-evaluation-authorization.md",
         "architecture/research-assurance.md",
-        "architecture/insolvency-valuation.md",
         "research/current-status.md",
     ):
         assert target in index
@@ -267,6 +263,87 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "Production/live order routing",
     ):
         assert required in research
+
+
+def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
+    entry = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for required in (
+        "tools.branch_hygiene --apply",
+        "fail-closed",
+        "read-only dry-run",
+        "requested/waiting/pending/queued/in_progress",
+        "provenance/branch-retention",
+        "Task/lease同期が不完全な間はbranch削除を認可しない",
+        "現在のsourceがまだその状態でなければ、安全化変更を先に統合",
+        "tested PR head contains current `main`",
+    ):
+        assert required in entry
+
+
+def test_research_status_preserves_newer_main_market_store_and_carry_evidence() -> None:
+    """The old research summary must not overwrite newer main-side evidence."""
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    for required in (
+        "## Issue #810 reusable PostgreSQL market-data store",
+        "no real data was fetched in this change",
+        "--allow-fs1-warmup-span",
+        "2026-11-01T00:00Z",
+        "## Issue #810 synthetic residual-PPO over the cost-aware allocator",
+        "A subsequent real one-minute CLI software probe exposed partial ETH spot depth",
+        "attempt2",
+        "**Primary decision: `NO_WINNER`**",
+        "P3-6 is **not a G4 candidate**",
+    ):
+        assert required in research
+
+
+def test_p2_invalid_terminal_dust_summary_matches_provenance() -> None:
+    record_path = ROOT / "report" / "dev-realdata-study-p2-20261029-provenance.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    residual = record["latency_72h_terminal_residual"]
+    assert "0.006 ETHUSDT short" in residual["residual_position"]
+    assert "20 USDT" in residual["terminal_orders"]
+    assert "no reduce-only exemption" in residual["cause"]
+
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    start = research.index("## Issue #810 P2: development real-data")
+    end = research.index("## Issue #810 P2: Phase 2 trial", start)
+    section = research[start:end]
+    for required in ("0.006 ETH short", "20 USDT", "no reduce-only exemption"):
+        assert required in section
+
+
+def test_current_p2_p3_labels_match_committed_evidence_records() -> None:
+    status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    expected_reports = (
+        "dev-realdata-study-p2-20261029.json",
+        "dev-realdata-study-p2-20261029-provenance.json",
+        "issue810-phase2-trial-results-20261029.json",
+        "issue810-phase2-trial-provenance-20261029.json",
+        "issue810-phase2-trial-registry-20261029.json",
+        "issue810-phase3-trial-results-20261029.json",
+        "issue810-phase3-trial-provenance-20261029.json",
+        "issue810-phase3-trial-registry-20261029.json",
+    )
+    for name in expected_reports:
+        assert f"../../report/{name}" in status
+        assert (ROOT / "report" / name).is_file()
+
+    report_dir = ROOT / "report"
+    p2_path = report_dir / "issue810-phase2-trial-results-20261029.json"
+    p3_path = report_dir / "issue810-phase3-trial-results-20261029.json"
+    p3_provenance_path = report_dir / "issue810-phase3-trial-provenance-20261029.json"
+    p2 = json.loads(p2_path.read_text(encoding="utf-8"))
+    p3 = json.loads(p3_path.read_text(encoding="utf-8"))
+    p3_provenance = json.loads(p3_provenance_path.read_text(encoding="utf-8"))
+    assert p2["label_pr_c_probe_rule"] == "NO_WINNER"
+    assert p2["label_amended_rule"] == "DEVELOPMENT_PROMISING"
+    assert p3["label_pr_c_probe_rule"] == "POST_HOC_PROMISING"
+    assert all(
+        p3_provenance["assurance"][gate] == "NOT_ESTABLISHED"
+        for gate in ("G0", "G1", "G2")
+    )
+    assert "P3-6 is **not a G4 candidate**" in status
 
 
 def test_ppo_feature_ablation_g4_decision_is_bound_to_independent_audit() -> None:

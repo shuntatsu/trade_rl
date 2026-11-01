@@ -12,7 +12,7 @@
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
 | simulation | fill、cost、funding、borrow、margin、`BookState`、新Study用の純粋なfinancial objective/clock宣言 | winner判断、Study実行 |
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
-| artifacts / research evidence | runや研究判断を再現可能な証拠として固定 | strategy runtime |
+| artifacts / research evidence | runや研究判断を再現可能な証拠として固定。directory artifactはOS側の置換禁止付きatomic renameで公開し、同時に作られた空の保存先も上書きしない。対応しない環境では公開を拒否する | strategy runtime |
 
 ## Dependency direction
 
@@ -82,8 +82,10 @@ artifacts / evidence
 
 `simulation.objectives`はafter-cost ledgerから渡されたequity値を固定初期資本で
 正規化するpure declaration ownerです。`BoundObjectiveClock`はUTC evaluation windowと
-finite economic horizonの秒数一致を検証します。ここからcurrent PPOのreward、gamma、
-terminal settlementは変更されず、ledgerやwinner selectionも新設されません。
+finite economic horizonの秒数一致を検証します。opt-inの`SharedPortfolioGymEnv`と
+`fit_shared_portfolio_ppo`はこのboundとgamma-one equity-delta rewardを使用しますが、
+legacy単銘柄PPOのreward・gamma・terminal既定は変えません。宣言や接続だけで
+台帳検算、Study認可、winner selection、収益性の証拠は成立しません。
 
 `PortfolioRuntimeExecutionScenarioV2`はplan/training/transform/checkpointのdigestと、完全な
 base/runtime `ExecutionCostConfig`、canonical digest、10個のcost/latency allowlist差分を記録する
@@ -96,6 +98,13 @@ strict v1入口とTier-2 facadeは変わりません。inference loaderとscenar
 `run_four_family_portfolio_scenario_attempt_v2`がnative arm rowとprovenanceを保存し、strict result reload後にcompletionを記録します。
 `publish_four_family_portfolio_scenario_result_artifact_v2` / `load_four_family_portfolio_scenario_result_artifact_v2`も明示的なv2 result APIです。
 この保存機能はscenarioやnumeric stress recipeを選ばず、gate・経済結果の証拠も作りません。
+
+約定の標準破産評価は口座価値をゼロで下限処理します。人工研究で明示的に
+`MarketExecutor(insolvency_valuation="retain_debt")` を選んだ場合だけ、
+負債を持つraw `BookState` を維持し、破産後の注文・追加barを停止します。
+この設定はexecution policyの別identityです。旧`interval_net_return` と
+`interval_log_return`は有限な診断値に丸めるため、負債損失や継続的な
+収益性の正本ではありません。原R3のsource/市場会計の検証を代替しません。
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 

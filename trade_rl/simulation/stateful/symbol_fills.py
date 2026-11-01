@@ -172,7 +172,11 @@ class StatefulSymbolFillProcessor:
                 orders_by_symbol.setdefault(symbol, []).append(order)
 
         for symbol in sorted(orders_by_symbol):
-            stop_after_insolvency = False
+            if (
+                executor.insolvency_valuation == "retain_debt"
+                and runtime.book.insolvent
+            ):
+                break
             symbol_orders = tuple(orders_by_symbol[symbol])
             directions = frozenset(
                 1 if order.remaining_quantity > 0.0 else -1 for order in symbol_orders
@@ -298,6 +302,11 @@ class StatefulSymbolFillProcessor:
             )
             remaining_capacity = capacity.initial_capacity_notional
             for allocation in allocations:
+                if (
+                    executor.insolvency_valuation == "retain_debt"
+                    and runtime.book.insolvent
+                ):
+                    break
                 _, trigger, order_path, execution_price = metadata[allocation.order_id]
                 order = runtime.require_active_order(allocation.order_id)
                 allocation = self._recheck_closing_allocation(
@@ -416,16 +425,6 @@ class StatefulSymbolFillProcessor:
                     runtime.completed_fills += 1
                 elif allocation.reduce_only_exhausted:
                     self._expire_closing_remainder(runtime, updated, processing_index)
-                if (
-                    executor.insolvency_valuation == "retain_debt"
-                    and runtime.book.insolvent
-                ):
-                    runtime.cancel_active_orders(
-                        processing_index=processing_index,
-                        reason="economic_termination",
-                    )
-                    stop_after_insolvency = True
-                    break
             runtime.capacities.append(
                 replace(
                     capacity,
@@ -434,8 +433,6 @@ class StatefulSymbolFillProcessor:
                     remaining_capacity_notional=remaining_capacity,
                 )
             )
-            if stop_after_insolvency:
-                break
         return attempted_order_ids
 
     @staticmethod

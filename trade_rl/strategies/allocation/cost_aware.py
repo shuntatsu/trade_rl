@@ -61,6 +61,45 @@ class AllocationDecisionRecord:
     iterations: int
     objective: float | None
     traded_symbols: tuple[int, ...]
+    # Volatility-target diagnostics; ``None`` / ``1.0`` when no target is set.
+    ex_ante_vol: float | None = None
+    vol_scale: float = 1.0
+    final_vol: float | None = None
+
+
+def annualized_portfolio_vol(
+    weights: object, covariance: object, *, periods_per_year: float
+) -> float:
+    """Ex-ante ``sqrt(w' Sigma w * periods_per_year)`` for per-period ``Sigma``.
+
+    Raises ``ValueError`` for non-finite inputs or a negative quadratic form (beyond
+    rounding), so callers can fail closed instead of trading on a broken estimate.
+    """
+
+    w = np.asarray(weights, dtype=np.float64)
+    sigma = np.asarray(covariance, dtype=np.float64)
+    if w.ndim != 1 or sigma.shape != (w.size, w.size):
+        raise ValueError("weights and covariance must have matching shapes")
+    if not (np.all(np.isfinite(w)) and np.all(np.isfinite(sigma))):
+        raise ValueError("weights and covariance must be finite")
+    if not math.isfinite(periods_per_year) or periods_per_year <= 0.0:
+        raise ValueError("periods_per_year must be finite and positive")
+    variance = float(w @ sigma @ w)
+    if not math.isfinite(variance) or variance < -1e-15:
+        raise ValueError("portfolio variance must be finite and non-negative")
+    return math.sqrt(max(variance, 0.0) * periods_per_year)
+
+
+def vol_target_scale(ex_ante_vol: float, target: float) -> float:
+    """``min(1, target / ex_ante_vol)``: only ever scales exposure down."""
+
+    if not math.isfinite(ex_ante_vol) or ex_ante_vol < 0.0:
+        raise ValueError("ex_ante_vol must be finite and non-negative")
+    if not math.isfinite(target) or target <= 0.0:
+        raise ValueError("target volatility must be finite and positive")
+    if ex_ante_vol <= target:
+        return 1.0
+    return target / ex_ante_vol
 
 
 def ewma_covariance(
@@ -139,6 +178,17 @@ class CostAwareAllocationPolicy:
     ``warmup_timestamps_ns`` / ``warmup_mark_prices`` may seed the covariance with
     marks at earlier scheduled instants (strictly before the first snapshot).
 
+    Optional mechanisms (both off by default, which leaves every decision unchanged):
+    ``cost_penalty_multiple`` (kappa) multiplies ``c_i`` in the optimizer's L1 penalty
+    only; execution costs are charged by the shared session and are not affected.
+    ``vol_target_annual`` caps the ex-ante annualized volatility
+    ``sqrt(w' Sigma w * periods_per_year)`` of the solved target with the policy's own
+    ``Sigma`` (``periods_per_year`` defaults to ``8760 / decision_interval_hours``):
+    if it exceeds the cap the whole solved target is scaled by ``cap / vol`` BEFORE
+    the min-trade rule, so positions held at exact quantity by that rule can leave
+    the final book slightly above the cap (``final_vol`` in the decision record).
+    A non-finite volatility fails closed (HOLD).
+
     Instances carry replay state and must not be reused across replays.
     """
 
@@ -153,6 +203,9 @@ class CostAwareAllocationPolicy:
         "_long_only",
         "_min_trade_fraction",
         "_costs",
+        "_cost_penalty_multiple",
+        "_vol_target",
+        "_periods_per_year",
         "_interval_ns",
         "_anchor_ns",
         "_min_history_periods",
@@ -186,6 +239,9 @@ class CostAwareAllocationPolicy:
         tol: float = 1e-10,
         warmup_timestamps_ns: tuple[int, ...] = (),
         warmup_mark_prices: tuple[tuple[float, ...], ...] = (),
+        cost_penalty_multiple: float = 1.0,
+        vol_target_annual: float | None = None,
+        periods_per_year: float | None = None,
     ) -> None:
         self._symbols = _validated_symbols(symbols)
         n_symbols = len(self._symbols)
@@ -198,6 +254,16 @@ class CostAwareAllocationPolicy:
         if any(value < 0.0 for value in costs):
             raise ValueError("cost_rates must be non-negative")
         self._costs = np.asarray(costs, dtype=np.float64)
+        self._cost_penalty_multiple = _real(
+            cost_penalty_multiple, name="cost_penalty_multiple"
+        )
+        if self._cost_penalty_multiple <= 0.0:
+            raise ValueError("cost_penalty_multiple must be positive")
+        self._vol_target: float | None = None
+        if vol_target_annual is not None:
+            self._vol_target = _real(vol_target_annual, name="vol_target_annual")
+            if self._vol_target <= 0.0:
+                raise ValueError("vol_target_annual must be positive")
         self._gamma = _real(gamma, name="gamma")
         if self._gamma <= 0.0:
             raise ValueError("gamma must be positive")
@@ -215,6 +281,14 @@ class CostAwareAllocationPolicy:
             )
         self._interval_ns = decision_interval_hours * _NS_PER_HOUR
         self._anchor_ns = decision_anchor_hour_utc * _NS_PER_HOUR
+        resolved_periods = (
+            8_760.0 / decision_interval_hours
+            if periods_per_year is None
+            else _real(periods_per_year, name="periods_per_year")
+        )
+        if resolved_periods <= 0.0:
+            raise ValueError("periods_per_year must be positive")
+        self._periods_per_year = resolved_periods
         self._halflife_periods = halflife_days * 24.0 / decision_interval_hours
         self._shrinkage = _real(shrinkage, name="shrinkage")
         if not 0.0 <= self._shrinkage <= 1.0:
@@ -353,7 +427,7 @@ class CostAwareAllocationPolicy:
                 expected_returns=mu,
                 covariance=covariance,
                 current_weights=w_current,
-                costs=self._costs,
+                costs=self._costs * self._cost_penalty_multiple,
                 gamma=self._gamma,
                 w_max=self._w_max,
                 gross_max=self._gross_max,
@@ -365,6 +439,17 @@ class CostAwareAllocationPolicy:
             return fail(f"solver_{exc.reason}")
 
         target = solution.weights.copy()
+        ex_ante_vol: float | None = None
+        vol_scale = 1.0
+        if self._vol_target is not None:
+            try:
+                ex_ante_vol = annualized_portfolio_vol(
+                    target, covariance, periods_per_year=self._periods_per_year
+                )
+                vol_scale = vol_target_scale(ex_ante_vol, self._vol_target)
+            except ValueError:
+                return fail("invalid_volatility")
+            target = target * vol_scale
         held: list[int] = []
         for i in range(len(self._symbols)):
             if abs(target[i] - w_current[i]) <= self._min_trade_fraction:
@@ -375,6 +460,14 @@ class CostAwareAllocationPolicy:
                     held.append(i)
         if not self._feasible(target):
             return fail("constraint_violation")
+        final_vol: float | None = None
+        if self._vol_target is not None:
+            try:
+                final_vol = annualized_portfolio_vol(
+                    target, covariance, periods_per_year=self._periods_per_year
+                )
+            except ValueError:
+                return fail("invalid_volatility")
         traded = tuple(i for i in range(len(self._symbols)) if i not in held)
         if not traded:
             self._record(
@@ -384,6 +477,9 @@ class CostAwareAllocationPolicy:
                 solution.iterations,
                 solution.objective,
                 (),
+                ex_ante_vol=ex_ante_vol,
+                vol_scale=vol_scale,
+                final_vol=final_vol,
             )
             return hold_all
         weights = tuple(
@@ -397,6 +493,9 @@ class CostAwareAllocationPolicy:
             solution.iterations,
             solution.objective,
             traded,
+            ex_ante_vol=ex_ante_vol,
+            vol_scale=vol_scale,
+            final_vol=final_vol,
         )
         return PortfolioTargetProposal(
             target_weights=weights,
@@ -419,6 +518,10 @@ class CostAwareAllocationPolicy:
         iterations: int,
         objective: float | None,
         traded: tuple[int, ...],
+        *,
+        ex_ante_vol: float | None = None,
+        vol_scale: float = 1.0,
+        final_vol: float | None = None,
     ) -> None:
         self._records.append(
             AllocationDecisionRecord(
@@ -429,6 +532,9 @@ class CostAwareAllocationPolicy:
                 iterations=iterations,
                 objective=objective,
                 traded_symbols=traded,
+                ex_ante_vol=ex_ante_vol,
+                vol_scale=vol_scale,
+                final_vol=final_vol,
             )
         )
 
@@ -437,5 +543,7 @@ __all__ = [
     "AllocationDecisionRecord",
     "CostAwareAllocationPolicy",
     "ExpectedReturnSource",
+    "annualized_portfolio_vol",
     "ewma_covariance",
+    "vol_target_scale",
 ]

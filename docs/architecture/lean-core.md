@@ -49,10 +49,12 @@ GAE lambda、reward schemaを検証し、discountを経過時間から計算す�
 両contractを結ぶ。`terminal_profit_aligned` は `equity_delta_v1` と `gamma == 1.0`
 の代数的条件だけを示し、実環境でのreward parityを証明しない。
 
-これらはopt-in declarationsであり、現行PPO/replayに結線されていない。generic PPOの
-従来reward `log1p(interval_net_return)`、`gamma=0.99`、
-`settle_terminal_position=False` の既定は変わらない。新しいtraining objective、Study
-authorization、financial ledger、winner ruleを加えない。
+これらはopt-in declarationsであり、宣言そのものは台帳検算・Study認可・profitabilityを
+証明しない。現行のopt-in `SharedPortfolioGymEnv` は `BoundObjectiveClock` を要求し、
+`fit_shared_portfolio_ppo` は金融clockとgamma-one equity-delta rewardを接続する。
+ただしlegacy単銘柄PPOの従来reward `log1p(interval_net_return)`、`gamma=0.99`、
+`settle_terminal_position=False` の既定は変わらない。これらの接続も新しいfinancial
+ledger、winner rule、実市場学習・収益性の証拠を成立させない。
 
 ## Data contract
 
@@ -623,7 +625,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - maker/taker cost分類はorder typeだけでなくrealized liquidity roleに合わせる。LIMITがそのprocessing barで初めてeligibleになり、同じbarのopenで既にmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使う。新規LIMITがbar内touchまでrestする場合、および以前のeligible barからcarryされていたLIMITが後続bar openでcrossする場合はresting orderとしてmaker feeとhalf spreadを使う。MARKET / STOP_MARKETは従来どおりtakerである。この分類はfill価格・数量・capacityを変更しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
-- terminal mark-to-marketとforced closeを混同しない。
+- terminal mark-to-marketとforced closeを混同しない。旧互換の `MarketExecutor.liquidate_at_close` は標準stateful執行経路ではなく、profile modeでは引き続き拒否する。強制market closeは元の設定がLIMITでもtaker feeとfull spreadを適用し、最小発注額・参加上限によって保有が残れば清算完了としない。元の未決済notionalを消化率に残し、off-grid旧保有量も、実際の約定notionalがcapacityを超えない量だけをlot gridへ進める。 split後の正確な既存数量は、未約定のsymbolで表示用floatへ置き換えずに保持する（`BookState.execute`のopt-in `preserve_unchanged_exact=True`、通常の明示absolute targetの従来挙動は変更しない）。これらは既存の研究protocolや結果を再分類しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。
 
 `MarketExecutor` の標準executionはnext-openであり、decision row `t` の注文は最初にrow `t+1` のopenで約定可能になる。participation capacityのvolume authorityは `ExecutionCostConfig.processing_bar_volume_capacity` に明示bindする。
@@ -634,6 +636,46 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - どちらのmodeも同じspread / impact / fee / accounting経路を使い、mode差だけで別のexecution-policy digestになる。`False` は将来volumeの予測モデルではなく、同一bar最終volumeへの依存を除くための保守的stressである。
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。
+
+## Explicit insolvency valuation mode (software-only)
+
+The canonical `MarketExecutor` defaults to `insolvency_valuation="floor_zero"`.
+This is the existing production/replay/PPO behavior: a terminated account is
+flattened with nonnegative cash and the historical execution-policy digest is
+unchanged. An explicitly configured `"retain_debt"` alternative is reserved
+for result-blind synthetic conformance of historical native-account research.
+It keeps a negative cash balance after forced insolvency and rejects a new
+execution call when its incoming `BookState` is already insolvent, including a
+positive-equity margin call, before accepting orders or accruing gap carry.
+Within a call, it terminates processing at the first economic termination,
+cancels remaining active orders, and prevents any later fill or carry accrual.
+The raw `BookState.portfolio_value` is the financial loss authority in this mode.
+Its simple-return and drawdown diagnostics preserve the same signed loss:
+`interval_net_return` and terminal `returns_history` may fall below `-1.0`, and
+`BookState.max_drawdown` may exceed `1.0`. The logarithmic return is different:
+log wealth is undefined once terminal wealth is nonpositive, so
+`interval_log_return` deliberately keeps the legacy finite lower-bound diagnostic
+instead of fabricating a logarithm of negative equity.
+
+The retained-debt choice is bound to order/execution identity by wrapping the
+resolved normal execution-policy digest with `insolvency_execution_policy_v2`.
+The digest also binds `loss_metric_semantics=unbounded_simple_return_drawdown_v1`,
+so the earlier bounded-metric retain-debt prototype cannot share order identity
+with this corrected contract.
+The default mode keeps the original digest; mismatched order identities are
+rejected before executing fills. Changing the option is not an innocuous
+accounting presentation change. In particular, a frozen R3 protocol, its source
+HEAD, and an old receipt must never be relabeled as if produced by a new HEAD.
+
+The scalar `interval_net_return` is therefore an uncapped simple return in
+`retain_debt`; only `interval_log_return` keeps the legacy finite lower bound at
+nonpositive wealth. Debt-tail comparisons must still inspect book equity/cash,
+the unbounded drawdown/simple-return evidence, and a separate independent account
+oracle rather than treating the bounded log diagnostic as financial authority.
+Retained debt is not a complete venue bankruptcy/liquidation model and is not enabled
+by default in shared-portfolio sessions or Gym. Green synthetic tests do
+not supply G0–G4 approval, historical market funding or account-rule
+calibration, unused data evidence, or live order authorization.
 
 ## Independent per-symbol evaluation
 
@@ -686,12 +728,24 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 `AdaptiveProfitConfig`はfinite・nonnegativeなthresholdと、nonnegative integerのfeature index / max holdingを要求し、booleanも拒否する。entryはpositiveで対応exitより大きいことを要求する。zero regime thresholdによるtrend固定と、zero protective thresholdによるexit無効化は明示的な有効設定として維持する。NaNでprotective comparisonを黙って無効にする設定はreplay前に拒否する。
 
+### Direct decision-value study contract
+
+`trade_rl.evaluation.decision_value_dev_study` は、事前固定されたプロトコルと実開発データに対する直接的意思決定価値学習（Direct Decision-Value Learning）の研究検証契約を定義する。
+
+- **Source scope契約**: `source_scope` は従来の `"synthetic_only"` に加え、事前認可ダイジェストを要求する `"real_development"` を明示的に許容する。scopeの不一致や未認可の実データ実行はfail-closedで拒否される。
+- **事前認可ダイジェスト**: `compute_real_scope_authorization_digest` により、Dataset ID、期待artifact digest、銘柄、初期資本、horizon、候補行動、コスト率、リスク制約、ブロック定義、Ridge設定、および既消費開示文言を含む完全な仕様からSHA-256ダイジェストを導出し、プロトコル内の `real_scope_authorization_digest` と完全一致することを事前検証する。
+- **時系列ブロック構造**: 各ブロック（`DecisionValueBlockSpec`）は `train_start < train_stop < fit_cutoff < eval_start < eval_stop` の厳格な時系列順序を要求し、過去情報のみで学習（B0 Ridge、B1 線形価値、B1c 保守的線形価値、B2 浅層非線形価値）を行い、評価区間をreplayする。
+- **保守的意思決定価値モデルと不確実性割引 (B1c)**: `ConservativeLinearDecisionValueModel`（`schema_version="conservative_linear_decision_value_v2"`）は、候補行動ごとの回帰係数ベクトルに加え、重なり群の平均多重度 $\bar{m}_k = \frac{1}{N_k} \sum_i m_i$ と有効自由度 $\text{dof}_k = \max(1.0, N_k / \bar{m}_k - p_{\text{eff}})$ に基づく残差共分散行列 `covariance_matrices`、不確実性ペナルティ重み `uncertainty_penalty_weight`、および片道切替コスト `one_way_switch_cost` を保持する。標準化特徴空間でのRidge回帰係数および共分散行列は、元座標系 $x$ へのアフィン変換行列 $A$ により $w = A^\top \beta$、$Cov(w) = A^\top Cov(\beta) A$ として代数的に折りたたまれ、モデルのシリアル表現および推論コードとの完全な互換性を維持する。ポリシー `ConservativeLinearDecisionValuePolicy` は、予測標準誤差 $se = \sqrt{x^\top \Sigma_k x}$ を用いた下側信頼限界（LCB: `mean - lambda * se - c * extra_turnover`）により不確実性と切替ターンオーバーを保守的に割り引く。
+- **姿勢認識プロポーザルと未約定注文保全 (TD7)**: `preserve_posture_aware_proposal` は、`LinearDecisionValuePolicy`、`ConservativeLinearDecisionValuePolicy`、`ShallowDecisionValuePolicy`、および `_FixedEntryPolicy` に共通する統一的な姿勢保全セマンティクスを提供する。(1) レイテンシ下（`latency_1bar`, `latency_2bar`）で未約定注文が進行中の場合、目標ウェイトを実効ウェイト $w_{\text{eff}} = w_{\text{account}} + w_{\text{pending}}$ に一致させつつ `hold_current_quantity_symbols` への追加を避けることで、`reconcile_target` による進行中注文の早期キャンセルを防止して約定を保護する。(2) 約定完了後は `hold_current_quantity_symbols` に追加して毎時の微小ドリフトによるリバランスターンオーバーを完全に抑止する。(3) 損失ポジションを保有中に全候補の方向スコアが非正となった場合、自動的に現金化（`ACTION_FLAT`）を選択して損失の拡大を防止する。
+- **因果性プローブと台帳突合**: 各ブロックの評価開始直前に、未来データ（t+1以降）を無作為摂動させたデータセット上での意思決定が元データセットと完全一致することを確認する因果性プローブ（Causality Perturbation Probe）を実行する。また、各ブロックの全アーム・全シナリオについて、台帳の注文・約定・資産推移・手数料・終端清算が整合していることを検証する（Ledger Evidence Reconciliation）。
+- **Write-once出力**: 結果は `write_decision_value_dev_study_bundle` により一度だけ `protocol.json`、`result.json`、`summary.md` として書き出され、既存ファイルの上書きを防止する。
+
 ## Artifact and evidence rules
 
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
 - Market dataset artifactのcodec/publicationは `trade_rl.data.artifacts` が持つ。
 - Candidate/evaluation runはimmutable filesystem artifactとして残す。
-- Candidate RunとStudy EvidenceSetのdirectory publicationはstagingからatomic renameする。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyへ切り替えない。
+- Candidate Run、Study EvidenceSet、canonical market datasetのdirectory publicationはstagingから**OS側で既存先の置換を禁止するatomic rename**で行う。Linuxは`renameat2(RENAME_NOREPLACE)`、macOSは`renamex_np(RENAME_EXCL)`、Windowsは既存先を拒否するrenameを使う。未対応のOS/ファイルシステムではfail-closedとし、チェック後に空ディレクトリが作られても置き換えない。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyや通常POSIX renameへ切り替えない。
 - Candidate Runはresolved result `summary.json`、raw interval return `returns.npz`、implementation/runtime/research-context evidence `provenance.json` の3ファイルを一体としてpublishする。
 - Candidate Runは実行前後でimplementation/runtime provenanceが一致する場合だけpublishする。実行中にsource/runtime provenanceが変化したRunを正当なevidenceとして残さない。
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。
@@ -862,6 +916,20 @@ expire after ten seconds;
 the terminal observation window ends 180 seconds after the fixed close, including
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.
+
+Collection liveness is separate from that evidence. The collector process writes an
+atomic heartbeat; every exit, signal or console-close path and the external stale
+check create the same permanent failure marker exclusively, so the first cause is
+kept. A supervisor may relaunch only a child that died between cycles, inside the
+frozen 180-second gap including a launch margin, with no marker, no unacknowledged
+cycle and a bounded restart count. It never resumes an interrupted cycle, retries a
+failed source request or edits the journal; a hard kill during acquisition therefore
+still ends the screen. A duplicate or restarted launch against a live collector is
+detected through the collector lock and ends as non-destructive contention (exit 4,
+no marker). The external check defers its stale limit only while a live supervisor
+is inside the bounded startup grace of a relaunched child. The attempt-2 tooling is plan-only until an explicit seal
+and, separately, an explicit network launch, both gated by an Issue #810
+authorization URL; they do not prove authorization or establish profitability.
 
 New forward captures use `binance_forward_market_snapshot_v2`, explicitly binding
 100 requested depth levels per side for each spot/perpetual symbol. All returned

@@ -1,108 +1,174 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
 
-from trade_rl.data.market import MarketDataset
-from trade_rl.simulation import MarketExecutor
-from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
-from trade_rl.simulation.execution import ExecutionCostConfig
+from tests.simulation.test_execution_sensitivity import _market
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    ExecutionRuleStress,
+    MarketExecutor,
+)
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
     OrderType,
     TimeInForce,
 )
+from trade_rl.simulation.targets.execution import execute_target_statefully
 
 
-def _market(
-    *,
-    gap_before_insolvency: bool = False,
-    insolvency_price: float = 400.0,
-    insolvency_borrow_rate: float = 0.5,
-    insolvency_funding_rate: float = 0.1,
-    processing_cash_rate: float = 0.0,
-) -> MarketDataset:
-    close = np.array(
-        [[100.0], [100.0], [insolvency_price], [insolvency_price], [insolvency_price]]
+def market():
+    data = _market()
+    prices = np.array([100.0, 100.0, 400.0, 400.0])[:, None]
+    return replace(
+        data,
+        open=prices,
+        close=prices,
+        high=prices,
+        low=prices,
+        mark_price=prices,
+        index_price=prices,
     )
-    shape = close.shape
-    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(
-        close.shape[0]
-    ) * np.timedelta64(1, "h")
-    cash_rate = np.zeros(shape[0])
-    if gap_before_insolvency:
-        timestamps = np.datetime64("2026-01-01", "ns") + np.array(
-            [0, 1, 8_761, 8_762, 8_763]
-        ) * np.timedelta64(1, "h")
-        cash_rate[2] = -2.0
+
+
+def cost():
+    return replace(
+        ExecutionCostConfig.zero(), fee_rate=0.002, max_participation_rate=1.0
+    )
+
+
+def short_entry(executor):
+    book = BookState.zero(
+        n_symbols=1, initial_capital=1000.0, initial_prices=executor.dataset.close[0]
+    )
+    return execute_target_statefully(
+        executor,
+        book,
+        OrderBookState.empty(),
+        np.array([-0.5]),
+        start_index=0,
+        bars=1,
+        target_identity="synthetic-short-entry",
+    )
+
+
+@pytest.mark.parametrize(
+    "mode, expected", [("floor_zero", 0.0), ("retain_debt", -501.0)]
+)
+def test_actual_canonical_short_gap_preserves_declared_terminal_valuation(
+    mode, expected
+):
+    executor = MarketExecutor(market(), cost(), insolvency_valuation=mode)
+    entry = short_entry(executor)
+    assert entry.book.exact_quantities == (Fraction(-5),)
+    assert entry.book.cash == 1499.0
+    assert entry.book.total_cost == 1.0
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=1
+    )
+    # Cash 1499 less the short liability 5*400 gives debt -501. No second fee.
+    assert crashed.book.cash == expected
+    assert crashed.book.portfolio_value == expected
+    assert crashed.book.exact_quantities == (Fraction(0),)
+    assert crashed.book.total_cost == 1.0
+    assert crashed.book.fill_count == 1
+    assert crashed.book.insolvent and crashed.book.termination_reason is not None
+    assert crashed.book.margin_used == 0.0
+    assert crashed.book.maintenance_margin == 0.0
+    assert crashed.book.maintenance_requirement == 0.0
+    if mode == "retain_debt":
+        expected_interval_return = expected / entry.book.portfolio_value - 1.0
+        assert crashed.interval_net_return == pytest.approx(expected_interval_return)
+        assert crashed.interval_net_return < -1.0
+        assert crashed.book.returns_history[-1] == pytest.approx(
+            expected_interval_return
+        )
+        assert crashed.book.max_drawdown == pytest.approx(1.501)
+        # Log return is undefined at nonpositive wealth. Keep the legacy finite
+        # lower-bound diagnostic rather than fabricating a logarithm of debt.
+        assert crashed.interval_log_return == pytest.approx(np.log1p(-1.0 + 1e-12))
     else:
-        cash_rate[2] = processing_cash_rate
-    return MarketDataset(
-        dataset_id="a" * 64,
-        symbols=("BTC",),
-        timestamps=timestamps,
-        features=np.zeros((*shape, 1), dtype=np.float32),
-        global_features=np.zeros((shape[0], 1), dtype=np.float32),
-        open=close.copy(),
-        high=close + 1.0,
-        low=close - 1.0,
-        close=close,
-        volume=np.full(shape, 1_000_000.0),
-        funding_rate=np.array([[0.0], [0.0], [insolvency_funding_rate], [0.2], [0.2]]),
-        funding_due=np.array([[False], [False], [True], [True], [True]]),
-        borrow_rate=np.array([[0.0], [0.0], [insolvency_borrow_rate], [1.0], [1.0]]),
-        cash_rate=cash_rate,
-        tradable=np.ones(shape, dtype=np.bool_),
-        feature_available=np.ones((*shape, 1), dtype=np.bool_),
-        feature_names=("return",),
-        global_feature_names=("regime",),
-        periods_per_year=8_760,
-        calendar_kind="session_calendar"
-        if gap_before_insolvency
-        else "continuous_24_7",
-        nominal_bar_hours=1.0 if gap_before_insolvency else None,
+        assert crashed.interval_net_return > -1.0
+        assert crashed.book.max_drawdown == pytest.approx(1.0)
+        assert np.isfinite(crashed.interval_log_return)
+    for _ in range(3):
+        executor._update_margin(crashed.book)
+        assert (
+            crashed.book.cash == expected and crashed.book.portfolio_value == expected
+        )
+
+
+def test_unbounded_loss_metric_flag_rejects_non_boolean() -> None:
+    book = BookState.zero(1, 1000.0, np.array([100.0]))
+    with pytest.raises(ValueError, match="unbounded_loss_metrics"):
+        book.mark_to_market(
+            mark_prices=np.array([100.0]),
+            funding_amount=0.0,
+            unbounded_loss_metrics=1,
+        )
+
+
+def test_default_and_explicit_floor_keep_captured_economic_digests():
+    implicit = MarketExecutor(market(), cost())
+    explicit = MarketExecutor(market(), cost(), insolvency_valuation="floor_zero")
+    assert implicit.insolvency_valuation == "floor_zero"
+    assert (
+        implicit.execution_policy_digest
+        == explicit.execution_policy_digest
+        == ("4ea34eb7e769a941e0bb83c8a9cab0d393052d3b47a3b8dba66735e6fabb6102")
+    )
+    assert implicit.execution_policy_digest == implicit.cost.execution_policy_digest
+    stressed = MarketExecutor(
+        market(),
+        cost(),
+        rule_stress=ExecutionRuleStress(name="double", tick_size_factor=2.0),
+    )
+    assert stressed.execution_policy_digest == (
+        "979a8ac04943591c4bda3d22a5d8ecb7dd224896c8df8dad49388f4ef6f092eb"
     )
 
 
-def _executor(
-    dataset: MarketDataset,
-    *,
-    insolvency_valuation: str = "floor_zero",
-    fee_rate: float = 0.0,
-    borrow_rate_multiplier: float = 0.0,
-    maintenance_margin_rate: float = 0.0,
-) -> MarketExecutor:
-    cost = replace(
-        ExecutionCostConfig.zero(),
-        allow_short=True,
-        borrow_rate_multiplier=borrow_rate_multiplier,
-        fee_rate=fee_rate,
-        max_leverage=2.0,
-        maintenance_margin_rate=maintenance_margin_rate,
-        processing_bar_volume_capacity=True,
+@pytest.mark.parametrize("stressed", [False, True])
+def test_debt_policy_wraps_resolved_economics_and_invalidates_digest_cache(stressed):
+    stress = (
+        ExecutionRuleStress(name="double", tick_size_factor=2.0) if stressed else None
     )
-    return MarketExecutor(
-        dataset,
-        cost,
-        insolvency_valuation=insolvency_valuation,
+    executor = MarketExecutor(market(), cost(), rule_stress=stress)
+    legacy = executor.execution_policy_digest
+    executor.insolvency_valuation = "retain_debt"
+    expected = content_digest(
+        {
+            "schema_version": "insolvency_execution_policy_v2",
+            "base_policy_digest": legacy,
+            "insolvency_valuation": "retain_debt",
+            "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
+        }
     )
+    assert executor.execution_policy_digest == expected != legacy
+    assert executor.execution_policy_digest == expected
+    executor.insolvency_valuation = "floor_zero"
+    assert executor.execution_policy_digest == legacy
 
 
-def _intent(
-    executor: MarketExecutor,
-    *,
-    quantity: float,
-    target_identity: str,
-) -> OrderIntent:
-    return OrderIntent.create(
-        dataset_id=executor.dataset.dataset_id,
-        target_identity=target_identity,
-        execution_policy_digest=executor.execution_policy_digest,
+@pytest.mark.parametrize(
+    "source, target", [("floor_zero", "retain_debt"), ("retain_debt", "floor_zero")]
+)
+def test_opposite_policy_intent_is_rejected_before_filling(source, target):
+    data = _market()
+    source_executor = MarketExecutor(data, cost(), insolvency_valuation=source)
+    target_executor = MarketExecutor(data, cost(), insolvency_valuation=target)
+    intent = OrderIntent.create(
+        dataset_id=data.dataset_id,
+        target_identity="synthetic-policy-bound-order",
+        execution_policy_digest=source_executor.execution_policy_digest,
         symbol_index=0,
-        requested_quantity=quantity,
+        requested_quantity=-1.0,
         order_type=OrderType.MARKET,
         time_in_force=TimeInForce.GTC,
         limit_price=None,
@@ -111,327 +177,438 @@ def _intent(
         eligible_index=1,
         expiry_index=None,
         submission_reference_price=100.0,
-        decision_equity=1_000.0,
+        decision_equity=1000.0,
     )
-
-
-def _short_intent(executor: MarketExecutor) -> OrderIntent:
-    return _intent(
-        executor,
-        quantity=-5.0,
-        target_identity="insolvency-valuation-short",
+    book = BookState.zero(
+        n_symbols=1, initial_capital=1000.0, initial_prices=data.close[0]
     )
-
-
-def _open_short(executor: MarketExecutor):
-    dataset = executor.dataset
-    return executor.execute_orders(
-        BookState.zero(1, 1_000.0, dataset.close[0]),
-        OrderBookState.empty(),
-        (_short_intent(executor),),
-        start_index=0,
-        bars=1,
+    result = target_executor.execute_orders(
+        book, OrderBookState.empty(), (intent,), start_index=0, bars=1
     )
-
-
-def test_floor_zero_is_the_legacy_default_and_preserves_its_policy_digest() -> None:
-    dataset = _market()
-    cost = replace(ExecutionCostConfig.zero(), allow_short=True, max_leverage=2.0)
-    executor = MarketExecutor(dataset, cost)
-
-    assert executor.insolvency_valuation == "floor_zero"
-    assert executor.execution_policy_digest == cost.execution_policy_digest
-
-
-@pytest.mark.parametrize("invalid", [None, True, "floor", "retain", ""])
-def test_insolvency_valuation_rejects_unsupported_values(invalid: object) -> None:
-    with pytest.raises(ValueError, match="insolvency_valuation"):
-        MarketExecutor(_market(), insolvency_valuation=invalid)
-
-
-def test_retain_debt_policy_digest_separates_intent_identity() -> None:
-    dataset = _market()
-    legacy = _executor(dataset)
-    retained = _executor(dataset, insolvency_valuation="retain_debt")
-
-    assert retained.execution_policy_digest != legacy.execution_policy_digest
-
-
-def test_opposite_mode_intent_is_rejected_before_any_fill() -> None:
-    dataset = _market()
-    legacy = _executor(dataset)
-    retained = _executor(dataset, insolvency_valuation="retain_debt")
-
-    result = retained.execute_orders(
-        BookState.zero(1, 1_000.0, dataset.close[0]),
-        OrderBookState.empty(),
-        (_short_intent(legacy),),
-        start_index=0,
-        bars=1,
-    )
-
+    assert result.book.exact_quantities == (Fraction(0),)
+    assert result.book.cash == 1000.0 and result.book.total_cost == 0.0
     assert result.fill_count == 0
-    assert result.book.quantities.tolist() == [0.0]
-    assert len(result.order_events) == 2
-    assert result.order_events[-1].event_type == "rejected"
-    assert result.order_events[-1].reason == "identity_mismatch"
+    assert result.order_book.terminal_orders[0].terminal_reason == "identity_mismatch"
 
 
-def test_retain_debt_stops_at_first_insolvency_without_later_carry_or_bars() -> None:
-    dataset = _market()
-    executor = _executor(dataset, insolvency_valuation="retain_debt")
-    opened = _open_short(executor)
+@pytest.mark.parametrize(
+    "value", [None, True, 0, "", "retain", "RETAIN_DEBT", ["retain_debt"]]
+)
+def test_unknown_or_untyped_valuation_options_reject(value):
+    with pytest.raises(ValueError, match="insolvency_valuation"):
+        MarketExecutor(market(), cost(), insolvency_valuation=value)
 
-    assert opened.book.quantities.tolist() == [-5.0]
-    assert opened.book.cash == pytest.approx(1_500.0)
-    assert opened.book.portfolio_value == pytest.approx(1_000.0)
 
-    result = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
+def test_mutating_policy_to_an_invalid_choice_cannot_enter_digest_cache():
+    executor = MarketExecutor(market(), cost())
+    original = executor.execution_policy_digest
+    with pytest.raises(ValueError, match="insolvency_valuation"):
+        executor.insolvency_valuation = True
+    assert executor.execution_policy_digest == original
+
+
+@pytest.mark.parametrize("terminal_cash_rate", [0.0, 1.0])
+def test_retained_debt_stops_at_first_termination_without_later_bar_consumption(
+    terminal_cash_rate,
+):
+    prices = np.array([100.0, 100.0, 400.0, 900.0])[:, None]
+    data = replace(
+        market(),
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        mark_price=prices,
+        index_price=prices,
+        cash_rate=np.array([0.0, 0.0, terminal_cash_rate, 1.0]),
+        funding_due=np.array([False, False, False, True])[:, None],
+        funding_rate=np.array([0.0, 0.0, 0.0, 0.01])[:, None],
+    )
+    executor = MarketExecutor(data, cost(), insolvency_valuation="retain_debt")
+    entry = short_entry(executor)
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=2
     )
 
-    assert result.termination_reason == EconomicTerminationReason.INSOLVENCY.value
-    assert result.bars_advanced == 1
-    assert result.next_index == 2
-    assert result.book.quantities.tolist() == [0.0]
-    assert result.book.cash == pytest.approx(-500.0)
-    assert result.book.portfolio_value == pytest.approx(-500.0)
-    assert result.book.mark_prices.tolist() == [400.0]
-    assert result.book.margin_used == 0.0
+    assert crashed.book.cash == crashed.book.portfolio_value == -501.0
+    assert crashed.next_index == 2
+    assert crashed.bars_advanced == 1
+    assert crashed.book.insolvent
+    assert crashed.book.exact_quantities == (Fraction(0),)
+    assert crashed.interval_cash_interest == 0.0
+    assert crashed.interval_funding == 0.0
+    assert crashed.funding_evidence == ()
+    np.testing.assert_array_equal(crashed.book.mark_prices, np.array([400.0]))
+    assert len(crashed.book.returns_history) == 2
+
+
+def test_retained_debt_rejects_restart_after_positive_equity_margin_call():
+    data = replace(
+        market(),
+        calendar_kind="session_calendar",
+        nominal_bar_hours=1.0,
+        available_at=None,
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.array([0, 1, 3, 4]) * np.timedelta64(1, "h"),
+        cash_rate=np.array([0.0, 0.0, 8760.0, 0.0]),
+    )
+    stressed_cost = replace(
+        ExecutionCostConfig.zero(),
+        max_leverage=2.0,
+        maintenance_margin_rate=0.75,
+    )
+    executor = MarketExecutor(
+        data,
+        stressed_cost,
+        insolvency_valuation="retain_debt",
+    )
+    leveraged_book = BookState(
+        quantities=np.array([20.0]),
+        cash=-1000.0,
+        mark_prices=np.array([100.0]),
+        peak_value=1000.0,
+    )
+
+    margin_call = executor.execute_orders(
+        leveraged_book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    assert margin_call.termination_reason == "margin_call"
+    assert margin_call.book.insolvent
+    assert margin_call.book.cash == margin_call.book.portfolio_value == 1000.0
+    assert margin_call.book.exact_quantities == (Fraction(0),)
+
+    book_cash_before = margin_call.book.cash
+    book_quantities_before = margin_call.book.quantities.copy()
+    book_returns_before = tuple(margin_call.book.returns_history)
+    order_book_before = margin_call.order_book
+    new_intent = OrderIntent.create(
+        dataset_id=data.dataset_id,
+        target_identity="restart-after-margin-call",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=50.0,
+        stop_price=None,
+        submit_index=1,
+        eligible_index=2,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=margin_call.book.portfolio_value,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="retain_debt execution cannot restart from an already terminated book",
+    ):
+        executor.execute_orders(
+            margin_call.book,
+            margin_call.order_book,
+            (new_intent,),
+            start_index=1,
+            bars=1,
+        )
+
+    assert margin_call.book.cash == book_cash_before
+    np.testing.assert_array_equal(margin_call.book.quantities, book_quantities_before)
+    assert tuple(margin_call.book.returns_history) == book_returns_before
+    assert margin_call.order_book is order_book_before
+    assert margin_call.order_book.active_orders == ()
+
+
+@pytest.mark.parametrize("mode", [None, "floor_zero"])
+def test_floor_zero_keeps_historical_full_requested_bar_path(mode):
+    prices = np.array([100.0, 100.0, 400.0, 900.0])[:, None]
+    data = replace(
+        market(),
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        mark_price=prices,
+        index_price=prices,
+        cash_rate=np.array([0.0, 0.0, 1.0, 1.0]),
+        funding_due=np.array([False, False, False, True])[:, None],
+        funding_rate=np.array([0.0, 0.0, 0.0, 0.01])[:, None],
+    )
+    executor = (
+        MarketExecutor(data, cost())
+        if mode is None
+        else MarketExecutor(data, cost(), insolvency_valuation=mode)
+    )
+    entry = short_entry(executor)
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=2
+    )
+
+    assert crashed.book.cash == crashed.book.portfolio_value == 0.0
+    assert crashed.next_index == 3
+    assert crashed.bars_advanced == 2
+    assert crashed.interval_cash_interest == 0.0
+    assert crashed.book.returns_history == pytest.approx(
+        [-0.001, -1.0 + 1e-12, -1.0 + 1e-12]
+    )
+    np.testing.assert_array_equal(crashed.book.mark_prices, np.array([900.0]))
+    assert len(crashed.funding_evidence) == 1
+    assert crashed.funding_evidence[0].processing_index == 3
+
+
+@pytest.mark.parametrize(
+    "cause, expected, interest, dividend",
+    [("dividend", -501.0, 0.0, -1500.0), ("interest", -500.0, -1499.0, 0.0)],
+)
+def test_retained_termination_during_cash_flow_stops_remaining_phases(
+    cause, expected, interest, dividend
+):
+    prices = np.full((4, 1), 100.0)
+    marks = prices.copy()
+    marks[2:] = 900.0
+    data = replace(
+        market(),
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        mark_price=marks,
+        index_price=marks,
+        dividend=np.array([0.0, 0.0, 300.0 if cause == "dividend" else 0.0, 0.0])[
+            :, None
+        ],
+        cash_rate=np.array([0.0, 0.0, 1.0 if cause == "dividend" else -8760.0, 1.0]),
+        funding_due=np.array([False, False, True, True])[:, None],
+        funding_rate=np.array([0.0, 0.0, 0.1, 0.1])[:, None],
+    )
+    executor = MarketExecutor(data, cost(), insolvency_valuation="retain_debt")
+    entry = short_entry(executor)
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=2
+    )
+
+    assert crashed.book.cash == pytest.approx(expected)
+    assert crashed.book.portfolio_value == pytest.approx(expected)
+    assert crashed.interval_cash_interest == pytest.approx(interest)
+    assert crashed.interval_dividend == dividend
+    assert crashed.interval_funding == 0.0
+    assert crashed.funding_evidence == ()
+    assert crashed.next_index == 2 and crashed.bars_advanced == 1
+    np.testing.assert_array_equal(crashed.book.mark_prices, np.array([100.0]))
+
+
+def test_retained_gap_interest_termination_precedes_borrow_and_open_mark():
+    data = replace(
+        market(),
+        calendar_kind="session_calendar",
+        nominal_bar_hours=1.0,
+        available_at=None,
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.array([0, 1, 3, 4]) * np.timedelta64(1, "h"),
+        cash_rate=np.array([0.0, 0.0, -8760.0, 1.0]),
+        borrow_rate=np.array([0.0, 0.0, 8760.0, 8760.0])[:, None],
+    )
+    executor = MarketExecutor(data, cost(), insolvency_valuation="retain_debt")
+    entry = short_entry(executor)
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=2
+    )
+
+    assert crashed.book.cash == pytest.approx(-500.0)
+    assert crashed.book.portfolio_value == pytest.approx(-500.0)
+    assert crashed.interval_cash_interest == pytest.approx(-1499.0)
+    assert crashed.interval_borrow_cost == 0.0
+    assert crashed.next_index == 2 and crashed.bars_advanced == 1
+    np.testing.assert_array_equal(crashed.book.mark_prices, np.array([100.0]))
+
+
+@pytest.mark.parametrize("mode, fills", [("retain_debt", 1), ("floor_zero", 2)])
+@pytest.mark.parametrize("time_in_force", [TimeInForce.GTC, TimeInForce.IOC])
+def test_fee_termination_prevents_later_admitted_fills_only_for_retained_mode(
+    mode, fills, time_in_force
+):
+    data = _market()
+    executor = MarketExecutor(
+        data, replace(cost(), fee_rate=3.0), insolvency_valuation=mode
+    )
+    book = BookState.zero(
+        n_symbols=1, initial_capital=1000.0, initial_prices=data.close[0]
+    )
+    intents = tuple(
+        OrderIntent.create(
+            dataset_id=data.dataset_id,
+            target_identity=f"synthetic-terminal-fee-{index}",
+            execution_policy_digest=executor.execution_policy_digest,
+            symbol_index=0,
+            requested_quantity=5.0,
+            order_type=OrderType.MARKET,
+            time_in_force=time_in_force,
+            limit_price=None,
+            stop_price=None,
+            submit_index=0,
+            eligible_index=1,
+            expiry_index=None,
+            submission_reference_price=100.0,
+            decision_equity=1000.0,
+        )
+        for index in range(2)
+    )
+    result = executor.execute_orders(
+        book, OrderBookState.empty(), intents, start_index=0, bars=3
+    )
+
+    assert result.fill_count == result.book.fill_count == fills
+    assert result.book.total_cost == result.interval_cost == 1500.0 * fills
+    assert result.filled_notional == 500.0 * fills
+    assert result.book.cash == (-500.0 if mode == "retain_debt" else 0.0)
+    assert (
+        result.next_index == result.bars_advanced == (1 if mode == "retain_debt" else 3)
+    )
+    assert result.capacity_evidence[0].consumed_capacity_notional == 500.0 * fills
+    if mode == "retain_debt":
+        assert any(
+            order.terminal_reason == "economic_termination"
+            for order in result.order_book.terminal_orders
+        )
+
+
+def test_close_mark_termination_cancels_pending_orders_and_clears_margin():
+    marks = np.array([100.0, 100.0, 400.0, 900.0])[:, None]
+    opens = np.full((4, 1), 100.0)
+    original = market()
+    volume = original.volume.copy()
+    volume[2:] = 0.0
+    data = replace(
+        original,
+        open=opens,
+        high=marks,
+        low=opens,
+        close=marks,
+        mark_price=marks,
+        index_price=marks,
+        volume=volume,
+    )
+    executor = MarketExecutor(
+        data,
+        replace(cost(), processing_bar_volume_capacity=True),
+        insolvency_valuation="retain_debt",
+    )
+    entry = short_entry(executor)
+    pending = OrderIntent.create(
+        dataset_id=data.dataset_id,
+        target_identity="close-only-termination",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=2.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=1,
+        eligible_index=2,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=entry.book.portfolio_value,
+    )
+    result = executor.execute_orders(
+        entry.book,
+        entry.order_book,
+        (pending,),
+        start_index=1,
+        bars=2,
+    )
+    terminal = tuple(
+        order
+        for order in result.order_book.terminal_orders
+        if order.order_id == pending.order_id
+    )
+    assert result.book.cash == result.book.portfolio_value == -501.0
+    assert result.next_index == 2 and result.bars_advanced == 1
+    assert result.book.exact_quantities == (Fraction(0),)
+    assert result.book.margin_used == result.book.maintenance_margin == 0.0
     assert result.book.maintenance_requirement == 0.0
     assert result.order_book.active_orders == ()
-    assert result.interval_funding == 0.0
-    assert result.interval_borrow_cost == 0.0
-    assert result.funding_evidence == ()
+    assert len(terminal) == 1
+    assert terminal[0].terminal_reason == "economic_termination"
+    assert result.fill_count == 0 and result.book.fill_count == 1
 
 
-def test_retain_debt_terminal_book_is_not_resumable_or_mutated_by_rejection() -> None:
-    dataset = _market()
-    executor = _executor(dataset, insolvency_valuation="retain_debt")
-    opened = _open_short(executor)
-    terminal = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
+def test_retained_debt_funding_loss_preserves_unbounded_loss_metrics() -> None:
+    prices = np.full((4, 1), 100.0)
+    data = replace(
+        market(),
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        mark_price=prices,
+        index_price=prices,
+        funding_due=np.array([False, False, True, True])[:, None],
+        funding_rate=np.array([0.0, 0.0, -3.0, -3.0])[:, None],
     )
-    terminal_cash = terminal.book.cash
-    terminal_orders = terminal.order_book
+    executor = MarketExecutor(data, cost(), insolvency_valuation="retain_debt")
+    entry = short_entry(executor)
 
-    with pytest.raises(ValueError, match="terminal insolvent book"):
-        executor.execute_orders(
-            terminal.book,
-            terminal.order_book,
-            (),
-            start_index=terminal.next_index,
-            bars=2,
-        )
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=2
+    )
 
-    assert terminal.book.cash == terminal_cash
-    assert terminal.book.portfolio_value == terminal_cash
-    assert terminal.book.quantities.tolist() == [0.0]
-    assert terminal.order_book is terminal_orders
-    assert terminal.order_book.active_orders == ()
+    assert crashed.book.cash == crashed.book.portfolio_value == pytest.approx(-501.0)
+    assert crashed.interval_funding == pytest.approx(-1500.0)
+    assert len(crashed.funding_evidence) == 1
+    assert crashed.funding_evidence[0].processing_index == 2
+    assert crashed.funding_evidence[0].funding_amount == pytest.approx(-1500.0)
+    assert crashed.bars_advanced == 1 and crashed.next_index == 2
+    assert crashed.interval_net_return == pytest.approx(-501.0 / 999.0 - 1.0)
+    assert crashed.interval_net_return < -1.0
+    assert crashed.book.max_drawdown == pytest.approx(1.501)
+    assert crashed.book.returns_history[-1] == pytest.approx(
+        crashed.interval_net_return
+    )
+    assert crashed.interval_log_return == pytest.approx(np.log1p(-1.0 + 1e-12))
 
 
-def test_retain_debt_positive_nav_margin_call_book_is_not_resumable() -> None:
-    dataset = _market(insolvency_price=225.0, insolvency_funding_rate=0.0)
-    executor = _executor(
-        dataset,
+def test_retained_debt_borrow_loss_terminates_before_funding_and_mark() -> None:
+    prices = np.full((4, 1), 100.0)
+    marks = prices.copy()
+    marks[2:] = 900.0
+    base = market()
+    year_fraction = base.elapsed_year_fraction(1, 2)
+    borrow_rate = 1500.0 / (500.0 * year_fraction)
+    data = replace(
+        base,
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        mark_price=marks,
+        index_price=marks,
+        borrow_rate=np.array([0.0, 0.0, borrow_rate, borrow_rate])[:, None],
+        funding_due=np.array([False, False, True, True])[:, None],
+        funding_rate=np.array([0.0, 0.0, 0.5, 0.5])[:, None],
+    )
+    executor = MarketExecutor(
+        data,
+        replace(cost(), borrow_rate_multiplier=1.0),
         insolvency_valuation="retain_debt",
-        maintenance_margin_rate=0.5,
     )
-    opened = _open_short(executor)
-    terminal = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
-    )
-    terminal_cash = terminal.book.cash
-    terminal_reason = terminal.book.termination_reason
-    terminal_index = terminal.next_index
+    entry = short_entry(executor)
 
-    assert terminal.termination_reason == EconomicTerminationReason.MARGIN_CALL.value
-    assert terminal.book.portfolio_value == pytest.approx(375.0)
-    assert terminal.book.insolvent is True
-
-    with pytest.raises(ValueError, match="terminal insolvent book"):
-        executor.execute_orders(
-            terminal.book,
-            terminal.order_book,
-            (),
-            start_index=terminal.next_index,
-            bars=2,
-        )
-
-    assert terminal.book.cash == pytest.approx(terminal_cash)
-    assert terminal.book.portfolio_value == pytest.approx(terminal_cash)
-    assert terminal.book.termination_reason is terminal_reason
-    assert terminal.next_index == terminal_index
-    assert terminal.order_book.active_orders == ()
-
-
-def test_retain_debt_stops_after_borrow_insolvency_before_funding_credit() -> None:
-    dataset = _market(insolvency_price=299.0, insolvency_borrow_rate=200.0)
-    executor = _executor(
-        dataset,
-        insolvency_valuation="retain_debt",
-        borrow_rate_multiplier=1.0,
-    )
-    opened = _open_short(executor)
-
-    result = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
-    )
-    expected_borrow = 5.0 * 299.0 * 200.0 / dataset.periods_per_year
-
-    assert result.termination_reason == EconomicTerminationReason.INSOLVENCY.value
-    assert result.bars_advanced == 1
-    assert result.next_index == 2
-    assert result.interval_borrow_cost == pytest.approx(expected_borrow)
-    expected_terminal_value = 5.0 - expected_borrow
-    assert result.book.cash == pytest.approx(expected_terminal_value)
-    assert result.book.portfolio_value == pytest.approx(expected_terminal_value)
-    assert result.interval_funding == 0.0
-    assert result.funding_evidence == ()
-    assert result.book.quantities.tolist() == [0.0]
-    assert result.order_book.active_orders == ()
-
-
-def test_retain_debt_stops_after_processing_cash_interest_before_carry() -> None:
-    dataset = _market(insolvency_price=100.0, processing_cash_rate=-6_000.0)
-    executor = _executor(
-        dataset,
-        insolvency_valuation="retain_debt",
-        borrow_rate_multiplier=1.0,
-    )
-    opened = _open_short(executor)
-
-    result = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
-    )
-    expected_interest = (
-        opened.book.cash * dataset.cash_rate[2] * dataset.elapsed_year_fraction(1, 2)
+    crashed = executor.execute_orders(
+        entry.book, entry.order_book, (), start_index=1, bars=2
     )
 
-    assert result.termination_reason == EconomicTerminationReason.INSOLVENCY.value
-    assert result.bars_advanced == 1
-    assert result.next_index == 2
-    assert result.interval_cash_interest == pytest.approx(expected_interest)
-    assert result.interval_borrow_cost == 0.0
-    assert result.interval_funding == 0.0
-    expected_terminal_value = 1_000.0 + expected_interest
-    assert result.book.cash == pytest.approx(expected_terminal_value)
-    assert result.book.portfolio_value == pytest.approx(expected_terminal_value)
-    assert result.book.quantities.tolist() == [0.0]
-    assert result.order_book.active_orders == ()
-
-
-def test_retain_debt_stops_after_gap_insolvency_before_borrow_or_open_mark() -> None:
-    dataset = _market(gap_before_insolvency=True)
-    executor = _executor(dataset, insolvency_valuation="retain_debt")
-    opened = _open_short(executor)
-
-    result = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
+    assert crashed.book.cash == crashed.book.portfolio_value == pytest.approx(-501.0)
+    assert crashed.interval_borrow_cost == pytest.approx(1500.0)
+    assert crashed.interval_funding == 0.0
+    assert crashed.funding_evidence == ()
+    assert crashed.bars_advanced == 1 and crashed.next_index == 2
+    np.testing.assert_array_equal(crashed.book.mark_prices, np.array([100.0]))
+    assert crashed.interval_net_return == pytest.approx(-501.0 / 999.0 - 1.0)
+    assert crashed.book.max_drawdown == pytest.approx(1.501)
+    assert crashed.book.returns_history[-1] == pytest.approx(
+        crashed.interval_net_return
     )
-    elapsed_hours = dataset.elapsed_hours(1, 2)
-    elapsed_year_fraction = dataset.elapsed_year_fraction(1, 2)
-    gap_year_fraction = elapsed_year_fraction - (
-        elapsed_year_fraction * dataset.bar_hours / elapsed_hours
-    )
-    expected_gap_interest = opened.book.cash * dataset.cash_rate[2] * gap_year_fraction
-
-    assert result.bars_advanced == 1
-    assert result.next_index == 2
-    assert result.book.insolvent is True
-    assert result.book.termination_reason is EconomicTerminationReason.INSOLVENCY
-    assert result.book.cash == pytest.approx(
-        opened.book.portfolio_value + expected_gap_interest
-    )
-    assert result.book.portfolio_value == pytest.approx(
-        opened.book.portfolio_value + expected_gap_interest
-    )
-    assert result.book.mark_prices.tolist() == [100.0]
-    assert result.interval_cash_interest == pytest.approx(expected_gap_interest)
-    assert result.interval_borrow_cost == 0.0
-    assert result.interval_funding == 0.0
-
-
-def test_retain_debt_cancels_other_same_bar_orders_after_first_insolvency() -> None:
-    dataset = _market()
-    executor = _executor(
-        dataset,
-        insolvency_valuation="retain_debt",
-        fee_rate=11.0,
-    )
-    intents = (
-        _intent(executor, quantity=1.0, target_identity="first-cost-exhaustion"),
-        _intent(executor, quantity=1.0, target_identity="later-same-bar-order"),
-    )
-
-    result = executor.execute_orders(
-        BookState.zero(1, 1_000.0, dataset.close[0]),
-        OrderBookState.empty(),
-        intents,
-        start_index=0,
-        bars=1,
-    )
-
-    fills = tuple(
-        event
-        for event in result.order_events
-        if event.event_type in {"filled", "partial_fill"}
-    )
-    cancellations = tuple(
-        event
-        for event in result.order_events
-        if event.event_type == "cancelled" and event.reason == "economic_termination"
-    )
-    assert result.fill_count == 1
-    assert len(fills) == 1
-    assert len(cancellations) == 1
-    assert result.book.insolvent is True
-    assert result.book.quantities.tolist() == [0.0]
-    assert result.book.cash == pytest.approx(-100.0)
-    assert result.order_book.active_orders == ()
-
-
-def test_floor_zero_keeps_legacy_flattening_and_requested_bar_count() -> None:
-    dataset = _market()
-    executor = _executor(dataset)
-    opened = _open_short(executor)
-
-    result = executor.execute_orders(
-        opened.book,
-        opened.order_book,
-        (),
-        start_index=1,
-        bars=3,
-    )
-
-    assert result.termination_reason == EconomicTerminationReason.INSOLVENCY.value
-    assert result.bars_advanced == 3
-    assert result.next_index == 4
-    assert result.book.quantities.tolist() == [0.0]
-    assert result.book.cash == 0.0
-    assert result.book.portfolio_value == 0.0

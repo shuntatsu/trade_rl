@@ -583,3 +583,231 @@ def test_one_way_cost_rate_mirrors_the_executor_unit_cost() -> None:
         one_way_cost_rate(object())  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         one_way_cost_rates(default, n_symbols=0)
+
+
+# --- Phase 3 mechanisms: kappa (cost penalty multiple) and volatility target ----
+
+
+def test_annualized_portfolio_vol_and_scale_math() -> None:
+    from trade_rl.strategies.allocation.cost_aware import (
+        annualized_portfolio_vol,
+        vol_target_scale,
+    )
+
+    sigma = np.diag([0.0004, 0.0009])
+    weights = np.array([0.5, -0.25])
+    expected = np.sqrt((0.25 * 0.0004 + 0.0625 * 0.0009) * 365.0)
+    assert annualized_portfolio_vol(
+        weights, sigma, periods_per_year=365.0
+    ) == pytest.approx(expected)
+    assert annualized_portfolio_vol(
+        np.zeros(2), sigma, periods_per_year=365.0
+    ) == pytest.approx(0.0)
+    assert vol_target_scale(0.10, 0.12) == 1.0
+    assert vol_target_scale(0.12, 0.12) == 1.0
+    assert vol_target_scale(0.24, 0.12) == pytest.approx(0.5)
+    for bad in (float("nan"), float("inf"), -0.1):
+        with pytest.raises(ValueError):
+            vol_target_scale(bad, 0.12)
+    with pytest.raises(ValueError):
+        vol_target_scale(0.2, 0.0)
+    with pytest.raises(ValueError):
+        annualized_portfolio_vol(
+            np.array([float("nan"), 0.0]), sigma, periods_per_year=365.0
+        )
+    with pytest.raises(ValueError):
+        annualized_portfolio_vol(weights, sigma, periods_per_year=0.0)
+    with pytest.raises(ValueError):
+        annualized_portfolio_vol(weights, np.eye(3), periods_per_year=365.0)
+    with pytest.raises(ValueError):
+        annualized_portfolio_vol(
+            np.array([0.0, 1.0]),
+            np.array([[1.0, 0.0], [0.0, -1.0]]),
+            periods_per_year=365.0,
+        )
+
+
+def _day_decisions(
+    result: SharedCashPortfolioReplayResult, policy: CostAwareAllocationPolicy
+) -> dict[int, tuple[float, ...]]:
+    rebalance = {r.index for r in policy.records if r.outcome == "rebalance"}
+    return {
+        d.index: d.proposal_weights for d in result.decisions if d.index in rebalance
+    }
+
+
+def test_defaults_leave_every_decision_unchanged() -> None:
+    returns = _noise(seed=3)
+
+    def drifting(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        day = snapshot.timestamp_ns // (24 * 3_600 * 1_000_000_000)
+        return (0.002 * (day % 3 - 1), -0.001, 0.0015)
+
+    plain = _policy(_CallableSource(drifting))
+    explicit = _policy(
+        _CallableSource(drifting), cost_penalty_multiple=1.0, vol_target_annual=None
+    )
+    first = _replay(_dataset(returns), plain)
+    second = _replay(_dataset(returns), explicit)
+    assert _day_decisions(first, plain) == _day_decisions(second, explicit)
+    assert first.book.portfolio_value == second.book.portfolio_value
+    assert all(r.vol_scale == 1.0 and r.ex_ante_vol is None for r in explicit.records)
+
+
+def test_vol_target_scales_the_solved_target_by_cap_over_vol() -> None:
+    returns = _noise(seed=9, scale=0.03)
+    cap = 0.12
+    decision_day = 60
+    kwargs: dict[str, object] = {
+        "cost": 0.0,
+        "gamma": 1.0,
+        "w_max": 0.5,
+        "gross_max": 0.95,
+        "min_trade_fraction": 0.0,
+        "shrinkage": 0.0,
+    }
+    source = _ConstantSource((0.004, 0.004, 0.004))
+    free = _policy(source, **kwargs)
+    capped = _policy(source, vol_target_annual=cap, **kwargs)
+    free_result = _replay(_dataset(returns), free, stop_day=decision_day + 1)
+    capped_result = _replay(_dataset(returns), capped, stop_day=decision_day + 1)
+    index = decision_day * 24
+    unscaled = np.asarray(
+        next(d.proposal_weights for d in free_result.decisions if d.index == index)
+    )
+    scaled = np.asarray(
+        next(d.proposal_weights for d in capped_result.decisions if d.index == index)
+    )
+    sigma = ewma_covariance(
+        returns[:decision_day],
+        halflife_periods=60.0,
+        shrinkage=0.0,
+        variance_floor=1e-8,
+    )
+    vol = float(np.sqrt(unscaled @ sigma @ unscaled * 365.0))
+    assert vol > cap, "the fixture must exceed the cap for the test to bind"
+    assert scaled == pytest.approx(unscaled * (cap / vol), rel=1e-9)
+    record = next(r for r in capped.records if r.index == index)
+    assert record.ex_ante_vol == pytest.approx(vol)
+    assert record.vol_scale == pytest.approx(cap / vol)
+    assert record.final_vol == pytest.approx(cap)
+    assert np.abs(scaled).sum() <= 0.95 + 1e-12
+    assert np.all(np.abs(scaled) <= 0.5 + 1e-12)
+
+
+def test_vol_target_does_not_touch_a_book_already_below_the_cap() -> None:
+    returns = _noise(seed=9, scale=0.002)
+    source = _ConstantSource((0.0005, 0.0005, 0.0005))
+    free = _policy(source, min_trade_fraction=0.0)
+    capped = _policy(source, min_trade_fraction=0.0, vol_target_annual=0.12)
+    first = _replay(_dataset(returns), free)
+    second = _replay(_dataset(returns), capped)
+    assert _day_decisions(first, free) == _day_decisions(second, capped)
+    assert all(r.vol_scale == 1.0 for r in capped.records if r.ex_ante_vol is not None)
+
+
+def test_vol_target_runs_before_the_min_trade_rule() -> None:
+    """A scaled-down target within the dead band of the current weight is held."""
+
+    returns = _noise(seed=9, scale=0.03)
+    policy = _policy(
+        _ConstantSource((0.004, 0.004, 0.004)),
+        cost=0.0,
+        gamma=1.0,
+        gross_max=0.95,
+        shrinkage=0.0,
+        vol_target_annual=0.12,
+        min_trade_fraction=0.5,  # huge dead band: every symbol is held
+    )
+    result = _replay(_dataset(returns), policy)
+    assert result.book.fill_count == 0
+    assert all(r.outcome != "rebalance" for r in policy.records)
+    held = [r for r in policy.records if r.outcome == "hold_no_trade"]
+    assert held and all(r.vol_scale < 1.0 for r in held)
+
+
+def test_non_finite_volatility_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*_: object, **__: object) -> float:
+        raise ValueError("portfolio variance must be finite and non-negative")
+
+    monkeypatch.setattr(
+        "trade_rl.strategies.allocation.cost_aware.annualized_portfolio_vol", broken
+    )
+    policy = _policy(_ConstantSource((0.01, 0.01, 0.01)), vol_target_annual=0.12)
+    result = _replay(_dataset(_noise()), policy)
+    assert result.book.fill_count == 0 and result.book.turnover_total == 0.0
+    assert any(r.reason == "invalid_volatility" for r in policy.records)
+    assert not any(r.outcome == "rebalance" for r in policy.records)
+
+
+def test_kappa_scales_only_the_optimizer_cost_vector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[np.ndarray] = []
+    original = solver_module.solve_cost_aware_allocation
+
+    def spy(**kwargs: object) -> object:
+        captured.append(np.asarray(kwargs["costs"], dtype=np.float64).copy())
+        return original(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "trade_rl.strategies.allocation.cost_aware.solve_cost_aware_allocation", spy
+    )
+    base = _policy(_ConstantSource((0.001, 0.0, 0.0)), cost=0.0007)
+    tripled = _policy(
+        _ConstantSource((0.001, 0.0, 0.0)), cost=0.0007, cost_penalty_multiple=3.0
+    )
+    execution = ExecutionCostConfig(fee_rate=0.0005, spread_rate=0.0002)
+    _replay(_dataset(_noise()), base, execution_cost=execution, stop_day=40)
+    n_base = len(captured)
+    _replay(_dataset(_noise()), tripled, execution_cost=execution, stop_day=40)
+    assert n_base > 0 and len(captured) == 2 * n_base
+    assert all(np.allclose(c, 0.0007) for c in captured[:n_base])
+    assert all(np.allclose(c, 0.0021) for c in captured[n_base:])
+    # The replay's execution cost config is untouched by the multiple.
+    assert execution.fee_rate == 0.0005 and execution.spread_rate == 0.0002
+
+
+def test_kappa_reduces_turnover_but_the_executor_charges_the_same_cost_rate() -> None:
+    returns = _noise(seed=11)
+
+    def flip_flop(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        day = snapshot.timestamp_ns // (24 * 3_600 * 1_000_000_000)
+        sign = 1.0 if day % 2 == 0 else -1.0
+        return (0.0005 * sign, -0.0005 * sign, 0.00025 * sign)
+
+    execution = ExecutionCostConfig(
+        fee_rate=0.0005, spread_rate=0.0002, impact_rate=0.0
+    )
+    ratios: list[float] = []
+    turnovers: list[float] = []
+    for kappa in (1.0, 3.0):
+        policy = _policy(
+            _CallableSource(flip_flop), cost=0.0001, cost_penalty_multiple=kappa
+        )
+        result = _replay(_dataset(returns), policy, execution_cost=execution)
+        turnovers.append(float(result.book.turnover_total))
+        # cost per unit of traded weight is the executor's fee + spread either way
+        ratios.append(float(result.book.total_cost) / (CAPITAL * turnovers[-1]))
+    assert turnovers[1] < turnovers[0]
+    assert ratios[0] == pytest.approx(0.0007, rel=0.15)
+    assert ratios[1] == pytest.approx(0.0007, rel=0.15)
+
+
+def test_kappa_and_vol_target_validation_and_default_periods() -> None:
+    for bad in (0.0, -1.0, float("nan")):
+        with pytest.raises(ValueError):
+            _policy(_ConstantSource((0.0,) * 3), cost_penalty_multiple=bad)
+        with pytest.raises(ValueError):
+            _policy(_ConstantSource((0.0,) * 3), vol_target_annual=bad)
+    with pytest.raises(ValueError):
+        _policy(_ConstantSource((0.0,) * 3), periods_per_year=0.0)
+    daily = _policy(_ConstantSource((0.0,) * 3), vol_target_annual=0.12)
+    weekly = _policy(
+        _ConstantSource((0.0,) * 3),
+        vol_target_annual=0.12,
+        decision_interval_hours=168,
+        decision_anchor_hour_utc=96,
+    )
+    assert daily._periods_per_year == 365.0
+    assert weekly._periods_per_year == pytest.approx(8760.0 / 168.0)

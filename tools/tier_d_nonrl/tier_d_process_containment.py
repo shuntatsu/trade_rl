@@ -453,9 +453,12 @@ class _WindowsApi:
         from ctypes import wintypes
 
         self._wintypes = wintypes
-        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        self._psapi = ctypes.WinDLL("psapi", use_last_error=True)
-        self._ntdll = ctypes.WinDLL("ntdll")
+        win_dll = cast(Callable[..., Any] | None, getattr(ctypes, "WinDLL", None))
+        if win_dll is None:
+            raise ProcessContainmentUnavailable("Windows DLL loader is unavailable")
+        self._kernel32 = win_dll("kernel32", use_last_error=True)
+        self._psapi = win_dll("psapi", use_last_error=True)
+        self._ntdll = win_dll("ntdll")
         self._configure_signatures()
 
     def _configure_signatures(self) -> None:
@@ -701,7 +704,7 @@ class _WindowsApi:
 
     def terminate_process(self, process_handle: int) -> None:
         if not self._kernel32.TerminateProcess(self._handle(process_handle), 1):
-            error = ctypes.get_last_error()
+            error = _windows_last_error()
             # A process that exited concurrently is already in the desired state.
             if error != 5:  # ERROR_ACCESS_DENIED is the normal exited-process result.
                 raise _last_winerror("cannot terminate unassigned suspended process")
@@ -790,6 +793,13 @@ class _ProcessMemoryCounters(ctypes.Structure):
     ]
 
 
+def _windows_last_error() -> int:
+    getter = cast(Callable[[], int] | None, getattr(ctypes, "get_last_error", None))
+    if getter is None:
+        raise ProcessContainmentUnavailable("Windows last-error API is unavailable")
+    return int(getter())
+
+
 def _last_winerror(message: str) -> ProcessContainmentError:
-    error = ctypes.get_last_error()
+    error = _windows_last_error()
     return ProcessContainmentError(f"{message} (Windows error {error})")

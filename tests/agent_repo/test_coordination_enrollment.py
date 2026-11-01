@@ -267,3 +267,18 @@ def test_update_rejects_revision_regression() -> None:
             observed_registry_oid=OID,
             enumerated_task_ids=(current.status.task_id,),
         )
+
+
+def test_projection_constructor_refuses_missing_lease_and_invalid_repository() -> None:
+    record = _enrollment()
+    unleased_status = replace(
+        record.status,
+        owner=None,
+        lease_epoch=None,
+        lease_branch=None,
+        head_sha=None,
+    )
+    with pytest.raises(ValueError, match="complete fenced lease"):
+        replace(record, status=unleased_status)
+    with pytest.raises(ValueError, match="repository"):
+        replace(record, repository="../..")

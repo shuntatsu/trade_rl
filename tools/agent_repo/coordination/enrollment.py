@@ -16,7 +16,7 @@ from tools.agent_repo.coordination.leases import LeaseRecord, lease_is_current
 from tools.agent_repo.coordination.model import ExecutionMode, TaskPacket, TaskPhase
 from tools.agent_repo.coordination.state import validate_transition
 
-_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -50,6 +50,13 @@ class EnrollmentProjection:
             )
         if not isinstance(self.status, TaskStatusRecord):
             raise ValueError("status must be a TaskStatusRecord")
+        if (
+            self.status.owner is None
+            or self.status.lease_epoch is None
+            or self.status.lease_branch is None
+            or self.status.head_sha is None
+        ):
+            raise ValueError("write enrollment requires a complete fenced lease")
 
     def canonical_payload(self) -> dict[str, object]:
         return {

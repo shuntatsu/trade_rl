@@ -293,7 +293,13 @@ def require_review_identity_retryable(
         ]
         if len(provider_steps) > 1 or len(upload_steps) > 1:
             raise ValueError("review lineage has duplicate provider/evidence steps")
-        if not provider_steps or provider_steps[0].get("status") != "completed":
+        if (
+            not provider_steps
+            or provider_steps[0].get("status") != "completed"
+            or provider_steps[0].get("conclusion") == "skipped"
+        ):
+            # A setup failure may skip both the provider and evidence upload.
+            # A skipped provider is distinct from a failed *invoked* provider.
             continue
         if not upload_steps or upload_steps[0].get("status") != "completed":
             raise ValueError(

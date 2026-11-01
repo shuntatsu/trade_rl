@@ -92,6 +92,7 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
 - Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
 - `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
+- `tools.agent_repo.coordination.enrollment` は既存の `TaskPacket`・`LeaseRecord`・`TaskStatusRecord` とIssue identity / main・branch SHAの整合性を検証する、**非正本・read-only preflight** である。引数に渡されたIssue open状態、Task roster、registry OID、readbackは認証済み・網羅済みの証拠ではない。外部Coordinator認証、GitHub上のatomic CAS、実際の読み戻しと競合E2Eが揃うまでは、preflight成功をTask登録、`task_registry_complete=true`、cleanup/delete許可として扱わない。
 - 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行し、CLIの`--apply`もfail-closedで拒否する。GitHub Actionsの検索結果が1000件上限に達する、総件数が不明・ページ間で変化する、run IDが重複・欠落する、取得statusが不一致、head_branchが欠落・空文字・空白のみ、またはページが不完全な場合もfail-closedとする。Taskの保護情報が完全に取得・検証できない間は削除を再開しない。
 - dry-run summaryの`first-observation archival candidates`は候補数でありarchive済みの件数ではない。`durable anchors kept`はdefault/protected/open PR/active workflow/provenanceの理由だけを数え、grace中やretentionに未到達の一時branchは含めない。CLI helpに`--apply`が残っても破壊的cleanupの再開許可ではない。
 

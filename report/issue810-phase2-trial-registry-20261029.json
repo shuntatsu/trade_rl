@@ -1,0 +1,218 @@
+{
+  "base_protocol_digest": "7adc12e842cb8f574bcd3bd502182d9ffdd19dcc7d1a9b59cbc99ab6f4626558",
+  "base_protocol_schema": "dev_realdata_study_protocol_v1",
+  "candidate_pool": [
+    "allocator_24h_long_short",
+    "allocator_72h_long_short",
+    "allocator_24h_long_only",
+    "t1_tsmom",
+    "t2_xsmom",
+    "t3_funding_carry",
+    "t4_ridge24_all_features",
+    "t5_lightgbm24",
+    "t6_blend",
+    "t7_blend_dd_overlay",
+    "t8_blend_weekly"
+  ],
+  "constants": {
+    "blend_min_dates": 10,
+    "blend_std_window_days": 365,
+    "bonferroni_arms": 13,
+    "carry_window_days": 7,
+    "lgbm_learning_rate": 0.05,
+    "lgbm_max_depth": 3,
+    "lgbm_min_child_samples": 200,
+    "lgbm_n_estimators": 200,
+    "lgbm_num_leaves": 8,
+    "lgbm_random_state": 0,
+    "lgbm_reg_lambda": 1.0,
+    "overlay_dd_limit": 0.2,
+    "overlay_dd_start": 0.1,
+    "overlay_release_fraction": 0.95,
+    "ridge_all_prefixes": [
+      "1h__",
+      "4h__",
+      "1d__"
+    ],
+    "signal_cost_multiple": 2.0,
+    "tsmom_days_per_year": 365,
+    "tsmom_vol_halflife_days": 60.0,
+    "tsmom_vol_min_periods": 30,
+    "tsmom_vol_target": 0.2,
+    "tsmom_windows_days": [
+      30,
+      90
+    ],
+    "xsmom_lookback_days": 90,
+    "xsmom_skip_days": 1
+  },
+  "controls": [
+    "cash",
+    "equal_weight_buy_and_hold"
+  ],
+  "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+  "implementation_decisions": [
+    "post-PR-C implementation decisions (fixed before any T1-T8 result):",
+    "all signals use only marks and funding at or before the decision time; marks are the daily 00:00 UTC rows of the 1h dataset, funding is the funding_rate of due rows",
+    "T1: r30 and r90 are the past 30d and 90d simple returns of daily marks; s = 0.5*sign(r30) + 0.5*sign(r90); ann_vol is the annualized (sqrt 365) EWMA (halflife 60d, normalized weights, non-centered) daily-return vol with at least 30 returns; mu_i = 2 * s * (0.20 / ann_vol_i) * one_way_cost, where one_way_cost = fee + spread = 0.0007",
+    "T2: score = mark(t-1d)/mark(t-1d-90d) - 1 (a 90d return ending one day before the decision), demeaned across symbols and scaled so mean |mu| = 2*one_way_cost; an all-zero score gives mu = 0",
+    "T2 net exposure: the allocator has no net-exposure constraint, so |sum w| <= 0.05 is NOT enforced; the mu are demeaned only (declared deviation); gross is the allocator's 0.95 rather than the plan's 1.0",
+    "T3: mu_i = -(sum of funding_rate over due rows in (t-7d, t]) / 7, i.e. minus the trailing 7d mean funding rate per 24h",
+    "T4: Ridge alpha 10, 24h horizon, expanding window and 30-day refit as PR-C, on every dataset feature (1h__ non-funding, funding, 4h__ and 1d__); mu = 0 where a symbol's packet is unavailable (for example XRP 4h/1d features after the 2022 gap)",
+    "T5: LightGBM 24h on the PR-C 1h__ non-funding roster with 200 trees, max_depth 3, num_leaves 8, learning_rate 0.05, min_child_samples 200, reg_lambda 1, random_state 0, n_jobs 1; if lightgbm cannot be imported the trial is recorded FAILED_TO_RUN and nothing is substituted",
+    "T6: each component (Ridge24 as in PR-C, T1, T3), as a per-24h expected simple return, is divided by its causal trailing-365-day population std pooled over symbols and dates (dates up to and including the decision); the three are averaged and the average is multiplied by the causal trailing-365-day std of Ridge24 mu. T1/T3 histories start in the fit period; Ridge24 history can only start at the first vintage (2023-01-01), so mu = 0 until at least 10 daily Ridge24 dates exist. A symbol without a Ridge packet contributes 0 for that component",
+    "T7: T6 mu and, in the policy, scale = clip((0.20 - DD) / 0.10, 0, 1) with DD = 1 - equity / snapshot peak_value at each scheduled decision; once DD >= 20% the scale is latched at 0 until equity >= 0.95 * peak. The scale is applied as an exposure budget: if gross(target) > scale * gross_max the whole target is shrunk proportionally to scale * gross_max (hold-current-quantity flags are dropped for that decision); at scale 1 the allocator target is untouched. Consequence recognised before running: once latched the book is flat, equity cannot recover to 0.95*peak, so the latch is effectively terminal for the rest of the replay",
+    "T8: T6 with 168h decisions at Monday 00:00 UTC (decision_anchor_hour_utc = 96 hours since epoch modulo 168); the allocator covariance is built from weekly marks (warmup from the same fit period) and T6 mu, defined per 24h, is multiplied by 7 so it is an expected return over the decision interval",
+    "all eight trials are long/short, use the PR-C allocator parameters (gamma 5, halflife 60d, shrink 0.2, w_max 0.5, gross_max 0.95, min trade 0.5%), the PR-C execution costs, the three PR-C scenarios and the PR-C selection rule",
+    "candidate pool for selection = the three PR-C allocator arms plus T1-T8 (CASH and buy-and-hold are controls); the label is DEVELOPMENT_PROMISING or NO_WINNER, never WINNER",
+    "Bonferroni: confidence intervals are additionally reported at level 0.05/13 (5 PR-C arms plus 8 trials)",
+    "validity for a trial = real-data future-perturbation causality probe passed (per trial) and every replay reconciled against raw fills with a flat terminal book and no termination",
+    "a trial that raises is recorded with its error and counted as not eligible; nothing is substituted or retried with other parameters"
+  ],
+  "issue": 810,
+  "pr_c_arms": [
+    "cash",
+    "equal_weight_buy_and_hold",
+    "allocator_24h_long_short",
+    "allocator_72h_long_short",
+    "allocator_24h_long_only"
+  ],
+  "registered": "2026-10-29",
+  "registered_before": "the PR-C result and every T1-T8 result",
+  "registry_digest": "d3cfc7278205e263f960ce2b32a82c8f43daa95f30366b0d83426a07f782b0ee",
+  "result_report": "report/issue810-phase2-trial-results-20261029.json",
+  "schema_version": "dev_realdata_phase2_trial_registry_v1",
+  "status": "registered",
+  "trials": [
+    {
+      "arm": "t1_tsmom",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "mu_i = k * sign-weighted blend of 30d and 90d past returns, scaled by EWMA vol to a 20% annualized per-asset vol; k fixed so |mu| median ~ 2x one-way cost",
+      "source_kind": "tsmom",
+      "source_params": {
+        "vol_target": 0.2,
+        "windows_days": [
+          30,
+          90
+        ]
+      },
+      "title": "time-series momentum",
+      "trial_id": "T1"
+    },
+    {
+      "arm": "t2_xsmom",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "cross-sectional momentum (90d, skip last 1d) rank -> mu, dollar-neutral, gross 1.0",
+      "source_kind": "xsmom",
+      "source_params": {
+        "lookback_days": 90,
+        "skip_days": 1
+      },
+      "title": "cross-sectional momentum",
+      "trial_id": "T2"
+    },
+    {
+      "arm": "t3_funding_carry",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "mu_i = -(trailing 7d mean funding rate per 24h) (short crowded longs)",
+      "source_kind": "funding_carry",
+      "source_params": {
+        "window_days": 7
+      },
+      "title": "funding carry tilt",
+      "trial_id": "T3"
+    },
+    {
+      "arm": "t4_ridge24_all_features",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "Ridge 24h with added funding + 4h/1d features (if dataset has them)",
+      "source_kind": "ridge_all_features",
+      "source_params": {
+        "alpha": 10.0,
+        "horizon_hours": 24
+      },
+      "title": "Ridge 24h with funding and 4h/1d features",
+      "trial_id": "T4"
+    },
+    {
+      "arm": "t5_lightgbm24",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "LightGBM 24h (forecast-gbm extra), fixed params: 200 trees, depth 3, lr 0.05, min_leaf 200",
+      "source_kind": "lightgbm_1h",
+      "source_params": {
+        "horizon_hours": 24
+      },
+      "title": "LightGBM 24h",
+      "trial_id": "T5"
+    },
+    {
+      "arm": "t6_blend",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "equal-weight blend of z-scored mu from Ridge24 + T1 + T3",
+      "source_kind": "blend_ridge24_tsmom_carry",
+      "source_params": {
+        "components": [
+          "ridge24_1h",
+          "tsmom",
+          "funding_carry"
+        ]
+      },
+      "title": "blend of Ridge24, T1 and T3",
+      "trial_id": "T6"
+    },
+    {
+      "arm": "t7_blend_dd_overlay",
+      "decision_anchor_hour_utc": 0,
+      "decision_interval_hours": 24,
+      "long_only": false,
+      "overlay": "drawdown_latch",
+      "plan_text": "T6 with drawdown overlay (scale exposure linearly 1.0 -> 0.0 as running DD goes 10% -> 20%; latch until new equity high*0.95)",
+      "source_kind": "blend_ridge24_tsmom_carry",
+      "source_params": {
+        "components": [
+          "ridge24_1h",
+          "tsmom",
+          "funding_carry"
+        ]
+      },
+      "title": "T6 with drawdown overlay",
+      "trial_id": "T7"
+    },
+    {
+      "arm": "t8_blend_weekly",
+      "decision_anchor_hour_utc": 96,
+      "decision_interval_hours": 168,
+      "long_only": false,
+      "overlay": null,
+      "plan_text": "T6 with weekly (168h) decision cadence",
+      "source_kind": "blend_ridge24_tsmom_carry",
+      "source_params": {
+        "components": [
+          "ridge24_1h",
+          "tsmom",
+          "funding_carry"
+        ]
+      },
+      "title": "T6 with weekly decisions",
+      "trial_id": "T8"
+    }
+  ]
+}

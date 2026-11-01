@@ -16,6 +16,7 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentController,
 )
 from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
     _validated_fit_cutoff_ns,
     build_causal_forecast_training_set,
 )
@@ -179,6 +180,18 @@ def fit_lightgbm_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
+    return fit_lightgbm_forecast_from_training_set(training, random_state=random_state)
+
+
+def fit_lightgbm_forecast_from_training_set(
+    training: CausalForecastTrainingSet,
+    *,
+    random_state: int = 0,
+) -> LightGBMForecastModel:
+    """Fit the same shallow LightGBM from an already built causal training set."""
+
+    if isinstance(random_state, bool) or not isinstance(random_state, int):
+        raise ValueError("random_state must be an integer")
     regressor_factory = _lightgbm_regressor_factory()
     predictor = cast(
         _TrainableRegressor,
@@ -205,7 +218,7 @@ def fit_lightgbm_forecast(
     return LightGBMForecastModel(
         feature_indices=training.feature_indices,
         predictor=predictor,
-        horizon_hours=horizon_hours,
+        horizon_hours=training.horizon_hours,
         n_samples=training.n_samples,
         fit_cutoff=training.fit_cutoff,
     )
@@ -215,4 +228,5 @@ __all__ = [
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
     "fit_lightgbm_forecast",
+    "fit_lightgbm_forecast_from_training_set",
 ]

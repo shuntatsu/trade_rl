@@ -1,0 +1,1208 @@
+{
+  "arms": {
+    "allocator_24h_long_only": {
+      "base": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 85,
+            "rebalance": 1223
+          }
+        },
+        "arm": "allocator_24h_long_only",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 5.810991354727801,
+        "execution_costs_usdt": 6075.391708319074,
+        "exposure": {
+          "max_gross_exposure": 0.9590837396597764,
+          "mean_gross_exposure": 0.4962468198548123,
+          "mean_net_exposure": 0.4962468198548123
+        },
+        "fees_plus_funding_paid_usdt": 7033.20097271597,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.0035904166527585333,
+          "median_abs_mu_per_day": 0.0027570660741839843,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.8622324159021407
+        },
+        "funding_pnl_usdt": -957.809264396897,
+        "gross_price_pnl_usdt": 9275.06087000003,
+        "max_drawdown_pct": 49.74418551414628,
+        "n_daily_returns": 1308,
+        "n_trades": 2569,
+        "net_pnl_usdt": 2241.859897284059,
+        "per_year_return_pct": {
+          "2023": 15.95271526287969,
+          "2024": 40.24297181706169,
+          "2025": -3.8832223657068954,
+          "2026": -21.67756636546534
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 2.0645761492458167e-12,
+          "continuity_gap": 0.0,
+          "equity_residual": 2.0645761492458167e-12,
+          "execution_costs": 6075.391708319056,
+          "filled_notional": 8664163.70351,
+          "funding_pnl": -957.8092643968982,
+          "independent_terminal_equity": 12241.859897284057,
+          "intervals_chained": true,
+          "ledger_final_cash": 12241.85989728406,
+          "ledger_final_equity": 12241.85989728406,
+          "ledger_total_residual": 1.7280399333685637e-11,
+          "n_fills": 2569,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 9275.060870000012,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "base",
+        "sharpe_daily": 0.3363293254104233,
+        "terminal_net_profit_pct": 22.4185989728406,
+        "terminated": [],
+        "turnover_per_year": 189.16409240405423,
+        "turnover_total": 677.4172015455248,
+        "years": 3.5811088295687883
+      },
+      "cost_x2": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 81,
+            "rebalance": 1227
+          }
+        },
+        "arm": "allocator_24h_long_only",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -2.032551484531009,
+        "execution_costs_usdt": 9845.561016824326,
+        "exposure": {
+          "max_gross_exposure": 0.9595089733020449,
+          "mean_gross_exposure": 0.4969828750276399,
+          "mean_net_exposure": 0.4969828750276399
+        },
+        "fees_plus_funding_paid_usdt": 10641.111780619976,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.0035904166527585333,
+          "median_abs_mu_per_day": 0.0027570660741839843,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.8622324159021407
+        },
+        "funding_pnl_usdt": -795.5507637956498,
+        "gross_price_pnl_usdt": 9932.122170000035,
+        "max_drawdown_pct": 55.19644168725469,
+        "n_daily_returns": 1308,
+        "n_trades": 2587,
+        "net_pnl_usdt": -708.9896106199412,
+        "per_year_return_pct": {
+          "2023": 4.983364527454315,
+          "2024": 13.74322195425437,
+          "2025": -7.125049670152195,
+          "2026": -16.224247394871927
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": -9.625137761616446e-12,
+          "continuity_gap": 0.0,
+          "equity_residual": -9.625137761616446e-12,
+          "execution_costs": 9845.561016824293,
+          "filled_notional": 7026915.75469,
+          "funding_pnl": -795.5507637956488,
+          "independent_terminal_equity": 9291.010389380068,
+          "intervals_chained": true,
+          "ledger_final_cash": 9291.010389380059,
+          "ledger_final_equity": 9291.010389380059,
+          "ledger_total_residual": 3.2741809263825417e-11,
+          "n_fills": 2587,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 9932.12217000001,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "cost_x2",
+        "sharpe_daily": 0.11898524347039516,
+        "terminal_net_profit_pct": -7.0898961061994115,
+        "terminated": [],
+        "turnover_per_year": 190.0462413146882,
+        "turnover_total": 680.5762727983905,
+        "years": 3.5811088295687883
+      },
+      "latency_1bar": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 84,
+            "rebalance": 1224
+          }
+        },
+        "arm": "allocator_24h_long_only",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 15.306106446432377,
+        "execution_costs_usdt": 7114.77125024822,
+        "exposure": {
+          "max_gross_exposure": 0.9576249191410574,
+          "mean_gross_exposure": 0.5000583455688153,
+          "mean_net_exposure": 0.5000583455688153
+        },
+        "fees_plus_funding_paid_usdt": 8281.082901728076,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.0035904166527585333,
+          "median_abs_mu_per_day": 0.0027570660741839843,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.8622324159021407
+        },
+        "funding_pnl_usdt": -1166.3116514798558,
+        "gross_price_pnl_usdt": 14934.365219999949,
+        "max_drawdown_pct": 53.231244961025006,
+        "n_daily_returns": 1308,
+        "n_trades": 2630,
+        "net_pnl_usdt": 6653.282318271871,
+        "per_year_return_pct": {
+          "2023": 35.02516803086615,
+          "2024": 35.93111852571867,
+          "2025": 1.7974178333908908,
+          "2026": -10.868859091059546
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": -6.819063019856653e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": -6.819063019856653e-11,
+          "execution_costs": 7114.7712502482145,
+          "filled_notional": 10145124.33634,
+          "funding_pnl": -1166.3116514798548,
+          "independent_terminal_equity": 16653.28231827194,
+          "intervals_chained": true,
+          "ledger_final_cash": 16653.28231827187,
+          "ledger_final_equity": 16653.28231827187,
+          "ledger_total_residual": 5.4569682106375694e-12,
+          "n_fills": 2630,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 14934.365220000009,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "latency_1bar",
+        "sharpe_daily": 0.5687300832437853,
+        "terminal_net_profit_pct": 66.53282318271872,
+        "terminated": [],
+        "turnover_per_year": 192.56265691376043,
+        "turnover_total": 689.5878309190928,
+        "years": 3.5811088295687883
+      }
+    },
+    "allocator_24h_long_short": {
+      "base": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 1,
+            "rebalance": 1307
+          }
+        },
+        "arm": "allocator_24h_long_short",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -17.768317315677685,
+        "execution_costs_usdt": 5096.519397102944,
+        "exposure": {
+          "max_gross_exposure": 1.3443908896954146,
+          "mean_gross_exposure": 0.7611052499195808,
+          "mean_net_exposure": 0.1072480539128365
+        },
+        "fees_plus_funding_paid_usdt": 5195.319388861054,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.0035904166527585333,
+          "median_abs_mu_per_day": 0.0027570660741839843,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.8622324159021407
+        },
+        "funding_pnl_usdt": -98.79999175810974,
+        "gross_price_pnl_usdt": 158.3396400000189,
+        "max_drawdown_pct": 58.84144667654356,
+        "n_daily_returns": 1308,
+        "n_trades": 4253,
+        "net_pnl_usdt": -5036.979748861035,
+        "per_year_return_pct": {
+          "2023": -34.36443805035996,
+          "2024": 7.015493672121442,
+          "2025": -15.785104204154388,
+          "2026": -16.09820262422731
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 3.285966274502369e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": 3.285966274502369e-11,
+          "execution_costs": 5096.519397102959,
+          "filled_notional": 7271042.68878,
+          "funding_pnl": -98.7999917581095,
+          "independent_terminal_equity": 4963.0202511389325,
+          "intervals_chained": true,
+          "ledger_final_cash": 4963.020251138965,
+          "ledger_final_equity": 4963.020251138965,
+          "ledger_total_residual": 1.546140993013978e-11,
+          "n_fills": 4253,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 158.33964000000103,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "base",
+        "sharpe_daily": -0.3215097641821951,
+        "terminal_net_profit_pct": -50.369797488610345,
+        "terminated": [],
+        "turnover_per_year": 304.3297851533225,
+        "turnover_total": 1089.8380807133356,
+        "years": 3.5811088295687883
+      },
+      "cost_x2": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 1,
+            "rebalance": 1307
+          }
+        },
+        "arm": "allocator_24h_long_short",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -29.259050413598043,
+        "execution_costs_usdt": 9244.041572378865,
+        "exposure": {
+          "max_gross_exposure": 1.0645907329664892,
+          "mean_gross_exposure": 0.7603776786178449,
+          "mean_net_exposure": 0.12543170457212985
+        },
+        "fees_plus_funding_paid_usdt": 9311.137632580861,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.0035904166527585333,
+          "median_abs_mu_per_day": 0.0027570660741839843,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.8622324159021407
+        },
+        "funding_pnl_usdt": -67.09606020199658,
+        "gross_price_pnl_usdt": 2206.1810399999777,
+        "max_drawdown_pct": 75.97639094331943,
+        "n_daily_returns": 1308,
+        "n_trades": 4199,
+        "net_pnl_usdt": -7104.956592580884,
+        "per_year_return_pct": {
+          "2023": -30.483246200282355,
+          "2024": -14.567722036833796,
+          "2025": -32.093559122882766,
+          "2026": -28.215175872702623
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": -4.189671957916715e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": -4.189671957916715e-11,
+          "execution_costs": 9244.041572378845,
+          "filled_notional": 6598565.50832,
+          "funding_pnl": -67.09606020199661,
+          "independent_terminal_equity": 2895.043407419158,
+          "intervals_chained": true,
+          "ledger_final_cash": 2895.043407419116,
+          "ledger_final_equity": 2895.043407419116,
+          "ledger_total_residual": 2.000888343900442e-11,
+          "n_fills": 4199,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 2206.18104,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "cost_x2",
+        "sharpe_daily": -0.8499005817664599,
+        "terminal_net_profit_pct": -71.04956592580885,
+        "terminated": [],
+        "turnover_per_year": 309.00654035806866,
+        "turnover_total": 1106.5860500707838,
+        "years": 3.5811088295687883
+      },
+      "latency_1bar": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "rebalance": 1308
+          }
+        },
+        "arm": "allocator_24h_long_short",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -20.86352573945548,
+        "execution_costs_usdt": 5045.481888039887,
+        "exposure": {
+          "max_gross_exposure": 1.2853484875874408,
+          "mean_gross_exposure": 0.7643022178045662,
+          "mean_net_exposure": 0.125109012174788
+        },
+        "fees_plus_funding_paid_usdt": 5161.780667919598,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.0035904166527585333,
+          "median_abs_mu_per_day": 0.0027570660741839843,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.8622324159021407
+        },
+        "funding_pnl_usdt": -116.29877987971084,
+        "gross_price_pnl_usdt": -512.3251299999787,
+        "max_drawdown_pct": 64.24778247942623,
+        "n_daily_returns": 1308,
+        "n_trades": 4236,
+        "net_pnl_usdt": -5674.105797919577,
+        "per_year_return_pct": {
+          "2023": -39.61716856070523,
+          "2024": 25.939872173267897,
+          "2025": -20.704123019346653,
+          "2026": -28.262115562559753
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 2.1484424241109223e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": 2.1484424241109223e-11,
+          "execution_costs": 5045.481888039883,
+          "filled_notional": 7198723.846270001,
+          "funding_pnl": -116.2987798797108,
+          "independent_terminal_equity": 4325.894202080402,
+          "intervals_chained": true,
+          "ledger_final_cash": 4325.894202080423,
+          "ledger_final_equity": 4325.894202080423,
+          "ledger_total_residual": 3.637978807091713e-12,
+          "n_fills": 4236,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": -512.3251300000043,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "latency_1bar",
+        "sharpe_daily": -0.4352103755880147,
+        "terminal_net_profit_pct": -56.741057979195766,
+        "terminated": [],
+        "turnover_per_year": 308.1621971044005,
+        "turnover_total": 1103.562364989886,
+        "years": 3.5811088295687883
+      }
+    },
+    "allocator_72h_long_short": {
+      "base": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 9,
+            "rebalance": 1299
+          }
+        },
+        "arm": "allocator_72h_long_short",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -5.927205903560151,
+        "execution_costs_usdt": 6303.677836315294,
+        "exposure": {
+          "max_gross_exposure": 1.0626306798108895,
+          "mean_gross_exposure": 0.7774836250231643,
+          "mean_net_exposure": 0.17721200694514694
+        },
+        "fees_plus_funding_paid_usdt": 6613.016481988816,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.002545034630389625,
+          "median_abs_mu_per_day": 0.0018432751454911574,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.7807339449541284
+        },
+        "funding_pnl_usdt": -309.3386456735211,
+        "gross_price_pnl_usdt": 4647.756920000007,
+        "max_drawdown_pct": 53.07286103028175,
+        "n_daily_returns": 1308,
+        "n_trades": 4034,
+        "net_pnl_usdt": -1965.2595619888089,
+        "per_year_return_pct": {
+          "2023": -10.575158958201502,
+          "2024": 59.529253979623455,
+          "2025": -21.578627869311305,
+          "2026": -28.181074457069478
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 2.128563729333003e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": 2.128563729333003e-11,
+          "execution_costs": 6303.677836315297,
+          "filled_notional": 8992136.25376,
+          "funding_pnl": -309.3386456735216,
+          "independent_terminal_equity": 8034.74043801117,
+          "intervals_chained": true,
+          "ledger_final_cash": 8034.740438011191,
+          "ledger_final_equity": 8034.740438011191,
+          "ledger_total_residual": 2.7284841053187847e-12,
+          "n_fills": 4034,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 4647.756919999989,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "base",
+        "sharpe_daily": 0.000847402971183816,
+        "terminal_net_profit_pct": -19.652595619888093,
+        "terminated": [],
+        "turnover_per_year": 239.9314398291159,
+        "turnover_total": 859.2205976631994,
+        "years": 3.5811088295687883
+      },
+      "cost_x2": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 4,
+            "rebalance": 1304
+          }
+        },
+        "arm": "allocator_72h_long_short",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -25.38890816079539,
+        "execution_costs_usdt": 7276.093133867966,
+        "exposure": {
+          "max_gross_exposure": 1.056607870991842,
+          "mean_gross_exposure": 0.7738612489160749,
+          "mean_net_exposure": 0.1699669669301107
+        },
+        "fees_plus_funding_paid_usdt": 7454.195605249936,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.002545034630389625,
+          "median_abs_mu_per_day": 0.0018432751454911574,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.7807339449541284
+        },
+        "funding_pnl_usdt": -178.10247138197076,
+        "gross_price_pnl_usdt": 957.6390899999807,
+        "max_drawdown_pct": 66.54345202920967,
+        "n_daily_returns": 1308,
+        "n_trades": 3944,
+        "net_pnl_usdt": -6496.556515249956,
+        "per_year_return_pct": {
+          "2023": -40.56842453306356,
+          "2024": 5.759656370453636,
+          "2025": -28.000207305408807,
+          "2026": -22.584736561703522
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": -1.1677118001997437e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": -1.1677118001997437e-11,
+          "execution_costs": 7276.09313386797,
+          "filled_notional": 5194069.82517,
+          "funding_pnl": -178.10247138197062,
+          "independent_terminal_equity": 3503.443484750056,
+          "intervals_chained": true,
+          "ledger_final_cash": 3503.4434847500443,
+          "ledger_final_equity": 3503.4434847500443,
+          "ledger_total_residual": 4.547473508864641e-12,
+          "n_fills": 3944,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 957.6390899999964,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "cost_x2",
+        "sharpe_daily": -0.7553143674992925,
+        "terminal_net_profit_pct": -64.96556515249956,
+        "terminated": [],
+        "turnover_per_year": 237.4499670641846,
+        "turnover_total": 850.3341736343694,
+        "years": 3.5811088295687883
+      },
+      "latency_1bar": {
+        "allocator_decisions": {
+          "fail_closed_hold_count": 0,
+          "fail_closed_reasons": {},
+          "n_decisions": 1308,
+          "outcomes": {
+            "hold_no_trade": 3,
+            "rebalance": 1305
+          }
+        },
+        "arm": "allocator_72h_long_short",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": -24.712450425957798,
+        "execution_costs_usdt": 3687.546364504835,
+        "exposure": {
+          "max_gross_exposure": 1.2638073014622344,
+          "mean_gross_exposure": 0.7734246022169335,
+          "mean_net_exposure": 0.17167482471737444
+        },
+        "fees_plus_funding_paid_usdt": 3799.7748141255965,
+        "forecast": {
+          "decision_calls": 1308,
+          "mean_abs_mu_per_day": 0.002545034630389625,
+          "median_abs_mu_per_day": 0.0018432751454911574,
+          "null_packets": 0,
+          "one_way_cost": 0.0007,
+          "share_abs_mu_above_one_way_cost": 0.7807339449541284
+        },
+        "funding_pnl_usdt": -112.22844962076162,
+        "gross_price_pnl_usdt": -2581.694770000026,
+        "max_drawdown_pct": 67.47865089326108,
+        "n_daily_returns": 1308,
+        "n_trades": 4048,
+        "net_pnl_usdt": -6381.4695841256225,
+        "per_year_return_pct": {
+          "2023": -51.02753769895797,
+          "2024": 49.292529434581155,
+          "2025": -19.835010493896732,
+          "2026": -38.26130141602292
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": -1.539231555304258e-11,
+          "continuity_gap": 0.0,
+          "equity_residual": -11.170080000015263,
+          "execution_costs": 3687.5463645048385,
+          "filled_notional": 5262003.903270001,
+          "funding_pnl": -112.22844962076141,
+          "independent_terminal_equity": 3629.700495874393,
+          "intervals_chained": true,
+          "ledger_final_cash": 3629.7004958743773,
+          "ledger_final_equity": 3618.5304158743775,
+          "ledger_total_residual": 3.637978807091713e-12,
+          "n_fills": 4048,
+          "n_intervals": 31392,
+          "passed": false,
+          "signed_fill_cash": -2570.524690000007,
+          "terminal_flat": false,
+          "termination_reason": null
+        },
+        "scenario": "latency_1bar",
+        "sharpe_daily": -0.6237142442624729,
+        "terminal_net_profit_pct": -63.81469584125623,
+        "terminated": [],
+        "turnover_per_year": 236.90413968839033,
+        "turnover_total": 848.3795063994922,
+        "years": 3.5811088295687883
+      }
+    },
+    "cash": {
+      "base": {
+        "arm": "cash",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 0.0,
+        "execution_costs_usdt": 0.0,
+        "exposure": {
+          "max_gross_exposure": 0.0,
+          "mean_gross_exposure": 0.0,
+          "mean_net_exposure": 0.0
+        },
+        "fees_plus_funding_paid_usdt": 0.0,
+        "funding_pnl_usdt": 0.0,
+        "gross_price_pnl_usdt": 0.0,
+        "max_drawdown_pct": 0.0,
+        "n_daily_returns": 1308,
+        "n_trades": 0,
+        "net_pnl_usdt": 0.0,
+        "per_year_return_pct": {
+          "2023": 0.0,
+          "2024": 0.0,
+          "2025": 0.0,
+          "2026": 0.0
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 0.0,
+          "continuity_gap": 0.0,
+          "equity_residual": 0.0,
+          "execution_costs": 0.0,
+          "filled_notional": 0.0,
+          "funding_pnl": 0.0,
+          "independent_terminal_equity": 10000.0,
+          "intervals_chained": true,
+          "ledger_final_cash": 10000.0,
+          "ledger_final_equity": 10000.0,
+          "ledger_total_residual": 0.0,
+          "n_fills": 0,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 0.0,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "base",
+        "sharpe_daily": null,
+        "terminal_net_profit_pct": 0.0,
+        "terminated": [],
+        "turnover_per_year": 0.0,
+        "turnover_total": 0.0,
+        "years": 3.5811088295687883
+      },
+      "cost_x2": {
+        "arm": "cash",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 0.0,
+        "execution_costs_usdt": 0.0,
+        "exposure": {
+          "max_gross_exposure": 0.0,
+          "mean_gross_exposure": 0.0,
+          "mean_net_exposure": 0.0
+        },
+        "fees_plus_funding_paid_usdt": 0.0,
+        "funding_pnl_usdt": 0.0,
+        "gross_price_pnl_usdt": 0.0,
+        "max_drawdown_pct": 0.0,
+        "n_daily_returns": 1308,
+        "n_trades": 0,
+        "net_pnl_usdt": 0.0,
+        "per_year_return_pct": {
+          "2023": 0.0,
+          "2024": 0.0,
+          "2025": 0.0,
+          "2026": 0.0
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 0.0,
+          "continuity_gap": 0.0,
+          "equity_residual": 0.0,
+          "execution_costs": 0.0,
+          "filled_notional": 0.0,
+          "funding_pnl": 0.0,
+          "independent_terminal_equity": 10000.0,
+          "intervals_chained": true,
+          "ledger_final_cash": 10000.0,
+          "ledger_final_equity": 10000.0,
+          "ledger_total_residual": 0.0,
+          "n_fills": 0,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 0.0,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "cost_x2",
+        "sharpe_daily": null,
+        "terminal_net_profit_pct": 0.0,
+        "terminated": [],
+        "turnover_per_year": 0.0,
+        "turnover_total": 0.0,
+        "years": 3.5811088295687883
+      },
+      "latency_1bar": {
+        "arm": "cash",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 0.0,
+        "execution_costs_usdt": 0.0,
+        "exposure": {
+          "max_gross_exposure": 0.0,
+          "mean_gross_exposure": 0.0,
+          "mean_net_exposure": 0.0
+        },
+        "fees_plus_funding_paid_usdt": 0.0,
+        "funding_pnl_usdt": 0.0,
+        "gross_price_pnl_usdt": 0.0,
+        "max_drawdown_pct": 0.0,
+        "n_daily_returns": 1308,
+        "n_trades": 0,
+        "net_pnl_usdt": 0.0,
+        "per_year_return_pct": {
+          "2023": 0.0,
+          "2024": 0.0,
+          "2025": 0.0,
+          "2026": 0.0
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 0.0,
+          "continuity_gap": 0.0,
+          "equity_residual": 0.0,
+          "execution_costs": 0.0,
+          "filled_notional": 0.0,
+          "funding_pnl": 0.0,
+          "independent_terminal_equity": 10000.0,
+          "intervals_chained": true,
+          "ledger_final_cash": 10000.0,
+          "ledger_final_equity": 10000.0,
+          "ledger_total_residual": 0.0,
+          "n_fills": 0,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 0.0,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "latency_1bar",
+        "sharpe_daily": null,
+        "terminal_net_profit_pct": 0.0,
+        "terminated": [],
+        "turnover_per_year": 0.0,
+        "turnover_total": 0.0,
+        "years": 3.5811088295687883
+      }
+    },
+    "equal_weight_buy_and_hold": {
+      "base": {
+        "arm": "equal_weight_buy_and_hold",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 20.647758407303506,
+        "execution_costs_usdt": 24.21179015128812,
+        "exposure": {
+          "max_gross_exposure": 1.0020097386167717,
+          "mean_gross_exposure": 1.0001287235900451,
+          "mean_net_exposure": 1.0001287235900451
+        },
+        "fees_plus_funding_paid_usdt": 5167.356068287674,
+        "funding_pnl_usdt": -5143.144278136386,
+        "gross_price_pnl_usdt": 14752.615650000014,
+        "max_drawdown_pct": 63.35726199510883,
+        "n_daily_returns": 1308,
+        "n_trades": 913,
+        "net_pnl_usdt": 9585.25958171234,
+        "per_year_return_pct": {
+          "2023": 89.44044516108028,
+          "2024": 89.64026477744318,
+          "2025": -15.240534819957718,
+          "2026": -35.681209986401576
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 3.0416112914879827e-12,
+          "continuity_gap": 0.0,
+          "equity_residual": 3.0416112914879827e-12,
+          "execution_costs": 24.21179015128812,
+          "filled_notional": 34527.38683,
+          "funding_pnl": -5143.144278136376,
+          "independent_terminal_equity": 19585.259581712337,
+          "intervals_chained": true,
+          "ledger_final_cash": 19585.25958171234,
+          "ledger_final_equity": 19585.25958171234,
+          "ledger_total_residual": 1.000444171950221e-11,
+          "n_fills": 913,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 14752.615650000002,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "base",
+        "sharpe_daily": 0.6139692317024837,
+        "terminal_net_profit_pct": 95.8525958171234,
+        "terminated": [],
+        "turnover_per_year": 0.6082671809514514,
+        "turnover_total": 2.1782709724421583,
+        "years": 3.5811088295687883
+      },
+      "cost_x2": {
+        "arm": "equal_weight_buy_and_hold",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 20.614495985016855,
+        "execution_costs_usdt": 48.38183209835418,
+        "exposure": {
+          "max_gross_exposure": 1.0020889468937453,
+          "mean_gross_exposure": 1.0001394940953334,
+          "mean_net_exposure": 1.0001394940953334
+        },
+        "fees_plus_funding_paid_usdt": 5187.316389491777,
+        "funding_pnl_usdt": -5138.934557393422,
+        "gross_price_pnl_usdt": 14753.246190000007,
+        "max_drawdown_pct": 63.34783088402966,
+        "n_daily_returns": 1308,
+        "n_trades": 914,
+        "net_pnl_usdt": 9565.929800508231,
+        "per_year_return_pct": {
+          "2023": 89.32440442781724,
+          "2024": 89.62315325727504,
+          "2025": -15.212432698221988,
+          "2026": -35.72081633053964
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": -1.7290748474827215e-13,
+          "continuity_gap": 0.0,
+          "equity_residual": -1.7290748474827215e-13,
+          "execution_costs": 48.381832098354174,
+          "filled_notional": 34528.01737,
+          "funding_pnl": -5138.934557393416,
+          "independent_terminal_equity": 19565.92980050823,
+          "intervals_chained": true,
+          "ledger_final_cash": 19565.92980050823,
+          "ledger_final_equity": 19565.92980050823,
+          "ledger_total_residual": 6.366462912410498e-12,
+          "n_fills": 914,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 14753.246190000002,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "cost_x2",
+        "sharpe_daily": 0.6134949846810716,
+        "terminal_net_profit_pct": 95.6592980050823,
+        "terminated": [],
+        "turnover_per_year": 0.6084245247783745,
+        "turnover_total": 2.178834437810031,
+        "years": 3.5811088295687883
+      },
+      "latency_1bar": {
+        "arm": "equal_weight_buy_and_hold",
+        "borrow_cost_usdt": 0.0,
+        "cagr_pct": 20.65200392591109,
+        "execution_costs_usdt": 24.212903122041794,
+        "exposure": {
+          "max_gross_exposure": 1.0020097386167717,
+          "mean_gross_exposure": 1.000096833346824,
+          "mean_net_exposure": 1.000096833346824
+        },
+        "fees_plus_funding_paid_usdt": 5167.357181258428,
+        "funding_pnl_usdt": -5143.144278136386,
+        "gross_price_pnl_usdt": 14755.084950000011,
+        "max_drawdown_pct": 63.35726199510883,
+        "n_daily_returns": 1308,
+        "n_trades": 913,
+        "net_pnl_usdt": 9587.727768741584,
+        "per_year_return_pct": {
+          "2023": 89.44044516108028,
+          "2024": 89.64026477744318,
+          "2025": -15.240534819957718,
+          "2026": -35.67310435968848
+        },
+        "reconciliation": {
+          "borrow_cost": 0.0,
+          "cash_residual": 2.2132281776005844e-12,
+          "continuity_gap": 0.0,
+          "equity_residual": 2.2132281776005844e-12,
+          "execution_costs": 24.21290312204179,
+          "filled_notional": 34529.85613,
+          "funding_pnl": -5143.144278136376,
+          "independent_terminal_equity": 19587.72776874158,
+          "intervals_chained": true,
+          "ledger_final_cash": 19587.727768741584,
+          "ledger_final_equity": 19587.727768741584,
+          "ledger_total_residual": 1.000444171950221e-11,
+          "n_fills": 913,
+          "n_intervals": 31392,
+          "passed": true,
+          "signed_fill_cash": 14755.08495,
+          "terminal_flat": true,
+          "termination_reason": null
+        },
+        "scenario": "latency_1bar",
+        "sharpe_daily": 0.614033700707602,
+        "terminal_net_profit_pct": 95.87727768741586,
+        "terminated": [],
+        "turnover_per_year": 0.6082659898814041,
+        "turnover_total": 2.1782667070906956,
+        "years": 3.5811088295687883
+      }
+    }
+  },
+  "bootstrap": {
+    "base": {
+      "allocator_24h_long_only": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.1207749630717362,
+          "bonferroni_ci_high_annualized": 0.7344556547495299,
+          "bonferroni_ci_low_annualized": -0.44933009490573184,
+          "ci95_high_annualized": 0.5691622257466847,
+          "ci95_low_annualized": -0.31627756324082923,
+          "mean_daily_excess": 0.0003308903097855786
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.21519842887010976,
+          "bonferroni_ci_high_annualized": 0.2387481755618826,
+          "bonferroni_ci_low_annualized": -0.6582194069810882,
+          "ci95_high_annualized": 0.11458600403659093,
+          "ci95_low_annualized": -0.5355856908738647,
+          "mean_daily_excess": -0.0005895847366304377
+        }
+      },
+      "allocator_24h_long_short": {
+        "vs_cash": {
+          "annualized_mean_excess": -0.12082264091662641,
+          "bonferroni_ci_high_annualized": 0.4384880230550157,
+          "bonferroni_ci_low_annualized": -0.6885527929275994,
+          "ci95_high_annualized": 0.2816286611935432,
+          "ci95_low_annualized": -0.5226388173143681,
+          "mean_daily_excess": -0.00033102093401815455
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.4567960328584723,
+          "bonferroni_ci_high_annualized": 0.2920517379238851,
+          "bonferroni_ci_low_annualized": -1.2227015530238146,
+          "ci95_high_annualized": 0.13816310717192856,
+          "ci95_low_annualized": -1.0052997330363005,
+          "mean_daily_excess": -0.0012514959804341707
+        }
+      },
+      "allocator_72h_long_short": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.0002987803746860086,
+          "bonferroni_ci_high_annualized": 0.6867788425768855,
+          "bonferroni_ci_low_annualized": -0.507916080708157,
+          "ci95_high_annualized": 0.4781710009422737,
+          "ci95_low_annualized": -0.4081698506661326,
+          "mean_daily_excess": 8.185763690027632e-07
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.33567461156715994,
+          "bonferroni_ci_high_annualized": 0.275954138931872,
+          "bonferroni_ci_low_annualized": -0.8971774018146909,
+          "ci95_high_annualized": 0.15582551602614647,
+          "ci95_low_annualized": -0.7394760870958412,
+          "mean_daily_excess": -0.0009196564700470136
+        }
+      },
+      "equal_weight_buy_and_hold": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.33597339194184594,
+          "bonferroni_ci_high_annualized": 1.1230831117509394,
+          "bonferroni_ci_low_annualized": -0.4098949347844326,
+          "ci95_high_annualized": 0.8692618170601528,
+          "ci95_low_annualized": -0.2327430260429368,
+          "mean_daily_excess": 0.0009204750464160162
+        }
+      }
+    },
+    "cost_x2": {
+      "allocator_24h_long_only": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.04233375522946826,
+          "bonferroni_ci_high_annualized": 0.5927154399907328,
+          "bonferroni_ci_low_annualized": -0.4843292781799893,
+          "ci95_high_annualized": 0.4495158023360452,
+          "ci95_low_annualized": -0.3571659265625855,
+          "mean_daily_excess": 0.00011598289103963906
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.2932822487115471,
+          "bonferroni_ci_high_annualized": 0.16556266465126243,
+          "bonferroni_ci_low_annualized": -0.7023874560726613,
+          "ci95_high_annualized": 0.049194744071649976,
+          "ci95_low_annualized": -0.6165893945810517,
+          "mean_daily_excess": -0.0008035130101686222
+        }
+      },
+      "allocator_24h_long_short": {
+        "vs_cash": {
+          "annualized_mean_excess": -0.2883433650217661,
+          "bonferroni_ci_high_annualized": 0.23403046950012163,
+          "bonferroni_ci_low_annualized": -0.7600098585765774,
+          "ci95_high_annualized": 0.10016961887298705,
+          "ci95_low_annualized": -0.6318056391771754,
+          "mean_daily_excess": -0.0007899818219774413
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.6239593689627815,
+          "bonferroni_ci_high_annualized": 0.08576703618577226,
+          "bonferroni_ci_low_annualized": -1.2534661129282607,
+          "ci95_high_annualized": -0.11551751039400704,
+          "ci95_low_annualized": -1.0844323177194015,
+          "mean_daily_excess": -0.0017094777231857026
+        }
+      },
+      "allocator_72h_long_short": {
+        "vs_cash": {
+          "annualized_mean_excess": -0.24176301007193324,
+          "bonferroni_ci_high_annualized": 0.2999603511628176,
+          "bonferroni_ci_low_annualized": -0.6823440098532457,
+          "ci95_high_annualized": 0.14196401845636158,
+          "ci95_low_annualized": -0.5652419696829243,
+          "mean_daily_excess": -0.0006623644111559815
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.5773790140129487,
+          "bonferroni_ci_high_annualized": 0.09929883932311805,
+          "bonferroni_ci_low_annualized": -1.2032804699227635,
+          "ci95_high_annualized": -0.06621061777476087,
+          "ci95_low_annualized": -1.0044816007800446,
+          "mean_daily_excess": -0.0015818603123642428
+        }
+      },
+      "equal_weight_buy_and_hold": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.3356160039410153,
+          "bonferroni_ci_high_annualized": 1.122657133473043,
+          "bonferroni_ci_low_annualized": -0.40978192440632705,
+          "ci95_high_annualized": 0.8691775563659605,
+          "ci95_low_annualized": -0.23253685707880098,
+          "mean_daily_excess": 0.0009194959012082611
+        }
+      }
+    },
+    "latency_1bar": {
+      "allocator_24h_long_only": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.20956034253643374,
+          "bonferroni_ci_high_annualized": 0.8289890651276078,
+          "bonferroni_ci_low_annualized": -0.35411209482236783,
+          "ci95_high_annualized": 0.6418147648348805,
+          "ci95_low_annualized": -0.23110869601596185,
+          "mean_daily_excess": 0.0005741379247573527
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.12644740974186505,
+          "bonferroni_ci_high_annualized": 0.31414116229466854,
+          "bonferroni_ci_low_annualized": -0.5326714615565347,
+          "ci95_high_annualized": 0.19431608303232145,
+          "ci95_low_annualized": -0.43863605000359196,
+          "mean_daily_excess": -0.0003464312595667536
+        }
+      },
+      "allocator_24h_long_short": {
+        "vs_cash": {
+          "annualized_mean_excess": -0.16230816953603946,
+          "bonferroni_ci_high_annualized": 0.3681092642653831,
+          "bonferroni_ci_low_annualized": -0.6638399604867216,
+          "ci95_high_annualized": 0.24249580408661137,
+          "ci95_low_annualized": -0.5511170648808429,
+          "mean_daily_excess": -0.0004446799165370944
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.49831592181433826,
+          "bonferroni_ci_high_annualized": 0.1950467698245015,
+          "bonferroni_ci_low_annualized": -1.2422607543496809,
+          "ci95_high_annualized": 0.07648120814371617,
+          "ci95_low_annualized": -1.0291927581663833,
+          "mean_daily_excess": -0.0013652491008612007
+        }
+      },
+      "allocator_72h_long_short": {
+        "vs_cash": {
+          "annualized_mean_excess": -0.22039411429418831,
+          "bonferroni_ci_high_annualized": 0.5442000200677928,
+          "bonferroni_ci_low_annualized": -0.7605978510373702,
+          "ci95_high_annualized": 0.27088928898358033,
+          "ci95_low_annualized": -0.6568023914854779,
+          "mean_daily_excess": -0.0006038194912169543
+        },
+        "vs_equal_weight_buy_and_hold": {
+          "annualized_mean_excess": -0.5564018665724871,
+          "bonferroni_ci_high_annualized": 0.15248691668210781,
+          "bonferroni_ci_low_annualized": -1.2095816771011636,
+          "ci95_high_annualized": -0.03933880794408375,
+          "ci95_low_annualized": -1.035459825123875,
+          "mean_daily_excess": -0.0015243886755410606
+        }
+      },
+      "equal_weight_buy_and_hold": {
+        "vs_cash": {
+          "annualized_mean_excess": 0.3360077522782988,
+          "bonferroni_ci_high_annualized": 1.1230831117509394,
+          "bonferroni_ci_low_annualized": -0.4098949347844326,
+          "ci95_high_annualized": 0.8692618170601528,
+          "ci95_low_annualized": -0.2327430260429368,
+          "mean_daily_excess": 0.0009205691843241063
+        }
+      }
+    }
+  },
+  "causality_probe": {
+    "cut": "2023-07-01T00:00:00",
+    "identical_pre_cut_trace": true,
+    "n_decisions": 181,
+    "n_trace_rows": 8688,
+    "passed": true,
+    "pre_cut_trace_has_trades": true
+  },
+  "dataset_id": "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174",
+  "git_head": "fe36b7c115f8d92811cfbf6eaebdc64e81fa5e72",
+  "label": "NO_WINNER",
+  "notes": [
+    "development evidence only; never a WINNER",
+    "allocator cost c_i = fee + spread is a lower bound: participation impact (impact_rate) is charged by the executor but not modelled by the allocator",
+    "fail_closed_hold_count per arm/scenario counts allocator decisions that ended as a fail-closed HOLD instead of an optimal solution"
+  ],
+  "protocol_deviations": [
+    "features: no canonical 12-feature roster exists; all 1h__ non-funding features (56)",
+    "activation_delay_hours=0: available_at equals the bar timestamp in this dataset",
+    "no MarketOrderProfile: the dataset already carries lot/tick/min-notional rules",
+    "allocator c_i = one-way fee+spread (0.07%); participation impact not modelled by it",
+    "stresses alter the market only; the allocator keeps base c_i and schedule",
+    "72h forecast: expm1(mu_log + s2/2) at 72h, then divided by 3",
+    "risk layer is the repo default; the 20% drawdown limit is a selection gate only",
+    "metrics: hourly equity for max drawdown, daily 00:00 UTC equity for the rest",
+    "XRP gap bars are non-tradable with forward-filled marks (allocator holds)",
+    "candidate pool is the three allocator arms; beating buy-and-hold is not required",
+    "Bonferroni: 7 comparisons per scenario, adjusted level 0.05/7",
+    "validity includes a real-data causality probe and per-replay ledger reconciliation"
+  ],
+  "protocol_digest": "7adc12e842cb8f574bcd3bd502182d9ffdd19dcc7d1a9b59cbc99ab6f4626558",
+  "schema_version": "dev_realdata_study_result_v1",
+  "selection": {
+    "arms": {
+      "allocator_24h_long_only": {
+        "base_terminal_net_profit_pct": 22.4185989728406,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 55.19644168725469
+      },
+      "allocator_24h_long_short": {
+        "base_terminal_net_profit_pct": -50.369797488610345,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": true,
+        "worst_max_drawdown_pct": 75.97639094331943
+      },
+      "allocator_72h_long_short": {
+        "base_terminal_net_profit_pct": -19.652595619888093,
+        "beats_cash_base_and_cost_x2": false,
+        "eligible": false,
+        "risk_gate_passed": false,
+        "valid": false,
+        "worst_max_drawdown_pct": 67.47865089326108
+      }
+    },
+    "label": "NO_WINNER",
+    "selected_arm": null
+  },
+  "status": "development_evidence_only",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "ADAUSDT"
+  ],
+  "validity": {
+    "allocator_24h_long_only": true,
+    "allocator_24h_long_short": true,
+    "allocator_72h_long_short": false,
+    "cash": true,
+    "equal_weight_buy_and_hold": true
+  }
+}

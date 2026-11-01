@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 import pytest
@@ -303,6 +304,16 @@ def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) ->
     assert f":refs/heads/{branches[0].name}" in command
     assert f":refs/heads/{branches[1].name}" in command
     assert all("secret-token" not in part for part in command)
+    # Base64 still exposes reversible credentials if placed on process argv.
+    encoded = base64.b64encode(b"x-access-token:secret-token").decode("ascii")
+    assert not any("AUTHORIZATION:" in arg or encoded in arg for arg in command)
+    kwargs = observed["kwargs"]
+    assert isinstance(kwargs, dict)
+    git_env = kwargs["env"]
+    assert isinstance(git_env, dict)
+    assert git_env["GIT_CONFIG_COUNT"] == "1"
+    assert git_env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    assert git_env["GIT_CONFIG_VALUE_0"] == f"AUTHORIZATION: basic {encoded}"
 
 
 def test_branch_hygiene_workflow_runs_from_default_branch() -> None:

@@ -38,6 +38,18 @@ def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
     return vector
 
 
+def _cash_interest_amount(
+    cash_basis: float, annual_rate: float, year_fraction: float
+) -> float:
+    """Calculate interest from a cash basis without cloning transient book state."""
+
+    if not np.isfinite(annual_rate):
+        raise ValueError("annual_rate must be finite")
+    if not np.isfinite(year_fraction) or year_fraction < 0.0:
+        raise ValueError("year_fraction must be finite and non-negative")
+    return float(cash_basis * annual_rate * year_fraction)
+
+
 @dataclass(slots=True)
 class BookState:
     """Mutable signed-quantity account isolated from policy and workflow logic."""
@@ -358,7 +370,7 @@ class BookState:
             if not np.isfinite(year_fraction) or year_fraction < 0.0:
                 raise ValueError("year_fraction must be finite and non-negative")
             resolved_fraction = float(year_fraction)
-        amount = float(self.cash * annual_rate * resolved_fraction)
+        amount = _cash_interest_amount(self.cash, annual_rate, resolved_fraction)
         self.cash += amount
         self._refresh_economic_state()
         return amount
@@ -467,16 +479,23 @@ class BookState:
         target_quantities: np.ndarray,
         cost_amount: float,
         turnover: float,
+        preserve_unchanged_exact: bool = False,
     ) -> None:
         targets = _finite_vector(target_quantities, field_name="target_quantities")
         if targets.shape != self.quantities.shape:
             raise ValueError("execution vectors must match the book")
-        exact_targets = tuple(exact_quantity(float(value)) for value in targets)
+        previous_values = self._quantity_values()
+        exact_targets = tuple(
+            previous
+            if preserve_unchanged_exact and float(target) == float(current)
+            else exact_quantity(float(target))
+            for target, current, previous in zip(
+                targets, self.quantities, previous_values, strict=True
+            )
+        )
         delta = tuple(
             target - previous
-            for target, previous in zip(
-                exact_targets, self._quantity_values(), strict=True
-            )
+            for target, previous in zip(exact_targets, previous_values, strict=True)
         )
         self._record_execution(
             fill_prices=fill_prices,
@@ -604,7 +623,10 @@ class BookState:
         mark_prices: np.ndarray,
         funding_amount: float,
         period_start_value: float | None = None,
+        unbounded_loss_metrics: bool = False,
     ) -> float:
+        if not isinstance(unbounded_loss_metrics, bool):
+            raise ValueError("unbounded_loss_metrics must be a boolean")
         if not np.isfinite(funding_amount):
             raise ValueError("funding_amount must be finite")
         starting_value = (
@@ -620,19 +642,23 @@ class BookState:
         value = self.portfolio_value
         if not np.isfinite(value):
             raise ValueError("base-bar portfolio value became non-finite")
-        net_return = max(value / starting_value - 1.0, -1.0 + 1e-12)
-        self._update_drawdown()
+        net_return = value / starting_value - 1.0
+        if not unbounded_loss_metrics:
+            net_return = max(net_return, -1.0 + 1e-12)
+        self._update_drawdown(unbounded_loss=unbounded_loss_metrics)
         self.funding_pnl += float(funding_amount)
         self.returns_history.append(float(net_return))
         return float(net_return)
 
-    def refresh_drawdown(self) -> None:
+    def refresh_drawdown(self, *, unbounded_loss: bool = False) -> None:
         """Refresh peak and drawdown after a causal mark change."""
 
-        self._update_drawdown()
+        self._update_drawdown(unbounded_loss=unbounded_loss)
 
-    def _update_drawdown(self) -> None:
-        value = max(self.portfolio_value, 0.0)
+    def _update_drawdown(self, *, unbounded_loss: bool = False) -> None:
+        value = (
+            self.portfolio_value if unbounded_loss else max(self.portfolio_value, 0.0)
+        )
         self.peak_value = max(self.peak_value, value)
         self.max_drawdown = max(
             self.max_drawdown,

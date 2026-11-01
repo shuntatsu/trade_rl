@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
 import time
 import uuid
@@ -15,16 +14,17 @@ from types import TracebackType
 from typing import Any
 
 from trade_rl._validation import require_aware_datetime
-from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper.account import timestamp
 from trade_rl.evaluation.paper.control import CollectionControl
 from trade_rl.evaluation.paper.engine import EvidenceRef, PaperEngine, PaperSettings
+from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_failure
+from trade_rl.evaluation.paper.lock import acquire_collector_lock
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.integrations.binance.forward import capture_forward_snapshot
 from trade_rl.integrations.binance.forward_rules import capture_forward_rules
 
 _SCHEMA = "paper_public_collection_v1"
-_FAILURE = "collection-failure.json"
+_FAILURE = FAILURE_NAME
 
 
 def _now() -> datetime:
@@ -107,16 +107,7 @@ class PaperCollector:
         self.close_at = timestamp(protocol["settings"]["close_at"])
         if timestamp(study["created_at"]) >= self.start_at:
             raise ValueError("collection was not sealed before start")
-        lock_path = self.root / "collector.sqlite"
-        if lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file()):
-            raise ValueError("collector lock must be a regular file")
-        connection = sqlite3.connect(lock_path, timeout=0, isolation_level=None)
-        try:
-            connection.execute("BEGIN EXCLUSIVE")
-        except sqlite3.OperationalError as error:
-            connection.close()
-            raise RuntimeError("another collector holds this collection") from error
-        self._lock = connection
+        self._lock = acquire_collector_lock(self.root)
         try:
             self._guard()
             self.engine = PaperEngine(self.root, expected_protocol_sha256=self.digest)
@@ -170,18 +161,14 @@ class PaperCollector:
         failure = self.root / _FAILURE
         if failure.exists() or failure.is_symlink():
             return
-        record = dict(
-            schema="paper_collection_failure_v1",
+        record = write_collection_failure(
+            self.root,
             protocol_sha256=self.digest,
-            recorded_at=_now().isoformat(),
             error_type=type(error).__name__,
-            error=str(error)[:2000],
-            production_eligible=False,
+            error=str(error),
         )
-        with failure.open("xb") as stream:
-            stream.write(canonical_json_bytes(record))
-            stream.flush()
-            os.fsync(stream.fileno())
+        if record is None:
+            return
         # Reconcile a possibly committed-but-unacknowledged event first. Never
         # use changed source to append financial events or invent a fresh mark.
         if (

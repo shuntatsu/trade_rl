@@ -50,7 +50,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "d4a7e91e2726a80e51752a1d8a8d168edec5ff129a6df47f17661158dc73e864"
+      "sha256": "b4d5e0e708189863fd670fe59c4d40c573e6c5ff01f9a5bb78970a29bcb33bd4"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -238,7 +238,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "a68b3cce93f766b152917f9bbec1e9b855e99c0b82c68a58bf966127674b2b51",
+      "source_sha256": "fcc89f485bb7cf864e0a634a4a7ede1677d2ee076d0434c833b2fe6d069b911e",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
@@ -549,9 +549,9 @@
       "id": "cost-aware-allocation-policy",
       "symbol": "trade_rl.strategies.allocation.cost_aware.CostAwareAllocationPolicy",
       "kind": "class",
-      "source_sha256": "bf8d106b89f18d87b8857b7ee8a755050425ba7bc74737bb7ff738e9f53f3db7",
+      "source_sha256": "c483b0271121eebd43be71caac1c3ecf2fb2f7122b692f60437beb4ff1bbc492",
       "label_ja": "費用控除後の多銘柄allocator",
-      "description_ja": "caller供給の期待単純収益、decision時刻以前のmarkだけから作るEWMA共分散、L1 costによるno-trade regionを使い、固定schedule（既定は毎日00:00 UTC）でだけtarget weightを提案します。schedule外・入力不備・solver失敗では全symbolをexact-quantity HOLDにします。口座もP&L ledgerも持たず、forecast sourceの中身は契約の外です。",
+      "description_ja": "caller供給の期待単純収益、decision時刻以前のmarkだけから作るEWMA共分散、L1 costによるno-trade regionを使い、固定schedule（既定は毎日00:00 UTC）でだけtarget weightを提案します。schedule外・入力不備・solver失敗では全symbolをexact-quantity HOLDにします。任意のopt-in引数として、optimizerのL1 costだけをkappa倍する`cost_penalty_multiple`と、解いたtargetのex-ante年率ボラティリティが上限を超えたときmin-trade rule前に縮小する`vol_target_annual`を持ち（既定では従来のdecisionとbit-identical、非有限なボラティリティはHOLD）、実行costは変えません。口座もP&L ledgerも持たず、forecast sourceの中身は契約の外です。",
       "variables": [],
       "tests": [
         "tests/strategies/test_cost_aware_allocator.py",

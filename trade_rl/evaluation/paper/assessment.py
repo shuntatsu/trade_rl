@@ -18,6 +18,7 @@ from trade_rl.evaluation.paper.account import PaperSettings, timestamp
 from trade_rl.evaluation.paper.engine import PaperEngine
 from trade_rl.evaluation.paper.operations import (
     REQUIRED_FILL_SYMBOL_INDICES,
+    STORAGE_PROBE_PLAN_SCHEMA,
     screen_plan,
     validate_attempt_lineage,
 )
@@ -297,6 +298,12 @@ def evaluate_paper_study(
         raise ValueError("paper protocol digest mismatch")
     protocol = json.loads(raw)["protocol"]
     study = protocol["study"]
+    probe_plan = study.get("research_plan")
+    if (
+        isinstance(probe_plan, dict)
+        and probe_plan.get("schema") == STORAGE_PROBE_PLAN_SCHEMA
+    ):
+        raise ValueError("a storage probe root is never an evaluable screen")
     start = timestamp(protocol["settings"]["start_at"])
     close = start + timedelta(days=90)
     if protocol["settings"] != PaperSettings(start_at=start, close_at=close).to_dict():

@@ -119,7 +119,6 @@ class CoordinatorRegistry:
         return hashlib.sha256(self.canonical_bytes()).hexdigest()
 
 
-
 @dataclass(frozen=True)
 class RegistryTransitionPlan:
     """Deterministic local before/after registry plan without write authority."""
@@ -146,9 +145,8 @@ def plan_registry_transition(
         raise ValueError("registry must be a CoordinatorRegistry")
     if not isinstance(candidate, EnrollmentProjection):
         raise ValueError("candidate must be an EnrollmentProjection")
-    if (
-        not isinstance(expected_before_digest, str)
-        or not _DIGEST_RE.fullmatch(expected_before_digest)
+    if not isinstance(expected_before_digest, str) or not _DIGEST_RE.fullmatch(
+        expected_before_digest
     ):
         raise ValueError("expected registry digest must be a lowercase SHA-256")
     before_digest = registry.digest()
@@ -192,6 +190,7 @@ def plan_registry_transition(
         after_digest=after_digest,
         after_registry=after_registry,
     )
+
 
 def parse_registry_bytes(data: bytes) -> CoordinatorRegistry:
     """Parse only exact canonical registry bytes, rejecting ambiguous JSON."""

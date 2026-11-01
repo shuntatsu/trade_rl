@@ -196,3 +196,49 @@ def test_dashboard_is_deterministic_and_surfaces_operator_state() -> None:
     assert "head_changed" in rendered
     assert MAIN_SHA in rendered
     assert "1 / 2 complete" in rendered
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("task_revision", 2.0, "task_revision"),
+        ("lease_epoch", 1.0, "lease_epoch"),
+        ("owner", 123, "owner"),
+        ("pr_id", 123, "pr_id"),
+    ],
+)
+def test_status_projection_rejects_noncanonical_runtime_types(
+    field: str, value: object, message: str
+) -> None:
+    payload = _record().canonical_payload()
+    payload[field] = value
+    with pytest.raises(ValueError, match=message):
+        TaskStatusRecord(**payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("task_revision", 2.0, "task_revision"),
+        ("lease_epoch", 1.0, "lease_epoch"),
+    ],
+)
+def test_handoff_rejects_integer_shaped_floats(
+    field: str, value: object, message: str
+) -> None:
+    packet = _packet()
+    lease = heartbeat(
+        grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=timedelta(minutes=15)),
+        head_sha=HEAD_SHA,
+        observed_at=NOW + timedelta(minutes=1),
+    )
+    kwargs = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+    }
+    kwargs[field] = value
+    with pytest.raises(ValueError, match=message):
+        HandoffPacket(**kwargs)

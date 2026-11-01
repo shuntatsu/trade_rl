@@ -277,3 +277,47 @@ def test_evidence_rejects_malformed_sha_and_integration_without_main() -> None:
 
     with pytest.raises(ValueError, match="main_sha"):
         _evidence(packet, kind=EvidenceKind.INTEGRATION)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("task_revision", 1.0), ("parent_issue", 500.0)],
+)
+def test_task_packet_rejects_integer_shaped_floats(
+    field: str, value: object
+) -> None:
+    kwargs = {
+        "task_id": "T500-01",
+        "task_revision": 1,
+        "parent_issue": 500,
+        "title": "x",
+        "objective": "x",
+        "execution_mode": ExecutionMode.READ_ONLY,
+        "base_sha": BASE_SHA,
+    }
+    kwargs[field] = value
+    with pytest.raises(ValueError, match="integer"):
+        TaskPacket(**kwargs)
+
+
+def test_task_packet_rejects_non_string_identity_and_sha() -> None:
+    with pytest.raises(ValueError, match="task_id"):
+        TaskPacket(
+            task_id=123,
+            task_revision=1,
+            parent_issue=500,
+            title="x",
+            objective="x",
+            execution_mode=ExecutionMode.READ_ONLY,
+            base_sha=BASE_SHA,
+        )
+    with pytest.raises(ValueError, match="base_sha"):
+        TaskPacket(
+            task_id="T500-01",
+            task_revision=1,
+            parent_issue=500,
+            title="x",
+            objective="x",
+            execution_mode=ExecutionMode.READ_ONLY,
+            base_sha=123,
+        )

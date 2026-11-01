@@ -255,3 +255,50 @@ def test_lease_freshness_does_not_precede_last_heartbeat() -> None:
     )
     assert not lease_is_current(updated, packet, now=NOW + timedelta(minutes=1))
     assert lease_is_current(updated, packet, now=NOW + timedelta(minutes=2))
+
+
+def test_lease_identity_requires_exact_integer_types() -> None:
+    packet = _packet()
+    lease = grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=TTL)
+
+    with pytest.raises(ValueError, match="epoch"):
+        lease_branch_name(packet.task_id, 1.0, "agent-a")
+
+    with pytest.raises(ValueError, match="task_revision"):
+        type(lease)(
+            task_id=lease.task_id,
+            task_revision=1.0,
+            task_contract_digest=lease.task_contract_digest,
+            base_sha=lease.base_sha,
+            owner=lease.owner,
+            epoch=lease.epoch,
+            lease_branch=lease.lease_branch,
+            head_sha=lease.head_sha,
+            last_heartbeat_at=lease.last_heartbeat_at,
+            expires_at=lease.expires_at,
+            ttl_seconds=lease.ttl_seconds,
+        )
+
+    with pytest.raises(ValueError, match="epoch"):
+        type(lease)(
+            task_id=lease.task_id,
+            task_revision=lease.task_revision,
+            task_contract_digest=lease.task_contract_digest,
+            base_sha=lease.base_sha,
+            owner=lease.owner,
+            epoch=1.0,
+            lease_branch=lease.lease_branch,
+            head_sha=lease.head_sha,
+            last_heartbeat_at=lease.last_heartbeat_at,
+            expires_at=lease.expires_at,
+            ttl_seconds=lease.ttl_seconds,
+        )
+
+    with pytest.raises(ValueError, match="expired_epoch"):
+        LeaseReconciliation(
+            task_id=packet.task_id,
+            expired_epoch=1.0,
+            observed_branch=lease.lease_branch,
+            observed_head_sha=lease.head_sha,
+            decision=ReconciliationDecision.REASSIGN,
+        )

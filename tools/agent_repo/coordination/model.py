@@ -81,12 +81,12 @@ def _tuple_strings(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
 
 
 def _require_full_sha(value: str, *, field_name: str) -> None:
-    if not _FULL_SHA_RE.fullmatch(value):
+    if not isinstance(value, str) or not _FULL_SHA_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be a lowercase 40-hex Git SHA")
 
 
 def _require_digest(value: str, *, field_name: str) -> None:
-    if not _FULL_DIGEST_RE.fullmatch(value):
+    if not isinstance(value, str) or not _FULL_DIGEST_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be a lowercase 64-hex SHA-256 digest")
 
 
@@ -119,7 +119,7 @@ class TaskDependency:
     requires_phase: TaskPhase = TaskPhase.COMPLETE
 
     def __post_init__(self) -> None:
-        if not _TASK_ID_RE.fullmatch(self.task_id):
+        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("dependency task_id is invalid")
         object.__setattr__(self, "kind", DependencyKind(self.kind))
         object.__setattr__(self, "requires_phase", TaskPhase(self.requires_phase))
@@ -152,17 +152,17 @@ class TaskPacket:
     deliverable: str = "pull_request"
 
     def __post_init__(self) -> None:
-        if not _TASK_ID_RE.fullmatch(self.task_id):
+        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("task_id must be a non-empty stable identifier")
-        if isinstance(self.task_revision, bool) or self.task_revision < 1:
+        if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
         if self.parent_issue is not None and (
-            isinstance(self.parent_issue, bool) or self.parent_issue < 1
+            type(self.parent_issue) is not int or self.parent_issue < 1
         ):
             raise ValueError("parent_issue must be a positive integer")
-        if not self.objective.strip():
+        if not isinstance(self.objective, str) or not self.objective.strip():
             raise ValueError("objective must be non-empty")
-        if not self.title.strip():
+        if not isinstance(self.title, str) or not self.title.strip():
             raise ValueError("title must be non-empty")
         _require_full_sha(self.base_sha, field_name="base_sha")
 

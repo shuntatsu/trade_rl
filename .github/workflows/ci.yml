@@ -136,6 +136,9 @@ jobs:
       - name: Conditional PPO diagnostic types
         run: uv run mypy tools/ppo_conditional_diagnostic.py
 
+      - name: Temporary targeted merged-prune integration and negative tests (remove before merge)
+        run: uv run pytest -q tests/tools/test_verified_merged_branch_prune.py tests/tools/test_verified_merged_branch_prune_git_integration.py tests/tools/test_branch_hygiene.py
+
       - name: Core tests
         run: uv run pytest -q tests
 

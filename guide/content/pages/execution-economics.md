@@ -63,6 +63,18 @@ LIMITのcost分類も注文名だけでは決めません。そのbarで初め�
 
 区間収益は役割を分けます。`interval_net_return` は実際のfill・cost・funding・borrow・dividend・cash interestをすべて反映した最終equityの収益です。`interval_gross_return` は**同じ実約定経路**から明示cash flowを取り除いて価格損益を分離した診断値で、実際のfill priceを使います。OPENから期末までのasset returnへ事後position weightを掛ける近似や、costを0にして戦略を再実行した反実仮想ではありません。
 
+現行の標準破産評価は`floor_zero`で、負債が出ても強制終了時の
+book cashはゼロを下限とします。研究用の明示的opt-in
+`insolvency_valuation="retain_debt"`では負債をraw bookへ保持し、
+最初のeconomic terminationで以降の約定・carry・barを止めます。
+この差はexecution policy digestに含まれ、同じorder identityとして混ぜません。
+retained-debt時は`interval_net_return`と`BookState.max_drawdown`もraw
+equityに追随するため、simple returnは-100%未満、drawdownは100%超を保持できます。
+一方、wealthが0以下では対数収益は数学的に定義できないため、
+`interval_log_return`だけは従来の有限な下限診断値を維持します。負債損失の正本は
+book cash/equity、unbounded simple return/drawdown、独立ledgerです。これは取引所の
+清算再現、過去R3の実行証明やlive認可ではありません。
+
 session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gapのcash interest / borrowはnext-open fill前の保有・現金へ適用し、processing bar分だけをfill後の状態へ適用します。したがって、週末をまたいで新しく建てたpositionへ週末分のborrowを遡及させません。continuous cadenceでは従来どおり1 bar分をfill後の状態へ適用します。
 
 発注単位の整数個数を正確に記録し、保有数量と注文残量の両方へ同じ約定を反映します。小数の表示値を繰り返し加減して、最後の1単位が決済できなくなることを防ぎます。現金は実際の約定数量から計算し、最小発注額に届かない本当の端数は保持します。

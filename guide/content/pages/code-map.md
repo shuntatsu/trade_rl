@@ -99,6 +99,13 @@ strict v1入口とTier-2 facadeは変わりません。inference loaderとscenar
 `publish_four_family_portfolio_scenario_result_artifact_v2` / `load_four_family_portfolio_scenario_result_artifact_v2`も明示的なv2 result APIです。
 この保存機能はscenarioやnumeric stress recipeを選ばず、gate・経済結果の証拠も作りません。
 
+約定の標準破産評価は口座価値をゼロで下限処理します。人工研究で明示的に
+`MarketExecutor(insolvency_valuation="retain_debt")` を選んだ場合だけ、
+負債を持つraw `BookState` を維持し、破産後の注文・追加barを停止します。
+この設定はexecution policyの別identityです。旧`interval_net_return` と
+`interval_log_return`は有限な診断値に丸めるため、負債損失や継続的な
+収益性の正本ではありません。原R3のsource/市場会計の検証を代替しません。
+
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 
 共通資金の比較はstrategy armごとに全symbolを一つのaccountでreplayします。armとsymbolごとにfresh strategy adapterを使い、既存replayのcost・funding・borrow・turnover diagnosticsからmetricsを作ります。これはmodel fittingやwinner selectionを行うAPIではありません。

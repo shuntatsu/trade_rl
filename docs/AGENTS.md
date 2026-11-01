@@ -124,13 +124,13 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
 
 1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **独立監査の実行**: 実装担当の全configured AIモデルと異なるconfiguredモデルを使うfresh read-only reviewerが、PR exact HEADの差分・契約整合性をresult-blindで監査する。fresh sessionや別GitHub accountだけではmodel independenceを確立しない。
+2. **software model reviewの実行**: Generic software PRでは、PR exact HEADの差分・関連source/tests/contractsをAI reviewerがread-onlyで監査する。`software_source_review_v2`では実装担当と同じconfigured model（例: `gpt-5.6-sol`）を許容し、fresh contextや別providerは必須にしない。これはsoftware source reviewであり、model independence・provider実行・研究result-blind independenceの証明ではない。4h PPO専用reviewやG0–G5/economic reviewは従来の独立性要件を維持する。
 3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
 4. **承認とマージ・クローズ (APPROVED)**:
    - 未解消のblocking指摘がないことを確認し、当該receipt形式の有効な証拠が揃った場合だけ `### Disposition: APPROVED` を記録する。Lowの改善提案はreportへ残してよい。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
 
-Generic gateが現在承認に利用するreceiptは、GitHub review APIのauthenticated actorとexact `commit_id`へbindし、全実装モデルとreviewerの別configured model/taskを宣言する従来の`independent_model_review_v1`のみとする。過去の実装Task IDを要求しない`software_source_review_v1`は、投稿者が任意のAGY job ID・diff SHAを宣言しても実在を照合できないことが再現されたため、**新しい信頼済みreview-run provenance oracleが整備されるまで承認・承認本文生成をfail-closed**とする。過去に投稿された本文は改変せず、実際のprovider review存在は別途確認する。`independent_model_review_v1`もpublisherの申告をprovider認証済みと誤記しない。G0–G5・sealed/unused/final・live・4h PPO専用権限は従来どおり別ゲート。Issue #1065を参照。
+Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbindする。従来の`independent_model_review_v1`は互換のため受理し、新しい`software_source_review_v2`は`reviewer_model_id`・`review_result=PASS`・`blocking_findings=0`・具体的reportだけをpublisher-attested software review metadataとして受理する。同じconfigured modelを許容し、外部review job、provider attestation、diff digest、実装Task ID、model independenceは要求・主張しない。旧`software_source_review_v1`は未検証のjob/diff値を権威ある証拠のように見せるためfail-closedのまま廃止する。G0–G5・sealed/unused/final・live・4h PPO専用reviewはこの軽量化の対象外で、従来どおり別ゲート。
 
 ## 更新matrix
 

@@ -1,4 +1,4 @@
-"""Fail-closed decision for an exact-head independent research review."""
+"""Fail-closed decision for exact-head software/model source review evidence."""
 
 from __future__ import annotations
 
@@ -21,20 +21,18 @@ _RECEIPT_SHA_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _RECEIPT_SCHEMA = "independent_model_review_v1"
 _RECEIPT_FENCE = "independent-review-receipt"
 _UNVERIFIED_SOFTWARE_RECEIPT_SCHEMA = "software_source_review_v1"
-_PAYLOAD_FIELDS = {
+_SOFTWARE_RECEIPT_SCHEMA = "software_source_review_v2"
+_SOFTWARE_PAYLOAD_FIELDS = {
     "schema",
     "head_sha",
     "publisher_user_id",
     "scope",
     "disposition",
     "reviewer_model_id",
-    "review_jobs",
     "review_result",
     "blocking_findings",
-    "diff_sha256",
     "report",
 }
-_REVIEW_JOB_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 _PAYLOAD_FIELDS = {
     "schema",
     "head_sha",
@@ -201,15 +199,50 @@ def _model_task_identity(value: object) -> tuple[str, str] | None:
     return model_key, task_key
 
 
+def _valid_software_payload(
+    record: Mapping[str, Any], *, head_sha: str, publisher_id: int
+) -> bool:
+    """Validate a lightweight exact-head software/model source review.
+
+    The reviewer model is publisher-attested metadata. This schema deliberately
+    does not claim provider-run provenance or model independence.
+    """
+
+    if set(record) != _SOFTWARE_PAYLOAD_FIELDS:
+        return False
+    model = record.get("reviewer_model_id")
+    report = record.get("report")
+    return (
+        record.get("schema") == _SOFTWARE_RECEIPT_SCHEMA
+        and record.get("head_sha") == head_sha
+        and bool(_SHA_PATTERN.fullmatch(head_sha))
+        and _positive_id(record.get("publisher_user_id")) == publisher_id
+        and record.get("scope") == "software-only"
+        and record.get("disposition") == "APPROVED"
+        and record.get("review_result") == "PASS"
+        and type(record.get("blocking_findings")) is int
+        and record.get("blocking_findings") == 0
+        and isinstance(model, str)
+        and bool(_MODEL_PATTERN.fullmatch(model))
+        and re.sub(r"[-._]", "", model.casefold()) not in _UNKNOWN_IDENTITIES
+        and isinstance(report, str)
+        and len(report.strip()) >= 80
+        and _REPORT_CONTROL.search(report) is None
+    )
+
+
 def _valid_payload(payload: object, *, head_sha: str, publisher_id: int) -> bool:
     record = _mapping(payload)
     if record is None:
         return False
     if record.get("schema") == _UNVERIFIED_SOFTWARE_RECEIPT_SCHEMA:
-        # Publisher-chosen job IDs, model names and diff digests cannot prove
-        # that a different-model review actually ran. Without independent
-        # run/provider provenance, both approvals and renderer must fail closed.
+        # v1 mixed unverified job/diff claims into an approval receipt. Keep it
+        # fail-closed rather than pretending those fields are provider evidence.
         return False
+    if record.get("schema") == _SOFTWARE_RECEIPT_SCHEMA:
+        return _valid_software_payload(
+            record, head_sha=head_sha, publisher_id=publisher_id
+        )
     if set(record) != _PAYLOAD_FIELDS:
         return False
     report = record.get("report")
@@ -278,7 +311,7 @@ def resolve_review_outcome(
     *,
     expected_head_sha: str,
 ) -> ReviewOutcome:
-    """Evaluate exact-head reviews without accepting unverified job claims."""
+    """Evaluate exact-head authenticated reviews with explicit assurance scope."""
     pull = _mapping(pull_request)
     if pull is None or not _SHA_PATTERN.fullmatch(expected_head_sha):
         return ReviewOutcome.PENDING
@@ -356,7 +389,7 @@ def _render_receipt(payload: object) -> str:
         or publisher_id is None
         or not _valid_payload(record, head_sha=head_sha, publisher_id=publisher_id)
     ):
-        raise ValueError("Invalid different-model source review receipt")
+        raise ValueError("Invalid software/model source review receipt")
     envelope = {
         "payload": dict(record),
         "sha256": hashlib.sha256(_canonical_payload(record)).hexdigest(),

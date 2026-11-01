@@ -99,6 +99,39 @@ def _software_review(
     return review
 
 
+def _software_v2_payload(*, publisher_id: int = 20) -> dict[str, object]:
+    return {
+        "schema": "software_source_review_v2",
+        "head_sha": HEAD_SHA,
+        "publisher_user_id": publisher_id,
+        "scope": "software-only",
+        "disposition": "APPROVED",
+        "reviewer_model_id": "gpt-5.6-sol",
+        "review_result": "PASS",
+        "blocking_findings": 0,
+        "report": (
+            "GPT-5.6 Sol reviewed the exact-head source diff, adjacent tests, "
+            "failure paths and authority boundaries. No blocking software findings "
+            "remain; this review does not authorize economic or live execution."
+        ),
+    }
+
+
+def _software_v2_review(
+    *, publisher_id: int = 20, state: str = "APPROVED", review_id: int = 110
+) -> dict[str, object]:
+    review = _review(
+        reviewer_id=publisher_id,
+        state=state,
+        receipt=False,
+        review_id=review_id,
+    )
+    review["body"] = f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n" + _receipt_body(
+        _software_v2_payload(publisher_id=publisher_id)
+    )
+    return review
+
+
 def test_account_separation_alone_does_not_establish_model_independence() -> None:
     outcome = resolve_review_outcome(
         _pull_request(), [_review(receipt=False)], expected_head_sha=HEAD_SHA
@@ -556,6 +589,67 @@ def test_syntactically_valid_unverified_software_jobs_cannot_authorize_approval(
         resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.PENDING
     )
+
+
+@pytest.mark.parametrize("publisher_id,state", [(10, "COMMENTED"), (20, "APPROVED")])
+def test_lightweight_v2_exact_head_model_review_satisfies_software_gate(
+    publisher_id: int, state: str
+) -> None:
+    review = _software_v2_review(publisher_id=publisher_id, state=state)
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.APPROVED
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reviewer_model_id", "UNKNOWN"),
+        ("review_result", "BLOCKED"),
+        ("blocking_findings", 1),
+        ("report", "too short"),
+    ],
+)
+def test_lightweight_v2_rejects_invalid_review_claim(
+    field: str, value: object
+) -> None:
+    payload = _software_v2_payload()
+    payload[field] = value
+    review = _software_v2_review()
+    review["body"] = (
+        f"{REVIEW_MARKER}\n\n### Disposition: APPROVED\n"
+        + _receipt_body(payload)
+    )
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_lightweight_v2_stale_head_does_not_approve() -> None:
+    review = _software_v2_review()
+    review["commit_id"] = "b" * 40
+    assert (
+        resolve_review_outcome(_pull_request(), [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_lightweight_v2_renderer_emits_exact_receipt(tmp_path: Path) -> None:
+    tool = Path(__file__).resolve().parents[2] / "tools/independent_research_review.py"
+    payload_path = tmp_path / "model-source-review.json"
+    payload_path.write_text(json.dumps(_software_v2_payload()), encoding="utf-8")
+    rendered = subprocess.run(
+        [sys.executable, str(tool), "--render-payload-json", str(payload_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert REVIEW_MARKER in rendered
+    assert "### Disposition: APPROVED" in rendered
+    assert '"schema":"software_source_review_v2"' in rendered
+    assert '"reviewer_model_id":"gpt-5.6-sol"' in rendered
 
 
 def test_unverified_software_receipt_does_not_override_v1_or_blocking_review() -> None:

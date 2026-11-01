@@ -305,9 +305,9 @@ Limits. Synthetic, 4 assets, daily, 3 PPO seeds, one fixed hyper-parameter set (
 
 ## Generic software PR review policy (2026-10-14)
 
-[Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に基づく異なるconfigured modelのexact-HEAD source reviewを継続する。`software_source_review_v1`のAGY job/model/diffは、従来CIが実在ソースと突き合わせていなかったため、**Issue #1065のprovenance検証が成立するまでfail-closed（PENDING）** とした。過去の軽量承認本文は履歴として残し、検証済みの独立reviewへ自動昇格しない。
+2026-11-01のowner directionにより、Generic software PRのreviewは**exact-HEAD model source review**へ軽量化する。`software_source_review_v2`は同じconfigured model（例: GPT-5.6 Sol）を許容し、GitHub review APIのauthenticated actor・exact head・reviewer model名・PASS・blocking finding 0・具体的reportをreceiptへbindする。provider-run provenance・別modelであること・AGY job ID・diff digest・過去の実装Task IDは必須とせず、model independenceを主張しない。
 
-従来`independent_model_review_v1`のmodel/task IDを含む形式は互換を維持するが、publisherのattestationがprovider稼働の暗号学的保証になるとは主張しない。研究G0–G5、経済評価、4h PPO専用review、sealed/unused/finalやliveは別々の承認条件であり、今回のソフトウェアゲート封じ込めは経済的許可を生まない。
+旧`software_source_review_v1`は未検証のjob/diff値を含むためfail-closedのまま廃止する。従来`independent_model_review_v1`は互換経路として残す。研究G0–G5、経済評価、4h PPO専用review、sealed/unused/finalやliveは別々の承認条件であり、このsoftware review軽量化は経済的許可を生まない。
 
 ## Issue #1025: native paired portfolio action comparison (software stage; 2026-10-28)
 

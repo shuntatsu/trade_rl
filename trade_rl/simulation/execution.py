@@ -939,9 +939,7 @@ class MarketExecutor:
             original_requested_notional=float(
                 np.abs(raw_requested_notional_vector).sum()
             ),
-            original_requested_notional_by_symbol=np.abs(
-                raw_requested_notional_vector
-            ),
+            original_requested_notional_by_symbol=np.abs(raw_requested_notional_vector),
             filled_notional=filled_notional,
             cost_amount=cost_amount,
             fill_count=book.fill_count - fills_before,

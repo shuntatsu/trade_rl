@@ -20,6 +20,21 @@ _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _RECEIPT_SHA_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _RECEIPT_SCHEMA = "independent_model_review_v1"
 _RECEIPT_FENCE = "independent-review-receipt"
+_SOFTWARE_RECEIPT_SCHEMA = "software_source_review_v1"
+_SOFTWARE_PAYLOAD_FIELDS = {
+    "schema",
+    "head_sha",
+    "publisher_user_id",
+    "scope",
+    "disposition",
+    "reviewer_model_id",
+    "review_jobs",
+    "review_result",
+    "blocking_findings",
+    "diff_sha256",
+    "report",
+}
+_REVIEW_JOB_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 _PAYLOAD_FIELDS = {
     "schema",
     "head_sha",
@@ -186,9 +201,55 @@ def _model_task_identity(value: object) -> tuple[str, str] | None:
     return model_key, task_key
 
 
+def _valid_software_payload(
+    record: Mapping[str, Any], *, head_sha: str, publisher_id: int
+) -> bool:
+    """Validate a bounded software-only review attestation, not G0–G5 authority."""
+
+    if set(record) != _SOFTWARE_PAYLOAD_FIELDS:
+        return False
+    model = record.get("reviewer_model_id")
+    jobs = record.get("review_jobs")
+    report = record.get("report")
+    diff_sha256 = record.get("diff_sha256")
+    if (
+        record.get("schema") != _SOFTWARE_RECEIPT_SCHEMA
+        or record.get("head_sha") != head_sha
+        or not _SHA_PATTERN.fullmatch(head_sha)
+        or _positive_id(record.get("publisher_user_id")) != publisher_id
+        or record.get("scope") != "software-only"
+        or record.get("disposition") != "APPROVED"
+        or record.get("review_result") != "PASS"
+        or type(record.get("blocking_findings")) is not int
+        or record.get("blocking_findings") != 0
+        or not isinstance(model, str)
+        or not _MODEL_PATTERN.fullmatch(model)
+        or re.sub(r"[-._]", "", model.casefold()) in _UNKNOWN_IDENTITIES
+        or not isinstance(report, str)
+        or len(report.strip()) < 80
+        or _REPORT_CONTROL.search(report)
+        or not isinstance(diff_sha256, str)
+        or not _RECEIPT_SHA_PATTERN.fullmatch(diff_sha256)
+        or not isinstance(jobs, list)
+        or not 1 <= len(jobs) <= 10
+        or any(
+            not isinstance(job, str) or not _REVIEW_JOB_PATTERN.fullmatch(job)
+            for job in jobs
+        )
+    ):
+        return False
+    return len(set(jobs)) == len(jobs)
+
+
 def _valid_payload(payload: object, *, head_sha: str, publisher_id: int) -> bool:
     record = _mapping(payload)
-    if record is None or set(record) != _PAYLOAD_FIELDS:
+    if record is None:
+        return False
+    if record.get("schema") == _SOFTWARE_RECEIPT_SCHEMA:
+        return _valid_software_payload(
+            record, head_sha=head_sha, publisher_id=publisher_id
+        )
+    if set(record) != _PAYLOAD_FIELDS:
         return False
     report = record.get("report")
     if (
@@ -256,7 +317,7 @@ def resolve_review_outcome(
     *,
     expected_head_sha: str,
 ) -> ReviewOutcome:
-    """Require a publisher-attested, different-model exact-head source review."""
+    """Require an exact-head, publisher-attested software source review."""
     pull = _mapping(pull_request)
     if pull is None or not _SHA_PATTERN.fullmatch(expected_head_sha):
         return ReviewOutcome.PENDING

@@ -695,9 +695,7 @@ def test_unverified_software_receipt_renderer_refuses_authorizing_template(
 def test_software_review_blocked_precedence_and_latest_actor_revocation() -> None:
     accepted = _software_v2_review(publisher_id=20, review_id=100)
     assert (
-        resolve_review_outcome(
-            _pull_request(), [accepted], expected_head_sha=HEAD_SHA
-        )
+        resolve_review_outcome(_pull_request(), [accepted], expected_head_sha=HEAD_SHA)
         is ReviewOutcome.APPROVED
     )
 

@@ -106,7 +106,9 @@ class FakeGitHub:
         self.deleted.extend(branches)
         if not self.after_delete_still_present:
             self.records = [
-                item for item in self.records if item.name not in {b.name for b in branches}
+                item
+                for item in self.records
+                if item.name not in {b.name for b in branches}
             ]
 
 
@@ -223,7 +225,9 @@ def test_unmerged_commit_does_not_pass_main_ancestry() -> None:
 
 def test_retention_must_include_exact_observation_and_tip() -> None:
     api = FakeGitHub()
-    api.retention_record["message"] = "Observe non-anchor branch tips before cleanup grace period"
+    api.retention_record["message"] = (
+        "Observe non-anchor branch tips before cleanup grace period"
+    )
     with pytest.raises(ValueError, match="retention record"):
         _prune(api)
     api = FakeGitHub()

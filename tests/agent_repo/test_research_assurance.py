@@ -307,3 +307,32 @@ def test_oracle_requires_counterexample_scope_and_limitations() -> None:
         broken = copy.deepcopy(record)
         broken["mechanism"]["independent_oracles"][first_boundary][key] = ""
         assert evaluate_assurance(broken).status == "BLOCKED"
+
+
+@pytest.mark.parametrize("field", ["decision_rule", "next_action_class"])
+def test_reviewed_claim_requires_explicit_machine_checked_decision_rule(
+    field: str,
+) -> None:
+    record = author_record()
+    record["claims"].pop(field, None)
+    result = evaluate_assurance(record)
+    assert result.status == "BLOCKED"
+    assert any(field in error for error in result.errors)
+
+
+def test_action_class_cannot_self_grant_economic_or_live_execution() -> None:
+    record = author_record()
+    record["claims"]["next_action_class"] = "live_trading"
+    assert evaluate_assurance(record).status == "BLOCKED"
+
+
+@pytest.mark.parametrize("flag", ["production_eligible", "live_trading_authorized"])
+def test_even_production_stage_record_cannot_authorize_live_or_production(
+    flag: str,
+) -> None:
+    record = author_record()
+    record["thesis"]["stage"] = "production"
+    record["evidence"]["evidence_level"] = "production"
+    record["claims"]["claim_level"] = "production"
+    record["claims"][flag] = True
+    assert evaluate_assurance(record).status == "BLOCKED"

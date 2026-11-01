@@ -96,8 +96,15 @@ _EVIDENCE_FIELDS = {
     "no_development_rescue",
     "evidence_level",
 }
+_ACTION_CLASSES = {
+    "documentation_only",
+    "synthetic_verification_only",
+    "request_separate_economic_authorization",
+}
 _CLAIM_FIELDS = {
     "claim_level",
+    "decision_rule",
+    "next_action_class",
     "permitted",
     "forbidden",
     "next_authorized_action",
@@ -453,6 +460,14 @@ def _validate(record: Mapping[str, object]) -> tuple[list[str], str, str, str, s
         )
         if isinstance(raw_claim, str):
             claim_level = raw_claim
+        capture(lambda: _text(claims.get("decision_rule"), "claims.decision_rule"))
+        action = capture(
+            lambda: _text(claims.get("next_action_class"), "claims.next_action_class")
+        )
+        if isinstance(action, str) and action not in _ACTION_CLASSES:
+            errors.append(
+                "claims.next_action_class may not authorize economic/live actions"
+            )
         capture(lambda: _strings(claims.get("permitted"), "claims.permitted"))
         capture(lambda: _strings(claims.get("forbidden"), "claims.forbidden"))
         capture(
@@ -483,6 +498,10 @@ def _validate(record: Mapping[str, object]) -> tuple[list[str], str, str, str, s
             maximum = _STAGE_MAX_LEVEL[stage]
             if _rank(claim_level) > _rank(maximum):
                 errors.append("claim_level exceeds the research stage")
+        if production is True or live is True:
+            errors.append(
+                "research assurance cannot self-authorize production or live trading"
+            )
         if production is True and claim_level != "production":
             errors.append("production_eligible requires production claim_level")
         if live is True and production is not True:

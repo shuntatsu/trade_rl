@@ -140,8 +140,8 @@ def verify_github_review(
             raise ValueError("PR review ID mismatch")
         if source.get("commit_id") != head:
             raise ValueError("PR review commit_id differs from reviewed HEAD")
-        if source.get("state") not in {"COMMENTED", "APPROVED", "CHANGES_REQUESTED"}:
-            raise ValueError("PR review was not submitted or was dismissed")
+        if source.get("state") not in {"COMMENTED", "APPROVED"}:
+            raise ValueError("PR review did not affirm the bounded research review")
         if (
             not isinstance(source.get("submitted_at"), str)
             or not source["submitted_at"]

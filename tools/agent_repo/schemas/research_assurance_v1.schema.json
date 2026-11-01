@@ -16,6 +16,10 @@
             "production"
           ]
         },
+        "decision_rule": {
+          "minLength": 1,
+          "type": "string"
+        },
         "forbidden": {
           "items": {
             "minLength": 1,
@@ -26,6 +30,13 @@
         },
         "live_trading_authorized": {
           "type": "boolean"
+        },
+        "next_action_class": {
+          "enum": [
+            "documentation_only",
+            "synthetic_verification_only",
+            "request_separate_economic_authorization"
+          ]
         },
         "next_authorized_action": {
           "minLength": 1,
@@ -49,7 +60,9 @@
         "forbidden",
         "next_authorized_action",
         "production_eligible",
-        "live_trading_authorized"
+        "live_trading_authorized",
+        "decision_rule",
+        "next_action_class"
       ],
       "type": "object"
     },

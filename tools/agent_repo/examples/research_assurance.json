@@ -92,6 +92,8 @@
     ],
     "next_authorized_action": "separate unused-data protocol only after the frozen development gate passes",
     "production_eligible": false,
-    "live_trading_authorized": false
+    "live_trading_authorized": false,
+    "decision_rule": "Accept a later protocol review request only when independent controls and all frozen cost and risk guards are satisfied; do not execute under this record.",
+    "next_action_class": "request_separate_economic_authorization"
   }
 }

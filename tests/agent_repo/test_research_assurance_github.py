@@ -100,6 +100,7 @@ def test_pr_review_is_authenticated_at_exact_head_with_distinct_principal() -> N
         "author_principal",
         "not_submitted",
         "dismissed",
+        "changes_requested_with_pass_body",
         "wrong_repository",
         "changed_number",
         "edited_status",
@@ -118,6 +119,8 @@ def test_authenticated_review_mismatches_fail_closed(mutation: str) -> None:
         review["submitted_at"] = None
     elif mutation == "dismissed":
         review["state"] = "DISMISSED"
+    elif mutation == "changes_requested_with_pass_body":
+        review["state"] = "CHANGES_REQUESTED"
     elif mutation == "wrong_repository":
         pr["head"]["repo"]["full_name"] = "attacker/fork"
     elif mutation == "changed_number":

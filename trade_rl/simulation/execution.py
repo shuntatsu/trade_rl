@@ -1072,9 +1072,10 @@ class MarketExecutor:
         if self.insolvency_valuation == "retain_debt":
             digest = content_digest(
                 {
-                    "schema_version": "insolvency_execution_policy_v1",
+                    "schema_version": "insolvency_execution_policy_v2",
                     "base_policy_digest": digest,
                     "insolvency_valuation": self.insolvency_valuation,
+                    "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
                 }
             )
 

@@ -144,9 +144,10 @@ def test_debt_policy_wraps_resolved_economics_and_invalidates_digest_cache(stres
     executor.insolvency_valuation = "retain_debt"
     expected = content_digest(
         {
-            "schema_version": "insolvency_execution_policy_v1",
+            "schema_version": "insolvency_execution_policy_v2",
             "base_policy_digest": legacy,
             "insolvency_valuation": "retain_debt",
+            "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
         }
     )
     assert executor.execution_policy_digest == expected != legacy

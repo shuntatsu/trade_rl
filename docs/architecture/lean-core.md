@@ -658,7 +658,10 @@ log wealth is undefined once terminal wealth is nonpositive, so
 instead of fabricating a logarithm of negative equity.
 
 The retained-debt choice is bound to order/execution identity by wrapping the
-resolved normal execution-policy digest with `insolvency_execution_policy_v1`.
+resolved normal execution-policy digest with `insolvency_execution_policy_v2`.
+The digest also binds `loss_metric_semantics=unbounded_simple_return_drawdown_v1`,
+so the earlier bounded-metric retain-debt prototype cannot share order identity
+with this corrected contract.
 The default mode keeps the original digest; mismatched order identities are
 rejected before executing fills. Changing the option is not an innocuous
 accounting presentation change. In particular, a frozen R3 protocol, its source

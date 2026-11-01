@@ -67,7 +67,9 @@ LIMITのcost分類も注文名だけでは決めません。そのbarで初め�
 book cashはゼロを下限とします。研究用の明示的opt-in
 `insolvency_valuation="retain_debt"`では負債をraw bookへ保持し、
 最初のeconomic terminationで以降の約定・carry・barを止めます。
-この差はexecution policy digestに含まれ、同じorder identityとして混ぜません。
+この差は`insolvency_execution_policy_v2`と
+`loss_metric_semantics=unbounded_simple_return_drawdown_v1`を含むexecution policy digestに
+結び、旧bounded-metric prototypeやfloor-zeroと同じorder identityとして混ぜません。
 retained-debt時は`interval_net_return`と`BookState.max_drawdown`もraw
 equityに追随するため、simple returnは-100%未満、drawdownは100%超を保持できます。
 一方、wealthが0以下では対数収益は数学的に定義できないため、

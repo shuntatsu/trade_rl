@@ -549,9 +549,12 @@ processing-open book is already above the gross leverage cap, an otherwise valid
 MARKET reduce-only close may be admitted only if it lowers gross exposure. Such
 recovery closes reserve their exact accepted inventory during the admission pass
 and do not reduce projected exposure before a fill, so an unfilled recovery close
-cannot authorize a duplicate close or later opening. Under-cap passes keep their
-existing priority projection and fill-time expiry behavior. Allocation then
-checks the actual priority sequence, including ordinary fills, and caps each
+cannot authorize a duplicate close or later opening. Both over-cap and under-cap
+admission conservatively reserve gross exposure: an unfilled closing order
+never releases leverage headroom for a subsequent opening. Sequential opening
+orders still reserve their proposed gross exposure, while an otherwise feasible
+same-bar rotation may be rejected until the close has actually filled.
+Allocation then checks the actual priority sequence and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional

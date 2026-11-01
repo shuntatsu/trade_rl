@@ -342,3 +342,39 @@ def test_direct_projection_refuses_fractional_task_revision() -> None:
     fractional = replace(candidate.status, task_revision=1.5)
     with pytest.raises(ValueError, match="exact integer"):
         replace(candidate, status=fractional)
+
+
+@pytest.mark.parametrize(
+    "invalid_component", ["packet_revision", "lease_revision", "parent_issue"]
+)
+def test_preflight_rejects_fractional_task_lease_or_issue_identity(
+    invalid_component: str,
+) -> None:
+    packet, lease, status = _snapshot()
+    if invalid_component == "packet_revision":
+        packet = replace(packet, task_revision=1.0)
+        lease = replace(
+            lease,
+            task_revision=1.0,
+            task_contract_digest=packet.contract_digest(),
+        )
+        status = replace(status, task_contract_digest=packet.contract_digest())
+    elif invalid_component == "lease_revision":
+        lease = replace(lease, task_revision=1.0)
+    else:
+        packet = replace(packet, parent_issue=1067.0)
+        lease = replace(lease, task_contract_digest=packet.contract_digest())
+        status = replace(status, task_contract_digest=packet.contract_digest())
+    with pytest.raises(ValueError, match="exact integer"):
+        prepare_enrollment_projection(
+            packet,
+            lease,
+            status,
+            repository="shuntatsu/trade_rl",
+            issue_number=1067,
+            issue_node_id="I_kwDOAUTH1067",
+            current_main_sha=BASE,
+            observed_branch_sha=HEAD,
+            issue_is_open=True,
+            now=NOW + timedelta(minutes=2),
+        )

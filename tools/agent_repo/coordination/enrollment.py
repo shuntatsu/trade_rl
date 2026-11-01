@@ -87,6 +87,10 @@ def prepare_enrollment_projection(
 
     _require_sha(current_main_sha, "current_main_sha")
     _require_sha(observed_branch_sha, "observed_branch_sha")
+    if type(packet.task_revision) is not int or type(lease.task_revision) is not int:
+        raise ValueError("Task and lease revisions must be exact integers")
+    if type(packet.parent_issue) is not int or type(issue_number) is not int:
+        raise ValueError("Task issue number must be an exact integer")
     if issue_is_open is not True or packet.parent_issue != issue_number:
         raise ValueError("open immutable Task issue reference does not match contract")
     if packet.execution_mode is not ExecutionMode.WRITE:

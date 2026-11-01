@@ -175,6 +175,7 @@ def test_only_permanent_workflows_remain() -> None:
         "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
         "ppo-normalization-execution.yml",
+        "prune-merged-branch.yml",
     }
 
 
@@ -277,8 +278,12 @@ def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
         "read-only dry-run",
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
-        "Task/lease同期が不完全な間はbranch削除を認可しない",
-        "現在のsourceがまだその状態でなければ、安全化変更を先に統合",
+        "merged-PR sourceの個別整理",
+        "tools.verified_merged_branch_prune",
+        "直接`apply_cleanup()`",
+        "workflow_dispatch",
+        "SHA祖先関係",
+        "conditional delete",
         "tested PR head contains current `main`",
     ):
         assert required in entry

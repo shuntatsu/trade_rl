@@ -351,6 +351,11 @@ def assemble(
             daily[arm] = (dates[1:], daily_returns(values))
         bootstrap_omissions[scenario] = omissions
         if ARM_CASH not in daily or ARM_BUY_AND_HOLD not in daily:
+            # A candidate path alone cannot form paired evidence if either
+            # control is missing; report the omitted pairing explicitly.
+            for arm in daily:
+                if arm not in {ARM_CASH, ARM_BUY_AND_HOLD}:
+                    omissions[arm] = "controls_unavailable"
             bootstrap[scenario] = {}
             continue
         cash_dates, cash_returns = daily[ARM_CASH]

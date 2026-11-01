@@ -130,9 +130,20 @@ def test_an_invalid_control_blocks_any_development_promotion(
     assert result["selected_arm_amended_rule"] is None
     assert result["selection_amended_rule"]["arms"]["t1_tsmom"]["eligible"] is False
     assert missing_control in result["selection_amended_rule"]["invalid_controls"]
+    primary = result["selection_pr_c_probe_rule"]
+    assert primary["selected_arm"] is None
+    assert primary["arms"]["t1_tsmom"]["eligible"] is False
+    assert missing_control in primary["invalid_controls"]
+    for scenario in SCENARIOS:
+        assert (
+            result["bootstrap_omissions"][scenario]["t1_tsmom"]
+            == "controls_unavailable"
+        )
 
 
-@pytest.mark.parametrize("missing", ["arm", "scenario"])
+@pytest.mark.parametrize(
+    "missing", ["arm", "scenario", "drawdown", "infinite_profit", "nan_drawdown"]
+)
 def test_partial_arm_report_is_ineligible_without_key_error(missing: str) -> None:
     from trade_rl.evaluation.dev_realdata_study.trial_labels import (
         labels_under_both_rules,
@@ -142,8 +153,14 @@ def test_partial_arm_report_is_ineligible_without_key_error(missing: str) -> Non
     result = _assemble()
     if missing == "arm":
         del result["arms"]["t1_tsmom"]
-    else:
+    elif missing == "scenario":
         del result["arms"]["t1_tsmom"]["cost_x2"]
+    elif missing == "drawdown":
+        del result["arms"]["t1_tsmom"]["cost_x2"]["max_drawdown_pct"]
+    elif missing == "infinite_profit":
+        result["arms"]["t1_tsmom"]["cost_x2"]["terminal_net_profit_pct"] = float("inf")
+    else:
+        result["arms"]["t1_tsmom"]["cost_x2"]["max_drawdown_pct"] = float("nan")
     for selection in labels_under_both_rules(result).values():
         assert selection["selected_arm"] is None
         assert selection["arms"]["t1_tsmom"]["status"] == LABEL_FAILED_TO_RUN
@@ -436,6 +453,13 @@ def test_cli_refuses_preexisting_and_overlapping_outputs_before_loading(
     argv[argv.index(str(out2 / "summary.json"))] = str(blocked_parent / "summary.json")
     assert trial_cli.main(argv) == 2
     assert not out3.exists()
+    assert blocked_parent.read_text(encoding="utf-8") == "do not overwrite"
+    # A file in the output path ancestry cannot be a directory.
+    argv[argv.index(str(out3))] = str(blocked_parent / "run")
+    argv[argv.index(str(blocked_parent / "summary.json"))] = str(
+        tmp_path / "valid_summary.json"
+    )
+    assert trial_cli.main(argv) == 2
     assert blocked_parent.read_text(encoding="utf-8") == "do not overwrite"
 
 

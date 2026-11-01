@@ -99,6 +99,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except FileExistsError:
         print("study output was claimed concurrently", file=sys.stderr)
         return 2
+    except OSError:
+        print("cannot create study output directory", file=sys.stderr)
+        return 2
     started_utc = _now()
     _, dataset = load_published_market_dataset_artifact(args.dataset)
     results, equity = run_phase2(

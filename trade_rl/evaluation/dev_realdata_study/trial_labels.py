@@ -13,6 +13,7 @@ the amended label as its headline. Neither rule changes any replay metric.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -33,6 +34,20 @@ RULE_PR_C = "pr_c_probe_rule_requires_pre_cut_trades"
 RULE_AMENDED = "amended_probe_rule_identical_decisions_only"
 
 
+def _has_finite_selection_metrics(row: object) -> bool:
+    """A partial/nonfinite metric row is not valid selection evidence."""
+
+    if not isinstance(row, Mapping):
+        return False
+    try:
+        return all(
+            math.isfinite(float(row[key]))
+            for key in ("terminal_net_profit_pct", "max_drawdown_pct")
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
 def _select(
     result: Mapping[str, Any],
     validity: Mapping[str, bool],
@@ -41,15 +56,14 @@ def _select(
     protocol: DevStudyProtocol,
 ) -> dict[str, Any]:
     scenarios = protocol.scenarios
-    arms_table = result.get("arms", {})
+    raw_arms = result.get("arms", {})
+    arms_table = raw_arms if isinstance(raw_arms, Mapping) else {}
     runnable = tuple(
         arm
         for arm in CANDIDATE_POOL
-        if arm in arms_table
+        if isinstance(arms_table.get(arm), Mapping)
         and all(
-            scenario in arms_table[arm]
-            and isinstance(arms_table[arm][scenario], Mapping)
-            and "terminal_net_profit_pct" in arms_table[arm][scenario]
+            _has_finite_selection_metrics(arms_table[arm].get(scenario))
             for scenario in scenarios
         )
     )

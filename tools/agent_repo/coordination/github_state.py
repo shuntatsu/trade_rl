@@ -21,24 +21,24 @@ _JSON_BLOCK_RE = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
 
 
 def _require_task_id(value: str) -> None:
-    if not _TASK_ID_RE.fullmatch(value):
+    if not isinstance(value, str) or not _TASK_ID_RE.fullmatch(value):
         raise ValueError("task_id is invalid")
 
 
 def _require_sha(value: str, *, field_name: str) -> None:
-    if not _FULL_SHA_RE.fullmatch(value):
+    if not isinstance(value, str) or not _FULL_SHA_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be a lowercase 40-hex Git SHA")
 
 
 def _require_digest(value: str) -> None:
-    if not _FULL_DIGEST_RE.fullmatch(value):
+    if not isinstance(value, str) or not _FULL_DIGEST_RE.fullmatch(value):
         raise ValueError(
             "task_contract_digest must be a lowercase 64-hex SHA-256 digest"
         )
 
 
 def _optional_text(value: str | None, *, field_name: str) -> None:
-    if value is not None and not value.strip():
+    if value is not None and (not isinstance(value, str) or not value.strip()):
         raise ValueError(f"{field_name} must be non-empty when provided")
 
 
@@ -63,7 +63,7 @@ class TaskStatusRecord:
 
     def __post_init__(self) -> None:
         _require_task_id(self.task_id)
-        if isinstance(self.task_revision, bool) or self.task_revision < 1:
+        if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
         _require_digest(self.task_contract_digest)
         object.__setattr__(self, "phase", TaskPhase(self.phase))
@@ -82,9 +82,9 @@ class TaskStatusRecord:
             assert self.owner is not None
             assert self.lease_epoch is not None
             assert self.lease_branch is not None
-            if not self.owner.strip():
+            if not isinstance(self.owner, str) or not self.owner.strip():
                 raise ValueError("lease fields require a non-empty owner")
-            if isinstance(self.lease_epoch, bool) or self.lease_epoch < 1:
+            if type(self.lease_epoch) is not int or self.lease_epoch < 1:
                 raise ValueError("lease fields require a positive lease_epoch")
             expected = lease_branch_name(self.task_id, self.lease_epoch, self.owner)
             if self.lease_branch != expected:
@@ -106,6 +106,17 @@ class TaskStatusRecord:
 
 
 _STATUS_FIELDS = frozenset(TaskStatusRecord.__dataclass_fields__)
+
+
+def _reject_duplicate_json_fields(
+    fields: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for name, value in fields:
+        if name in result:
+            raise ValueError(f"duplicate field in status comment JSON: {name}")
+        result[name] = value
+    return result
 
 
 def render_status_comment(record: TaskStatusRecord) -> str:
@@ -131,7 +142,7 @@ def parse_status_comment(text: str) -> TaskStatusRecord:
     if len(blocks) != 1:
         raise ValueError("status comment must contain exactly one JSON block")
     try:
-        decoded = json.loads(blocks[0])
+        decoded = json.loads(blocks[0], object_pairs_hook=_reject_duplicate_json_fields)
     except json.JSONDecodeError as error:
         raise ValueError("status comment JSON is invalid") from error
     if not isinstance(decoded, dict):
@@ -171,10 +182,10 @@ class HandoffPacket:
 
     def __post_init__(self) -> None:
         _require_task_id(self.task_id)
-        if isinstance(self.task_revision, bool) or self.task_revision < 1:
+        if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
         _require_digest(self.task_contract_digest)
-        if isinstance(self.lease_epoch, bool) or self.lease_epoch < 1:
+        if type(self.lease_epoch) is not int or self.lease_epoch < 1:
             raise ValueError("lease_epoch must be a positive integer")
         _require_sha(self.last_good_head, field_name="last_good_head")
         for field_name in (

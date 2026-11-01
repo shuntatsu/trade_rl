@@ -28,7 +28,27 @@ def _artifact(
     }
 
 
-def _jobs(*, provider_conclusion: str | None) -> list[object]:
+def _result_artifact(
+    *,
+    run_id: int,
+    attempt: int,
+    expired: bool = False,
+) -> dict[str, object]:
+    return {
+        "name": review.review_result_artifact_name(
+            run_id=run_id,
+            run_attempt=attempt,
+        ),
+        "expired": expired,
+        "workflow_run": {"id": run_id},
+    }
+
+
+def _jobs(
+    *,
+    provider_conclusion: str | None,
+    upload_conclusion: str | None = "success",
+) -> list[object]:
     steps: list[dict[str, object]] = []
     if provider_conclusion is not None:
         steps.append(
@@ -36,6 +56,14 @@ def _jobs(*, provider_conclusion: str | None) -> list[object]:
                 "name": review.PROVIDER_STEP_NAME,
                 "status": "completed",
                 "conclusion": provider_conclusion,
+            }
+        )
+    if upload_conclusion is not None:
+        steps.append(
+            {
+                "name": review.EVIDENCE_UPLOAD_STEP_NAME,
+                "status": "completed",
+                "conclusion": upload_conclusion,
             }
         )
     return [
@@ -71,7 +99,8 @@ def test_review_identity_is_sha_and_protocol_bound_but_tag_independent() -> None
     assert len(first) == 64
     assert first == second
     assert first != changed
-    assert review.REVIEW_PROTOCOL == "ppo_4h_gemini_semantic_review_v1"
+    assert review.REVIEW_PROTOCOL == "ppo_4h_gemini_semantic_review_v2"
+    assert review.ATTESTATION_SCHEMA == "ppo_4h_gemini_reviewer_run_v2"
 
 
 def test_different_run_for_same_identity_is_not_a_retry() -> None:
@@ -89,27 +118,36 @@ def test_different_run_for_same_identity_is_not_a_retry() -> None:
             current_run_id=200,
             current_run_attempt=1,
             artifacts=artifacts,
+            result_artifacts=[],
             jobs_for_attempt=lambda _run, _attempt: _jobs(
-                provider_conclusion="failure"
+                provider_conclusion="success",
+                upload_conclusion="success",
             ),
         )
 
 
-def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> None:
+def test_same_run_retry_uses_result_artifact_not_continue_on_error_conclusion() -> None:
     identity = review.review_identity_digest(
         repository="owner/repo",
         repository_id=99,
         pull_number=900,
         reviewed_code_sha=REVIEWED_SHA,
     )
-    artifacts = [_artifact(identity=identity, run_id=100, attempt=1)]
+    packet_artifacts = [_artifact(identity=identity, run_id=100, attempt=1)]
 
+    # GitHub reports a continue-on-error step conclusion as success even when the
+    # command's outcome was failure.  No final reviewer artifact plus a successful
+    # no-files upload is the observable transport-failure state and is retryable.
     review.require_review_identity_retryable(
         identity,
         current_run_id=100,
         current_run_attempt=2,
-        artifacts=artifacts,
-        jobs_for_attempt=lambda _run, _attempt: _jobs(provider_conclusion="failure"),
+        artifacts=packet_artifacts,
+        result_artifacts=[],
+        jobs_for_attempt=lambda _run, _attempt: _jobs(
+            provider_conclusion="success",
+            upload_conclusion="success",
+        ),
     )
 
     with pytest.raises(ValueError, match="terminal Gemini review already exists"):
@@ -117,9 +155,93 @@ def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> N
             identity,
             current_run_id=100,
             current_run_attempt=2,
-            artifacts=artifacts,
+            artifacts=packet_artifacts,
+            result_artifacts=[_result_artifact(run_id=100, attempt=1)],
             jobs_for_attempt=lambda _run, _attempt: _jobs(
-                provider_conclusion="success"
+                provider_conclusion="success",
+                upload_conclusion="success",
+            ),
+        )
+
+
+def test_setup_failed_before_provider_is_safe_to_retry() -> None:
+    """Skipped provider/upload are not evidence that Gemini was called."""
+    identity = review.review_identity_digest(
+        repository="owner/repo",
+        repository_id=99,
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+    )
+    review.require_review_identity_retryable(
+        identity,
+        current_run_id=100,
+        current_run_attempt=2,
+        artifacts=[_artifact(identity=identity, run_id=100, attempt=1)],
+        result_artifacts=[],
+        jobs_for_attempt=lambda _run, _attempt: _jobs(
+            provider_conclusion="skipped", upload_conclusion="skipped"
+        ),
+    )
+
+
+def test_completed_provider_with_skipped_evidence_upload_blocks_retry() -> None:
+    identity = review.review_identity_digest(
+        repository="owner/repo",
+        repository_id=99,
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+    )
+    with pytest.raises(ValueError, match="upload failed"):
+        review.require_review_identity_retryable(
+            identity,
+            current_run_id=100,
+            current_run_attempt=2,
+            artifacts=[_artifact(identity=identity, run_id=100, attempt=1)],
+            result_artifacts=[],
+            jobs_for_attempt=lambda _run, _attempt: _jobs(
+                provider_conclusion="success", upload_conclusion="skipped"
+            ),
+        )
+
+
+def test_result_artifact_without_matching_packet_still_blocks_retry() -> None:
+    identity = review.review_identity_digest(
+        repository="owner/repo",
+        repository_id=99,
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+    )
+
+    with pytest.raises(ValueError, match="terminal Gemini review already exists"):
+        review.require_review_identity_retryable(
+            identity,
+            current_run_id=100,
+            current_run_attempt=2,
+            artifacts=[],
+            result_artifacts=[_result_artifact(run_id=100, attempt=1)],
+            jobs_for_attempt=lambda _run, _attempt: [],
+        )
+
+
+def test_same_run_retry_fails_closed_when_evidence_upload_state_is_ambiguous() -> None:
+    identity = review.review_identity_digest(
+        repository="owner/repo",
+        repository_id=99,
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+    )
+    packet_artifacts = [_artifact(identity=identity, run_id=100, attempt=1)]
+
+    with pytest.raises(ValueError, match="evidence upload"):
+        review.require_review_identity_retryable(
+            identity,
+            current_run_id=100,
+            current_run_attempt=2,
+            artifacts=packet_artifacts,
+            result_artifacts=[],
+            jobs_for_attempt=lambda _run, _attempt: _jobs(
+                provider_conclusion="success",
+                upload_conclusion="failure",
             ),
         )
 
@@ -149,6 +271,7 @@ def test_expired_matching_identity_fails_closed_but_unrelated_artifacts_do_not()
         current_run_id=200,
         current_run_attempt=1,
         artifacts=unrelated,
+        result_artifacts=[],
         jobs_for_attempt=jobs_for_attempt,
     )
     assert calls == []
@@ -161,8 +284,44 @@ def test_expired_matching_identity_fails_closed_but_unrelated_artifacts_do_not()
             artifacts=[
                 _artifact(identity=identity, run_id=100, attempt=1, expired=True)
             ],
+            result_artifacts=[],
             jobs_for_attempt=jobs_for_attempt,
         )
+
+
+def test_review_result_artifact_inventory_fetches_all_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths: list[str] = []
+    target = _result_artifact(run_id=100, attempt=1)
+
+    def fake_api(repository: str, endpoint: str, *, token: str) -> object:
+        assert repository == "owner/repo"
+        assert token == "test-token"
+        paths.append(endpoint)
+        if endpoint.endswith("page=1"):
+            return {"artifacts": [{"name": "other"}] * 100}
+        if endpoint.endswith("page=2"):
+            return {"artifacts": [target]}
+        raise AssertionError(f"unexpected artifact page: {endpoint}")
+
+    monkeypatch.setattr(review, "_github_api", fake_api)
+    assert review._review_result_artifacts("owner/repo", 100, token="test-token") == [
+        target
+    ]
+    assert paths == [
+        "actions/runs/100/artifacts?per_page=100&page=1",
+        "actions/runs/100/artifacts?per_page=100&page=2",
+    ]
+
+
+@pytest.mark.parametrize("payload", [None, [], {}, {"artifacts": {}}])
+def test_review_result_artifact_inventory_rejects_malformed_api_payload(
+    monkeypatch: pytest.MonkeyPatch, payload: object
+) -> None:
+    monkeypatch.setattr(review, "_github_api", lambda *_args, **_kwargs: payload)
+    with pytest.raises(ValueError, match="review result artifact inventory"):
+        review._review_result_artifacts("owner/repo", 100, token="test-token")
 
 
 def test_attestation_binds_review_identity_and_protocol() -> None:

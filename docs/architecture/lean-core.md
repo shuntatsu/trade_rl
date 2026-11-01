@@ -625,7 +625,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - maker/taker cost分類はorder typeだけでなくrealized liquidity roleに合わせる。LIMITがそのprocessing barで初めてeligibleになり、同じbarのopenで既にmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使う。新規LIMITがbar内touchまでrestする場合、および以前のeligible barからcarryされていたLIMITが後続bar openでcrossする場合はresting orderとしてmaker feeとhalf spreadを使う。MARKET / STOP_MARKETは従来どおりtakerである。この分類はfill価格・数量・capacityを変更しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
-- terminal mark-to-marketとforced closeを混同しない。
+- terminal mark-to-marketとforced closeを混同しない。旧互換の `MarketExecutor.liquidate_at_close` は標準stateful執行経路ではなく、profile modeでは引き続き拒否する。強制market closeは元の設定がLIMITでもtaker feeとfull spreadを適用し、最小発注額・参加上限によって保有が残れば清算完了としない。元の未決済notionalを消化率に残し、off-grid旧保有量も、実際の約定notionalがcapacityを超えない量だけをlot gridへ進める。 split後の正確な既存数量は、未約定のsymbolで表示用floatへ置き換えずに保持する（`BookState.execute`のopt-in `preserve_unchanged_exact=True`、通常の明示absolute targetの従来挙動は変更しない）。これらは既存の研究protocolや結果を再分類しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。
 
 `MarketExecutor` の標準executionはnext-openであり、decision row `t` の注文は最初にrow `t+1` のopenで約定可能になる。participation capacityのvolume authorityは `ExecutionCostConfig.processing_bar_volume_capacity` に明示bindする。
@@ -636,6 +636,46 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - どちらのmodeも同じspread / impact / fee / accounting経路を使い、mode差だけで別のexecution-policy digestになる。`False` は将来volumeの予測モデルではなく、同一bar最終volumeへの依存を除くための保守的stressである。
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。
+
+## Explicit insolvency valuation mode (software-only)
+
+The canonical `MarketExecutor` defaults to `insolvency_valuation="floor_zero"`.
+This is the existing production/replay/PPO behavior: a terminated account is
+flattened with nonnegative cash and the historical execution-policy digest is
+unchanged. An explicitly configured `"retain_debt"` alternative is reserved
+for result-blind synthetic conformance of historical native-account research.
+It keeps a negative cash balance after forced insolvency and rejects a new
+execution call when its incoming `BookState` is already insolvent, including a
+positive-equity margin call, before accepting orders or accruing gap carry.
+Within a call, it terminates processing at the first economic termination,
+cancels remaining active orders, and prevents any later fill or carry accrual.
+The raw `BookState.portfolio_value` is the financial loss authority in this mode.
+Its simple-return and drawdown diagnostics preserve the same signed loss:
+`interval_net_return` and terminal `returns_history` may fall below `-1.0`, and
+`BookState.max_drawdown` may exceed `1.0`. The logarithmic return is different:
+log wealth is undefined once terminal wealth is nonpositive, so
+`interval_log_return` deliberately keeps the legacy finite lower-bound diagnostic
+instead of fabricating a logarithm of negative equity.
+
+The retained-debt choice is bound to order/execution identity by wrapping the
+resolved normal execution-policy digest with `insolvency_execution_policy_v2`.
+The digest also binds `loss_metric_semantics=unbounded_simple_return_drawdown_v1`,
+so the earlier bounded-metric retain-debt prototype cannot share order identity
+with this corrected contract.
+The default mode keeps the original digest; mismatched order identities are
+rejected before executing fills. Changing the option is not an innocuous
+accounting presentation change. In particular, a frozen R3 protocol, its source
+HEAD, and an old receipt must never be relabeled as if produced by a new HEAD.
+
+The scalar `interval_net_return` is therefore an uncapped simple return in
+`retain_debt`; only `interval_log_return` keeps the legacy finite lower bound at
+nonpositive wealth. Debt-tail comparisons must still inspect book equity/cash,
+the unbounded drawdown/simple-return evidence, and a separate independent account
+oracle rather than treating the bounded log diagnostic as financial authority.
+Retained debt is not a complete venue bankruptcy/liquidation model and is not enabled
+by default in shared-portfolio sessions or Gym. Green synthetic tests do
+not supply G0–G4 approval, historical market funding or account-rule
+calibration, unused data evidence, or live order authorization.
 
 ## Independent per-symbol evaluation
 
@@ -705,7 +745,7 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
 - Market dataset artifactのcodec/publicationは `trade_rl.data.artifacts` が持つ。
 - Candidate/evaluation runはimmutable filesystem artifactとして残す。
-- Candidate RunとStudy EvidenceSetのdirectory publicationはstagingからatomic renameする。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyへ切り替えない。
+- Candidate Run、Study EvidenceSet、canonical market datasetのdirectory publicationはstagingから**OS側で既存先の置換を禁止するatomic rename**で行う。Linuxは`renameat2(RENAME_NOREPLACE)`、macOSは`renamex_np(RENAME_EXCL)`、Windowsは既存先を拒否するrenameを使う。未対応のOS/ファイルシステムではfail-closedとし、チェック後に空ディレクトリが作られても置き換えない。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyや通常POSIX renameへ切り替えない。
 - Candidate Runはresolved result `summary.json`、raw interval return `returns.npz`、implementation/runtime/research-context evidence `provenance.json` の3ファイルを一体としてpublishする。
 - Candidate Runは実行前後でimplementation/runtime provenanceが一致する場合だけpublishする。実行中にsource/runtime provenanceが変化したRunを正当なevidenceとして残さない。
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。

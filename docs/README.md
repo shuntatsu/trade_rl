@@ -1,64 +1,29 @@
 # Trade RL documentation
 
-Active non-LLM trading research (Issue #810): [current four-arm screen and remaining gates](research/current-status.md). The M34 screen completed as FAILED_SCREEN; it did not establish a profitable winner.
+このtreeは**現行の技術仕様と研究判断の正本**だけを保持する。実装の真偽はsource・public API・contract testsと照合する。過去の計画・migration・実験経緯はGit history、GitHub Issue/PR、再現可能な研究evidenceで追跡し、current docsへ作業日誌を追記し続けない。
 
-Active prospective carry work: [design](specs/funding-carry-paper.md) and
-[plan](plans/funding-carry-paper.md).
+## 正本の入口
 
-Active directional exit work: [design](specs/reduce-only-exits.md) and
-[plan](plans/reduce-only-exits.md).
+- [AGENTS.md](AGENTS.md) — Agentの読み順序、更新matrix、検証・保持規則
+- [architecture/lean-core.md](architecture/lean-core.md) — causal data、strategy/risk、execution、会計、artifact不変条件
+- [architecture/package-boundaries.md](architecture/package-boundaries.md) — package責務、public API、依存方向
+- [architecture/controlled-experiment-loop.md](architecture/controlled-experiment-loop.md) — Study/Experiment/EvidenceSet、lineage、freeze
+- [architecture/final-evaluation-authorization.md](architecture/final-evaluation-authorization.md) — sealed unused-future認可境界
+- [architecture/research-assurance.md](architecture/research-assurance.md) — G0–G5、反証条件、研究証拠の妥当性
+- [research/current-status.md](research/current-status.md) — 現行の研究判断・証拠リンク・未完了gate
 
-## 結論
+## Active work（完了までは暫定）
 
-この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。
+- [Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) — 非LLM売買研究の親計画。進捗・依存はIssue/PR、現行判断はresearch/current-status.mdを正本とする。
+- Prospective carry: [specs/funding-carry-paper.md](specs/funding-carry-paper.md) / [plans/funding-carry-paper.md](plans/funding-carry-paper.md)
+- Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
 
-現在読むべき恒久文書は次の7つである。
+## 情報の所有先と更新
 
-- [`AGENTS.md`](AGENTS.md) — Agent向けの読む順序、更新先、保持・削除ルール、verification contract
-- [`architecture/lean-core.md`](architecture/lean-core.md) — 現行lean coreの目的、データ・strategy・risk・execution/accounting・artifactの不変条件
-- [`architecture/package-boundaries.md`](architecture/package-boundaries.md) — 現在のpackage配置、責務境界、依存方向、public API方針
-- [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
-- [`architecture/final-evaluation-authorization.md`](architecture/final-evaluation-authorization.md) — frozen WINNERからunused-futureを一度だけ開くread-only authorization、one-shot publication、tamper/concurrency境界の恒久契約
-- [`architecture/research-assurance.md`](architecture/research-assurance.md) — G0-G5、Research Question / Mechanism Contract、semantic invariant、independent oracle、Assurance Matrixの恒久契約
-- [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
+`architecture/`は恒久仕様、`research/`は現行判断、`specs/`・`plans/`は独立して必要な`Status: Active`の作業だけ。完了した暫定文書は残存契約を恒久仕様に反映して削除し、`docs/history`・`docs/archive`は作らない。履歴の正本はGit history。
 
-人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Human Guideはこの `docs/` の正本と現行source/testsから派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。GuideはMarkdown本文・静的flow・表を主役にし、必要な実装詳細だけを記事末尾のdisclosureから辿る。本文は `guide/content/pages/*.md`、machine metadataは `guide/content/meta/*.json` に分離し、Markdown section fingerprintとPython symbol/source digestを別々にfail-closed検証する。source linkはbuildしたexact revisionへ固定する。公開版は <https://shuntatsu.github.io/trade_rl/> で提供する。
+コードの意味が変われば該当architectureとtestsを同一PRで更新する。研究の判定は結果・Dataset消費履歴を再分類せずresearch/current-status.mdを**差分更新**する。進捗履歴やTask/branch管理はGitHub Issue/PRとAgent Coordination Plane v1の責務であり、docsへ全文複製しない。
 
-完了したdirectional studyとPPO risk-alignmentの契約・結果は `architecture/lean-core.md`、`architecture/package-boundaries.md`、`research/current-status.md` に昇格済みである。新しい未実装designや実装中の独立planが必要になった場合だけ `specs/` / `plans/` を作り、完了後は恒久契約へ昇格してcurrent treeから削除する。
+[Human Guide](../guide/README.md) は非正本の説明UI。内容変更は対象pageとsource fingerprint / code referenceを照合し、必要なtopicだけrefreshする。Pages公開状態は実際のGitHub設定・deploymentで確認する。
 
-Human Guide PagesとMarkdown-firstコード連動Guideの恒久運用契約は `.github/workflows/deploy-guide.yml`、`guide/README.md`、`docs/AGENTS.md`、architecture/contract testsへ昇格済みである。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
-
-GitHub PagesのSource設定と公開siteの到達性はGit tree外の状態である。公開済み状態はworkflow実装やCI Greenだけでなく、Pages state read-back、deployment、public smokeで検証する。
-
-Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
-
-## フォルダ方針
-
-現在の恒久フォルダは `architecture/` と `research/` である。`specs/` と `plans/` はActive design/implementationが存在する間だけ保持する。
-
-- `architecture/`: 現行コードが満たすべき構造・責務・不変条件
-- `research/`: 現在の研究仮説、比較条件、証拠プロトコル、研究状態
-- `specs/`: 未実装またはreview中の独立normative designだけ
-- `plans/`: 実装中または外部verification待ちで、独立したcurrent workが残るplanだけ
-
-将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中または外部verification待ちの独立作業が必要な間だけ `plans/` を作ってよい。実装・verificationが終わり、耐久的な内容が `architecture/`、`research/`、`AGENTS.md` 等のcurrent authorityへ反映されたら、完了済みspec/planはcurrent treeから削除する。
-
-`docs/history` と `docs/archive` は作らない。Git historyが履歴の正本である。
-
-## 何を更新するか
-
-- package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
-- causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
-- Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
-- final/unused-data authorization、WINNER binding、one-shot publicationを変えた → `architecture/final-evaluation-authorization.md` と final-test contract tests
-- economic hypothesis、causal story、capital/observation/action/reward/risk/execution/accounting semantics、G0-G2 oracleを変えた → `architecture/research-assurance.md` と関連contract/property tests
-- 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
-- Guideが参照する正本sectionまたはPython symbolを変えた → 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json` を再確認し、`--refresh` / `--refresh-code` を対象topicだけ実行して `guide/tools/content_contract.py --check` を通す
-- Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する
-- docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
-
-コードとdocsが食い違った場合は、現行source・architecture test・public contractを確認して真の契約を確定し、docsだけを放置しない。
-
-## 法務・provenance
-
-`LICENSE` と `LICENSES/` はcurrent docsの整理対象ではない。ライセンス本文、provenance、third-party noticeは永久保持するcompliance materialであり、通常の完了済みplan/specと同じ削除ルールを適用しない。
+`LICENSE`・`LICENSES/`内のライセンス、provenance、third-party noticeおよびimmutable研究artifactは通常のdocs削除対象外。

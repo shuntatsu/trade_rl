@@ -371,11 +371,16 @@ def test_cli_pins_api_github_and_never_accepts_token_on_command_line(
         fake_prune,
     )
     args = [
-        "--repository", REPO,
-        "--branch", NAME,
-        "--expected-sha", TIP,
-        "--merged-pr-number", "1076",
-        "--retention-record-sha", RECORD,
+        "--repository",
+        REPO,
+        "--branch",
+        NAME,
+        "--expected-sha",
+        TIP,
+        "--merged-pr-number",
+        "1076",
+        "--retention-record-sha",
+        RECORD,
     ]
     assert main(args) == 0
     assert captured == {

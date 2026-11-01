@@ -584,9 +584,12 @@ zero targets create reduce-only orders and waive declared venue notional only;
 the explicit runtime floor still receives notional stress. Reversals and unselected
 symbols retain ordinary minima. False provides a matched ordinary-order profile.
 Across target reconciliation, an equal outstanding residual is reused only when
-its Dataset identity, execution-policy identity and reduce-only flag all match the
-current request. A stale-identity residual is cancelled and replaced before
-admission rather than being reused only to fail later with `identity_mismatch`.
+its Dataset identity, execution-policy identity, reduce-only flag, order type,
+time-in-force and explicit expiry index all match the current request. A stale
+or incompatible order is cancelled and replaced before admission rather than
+being reused only to fail later with `identity_mismatch` or an outdated lifetime.
+For an otherwise identical persistent order, the original eligibility index
+is retained so repeated decisions do not restart the latency clock.
 Exact closing deltas still project conservatively to float requests. A
 capacity-sufficient no-lot reduce-only fill consumes the exact inventory when its
 request covers the projected position; lot- or capacity-limited fills retain their

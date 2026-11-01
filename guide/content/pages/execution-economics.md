@@ -53,6 +53,8 @@ Dataset側で既に持っているコストをruntime側でももう一度控除
 
 partial fillなら、要求数量ではなくrealized fill quantityだけをpositionへ反映します。
 
+残数量が一致しても、注文種別・time-in-force（IOC/DAY/GTC）・明示有効期限・実行ポリシー等が変わった場合は古い未約定注文をcancel-and-replaceします。条件が同じ場合は既存注文のeligible時刻を維持し、毎回latencyをリセットしません。
+
 注文の消化率と実売買金額も分けます。`fill_ratio` と `unfilled_turnover` はsubmission時のreference priceで要求量と約定量を同じ基準へ揃え、価格変動だけで「全量約定」に見えないようにします。一方、`filled_turnover` はactual fill priceで実際に売買したnotionalを使います。
 
 目標比率を数量へ換算するときは、口座残高と比率を評価したマーク価格を使います。取引価格との差だけで保有継続中に買い増しや売却を起こしません。指値・逆指値と注文の基準価格には、引き続き取引価格を使います。

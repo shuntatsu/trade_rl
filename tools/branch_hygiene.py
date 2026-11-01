@@ -308,10 +308,10 @@ class GitHubApi:
         credential = base64.b64encode(
             f"x-access-token:{self._token}".encode("utf-8")
         ).decode("ascii")
+        # Avoid exposing a reversible Base64 credential in the process argv.
+        # Git config via the child environment leaves it out of command lines.
         command = [
             "git",
-            "-c",
-            f"http.https://github.com/.extraheader=AUTHORIZATION: basic {credential}",
             "push",
             "--atomic",
             "--porcelain",
@@ -327,7 +327,13 @@ class GitHubApi:
             text=True,
             capture_output=True,
             check=False,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            env={
+                **os.environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
+            },
         )
         if process.returncode != 0:
             detail = process.stderr.strip() or process.stdout.strip()

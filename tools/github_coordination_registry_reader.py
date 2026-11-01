@@ -35,7 +35,7 @@ def _mapping(value: Any, name: str) -> dict[str, Any]:
 
 
 def _oid(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _OID_RE.fullmatch(value):
+    if not isinstance(value, str) or not _OID_RE.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{name} must be an exact lowercase Git commit SHA")
     return value
 

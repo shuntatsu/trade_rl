@@ -93,7 +93,7 @@ def test_foreign_repository_is_rejected_without_io(requested: str) -> None:
     assert api.calls == []
 
 
-@pytest.mark.parametrize("commit", ["a" * 39, "A" * 40, "branch/main", ""])
+@pytest.mark.parametrize("commit", ["a" * 39, "A" * 40, "0" * 40, "branch/main", ""])
 def test_commit_must_be_exact_lowercase_oid(commit: str) -> None:
     api = FakeGitApi()
     with pytest.raises(ValueError, match="commit"):

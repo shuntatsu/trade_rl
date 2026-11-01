@@ -65,11 +65,7 @@ def _mapping(value: Any, field: str) -> dict[str, Any]:
 
 
 def _sha(value: Any, field: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not _SHA_RE.fullmatch(value)
-        or value == "0" * 40
-    ):
+    if not isinstance(value, str) or not _SHA_RE.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{field} must be a nonzero lowercase 40-hex Git SHA")
     return value
 
@@ -92,8 +88,7 @@ def _request_inputs(
         or "//" in branch
         or ".." in branch
         or any(
-            part.startswith(".") or part.endswith(".lock")
-            for part in branch.split("/")
+            part.startswith(".") or part.endswith(".lock") for part in branch.split("/")
         )
     ):
         raise ValueError("branch is not eligible for merged-PR pruning")
@@ -123,9 +118,7 @@ def _branches(api: GitHubApi) -> dict[str, BranchInfo]:
 
 
 def _require_ancestor(api: GitHubApi, older: str, newer: str, label: str) -> None:
-    result = _mapping(
-        api._request_json("GET", f"compare/{older}...{newer}"), label
-    )
+    result = _mapping(api._request_json("GET", f"compare/{older}...{newer}"), label)
     ahead, behind = result.get("ahead_by"), result.get("behind_by")
     merge_base = _mapping(result.get("merge_base_commit"), "merge base")
     if (
@@ -139,9 +132,7 @@ def _require_ancestor(api: GitHubApi, older: str, newer: str, label: str) -> Non
         raise ValueError(f"{label} ancestor condition not verified")
 
 
-def _require_merged_pr(
-    api: GitHubApi, branch: str, sha: str, number: int
-) -> None:
+def _require_merged_pr(api: GitHubApi, branch: str, sha: str, number: int) -> None:
     pr = _mapping(api._request_json("GET", f"pulls/{number}"), "merged PR")
     head = _mapping(pr.get("head"), "merged PR head")
     base = _mapping(pr.get("base"), "merged PR base")

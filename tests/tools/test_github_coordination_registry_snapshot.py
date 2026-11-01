@@ -25,6 +25,12 @@ class FakeGet:
         ).hexdigest()
         self.ref_sha = COMMIT
         self.repository_node_id = "R_123"
+        self.next_repository_node_id: str | None = None
+        self.next_ref_sha: str | None = None
+        self.ref_type = "commit"
+        self.repo_reads = 0
+        self.ref_reads = 0
+        self.fail_suffix: str | None = None
         self.calls: list[str] = []
 
     def _request_json(
@@ -32,14 +38,20 @@ class FakeGet:
     ) -> object:
         assert method == "GET"
         self.calls.append(suffix)
+        if suffix == self.fail_suffix:
+            raise RuntimeError("GitHub GET unavailable")
         if suffix == "":
-            return {
-                "full_name": REPOSITORY,
-                "node_id": self.repository_node_id,
-                "id": 123,
-            }
+            self.repo_reads += 1
+            node_id = self.repository_node_id
+            if self.repo_reads > 1 and self.next_repository_node_id is not None:
+                node_id = self.next_repository_node_id
+            return {"full_name": REPOSITORY, "node_id": node_id, "id": 123}
         if suffix == "git/ref/heads/coordination/task-registry":
-            return {"ref": REF, "object": {"type": "commit", "sha": self.ref_sha}}
+            self.ref_reads += 1
+            oid = self.ref_sha
+            if self.ref_reads > 1 and self.next_ref_sha is not None:
+                oid = self.next_ref_sha
+            return {"ref": REF, "object": {"type": self.ref_type, "sha": oid}}
         if suffix == f"git/commits/{COMMIT}":
             return {"sha": COMMIT, "tree": {"sha": TREE}}
         if suffix == f"git/trees/{TREE}":
@@ -114,3 +126,65 @@ def test_missing_ref_is_not_treated_as_empty_registry() -> None:
     with pytest.raises(ValueError, match="ref"):
         _observe(api)
     assert len(api.calls) == 2
+
+
+def test_ref_drift_after_object_read_fails_without_success() -> None:
+    api = FakeGet()
+    api.next_ref_sha = "c" * 40
+    with pytest.raises(ValueError, match="ref changed"):
+        _observe(api)
+    assert api.ref_reads == 2
+    assert api.repo_reads == 1
+
+
+def test_repository_identity_change_after_object_read_fails() -> None:
+    api = FakeGet()
+    api.next_repository_node_id = "R_replaced"
+    with pytest.raises(ValueError, match="repository identity changed"):
+        _observe(api)
+    assert api.ref_reads == 2
+    assert api.repo_reads == 2
+
+
+def test_invalid_target_type_rejected_before_blob_access() -> None:
+    api = FakeGet()
+    api.ref_type = "blob"
+    with pytest.raises(ValueError, match="target must be a commit"):
+        _observe(api)
+    assert api.calls == ["", "git/ref/heads/coordination/task-registry"]
+
+
+def test_corrupt_blob_contents_fail_before_ref_readback() -> None:
+    api = FakeGet()
+    api.data = b"corrupted"
+    with pytest.raises(ValueError, match="Git blob SHA"):
+        _observe(api)
+    assert api.ref_reads == 1
+
+
+def test_api_failure_propagates_and_does_not_treat_unknown_as_empty() -> None:
+    api = FakeGet()
+    api.fail_suffix = "git/trees/" + TREE
+    with pytest.raises(RuntimeError, match="GET unavailable"):
+        _observe(api)
+    assert api.ref_reads == 1
+
+
+def test_bad_path_fails_before_any_get() -> None:
+    api = FakeGet()
+    with pytest.raises(ValueError, match="registry path"):
+        observe_registry_snapshot(
+            api,
+            expected_repository=REPOSITORY,
+            ref_name=REF,
+            registry_path="../registry.json",
+        )
+    assert api.calls == []
+
+
+def test_observation_is_not_enrollment_permission_even_with_empty_registry() -> None:
+    result = _observe(FakeGet())
+    assert result.registry.entries == ()
+    assert result.authoritative_registry_established is False
+    assert result.task_registry_complete is False
+    assert result.cleanup_authorized is False

@@ -108,6 +108,17 @@ class TaskStatusRecord:
 _STATUS_FIELDS = frozenset(TaskStatusRecord.__dataclass_fields__)
 
 
+def _reject_duplicate_json_fields(
+    fields: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for name, value in fields:
+        if name in result:
+            raise ValueError(f"duplicate field in status comment JSON: {name}")
+        result[name] = value
+    return result
+
+
 def render_status_comment(record: TaskStatusRecord) -> str:
     """Render one canonical Coordinator-owned GitHub status comment."""
 
@@ -131,7 +142,7 @@ def parse_status_comment(text: str) -> TaskStatusRecord:
     if len(blocks) != 1:
         raise ValueError("status comment must contain exactly one JSON block")
     try:
-        decoded = json.loads(blocks[0])
+        decoded = json.loads(blocks[0], object_pairs_hook=_reject_duplicate_json_fields)
     except json.JSONDecodeError as error:
         raise ValueError("status comment JSON is invalid") from error
     if not isinstance(decoded, dict):

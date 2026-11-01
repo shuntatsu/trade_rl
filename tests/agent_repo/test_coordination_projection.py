@@ -104,6 +104,14 @@ def test_status_comment_parser_fails_closed_on_malformed_or_ambiguous_input() ->
     with pytest.raises(ValueError, match="unknown field"):
         parse_status_comment(unknown)
 
+    duplicate = rendered.replace(
+        '  "task_revision": 2,',
+        '  "task_revision": 2,\n  "task_revision": 2,',
+    )
+    assert duplicate != rendered
+    with pytest.raises(ValueError, match="duplicate field"):
+        parse_status_comment(duplicate)
+
 
 def test_status_record_rejects_partial_lease_projection() -> None:
     packet = _packet()

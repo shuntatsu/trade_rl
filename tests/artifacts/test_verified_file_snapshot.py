@@ -148,9 +148,7 @@ def test_verified_artifact_read_keeps_regular_nested_parents_working(
         assert private_copy != policy
 
 
-def test_verified_artifact_read_rejects_parent_traversal(
-    tmp_path: Path,
-) -> None:
+def test_verified_artifact_read_rejects_parent_traversal(tmp_path: Path) -> None:
     """Dot-dot must not bypass the symlink-component check."""
 
     root = tmp_path / "bundle"

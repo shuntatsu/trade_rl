@@ -319,3 +319,34 @@ def test_task_packet_rejects_non_string_identity_and_sha() -> None:
             execution_mode=ExecutionMode.READ_ONLY,
             base_sha=123,
         )
+
+
+def test_evidence_identity_rejects_integer_shaped_float_and_non_string_id() -> None:
+    packet = _packet()
+    with pytest.raises(ValueError, match="task_revision"):
+        EvidenceRecord(
+            evidence_kind=EvidenceKind.REVIEW,
+            task_id=packet.task_id,
+            task_revision=1.0,
+            task_contract_digest=packet.contract_digest(),
+            base_sha=packet.base_sha,
+            head_sha=HEAD_SHA,
+            identifier="evidence-1",
+            result=EvidenceResult.PASS,
+        )
+    with pytest.raises(ValueError, match="identifier"):
+        EvidenceRecord(
+            evidence_kind=EvidenceKind.REVIEW,
+            task_id=packet.task_id,
+            task_revision=packet.task_revision,
+            task_contract_digest=packet.contract_digest(),
+            base_sha=packet.base_sha,
+            head_sha=HEAD_SHA,
+            identifier=123,
+            result=EvidenceResult.PASS,
+        )
+
+
+def test_task_status_reason_requires_text() -> None:
+    with pytest.raises(ValueError, match="status reason"):
+        TaskStatus(phase=TaskPhase.REVIEW, reason=123)

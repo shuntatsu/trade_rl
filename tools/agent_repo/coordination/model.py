@@ -255,7 +255,9 @@ class TaskStatus:
     def __post_init__(self) -> None:
         object.__setattr__(self, "phase", TaskPhase(self.phase))
         object.__setattr__(self, "condition", TaskCondition(self.condition))
-        if self.reason is not None and not self.reason.strip():
+        if self.reason is not None and (
+            not isinstance(self.reason, str) or not self.reason.strip()
+        ):
             raise ValueError("status reason must be non-empty when provided")
 
 
@@ -274,9 +276,9 @@ class EvidenceRecord:
     def __post_init__(self) -> None:
         object.__setattr__(self, "evidence_kind", EvidenceKind(self.evidence_kind))
         object.__setattr__(self, "result", EvidenceResult(self.result))
-        if not _TASK_ID_RE.fullmatch(self.task_id):
+        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("task_id is invalid")
-        if isinstance(self.task_revision, bool) or self.task_revision < 1:
+        if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
         _require_digest(
             self.task_contract_digest,
@@ -284,7 +286,7 @@ class EvidenceRecord:
         )
         _require_full_sha(self.base_sha, field_name="base_sha")
         _require_full_sha(self.head_sha, field_name="head_sha")
-        if not self.identifier.strip():
+        if not isinstance(self.identifier, str) or not self.identifier.strip():
             raise ValueError("evidence identifier must be non-empty")
         if self.main_sha is not None:
             _require_full_sha(self.main_sha, field_name="main_sha")

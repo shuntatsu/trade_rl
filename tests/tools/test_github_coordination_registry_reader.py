@@ -24,7 +24,9 @@ def _blob_sha(raw: bytes) -> str:
 
 class FakeGitApi:
     def __init__(self, raw: bytes | None = None) -> None:
-        self.raw = CoordinatorRegistry(REPOSITORY).canonical_bytes() if raw is None else raw
+        self.raw = (
+            CoordinatorRegistry(REPOSITORY).canonical_bytes() if raw is None else raw
+        )
         self.blob_sha = _blob_sha(self.raw)
         self.commit: dict[str, object] = {"sha": COMMIT, "tree": {"sha": TREE}}
         self.tree: dict[str, object] = {
@@ -100,7 +102,8 @@ def test_commit_must_be_exact_lowercase_oid(commit: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "path", ["/coordination/registry.json", "../registry.json", "a//b", "a/./b", "a\\b", ""]
+    "path",
+    ["/coordination/registry.json", "../registry.json", "a//b", "a/./b", "a\\b", ""],
 )
 def test_registry_path_must_be_relative_and_unambiguous(path: str) -> None:
     api = FakeGitApi()
@@ -157,7 +160,10 @@ def test_registry_path_missing_or_duplicated_fails_closed() -> None:
         _reader(api).read_registry_bytes(REPOSITORY, COMMIT)
 
 
-@pytest.mark.parametrize("mode,kind", [("120000", "blob"), ("100755", "blob"), ("040000", "tree"), ("160000", "commit")])
+@pytest.mark.parametrize(
+    "mode,kind",
+    [("120000", "blob"), ("100755", "blob"), ("040000", "tree"), ("160000", "commit")],
+)
 def test_symlinks_executables_submodules_and_trees_are_not_payload_files(
     mode: str, kind: str
 ) -> None:

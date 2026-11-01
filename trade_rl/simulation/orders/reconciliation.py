@@ -268,6 +268,9 @@ def reconcile_target(
             order.intent.dataset_id == dataset_id
             and order.intent.execution_policy_digest == execution_policy_digest
             and order.intent.reduce_only == reduce_only
+            and order.intent.order_type is order_type
+            and order.intent.time_in_force is time_in_force
+            and order.intent.expiry_index == expiry_index
             for order in active
         )
         if (

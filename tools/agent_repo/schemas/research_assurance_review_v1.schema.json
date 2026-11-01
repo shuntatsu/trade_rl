@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "blocking_findings": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 0,
+      "type": "array"
+    },
+    "disposition": {
+      "enum": [
+        "ASSURANCE_PASS",
+        "BLOCKED"
+      ]
+    },
+    "g0": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_ESTABLISHED"
+      ]
+    },
+    "g1": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_ESTABLISHED"
+      ]
+    },
+    "g2": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_ESTABLISHED",
+        "EVIDENCE_BOUND"
+      ]
+    },
+    "implementation_head": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "missing_evidence": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 0,
+      "type": "array"
+    },
+    "protocol_head": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "rationale": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "result_blind": {
+      "type": "boolean"
+    },
+    "reviewed_record_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "reviewer_execution_identity": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reviewer_identity": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reviewer_independence": {
+      "enum": [
+        "ESTABLISHED",
+        "NOT_ESTABLISHED"
+      ]
+    },
+    "schema_version": {
+      "const": "research_assurance_review_v1"
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "blocked"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "reviewed_record_digest",
+    "protocol_head",
+    "implementation_head",
+    "reviewer_identity",
+    "reviewer_execution_identity",
+    "reviewer_independence",
+    "result_blind",
+    "g0",
+    "g1",
+    "g2",
+    "status",
+    "disposition",
+    "blocking_findings",
+    "missing_evidence",
+    "rationale",
+    "limitations"
+  ],
+  "title": "Trade RL independent research assurance review record v1",
+  "type": "object"
+}

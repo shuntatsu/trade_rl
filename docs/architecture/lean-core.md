@@ -549,9 +549,12 @@ processing-open book is already above the gross leverage cap, an otherwise valid
 MARKET reduce-only close may be admitted only if it lowers gross exposure. Such
 recovery closes reserve their exact accepted inventory during the admission pass
 and do not reduce projected exposure before a fill, so an unfilled recovery close
-cannot authorize a duplicate close or later opening. Under-cap passes keep their
-existing priority projection and fill-time expiry behavior. Allocation then
-checks the actual priority sequence, including ordinary fills, and caps each
+cannot authorize a duplicate close or later opening. Both over-cap and under-cap
+admission conservatively reserve gross exposure: an unfilled closing order
+never releases leverage headroom for a subsequent opening. Sequential opening
+orders still reserve their proposed gross exposure, while an otherwise feasible
+same-bar rotation may be rejected until the close has actually filled.
+Allocation then checks the actual priority sequence and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional
@@ -584,9 +587,12 @@ zero targets create reduce-only orders and waive declared venue notional only;
 the explicit runtime floor still receives notional stress. Reversals and unselected
 symbols retain ordinary minima. False provides a matched ordinary-order profile.
 Across target reconciliation, an equal outstanding residual is reused only when
-its Dataset identity, execution-policy identity and reduce-only flag all match the
-current request. A stale-identity residual is cancelled and replaced before
-admission rather than being reused only to fail later with `identity_mismatch`.
+its Dataset identity, execution-policy identity, reduce-only flag, order type,
+time-in-force and explicit expiry index all match the current request. A stale
+or incompatible order is cancelled and replaced before admission rather than
+being reused only to fail later with `identity_mismatch` or an outdated lifetime.
+For an otherwise identical persistent order, the original eligibility index
+is retained so repeated decisions do not restart the latency clock.
 Exact closing deltas still project conservatively to float requests. A
 capacity-sufficient no-lot reduce-only fill consumes the exact inventory when its
 request covers the projected position; lot- or capacity-limited fills retain their

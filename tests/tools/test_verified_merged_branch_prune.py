@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -327,3 +328,21 @@ def test_origin_checkout_must_be_exact_repository(
     )
     with pytest.raises(RuntimeError, match="origin"):
         require_origin_checkout(REPO)
+
+
+def test_manual_prune_workflow_is_never_automatically_triggered() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (
+        root / ".github/workflows/prune-merged-branch.yml"
+    ).read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in workflow
+    assert "\n  push:" not in workflow
+    assert "\n  schedule:" not in workflow
+    assert "contents: write" in workflow
+    assert "pull-requests: read" in workflow
+    assert "actions: read" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "test \"$CONFIRM\" = \"true\"" in workflow
+    assert "--expected-sha \"$PRUNE_SHA\"" in workflow
+    assert "--retention-record-sha \"$PRUNE_RETENTION\"" in workflow
+    assert "--apply" in workflow

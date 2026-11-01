@@ -68,9 +68,8 @@ class GitHubRegistryObjectReader:
         expected_repository: str,
         registry_path: str,
     ) -> None:
-        if (
-            not isinstance(expected_repository, str)
-            or not _REPOSITORY_RE.fullmatch(expected_repository)
+        if not isinstance(expected_repository, str) or not _REPOSITORY_RE.fullmatch(
+            expected_repository
         ):
             raise ValueError("expected repository must use owner/name form")
         self._api = api
@@ -121,9 +120,7 @@ class GitHubRegistryObjectReader:
         if tree_size > _MAX_PAYLOAD_BYTES:
             raise ValueError("tree blob size exceeds registry payload limit")
 
-        blob = _mapping(
-            self._api._request_json("GET", f"git/blobs/{blob_sha}"), "blob"
-        )
+        blob = _mapping(self._api._request_json("GET", f"git/blobs/{blob_sha}"), "blob")
         if blob.get("sha") != blob_sha:
             raise ValueError("blob SHA differs from tree reference")
         blob_size = _size(blob.get("size"), "blob size")

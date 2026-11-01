@@ -100,9 +100,8 @@ def observe_registry_snapshot(
 ) -> RegistryRefSnapshot:
     """GET only; fail closed on changed or unavailable repository/ref/payload."""
 
-    if (
-        not isinstance(expected_repository, str)
-        or not _REPO_RE.fullmatch(expected_repository)
+    if not isinstance(expected_repository, str) or not _REPO_RE.fullmatch(
+        expected_repository
     ):
         raise ValueError("expected repository must be owner/name")
     ref_name = _requested_ref(ref_name)

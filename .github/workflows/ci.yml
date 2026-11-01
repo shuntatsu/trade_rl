@@ -48,6 +48,10 @@ jobs:
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 
+      - name: Show review-test formatting diff (temporary diagnostic)
+        if: failure()
+        run: uv run ruff format --diff tests/tools/test_independent_research_review.py
+
       - name: Mypy
         run: uv run mypy trade_rl
 

@@ -930,6 +930,7 @@ class MarketExecutor:
             target_quantities=next_quantities,
             cost_amount=cost_amount,
             turnover=filled_notional / turnover_denominator,
+            preserve_unchanged_exact=True,
         )
         self._update_margin(book)
         return _FillResult(

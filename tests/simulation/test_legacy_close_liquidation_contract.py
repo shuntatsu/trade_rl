@@ -195,3 +195,22 @@ def test_completed_liquidation_ratio_uses_actual_rounded_reference_price() -> No
     assert result.fill_ratio == pytest.approx(1.0)
     assert result.unfilled_turnover == pytest.approx(0.0)
     assert result.requested_turnover == pytest.approx(result.filled_turnover)
+
+
+def test_unfilled_split_quantity_retains_exact_rational_inventory() -> None:
+    book = _book(2.123456789123456)
+    book.apply_split(np.array([1.234567891234567]))
+    original_exact = book.exact_quantities
+    original_cash = book.cash
+
+    result = MarketExecutor(
+        _market(volume=0.0, lot=1.0),
+        replace(ExecutionCostConfig.zero(), max_participation_rate=1.0),
+    ).liquidate_at_close(book, index=1)
+
+    assert result.fill_count == 0
+    assert result.filled_turnover == 0.0
+    assert result.termination_reason is None
+    assert result.book.exact_quantities == original_exact
+    assert result.book.cash == original_cash
+    assert book.exact_quantities == original_exact

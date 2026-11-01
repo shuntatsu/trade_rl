@@ -467,16 +467,23 @@ class BookState:
         target_quantities: np.ndarray,
         cost_amount: float,
         turnover: float,
+        preserve_unchanged_exact: bool = False,
     ) -> None:
         targets = _finite_vector(target_quantities, field_name="target_quantities")
         if targets.shape != self.quantities.shape:
             raise ValueError("execution vectors must match the book")
-        exact_targets = tuple(exact_quantity(float(value)) for value in targets)
+        previous_values = self._quantity_values()
+        exact_targets = tuple(
+            previous
+            if preserve_unchanged_exact and float(target) == float(current)
+            else exact_quantity(float(target))
+            for target, current, previous in zip(
+                targets, self.quantities, previous_values, strict=True
+            )
+        )
         delta = tuple(
             target - previous
-            for target, previous in zip(
-                exact_targets, self._quantity_values(), strict=True
-            )
+            for target, previous in zip(exact_targets, previous_values, strict=True)
         )
         self._record_execution(
             fill_prices=fill_prices,

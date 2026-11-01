@@ -241,9 +241,8 @@ def test_standard_github_linewrapped_base64_is_accepted() -> None:
     api = FakeGitApi()
     content = api.blob["content"]
     assert isinstance(content, str)
-    api.blob["content"] = "\n".join(
-        content[index : index + 76] for index in range(0, len(content), 76)
-    ) + "\n"
+    wrapped = [content[index : index + 76] for index in range(0, len(content), 76)]
+    api.blob["content"] = "\n".join(wrapped) + "\n"
     assert _reader(api).read_registry_bytes(REPOSITORY, COMMIT) == api.raw
 
 

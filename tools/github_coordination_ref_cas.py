@@ -14,6 +14,7 @@ from typing import Any, NamedTuple, Protocol
 
 ZERO_OID = "0" * 40
 _REF_PREFIX = "refs/heads/coordination/"
+_PRODUCTION_REPOSITORY = "shuntatsu/trade_rl"
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$")
@@ -150,6 +151,8 @@ def compare_and_swap_coordination_ref(
     """
 
     repository, _, _ = _repository(repository)
+    if repository.casefold() == _PRODUCTION_REPOSITORY.casefold():
+        raise ValueError("production repository is not a disposable CAS test target")
     ref_name = _ref_name(ref_name)
     expected_oid = _sha(expected_oid, "expected OID")
     after_oid = _sha(after_oid, "after OID", allow_zero=False)

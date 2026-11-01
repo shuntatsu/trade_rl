@@ -217,7 +217,10 @@ def test_pr_c_probe_is_derived_from_primitives_not_a_passed_flag() -> None:
     assert primary["label_pr_c_probe_rule"]["validity"]["t1_tsmom"] is False
 
 
-def test_t7_preserves_fail_closed_hold_when_overlay_would_trim() -> None:
+@pytest.mark.parametrize("equity, expected_scale", [(85.0, 0.5), (75.0, 0.0)])
+def test_t7_preserves_fail_closed_hold_when_overlay_would_trim(
+    equity: float, expected_scale: float
+) -> None:
     proposal = PortfolioTargetProposal(
         target_weights=(0.5, -0.4),
         hold_current_quantity_symbols=(0, 1),
@@ -247,11 +250,32 @@ def test_t7_preserves_fail_closed_hold_when_overlay_would_trim() -> None:
     )
     snapshot = SimpleNamespace(
         timestamp_ns=stamp,
-        account=SimpleNamespace(portfolio_value=85.0, peak_value=100.0),
+        account=SimpleNamespace(portfolio_value=equity, peak_value=100.0),
     )
     result = policy.decide_portfolio(cast(PortfolioDecisionSnapshot, snapshot))
     assert result is proposal
-    assert policy.overlay_summary()["n_fail_closed_hold_preserved"] == 1
+    summary = policy.overlay_summary()
+    assert policy.scales[-1][1] == pytest.approx(expected_scale)
+    assert summary["n_fail_closed_hold_preserved"] == 1
+    if expected_scale == 0.0:
+        # An already-exposed book is not silently liquidated when the
+        # allocator cannot safely issue a new target. Risk remains observable.
+        assert summary["latched_at_end"] is True
+        assert summary["n_decisions_at_zero"] == 1
+
+
+def test_pre_cut_trade_check_rejects_flat_no_fill_intervals() -> None:
+    intervals = [
+        SimpleNamespace(exact_quantities_after=("0", "0"), order_events=()),
+        SimpleNamespace(exact_quantities_after=("0", "0"), order_events=()),
+    ]
+    result = SimpleNamespace(
+        ledger_evidence=SimpleNamespace(intervals=SimpleNamespace(intervals=intervals))
+    )
+    assert (
+        runner._pre_cut_has_trades(cast(SharedCashPortfolioReplayResult, result))
+        is False
+    )
 
 
 def test_causality_trade_check_only_looks_at_actual_interval_rows() -> None:
@@ -458,6 +482,14 @@ def test_compact_summary_retains_cashflow_and_native_forecast_units() -> None:
         "legacy_day": {"base": legacy},
     }
     compact = trial_study.compact_phase2_summary(result)
+    older = dict(result)
+    older.pop("nonregistered_causality_cut_override")
+    older.pop("bootstrap_omissions")
+    older_compact = trial_study.compact_phase2_summary(older)
+    # Unknown historical metadata must remain unknown, not be invented as
+    # `False`/empty and not cause an otherwise readable summary to crash.
+    assert older_compact["nonregistered_causality_cut_override"] is None
+    assert older_compact["bootstrap_omissions"] is None
     saved = compact["arms"]["t8_blend_weekly"]["base"]
     assert saved["gross_price_pnl_usdt"] == pytest.approx(
         saved["net_pnl_usdt"]

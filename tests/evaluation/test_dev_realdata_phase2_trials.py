@@ -998,7 +998,13 @@ def test_label_flips_only_through_the_probe_trade_requirement() -> None:
     # A change in the original primitive trade evidence, not only in its
     # derived `passed` flag, is what changes the PR-C selection.
     patched["causality_probes"]["t1_tsmom"]["pre_cut_trace_has_trades"] = True
-    patched["causality_probes"]["t1_tsmom"]["passed"] = True
+    # Deliberately contradict the legacy aggregate flag to prove that the
+    # primitive trade evidence, not `passed`, controls PR-C selection.
+    patched["causality_probes"]["t1_tsmom"]["passed"] = False
     both = trial_labels.labels_under_both_rules(result, patched)
     assert both["label_pr_c_probe_rule"]["label"] == LABEL_PROMISING
     assert both["label_pr_c_probe_rule"]["selected_arm"] == "t1_tsmom"
+    patched["causality_probes"]["t1_tsmom"]["pre_cut_trace_has_trades"] = False
+    patched["causality_probes"]["t1_tsmom"]["passed"] = True
+    untraded = trial_labels.labels_under_both_rules(result, patched)
+    assert untraded["label_pr_c_probe_rule"]["selected_arm"] is None

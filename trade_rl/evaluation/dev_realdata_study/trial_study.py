@@ -561,13 +561,16 @@ def compact_phase2_summary(results: dict[str, Any]) -> dict[str, Any]:
         "causality_probes": results["causality_probes"],
         "causality_matrix": results["causality_matrix"],
         "causality_matrix_cut": results["causality_matrix_cut"],
-        "nonregistered_causality_cut_override": results[
+        # Earlier result schemas have no diagnostic-cut annotation. Keep
+        # unknown as None rather than manufacturing a registered-cut claim.
+        "nonregistered_causality_cut_override": results.get(
             "nonregistered_causality_cut_override"
-        ],
+        ),
         "failures": results["failures"],
         "arms": rows,
         "bootstrap": results["bootstrap"],
-        "bootstrap_omissions": results["bootstrap_omissions"],
+        # Missing legacy omission evidence is unknown, not an empty pass.
+        "bootstrap_omissions": results.get("bootstrap_omissions"),
         "bonferroni_comparisons": results["bonferroni_comparisons"],
         "selection_pr_c_probe_rule": results["selection_pr_c_probe_rule"],
         "selection_amended_rule": results["selection_amended_rule"],

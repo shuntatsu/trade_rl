@@ -13,9 +13,7 @@ from tools.agent_repo.coordination.github_state import TaskStatusRecord
 
 _SCHEMA = "coordinator_registry_v1"
 _PROJECTION_SCHEMA = "coordinator_enrollment_projection_v1"
-_REPOSITORY_RE = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"
-)
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REGISTRY_FIELDS = frozenset({"schema", "repository", "entries"})
 _PROJECTION_FIELDS = frozenset(
     {"schema", "repository", "issue_number", "issue_node_id", "status"}

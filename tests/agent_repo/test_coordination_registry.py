@@ -62,7 +62,9 @@ def test_registry_order_bytes_and_digest_are_deterministic() -> None:
 
     assert left.canonical_bytes() == right.canonical_bytes()
     assert left.digest() == right.digest()
-    assert [entry["status"]["task_id"] for entry in left.canonical_payload()["entries"]] == [
+    assert [
+        entry["status"]["task_id"] for entry in left.canonical_payload()["entries"]
+    ] == [
         "T1067-01",
         "T1067-02",
     ]
@@ -157,7 +159,9 @@ def test_registry_rejects_schema_shape_and_nested_identity_drift(
 
 
 def test_duplicate_json_fields_are_rejected_at_top_and_nested_levels() -> None:
-    encoded = CoordinatorRegistry(REPOSITORY, (_projection(),)).canonical_bytes().decode()
+    encoded = (
+        CoordinatorRegistry(REPOSITORY, (_projection(),)).canonical_bytes().decode()
+    )
 
     top_duplicate = encoded.replace(
         '"repository":"shuntatsu/trade_rl"',

@@ -38,6 +38,18 @@ def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
     return vector
 
 
+def _cash_interest_amount(
+    cash_basis: float, annual_rate: float, year_fraction: float
+) -> float:
+    """Calculate interest from a cash basis without cloning transient book state."""
+
+    if not np.isfinite(annual_rate):
+        raise ValueError("annual_rate must be finite")
+    if not np.isfinite(year_fraction) or year_fraction < 0.0:
+        raise ValueError("year_fraction must be finite and non-negative")
+    return float(cash_basis * annual_rate * year_fraction)
+
+
 @dataclass(slots=True)
 class BookState:
     """Mutable signed-quantity account isolated from policy and workflow logic."""
@@ -358,7 +370,7 @@ class BookState:
             if not np.isfinite(year_fraction) or year_fraction < 0.0:
                 raise ValueError("year_fraction must be finite and non-negative")
             resolved_fraction = float(year_fraction)
-        amount = float(self.cash * annual_rate * resolved_fraction)
+        amount = _cash_interest_amount(self.cash, annual_rate, resolved_fraction)
         self.cash += amount
         self._refresh_economic_state()
         return amount

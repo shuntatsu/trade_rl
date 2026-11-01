@@ -309,6 +309,7 @@ class ExecutionResult:
 class _FillResult:
     requested_notional: float
     original_requested_notional: float
+    original_requested_notional_by_symbol: np.ndarray
     filled_notional: float
     cost_amount: float
     fill_count: int
@@ -938,6 +939,9 @@ class MarketExecutor:
             original_requested_notional=float(
                 np.abs(raw_requested_notional_vector).sum()
             ),
+            original_requested_notional_by_symbol=np.abs(
+                raw_requested_notional_vector
+            ),
             filled_notional=filled_notional,
             cost_amount=cost_amount,
             fill_count=book.fill_count - fills_before,
@@ -1231,7 +1235,7 @@ class MarketExecutor:
                 if result_book.termination_reason is None
                 else EconomicTerminationReason(result_book.termination_reason).value
             ),
-            requested_notional_by_symbol=fill.requested_notional_by_symbol,
+            requested_notional_by_symbol=fill.original_requested_notional_by_symbol,
             filled_notional_by_symbol=fill.filled_notional_by_symbol,
             participation_by_symbol=fill.participation_by_symbol,
             cost_by_symbol=fill.cost_by_symbol,

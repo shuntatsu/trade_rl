@@ -88,6 +88,11 @@ def test_minimum_notional_refusal_is_not_reported_as_completed_liquidation() -> 
     assert result.fill_ratio == pytest.approx(0.0)
     assert result.requested_turnover == pytest.approx(0.02)
     assert result.unfilled_turnover == pytest.approx(0.02)
+    assert result.requested_notional_by_symbol.tolist() == pytest.approx([20.0])
+    assert result.filled_notional_by_symbol.tolist() == pytest.approx([0.0])
+    assert result.requested_turnover == pytest.approx(
+        float(result.requested_notional_by_symbol.sum()) / 1_000.0
+    )
     assert book.quantities[0] == pytest.approx(0.2)
 
 

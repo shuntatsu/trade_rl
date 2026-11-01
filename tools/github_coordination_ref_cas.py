@@ -15,9 +15,7 @@ from typing import Any, NamedTuple, Protocol
 ZERO_OID = "0" * 40
 _REF_PREFIX = "refs/heads/coordination/"
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-_REPOSITORY_RE = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"
-)
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$")
 
 _READ_REF_QUERY = """

@@ -21,7 +21,7 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 このcontractは、新しいproduction runtime、Study artifact schema、経済モデル、winner ruleを追加しない。既存のimmutable Study/Run/EvidenceSetを遡及的に書き換えず、過去の結果を別の判定へ再分類しない。
 
-また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
+既存のpreregistration、StudyPlan、Issue/PRのresult-blind design recordは維持する。新しい経済研究プロトコルや重要な変更では、Issue #687 の **Research Assurance Gate** として、新規の research_assurance_v1 著者レコードと独立した research_assurance_review_v1 を用いる。既存のimmutable Study/Run/EvidenceSetへ遡及移行や再分類を行わない。結果を観測した後から不足項目を埋めて「事前に証明した」と扱うことは禁止する。
 
 ### Declarative financial objective and clock
 
@@ -42,6 +42,35 @@ gamma-one equity-delta reward; `fit_shared_portfolio_ppo` checks its bound clock
 This connection does not itself prove actual reward/ledger parity, economic
 learnability, Study authorization, or real-data profitability. The historical
 per-symbol PPO defaults are unchanged; G0–G2 independent oracles still apply.
+
+## Research Assurance Gate（Issue #687 / Issue #667 とは別責務）
+
+Issue #667 は選択済みmechanismが実際に期待どおり実装されたかを監査する。本ゲートはさらにその前段で、問いの妥当性（G0）、代替仮説、mechanism（G1）、根拠が主張に十分か（G3）、独立オラクル・反例（G2）、結論の許容範囲を検証する。両者は置き換えずに併用する。
+
+**書式**：author packetは tools/agent_repo/examples/research_assurance.json と同じ research_assurance_v1 とし、research thesis、canonical source → availability → feature/state → model/strategy → intent → order → fill → accounting → evidence → decision chain、unit/time/state/sign/risk/execution/accounting/evidence各boundary、独立oracle、evidenceとstage、permitted/forbidden claimsと次のactionを含む。packetから review 欄を排除し、canonical JSON SHA-256を記録digestとする。完了したauthor packetを後から黙って変更できず、変更すればレビューは失効する。
+
+**独立review**：レビューは別レコード research_assurance_review_v1 に保持し、正確なpacket digest、protocol HEAD、implementation HEAD、result blindness、G0/G1/G2、blocking findings、missing evidence、限界、dispositionに束縛する。承認を自己申告するだけではPASSにしない。GitHubの実際のPRレビューobject（principal・review commit_id・レビュー本文bytes）または同等の独立した認証済みrunを、authorによって改変できない外部adapterから検証する。認証済み外部証拠がない場合は **BLOCKED**。同じGitHub principalによるprose/tagのみではindependenceを認めない。
+
+**検証状態**：有効なauthor packetのみなら UNREVIEWED、欠落・矛盾・古いdigest/HEAD・review非独立・G0/G1/G2失敗・主張の格上げがあれば BLOCKED、完全な構造と独立した認証済み肯定レビューの両方があれば限定的な研究保証 PASS。**項目を全部埋めただけではPASSにならない**。正常なsource CI、同じbytesの再生成、GitHubコメント内のPASS文字列も独立評価の代わりにはならない。
+
+CLI（外部認証不要のネットワーク非使用版）：
+
+    python -m tools.agent_repo assurance digest path/to/author-packet.json
+    python -m tools.agent_repo assurance inspect path/to/author-packet.json
+    python -m tools.agent_repo assurance inspect path/to/author-packet.json --review path/to/review.json
+    python -m tools.agent_repo assurance check path/to/author-packet.json
+
+inspect は状態を表示するだけ、check はPASS以外で非0終了。ネットワーク非使用版は外部principalの真正性を証明しないため、reviewを付けただけではPASSを返さない。これを無理に突破するために任意のJSONファイルを「認証済み証拠」として受理してはならない。
+
+版付きJSON Schemaは tools/agent_repo/schemas/research_assurance_v1.schema.json と tools/agent_repo/schemas/research_assurance_review_v1.schema.json。schema検証だけでは承認にならず、Python verifierがstage/claim/protocol/HEADと各changed boundaryへの独立counterexample/oracleを検証する。review bodyのモデル判断は外部adversarial reviewによる意味の検証が必要。
+
+**認証済みGitHub reviewerの照合**：network-free parserの外側に、読み取り専用の tools.research_assurance_github adapterを置く。review JSONを正確なcanonical JSON本文として、対象PRのGitHub公式reviewに**著者とは別のprincipal**から投稿する。GitHubレビューID・投稿主体の数値ID・実 review commit_id ・実本文bytesとpacket digest、reviewed headを比較し、PRのHEADをもう一度取得して変更がないことを確かめる。Review本文の自行の自己申告だけでは認証扱いしない。
+
+    python -m tools.research_assurance_github --repository OWNER/REPO --pr 123 --review-id 456 --packet author-packet.json
+
+上記は通常のGitHub CLIの認証を必要とし、実際のGitHub APIを読めない場合や本人による投稿ならBLOCKED。GitHub principalが別であってもモデルの認知的独立性までは証明しない。非正本の保存ファイル、未確認のjob/run IDを経済実行認可へ昇格させない。
+
+**重要な境界**：このmoduleが返すPASSも **economic_execution_authorized=false** であり、G4研究結果生成、unused/final dataへのアクセス、G5、本番・実取引を単独では認可しない。歴史的結果や当初の判定を上書きしない。reviewerのアカウントが別であることはプロセスの独立性の一部の検証であり、思考の独立性・モデル品質を証明するものではない。
 
 ## G0: Research Question Validity
 

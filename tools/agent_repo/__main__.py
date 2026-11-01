@@ -32,6 +32,10 @@ from tools.agent_repo.eval_suite import (
     score_eval,
 )
 from tools.agent_repo.git_state import read_git_state
+from tools.agent_repo.research_assurance import (
+    assurance_digest,
+    evaluate_assurance,
+)
 from tools.agent_repo.semantic_diff import semantic_diff
 from tools.agent_repo.source_index import SourceIndex
 from tools.agent_repo.source_packet import create_source_packet
@@ -65,6 +69,14 @@ def _parser() -> argparse.ArgumentParser:
     source_packet.add_argument("--base", required=True)
     source_packet.add_argument("--head", required=True)
     source_packet.add_argument("--output", type=Path, required=True)
+
+    assurance = subparsers.add_parser("assurance")
+    assurance_actions = assurance.add_subparsers(dest="assurance_action", required=True)
+    for name in ("digest", "inspect", "check"):
+        command = assurance_actions.add_parser(name)
+        command.add_argument("packet")
+        if name != "digest":
+            command.add_argument("--review", type=str)
 
     subparsers.add_parser("eval-list")
     eval_show = subparsers.add_parser("eval-show")
@@ -122,6 +134,61 @@ def _json_input(repository: Path, raw: object) -> object:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("task input must be valid JSON") from error
+
+
+def _assurance_json_input(repository: Path, raw: str) -> Mapping[str, object]:
+    # The author packet and review are untrusted. Do not accept last-key-wins,
+    # nonfinite values, arbitrarily large input, or filesystem symlinks.
+    path = _input_path(repository, raw)
+    if path.is_symlink():
+        raise ValueError("assurance input must not be a symlink")
+    try:
+        if not path.is_file() or path.stat().st_size > 262_144:
+            raise ValueError("assurance input must be a bounded regular JSON file")
+        encoded = path.read_bytes()
+        if len(encoded) > 262_144:
+            raise ValueError("assurance JSON exceeds size limit")
+    except (OSError, UnicodeDecodeError) as error:
+        raise ValueError("assurance input cannot be read") from error
+
+    def no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key in assurance input: {key}")
+            value[key] = item
+        return value
+
+    def no_nonfinite(value: str) -> object:
+        raise ValueError(f"invalid nonfinite JSON constant: {value}")
+
+    try:
+        decoded = json.loads(
+            encoded.decode("utf-8", "strict"),
+            object_pairs_hook=no_duplicate_keys,
+            parse_constant=no_nonfinite,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("assurance input must be strict UTF-8 JSON") from error
+    return _mapping(decoded, field_name="assurance input")
+
+
+def _dispatch_assurance(args: argparse.Namespace, repository: Path) -> object:
+    author = _assurance_json_input(repository, str(args.packet))
+    action = str(args.assurance_action)
+    if action == "digest":
+        result = evaluate_assurance(author)
+        if result.status == "BLOCKED":
+            raise ValueError("invalid assurance packet: " + "; ".join(result.errors))
+        return {"record_digest": assurance_digest(author)}
+    review = (
+        _assurance_json_input(repository, str(args.review))
+        if args.review is not None
+        else None
+    )
+    # The network-free CLI cannot verify a reviewer principal, GitHub commit_id
+    # or external reviewer-run provenance; a submitted review alone stays BLOCKED.
+    return asdict(evaluate_assurance(author, review=review))
 
 
 def _mapping(value: object, *, field_name: str) -> Mapping[str, object]:
@@ -249,6 +316,8 @@ def _dispatch(args: argparse.Namespace, repository: Path) -> object:
         return asdict(result)
     if command == "task":
         return _dispatch_task(args, repository)
+    if command == "assurance":
+        return _dispatch_assurance(args, repository)
 
     index = SourceIndex.build(repository)
     if command == "context":
@@ -276,6 +345,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(str(error), file=sys.stderr)
         return 2
     _write_json(payload)
+    if (
+        args.command == "assurance"
+        and args.assurance_action == "check"
+        and isinstance(payload, dict)
+        and payload.get("status") != "PASS"
+    ):
+        return 1
     return 0
 
 

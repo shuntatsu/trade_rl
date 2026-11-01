@@ -18,6 +18,10 @@
 - Independent Research Review / Generic reviewのreceipt・差戻し・承認条件はdocs/AGENTS.mdとdocs/architecture/research-assurance.mdに従う。ソフトウェアPRのレビューがGreenでも経済実験、unused/final data、live注文は認可されない。
 - GitHubのbranch protection/rulesetはGit tree外の状態。必須チェック・force-push/削除禁止をread-back確認できない限り、設定済みと主張しない。
 
+## Research Assurance Gate (#687)
+
+新しい経済研究プロトコルと既存プロトコルの重要変更には、G0のcounter-hypothesis/cheapest falsifier/stop rule、G1のmechanism chain、G2の独立oracle、G3のevidence/claim boundaryを記述した版付きauthor packetを作成する。tools.agent_repo assurance の検証結果がUNREVIEWED/BLOCKEDならreviewと実験認可の成立を宣言しない。独立reviewは正確なpacket digestとprotocol/implementation HEADの外部確認が必要で、著者のPASS自己申告を受理しない。ソフトウェアPRのCI Greenと経済実験の認可を混同しない。正本は docs/architecture/research-assurance.md。
+
 ## Research / documentation / branch retention
 
 - causal/point-in-time data、現実的執行費用、common accounting、hard risk、unused data、研究証拠の不変性を維持する。結果後の合格条件変更・leakage・過去の封印結果の再分類は禁止。研究変更はG0–G2のresult-blind反証と必要な独立reviewを先に行う。

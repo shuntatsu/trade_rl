@@ -197,9 +197,10 @@ def test_run_config_change_routes_persisted_contract_and_cli_tests(
         "@dataclass(frozen=True)\nclass CandidateRunConfig:\n"
         "    value: int\n    extra_field: int\n",
     )
-    fast = " ".join(step.command for step in _by_tier(
-        plan_verification(tmp_path, base_ref="main"), "fast"
-    ))
+    fast = " ".join(
+        step.command
+        for step in _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    )
     for name in (
         "test_candidate_run_config.py",
         "test_candidate_run_cli.py",
@@ -213,9 +214,11 @@ def test_sha256_contract_change_routes_existing_common_validator_tests(
     tmp_path: Path,
 ) -> None:
     _baseline(tmp_path)
-    _write(tmp_path, "trade_rl/_validation.py",
-           "def require_sha256(value: str, *, field: str) -> str:\n"
-           "    return value\n")
+    _write(
+        tmp_path,
+        "trade_rl/_validation.py",
+        "def require_sha256(value: str, *, field: str) -> str:\n    return value\n",
+    )
     _test_stub(tmp_path, "tests/test_validation.py")
     _write(
         tmp_path,
@@ -224,9 +227,10 @@ def test_sha256_contract_change_routes_existing_common_validator_tests(
         "def validate_digest(digest: str) -> str:\n"
         "    return require_sha256(digest, field='artifact_digest')\n",
     )
-    fast = " ".join(step.command for step in _by_tier(
-        plan_verification(tmp_path, base_ref="main"), "fast"
-    ))
+    fast = " ".join(
+        step.command
+        for step in _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    )
     assert "tests/test_validation.py" in fast
 
 
@@ -241,9 +245,10 @@ def test_dataset_scope_change_routes_shared_strategy_contract(
         "def select_feature_names(names: tuple[str, ...]) -> tuple[str, ...]:\n"
         "    return tuple(sorted(names))\n",
     )
-    fast = " ".join(step.command for step in _by_tier(
-        plan_verification(tmp_path, base_ref="main"), "fast"
-    ))
+    fast = " ".join(
+        step.command
+        for step in _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    )
     assert "tests/strategies/test_dataset_scope_contract.py" in fast
 
 
@@ -273,8 +278,9 @@ def test_run_artifact_change_routes_legacy_compatibility_and_tamper_oracles(
         "test_candidate_run_provenance.py",
     ):
         assert name in fast
-    assert any("compatibility" in step.reason.lower()
-               for step in _by_tier(steps, "extended"))
+    assert any(
+        "compatibility" in step.reason.lower() for step in _by_tier(steps, "extended")
+    )
 
 
 def test_binance_fallback_condition_change_routes_negative_integrity_tests(

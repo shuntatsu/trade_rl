@@ -239,12 +239,14 @@ def test_serialized_class_fields_and_dataclass_shape_changes_are_detected(
     )
     signals = semantic_diff(tmp_path, base_ref="main")
     assert any(
-        item.kind == "SCHEMA" and item.change == "changed"
+        item.kind == "SCHEMA"
+        and item.change == "changed"
         and item.name == "CandidateRunConfig.JSON_FIELDS"
         for item in signals
     )
     assert any(
-        item.kind == "DATA_FIELD" and item.change == "added"
+        item.kind == "DATA_FIELD"
+        and item.change == "added"
         and item.name == "CandidateRunConfig.version"
         for item in signals
     )

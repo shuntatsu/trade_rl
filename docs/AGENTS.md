@@ -58,10 +58,10 @@ uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HE
 ```
 
 - `preflight`: local branch/HEAD/base/worktree/Active docs/workflow rosterを表示する。
-- `context`: capability、facade、imports/consumers、近傍test/docs、schema/effect signalをsourceから導出する。
+- `context`: capability、facade、imports/consumers、近傍test/docs、schema/effect signalをsourceから導出する。SHA-256に関連する名称には共通Validatorの`used`（実際の静的呼出し）または`candidate`（候補のみ）を表示する。候補表示は当該フィールドの意味や正しさの証明ではない。
 - `impact`: 複数pathのcontextを決定的順序で表示する。
-- `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
-- `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
+- `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。dataclassの注釈フィールドとliteralな`JSON_FIELDS`永続化一覧の変更も示すが、serialization互換性の保証ではない。signal自体を仕様違反判定には使わない。
+- `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。実ファイルが存在するときだけRun config/CLI・共通SHA Validator・Dataset scope・Run artifactの旧互換性・Binanceのフォールバックとcache integrityの回帰テストを追加する。静的なimport検出では見えない負の制約を補助するだけで、final full gateや実行時E2Eの代わりにはならない。
 - `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task promptとgeneric rubricを表示・Evaluator入力から採点する。task-specificなEvaluator answer keyはchecked-in corpusへ保存しない。
 - `source-packet`: full commit SHAで固定した二つのGit snapshotからsource transport packetを作る。changed fileはGit blobのraw bytes、patch rendererはmanifestでGit versionとempty-tree attribute policyを固定し、lazy fetchは無効にする。patchのcross-version byte identityは主張しない。出力TARに含めるchanged HEAD fileはcase-insensitiveなfile/directory prefix collisionを拒否し、削除済みbase pathは判定対象にしない。outputは全てのregistered Git worktree外にある未使用directoryに限り、生成物をcommitしない。
 

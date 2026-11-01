@@ -228,8 +228,7 @@ def test_context_reuses_source_derived_sha256_validation_authority(
     _write(
         tmp_path,
         "trade_rl/_validation.py",
-        "def require_sha256(value: str, *, field: str) -> str:\n"
-        "    return value\n",
+        "def require_sha256(value: str, *, field: str) -> str:\n    return value\n",
     )
     _write(
         tmp_path,
@@ -241,8 +240,7 @@ def test_context_reuses_source_derived_sha256_validation_authority(
     _write(
         tmp_path,
         "trade_rl/evaluation/runs/proposal.py",
-        "def build(artifact_digest: str) -> str:\n"
-        "    return artifact_digest\n",
+        "def build(artifact_digest: str) -> str:\n    return artifact_digest\n",
     )
     index = SourceIndex.build(tmp_path)
     used = index.context("trade_rl/evaluation/runs/digest.py")

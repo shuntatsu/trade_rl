@@ -257,8 +257,6 @@ def _schema_constants(path: Path) -> tuple[str, ...]:
     return tuple(sorted(result))
 
 
-
-
 def _validation_hints(repository: Path, source: Path) -> tuple[str, ...]:
     """Suggest only a canonical validator present in this checkout.
 
@@ -302,6 +300,7 @@ def _validation_hints(repository: Path, source: Path) -> tuple[str, ...]:
     if any("sha256" in name.lower() or "digest" in name.lower() for name in names):
         return ("candidate:trade_rl._validation.require_sha256",)
     return ()
+
 
 def _effect_signals(path: Path) -> tuple[str, ...]:
     result: set[str] = set()

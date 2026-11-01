@@ -92,8 +92,6 @@ def _named_project_surfaces(signals: tuple[SemanticSignal, ...], kind: str) -> s
     return ", ".join(values)
 
 
-
-
 def _add_existing_tests(root: Path, selected: set[str], paths: tuple[str, ...]) -> None:
     """Only select maintained tests verified to exist as ordinary files."""
 
@@ -137,35 +135,42 @@ def _contract_routes(
 
     areas: set[str] = set()
     if source == "trade_rl/evaluation/runs/config.py":
-        _add_existing_tests(root, tests, (
-            "tests/evaluation/test_candidate_run_config.py",
-            "tests/evaluation/test_candidate_run_cli.py",
-            "tests/evaluation/test_candidate_run_artifact.py",
-            "tests/evaluation/test_candidate_run_provenance.py",
-        ))
+        _add_existing_tests(
+            root,
+            tests,
+            (
+                "tests/evaluation/test_candidate_run_config.py",
+                "tests/evaluation/test_candidate_run_cli.py",
+                "tests/evaluation/test_candidate_run_artifact.py",
+                "tests/evaluation/test_candidate_run_provenance.py",
+            ),
+        )
         areas.add("run_config")
     if source in (
         "trade_rl/evaluation/runs/artifact.py",
         "trade_rl/evaluation/runs/provenance.py",
     ):
-        _add_existing_tests(root, tests, (
-            "tests/evaluation/test_candidate_run_artifact.py",
-            "tests/evaluation/test_candidate_run_artifact_identity.py",
-            "tests/evaluation/test_candidate_run_malformed_archive_errors.py",
-            "tests/evaluation/test_candidate_run_provenance.py",
-        ))
+        _add_existing_tests(
+            root,
+            tests,
+            (
+                "tests/evaluation/test_candidate_run_artifact.py",
+                "tests/evaluation/test_candidate_run_artifact_identity.py",
+                "tests/evaluation/test_candidate_run_malformed_archive_errors.py",
+                "tests/evaluation/test_candidate_run_provenance.py",
+            ),
+        )
         areas.add("run_artifact")
     if source == "trade_rl/_validation.py" or validation_hints:
         _add_existing_tests(root, tests, ("tests/test_validation.py",))
         areas.add("validation")
-    if (
-        source.startswith((
+    if source.startswith(
+        (
             "trade_rl/data/",
             "trade_rl/strategies/",
             "trade_rl/evaluation/runs/",
-        ))
-        and _has_scope_symbols(root, source)
-    ):
+        )
+    ) and _has_scope_symbols(root, source):
         _add_existing_tests(
             root, tests, ("tests/strategies/test_dataset_scope_contract.py",)
         )
@@ -174,14 +179,19 @@ def _contract_routes(
         "trade_rl/integrations/binance/transport.py",
         "trade_rl/integrations/binance/cache.py",
     ):
-        _add_existing_tests(root, tests, (
-            "tests/integrations/test_binance_exchange_info_fallback.py",
-            "tests/integrations/test_binance_response_bounds.py",
-            "tests/integrations/test_binance_cache_integrity_contract.py",
-            "tests/integrations/test_binance_cache_only.py",
-        ))
+        _add_existing_tests(
+            root,
+            tests,
+            (
+                "tests/integrations/test_binance_exchange_info_fallback.py",
+                "tests/integrations/test_binance_response_bounds.py",
+                "tests/integrations/test_binance_cache_integrity_contract.py",
+                "tests/integrations/test_binance_cache_only.py",
+            ),
+        )
         areas.add("binance")
     return areas
+
 
 def plan_verification(
     repository: Path,
@@ -212,7 +222,8 @@ def plan_verification(
         fast_tests.update(context.test_candidates)
         contract_areas.update(
             _contract_routes(
-                root, path,
+                root,
+                path,
                 validation_hints=context.validation_hints,
                 tests=fast_tests,
             )

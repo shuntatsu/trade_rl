@@ -156,8 +156,6 @@ def _data_shapes(tree: ast.Module) -> dict[str, str]:
     return result
 
 
-
-
 def _data_fields(tree: ast.Module) -> dict[str, str]:
     """Report annotated dataclass field changes, not incidental method edits."""
 
@@ -181,6 +179,7 @@ def _data_fields(tree: ast.Module) -> dict[str, str]:
                 statement.annotation
             )
     return fields
+
 
 def _schemas(tree: ast.Module) -> dict[str, str]:
     result: dict[str, str] = {}
@@ -221,8 +220,7 @@ def _schemas(tree: ast.Module) -> dict[str, str]:
                 continue
             value = statement.value
             if not isinstance(value, (ast.Tuple, ast.List)) or not all(
-                isinstance(member, ast.Constant)
-                and isinstance(member.value, str)
+                isinstance(member, ast.Constant) and isinstance(member.value, str)
                 for member in value.elts
             ):
                 result[f"{node.name}.JSON_FIELDS"] = "<nonliteral>"

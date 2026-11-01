@@ -130,7 +130,7 @@ PRに独立レビューゲート（CI check: `Generic Independent Research Revie
    - 未解消のblocking指摘がないことを確認し、当該receipt形式の有効な証拠が揃った場合だけ `### Disposition: APPROVED` を記録する。Lowの改善提案はreportへ残してよい。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
 
-Generic gateは `architecture/research-assurance.md` の厳格な従来`independent_model_review_v1`または実在レビューを記録する軽量`software_source_review_v1`を受理する。後者は過去の実装Task IDを必須とせず、exact HEADに対する実際のread-onlyレビューのmodel、job ID、full diff hash、PASS/0 blocking、具体的reportを投稿者がattestする。GitHub review APIのactorとexact `commit_id`・SHA-256へbindされた同一accountの`COMMENTED`も受理し、古いSHAや不明IDを創作して承認としない。CIは記述した証拠の整合性を検査するが、provider実稼働・model weightsまで証明しない。これはsoftware-only統合確認に限り、G0–G5のsource-bound oracle、経済実行、sealed PPO、unused/final、liveの追加認可や4h PPO専用review契約は緩めない。
+Generic gateが現在承認に利用するreceiptは、GitHub review APIのauthenticated actorとexact `commit_id`へbindし、全実装モデルとreviewerの別configured model/taskを宣言する従来の`independent_model_review_v1`のみとする。過去の実装Task IDを要求しない`software_source_review_v1`は、投稿者が任意のAGY job ID・diff SHAを宣言しても実在を照合できないことが再現されたため、**新しい信頼済みreview-run provenance oracleが整備されるまで承認・承認本文生成をfail-closed**とする。過去に投稿された本文は改変せず、実際のprovider review存在は別途確認する。`independent_model_review_v1`もpublisherの申告をprovider認証済みと誤記しない。G0–G5・sealed/unused/final・live・4h PPO専用権限は従来どおり別ゲート。Issue #1065を参照。
 
 ## 更新matrix
 

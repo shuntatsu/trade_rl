@@ -413,7 +413,7 @@ jobs:
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**READY / APPROVED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
-            echo "Different-model receipt verified for software-only review." >> "$GITHUB_STEP_SUMMARY"
+            echo "Structured software-only publisher-attested review receipt accepted; external model execution was not independently verified." >> "$GITHUB_STEP_SUMMARY"
             echo "Economic execution authorization remains separate." >> "$GITHUB_STEP_SUMMARY"
             echo "Independent model source review audit passed."
             exit 0

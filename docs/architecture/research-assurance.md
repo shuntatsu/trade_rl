@@ -1055,14 +1055,9 @@ supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の�
 
 model/task IDは実harness configuration・provider receiptまたは実conversation/task identifierから取得し、publisherがその対応をattestする。`UNKNOWN` / `NOT_ESTABLISHED` 等の未確立値、空値、control character、未知field、重複JSON keyは拒否する。IDsはlowercase ASCIIのcanonical identifierを使い、modelのseparator variantsを同じidentityとして比較する。reviewerのmodelは全implementation modelと異なること、reviewerのtaskは全implementation taskと異なること、implementation task IDsが重複しないことを検証する。宣言値を作り替えるだけで実モデルの分離が成立したとは扱わない。
 
-**軽量software-only receipt（`software_source_review_v1`）:** 過去の実装Task IDが入手できなくても、実際に実施したsource reviewを使える。従来の`independent_model_review_v1`は後方互換として引き続き受理する。review本文・GitHub APIのcommit/state/actor・single marker/disposition/fence/envelope/SHA-256は共通であり、軽量形式のpayloadは以下の**11 fieldのみ**とする。
+**軽量software-only receiptの保留（`software_source_review_v1`; Issue #1065）:** 過去の実装Task IDが不明でもソフトウェアレビューを記録する目的で導入されたが、現在の形式は `review_jobs`、`reviewer_model_id`、`diff_sha256`をpublisherが自由に記載でき、CIはその実際のAGY job・model・full diffへの一致を検証しない。形式が正しい未実行jobや任意の64桁digestでも承認扱いになる反例が現在のmainで再現された。このため、**承認を一時停止する**。CIは同schemaを`PENDING`（他の同一HEADレビューに有効な従来形式がなければ）として扱い、`--render-payload-json`も軽量schemaの承認本文生成を拒否する。既存のGitHub reviewや履歴を削除・改変しない。
 
-- `schema: software_source_review_v1`、`head_sha`、`publisher_user_id`、`scope: software-only`、`disposition: APPROVED`。
-- `reviewer_model_id`: 実際に呼び出した別モデルのconfigured name（lowercase ASCII）。`review_jobs`: そのソースレビューの実在する管理ジョブID（16桁lowercase hex）の重複なしlist（1–10件）。複数ページの全レビューjobを含める。
-- `review_result: PASS`、`blocking_findings: 0`、`diff_sha256`: 当該HEADの実レビューが返したfull-diff SHA-256、`report`: 監査内容・判断・残存リスクの具体的な本文（80文字以上）。
-
-CIはこれらの型、レビューのexact HEAD・authenticated publisher・visible disposition・単一receipt・payload digestをfail-closed検査するが、外部AGY job/モデルの実稼働をGitHub Actionsから直接照合するものではない。レビュー投稿者はGitHub上の原資料（review job、モデル、diff hash、result、findings）を読み戻して**実在情報だけ**をattestする。歴史上のWorker/Reviewer Task IDを創作せず、未確認を承認済みに改称しない。Medium/Highの未解消問題を含むレビューはPASSとして投稿しない。これはsoftware PRの統合監査を実務的に簡素化するルール変更であり、結果を見てからの研究判定変更、経済実行、unused/final、注文、G0–G5の追加認可を一切変更しない。
-
+復帰条件は、投稿者のJSON checksumやGitHub accountとは独立したtrusted provider/run証拠から、repo/PR/exact HEAD、full changed-file diff digest、実際のreview job、configured reviewer model、result/findingを読み戻して照合し、全実装モデルとの独立性を確認できること。provider/APIの検証surfaceがまだ無い場合は、値を創作せずfail-closedとする。経済的reviewや研究実験の許可を代替しない。従来`independent_model_review_v1`は互換のため残すが、そのmodel/task identityもpublisher attestationであり、外部providerの暗号学的証明ではない。
 `sha256` は **payloadだけ**を `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")` したbytesのSHA-256であり、envelopeのhashをpayloadへ入れない。CIはhashの存在確認だけでなく実payloadから再計算する。authenticated publisher、exact HEAD、disposition、report、model/task metadataがこのdigestへbindされる。これはpublisher attestationの整合性検査であり、providerの実model weightsや真の実装履歴を暗号学的に証明しない。
 
 実reviewのpayloadを用意した後、network-free rendererで投稿本文を作れる。
@@ -1073,7 +1068,7 @@ uv run python tools/independent_research_review.py --render-payload-json receipt
 
 最新GitHub API evidenceを毎回refetchし、approvalはactorごとの最新marked review IDで評価する。dismissed/pending/changes-requested、stale HEAD、重複review ID、receipt不整合や曖昧なdispositionはapprovalにならない。一方、同じexact HEADのactive submitted marked `BLOCKED` はreceiptがなくても全actor・全review recordで優先し、同じactorの後続APPROVEDでも消去しない。
 
-これらのsoftware-only receiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のsame-model fresh-agent reviewを自動で新policyのformal approvalへ昇格しない。
+現行で承認可能なsoftware-only receiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のsame-model fresh-agent reviewを自動で新policyのformal approvalへ昇格しない。
 
 ### Separate economic reviewer authority
 

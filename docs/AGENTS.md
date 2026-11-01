@@ -79,6 +79,18 @@ GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run pyt
 
 `tools.github_coordination_registry_snapshot.observe_registry_snapshot` は、このGET-only object readerを使って `refs/heads/coordination/*` の**read-only時点観測**を作る。最初と最後にrepositoryのexact name / GitHub node ID / native numeric IDを確認し、同じref名・commit OIDを2回確認して、その間にcommit→tree→blobからcanonical registry digestを取得する。ref・repository identity変動、存在しないref、型不正、payload不一致、API不達はfail-closedで拒否し、部分取得をempty registryや完全rosterへ変換しない。前後一致は瞬間的な観測であって、認証済みCoordinatorの証明、外部protected ref、roster完全性、全workflow/Taskリコンサイル、remote CAS linearizabilityやinterruption E2Eの保証ではない。`RegistryRefSnapshot` の `authoritative_registry_established` / `task_registry_complete` / `cleanup_authorized` は常にfalseで、branch削除は引き続き禁止する。
 
+## Research Assurance Gate (#687)
+
+新規economic research protocol・material changeではG0–G3 result-blind author packet
+research_assurance_v1 と別個の research_assurance_review_v1 を扱う。
+python -m tools.agent_repo assurance inspect assurance.json は独立性を自動証明しない。
+python -m tools.agent_repo assurance check assurance.json はPASS以外で非0終了する。
+外部認証済みのレビューprincipal、record digest、protocol/implementation HEADが
+一致しないとPASSはなく、PASSもG4/G5/unused/final/liveを自動認可しない。
+G1–G2 mechanism/runtime監査のIssue #667とは目的が違い、並行して確認する。
+正本は architecture/research-assurance.md、例は
+tools/agent_repo/examples/research_assurance.json に置く。
+
 ## Agent Coordination Plane
 
 複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。

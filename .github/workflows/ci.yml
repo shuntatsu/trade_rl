@@ -45,9 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Print formatter diff for #667 (temporary)
-        run: uv run ruff format --diff tests/artifacts/test_verified_file_snapshot.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

@@ -131,12 +131,15 @@ def test_verified_artifact_read_keeps_regular_nested_parents_working(
         digest,
         len(payload),
     )
-    assert verified_file.read_verified_bytes(
-        policy,
-        expected_digest=digest,
-        expected_size_bytes=len(payload),
-        field="policy",
-    ) == payload
+    assert (
+        verified_file.read_verified_bytes(
+            policy,
+            expected_digest=digest,
+            expected_size_bytes=len(payload),
+            field="policy",
+        )
+        == payload
+    )
     with verified_file.verified_private_copy(
         policy,
         expected_digest=digest,

@@ -54,6 +54,8 @@ BookState
 
 globalのreturn平均・標準偏差に値がない行は、`global_feature_available=False`と欠損理由で区別します。`global_feature_staleness_hours=0.0`はこのとき単なる数値placeholderで、最新値の存在や0時間前の予測を保証しません。経過時間は値が実際に存在する場合だけ解釈します。
 
+クロスアセット特徴量に15分足のような短いnative sourceを使う場合も、内部returnはそのsourceの実際の利用可能時刻に合わせて基準足へ整列します。replay時点より後に公開されたsourceを観測へ混ぜず、追加の公開特徴量列は作りません。
+
 未来のバーを見てから観測を作ることはありません。判断に入る情報は現在時点までに利用可能なものに限定します。
 
 Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否します。同時刻は許します。このas-of floorはmodelの生成・配布時刻や過去のvintage availabilityを証明せず、`StrategyObservation`構築前に既にwrapされたtimestampも復元しません。

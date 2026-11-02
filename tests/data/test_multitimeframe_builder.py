@@ -221,3 +221,264 @@ def test_latest_closed_fifteen_minute_feature_aligns_to_hourly_decision() -> Non
 
     np.testing.assert_allclose(dataset.features[1, 0, 0], np.log(110.0 / 106.0))
     np.testing.assert_allclose(dataset.features[2, 0, 0], np.log(120.0 / 116.0))
+
+
+def _cross_subbase_source() -> MemoryMultiTimeframeSource:
+    hourly = [f"2026-01-01T{hour:02d}:00:00" for hour in range(3)]
+    quarter = [
+        f"2026-01-01T{index // 4:02d}:{(index % 4) * 15:02d}:00" for index in range(9)
+    ]
+    return MemoryMultiTimeframeSource(
+        {
+            ("BTCUSDT", "1h"): _series(hourly, [100.0, 105.0, 111.0]),
+            ("ETHUSDT", "1h"): _series(hourly, [200.0, 207.0, 220.0]),
+            ("BTCUSDT", "15m"): _series(quarter, [100.0 + i for i in range(9)]),
+            ("ETHUSDT", "15m"): _series(
+                quarter, [200.0 + 3 * i + 0.2 * i * i for i in range(9)]
+            ),
+        }
+    )
+
+
+def _cross_subbase_contracts() -> tuple[InstrumentContract, ...]:
+    return (
+        InstrumentContract(
+            symbol="BTCUSDT", listed_at=datetime(2025, 1, 1, tzinfo=UTC)
+        ),
+        InstrumentContract(
+            symbol="ETHUSDT", listed_at=datetime(2025, 1, 1, tzinfo=UTC)
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    (
+        FeatureKind.RELATIVE_RETURN_TO_BTC,
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.ROLLING_BETA_TO_BTC,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+        FeatureKind.CROSS_ASSET_DISPERSION,
+    ),
+)
+def test_subbase_cross_asset_works_without_an_explicit_one_bar_source_channel(
+    kind: FeatureKind,
+) -> None:
+    source = _cross_subbase_source()
+    cross = FeatureSpec(
+        name=f"15m_{kind.value}",
+        kind=kind,
+        timeframe="15m",
+        lookback=2,
+        min_periods=2,
+        max_staleness_hours=2.0,
+    )
+    implicit = MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=(cross,),
+            cross_asset_reference_symbol="BTCUSDT",
+        )
+    ).build(source, _cross_subbase_contracts())
+    explicit = MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=(
+                FeatureSpec(
+                    name="15m_ret_1",
+                    kind=FeatureKind.LOG_RETURN,
+                    timeframe="15m",
+                    lookback=1,
+                    max_staleness_hours=2.0,
+                ),
+                cross,
+            ),
+            cross_asset_reference_symbol="BTCUSDT",
+        )
+    ).build(source, _cross_subbase_contracts())
+
+    np.testing.assert_array_equal(
+        implicit.feature_available[:, :, 0], explicit.feature_available[:, :, 1]
+    )
+    np.testing.assert_allclose(
+        implicit.features[:, :, 0], explicit.features[:, :, 1], rtol=0, atol=0
+    )
+    np.testing.assert_array_equal(
+        implicit.feature_staleness_hours[:, :, 0],
+        explicit.feature_staleness_hours[:, :, 1],
+    )
+    assert implicit.feature_names == (cross.name,)
+    assert implicit.feature_available[2, 1, 0]
+    assert implicit.features[2, 1, 0] != 0.0
+
+
+def test_subbase_cross_asset_requires_valid_native_source_not_base_price_fallback() -> (
+    None
+):
+    source = _cross_subbase_source()
+    source.values[("BTCUSDT", "15m")] = _series(
+        [
+            "2026-01-01T00:00:00",
+            "2026-01-01T00:15:00",
+            "2026-01-01T00:45:00",
+            "2026-01-01T01:00:00",
+        ],
+        [100.0, 101.0, 104.0, 105.0],
+    )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                name="relative",
+                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe="15m",
+            ),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    with pytest.raises(ValueError, match="complete and exactly regular"):
+        MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
+
+
+def test_base_cross_asset_still_requires_explicit_log_return_source() -> None:
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(name="relative", kind=FeatureKind.RELATIVE_RETURN_TO_BTC),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    with pytest.raises(ValueError, match="one-bar log return channel"):
+        MarketDatasetBuilder(config).build(
+            _cross_subbase_source(), _cross_subbase_contracts()
+        )
+
+
+def test_subbase_cross_asset_refuses_missing_native_source_protocol() -> None:
+    source = _cross_subbase_source()
+    from trade_rl.data.source import InMemoryMarketDataSource
+
+    base_only = InMemoryMarketDataSource(
+        {symbol: source.values[(symbol, "1h")] for symbol in ("BTCUSDT", "ETHUSDT")}
+    )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                name="relative",
+                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe="15m",
+            ),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    with pytest.raises(ValueError, match="MultiTimeframeMarketDataSource"):
+        MarketDatasetBuilder(config).build(base_only, _cross_subbase_contracts())
+
+
+def test_subbase_cross_asset_obeys_delayed_native_source_available_at() -> None:
+    source = _cross_subbase_source()
+    original = source.values[("ETHUSDT", "15m")]
+    native_times = [str(time.astype("datetime64[s]")) for time in original.timestamps]
+    late_times = [
+        str((time + np.timedelta64(3, "h")).astype("datetime64[s]"))
+        for time in original.timestamps
+    ]
+    source.values[("ETHUSDT", "15m")] = _series(
+        native_times,
+        [float(price) for price in original.close],
+        available_at=late_times,
+    )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                name="relative",
+                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe="15m",
+            ),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    result = MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
+    np.testing.assert_array_equal(
+        result.feature_available[:, 1, 0], [False, False, False]
+    )
+    assert result.feature_available[1, 0, 0]
+
+
+def test_subbase_cross_asset_rejects_duplicate_explicit_return_channels() -> None:
+    source = _cross_subbase_source()
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(name="ret_a", kind=FeatureKind.LOG_RETURN, timeframe="15m"),
+            FeatureSpec(name="ret_b", kind=FeatureKind.LOG_RETURN, timeframe="15m"),
+            FeatureSpec(
+                name="relative",
+                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe="15m",
+            ),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    with pytest.raises(ValueError, match="one-bar log return channel"):
+        MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
+
+
+def test_subbase_cross_asset_missing_reference_is_rejected_before_native_load() -> None:
+    source = _cross_subbase_source()
+    original = source.load_timeframe
+
+    def guarded(symbol: str, timeframe: str) -> RawMarketSeries:
+        if timeframe == "15m":
+            pytest.fail("invalid cross-asset config must not load extra native source")
+        return original(symbol, timeframe)
+
+    source.load_timeframe = guarded  # type: ignore[method-assign]
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                name="relative",
+                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe="15m",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="cross_asset_reference_symbol"):
+        MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
+
+
+def test_implicit_subbase_cross_asset_is_prefix_causal_under_future_mutation() -> None:
+    original = _cross_subbase_source()
+    changed = _cross_subbase_source()
+    original_native = changed.values[("ETHUSDT", "15m")]
+    changed_prices = original_native.close.copy()
+    changed_prices[-1] *= 1.4
+    native_times = [
+        str(time.astype("datetime64[s]")) for time in original_native.timestamps
+    ]
+    changed.values[("ETHUSDT", "15m")] = _series(
+        native_times,
+        [float(price) for price in changed_prices],
+    )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                name="relative",
+                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe="15m",
+                max_staleness_hours=2.0,
+            ),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    before = MarketDatasetBuilder(config).build(original, _cross_subbase_contracts())
+    after = MarketDatasetBuilder(config).build(changed, _cross_subbase_contracts())
+    np.testing.assert_array_equal(
+        before.feature_available[:2], after.feature_available[:2]
+    )
+    np.testing.assert_array_equal(before.features[:2], after.features[:2])
+    assert before.features[2, 1, 0] != after.features[2, 1, 0]

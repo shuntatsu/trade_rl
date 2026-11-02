@@ -10,6 +10,7 @@ ATTEMPT_TEST = "tests/evaluation/test_portfolio_family_attempt.py"
 SCENARIO_ATTEMPT_TEST = "tests/evaluation/test_portfolio_family_scenario_attempt_v2.py"
 SCENARIO_REPLAY_TEST = "tests/evaluation/test_portfolio_family_scenario_replay_v2.py"
 MANIFEST_TEST = "tests/evaluation/experiments/test_four_family_input_manifest.py"
+PROBABILITY_PROBE_TEST = "tests/tools/test_issue810_portfolio_probability_probe.py"
 
 
 def test_ppo_runtime_runs_four_family_actual_ppo_integration() -> None:
@@ -30,3 +31,4 @@ def test_ppo_runtime_runs_four_family_actual_ppo_integration() -> None:
     assert SCENARIO_ATTEMPT_TEST in selected_tests
     assert SCENARIO_REPLAY_TEST in selected_tests
     assert MANIFEST_TEST in selected_tests
+    assert PROBABILITY_PROBE_TEST in selected_tests

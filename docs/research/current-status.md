@@ -303,11 +303,16 @@ Result (one frozen run, code commit 0bcbee2b3, protocol digest 96c11b5c3f14..., 
 
 Limits. Synthetic, 4 assets, daily, 3 PPO seeds, one fixed hyper-parameter set (no tuning), a Gaussian-noise market where the allocator's model is nearly correctly specified (no regime or forecast misspecification for a residual to correct), no financing, funding, impact or partial fills, and the control uses the same generator as the test regime. Not a profitability claim; no real, paper or live data or orders were used.
 
+
+**Software hardening after the frozen Phase 2 run (no change to recorded evidence).** Future replays now require both CASH and buy-and-hold to be valid before either label can promote an allocator. Both probe rules share the per-scenario causality matrix and use the caller's actual protocol/risk limit; only the historical pre-cut trade requirement differs. Missing controls, truncated/terminated or unpaired equity paths are not silently promoted or paired in the bootstrap; omissions are recorded with reasons. A non-default causality cut is recorded as used and yields diagnostic-only evidence. T8 records native per-168h and linearly scaled per-24h forecast diagnostics separately. Price P&L removes funding, borrow, dividends and cash interest from net P&L, without a second accounting ledger. T7 keeps the allocator's same-timestamp fail-closed exact-quantity HOLD, reporting suppressed overlay interventions, but the frozen historical T7 drawdown latch remains effectively terminal when the book is flat. If the latch reaches zero with a non-flat book and the allocator fails closed, this HOLD deliberately does not create liquidation orders; residual exposure remains a risk and must not be described as a successful hard-stop liquidation. Probe trade checks use actual interval fills/positions rather than slicing a mixed trace.
+
+The frozen registry, prior JSON results and both historical labels remain unchanged. These are prospective software safeguards, not a new experiment or authorization to open unused/final data.
+
 ## Generic software PR review policy (2026-10-14)
 
-[Issue #810 owner direction](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6167842087)に基づく異なるconfigured modelのexact-HEAD source reviewは継続する。Generic software-only gateは、全Task IDを含む従来`independent_model_review_v1`に加え、実際のreviewer model/AGY job・full-diff digest・PASS/0 blocking・reportをauthenticated GitHub review APIへbindした軽量`software_source_review_v1`も受理する。後者はprovider実稼働をCIが独立証明するものではなく、G0–G5の研究・経済的な追加認可とは別である。
+2026-11-01のowner directionにより、Generic software PRのreviewは**exact-HEAD model source review**へ軽量化する。`software_source_review_v2`は同じconfigured model（例: GPT-5.6 Sol）を許容し、GitHub review APIのauthenticated actor・exact head・reviewer model名・PASS・blocking finding 0・具体的reportをreceiptへbindする。provider-run provenance・別modelであること・AGY job ID・diff digest・過去の実装Task IDは必須とせず、model independenceを主張しない。
 
-receiptはsoftware-onlyの統合確認であり、CIはpublisher attestationの構造と整合性を検証する。providerの実model weightsを証明せず、過去のAI確認を自動昇格しない。G0-G3 oracle、研究上のcost/accounting/risk/20% DD条件、G4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityは既存の別契約を維持する。このgate修復自体は新しいeconomic resultや個別Studyの実行認可を成立させない。
+旧`software_source_review_v1`は未検証のjob/diff値を含むためfail-closedのまま廃止する。従来`independent_model_review_v1`は互換経路として残す。研究G0–G5、経済評価、4h PPO専用review、sealed/unused/finalやliveは別々の承認条件であり、このsoftware review軽量化は経済的許可を生まない。
 
 ## Issue #1025: native paired portfolio action comparison (software stage; 2026-10-28)
 

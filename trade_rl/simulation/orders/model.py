@@ -740,6 +740,26 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
     def append(self, order: PendingOrder) -> TerminalOrderArchive:
         return self._from_tail(self._next_node(self._tail, order))
 
+    def suffix_since(self, previous: TerminalOrderArchive) -> tuple[PendingOrder, ...]:
+        """Return orders appended after an ancestor snapshot in archive order.
+
+        The persistent archive shares its prefix, so finding a valid suffix
+        walks only the newly appended nodes. A snapshot from another branch is
+        rejected rather than treated as an empty or partial delta.
+        """
+
+        if not isinstance(previous, TerminalOrderArchive):
+            raise TypeError("previous must be a TerminalOrderArchive")
+        suffix: list[PendingOrder] = []
+        node = self._tail
+        while node is not previous._tail:
+            if node is None:
+                raise OrderDomainError("previous terminal archive is not an ancestor")
+            suffix.append(node.order)
+            node = node.previous
+        suffix.reverse()
+        return tuple(suffix)
+
     def canonical_payload(self) -> tuple[PendingOrder, ...]:
         """Expose the historical tuple shape at serialization boundaries."""
 

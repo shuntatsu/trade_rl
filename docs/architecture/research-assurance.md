@@ -21,7 +21,7 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 このcontractは、新しいproduction runtime、Study artifact schema、経済モデル、winner ruleを追加しない。既存のimmutable Study/Run/EvidenceSetを遡及的に書き換えず、過去の結果を別の判定へ再分類しない。
 
-また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
+既存のpreregistration、StudyPlan、Issue/PRのresult-blind design recordは維持する。新しい経済研究プロトコルや重要な変更では、Issue #687 の **Research Assurance Gate** として、新規の research_assurance_v1 著者レコードと独立した research_assurance_review_v1 を用いる。既存のimmutable Study/Run/EvidenceSetへ遡及移行や再分類を行わない。結果を観測した後から不足項目を埋めて「事前に証明した」と扱うことは禁止する。
 
 ### Declarative financial objective and clock
 
@@ -42,6 +42,35 @@ gamma-one equity-delta reward; `fit_shared_portfolio_ppo` checks its bound clock
 This connection does not itself prove actual reward/ledger parity, economic
 learnability, Study authorization, or real-data profitability. The historical
 per-symbol PPO defaults are unchanged; G0–G2 independent oracles still apply.
+
+## Research Assurance Gate（Issue #687 / Issue #667 とは別責務）
+
+Issue #667 は選択済みmechanismが実際に期待どおり実装されたかを監査する。本ゲートはさらにその前段で、問いの妥当性（G0）、代替仮説、mechanism（G1）、根拠が主張に十分か（G3）、独立オラクル・反例（G2）、結論の許容範囲を検証する。両者は置き換えずに併用する。
+
+**書式**：author packetは tools/agent_repo/examples/research_assurance.json と同じ research_assurance_v1 とし、research thesis、canonical source → availability → feature/state → model/strategy → intent → order → fill → accounting → evidence → decision chain、unit/time/state/sign/risk/execution/accounting/evidence各boundary、独立oracle、evidenceとstage、permitted/forbidden claimsと次のactionを含む。claims には検証可能な decision_rule と、経済・live認可を与えない型付き next_action_class（documentation_only / synthetic_verification_only / request_separate_economic_authorization）も必須とする。production_eligible や live_trading_authorized を自己申告で true にしてもBLOCKEDとなる。packetから review 欄を排除し、canonical JSON SHA-256を記録digestとする。完了したauthor packetを後から黙って変更できず、変更すればレビューは失効する。
+
+**独立review**：レビューは別レコード research_assurance_review_v1 に保持し、正確なpacket digest、protocol HEAD、implementation HEAD、result blindness、G0/G1/G2、blocking findings、missing evidence、限界、dispositionに束縛する。承認を自己申告するだけではPASSにしない。GitHubの実際のPRレビューobject（principal・review commit_id・レビュー本文bytes）または同等の独立した認証済みrunを、authorによって改変できない外部adapterから検証する。認証済み外部証拠がない場合は **BLOCKED**。同じGitHub principalによるprose/tagのみではindependenceを認めない。
+
+**検証状態**：有効なauthor packetのみなら UNREVIEWED、欠落・矛盾・古いdigest/HEAD・review非独立・G0/G1/G2失敗・主張の格上げがあれば BLOCKED、完全な構造と独立した認証済み肯定レビューの両方があれば限定的な研究保証 PASS。**項目を全部埋めただけではPASSにならない**。正常なsource CI、同じbytesの再生成、GitHubコメント内のPASS文字列も独立評価の代わりにはならない。
+
+CLI（外部認証不要のネットワーク非使用版）：
+
+    python -m tools.agent_repo assurance digest path/to/author-packet.json
+    python -m tools.agent_repo assurance inspect path/to/author-packet.json
+    python -m tools.agent_repo assurance inspect path/to/author-packet.json --review path/to/review.json
+    python -m tools.agent_repo assurance check path/to/author-packet.json
+
+inspect は状態を表示するだけ、check はPASS以外で非0終了。ネットワーク非使用版は外部principalの真正性を証明しないため、reviewを付けただけではPASSを返さない。これを無理に突破するために任意のJSONファイルを「認証済み証拠」として受理してはならない。
+
+版付きJSON Schemaは tools/agent_repo/schemas/research_assurance_v1.schema.json と tools/agent_repo/schemas/research_assurance_review_v1.schema.json。schema検証だけでは承認にならず、Python verifierがstage/claim/protocol/HEADと各changed boundaryへの独立counterexample/oracleを検証する。review bodyのモデル判断は外部adversarial reviewによる意味の検証が必要。
+
+**認証済みGitHub reviewerの照合**：network-free parserの外側に、読み取り専用の tools.research_assurance_github adapterを置く。review JSONを正確なcanonical JSON本文として、対象PRのGitHub公式reviewに**著者とは別のprincipal**から投稿する。GitHubレビューID・投稿主体の数値ID・実 review commit_id ・実本文bytesとpacket digest、reviewed headを比較し、PRのHEADと対象review objectをもう一度取得して、途中のHEAD移動・review編集・dismissalを拒否する。Review本文の自行の自己申告だけでは認証扱いしない。
+
+    python -m tools.research_assurance_github --repository OWNER/REPO --pr 123 --review-id 456 --packet author-packet.json
+
+上記は通常のGitHub CLIの認証を必要とし、実際のGitHub APIを読めない場合や本人による投稿ならBLOCKED。GitHub principalが別であってもモデルの認知的独立性までは証明しない。非正本の保存ファイル、未確認のjob/run IDを経済実行認可へ昇格させない。
+
+**重要な境界**：このmoduleが返すPASSも **economic_execution_authorized=false** であり、G4研究結果生成、unused/final dataへのアクセス、G5、本番・実取引を単独では認可しない。歴史的結果や当初の判定を上書きしない。reviewerのアカウントが別であることはプロセスの独立性の一部の検証であり、思考の独立性・モデル品質を証明するものではない。
 
 ## G0: Research Question Validity
 
@@ -1032,11 +1061,11 @@ date plus the settlement margin and both user authorizations exist.
 
 ### Reviewer independence / freshness
 
-既定は、実装担当の全configured AIモデルと異なるconfiguredモデルを使い、実装Workerとは別の **fresh reviewer context** を持つAI reviewer/sessionで、対象branchへwriteしない **read-only** roleとする。reviewはexact target revisionへbindする。同一モデルのfresh sessionだけではmodel independenceを確立しない。
+研究G0–G5・結果解釈・4h PPO専用reviewでは、実装Workerとは別のfresh reviewer contextと必要なconfigured-model分離を従来どおり使い、reviewをexact target revisionへbindする。一方、Generic software PRの`software_source_review_v2`は運用コストを下げるため**同じconfigured modelを許容**する。このv2はexact-HEADのsoftware source reviewであって、model independence・provider-run provenance・研究result-blind independenceの証明ではない。
 
 ### Generic software PR review receipt
 
-`Generic Independent Research Review` はsoftware-onlyのPR統合確認であり、GitHub account分離ではなくconfigured AIモデルの分離を要求する。同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
+`Generic Independent Research Review` はhistorical job名を維持するが、Generic software PRではexact-HEADの**model source review**を要求する。`software_source_review_v2`ではconfigured AIモデルの分離を要求せず、同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
 
 software-onlyのreview inputは、対象のexact HEADと完全なchanged-file patch、影響するcurrent source/tests/authoritative contracts、目的・受入条件・重要なfailure mode・既知の限界を含める。影響しない歴史的な親plan全文や過去のWorker Task IDは必須としない。ただし、検証が必要な境界は省略せず、結論を裏付けるsource・test evidenceを確認する。歴史的なresult-bearing software auditは、fresh result-blind G0–G2 reviewとは別の範囲である。
 
@@ -1055,14 +1084,9 @@ supported protocolはCR/LFのline boundaryとASCII space/tabだけを構造の�
 
 model/task IDは実harness configuration・provider receiptまたは実conversation/task identifierから取得し、publisherがその対応をattestする。`UNKNOWN` / `NOT_ESTABLISHED` 等の未確立値、空値、control character、未知field、重複JSON keyは拒否する。IDsはlowercase ASCIIのcanonical identifierを使い、modelのseparator variantsを同じidentityとして比較する。reviewerのmodelは全implementation modelと異なること、reviewerのtaskは全implementation taskと異なること、implementation task IDsが重複しないことを検証する。宣言値を作り替えるだけで実モデルの分離が成立したとは扱わない。
 
-**軽量software-only receipt（`software_source_review_v1`）:** 過去の実装Task IDが入手できなくても、実際に実施したsource reviewを使える。従来の`independent_model_review_v1`は後方互換として引き続き受理する。review本文・GitHub APIのcommit/state/actor・single marker/disposition/fence/envelope/SHA-256は共通であり、軽量形式のpayloadは以下の**11 fieldのみ**とする。
+**Generic software-only receipt（`software_source_review_v2`）:** 2026-11-01のowner directionにより、software PRのsemantic reviewは厳密な別model/provenance証明を必須としない。v2 payloadは `schema`、`head_sha`、`publisher_user_id`、`scope=software-only`、`disposition=APPROVED`、`reviewer_model_id`、`review_result=PASS`、`blocking_findings=0`、具体的な`report`の**9 fieldだけ**とする。GitHub review APIのauthenticated actor、review `commit_id`、visible marker/disposition、payload SHA-256は従来どおり検証する。同じconfigured model（例: `gpt-5.6-sol`）を許容し、reviewer model名はpublisher-attested metadataとして記録するが、model independenceやprovider実行を証明したとは扱わない。reportはexact HEADの差分・関連tests/contracts・主要failure modeを実際に読んだreview結果で、80文字未満、unknown model、PASS以外、blocking finding非zeroは拒否する。
 
-- `schema: software_source_review_v1`、`head_sha`、`publisher_user_id`、`scope: software-only`、`disposition: APPROVED`。
-- `reviewer_model_id`: 実際に呼び出した別モデルのconfigured name（lowercase ASCII）。`review_jobs`: そのソースレビューの実在する管理ジョブID（16桁lowercase hex）の重複なしlist（1–10件）。複数ページの全レビューjobを含める。
-- `review_result: PASS`、`blocking_findings: 0`、`diff_sha256`: 当該HEADの実レビューが返したfull-diff SHA-256、`report`: 監査内容・判断・残存リスクの具体的な本文（80文字以上）。
-
-CIはこれらの型、レビューのexact HEAD・authenticated publisher・visible disposition・単一receipt・payload digestをfail-closed検査するが、外部AGY job/モデルの実稼働をGitHub Actionsから直接照合するものではない。レビュー投稿者はGitHub上の原資料（review job、モデル、diff hash、result、findings）を読み戻して**実在情報だけ**をattestする。歴史上のWorker/Reviewer Task IDを創作せず、未確認を承認済みに改称しない。Medium/Highの未解消問題を含むレビューはPASSとして投稿しない。これはsoftware PRの統合監査を実務的に簡素化するルール変更であり、結果を見てからの研究判定変更、経済実行、unused/final、注文、G0–G5の追加認可を一切変更しない。
-
+旧`software_source_review_v1`は、検証できない`review_jobs`や`diff_sha256`をreceiptに含めていたため**廃止しPENDINGのまま**とする。架空job IDやdigestを新v2へ移植しない。従来`independent_model_review_v1`は互換経路として残し、必要な厳密reviewで使ってよい。Generic v2は経済的review、G0–G5、4h PPO専用review、sealed/unused/final、live authorizationを代替しない。
 `sha256` は **payloadだけ**を `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")` したbytesのSHA-256であり、envelopeのhashをpayloadへ入れない。CIはhashの存在確認だけでなく実payloadから再計算する。authenticated publisher、exact HEAD、disposition、report、model/task metadataがこのdigestへbindされる。これはpublisher attestationの整合性検査であり、providerの実model weightsや真の実装履歴を暗号学的に証明しない。
 
 実reviewのpayloadを用意した後、network-free rendererで投稿本文を作れる。
@@ -1073,13 +1097,15 @@ uv run python tools/independent_research_review.py --render-payload-json receipt
 
 最新GitHub API evidenceを毎回refetchし、approvalはactorごとの最新marked review IDで評価する。dismissed/pending/changes-requested、stale HEAD、重複review ID、receipt不整合や曖昧なdispositionはapprovalにならない。一方、同じexact HEADのactive submitted marked `BLOCKED` はreceiptがなくても全actor・全review recordで優先し、同じactorの後続APPROVEDでも消去しない。
 
-これらのsoftware-only receiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のsame-model fresh-agent reviewを自動で新policyのformal approvalへ昇格しない。
+現行で承認可能なsoftware-only receiptはG0-G3のsource-bound machine oracle、G4 economic execution、4h PPO smokeの専用review/trigger、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。過去のreview本文を自動でv2 formal approvalへ昇格せず、新しいexact HEADごとにreview APIへv2 receiptを投稿する。
 
 ### Separate economic reviewer authority
 
-GitHub上のposting principalはreview transportであり、それ自体をAI reviewerの独立性authorityとしない。同じGitHub principalをauthor/transportとして使う場合、review bodyやtagに `reviewer_independence=ESTABLISHED` と自己申告しただけではG4をauthorizeしない。独立性をmachine-boundに扱う経路では、default branch上でpre-reviewed/frozenされたtrusted reviewer workflow/runnerがfresh Gemini requestを発行し、そのrunからimmutable reviewer attestationを生成する。4h PPO smoke向け `ppo_4h_gemini_reviewer_run_v1` は最低限、reviewed code SHA、annotated review-tag object SHA、trusted workflow SHA/refとworkflow/runner content digest、canonical request PR/comment/requester authority、result-blind packet digest、同じtrusted run内のCore / PPO Runtime / Human Guide verification job identity、canonical system-instruction / Gemini request digest、raw Gemini response digest、Gemini `modelVersion` / `responseId`、G0/G1/G2/dispositionをbindする。具体的なGemini model versionはprovenanceでありvalidator allow-listにはしない。
+GitHub上のposting principalはreview transportであり、それ自体をAI reviewerの独立性authorityとしない。同じGitHub principalをauthor/transportとして使う場合、review bodyやtagに `reviewer_independence=ESTABLISHED` と自己申告しただけではG4をauthorizeしない。独立性をmachine-boundに扱う経路では、default branch上でpre-reviewed/frozenされたtrusted reviewer workflow/runnerがfresh Gemini requestを発行し、そのrunからimmutable reviewer attestationを生成する。4h PPO smoke向け `ppo_4h_gemini_reviewer_run_v2` は最低限、reviewed code SHA、annotated review-tag object SHA、trusted workflow SHA/refとworkflow/runner content digest、canonical request PR/comment/requester authority、result-blind packet digest、同じtrusted run内のCore / PPO Runtime / Human Guide verification job identity、canonical system-instruction / Gemini request digest、raw Gemini response digest、Gemini `modelVersion` / `responseId`、G0/G1/G2/dispositionをbindする。具体的なGemini model versionはprovenanceでありvalidator allow-listにはしない。
 
 trusted reviewer workflowは権限とdata flowをjob単位で分離する。request jobはcanonical requestをGitHub APIからrefetchし、requesterのrepository write/admin authority、open Draft execution PR、current-main containment、annotated tag -> exact reviewed commit、同じreviewed SHAまたは同じtagを使う既存authoritative requestの不存在をfail-closedに検証し、targetをdataとして読むだけのcanonical result-blind packetを生成する。Core / PPO Runtime / Human Guide jobsはGemini credentialを持たず、exact reviewed SHAへtrusted workflowに固定されたcommand setを実行する。fresh review jobだけがGemini credentialを受け取り、request jobのcanonical packet artifactをdigest再検証してからGeminiへ渡す。このjobはtarget checkoutやtarget-executed artifactをauthorityとして受け取らない。target source/docs/testsは**untrusted evidence**としてuser messageへ渡し、reviewer system instructionを上書きするinstructionとして扱わない。
+
+4h PPO smokeのtrusted reviewer protocol v2では、同じsemantic identityのretry可否をGitHub stepのprovider `conclusion` だけで判断しない。provider stepは `continue-on-error` のためcommand failureでもJobs API上のstep conclusionがsuccessになり得る。terminal semantic responseのauthorityは同じrun/attemptのimmutable `ppo-4h-gemini-review-<run>-<attempt>` evidence artifactとする。final reviewer artifactが存在すればAPPROVED/BLOCKEDを問わずterminalであり再reviewしない。final artifactが無く、provider後のevidence-upload stepがcompleted/successならtransport failureとして同じworkflow runの次attemptだけをretry可能とする。evidence upload自体がfailure/ambiguousならprovider responseの有無を安全に証明できないためfail closedにする。Gemini requestはcurrent stable API contractへ合わせ、model固有にdeprecatedなsampling parameterをreview protocolへ固定しない。
 
 独立したfresh reviewer surfaceを利用できない場合でもAI semantic review自体は省略しない。同じsession/contextでreviewした場合は `reviewer_independence=NOT ESTABLISHED` と明記する。新しいeconomic resultを生成するG4へ進むには、結果を見ていないfresh AI reviewerによる再reviewを必要とする。
 

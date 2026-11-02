@@ -219,3 +219,33 @@ def test_impact_is_deterministic_by_path(tmp_path: Path) -> None:
         "trade_rl/evaluation/experiments/workflow.py",
         "trade_rl/evaluation/runs/config.py",
     )
+
+
+def test_context_reuses_source_derived_sha256_validation_authority(
+    tmp_path: Path,
+) -> None:
+    _tree(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/_validation.py",
+        "def require_sha256(value: str, *, field: str) -> str:\n    return value\n",
+    )
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/digest.py",
+        "from trade_rl._validation import require_sha256\n"
+        "def check(digest: str) -> str:\n"
+        "    return require_sha256(digest, field='artifact_digest')\n",
+    )
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/proposal.py",
+        "def build(artifact_digest: str) -> str:\n    return artifact_digest\n",
+    )
+    index = SourceIndex.build(tmp_path)
+    used = index.context("trade_rl/evaluation/runs/digest.py")
+    possible = index.context("trade_rl/evaluation/runs/proposal.py")
+    other = index.context("trade_rl/evaluation/runs/config.py")
+    assert "used:trade_rl._validation.require_sha256" in used.validation_hints
+    assert "candidate:trade_rl._validation.require_sha256" in possible.validation_hints
+    assert other.validation_hints == ()

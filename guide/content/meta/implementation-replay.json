@@ -49,7 +49,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "d4a7e91e2726a80e51752a1d8a8d168edec5ff129a6df47f17661158dc73e864"
+      "sha256": "b4d5e0e708189863fd670fe59c4d40c573e6c5ff01f9a5bb78970a29bcb33bd4"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -177,7 +177,7 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "c70a11e30c7a053b51ba05140df32c1f3c1c093d5330f49f883cd14f7675bd53",
+      "source_sha256": "e6e3117694931a3e4c2887d04dbab922018ac3eaf2123c0373755d51b219467d",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。",
       "variables": [],
@@ -325,7 +325,7 @@
       "id": "execute-interval",
       "symbol": "trade_rl.simulation.execution.MarketExecutor.execute_interval",
       "kind": "method",
-      "source_sha256": "2beb235f8aa89e5e8fb75d49b20d793ca53c3120cc2f12bc7446a8d77b867111",
+      "source_sha256": "f00d7a3e7f864cfdfcba99d54e12b30e3e3ae2b7e47c024cb8d9803ff905eef1",
       "label_ja": "次の区間を約定・会計処理",
       "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],
@@ -337,7 +337,7 @@
       "id": "portfolio-session-owner",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "d30757a6dcac7a7647ae49e023929517732715509996d63558021b7e723bd848",
+      "source_sha256": "387de0b34a9e3cc9aa800522ebb0dbb202c9a8d8558af7e42db1bbdf3534df2e",
       "label_ja": "数値portfolio sessionを継続",
       "description_ja": "同じBookState・MarketExecutor・native indexを一native-barごとに引き継ぎます。book viewはcloneで、latency-aware actor boundary後のterminal flattenをsessionが予約し、transition failure後の再試行を拒否します。",
       "variables": [],
@@ -530,7 +530,7 @@
       "id": "portfolio-episode-journal",
       "symbol": "trade_rl.strategies.rl.portfolio_episode_journal.PortfolioEpisodeJournalWrapper",
       "kind": "class",
-      "source_sha256": "d24e9a9de19f2c94aaa1547e78dc44c7fb87bb376f3aaf82067dfc252c1ba06a",
+      "source_sha256": "e5fc204de8c711adbff06192084747cc53d1097689545729f20abd4d197ad123",
       "label_ja": "Gym episode factsのopt-in event journal",
       "description_ja": "SharedPortfolioGymEnvを内包するGymまたはobservation-only wrapperを受け、actionを変換せずsource action/reward/target/hold/native interval・terminal factsをevent単位で記録してからtransitionを返します。configured target weightはmanifestに記録しますが、target/hold factsはfillsではありません。observation、PPO log-probability、policy versionは保存せず、失敗・中断したepisodeを完了扱いしません。",
       "variables": [],

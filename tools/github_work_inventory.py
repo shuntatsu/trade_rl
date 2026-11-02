@@ -10,6 +10,7 @@ from typing import Any
 
 from tools.agent_repo.coordination.github_state import parse_status_comment
 from tools.branch_hygiene import BranchInfo, GitHubApi
+from tools.github_workflow_ref_guard import stable_workflow_branch_refs
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _TASK_MARKER = "<!-- agent-coordination:"
@@ -121,6 +122,9 @@ class GitHubWorkApi:
     def issue_comments(self, issue_number: int) -> list[Any]:
         return self._reader._list_pages(f"issues/{issue_number}/comments")
 
+    def unfinished_workflow_branch_names(self) -> frozenset[str]:
+        return self._reader.active_workflow_branch_names()
+
     def compare_head_to_main(self, head_sha: str, main_sha: str) -> str:
         head = _sha(head_sha, "head_sha")
         main = _sha(main_sha, "main_sha")
@@ -128,7 +132,9 @@ class GitHubWorkApi:
         return classify_ancestry(_mapping(payload, "compare"))
 
 
-def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[str, Any]:
+def build_inventory(
+    api: GitHubWorkApi, *, compare_prs: bool = False, include_workflow_refs: bool = False
+) -> dict[str, Any]:
     """Make a deterministic, non-authoritative snapshot. Never return delete eligibility."""
     default = api.repository_default_branch()
     branches = api.branches()
@@ -227,7 +233,17 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
     ):
         raise RuntimeError("branch tips or protection changed during inventory")
 
-    observed_names = set(open_names) | task_branches
+    workflow_refs: tuple[str, ...] = ()
+    if include_workflow_refs:
+        workflow_refs = stable_workflow_branch_refs(
+            api, known_branch_names=frozenset(branch_tips)
+        )
+        if tuple(sorted(api.branches(), key=lambda b: b.name)) != tuple(
+            sorted(branches, key=lambda b: b.name)
+        ):
+            raise RuntimeError("branch tips or protection changed during workflow scan")
+
+    observed_names = set(open_names) | task_branches | set(workflow_refs)
     branch_rows = []
     for branch in sorted(branches, key=lambda b: b.name):
         if branch.name == default:
@@ -240,6 +256,8 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
             reason = "open_pr_ref"
         elif branch.name in task_branches:
             reason = "unverified_task_comment"
+        elif branch.name in workflow_refs:
+            reason = "unfinished_workflow_ref"
         else:
             reason = "unclassified"
         branch_rows.append(
@@ -250,7 +268,7 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
             }
         )
 
-    return {
+    report: dict[str, Any] = {
         "schema": "github_work_inventory_v1",
         "repository": api.repository,
         "main_sha": main_sha,
@@ -276,12 +294,22 @@ def build_inventory(api: GitHubWorkApi, *, compare_prs: bool = False) -> dict[st
             "snapshot. Never use as deletion authority."
         ),
     }
+    if include_workflow_refs:
+        report["unfinished_workflow_branches"] = list(workflow_refs)
+        report["unfinished_workflow_branch_names_checked"] = True
+        report["warning"] += (
+            " Optional double-read checks unfinished workflow branch names only; "
+            "run attempts, jobs, artifacts, closed Task leases and authenticated "
+            "registry completeness are still unverified."
+        )
+    return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default="shuntatsu/trade_rl")
     parser.add_argument("--compare-prs", action="store_true")
+    parser.add_argument("--include-workflow-refs", action="store_true")
     args = parser.parse_args()
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -289,7 +317,11 @@ def main() -> int:
     api = GitHubWorkApi(repository=args.repository, token=token)
     print(
         json.dumps(
-            build_inventory(api, compare_prs=args.compare_prs),
+            build_inventory(
+                api,
+                compare_prs=args.compare_prs,
+                include_workflow_refs=args.include_workflow_refs,
+            ),
             indent=2,
             sort_keys=True,
         )

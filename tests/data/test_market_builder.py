@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -212,6 +214,25 @@ def test_builder_has_stable_portable_v3_identity_without_execution_profile() -> 
     dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
 
     assert dataset.dataset_id == (
+        "51b9cc676d36ea2af36d1fad4e575ebee6cc8785ec41a055102c6df5c5e47908"
+    )
+    # Preserve the historical missingness sentinel solely as a golden oracle;
+    # existing published artifacts keep their original bytes and identity.
+    legacy_staleness = dataset.global_feature_staleness_hours.copy()
+    legacy_staleness[~dataset.global_feature_available] = 1.0
+    identity = json.loads(dataset.identity_payload_json or "{}")
+    provenance = {
+        key: value
+        for key, value in identity.items()
+        if key not in {"schema", "dataset_contract"}
+    }
+    legacy = replace(
+        dataset,
+        dataset_id="0" * 64,
+        identity_payload_json=None,
+        global_feature_staleness_hours=legacy_staleness,
+    ).with_content_identity(provenance)
+    assert legacy.dataset_id == (
         "de8c017c050089187c5f477f9791e96998624972a5a2f1fbd795b64695bf890e"
     )
     assert dataset.feature_config_digest == (

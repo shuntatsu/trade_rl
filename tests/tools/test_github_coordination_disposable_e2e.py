@@ -113,9 +113,7 @@ class ConcurrentGraphQL:
             }
 
 
-def _fixture(
-    *, initial: bool = False
-) -> tuple[ConcurrentGraphQL, FakeRegistryObjects]:
+def _fixture(*, initial: bool = False) -> tuple[ConcurrentGraphQL, FakeRegistryObjects]:
     before = CoordinatorRegistry(
         REPOSITORY, () if initial else (_entry(TaskPhase.EXECUTING),)
     )
@@ -165,8 +163,11 @@ def test_test_only_real_model_plan_is_single_task_and_payload_bound() -> None:
     ):
         assert result[flag] is False
     assert objects.calls == [
-        (REPOSITORY, A), (REPOSITORY, B),
-        (REPOSITORY, A), (REPOSITORY, B), (REPOSITORY, B),
+        (REPOSITORY, A),
+        (REPOSITORY, B),
+        (REPOSITORY, A),
+        (REPOSITORY, B),
+        (REPOSITORY, B),
     ]
 
 
@@ -349,9 +350,12 @@ def test_interruption_inspection_is_nonmutating_and_never_authorizes_recovery(
     assert api.mutation_count == 0
     assert report["mutation_attempted"] is False
     for key in (
-        "writer_attribution_verified", "transaction_outcome_proven",
-        "retry_authorized", "rollback_authorized",
-        "authoritative_registry_established", "task_registry_complete",
+        "writer_attribution_verified",
+        "transaction_outcome_proven",
+        "retry_authorized",
+        "rollback_authorized",
+        "authoritative_registry_established",
+        "task_registry_complete",
         "cleanup_authorized",
     ):
         assert report[key] is False
@@ -384,4 +388,3 @@ def test_interruption_inspection_refuses_non_disposable_target_before_io() -> No
     with pytest.raises(ValueError, match="production repository"):
         _inspect(api, objects, repository=PRODUCTION)
     assert api.calls == [] and objects.calls == []
-

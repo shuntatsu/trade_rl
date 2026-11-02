@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,12 @@ from trade_rl.evaluation.paper.operations import (
     collect_until_finished,
     collection_status,
     seal_paper_study,
+)
+from trade_rl.evaluation.paper.predecessor import (
+    ProtocolFormatError,
+    collection_lineage_problems,
+    load_canonical_protocol,
+    loads_without_duplicate_keys,
 )
 from trade_rl.evaluation.paper.supervisor import PaperCollector
 from trade_rl.evaluation.paper.watchdog import (
@@ -39,8 +46,14 @@ from trade_rl.evaluation.paper.watchdog import (
 )
 
 
-def _refuse_storage_probe(root: Path, protocol_sha256: str) -> None:
-    """A probe root is capacity evidence only; only its own entry point runs it."""
+def _refuse_non_screen_root(root: Path, protocol_sha256: str) -> None:
+    """Refuse a probe root and any root whose lineage the shared classifier rejects.
+
+    A probe is capacity evidence only (only its own entry point runs it). A v3
+    ``available`` record is re-read exactly as ``attempt2 launch`` does, on every
+    entry. Duplicate JSON keys are refused here, before the lock, so no marker is
+    written for that input.
+    """
     path = root / "protocol.json"
     if root.is_symlink() or path.is_symlink() or not path.is_file():
         return
@@ -48,11 +61,22 @@ def _refuse_storage_probe(root: Path, protocol_sha256: str) -> None:
     if hashlib.sha256(raw).hexdigest() != protocol_sha256:
         return
     try:
-        plan = json.loads(raw)["protocol"]["study"]["research_plan"]
+        protocol = load_canonical_protocol(raw)["protocol"]
+        plan = protocol["study"]["research_plan"]
+        start_at = timestamp(protocol["settings"]["start_at"])
+    except ProtocolFormatError:
+        raise
     except (KeyError, TypeError, ValueError):
         return
     if isinstance(plan, dict) and plan.get("schema") == STORAGE_PROBE_PLAN_SCHEMA:
         raise ValueError("a storage probe root is not a screen; the probe runs itself")
+    problems = collection_lineage_problems(
+        plan, root=root, start_at=start_at, now=lambda: datetime.now(UTC)
+    )
+    if problems:
+        raise ValueError(
+            "collection lineage cannot be re-verified: " + "; ".join(problems)
+        )
 
 
 def _print(value: dict[str, Any]) -> None:
@@ -104,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             lineage_path = args.attempt_lineage_json
             if lineage_path.is_symlink() or not lineage_path.is_file():
                 raise ValueError("attempt lineage must be a regular JSON file")
-            attempt_lineage = json.loads(lineage_path.read_bytes())
+            attempt_lineage = loads_without_duplicate_keys(lineage_path.read_bytes())
             digest = seal_paper_study(
                 args.root,
                 start_at=args.start_at,
@@ -130,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             return EXIT_FAILED if report["severity"] == "failed" else EXIT_DEGRADED
         elif args.command == "supervise":
-            _refuse_storage_probe(args.root, args.protocol_sha256)
+            _refuse_non_screen_root(args.root, args.protocol_sha256)
             outcome = supervise_collector(
                 args.root,
                 protocol_sha256=args.protocol_sha256,
@@ -140,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return int(outcome["exit_code"])
         elif args.command == "run":
-            _refuse_storage_probe(args.root, args.protocol_sha256)
+            _refuse_non_screen_root(args.root, args.protocol_sha256)
             with PaperCollector(
                 args.root, expected_protocol_sha256=args.protocol_sha256
             ) as collector:

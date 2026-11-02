@@ -110,7 +110,10 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
+    ├── paper/
+    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py}
+    │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
+    │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -217,8 +220,17 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
-Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
-refuse it otherwise. These operations contain no production routing.
+`paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
+records, the single lineage classifier (`lineage_structure_problems`) and the
+read-only re-verification of a recorded predecessor root. `seal_collection`,
+`seal_paper_study`, `cli seal`, `PaperEngine.initialize` and `PaperEngine(root)`
+(on open), `validate_attempt_lineage`, `attempt2`, `PaperCollector`, `cli run` and
+`cli supervise` all use it; v3 also needs a module-private token held by `attempt2`
+at the seal functions (a caller contract), and the collector re-reads an `available`
+root on every entry. This guards against accidental or non-canonical records through
+the supported entry points; it is not authentication against a malicious local
+operator. Among paper modules it imports only `account` at load time. These
+operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

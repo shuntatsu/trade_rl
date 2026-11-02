@@ -63,3 +63,19 @@ def test_builder_exports_real_feature_age_and_global_availability() -> None:
     assert dataset.global_feature_available is not None
     assert dataset.global_feature_staleness_hours is not None
     assert dataset.global_feature_available.shape == dataset.global_features.shape
+    assert dataset.global_feature_missing_reason is not None
+    # The initial row has no matured one-bar return for any symbol. Missingness
+    # must not masquerade as one elapsed hour in a field explicitly in hours.
+    np.testing.assert_array_equal(
+        dataset.global_feature_available[0, 2:4], [False, False]
+    )
+    np.testing.assert_array_equal(dataset.global_feature_missing_reason[0, 2:4], [1, 1])
+    np.testing.assert_array_equal(
+        dataset.global_feature_staleness_hours[0, 2:4], [0.0, 0.0]
+    )
+    np.testing.assert_array_equal(
+        dataset.global_feature_available[1, 2:4], [True, True]
+    )
+    np.testing.assert_array_equal(
+        dataset.global_feature_staleness_hours[1, 2:4], [0.0, 0.0]
+    )

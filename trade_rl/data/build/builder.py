@@ -477,7 +477,9 @@ class MarketDatasetBuilder:
                 global_features[index, 3] = portable_std(sample)
             else:
                 global_feature_available[index, 2:4] = False
-                global_feature_staleness[index, 2:4] = 1.0
+                # A missing same-bar return sample has no elapsed age. Keep
+                # the numeric placeholder at zero; the availability and
+                # missing-reason arrays carry the actual absence semantics.
                 global_feature_missing_reason[index, 2:4] = 1
 
         features = features.astype(np.float32)

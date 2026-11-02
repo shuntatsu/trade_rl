@@ -133,7 +133,10 @@ class GitHubWorkApi:
 
 
 def build_inventory(
-    api: GitHubWorkApi, *, compare_prs: bool = False, include_workflow_refs: bool = False
+    api: GitHubWorkApi,
+    *,
+    compare_prs: bool = False,
+    include_workflow_refs: bool = False,
 ) -> dict[str, Any]:
     """Make a deterministic, non-authoritative snapshot. Never return delete eligibility."""
     default = api.repository_default_branch()

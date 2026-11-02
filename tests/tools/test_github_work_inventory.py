@@ -407,6 +407,7 @@ def test_partial_github_failure_does_not_produce_snapshot() -> None:
     with pytest.raises(RuntimeError, match="GitHub API unreachable"):
         build_inventory(api)  # type: ignore[arg-type]
 
+
 def test_work_inventory_opt_in_marks_unfinished_workflow_branches() -> None:
     api = FakeWorkApi()
     calls = 0

@@ -173,3 +173,142 @@ def test_docs_only_change_gets_docs_fast_check_without_coverage_signal(
     )
     assert _by_tier(steps, "signal") == []
     assert {step.command for step in _by_tier(steps, "final")} == FINAL_COMMANDS
+
+
+def _test_stub(root: Path, path: str) -> None:
+    _write(root, path, "def test_contract() -> None:\n    assert True\n")
+
+
+def test_run_config_change_routes_persisted_contract_and_cli_tests(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    for name in (
+        "test_candidate_run_config.py",
+        "test_candidate_run_cli.py",
+        "test_candidate_run_artifact.py",
+        "test_candidate_run_provenance.py",
+    ):
+        _test_stub(tmp_path, f"tests/evaluation/{name}")
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/config.py",
+        "from dataclasses import dataclass\n\n"
+        "@dataclass(frozen=True)\nclass CandidateRunConfig:\n"
+        "    value: int\n    extra_field: int\n",
+    )
+    fast = " ".join(
+        step.command
+        for step in _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    )
+    for name in (
+        "test_candidate_run_config.py",
+        "test_candidate_run_cli.py",
+        "test_candidate_run_artifact.py",
+        "test_candidate_run_provenance.py",
+    ):
+        assert name in fast
+
+
+def test_sha256_contract_change_routes_existing_common_validator_tests(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/_validation.py",
+        "def require_sha256(value: str, *, field: str) -> str:\n    return value\n",
+    )
+    _test_stub(tmp_path, "tests/test_validation.py")
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/config.py",
+        "from trade_rl._validation import require_sha256\n\n"
+        "def validate_digest(digest: str) -> str:\n"
+        "    return require_sha256(digest, field='artifact_digest')\n",
+    )
+    fast = " ".join(
+        step.command
+        for step in _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    )
+    assert "tests/test_validation.py" in fast
+
+
+def test_dataset_scope_change_routes_shared_strategy_contract(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    _test_stub(tmp_path, "tests/strategies/test_dataset_scope_contract.py")
+    _write(
+        tmp_path,
+        "trade_rl/strategies/scope.py",
+        "def select_feature_names(names: tuple[str, ...]) -> tuple[str, ...]:\n"
+        "    return tuple(sorted(names))\n",
+    )
+    fast = " ".join(
+        step.command
+        for step in _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    )
+    assert "tests/strategies/test_dataset_scope_contract.py" in fast
+
+
+def test_run_artifact_change_routes_legacy_compatibility_and_tamper_oracles(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    for name in (
+        "test_candidate_run_artifact.py",
+        "test_candidate_run_artifact_identity.py",
+        "test_candidate_run_malformed_archive_errors.py",
+        "test_candidate_run_provenance.py",
+    ):
+        _test_stub(tmp_path, f"tests/evaluation/{name}")
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/artifact.py",
+        "RESULT_SCHEMA = 'candidate_result_v2'\n"
+        "def publish() -> str:\n    return RESULT_SCHEMA\n",
+    )
+    steps = plan_verification(tmp_path, base_ref="main")
+    fast = " ".join(step.command for step in _by_tier(steps, "fast"))
+    for name in (
+        "test_candidate_run_artifact.py",
+        "test_candidate_run_artifact_identity.py",
+        "test_candidate_run_malformed_archive_errors.py",
+        "test_candidate_run_provenance.py",
+    ):
+        assert name in fast
+    assert any(
+        "compatibility" in step.reason.lower() for step in _by_tier(steps, "extended")
+    )
+
+
+def test_binance_fallback_condition_change_routes_negative_integrity_tests(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    for name in (
+        "test_binance_exchange_info_fallback.py",
+        "test_binance_response_bounds.py",
+        "test_binance_cache_integrity_contract.py",
+    ):
+        _test_stub(tmp_path, f"tests/integrations/{name}")
+    _write(
+        tmp_path,
+        "trade_rl/integrations/binance/transport.py",
+        "def load():\n"
+        "    try:\n        return b'primary'\n"
+        "    except OSError:\n        return b'fallback'\n",
+    )
+    steps = plan_verification(tmp_path, base_ref="main")
+    fast = " ".join(step.command for step in _by_tier(steps, "fast"))
+    for name in (
+        "test_binance_exchange_info_fallback.py",
+        "test_binance_response_bounds.py",
+        "test_binance_cache_integrity_contract.py",
+    ):
+        assert name in fast
+    assert any(
+        "fallback" in step.reason.lower() and "integrity" in step.reason.lower()
+        for step in _by_tier(steps, "extended")
+    )

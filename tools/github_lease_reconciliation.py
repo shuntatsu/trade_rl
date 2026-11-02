@@ -189,6 +189,9 @@ def inspect_expired_lease_evidence(
         raise ValueError("main branch tip is missing or changed")
     if seen.get(lease.lease_branch) != lease.head_sha:
         raise ValueError("lease branch is missing or tip changed")
+    registry_branch = snapshot.ref_name.removeprefix("refs/heads/")
+    if seen.get(registry_branch) != snapshot.ref_oid:
+        raise ValueError("registry ref is missing or tip differs from inventory")
     active = _unique_strings(
         observed.get("unfinished_workflow_branches"), "unfinished workflow branches"
     )
@@ -211,6 +214,13 @@ def inspect_expired_lease_evidence(
                 raise ValueError("open PR head is missing or its tip changed")
         if head_ref == lease.lease_branch:
             open_prs.append(number)
+    open_pr_count = observed.get("open_pr_count")
+    if (
+        type(open_pr_count) is not int
+        or open_pr_count < 0
+        or open_pr_count != len(pr_numbers)
+    ):
+        raise ValueError("open_pr_count differs from current open PR roster")
 
     pairs: dict[int, Mapping[str, Any]] = {}
     for raw in _rows(attempts, "attempt observations"):
@@ -245,6 +255,11 @@ def inspect_expired_lease_evidence(
         if len(job_ids) != len(set(job_ids)):
             raise ValueError("run attempt job ids are duplicated")
         pairs[run] = item
+    if (
+        any(item["status"] != "completed" for item in pairs.values())
+        and lease.lease_branch not in active
+    ):
+        raise ValueError("unfinished workflow branch missing from inventory")
 
     artifact_runs: dict[int, Mapping[str, Any]] = {}
     artifact_ids: set[int] = set()

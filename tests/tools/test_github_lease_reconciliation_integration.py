@@ -80,6 +80,7 @@ def _actual_inputs() -> tuple[RegistryRefSnapshot, LeaseRecord, dict[str, object
             return (
                 BranchInfo("main", BASE, False),
                 BranchInfo(branch, HEAD, False),
+                BranchInfo("coordination/task-registry", REF, False),
                 BranchInfo("provenance/branch-retention", "e" * 40, False),
             )
 

@@ -83,9 +83,15 @@ def _evidence() -> dict[str, object]:
         "task_registry_complete": False,
         "workflow_activity_checked": False,
         "cleanup_authorized": False,
+        "open_pr_count": 1,
         "branches": [
             {"name": "main", "sha": BASE, "reason": "default"},
             {"name": BRANCH, "sha": HEAD, "reason": "open_pr_ref"},
+            {
+                "name": "coordination/task-registry",
+                "sha": REF,
+                "reason": "unclassified",
+            },
         ],
         "unfinished_workflow_branches": [BRANCH],
         "pull_requests": [{"number": 17, "head_ref": BRANCH, "head_sha": HEAD}],
@@ -238,7 +244,7 @@ def test_registry_digest_and_task_lease_fences_are_required() -> None:
 
 def test_deleted_or_drifted_lease_branch_and_main_refuse() -> None:
     e = _evidence()
-    e["inventory"]["branches"].pop()  # type: ignore[index]
+    e["inventory"]["branches"].pop(1)  # type: ignore[index]
     with pytest.raises(ValueError, match="lease branch"):
         _inspect(e)
     e = _evidence()
@@ -440,4 +446,43 @@ def test_blank_repository_node_identity_fails_closed() -> None:
     e = _evidence()
     e["snapshot"].repository_node_id = " \t "  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="registry snapshot"):
+        _inspect(e)
+
+
+def test_registry_ref_must_exist_in_inventory_with_exact_oid() -> None:
+    e = _evidence()
+    e["inventory"]["branches"][-1]["sha"] = "f" * 40  # type: ignore[index]
+    with pytest.raises(ValueError, match="registry ref"):
+        _inspect(e)
+
+    e = _evidence()
+    e["inventory"]["branches"].pop()  # type: ignore[index]
+    with pytest.raises(ValueError, match="registry ref"):
+        _inspect(e)
+
+
+@pytest.mark.parametrize("count", [None, -1, True, 2, "1"])
+def test_open_pr_count_must_be_native_and_equal_to_roster(count: object) -> None:
+    e = _evidence()
+    if count is None:
+        e["inventory"].pop("open_pr_count")  # type: ignore[attr-defined]
+    else:
+        e["inventory"]["open_pr_count"] = count  # type: ignore[index]
+    with pytest.raises(ValueError, match="open_pr_count"):
+        _inspect(e)
+
+
+@pytest.mark.parametrize(
+    "state", ["requested", "waiting", "pending", "queued", "in_progress"]
+)
+def test_unfinished_supplied_attempt_requires_workflow_branch_in_inventory(
+    state: str,
+) -> None:
+    e = _evidence()
+    e["inventory"]["unfinished_workflow_branches"] = []  # type: ignore[index]
+    e["attempts"][0]["status"] = state  # type: ignore[index]
+    e["attempts"][0]["conclusion"] = None  # type: ignore[index]
+    e["artifacts"][0]["status"] = state  # type: ignore[index]
+    e["artifacts"][0]["conclusion"] = None  # type: ignore[index]
+    with pytest.raises(ValueError, match="unfinished workflow"):
         _inspect(e)

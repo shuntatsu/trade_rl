@@ -17,11 +17,17 @@ import numpy as np
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.identity import (
+    MARKET_DATASET_IDENTITY_SCHEMA,
+    MARKET_DATASET_IDENTITY_SCHEMA_V7,
+    parse_identity_json,
+)
 from trade_rl.data.market import MarketDataset
 
 DATASET_MANIFEST_NAME: Final = "manifest.json"
 DATASET_ARRAYS_NAME: Final = "arrays.npz"
 DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v3"
+DATASET_ARTIFACT_SCHEMA_V4: Final = "market_dataset_artifact_v4"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
 
 
@@ -89,17 +95,42 @@ def _encode_scalar(value: object) -> object:
 def _dataset_parts(
     dataset: MarketDataset,
 ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    if dataset.identity_payload_json is None:
+        raise ValueError("formal dataset artifacts require a verified content identity")
+    identity_schema = parse_identity_json(dataset.identity_payload_json).get("schema")
+    if identity_schema not in {
+        MARKET_DATASET_IDENTITY_SCHEMA,
+        MARKET_DATASET_IDENTITY_SCHEMA_V7,
+    }:
+        raise ValueError("unsupported market dataset identity schema")
     arrays: dict[str, np.ndarray] = {}
     scalars: dict[str, object] = {}
     for item in fields(MarketDataset):
         if not item.init or item.name.startswith("_"):
+            continue
+        if (
+            item.name == "funding_price_rate"
+            and identity_schema != MARKET_DATASET_IDENTITY_SCHEMA_V7
+        ):
             continue
         value = getattr(dataset, item.name)
         if isinstance(value, np.ndarray):
             arrays[item.name] = np.asarray(value)
         else:
             scalars[item.name] = _encode_scalar(value)
+    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7 and (
+        dataset.funding_price_rate is None
+    ):
+        raise ValueError("identity v7 requires funding_price_rate")
     return arrays, scalars
+
+
+def _artifact_schema_for_identity(identity_schema: object) -> str:
+    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA:
+        return DATASET_ARTIFACT_SCHEMA
+    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7:
+        return DATASET_ARTIFACT_SCHEMA_V4
+    raise ValueError("unsupported market dataset identity schema")
 
 
 def write_dataset_files(root: Path, dataset: MarketDataset) -> tuple[Path, str]:
@@ -108,6 +139,8 @@ def write_dataset_files(root: Path, dataset: MarketDataset) -> tuple[Path, str]:
     if dataset.identity_payload_json is None:
         raise ValueError("formal dataset artifacts require a verified content identity")
     root.mkdir(parents=True, exist_ok=True)
+    identity_schema = parse_identity_json(dataset.identity_payload_json).get("schema")
+    artifact_schema = _artifact_schema_for_identity(identity_schema)
     arrays, scalars = _dataset_parts(dataset)
     payload = _deterministic_npz(arrays)
     arrays_path = root / DATASET_ARRAYS_NAME
@@ -124,7 +157,7 @@ def write_dataset_files(root: Path, dataset: MarketDataset) -> tuple[Path, str]:
         "arrays_file": DATASET_ARRAYS_NAME,
         "dataset": scalars,
         "dataset_id": dataset.dataset_id,
-        "schema_version": DATASET_ARTIFACT_SCHEMA,
+        "schema_version": artifact_schema,
     }
     artifact_digest = content_digest(manifest_payload)
     manifest = {**manifest_payload, "artifact_digest": artifact_digest}
@@ -140,6 +173,7 @@ class DatasetArtifactFiles:
     manifest_path: Path
     arrays_path: Path
     artifact_digest: str
+    schema_version: str = DATASET_ARTIFACT_SCHEMA
 
 
 def write_market_dataset_files(
@@ -153,6 +187,9 @@ def write_market_dataset_files(
         manifest_path=manifest_path,
         arrays_path=destination / DATASET_ARRAYS_NAME,
         artifact_digest=artifact_digest,
+        schema_version=_artifact_schema_for_identity(
+            parse_identity_json(dataset.identity_payload_json or "{}").get("schema")
+        ),
     )
 
 
@@ -168,7 +205,9 @@ def _string(value: object, *, field: str) -> str:
     return value
 
 
-def _load_dataset_files_with_digest(root: Path) -> tuple[MarketDataset, str]:
+def _load_dataset_files_with_digest(
+    root: Path,
+) -> tuple[MarketDataset, str, str]:
     """Load one verified dataset and its digest from the same manifest read."""
 
     verify_exact_artifact_files(root)
@@ -185,17 +224,34 @@ def _load_dataset_files_with_digest(root: Path) -> tuple[MarketDataset, str]:
     )
     if content_digest(manifest) != artifact_digest:
         raise ValueError("dataset manifest digest mismatch")
-    if manifest.get("schema_version") != DATASET_ARTIFACT_SCHEMA:
+    artifact_schema = manifest.get("schema_version")
+    if artifact_schema not in {
+        DATASET_ARTIFACT_SCHEMA,
+        DATASET_ARTIFACT_SCHEMA_V4,
+    }:
         raise ValueError("unsupported dataset artifact schema")
+    scalar_meta = dict(_mapping(manifest.get("dataset"), field="dataset"))
+    identity_payload_json = _string(
+        scalar_meta.get("identity_payload_json"),
+        field="dataset.identity_payload_json",
+    )
+    identity_schema = parse_identity_json(identity_payload_json).get("schema")
+    if artifact_schema != _artifact_schema_for_identity(identity_schema):
+        raise ValueError("artifact and identity schemas do not match")
     if manifest.get("arrays_file") != DATASET_ARRAYS_NAME:
         raise ValueError("dataset arrays file identity is invalid")
+    metadata = _mapping(manifest.get("arrays"), field="arrays")
+    has_funding_price_rate = "funding_price_rate" in metadata
+    if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 and not has_funding_price_rate:
+        raise ValueError("v4 artifact is missing funding_price_rate")
+    if artifact_schema == DATASET_ARTIFACT_SCHEMA and has_funding_price_rate:
+        raise ValueError("v3 artifact must not contain funding_price_rate")
     payload = arrays_path.read_bytes()
     if _sha256_bytes(payload) != _string(
         manifest.get("arrays_digest"), field="arrays_digest"
     ):
         raise ValueError("dataset arrays digest mismatch")
 
-    metadata = _mapping(manifest.get("arrays"), field="arrays")
     expected_names = set(metadata)
     arrays: dict[str, np.ndarray] = {}
     with np.load(io.BytesIO(payload), allow_pickle=False) as archive:
@@ -220,23 +276,24 @@ def _load_dataset_files_with_digest(root: Path) -> tuple[MarketDataset, str]:
                 raise ValueError(f"dataset array dtype mismatch: {name}")
             arrays[name] = array
 
-    scalar_meta = dict(_mapping(manifest.get("dataset"), field="dataset"))
     top_level_dataset_id = _string(manifest.get("dataset_id"), field="dataset_id")
     if scalar_meta.get("dataset_id") != top_level_dataset_id:
         raise ValueError("dataset_id does not match canonical dataset metadata")
     kwargs: dict[str, Any] = {**scalar_meta, **arrays}
     allowed = {item.name for item in fields(MarketDataset) if item.init}
+    if artifact_schema == DATASET_ARTIFACT_SCHEMA:
+        allowed.remove("funding_price_rate")
     if set(kwargs) != allowed:
         missing = sorted(allowed - set(kwargs))
         extra = sorted(set(kwargs) - allowed)
         raise ValueError(
             f"dataset artifact field contract mismatch: missing={missing}, extra={extra}"
         )
-    return MarketDataset(**kwargs), artifact_digest
+    return MarketDataset(**kwargs), artifact_digest, artifact_schema
 
 
 def load_dataset_files(root: Path) -> MarketDataset:
     """Load and verify one canonical market-dataset artifact directory."""
 
-    dataset, _ = _load_dataset_files_with_digest(root)
+    dataset, _, _ = _load_dataset_files_with_digest(root)
     return dataset

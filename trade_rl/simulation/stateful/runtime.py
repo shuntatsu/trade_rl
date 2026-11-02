@@ -169,6 +169,14 @@ class StatefulExecutionRuntime:
                 funding_amount=float(funding_amount),
                 equity_before_funding=equity_after_funding - float(funding_amount),
                 equity_after_funding=equity_after_funding,
+                funding_price_rates=(
+                    tuple(
+                        float(value)
+                        for value in dataset.funding_price_rate[processing_index]
+                    )
+                    if dataset.funding_price_rate is not None
+                    else None
+                ),
             )
         )
 

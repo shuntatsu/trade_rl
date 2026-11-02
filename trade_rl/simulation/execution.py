@@ -368,6 +368,7 @@ class MarketExecutor:
                 MarketOrderProfile | None,
                 tuple[str, ...],
                 str,
+                str | None,
             ]
             | None
         ) = None
@@ -1014,14 +1015,17 @@ class MarketExecutor:
         index: int,
         year_fraction: float | None = None,
     ) -> tuple[float, float]:
-        funding_notional = self.dataset.quantity_notional(index, book.quantities)
-        funding_amount = -float(
-            np.dot(
-                funding_notional,
-                self.dataset.funding_rate[index]
-                * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
-            )
+        funding_due = self.dataset.resolved_array("funding_due")[index].astype(
+            np.float64
         )
+        if self.dataset.funding_price_rate is None:
+            funding_notional = self.dataset.quantity_notional(index, book.quantities)
+            funding_rate = self.dataset.funding_rate[index]
+        else:
+            multipliers = self.dataset.resolved_array("contract_multipliers")
+            funding_notional = book.quantities * multipliers
+            funding_rate = self.dataset.funding_price_rate[index]
+        funding_amount = -float(np.dot(funding_notional, funding_rate * funding_due))
         previous_index = max(0, index - 1)
         resolved_year_fraction = (
             self.dataset.elapsed_year_fraction(previous_index, index)
@@ -1041,12 +1045,18 @@ class MarketExecutor:
             f"{type(value).__module__}.{type(value).__qualname__}:{value!r}"
             for value in self.cost.trigger_volume_fractions
         )
+        funding_semantics = (
+            "dataset_funding_price_rate_v1"
+            if self.dataset.funding_price_rate is not None
+            else None
+        )
         cache_inputs = (
             self.cost,
             self.rule_stress,
             self.market_order_profile,
             trigger_fraction_snapshot,
             self.insolvency_valuation,
+            funding_semantics,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -1058,6 +1068,7 @@ class MarketExecutor:
             and previous_inputs[2] is self.market_order_profile
             and previous_inputs[3] == trigger_fraction_snapshot
             and previous_inputs[4] == self.insolvency_valuation
+            and previous_inputs[5] == funding_semantics
         ):
             return cached_digest
 
@@ -1088,6 +1099,15 @@ class MarketExecutor:
                     "base_policy_digest": digest,
                     "insolvency_valuation": self.insolvency_valuation,
                     "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
+                }
+            )
+
+        if funding_semantics is not None:
+            digest = content_digest(
+                {
+                    "schema_version": "funding_execution_policy_v1",
+                    "base_policy_digest": digest,
+                    "funding_semantics": funding_semantics,
                 }
             )
 

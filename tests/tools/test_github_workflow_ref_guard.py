@@ -64,8 +64,8 @@ def test_invalid_known_branch_roster_fails_closed(bad: object) -> None:
     reader = FakeReader(frozenset(), frozenset())
     with pytest.raises(ValueError, match="known branch"):
         stable_workflow_branch_refs(
-            reader, known_branch_names=bad  # type: ignore[arg-type]
-        )
+            reader, known_branch_names=bad
+        )  # type: ignore[arg-type]
 
 
 def test_failed_api_page_read_does_not_return_partial_roster() -> None:

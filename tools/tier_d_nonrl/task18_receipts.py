@@ -325,6 +325,10 @@ class ArmReceipt:
     progress: ArmAttemptProgress | None = None
 
     def to_mapping(self) -> dict[str, object]:
+        if self.external_report is not None and not isinstance(
+            self.external_report, ExternalArmVerificationReport
+        ):
+            raise ValueError("arm external report must use the external report schema")
         result = asdict(self)
         result["external_report"] = (
             self.external_report.to_mapping()
@@ -624,7 +628,18 @@ def evaluate_run_receipt(
             declared_metrics_well_formed = False
             issues.append(f"completed arm has attempt reason or error: {arm.arm_id}")
         completed_arms.append(arm)
-        report = arm.external_report
+        report_object: object = arm.external_report
+        if report_object is not None and not isinstance(
+            report_object, ExternalArmVerificationReport
+        ):
+            # Malformed reports are evidence failures, not attribute-access
+            # crashes that escape the fail-closed evaluation result.
+            declared_metrics_well_formed = False
+            arm_reports_valid = False
+            issues.append(f"arm external report type is invalid: {arm.arm_id}")
+            report = None
+        else:
+            report = report_object
         if report is None or not _arm_report_matches(report, arm, receipt, protocol):
             arm_reports_valid = False
             issues.append(f"arm report is absent or mismatched: {arm.arm_id}")

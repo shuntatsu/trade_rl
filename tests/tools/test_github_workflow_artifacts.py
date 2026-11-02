@@ -167,9 +167,7 @@ def test_invalid_repository_never_starts_a_read(bad: object) -> None:
     api = FakeGet()
     invalid_repo: str = bad  # type: ignore[assignment]
     with pytest.raises(ValueError, match="repository"):
-        observe_workflow_artifacts(
-            api, expected_repository=invalid_repo, run_id=RUN
-        )
+        observe_workflow_artifacts(api, expected_repository=invalid_repo, run_id=RUN)
     assert api.calls == []
 
 

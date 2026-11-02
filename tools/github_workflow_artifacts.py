@@ -76,15 +76,15 @@ def _repo(api: ArtifactReadApi, expected: str) -> tuple[str, int, str]:
     name = _text(raw.get("full_name"), "repository identity")
     if name.casefold() != expected.casefold():
         raise ValueError("repository identity differs from requested repository")
-    return name.casefold(), _positive(raw.get("id"), "repository id"), _text(
-        raw.get("node_id"), "repository node id"
+    return (
+        name.casefold(),
+        _positive(raw.get("id"), "repository id"),
+        _text(raw.get("node_id"), "repository node id"),
     )
 
 
 def _run(api: ArtifactReadApi, run_id: int, repository_id: int) -> _Run:
-    raw = _mapping(
-        api._request_json("GET", f"actions/runs/{run_id}"), "workflow run"
-    )
+    raw = _mapping(api._request_json("GET", f"actions/runs/{run_id}"), "workflow run")
     if _positive(raw.get("id"), "workflow run id") != run_id:
         raise ValueError("workflow run id changed")
     attempt = _positive(raw.get("run_attempt"), "run attempt")

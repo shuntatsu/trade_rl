@@ -88,9 +88,7 @@ def _evidence() -> dict[str, object]:
             {"name": BRANCH, "sha": HEAD, "reason": "open_pr_ref"},
         ],
         "unfinished_workflow_branches": [BRANCH],
-        "pull_requests": [
-            {"number": 17, "head_ref": BRANCH, "head_sha": HEAD}
-        ],
+        "pull_requests": [{"number": 17, "head_ref": BRANCH, "head_sha": HEAD}],
     }
     attempt = {
         "schema": "github_workflow_attempt_observation_v1",

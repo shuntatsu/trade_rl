@@ -65,7 +65,12 @@ def _unique_strings(value: object, label: str) -> list[str]:
 def _run_state(value: Mapping[str, Any]) -> None:
     state = value.get("status")
     if type(state) is not str or state not in {
-        "requested", "waiting", "pending", "queued", "in_progress", "completed"
+        "requested",
+        "waiting",
+        "pending",
+        "queued",
+        "in_progress",
+        "completed",
     }:
         raise ValueError("attempt status is unknown")
     conclusion = value.get("conclusion")

@@ -418,3 +418,26 @@ def test_unhashable_run_state_and_conclusion_fail_with_value_error() -> None:
     e["attempts"][0]["conclusion"] = []  # type: ignore[index]
     with pytest.raises(ValueError, match="conclusion"):
         _inspect(e)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "refs/heads/main",
+        "refs/heads/coordination/../main",
+        "refs/heads/coordination/a.lock",
+        "refs/heads/coordination/a//b",
+    ],
+)
+def test_malformed_registry_ref_fails_closed(bad: str) -> None:
+    e = _evidence()
+    e["snapshot"].ref_name = bad  # type: ignore[attr-defined]
+    with pytest.raises(ValueError, match="safe coordination"):
+        _inspect(e)
+
+
+def test_blank_repository_node_identity_fails_closed() -> None:
+    e = _evidence()
+    e["snapshot"].repository_node_id = " \t "  # type: ignore[attr-defined]
+    with pytest.raises(ValueError, match="registry snapshot"):
+        _inspect(e)

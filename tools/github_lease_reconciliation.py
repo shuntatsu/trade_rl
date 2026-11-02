@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from tools.github_coordination_registry_snapshot import RegistryRefSnapshot
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_REF = re.compile(r"^refs/heads/coordination/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
 
 
 def _object(value: object, label: str) -> Mapping[str, Any]:
@@ -123,12 +124,19 @@ def inspect_expired_lease_evidence(
         or snapshot.cleanup_authorized is not False
         or snapshot.registry.repository != snapshot.repository
         or snapshot.registry.digest() != snapshot.registry_digest
-        or not snapshot.repository_node_id
+        or type(snapshot.repository_node_id) is not str
+        or not snapshot.repository_node_id.strip()
     ):
         raise ValueError("registry snapshot is malformed or claims authority")
     _sha(snapshot.ref_oid, "registry ref_oid")
-    if not snapshot.ref_name.startswith("refs/heads/coordination/"):
-        raise ValueError("registry ref is not a coordination ref")
+    if (
+        type(snapshot.ref_name) is not str
+        or not _REF.fullmatch(snapshot.ref_name)
+        or ".." in snapshot.ref_name
+        or snapshot.ref_name.endswith(".lock")
+        or any(part in {".", ".."} for part in snapshot.ref_name.split("/"))
+    ):
+        raise ValueError("registry ref is not a safe coordination ref")
     matches = [
         entry
         for entry in snapshot.registry.entries

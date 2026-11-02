@@ -82,7 +82,10 @@ def test_graphql_transport_rejects_arbitrary_mutation_before_network(
     observed = _stub_post(api, monkeypatch, b'{"data":{}}')
     with pytest.raises(ValueError, match="coordination GraphQL operation"):
         api.execute(
-            "mutation Arbitrary($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }",
+            (
+                "mutation Arbitrary($input: UpdateRefsInput!) { "
+                "updateRefs(input: $input) { clientMutationId } }"
+            ),
             {"input": {"repositoryId": "R_production", "refUpdates": []}},
         )
     assert observed == []

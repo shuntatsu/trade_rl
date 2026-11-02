@@ -213,6 +213,39 @@ def test_nonfinite_metrics_and_missing_arm_evidence_are_not_software_valid() -> 
     assert not result.drawdown_claims_pass_diagnostic
 
 
+@pytest.mark.parametrize(
+    "untyped_report",
+    (
+        {"verification_report_sha256": "f" * 64},
+        "forged-arm-report",
+        42,
+    ),
+)
+def test_completed_arm_with_untyped_external_report_fails_closed(
+    untyped_report: object,
+) -> None:
+    protocol = build_task18_protocol()
+    run = _complete_run()
+    malformed_arm = ArmReceipt(
+        **{**run.arms[0].__dict__, "external_report": untyped_report}
+    )
+    malformed_run = replace(run, arms=(malformed_arm,) + run.arms[1:])
+
+    evaluation = evaluate_run_receipt(malformed_run, protocol)
+    assert not evaluation.declared_metrics_well_formed
+    assert not evaluation.arm_reports_match
+    assert not evaluation.diagnostic_pair_arithmetic_available
+    assert not evaluation.terminal_claims_pass_diagnostic
+    assert not evaluation.drawdown_claims_pass_diagnostic
+    assert any("external report" in issue for issue in evaluation.issues)
+    with pytest.raises(ValueError, match="external report"):
+        malformed_arm.to_mapping()
+    with pytest.raises(ValueError, match="external report"):
+        malformed_run.to_mapping()
+    with pytest.raises(ValueError, match="complete declaration"):
+        diagnostic_pair_delta(malformed_run, protocol, "PAIR-01")
+
+
 def test_terminal_flatness_and_drawdown_are_separate_guardrails() -> None:
     protocol = build_task18_protocol()
     run = _complete_run()

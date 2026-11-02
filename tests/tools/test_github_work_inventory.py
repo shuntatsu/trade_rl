@@ -406,3 +406,113 @@ def test_partial_github_failure_does_not_produce_snapshot() -> None:
     api.fail_comments = True
     with pytest.raises(RuntimeError, match="GitHub API unreachable"):
         build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_work_inventory_opt_in_marks_unfinished_workflow_branches() -> None:
+    api = FakeWorkApi()
+    calls = 0
+
+    def active() -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return frozenset({"feature/unregistered", "main"})
+
+    setattr(api, "unfinished_workflow_branch_names", active)
+    report = build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+    reasons = {row["name"]: row["reason"] for row in report["branches"]}
+    assert reasons["feature/unregistered"] == "unfinished_workflow_ref"
+    assert report["unfinished_workflow_branches"] == ["feature/unregistered", "main"]
+    assert report["unfinished_workflow_branch_names_checked"] is True
+    assert report["workflow_activity_checked"] is False
+    assert report["task_registry_complete"] is False
+    assert report["cleanup_authorized"] is False
+    assert "feature/unregistered" not in report["unclassified_branches"]
+    assert calls == 2
+
+
+def test_work_inventory_legacy_default_does_not_scan_workflows() -> None:
+    api = FakeWorkApi()
+
+    def forbidden_scan() -> frozenset[str]:
+        raise AssertionError("default inventory must not start a new API scan")
+
+    setattr(api, "unfinished_workflow_branch_names", forbidden_scan)
+    report = build_inventory(api)  # type: ignore[arg-type]
+    assert "unfinished_workflow_branches" not in report
+    assert "unfinished_workflow_branch_names_checked" not in report
+    assert report["workflow_activity_checked"] is False
+    assert report["unclassified_branches"] == ["feature/unregistered"]
+
+
+def test_work_inventory_workflow_branch_drift_is_not_silent() -> None:
+    api = FakeWorkApi()
+    calls = 0
+
+    def drift() -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return frozenset({"main"}) if calls == 1 else frozenset()
+
+    setattr(api, "unfinished_workflow_branch_names", drift)
+    with pytest.raises(RuntimeError, match="unfinished workflow refs changed"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_work_inventory_missing_workflow_branch_is_unknown_not_safe() -> None:
+    api = FakeWorkApi()
+    setattr(
+        api,
+        "unfinished_workflow_branch_names",
+        lambda: frozenset({"deleted-while-pending"}),
+    )
+    with pytest.raises(RuntimeError, match="missing local branches"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_work_inventory_workflow_api_failure_rejects_snapshot() -> None:
+    api = FakeWorkApi()
+
+    def transport_failure() -> frozenset[str]:
+        raise RuntimeError("GitHub workflow pagination failed")
+
+    setattr(api, "unfinished_workflow_branch_names", transport_failure)
+    with pytest.raises(RuntimeError, match="pagination failed"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_work_inventory_rechecks_branch_tips_after_workflow_scan() -> None:
+    api = FakeWorkApi()
+    setattr(api, "unfinished_workflow_branch_names", lambda: frozenset({"main"}))
+    first = api.branch_rows
+    calls = 0
+
+    def moving_branches() -> tuple[BranchInfo, ...]:
+        nonlocal calls
+        calls += 1
+        if calls <= 2:
+            return first
+        return (
+            first[0],
+            BranchInfo("feature/unregistered", "e" * 40, False),
+            first[2],
+        )
+
+    api.branches = moving_branches  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="changed during workflow scan"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_live_work_inventory_workflow_scan_reuses_branch_hygiene_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+    calls = 0
+
+    def active_workflows() -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return frozenset({"main"})
+
+    monkeypatch.setattr(api._reader, "active_workflow_branch_names", active_workflows)
+    assert api.unfinished_workflow_branch_names() == frozenset({"main"})
+    assert calls == 1

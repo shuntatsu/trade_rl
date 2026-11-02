@@ -59,7 +59,7 @@ def test_unknown_or_malformed_workflow_observation_is_not_empty(value: object) -
         stable_workflow_branch_refs(reader, known_branch_names=frozenset({"main"}))
 
 
-@pytest.mark.parametrize("bad", ({"main"}, frozenset({None}), frozenset({" ")}))
+@pytest.mark.parametrize("bad", ({"main"}, frozenset({None}), frozenset({" "})))
 def test_invalid_known_branch_roster_fails_closed(bad: object) -> None:
     reader = FakeReader(frozenset(), frozenset())
     with pytest.raises(ValueError, match="known branch"):

@@ -265,7 +265,7 @@ def test_run_schema_capability_docs_track_current_v10_contract() -> None:
     assert "v7/v9/v10" in text
     assert "`lean_candidate_result_v10`" in text
     assert "v7/v9だけを許可する" not in text
-    assert "`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`" not in text
+    assert (\n        "`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`"\n        not in text\n    )
 
 
 def test_run_schema_capability_is_available_through_public_facade() -> None:

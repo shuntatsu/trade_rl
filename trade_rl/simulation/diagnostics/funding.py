@@ -358,18 +358,22 @@ def build_funding_evidence_artifact(
     execution_policy_digest: str,
     symbol_count: int,
     boundaries: Sequence[FundingBoundaryEvidence],
+    schema_version: str | None = None,
 ) -> FundingEvidenceArtifact:
     """Build one canonical funding-boundary artifact from completed execution."""
 
     resolved_boundaries = tuple(boundaries)
-    schema_version = (
-        FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2
-        if resolved_boundaries
-        and any(
-            boundary.funding_price_rates is not None for boundary in resolved_boundaries
+    if schema_version is None:
+        schema_version = (
+            FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2
+            if any(
+                boundary.funding_price_rates is not None
+                for boundary in resolved_boundaries
+            )
+            else FUNDING_BOUNDARY_ARTIFACT_SCHEMA
         )
-        else FUNDING_BOUNDARY_ARTIFACT_SCHEMA
-    )
+    # Empty boundaries cannot reveal the funding semantics. An explicit schema
+    # binds no-due v2 runs without altering existing inferred v1/v2 identities.
     return FundingEvidenceArtifact(
         dataset_id=dataset_id,
         execution_policy_digest=execution_policy_digest,

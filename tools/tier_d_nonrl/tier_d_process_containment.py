@@ -609,7 +609,9 @@ class _WindowsApi:
             counters = _ProcessMemoryCounters()
             counters.cb = ctypes.sizeof(counters)
             if not self._psapi.GetProcessMemoryInfo(
-                process_handle, ctypes.byref(counters), ctypes.sizeof(counters)
+                self._handle(process_handle),
+                ctypes.byref(counters),
+                ctypes.sizeof(counters),
             ):
                 raise _last_winerror("cannot read contained process working set")
             return ProcessMember(identity, int(counters.working_set_size))
@@ -631,7 +633,8 @@ class _WindowsApi:
         )
         if not process_handle:
             raise _last_winerror("cannot open a contained process for RSS sampling")
-        handle = int(process_handle)
+        # WinDLL restype=HANDLE yields c_void_p; int(HANDLE) is not portable.
+        handle = int(getattr(process_handle, "value", process_handle))
         if self._kernel32.GetProcessId(self._handle(handle)) != pid:
             self.close_handle(handle)
             raise ProcessContainmentError(

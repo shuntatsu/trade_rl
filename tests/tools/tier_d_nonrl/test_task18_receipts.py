@@ -624,3 +624,28 @@ def test_source_binding_rejects_mutable_pin_collections() -> None:
             commit_sha="a" * 40,
             files=[SourceFilePin("tools/a.py", "b" * 64)],  # type: ignore[arg-type]
         )
+
+
+def test_native_cost_oracle_failure_blocks_receipt_arithmetic() -> None:
+    run = _complete_run()
+    arm = run.arms[0]
+    assert arm.external_report is not None
+    altered = replace(
+        arm, external_report=replace(arm.external_report, cost_oracle_passed=False)
+    )
+    modified = replace(run, arms=(altered,) + run.arms[1:])
+    evaluated = evaluate_run_receipt(modified, build_task18_protocol())
+    assert not evaluated.declared_metrics_well_formed
+    assert not evaluated.diagnostic_pair_arithmetic_available
+    assert evaluated.adoption_status == "NOT_ESTABLISHED"
+
+
+def test_noncompleted_arm_cannot_claim_terminal_verification_report() -> None:
+    run = _complete_run()
+    arm = replace(run.arms[0], status="INTERRUPTED", reason_code="PROCESS_INTERRUPTED")
+    evaluated = evaluate_run_receipt(
+        replace(run, runtime_completed=False, arms=(arm,) + run.arms[1:]),
+        build_task18_protocol(),
+    )
+    assert not evaluated.declared_metrics_well_formed
+    assert not evaluated.diagnostic_pair_arithmetic_available

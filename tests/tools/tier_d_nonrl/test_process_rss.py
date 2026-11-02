@@ -401,3 +401,36 @@ def test_reused_pid_before_first_snapshot_fails_generation_check() -> None:
 
     with pytest.raises(ProcessSnapshotError, match="generation"):
         sampler.sample((_usage(100, 1, 999, 900_000_000),))
+
+
+def test_windows_cim_skips_pid_zero_before_null_date_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    from types import SimpleNamespace
+
+    def fake_run(argv: list[str], **_kwargs: object) -> SimpleNamespace:
+        script = argv[-1]
+        # The System Idle row may lack CreationDate. It must be discarded in
+        # the PowerShell producer, not only after JSON reaches Python.
+        skip = "if ($row.ProcessId -eq 0) { continue }"
+        assert skip in script
+        assert script.index(skip) < script.index("$null -eq $row.CreationDate")
+        payload = [
+            {
+                "pid": 4,
+                "parent_pid": 0,
+                "creation_time": _WINDOWS_FILETIME_EPOCH_TICKS + 2,
+                "rss_bytes": 2048,
+            }
+        ]
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(
+        "tools.tier_d_nonrl.tier_d_process_tree.shutil.which",
+        lambda _name: "powershell.exe",
+    )
+    monkeypatch.setattr(
+        "tools.tier_d_nonrl.tier_d_process_tree.subprocess.run", fake_run
+    )
+    assert _capture_windows_snapshot() == (_usage(4, 0, 2, 2048),)

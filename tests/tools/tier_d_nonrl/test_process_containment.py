@@ -5,6 +5,7 @@ import dataclasses
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import NoReturn
 
@@ -318,7 +319,43 @@ if not os.path.exists(sys.argv[2]):
         )
 
     assert owned.process.returncode == 0
+    # Closing a Windows Job Object triggers asynchronous kernel cleanup.
+    # A bounded poll is evidence of termination, not an immediate race.
+    deadline = time.monotonic() + 2.0
     still_running = _windows_generation_is_running(child_identity)
+    while still_running and time.monotonic() < deadline:
+        time.sleep(0.02)
+        still_running = _windows_generation_is_running(child_identity)
     if still_running:
         _terminate_windows_generation(child_identity)
     assert not still_running
+
+
+def test_windows_open_member_accepts_native_ctypes_handle() -> None:
+    # A Windows OpenProcess HANDLE is c_void_p, not an int-convertible scalar.
+    from ctypes import wintypes
+
+    pid, raw_handle = 4321, 0x12345
+
+    class Kernel:
+        def OpenProcess(
+            self, _flags: int, _inherit: bool, requested_pid: int
+        ) -> object:
+            assert requested_pid == pid
+            return wintypes.HANDLE(raw_handle)
+
+        def GetProcessId(self, handle: object) -> int:
+            assert isinstance(handle, wintypes.HANDLE)
+            assert handle.value == raw_handle
+            return pid
+
+        def IsProcessInJob(self, handle: object, job: object, output: object) -> int:
+            assert isinstance(handle, wintypes.HANDLE)
+            assert isinstance(job, wintypes.HANDLE)
+            ctypes.cast(output, ctypes.POINTER(wintypes.BOOL)).contents.value = 1
+            return 1
+
+    api = object.__new__(containment._WindowsApi)
+    api._wintypes = wintypes
+    api._kernel32 = Kernel()
+    assert api._open_member(999, pid) == raw_handle

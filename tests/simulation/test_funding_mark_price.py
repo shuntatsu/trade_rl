@@ -160,7 +160,19 @@ def test_v7_funding_uses_identity_bound_event_price_rate(
     assert result.interval_funding == pytest.approx(expected)
     assert result.book.funding_pnl == pytest.approx(expected)
     if funding_due:
-        assert result.funding_evidence[0].funding_price_rates == pytest.approx((0.25,))
+        evidence = result.funding_evidence[0]
+        assert evidence.funding_price_rates == pytest.approx((0.25,))
+        # The v2 receipt carries an actual independent pre-funding book mark.
+        observed_pre = float(
+            book.cash
+            + np.sum(
+                book.quantities
+                * dataset.resolved_array("mark_price")[1]
+                * dataset.resolved_array("contract_multipliers")
+            )
+        )
+        assert evidence.equity_before_funding == pytest.approx(observed_pre)
+        assert evidence.equity_after_funding == pytest.approx(observed_pre + expected)
         evidence_artifact = build_funding_evidence_artifact(
             dataset_id=dataset.dataset_id,
             execution_policy_digest=executor.execution_policy_digest,
@@ -171,6 +183,8 @@ def test_v7_funding_uses_identity_bound_event_price_rate(
         round_trip = load_funding_evidence_artifact_bytes(evidence_artifact.raw_bytes)
         assert round_trip == evidence_artifact
         assert round_trip.boundaries[0].funding_amount == pytest.approx(expected)
+    else:
+        assert result.funding_evidence == ()
     assert funding_price_rate[1, 0] != pytest.approx(
         dataset.funding_rate[1, 0] * dataset.resolved_array("mark_price")[1, 0]
     )

@@ -253,3 +253,21 @@ def test_funding_evidence_artifact_rejects_symbol_vector_mismatch() -> None:
             symbol_count=1,
             boundaries=(mismatched,),
         )
+
+
+def test_empty_event_price_artifact_can_retain_v2_schema_explicitly() -> None:
+    # With no due bars, the boundary vector cannot reveal which funding
+    # semantics the executor bound into the source policy digest.
+    artifact = funding_evidence.build_funding_evidence_artifact(
+        dataset_id=_DATASET_ID,
+        execution_policy_digest=_EXECUTION_POLICY_DIGEST,
+        symbol_count=1,
+        boundaries=(),
+        schema_version=FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2,
+    )
+    assert artifact.schema_version == FUNDING_BOUNDARY_ARTIFACT_SCHEMA_V2
+    assert artifact.boundary_count == 0
+    assert (
+        funding_evidence.load_funding_evidence_artifact_bytes(artifact.raw_bytes)
+        == artifact
+    )

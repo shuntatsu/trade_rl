@@ -584,6 +584,20 @@ def evaluate_run_receipt(
             ):
                 declared_metrics_well_formed = False
                 issues.append(f"unattempted arm has observed progress: {arm.arm_id}")
+            if any(
+                value is not None
+                for value in (
+                    arm.terminal_equity_usdt,
+                    arm.max_drawdown,
+                    arm.terminal_flat,
+                    arm.pending_order_count,
+                    arm.native_ledger_sha256,
+                    arm.arm_result_sha256,
+                    arm.external_report,
+                )
+            ):
+                declared_metrics_well_formed = False
+                issues.append(f"noncompleted arm has terminal facts: {arm.arm_id}")
             if arm.status == "NOT_ATTEMPTED" and any(
                 value is not None
                 for value in (

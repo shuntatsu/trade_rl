@@ -362,7 +362,12 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $rows = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId,ParentProcessId,CreationDate,WorkingSetSize)
 $payload = foreach ($row in $rows) {
-    if ($null -eq $row.ProcessId -or $null -eq $row.ParentProcessId -or $null -eq $row.CreationDate -or $null -eq $row.WorkingSetSize) {
+    if ($null -eq $row.ProcessId) {
+        throw 'Incomplete Win32_Process row'
+    }
+    # The System Idle process (PID 0) can have no creation timestamp.
+    if ($row.ProcessId -eq 0) { continue }
+    if ($null -eq $row.ParentProcessId -or $null -eq $row.CreationDate -or $null -eq $row.WorkingSetSize) {
         throw 'Incomplete Win32_Process row'
     }
     [pscustomobject]@{

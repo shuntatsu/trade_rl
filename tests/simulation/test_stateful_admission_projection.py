@@ -381,3 +381,75 @@ def test_lot_quantized_close_reserves_exact_accepted_lots() -> None:
         if event.order_id == second_close.order_id and event.event_type == "rejected"
     )
     assert rejected.reason == "reduce_only_exceeds_position"
+
+
+def test_unfilled_close_does_not_free_leverage_for_other_symbol_open() -> None:
+    """Admission must not spend headroom from a close with no realized fill."""
+
+    market = _two_symbol_market()
+    volume = np.array(market.volume, copy=True)
+    volume[1, 0] = 0.0
+    volume[1, 1] = 1_000.0
+    dataset = replace(market, volume=volume)
+    config = replace(
+        ExecutionCostConfig.zero(),
+        path_mode="conservative",
+        processing_bar_volume_capacity=True,
+        partial_fill_carry=True,
+        max_leverage=1.0,
+    )
+    executor = MarketExecutor(dataset, config)
+    close = _market_order(
+        dataset,
+        executor,
+        -8.0,
+        target_identity="close-with-zero-liquidity",
+        eligible_index=0,
+        reduce_only=True,
+    )
+    open_intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="new-exposure-dependent-on-close",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=1,
+        requested_quantity=5.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=200.0,
+        decision_equity=1_000.0,
+    )
+    opening = PendingOrder.from_intent(open_intent)
+    book = BookState(
+        quantities=np.array([8.0, 0.0]),
+        cash=200.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    # Independent arithmetic: initial gross 8 * 100 == 800; equity 1000.
+    # Opening 5 contracts at price 200 and multiplier 0.8 adds gross 800;
+    # without the closing fill, gross 1600 exceeds the 1000 leverage cap.
+    assert book.portfolio_value == 1_000.0
+    assert float(np.abs(book.position_values).sum()) == 800.0
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty().add(close, opening),
+        (),
+        start_index=0,
+        bars=1,
+    )
+    rejected = {
+        event.order_id: event.reason
+        for event in result.order_events
+        if event.event_type == "rejected"
+    }
+    assert rejected.get(opening.order_id) == "pretrade_leverage_exceeded"
+    assert result.fill_count == 0
+    np.testing.assert_array_equal(result.book.quantities, [8.0, 0.0])
+    np.testing.assert_array_equal(book.quantities, [8.0, 0.0])

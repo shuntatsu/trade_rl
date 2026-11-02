@@ -15,7 +15,11 @@ from gymnasium import spaces
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import MarketOrderProfile
-from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.risk.pretrade import (
+    PreTradeRisk,
+    PreTradeRiskConfig,
+    RiskConstrainedTarget,
+)
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
@@ -250,6 +254,9 @@ class SharedPortfolioGymEnv(gym.Env):
         self._session: SharedPortfolioSession | None = None
         self._episode_done = True
         self._episode_poisoned = False
+        self._capturing_execution_observations: (
+            list[StatefulExecutionObservation] | None
+        ) = None
 
     def reset(
         self,
@@ -260,7 +267,7 @@ class SharedPortfolioGymEnv(gym.Env):
         if options:
             raise ValueError("reset options are not supported")
         super().reset(seed=seed)
-        self._session = SharedPortfolioSession(
+        session = SharedPortfolioSession(
             self.dataset,
             start_index=self.start_index,
             stop_index=self.stop_index,
@@ -270,7 +277,9 @@ class SharedPortfolioGymEnv(gym.Env):
             market_order_profile=self.market_order_profile,
             settle_terminal_position=True,
             execution_observer=self.execution_observer,
+            execution_trace_observer=self._capture_execution_trace,
         )
+        self._session = session
         self._episode_done = False
         self._episode_poisoned = False
         observation = self._encode_snapshot(self._snapshot())
@@ -288,19 +297,45 @@ class SharedPortfolioGymEnv(gym.Env):
         snapshot = self._snapshot()
         target_weights, hold_symbols = self._proposal(codes, snapshot)
         equity_before = session.book.portfolio_value
+        cash_before = float(session.book.cash)
+        quantities_before = tuple(str(value) for value in session.book.exact_quantities)
         intervals_advanced = 0
         effective_holds: tuple[int, ...] = ()
         mutated = False
+        execution_observations: list[StatefulExecutionObservation] = []
+        transitions: list[dict[str, object]] = []
+        self._capturing_execution_observations = execution_observations
         try:
-            _, _, effective_holds = session.advance(
+            start_index = session.current_index
+            risk_target, _, effective_holds = session.advance(
                 target_weights,
                 hold_current_quantity_symbols=hold_symbols,
             )
             mutated = True
             intervals_advanced = 1
+            transitions.append(
+                self._decision_trace_transition(
+                    kind="actor_action",
+                    start_index=start_index,
+                    risk_target=risk_target,
+                    execution_observations=execution_observations,
+                    expected_observation_count=1,
+                )
+            )
             while session.can_settle_terminal:
-                session.settle_next_interval()
+                start_index = session.current_index
+                previous_observation_count = len(execution_observations)
+                risk_target, _, _ = session.settle_next_interval()
                 intervals_advanced += 1
+                transitions.append(
+                    self._decision_trace_transition(
+                        kind="terminal_settlement",
+                        start_index=start_index,
+                        risk_target=risk_target,
+                        execution_observations=execution_observations,
+                        expected_observation_count=previous_observation_count + 1,
+                    )
+                )
 
             book = session.book
             reward = net_equity_increment(
@@ -320,6 +355,22 @@ class SharedPortfolioGymEnv(gym.Env):
                 settlement_complete = False
                 endpoint_valid = False
                 observation = self._encode_snapshot(self._snapshot())
+            equity_after = float(book.portfolio_value)
+            decision_trace = {
+                "schema": "shared_portfolio_decision_trace_v1",
+                "raw_action_codes": list(codes),
+                "proposal_weights": list(target_weights),
+                "transitions": transitions,
+                "account_delta": {
+                    "cash_before": cash_before,
+                    "cash_after": float(book.cash),
+                    "equity_before": float(equity_before),
+                    "equity_after": equity_after,
+                    "equity_delta": equity_after - equity_before,
+                    "quantities_before": list(quantities_before),
+                    "quantities_after": [str(value) for value in book.exact_quantities],
+                },
+            }
             return (
                 observation,
                 reward,
@@ -331,6 +382,7 @@ class SharedPortfolioGymEnv(gym.Env):
                     "raw_action": codes,
                     "target_weights": target_weights,
                     "effective_hold_symbols": effective_holds,
+                    "decision_trace": decision_trace,
                     "terminal_state": terminal_state,
                     "settlement_complete": settlement_complete,
                     "objective_endpoint_valid": endpoint_valid,
@@ -341,6 +393,66 @@ class SharedPortfolioGymEnv(gym.Env):
                 self._episode_poisoned = True
                 self._episode_done = True
             raise
+        finally:
+            self._capturing_execution_observations = None
+
+    def _capture_execution_trace(
+        self, observation: StatefulExecutionObservation
+    ) -> None:
+        """Retain the native interval facts using archive-suffix semantics."""
+        capture = self._capturing_execution_observations
+        if capture is None:
+            raise RuntimeError("execution trace capture is not active")
+        capture.append(observation)
+
+    @staticmethod
+    def _decision_trace_transition(
+        *,
+        kind: str,
+        start_index: int,
+        risk_target: RiskConstrainedTarget,
+        execution_observations: list[StatefulExecutionObservation],
+        expected_observation_count: int,
+    ) -> dict[str, object]:
+        if len(execution_observations) != expected_observation_count:
+            raise RuntimeError("native execution trace observation count is invalid")
+        observation = execution_observations[-1]
+        if observation.next_index != start_index + 1:
+            raise RuntimeError("native execution trace index is inconsistent")
+        proposal_weights = risk_target.proposal_weights
+        pretrade_weights = risk_target.pretrade_weights
+        if proposal_weights is None or pretrade_weights is None:
+            raise RuntimeError("risk target is missing pipeline-stage weights")
+        return {
+            "kind": kind,
+            "start_index": start_index,
+            "next_index": observation.next_index,
+            "proposal_weights": [float(value) for value in proposal_weights],
+            "pretrade_weights": [float(value) for value in pretrade_weights],
+            "approved_weights": [float(value) for value in risk_target.weights],
+            "reasons": list(risk_target.reasons),
+            "was_constrained": bool(risk_target.was_constrained),
+            "risk_scale": float(risk_target.risk_scale),
+            "requested_turnover": float(risk_target.requested_turnover),
+            "constrained_turnover": float(risk_target.constrained_turnover),
+            "execution_observation": {
+                "next_index": observation.next_index,
+                "order_events": [
+                    event.canonical_payload() for event in observation.order_events
+                ],
+                "active_order_remainders": [
+                    {
+                        "order_id": order_id,
+                        "remaining_quantity": float(remaining_quantity),
+                    }
+                    for order_id, remaining_quantity in observation.active_order_remainders
+                ],
+                "terminal_order_reasons": [
+                    {"order_id": order_id, "reason": reason}
+                    for order_id, reason in observation.terminal_order_reasons
+                ],
+            },
+        }
 
     def _require_live_session(self) -> SharedPortfolioSession:
         if self._session is None:

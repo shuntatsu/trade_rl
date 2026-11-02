@@ -3,6 +3,7 @@
 from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME,
     DATASET_ARTIFACT_SCHEMA,
+    DATASET_ARTIFACT_SCHEMA_V4,
     DATASET_MANIFEST_NAME,
     DatasetArtifactFiles,
     load_dataset_files,
@@ -20,6 +21,7 @@ from trade_rl.data.artifacts.publication import (
 __all__ = [
     "DATASET_ARRAYS_NAME",
     "DATASET_ARTIFACT_SCHEMA",
+    "DATASET_ARTIFACT_SCHEMA_V4",
     "DATASET_MANIFEST_NAME",
     "DatasetArtifactFiles",
     "PublishedDatasetArtifact",

@@ -224,6 +224,7 @@ class PathContext:
     project_references: tuple[str, ...]
     doc_references: tuple[str, ...]
     effect_signals: tuple[str, ...]
+    validation_hints: tuple[str, ...]
 
 
 def _parse_module(path: Path) -> ast.Module:
@@ -254,6 +255,51 @@ def _schema_constants(path: Path) -> tuple[str, ...]:
             if isinstance(target, ast.Name) and "SCHEMA" in target.id:
                 result.add(target.id)
     return tuple(sorted(result))
+
+
+def _validation_hints(repository: Path, source: Path) -> tuple[str, ...]:
+    """Suggest only a canonical validator present in this checkout.
+
+    An imported and invoked helper is observed use; a digest-named value with
+    no invocation is a candidate only. Neither proves the field's semantics.
+    """
+
+    authority = repository / "trade_rl" / "_validation.py"
+    if source == authority or not authority.is_file() or authority.is_symlink():
+        return ()
+    authority = checked_repo_file(repository, authority)
+    if not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "require_sha256"
+        for node in _parse_module(authority).body
+    ):
+        return ()
+    tree = _parse_module(source)
+    aliases = {
+        item.asname or item.name
+        for statement in ast.walk(tree)
+        if isinstance(statement, ast.ImportFrom)
+        and statement.level == 0
+        and statement.module == "trade_rl._validation"
+        for item in statement.names
+        if item.name == "require_sha256"
+    }
+    invoked = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in aliases
+        for node in ast.walk(tree)
+    )
+    if invoked:
+        return ("used:trade_rl._validation.require_sha256",)
+    names = {
+        node.id if isinstance(node, ast.Name) else node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Name, ast.Attribute))
+    }
+    if any("sha256" in name.lower() or "digest" in name.lower() for name in names):
+        return ("candidate:trade_rl._validation.require_sha256",)
+    return ()
 
 
 def _effect_signals(path: Path) -> tuple[str, ...]:
@@ -557,6 +603,7 @@ class SourceIndex:
             project_references=self._project_references(source),
             doc_references=self._doc_references(logical_path, module),
             effect_signals=_effect_signals(source),
+            validation_hints=_validation_hints(self.repository, source),
         )
 
     def impact(self, relative_paths: tuple[str, ...]) -> tuple[PathContext, ...]:

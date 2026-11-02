@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import stat
@@ -34,17 +35,57 @@ def file_digest(path: Path, *, field: str = "artifact file") -> str:
     return file_digest_and_size(path, field=field)[0]
 
 
+def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
+    """Open with a no-follow directory chain where descriptor-relative I/O exists."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    if (
+        os.name == "posix"
+        and nofollow
+        and directory_flag
+        and os.open in os.supports_dir_fd
+    ):
+        directory_flags = getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
+        parent_fd = os.open(source.anchor, directory_flags)
+        try:
+            for component in source.parts[1:-1]:
+                try:
+                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
+                except OSError as error:
+                    if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                        raise ValueError(
+                            f"{field} parent must not contain a symlink or non-directory"
+                        ) from error
+                    raise
+                os.close(parent_fd)
+                parent_fd = next_fd
+            # Even a concurrent replacement of an ancestor cannot redirect the
+            # opened descriptor chain outside the inspected directory objects.
+            return os.open(source.name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
+
+    # Portable fallback for platforms without POSIX dir_fd/O_NOFOLLOW. Static
+    # ancestors (including Windows directory junctions) must still fail closed;
+    # this fallback does not claim atomic protection against concurrent swaps.
+    for ancestor in source.parents:
+        if ancestor.is_symlink() or ancestor.is_junction():
+            raise ValueError(f"{field} parent must not contain a symlink or junction")
+    return os.open(source, os.O_RDONLY | nofollow)
+
+
 @contextmanager
 def open_regular_binary(path: Path, *, field: str) -> Iterator[BinaryIO]:
-    """Open a non-symlink regular file without following a final symlink."""
+    """Read a regular file without traversing symlinked directory ancestors."""
 
     source = Path(path)
-    if source.is_symlink():
-        raise ValueError(f"{field} must not be a symlink")
-    descriptor = os.open(
-        source,
-        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-    )
+    if ".." in source.parts:
+        raise ValueError(f"{field} path must not contain parent traversal")
+    source = source.absolute()
+    if source.is_symlink() or source.is_junction():
+        raise ValueError(f"{field} must not be a symlink or junction")
+    descriptor = _open_regular_file_descriptor(source, field=field)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ValueError(f"{field} must be a regular file")

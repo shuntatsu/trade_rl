@@ -271,8 +271,10 @@ class StatefulOrderTransitionProcessor:
                     remaining_positions[symbol] = (
                         remaining + decision.admitted_exact_quantity
                     )
-            # A pending recovery close cannot release headroom before it fills.
-            if not processing_open_over_cap or not is_closing:
+            # No closing order, including an under-cap close, releases gross
+            # leverage headroom until an actual fill. Approving a new opening
+            # on an unfilled close would make later fills exceed the cap.
+            if not is_closing:
                 projected_book.apply_admitted_order(
                     symbol_index=symbol,
                     quantity=admitted,

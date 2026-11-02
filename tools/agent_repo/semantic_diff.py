@@ -31,6 +31,7 @@ class SemanticSignal:
 @dataclass(frozen=True, slots=True)
 class _Surface:
     data_shapes: dict[str, str]
+    data_fields: dict[str, str]
     schemas: dict[str, str]
     public_exports: frozenset[str]
     dependencies: frozenset[str]
@@ -155,6 +156,31 @@ def _data_shapes(tree: ast.Module) -> dict[str, str]:
     return result
 
 
+def _data_fields(tree: ast.Module) -> dict[str, str]:
+    """Report annotated dataclass field changes, not incidental method edits."""
+
+    fields: dict[str, str] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or not any(
+            _decorator_name(item) == "dataclass" for item in node.decorator_list
+        ):
+            continue
+        for statement in node.body:
+            if not isinstance(statement, ast.AnnAssign) or not isinstance(
+                statement.target, ast.Name
+            ):
+                continue
+            if _base_name(statement.annotation) == "ClassVar" or (
+                isinstance(statement.annotation, ast.Subscript)
+                and _base_name(statement.annotation.value) == "ClassVar"
+            ):
+                continue
+            fields[f"{node.name}.{statement.target.id}"] = ast.unparse(
+                statement.annotation
+            )
+    return fields
+
+
 def _schemas(tree: ast.Module) -> dict[str, str]:
     result: dict[str, str] = {}
     for node in tree.body:
@@ -174,6 +200,40 @@ def _schemas(tree: ast.Module) -> dict[str, str]:
         for target in targets:
             if isinstance(target, ast.Name) and "SCHEMA" in target.id:
                 result[target.id] = value.value
+    # Literal persistence rosters are class-level schema surfaces, not runtime
+    # behavior inferred from arbitrary strings or declarations elsewhere.
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for statement in node.body:
+            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            if not any(
+                isinstance(target, ast.Name) and target.id == "JSON_FIELDS"
+                for target in targets
+            ):
+                continue
+            roster_value = statement.value
+            if not isinstance(roster_value, (ast.Tuple, ast.List)):
+                result[f"{node.name}.JSON_FIELDS"] = "<nonliteral>"
+                continue
+            values: list[str] = []
+            literal = True
+            for member in roster_value.elts:
+                if not isinstance(member, ast.Constant) or not isinstance(
+                    member.value, str
+                ):
+                    literal = False
+                    break
+                values.append(member.value)
+            result[f"{node.name}.JSON_FIELDS"] = (
+                repr(tuple(values)) if literal else "<nonliteral>"
+            )
     return result
 
 
@@ -237,12 +297,13 @@ def _surface(
     known_modules: frozenset[str],
 ) -> _Surface:
     if text is None:
-        return _Surface({}, {}, frozenset(), frozenset(), frozenset(), frozenset())
+        return _Surface({}, {}, {}, frozenset(), frozenset(), frozenset(), frozenset())
     tree = ast.parse(text, filename=path)
     module = _module_from_path(path)
     filesystem, network = _effects(tree)
     return _Surface(
         data_shapes=_data_shapes(tree),
+        data_fields=_data_fields(tree),
         schemas=_schemas(tree),
         public_exports=_public_exports(tree),
         dependencies=_direct_dependencies(
@@ -395,6 +456,14 @@ def semantic_diff(
                 path=path,
                 before=before.data_shapes,
                 after=after.data_shapes,
+            )
+        )
+        signals.extend(
+            _mapping_signals(
+                kind="DATA_FIELD",
+                path=path,
+                before=before.data_fields,
+                after=after.data_fields,
             )
         )
         signals.extend(

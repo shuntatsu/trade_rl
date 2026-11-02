@@ -77,7 +77,7 @@ def test_seal_normalizes_local_start_to_ninety_utc_days(tmp_path):
     assert settings["close_at"] == (NOW + timedelta(minutes=5, days=90)).isoformat()
 
 
-def test_successor_seal_binds_the_failed_predecessor_attempt(tmp_path):
+def test_a_v2_labelled_successor_is_refused_attempt_two_must_use_v3(tmp_path):
     lineage = {
         "schema": "carry_paper_attempt_lineage_v2",
         "attempt_number": 2,
@@ -91,15 +91,16 @@ def test_successor_seal_binds_the_failed_predecessor_attempt(tmp_path):
         },
     }
     root = tmp_path / "successor"
-    operations.seal_paper_study(
-        root,
-        start_at=NOW + timedelta(minutes=5),
-        attempt_lineage=lineage,
-        clock=lambda: NOW,
-    )
-
-    protocol = json.loads((root / "protocol.json").read_bytes())["protocol"]
-    assert protocol["study"]["research_plan"]["attempt_lineage"] == lineage
+    # Tightened pre-existing v2 rule: v2 asserts caller-supplied predecessor values,
+    # so only attempt 1 may use the label; attempt 2 and later use the canonical v3.
+    with pytest.raises(ValueError, match="lineage_v2_attempt_requires_v3"):
+        operations.seal_paper_study(
+            root,
+            start_at=NOW + timedelta(minutes=5),
+            attempt_lineage=lineage,
+            clock=lambda: NOW,
+        )
+    assert not root.exists()
 
 
 @pytest.mark.parametrize(

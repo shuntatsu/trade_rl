@@ -95,6 +95,29 @@ def test_atomic_publish_rejects_existing_destination_without_changes(
     assert tuple(root.iterdir()) == (sentinel,)
 
 
+def test_market_dataset_publisher_never_replaces_racing_empty_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trade_rl.data.artifacts import publication
+
+    root = tmp_path / "artifact"
+    original_write = publication._write_arrays
+
+    def stage_then_publish_competing_directory(path: Path, dataset):
+        files = original_write(path, dataset)
+        root.mkdir()
+        return files
+
+    monkeypatch.setattr(
+        publication, "_write_arrays", stage_then_publish_competing_directory
+    )
+    with pytest.raises(FileExistsError):
+        publish_market_dataset_artifact(root, _dataset())
+
+    assert root.is_dir() and not tuple(root.iterdir())
+    assert not tuple(tmp_path.glob(".artifact.staging-*"))
+
+
 def test_failed_staging_is_removed_without_publishing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

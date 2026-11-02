@@ -411,3 +411,89 @@ def test_continuous_bar_retains_post_fill_one_bar_carry() -> None:
     assert result.book.quantities[0] == pytest.approx(-5.0)
     assert result.interval_borrow_cost == pytest.approx(500.0 * 0.365 * one_hour)
     assert result.interval_cash_interest == pytest.approx(1_500.0 * 0.365 * one_hour)
+
+
+@pytest.mark.parametrize(
+    ("annual_rate", "dividend_per_unit", "processing_close"),
+    [
+        (0.365, 1.0, 100.0),
+        (0.365, 0.0, 100.0),
+        (0.0, 1.0, 100.0),
+        (0.0, 1.0, 99.0),
+    ],
+)
+def test_session_gap_interest_and_processing_dividend_preserve_account_state(
+    annual_rate: float,
+    dividend_per_unit: float,
+    processing_close: float,
+) -> None:
+    """The public order path must not clone a transient pre-mark/peak state."""
+
+    timestamps = np.array(
+        ["2026-01-02T16:00:00", "2026-01-05T09:00:00", "2026-01-05T10:00:00"],
+        dtype="datetime64[ns]",
+    )
+    opens = np.full((3, 1), 100.0)
+    closes = opens.copy()
+    closes[1, 0] = processing_close
+    dataset = MarketDataset(
+        dataset_id="9" * 64,
+        symbols=("A",),
+        timestamps=timestamps,
+        features=np.zeros((3, 1, 1), dtype=np.float32),
+        global_features=np.zeros((3, 1), dtype=np.float32),
+        open=opens,
+        high=opens,
+        low=np.minimum(opens, closes),
+        close=closes,
+        volume=np.full((3, 1), 10_000.0),
+        funding_rate=np.zeros((3, 1)),
+        tradable=np.ones((3, 1), dtype=np.bool_),
+        feature_available=np.ones((3, 1, 1), dtype=np.bool_),
+        feature_names=("x",),
+        global_feature_names=("g",),
+        periods_per_year=1_638,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        cash_rate=np.full(3, annual_rate),
+        dividend=np.full((3, 1), dividend_per_unit),
+    )
+    book = BookState.from_weights(
+        weights=np.array([0.5]),
+        capital=1_000.0,
+        prices=opens[0],
+        contract_multipliers=dataset.contract_multipliers,
+    )
+
+    result = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_orders(
+        book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    gap_interest = 500.0 * annual_rate * (64.0 / 8_760.0)
+    dividend = 5.0 * dividend_per_unit
+    processing_interest = (500.0 + dividend) * annual_rate / 8_760.0
+    assert result.interval_cash_interest == pytest.approx(
+        gap_interest + processing_interest
+    )
+    assert result.interval_dividend == pytest.approx(dividend)
+    assert result.book.cash == pytest.approx(
+        500.0 + gap_interest + dividend + processing_interest
+    )
+    assert result.book.quantities[0] == pytest.approx(5.0)
+    assert result.book.exact_quantities == (5,)
+    assert result.next_index == 1
+    assert result.bars_advanced == 1
+    assert result.fill_count == 0
+    assert result.rebalance_events == 0
+    assert not result.order_book.active_orders
+    assert not result.order_events
+    assert book.cash == 500.0
+    assert book.peak_value == 1_000.0
+    if annual_rate == 0.0 and processing_close == 99.0:
+        assert result.book.portfolio_value == pytest.approx(1_000.0)
+        assert result.book.peak_value == pytest.approx(1_000.0)
+        assert result.book.max_drawdown == pytest.approx(0.0)

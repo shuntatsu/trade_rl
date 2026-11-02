@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 import pytest
@@ -205,7 +206,7 @@ class FakeCleanupApi:
             self._branches.pop(branch.name)
 
 
-def test_apply_cleanup_archives_unique_tip_before_delete() -> None:
+def test_bulk_apply_cannot_archive_or_delete_even_with_reachable_tip() -> None:
     main = BranchInfo("main", "a" * 40, False)
     archived = BranchInfo("verify/unique", "b" * 40, False)
     direct = BranchInfo("feature/merged", "c" * 40, False)
@@ -216,24 +217,19 @@ def test_apply_cleanup_archives_unique_tip_before_delete() -> None:
         BranchDecision(direct, "delete", "tip-reachable-from-anchor"),
     )
 
-    deleted = apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="bulk apply_cleanup is disabled"):
+        apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
 
-    assert deleted == (direct.name,)
-    archive_event = next(
-        index
-        for index, event in enumerate(api.events)
-        if event.startswith("create-ref:")
-    )
-    delete_event = next(
-        index for index, event in enumerate(api.events) if event.startswith("delete:")
-    )
-    assert archive_event < delete_event
-    assert archived.name in {branch.name for branch in api.branches()}
-    assert RETENTION_BRANCH in {branch.name for branch in api.branches()}
-    assert f"{archived.name}\t{archived.sha}" in api.messages[0]
+    assert api.deleted == []
+    assert api.events == []
+    assert {branch.name for branch in api.branches()} == {
+        "main",
+        archived.name,
+        direct.name,
+    }
 
 
-def test_apply_cleanup_revalidates_open_refs_and_exact_sha() -> None:
+def test_bulk_apply_rejects_even_supplied_delete_decisions() -> None:
     main = BranchInfo("main", "a" * 40, False)
     original = BranchInfo("verify/redundant", "b" * 40, False)
     moved = BranchInfo("automation/moved", "c" * 40, False)
@@ -260,10 +256,11 @@ def test_apply_cleanup_revalidates_open_refs_and_exact_sha() -> None:
         BranchDecision(protected_by_pr, "delete", "tip-reachable-from-anchor"),
     )
 
-    deleted = apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="bulk apply_cleanup is disabled"):
+        apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
 
-    assert deleted == (original.name,)
-    assert api.deleted == [original.name]
+    assert api.deleted == []
+    assert api.events == []
 
 
 def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -307,6 +304,16 @@ def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) ->
     assert f":refs/heads/{branches[0].name}" in command
     assert f":refs/heads/{branches[1].name}" in command
     assert all("secret-token" not in part for part in command)
+    # Base64 still exposes reversible credentials if placed on process argv.
+    encoded = base64.b64encode(b"x-access-token:secret-token").decode("ascii")
+    assert not any("AUTHORIZATION:" in arg or encoded in arg for arg in command)
+    kwargs = observed["kwargs"]
+    assert isinstance(kwargs, dict)
+    git_env = kwargs["env"]
+    assert isinstance(git_env, dict)
+    assert git_env["GIT_CONFIG_COUNT"] == "1"
+    assert git_env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    assert git_env["GIT_CONFIG_VALUE_0"] == f"AUTHORIZATION: basic {encoded}"
 
 
 def test_branch_hygiene_workflow_runs_from_default_branch() -> None:

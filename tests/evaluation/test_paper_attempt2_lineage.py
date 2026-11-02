@@ -27,21 +27,23 @@ from tests.evaluation.test_paper_attempt2 import (  # noqa: F401  (autouse fixtu
     roomy,
     seal,
 )
-from trade_rl.evaluation.paper import attempt2, operations
+from trade_rl.evaluation.paper import attempt2, operations, predecessor
 from trade_rl.evaluation.paper.attempt2 import (
-    ATTEMPT_ONE_FINAL_TIP_SHA256,
-    ATTEMPT_ONE_LAST_OBSERVED_AT,
-    ATTEMPT_ONE_PROTOCOL_SHA256,
     attempt2_lineage,
     launch_attempt2,
     seal_attempt2,
+)
+from trade_rl.evaluation.paper.predecessor import (
+    ATTEMPT_ONE_FINAL_TIP_SHA256,
+    ATTEMPT_ONE_LAST_OBSERVED_AT,
+    ATTEMPT_ONE_PROTOCOL_SHA256,
 )
 
 
 def v1_report(**overrides):
     """What `collection_status` returns for an intact attempt-1 root."""
     report = dict(
-        events=attempt2.ATTEMPT_ONE_EVENT_COUNT,
+        events=predecessor.ATTEMPT_ONE_EVENT_COUNT,
         tip=ATTEMPT_ONE_FINAL_TIP_SHA256,
         status=dict(observed_at=ATTEMPT_ONE_LAST_OBSERVED_AT),
     )
@@ -86,11 +88,26 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         "document": "docs/research/current-status.md",
         "commit": "b9f1ca65b26dcff7acbb089c7643e95702d474c9",
     }
-    assert record["user_attestation"] == {
-        "quote": "そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ",
+    assert record["user_statement"] == {
+        "quote": "そのデータはしらない。結果保存もどこにあるわからないから、\n新しくとっていいよ",
         "date": "2026-10-30",
         "channel": "chat",
+        "states": [
+            "attempt_1_data_location_unknown",
+            "attempt_1_result_storage_location_unknown",
+            "new_data_collection_permitted",
+        ],
+        "does_not_attest": [
+            "predecessor_lineage_values",
+            "absence_of_an_earlier_attempt",
+        ],
     }
+    assert "user_attestation" not in record
+    # The planner supplied the exact two-line text from the chat of 2026-10-30.
+    assert record["user_statement"]["quote"].split("\n") == [
+        "そのデータはしらない。結果保存もどこにあるわからないから、",
+        "新しくとっていいよ",
+    ]
     rule = record["review_rule"]
     assert "cannot confirm the predecessor" in rule
     assert "does not exclude an earlier unreported attempt" in rule
@@ -133,16 +150,24 @@ def test_available_record_carries_the_verification_it_was_built_from():
         attempt2_lineage("available")  # an available record must name its root
 
 
-def test_both_lineages_validate_and_v2_is_unchanged():
+def test_both_lineages_validate_and_v2_attempt_one_is_unchanged():
     for lineage in (
         attempt2_lineage("available", "D:/old/root"),
         attempt2_lineage("unavailable"),
     ):
         operations.validate_attempt_lineage(lineage, sealed_at=NOW)
+    first = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 1,
+        "predecessor": None,
+    }
+    assert operations.validate_attempt_lineage(first, sealed_at=NOW) == first
+    # Tightened pre-existing v2 rule: attempt 2 and later must use v3.
     legacy = attempt2_lineage("unavailable")
     legacy.pop("predecessor_root")
     legacy["schema"] = "carry_paper_attempt_lineage_v2"
-    assert operations.validate_attempt_lineage(legacy, sealed_at=NOW) == legacy
+    with pytest.raises(ValueError, match="lineage_v2_attempt_requires_v3"):
+        operations.validate_attempt_lineage(legacy, sealed_at=NOW)
 
 
 @pytest.mark.parametrize(
@@ -173,10 +198,28 @@ def test_a_hand_made_available_claim_without_matching_verification_is_invalid(mu
     "mutate",
     [
         lambda r: r.update(re_verified_at_seal=True),
-        lambda r: r.pop("user_attestation"),
-        lambda r: r["user_attestation"].update(quote=""),
-        lambda r: r["user_attestation"].update(date="2026-13-40"),
-        lambda r: r["user_attestation"].update(date="2999-01-01"),
+        lambda r: r.pop("user_statement"),
+        lambda r: r.update(user_attestation=r.pop("user_statement")),
+        lambda r: r["user_statement"].update(quote=""),
+        lambda r: r["user_statement"].update(
+            quote=r["user_statement"]["quote"].replace("\n", "")  # lines joined
+        ),
+        lambda r: r["user_statement"].update(quote="different words"),
+        lambda r: r["user_statement"].update(quote=r["user_statement"]["quote"] + " "),
+        lambda r: r["lineage_source"].update(document="docs/other.md"),
+        lambda r: r["lineage_source"].update(commit="0" * 40),
+        lambda r: r.update(review_rule="a different rule"),
+        lambda r: r["user_statement"].update(date="2026-13-40"),
+        lambda r: r["user_statement"].update(date="2999-01-01"),
+        lambda r: r["user_statement"].update(states=["new_data_collection_permitted"]),
+        lambda r: r["user_statement"].update(
+            states=r["user_statement"]["states"] + ["predecessor_lineage_values"]
+        ),
+        lambda r: r["user_statement"].update(does_not_attest=[]),
+        lambda r: r.update(not_established=["one_arbitrary_item"]),
+        lambda r: r.update(not_established=r["not_established"][:-1]),
+        lambda r: r.update(not_established=r["not_established"][::-1]),
+        lambda r: r.update(not_established=r["not_established"] + ["extra"]),
         lambda r: r["lineage_source"].update(commit="abc"),
         lambda r: r["lineage_source"].update(kind="root_read"),
         lambda r: r.update(review_rule=""),
@@ -317,26 +360,26 @@ def test_the_real_v1_reader_verifies_a_synthetic_root(tmp_path, monkeypatch):
             expected_parent=parent,
         )
         parent = record["sha256"]
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_PROTOCOL_SHA256", digest)
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_FINAL_TIP_SHA256", parent)
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_EVENT_COUNT", 3)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_PROTOCOL_SHA256", digest)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_FINAL_TIP_SHA256", parent)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_EVENT_COUNT", 3)
     before = {
         path.name: (path.stat().st_size, path.stat().st_mtime_ns, path.read_bytes())
         for path in root.iterdir()
     }
-    assert attempt2.verify_predecessor_root(root) == []
+    assert predecessor.verify_predecessor_root(root) == []
     after = {
         path.name: (path.stat().st_size, path.stat().st_mtime_ns, path.read_bytes())
         for path in root.iterdir()
     }
     assert after == before  # verification neither wrote nor created any file
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_EVENT_COUNT", 188)
-    assert attempt2.verify_predecessor_root(root) == [
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_EVENT_COUNT", 188)
+    assert predecessor.verify_predecessor_root(root) == [
         "predecessor_root_event_count_differs"
     ]
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_EVENT_COUNT", 3)
-    monkeypatch.setattr(attempt2, "ATTEMPT_ONE_PROTOCOL_SHA256", "f" * 64)
-    assert attempt2.verify_predecessor_root(root) == [
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_EVENT_COUNT", 3)
+    monkeypatch.setattr(predecessor, "ATTEMPT_ONE_PROTOCOL_SHA256", "f" * 64)
+    assert predecessor.verify_predecessor_root(root) == [
         "predecessor_root_unreadable:ValueError"
     ]
 
@@ -390,21 +433,18 @@ def test_launch_accepts_either_recorded_status(tmp_path):
             assert len(reader.calls) == 2  # once at seal, once re-read at launch
 
 
-def test_launch_refuses_a_tampered_unavailable_record(tmp_path):
+def test_the_validator_refuses_to_seal_a_tampered_unavailable_record(tmp_path):
     lineage = attempt2_lineage("unavailable")
-    lineage["predecessor_root"]["user_attestation"]["quote"] = "different words"
-    digest = operations.seal_paper_study(
-        tmp_path / "attempt2",
-        start_at=START,
-        attempt_lineage=lineage,
-        via_attempt2=True,
-        clock=clock,
-    )
-    recorder = Recorder()
-    assert refusal_of(lambda **kw: launch(tmp_path, digest, recorder, **kw)) == [
-        "protocol_not_attempt2_lineage"
-    ]
-    assert recorder.calls == []
+    lineage["predecessor_root"]["user_statement"]["quote"] = "different words"
+    with pytest.raises(ValueError, match="canonical|invalid"):
+        operations.seal_paper_study(
+            tmp_path / "attempt2",
+            start_at=START,
+            attempt_lineage=lineage,
+            attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+            clock=clock,
+        )
+    assert not (tmp_path / "attempt2").exists()
 
 
 # ------------------------------------------- v3 can only come from attempt2 (M1)
@@ -443,7 +483,7 @@ def forged_available(tmp_path, root_path):
         tmp_path / "attempt2",
         start_at=START,
         attempt_lineage=attempt2_lineage("available", root_path),
-        via_attempt2=True,
+        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
         clock=clock,
     )
     return digest
@@ -491,17 +531,21 @@ def test_launch_accepts_an_available_protocol_only_when_the_root_still_verifies(
     assert outcome["exit_code"] == 0 and len(reader.calls) == 1
 
 
-def test_a_supervisor_relaunch_after_the_start_does_not_need_the_old_root(tmp_path):
+def test_supervisor_relaunch_does_not_trust_a_missing_predecessor_root(tmp_path):
     root = tmp_path / "attempt1-root"
     root.mkdir()
     digest = forged_available(tmp_path, root)
     gone = FakeReader(error=ValueError("root gone"))
-    # `launch` passes reverify=False once the start has passed: the first launch
-    # already re-read the root, and a relaunch must not depend on it still existing.
+    # One forged event or heartbeat cannot attest a prior successful root read.
     reasons = attempt2._protocol_reasons(
-        tmp_path / "attempt2", digest, START, read=gone, reverify=False
+        tmp_path / "attempt2", digest, START, read=gone
     )
-    assert reasons == [] and gone.calls == []
+    assert (
+        "predecessor_root_not_reverifiable:predecessor_root_unreadable:ValueError"
+        in reasons
+    )
+    assert "protocol_not_attempt2_lineage" in reasons
+    assert len(gone.calls) == 1
 
 
 def test_cli_plan_refuses_available_without_a_root(tmp_path, capsys):

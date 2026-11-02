@@ -133,6 +133,7 @@ class StatefulExecutionRuntime:
         *,
         processing_index: int,
         funding_amount: float,
+        observed_equity_before_funding: float,
     ) -> None:
         dataset = self.executor.dataset
         funding_due_array = np.asarray(
@@ -155,6 +156,17 @@ class StatefulExecutionRuntime:
             dtype=np.float64,
         )
         equity_after_funding = float(self.book.portfolio_value)
+        # Compare independent state observations; preserve legacy serialized
+        # before-equity arithmetic for v1 artifact byte compatibility.
+        if not math.isclose(
+            equity_after_funding,
+            observed_equity_before_funding + funding_amount,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                "funding book equity does not reconcile with pre-funding state"
+            )
         self.funding_evidence.append(
             FundingBoundaryEvidence(
                 processing_index=processing_index,
@@ -167,8 +179,20 @@ class StatefulExecutionRuntime:
                 ),
                 funding_rates=tuple(float(value) for value in funding_rates),
                 funding_amount=float(funding_amount),
-                equity_before_funding=equity_after_funding - float(funding_amount),
+                equity_before_funding=(
+                    observed_equity_before_funding
+                    if dataset.funding_price_rate is not None
+                    else equity_after_funding - float(funding_amount)
+                ),
                 equity_after_funding=equity_after_funding,
+                funding_price_rates=(
+                    tuple(
+                        float(value)
+                        for value in dataset.funding_price_rate[processing_index]
+                    )
+                    if dataset.funding_price_rate is not None
+                    else None
+                ),
             )
         )
 
@@ -262,11 +286,16 @@ class StatefulExecutionRuntime:
         )
 
     def result_payload(self, *, start_index: int, bars: int) -> dict[str, Any]:
-        ending_value = max(self.book.portfolio_value, 0.0)
-        interval_net_return = max(
-            ending_value / self.starting_value - 1.0,
-            -1.0 + 1e-12,
+        retain_debt = self.executor.insolvency_valuation == "retain_debt"
+        ending_value = (
+            self.book.portfolio_value
+            if retain_debt
+            else max(self.book.portfolio_value, 0.0)
         )
+        interval_net_return = ending_value / self.starting_value - 1.0
+        if not retain_debt:
+            interval_net_return = max(interval_net_return, -1.0 + 1e-12)
+        interval_log_return = math.log1p(max(interval_net_return, -1.0 + 1e-12))
         # Attribute the realized execution path, rather than rerunning a
         # hypothetical zero-cost strategy. Trades themselves exchange cash for
         # inventory at their actual fill prices; remove only explicit non-price
@@ -309,7 +338,7 @@ class StatefulExecutionRuntime:
             "interval_cash_interest": self.total_cash_interest,
             "interval_gross_return": interval_gross_return,
             "interval_net_return": interval_net_return,
-            "interval_log_return": math.log1p(interval_net_return),
+            "interval_log_return": interval_log_return,
             "requested_notional": self.requested_notional,
             "filled_notional": self.filled_notional,
             "requested_turnover": requested_turnover,

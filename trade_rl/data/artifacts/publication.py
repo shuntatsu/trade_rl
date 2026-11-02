@@ -7,11 +7,15 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME as MARKET_ARTIFACT_ARRAYS,
 )
 from trade_rl.data.artifacts.codec import (
     DATASET_ARTIFACT_SCHEMA as MARKET_ARTIFACT_SCHEMA,
+)
+from trade_rl.data.artifacts.codec import (
+    DATASET_ARTIFACT_SCHEMA_V4 as MARKET_ARTIFACT_SCHEMA_V4,
 )
 from trade_rl.data.artifacts.codec import (
     DATASET_MANIFEST_NAME as MARKET_ARTIFACT_MANIFEST,
@@ -62,7 +66,9 @@ def load_published_market_dataset_artifact(
     """
 
     artifact_root = Path(root)
-    dataset, artifact_digest = _load_dataset_files_with_digest(artifact_root)
+    dataset, artifact_digest, schema_version = _load_dataset_files_with_digest(
+        artifact_root
+    )
     manifest_path = artifact_root / MARKET_ARTIFACT_MANIFEST
     return (
         PublishedDatasetArtifact(
@@ -70,6 +76,7 @@ def load_published_market_dataset_artifact(
             manifest_path=manifest_path,
             arrays_path=artifact_root / MARKET_ARTIFACT_ARRAYS,
             artifact_digest=artifact_digest,
+            schema_version=schema_version,
         ),
         dataset,
     )
@@ -94,7 +101,7 @@ def publish_market_dataset_artifact(
         loaded = load_dataset_files(staging)
         if loaded.dataset_id != dataset.dataset_id:
             raise ValueError("staged market artifact changed dataset identity")
-        staging.rename(output)
+        atomic_rename_directory(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -103,6 +110,7 @@ def publish_market_dataset_artifact(
         manifest_path=output / MARKET_ARTIFACT_MANIFEST,
         arrays_path=output / MARKET_ARTIFACT_ARRAYS,
         artifact_digest=files.artifact_digest,
+        schema_version=files.schema_version,
     )
 
 
@@ -114,6 +122,7 @@ __all__ = [
     "MARKET_ARTIFACT_ARRAYS",
     "MARKET_ARTIFACT_MANIFEST",
     "MARKET_ARTIFACT_SCHEMA",
+    "MARKET_ARTIFACT_SCHEMA_V4",
     "PublishedDatasetArtifact",
     "inspect_published_market_dataset_artifact",
     "load_market_dataset_artifact",

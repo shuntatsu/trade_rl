@@ -235,6 +235,7 @@ class BuiltArm:
 
     policy: Any
     adapter: Any | None
+    forecast_interval_hours: int | None = None
 
 
 ArmBuilder = Callable[[str, MarketDataset, DevStudyProtocol, Any], BuiltArm]
@@ -429,6 +430,8 @@ def reconcile_ledger(
         "execution_costs": float(cost),
         "funding_pnl": float(funding),
         "borrow_cost": float(borrow),
+        "dividend_pnl": float(dividend),
+        "cash_interest_pnl": float(interest),
         "independent_terminal_equity": float(expected),
         "ledger_final_cash": ledger.final_cash,
         "ledger_final_equity": final_equity,
@@ -525,6 +528,9 @@ def run_replay(
     costs = float(diagnostics.total_cost)
     funding = float(diagnostics.funding_pnl)
     years = float(performance["years"])
+    dividend = cast(float, reconciliation["dividend_pnl"])
+    interest = cast(float, reconciliation["cash_interest_pnl"])
+    borrow = float(diagnostics.borrow_cost)
     summary: dict[str, object] = {
         "arm": arm,
         "scenario": scenario,
@@ -532,8 +538,12 @@ def run_replay(
         "net_pnl_usdt": net_pnl,
         "execution_costs_usdt": costs,
         "funding_pnl_usdt": funding,
-        "borrow_cost_usdt": float(diagnostics.borrow_cost),
-        "gross_price_pnl_usdt": net_pnl + costs - funding,
+        "borrow_cost_usdt": borrow,
+        "dividend_pnl_usdt": dividend,
+        "cash_interest_pnl_usdt": interest,
+        "gross_price_pnl_usdt": (
+            net_pnl + costs - funding + borrow - dividend - interest
+        ),
         "fees_plus_funding_paid_usdt": costs - funding,
         "turnover_total": float(diagnostics.turnover_total),
         "turnover_per_year": float(diagnostics.turnover_total) / years,
@@ -545,13 +555,27 @@ def run_replay(
     if built.adapter is not None:
         history = np.asarray(built.adapter.history, dtype=np.float64)
         cost_rate = protocol.fee_rate + protocol.spread_rate
+        interval_hours = (
+            built.forecast_interval_hours or protocol.decision_interval_hours
+        )
+        days_per_interval = interval_hours / 24.0
+        abs_history = np.abs(history)
+        mean_abs_mu = float(np.mean(abs_history)) if history.size else None
+        median_abs_mu = float(np.median(abs_history)) if history.size else None
         summary["forecast"] = {
             "decision_calls": built.adapter.calls,
             "null_packets": built.adapter.null_packets,
-            "mean_abs_mu_per_day": float(np.mean(np.abs(history))),
-            "median_abs_mu_per_day": float(np.median(np.abs(history))),
-            "share_abs_mu_above_one_way_cost": float(
-                np.mean(np.abs(history) > cost_rate)
+            "decision_interval_hours": interval_hours,
+            "mean_abs_mu_per_interval": mean_abs_mu,
+            "median_abs_mu_per_interval": median_abs_mu,
+            "mean_abs_mu_per_day": (
+                None if mean_abs_mu is None else mean_abs_mu / days_per_interval
+            ),
+            "median_abs_mu_per_day": (
+                None if median_abs_mu is None else median_abs_mu / days_per_interval
+            ),
+            "share_abs_mu_above_one_way_cost": (
+                float(np.mean(abs_history > cost_rate)) if history.size else None
             ),
             "one_way_cost": cost_rate,
         }
@@ -641,10 +665,23 @@ def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
     ] + [(d.index, d.proposal_weights, d.target_weights) for d in result.decisions]
 
 
+def _pre_cut_has_trades(result: SharedCashPortfolioReplayResult) -> bool:
+    """Use causal interval fills and exact positions, not mixed trace slicing."""
+
+    ledger = result.ledger_evidence
+    if ledger is None:
+        raise ValueError("causality probe requires ledger evidence")
+    return any(
+        any(event.filled_quantity != 0 for event in interval.order_events)
+        or any(Fraction(quantity) != 0 for quantity in interval.exact_quantities_after)
+        for interval in ledger.intervals.intervals
+    )
+
+
 def _split_trace(
     trace: list[tuple[object, ...]], result: SharedCashPortfolioReplayResult
 ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
-    """Interval rows and decision rows of :func:`_trace`, by explicit count."""
+    """Split interval and decision trace rows using explicit ledger length."""
 
     ledger = result.ledger_evidence
     assert ledger is not None
@@ -677,12 +714,10 @@ def causality_probe(
     per-dataset sources for the perturbed copy and defaults to
     :func:`build_forecast_sources`.
 
-    Naming caveat (semantics unchanged, kept for the PR-C rule):
-    ``pre_cut_trace_has_trades`` is true when any nonzero exact quantity is held after
-    any row in the first ``len(trace) // 2`` rows of the concatenated trace. That
-    half is the hourly interval rows, so the flag tests that a POSITION IS HELD during
-    them, not that an order was filled; ``pre_cut_interval_rows_have_trades`` is the
-    same test with an explicit interval/decision split and is a diagnostic only.
+    ``pre_cut_trace_has_trades`` is derived from actual nonzero interval fills or
+    exact positions anywhere before the cut, including round trips ending flat.
+    ``pre_cut_interval_rows_have_trades`` is the legacy quantity-only diagnostic,
+    split at the explicit interval count rather than by guessing half the trace.
     """
 
     build = arm_builder or build_arm
@@ -715,12 +750,7 @@ def causality_probe(
     real_history = [] if real_adapter is None else real_adapter.history
     perturbed_history = [] if perturbed_adapter is None else perturbed_adapter.history
     identical = real_trace == perturbed_trace and real_history == perturbed_history
-    traded = any(
-        any(Fraction(q) != 0 for q in cast(tuple[str, ...], row[1]))
-        for row in real_trace[: len(real_trace) // 2]
-    )
-    # Diagnostic with an explicit split (the ``len // 2`` slice above is the PR-C
-    # rule, kept unchanged): any non-zero quantity in ANY pre-cut interval row.
+    traded = _pre_cut_has_trades(real_result)
     interval_rows, decision_rows = _split_trace(real_trace, real_result)
     traded_any_interval = any(
         any(Fraction(q) != 0 for q in cast(tuple[str, ...], row[1]))

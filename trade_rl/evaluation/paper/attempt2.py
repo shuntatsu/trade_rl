@@ -43,12 +43,21 @@ from trade_rl.evaluation.forward_study.seal import (
 from trade_rl.evaluation.paper.account import PaperSettings, timestamp
 from trade_rl.evaluation.paper.lock import collector_lock_held
 from trade_rl.evaluation.paper.operations import (
-    PREDECESSOR_ROOT_STATUSES,
     STORAGE_PROBE_PLAN_SCHEMA,
-    collection_status,
     screen_plan,
     seal_paper_study,
     validate_attempt_lineage,
+)
+from trade_rl.evaluation.paper.predecessor import (
+    _ATTEMPT2_SEAL_TOKEN,
+    LINEAGE_V3_SCHEMA,
+    PREDECESSOR_ROOT_STATUSES,
+    available_root_problems,
+    canonical_lineage,
+    lineage_structure_problems,
+    read_predecessor_status,
+    same_canonical_record,
+    verify_predecessor_root,
 )
 from trade_rl.evaluation.paper.watchdog import (
     EXIT_LOCK_HELD,
@@ -61,39 +70,6 @@ from trade_rl.evaluation.paper.watchdog import (
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 
 DRAFT_SCHEMA = "carry_paper_attempt2_draft_v1"
-ATTEMPT_ONE_PROTOCOL_SHA256 = (
-    "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"
-)
-ATTEMPT_ONE_FINAL_TIP_SHA256 = (
-    "1a84746aa875ee5a21b72944a5101c2ffb5b00860c9d085a1ccb1fe780d5836b"
-)
-ATTEMPT_ONE_LAST_OBSERVED_AT = "2026-09-17T23:11:01.134389+00:00"
-ATTEMPT_ONE_EVENT_COUNT = 188
-# The public record of the fresh result-blind review (2026-09-27/28) that verified
-# the values above against attempt 1's root while that root still existed.
-LINEAGE_RECORD_DOCUMENT = "docs/research/current-status.md"
-LINEAGE_RECORD_COMMIT = "b9f1ca65b26dcff7acbb089c7643e95702d474c9"
-# Verbatim chat statement (Japanese). It says: "I do not know that data. I also do not
-# know where the saved results are, so you may collect new data."
-USER_ATTESTATION_QUOTE = (
-    "そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ"
-)
-USER_ATTESTATION_DATE = "2026-10-30"
-UNAVAILABLE_REVIEW_RULE = (
-    "Attempt 1's evidence root is lost; its lineage rests on a prior recorded review "
-    "and was not re-verified against the root at seal time. The review that resolves "
-    "the preserved root cannot be performed. It is replaced, for this case only, by a "
-    "fresh result-blind review of the lineage documentation and the pull request that "
-    "introduced this rule. That replacement review cannot confirm the predecessor "
-    "protocol digest, final tip or observation gap, and it does not exclude an "
-    "earlier unreported attempt."
-)
-UNAVAILABLE_NOT_ESTABLISHED = [
-    "predecessor_protocol_digest",
-    "predecessor_final_tip",
-    "predecessor_observation_gap",
-    "absence_of_an_earlier_unreported_attempt",
-]
 SCREEN_DAYS = 90
 TERMINAL_GRACE_SECONDS = 180
 MINIMUM_SEAL_NOTICE = timedelta(minutes=5)
@@ -112,47 +88,6 @@ class Attempt2Refusal(ValueError):
         super().__init__("; ".join(self.reasons))
 
 
-def predecessor_verification() -> dict[str, Any]:
-    """What a successful v1 read of attempt 1's root proves; fixed by the constants."""
-    return {
-        "reader": "paper_journal_protocol_v1",
-        "event_count": ATTEMPT_ONE_EVENT_COUNT,
-        "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
-        "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
-        "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
-    }
-
-
-def _predecessor_root_record(
-    status: str, root_path: str | None = None
-) -> dict[str, Any]:
-    if status == "available":
-        if not root_path:
-            raise ValueError("an available predecessor root records its path")
-        return {
-            "status": "available",
-            "verification": dict(predecessor_verification(), root_path=root_path),
-        }
-    if status == "unavailable":
-        return {
-            "status": "unavailable",
-            "re_verified_at_seal": False,
-            "lineage_source": {
-                "kind": "prior_result_blind_review_record",
-                "document": LINEAGE_RECORD_DOCUMENT,
-                "commit": LINEAGE_RECORD_COMMIT,
-            },
-            "user_attestation": {
-                "quote": USER_ATTESTATION_QUOTE,
-                "date": USER_ATTESTATION_DATE,
-                "channel": "chat",
-            },
-            "not_established": list(UNAVAILABLE_NOT_ESTABLISHED),
-            "review_rule": UNAVAILABLE_REVIEW_RULE,
-        }
-    raise ValueError("predecessor root status must be available or unavailable")
-
-
 def attempt2_lineage(
     predecessor_root_status: str, predecessor_root: str | Path | None = None
 ) -> dict[str, Any]:
@@ -162,63 +97,17 @@ def attempt2_lineage(
     the root path and is only built by :func:`resolve_lineage` (after the root has
     been read) or by ``launch`` (which re-reads it).
     """
-    return {
-        "schema": "carry_paper_attempt_lineage_v3",
-        "attempt_number": 2,
-        "predecessor": {
-            "attempt_number": 1,
-            "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
-            "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
-            "disposition": "invalidated",
-            "reason_codes": ["observation_gap"],
-            "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
-        },
-        "predecessor_root": _predecessor_root_record(
-            predecessor_root_status,
-            None if predecessor_root is None else str(predecessor_root),
-        ),
-    }
-
-
-def verify_predecessor_root(
-    root: str | Path,
-    *,
-    read: Callable[..., dict[str, Any]] = collection_status,
-) -> list[str]:
-    """Read attempt 1's root with the v1 journal reader; return failed reasons.
-
-    The database is opened read-only (no hot-journal recovery), so a preserved root is
-    never mutated; a root with a hot journal fails verification instead.
-    """
-    path = Path(root).absolute()
-    if path.is_symlink() or not path.is_dir():
-        return ["predecessor_root_not_a_directory"]
-    try:
-        report = read(
-            path,
-            expected_protocol_sha256=ATTEMPT_ONE_PROTOCOL_SHA256,
-            read_only=True,
-        )
-        observed = report["status"]["observed_at"]
-        observed_at = None if observed is None else timestamp(observed)
-        events, tip = report["events"], report["tip"]
-    except Exception as error:
-        return [f"predecessor_root_unreadable:{type(error).__name__}"]
-    reasons = []
-    if events != ATTEMPT_ONE_EVENT_COUNT:
-        reasons.append("predecessor_root_event_count_differs")
-    if tip != ATTEMPT_ONE_FINAL_TIP_SHA256:
-        reasons.append("predecessor_root_tip_differs")
-    if observed_at != timestamp(ATTEMPT_ONE_LAST_OBSERVED_AT):
-        reasons.append("predecessor_root_last_observation_differs")
-    return reasons
+    return canonical_lineage(
+        predecessor_root_status,
+        None if predecessor_root is None else str(predecessor_root),
+    )
 
 
 def resolve_lineage(
     predecessor_root_status: str | None,
     predecessor_root: str | Path | None,
     *,
-    read: Callable[..., dict[str, Any]] = collection_status,
+    read: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Choose the lineage for the stated status, or the reasons it cannot be claimed.
 
@@ -244,34 +133,28 @@ def resolve_lineage(
 def accepted_lineage(
     recorded: object,
     *,
-    read: Callable[..., dict[str, Any]] = collection_status,
-    reverify: bool = True,
+    read: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """The lineage `launch` accepts for a sealed protocol's recorded lineage.
 
     ``unavailable`` is canonical. ``available`` is accepted only if the root path it
     records is read again now by the v1 reader and matches the recorded digests; a
-    missing, moved or changed root is refused. ``reverify=False`` (a supervisor
-    relaunch after the start, when the first launch already re-read the root) only
-    checks that the record is the canonical one for its recorded path.
+    missing, moved or changed root is refused, even for a restart. Journal
+    events and heartbeat records do not attest an earlier successful root read.
     """
-    if not isinstance(recorded, dict):
-        return None, []
-    record = recorded.get("predecessor_root")
-    if not isinstance(record, dict) or record.get("status") not in (
-        PREDECESSOR_ROOT_STATUSES
+    if (
+        type(recorded) is not dict
+        or recorded.get("schema") != LINEAGE_V3_SCHEMA
+        or lineage_structure_problems(recorded)
     ):
-        return None, []
+        return None, []  # not a canonical v3 lineage; the caller reports that
+    problems = available_root_problems(recorded, read=read)
+    if problems:
+        return None, problems
+    record = recorded["predecessor_root"]
     if record["status"] == "unavailable":
         return attempt2_lineage("unavailable"), []
-    proof = record.get("verification")
-    path = proof.get("root_path") if isinstance(proof, dict) else None
-    if not isinstance(path, str) or not path:
-        return None, ["predecessor_root_path_not_recorded"]
-    problems = verify_predecessor_root(path, read=read) if reverify else []
-    if problems:
-        return None, [f"predecessor_root_not_reverifiable:{p}" for p in problems]
-    return attempt2_lineage("available", path), []
+    return attempt2_lineage("available", record["verification"]["root_path"]), []
 
 
 def authorization_reasons(authorization: str | None) -> list[str]:
@@ -447,7 +330,7 @@ def plan_attempt2(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     code_identity: Callable[[], CodeIdentity] = current_code_identity,
     disk_usage: Callable[[Path], Any] = shutil.disk_usage,
-    read_predecessor: Callable[..., dict[str, Any]] = collection_status,
+    read_predecessor: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> dict[str, Any]:
     """Return the unsealed draft. Refuses a non-future start or a missing authorization.
 
@@ -541,7 +424,7 @@ def seal_attempt2(
     code_identity: Callable[[], CodeIdentity] = current_code_identity,
     disk_usage: Callable[[Path], Any] = shutil.disk_usage,
     seal: Callable[..., str] = seal_paper_study,
-    read_predecessor: Callable[..., dict[str, Any]] = collection_status,
+    read_predecessor: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> dict[str, Any]:
     """Seal a new root. Never touches attempt 1; refuses on any failed precondition."""
     now = clock().astimezone(UTC)
@@ -568,7 +451,7 @@ def seal_attempt2(
         root_path,
         start_at=start_at.astimezone(UTC),
         attempt_lineage=lineage,
-        via_attempt2=True,
+        attempt2_seal_token=_ATTEMPT2_SEAL_TOKEN,
         clock=clock,
     )
     return dict(
@@ -592,8 +475,7 @@ def _protocol_reasons(
     digest: str,
     start: datetime,
     *,
-    read: Callable[..., dict[str, Any]] = collection_status,
-    reverify: bool = True,
+    read: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> list[str]:
     import hashlib
 
@@ -611,10 +493,11 @@ def _protocol_reasons(
     lineage, root_problems = accepted_lineage(
         plan.get("attempt_lineage") if isinstance(plan, dict) else None,
         read=read,
-        reverify=reverify,
     )
     reasons += root_problems
-    if lineage is None or plan != screen_plan(attempt_lineage=lineage):
+    if lineage is None or not same_canonical_record(
+        plan, screen_plan(attempt_lineage=lineage)
+    ):
         reasons.append("protocol_not_attempt2_lineage")
     if protocol["study"].get("provenance") != build_candidate_run_provenance():
         reasons.append("protocol_provenance_changed")
@@ -643,12 +526,13 @@ def launch_attempt2(
     launcher: Callable[..., Callable[[], ChildProcess]] = popen_launcher,
     supervise: Callable[..., dict[str, Any]] = supervise_collector,
     publish: Callable[[dict[str, Any]], None] = lambda _event: None,
-    read_predecessor: Callable[..., dict[str, Any]] = collection_status,
+    read_predecessor: Callable[..., dict[str, Any]] = read_predecessor_status,
 ) -> dict[str, Any]:
     """Start the supervised collector for the sealed attempt-2 root (needs network).
 
-    A first launch (before the start) re-reads an ``available`` predecessor root with
-    the v1 reader and refuses if it is gone or differs.
+    Every launch, including a supervisor relaunch after the start, re-reads an
+    ``available`` predecessor root with the v1 reader and refuses if it is lost,
+    unreadable or differs.
     """
     now = clock().astimezone(UTC)
     root_path = Path(root).absolute()
@@ -665,7 +549,6 @@ def launch_attempt2(
             protocol_sha256,
             start,
             read=read_predecessor,
-            reverify=start > now,
         )
         reasons += protocol
         # A first launch must precede the start. A supervisor relaunch after the

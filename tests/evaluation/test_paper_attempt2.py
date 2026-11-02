@@ -16,9 +16,6 @@ import pytest
 from trade_rl.evaluation.forward_study.seal import CodeIdentity
 from trade_rl.evaluation.paper import attempt2, operations
 from trade_rl.evaluation.paper.attempt2 import (
-    ATTEMPT_ONE_FINAL_TIP_SHA256,
-    ATTEMPT_ONE_LAST_OBSERVED_AT,
-    ATTEMPT_ONE_PROTOCOL_SHA256,
     Attempt2Refusal,
     attempt2_lineage,
     capacity_plan,
@@ -26,6 +23,11 @@ from trade_rl.evaluation.paper.attempt2 import (
     plan_attempt2,
     seal_attempt2,
     write_draft,
+)
+from trade_rl.evaluation.paper.predecessor import (
+    ATTEMPT_ONE_FINAL_TIP_SHA256,
+    ATTEMPT_ONE_LAST_OBSERVED_AT,
+    ATTEMPT_ONE_PROTOCOL_SHA256,
 )
 from trade_rl.evaluation.paper.watchdog import write_heartbeat
 from trade_rl.evaluation.runs import build_candidate_run_provenance

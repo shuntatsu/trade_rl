@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -28,17 +29,17 @@ def _require_aware(value: datetime, *, field_name: str) -> None:
 
 
 def _require_sha(value: str, *, field_name: str) -> None:
-    if not _FULL_SHA_RE.fullmatch(value):
+    if not isinstance(value, str) or not _FULL_SHA_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be a lowercase 40-hex Git SHA")
 
 
 def _require_digest(value: str, *, field_name: str) -> None:
-    if not _FULL_DIGEST_RE.fullmatch(value):
+    if not isinstance(value, str) or not _FULL_DIGEST_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be a lowercase 64-hex SHA-256 digest")
 
 
 def _owner_slug(owner: str) -> str:
-    if not _OWNER_RE.fullmatch(owner) or ".." in owner:
+    if not isinstance(owner, str) or not _OWNER_RE.fullmatch(owner) or ".." in owner:
         raise ValueError("owner must contain only safe branch-name characters")
     slug = re.sub(r"[ ._]+", "-", owner.strip().lower())
     slug = re.sub(r"-+", "-", slug).strip("-")
@@ -50,9 +51,9 @@ def _owner_slug(owner: str) -> str:
 def lease_branch_name(task_id: str, epoch: int, owner: str) -> str:
     """Return the branch fence for one concrete lease epoch."""
 
-    if not _TASK_ID_RE.fullmatch(task_id):
+    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError("task_id is invalid for a lease branch")
-    if isinstance(epoch, bool) or epoch < 1:
+    if type(epoch) is not int or epoch < 1:
         raise ValueError("epoch must be a positive integer")
     return f"agent/{task_id}/e{epoch:04d}-{_owner_slug(owner)}"
 
@@ -72,25 +73,34 @@ class LeaseRecord:
     ttl_seconds: float
 
     def __post_init__(self) -> None:
-        if not _TASK_ID_RE.fullmatch(self.task_id):
+        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("task_id is invalid")
-        if isinstance(self.task_revision, bool) or self.task_revision < 1:
+        if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
         _require_digest(self.task_contract_digest, field_name="task_contract_digest")
         _require_sha(self.base_sha, field_name="base_sha")
         if self.head_sha is not None:
             _require_sha(self.head_sha, field_name="head_sha")
-        if isinstance(self.epoch, bool) or self.epoch < 1:
+        if type(self.epoch) is not int or self.epoch < 1:
             raise ValueError("epoch must be a positive integer")
         expected_branch = lease_branch_name(self.task_id, self.epoch, self.owner)
         if self.lease_branch != expected_branch:
             raise ValueError("lease_branch does not match task/epoch/owner fence")
         _require_aware(self.last_heartbeat_at, field_name="last_heartbeat_at")
         _require_aware(self.expires_at, field_name="expires_at")
-        if self.ttl_seconds <= 0.0:
-            raise ValueError("ttl_seconds must be positive")
+        if (
+            isinstance(self.ttl_seconds, bool)
+            or not isinstance(self.ttl_seconds, (int, float))
+            or not math.isfinite(self.ttl_seconds)
+            or self.ttl_seconds <= 0.0
+        ):
+            raise ValueError("ttl_seconds must be finite and positive")
         if self.expires_at <= self.last_heartbeat_at:
             raise ValueError("expires_at must be after last_heartbeat_at")
+        if self.expires_at != self.last_heartbeat_at + timedelta(
+            seconds=self.ttl_seconds
+        ):
+            raise ValueError("expires_at must match last heartbeat plus TTL")
 
 
 @dataclass(frozen=True)
@@ -105,11 +115,14 @@ class LeaseReconciliation:
     artifact_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not _TASK_ID_RE.fullmatch(self.task_id):
+        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("reconciliation task_id is invalid")
-        if isinstance(self.expired_epoch, bool) or self.expired_epoch < 1:
+        if type(self.expired_epoch) is not int or self.expired_epoch < 1:
             raise ValueError("reconciliation expired_epoch must be positive")
-        if not self.observed_branch.strip():
+        if (
+            not isinstance(self.observed_branch, str)
+            or not self.observed_branch.strip()
+        ):
             raise ValueError("reconciliation observed_branch must be non-empty")
         if self.observed_head_sha is not None:
             _require_sha(self.observed_head_sha, field_name="observed_head_sha")
@@ -247,7 +260,7 @@ def lease_is_current(
         and lease.task_revision == packet.task_revision
         and lease.task_contract_digest == packet.contract_digest()
         and lease.base_sha == packet.base_sha
-        and now < lease.expires_at
+        and lease.last_heartbeat_at <= now < lease.expires_at
     )
 
 

@@ -19,7 +19,12 @@ REQUIRED_DOC_FILES = {
     "architecture/controlled-experiment-loop.md",
     "architecture/final-evaluation-authorization.md",
     "architecture/research-assurance.md",
+    "architecture/portfolio-decision-trace.md",
+    "architecture/ppo-rollout-boundary.md",
+    "architecture/synthetic-ridge-outer-refit.md",
     "research/current-status.md",
+    "research/ppo-rollout-boundary-protocol.md",
+    "research/ppo-rollout-boundary-results.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
 COMPLETED_EPHEMERAL_DOCS = (
@@ -37,7 +42,12 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
+    DOCS / "architecture" / "portfolio-decision-trace.md",
+    DOCS / "architecture" / "ppo-rollout-boundary.md",
+    DOCS / "architecture" / "synthetic-ridge-outer-refit.md",
     DOCS / "research" / "current-status.md",
+    DOCS / "research" / "ppo-rollout-boundary-protocol.md",
+    DOCS / "research" / "ppo-rollout-boundary-results.md",
     ROOT / "LICENSES" / "LICENSING.md",
     ROOT / "LICENSES" / "PROVENANCE.md",
     ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md",
@@ -53,6 +63,7 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
+    DOCS / "architecture" / "synthetic-ridge-outer-refit.md",
     DOCS / "research" / "current-status.md",
 )
 
@@ -172,6 +183,7 @@ def test_only_permanent_workflows_remain() -> None:
         "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
         "ppo-normalization-execution.yml",
+        "prune-merged-branch.yml",
     }
 
 
@@ -192,7 +204,12 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/controlled-experiment-loop.md",
         "architecture/final-evaluation-authorization.md",
         "architecture/research-assurance.md",
+        "architecture/portfolio-decision-trace.md",
+        "architecture/ppo-rollout-boundary.md",
+        "architecture/synthetic-ridge-outer-refit.md",
         "research/current-status.md",
+        "research/ppo-rollout-boundary-protocol.md",
+        "research/ppo-rollout-boundary-results.md",
     ):
         assert target in index
     for relative in sorted(_doc_files() - REQUIRED_DOC_FILES):
@@ -273,8 +290,12 @@ def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
         "read-only dry-run",
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
-        "Task/lease同期が不完全な間はbranch削除を認可しない",
-        "現在のsourceがまだその状態でなければ、安全化変更を先に統合",
+        "merged-PR sourceの個別整理",
+        "tools.verified_merged_branch_prune",
+        "直接`apply_cleanup()`",
+        "workflow_dispatch",
+        "SHA祖先関係",
+        "conditional delete",
         "tested PR head contains current `main`",
     ):
         assert required in entry

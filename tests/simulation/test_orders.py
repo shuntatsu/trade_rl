@@ -16,6 +16,7 @@ from trade_rl.simulation.orders.model import (
     PendingOrder,
     TerminalOrderArchive,
     TimeInForce,
+    _TerminalOrderNode,
     execution_policy_digest,
 )
 
@@ -209,6 +210,51 @@ def test_runtime_order_transitions_do_not_rescan_terminal_archive(
     assert len(original_archive) == 1
     assert len(completed.terminal_orders) == 2
     assert completed.terminal_orders[-1].order_id == second.order_id
+
+
+def test_terminal_archive_suffix_walks_only_new_nodes_and_rejects_forks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def terminal_order(index: int) -> PendingOrder:
+        pending = PendingOrder.from_intent(
+            _intent(
+                target_identity=f"suffix-{index}",
+                submit_index=index + 4,
+                eligible_index=index + 5,
+            )
+        )
+        return pending.cancel(processing_index=index + 6, reason="superseded")
+
+    prefix = TerminalOrderArchive(tuple(terminal_order(i) for i in range(1_000)))
+    appended = tuple(terminal_order(i) for i in range(1_000, 1_003))
+    archive = prefix
+    for order in appended:
+        archive = archive.append(order)
+    assert archive is not prefix
+
+    previous_reads = 0
+    original_getattribute = _TerminalOrderNode.__getattribute__
+
+    def count_previous_reads(node: _TerminalOrderNode, name: str) -> object:
+        nonlocal previous_reads
+        if name == "previous":
+            previous_reads += 1
+        return original_getattribute(node, name)
+
+    def fail_full_iteration(_archive: TerminalOrderArchive) -> object:
+        raise AssertionError("archive suffix must not iterate full history")
+
+    monkeypatch.setattr(_TerminalOrderNode, "__getattribute__", count_previous_reads)
+    monkeypatch.setattr(TerminalOrderArchive, "__iter__", fail_full_iteration)
+
+    assert archive.suffix_since(prefix) == appended
+    assert previous_reads == len(appended)
+    assert archive.suffix_since(archive) == ()
+    assert previous_reads == len(appended)
+
+    fork = prefix.append(terminal_order(2_000))
+    with pytest.raises(OrderDomainError, match="ancestor"):
+        archive.suffix_since(fork)
 
 
 def test_order_event_payload_is_canonical_and_digest_helper_matches_codec() -> None:

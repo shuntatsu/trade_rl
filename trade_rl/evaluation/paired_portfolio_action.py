@@ -20,6 +20,7 @@ from trade_rl.evaluation.replay import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.decision_value import preserve_posture_aware_proposal
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioPolicy,
@@ -46,6 +47,7 @@ class PairedPortfolioActionResult:
     intervention_index: int
     eligible_for_label: bool
     delta_per_initial_capital: float | None
+    intervention_projection: str = "legacy_v1"
 
 
 class _OneDecisionOverride:
@@ -58,7 +60,9 @@ class _OneDecisionOverride:
         intervention_index: int,
         action: tuple[int, ...],
         target_abs_weights: tuple[float, ...],
+        intervention_projection: str = "legacy_v1",
     ) -> None:
+        self._intervention_projection = intervention_projection
         self._reference = reference
         self._intervention_index = intervention_index
         self._action = action
@@ -78,6 +82,13 @@ class _OneDecisionOverride:
             self.prefix.append((snapshot, proposal))
         elif snapshot.index == self._intervention_index:
             self.intervention_snapshot = snapshot
+            if self._intervention_projection == "posture_v2":
+                return preserve_posture_aware_proposal(
+                    self._action,
+                    snapshot,
+                    self._target_abs_weights,
+                    version="td8_v2",
+                )
             return portfolio_action_to_proposal(
                 self._action, snapshot, self._target_abs_weights
             )
@@ -119,6 +130,7 @@ def run_paired_portfolio_action(
     execution_cost: ExecutionCostConfig,
     risk: PreTradeRisk,
     market_order_profile: MarketOrderProfile | None = None,
+    intervention_projection: str = "legacy_v1",
 ) -> PairedPortfolioActionResult:
     """Compare two one-bar joint interventions under the same reference policy.
 
@@ -131,6 +143,8 @@ def run_paired_portfolio_action(
 
     if not isinstance(dataset, MarketDataset):
         raise TypeError("dataset must be a MarketDataset")
+    if intervention_projection not in ("legacy_v1", "posture_v2"):
+        raise ValueError("unknown intervention_projection")
     if not isinstance(execution_cost, ExecutionCostConfig):
         raise TypeError("execution_cost must be explicit ExecutionCostConfig")
     if type(risk) is not PreTradeRisk:
@@ -196,12 +210,14 @@ def run_paired_portfolio_action(
         intervention_index=intervention_index,
         action=baseline_codes,
         target_abs_weights=weights_tuple,
+        intervention_projection=intervention_projection,
     )
     candidate = _OneDecisionOverride(
         candidate_actor,
         intervention_index=intervention_index,
         action=candidate_codes,
         target_abs_weights=weights_tuple,
+        intervention_projection=intervention_projection,
     )
 
     def replay(actor: _OneDecisionOverride) -> SharedCashPortfolioReplayResult:
@@ -268,6 +284,7 @@ def run_paired_portfolio_action(
         intervention_index=intervention_index,
         eligible_for_label=eligible,
         delta_per_initial_capital=delta,
+        intervention_projection=intervention_projection,
     )
 
 

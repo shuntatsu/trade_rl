@@ -58,7 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--causality-matrix-cut",
         default=PROBE_MATRIX_CUT,
-        help="cut of the per-arm, per-scenario future-perturbation probe",
+        help=(
+            "per-arm causality-matrix cut; changing the registered default "
+            "produces diagnostic-only evidence"
+        ),
     )
     parser.add_argument(
         "--sequential",
@@ -72,11 +75,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     output_dir: Path = args.output_dir
     summary_path: Path = args.summary_path
-    if (output_dir / "full_results.json").exists() or summary_path.exists():
-        print("refusing to overwrite an existing study output", file=sys.stderr)
+    if args.workers < 1:
+        print("--workers must be positive", file=sys.stderr)
+        return 2
+    # Claim a new result directory before the expensive study, never reuse a
+    # partial result or silently mix a summary file into the evidence bundle.
+    if (
+        output_dir.exists()
+        or summary_path.exists()
+        or summary_path.resolve().is_relative_to(output_dir.resolve())
+    ):
+        print("refusing an existing or overlapping study output", file=sys.stderr)
+        return 2
+    # Keep the original auto-create contract, but fail before replay when a
+    # summary parent cannot be created (for example a file in its ancestry).
+    try:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        print("cannot create summary parent directory", file=sys.stderr)
+        return 2
+    try:
+        output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print("study output was claimed concurrently", file=sys.stderr)
+        return 2
+    except OSError:
+        print("cannot create study output directory", file=sys.stderr)
         return 2
     started_utc = _now()
-    output_dir.mkdir(parents=True, exist_ok=True)
     _, dataset = load_published_market_dataset_artifact(args.dataset)
     results, equity = run_phase2(
         dataset,

@@ -47,6 +47,7 @@ _RUN_CONFIG_SCHEMA_BY_RESULT_SCHEMA = {
     "lean_candidate_result_v7": "resolved_run_config_v5",
     "lean_candidate_result_v8": "resolved_run_config_v6",
     "lean_candidate_result_v9": "resolved_run_config_v6",
+    "lean_candidate_result_v10": "resolved_run_config_v7",
 }
 _RUN_RESULT_SCHEMA_VERSION = {
     "lean_candidate_result_v1": 1,
@@ -58,6 +59,7 @@ _RUN_RESULT_SCHEMA_VERSION = {
     "lean_candidate_result_v7": 7,
     "lean_candidate_result_v8": 8,
     "lean_candidate_result_v9": 9,
+    "lean_candidate_result_v10": 10,
 }
 _VERSIONED_RUN_CONFIG_FIELDS = {
     2: {"summary": frozenset({"ppo_observation"})},
@@ -99,6 +101,7 @@ _VERSIONED_RUN_CONFIG_FIELDS = {
     },
     6: {"evaluation": frozenset({"expected_periods"})},
     8: {"candidate_config": frozenset({"supervised_forecast_horizon_hours"})},
+    10: {"candidate_config": frozenset({"forecast_switch_cost"})},
 }
 
 
@@ -391,20 +394,32 @@ def _run_semantic_config(
     if config_schema is None:
         raise ArtifactIntegrityError("EvidenceSet Run config schema is unsupported")
     if schema_version is not None and schema_version != config_schema:
+        compatible = False
+        horizon = candidate_config.get("supervised_forecast_horizon_hours")
+        switch_cost = candidate_config.get("forecast_switch_cost")
         if (
-            result_schema
-            not in {"lean_candidate_result_v8", "lean_candidate_result_v9"}
-            or schema_version != "resolved_run_config_v5"
-            or config_schema != "resolved_run_config_v6"
+            result_schema in {"lean_candidate_result_v8", "lean_candidate_result_v9"}
+            and schema_version == "resolved_run_config_v5"
+            and config_schema == "resolved_run_config_v6"
+            and isinstance(horizon, int)
+            and not isinstance(horizon, bool)
+            and horizon == 24
         ):
+            compatible = True
+        if (
+            result_schema == "lean_candidate_result_v10"
+            and config_schema == "resolved_run_config_v7"
+            and switch_cost is None
+            and schema_version in {"resolved_run_config_v5", "resolved_run_config_v6"}
+        ):
+            compatible = schema_version == "resolved_run_config_v6" or (
+                isinstance(horizon, int)
+                and not isinstance(horizon, bool)
+                and horizon == 24
+            )
+        if not compatible:
             raise ArtifactIntegrityError(
                 "EvidenceSet Run config schema differs from the frozen Study"
-            )
-        horizon = candidate_config.get("supervised_forecast_horizon_hours")
-        if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon != 24:
-            raise ArtifactIntegrityError(
-                "legacy Study compatibility requires the 24-hour "
-                "supervised forecast horizon"
             )
         config_schema = schema_version
     _reject_fields_newer_than_result_schema(
@@ -469,6 +484,7 @@ def _run_semantic_config(
         "resolved_run_config_v4",
         "resolved_run_config_v5",
         "resolved_run_config_v6",
+        "resolved_run_config_v7",
     }:
         for name in ("ppo_training_layout", "ppo_rollout_steps_per_env"):
             if name not in candidate_config:
@@ -481,6 +497,7 @@ def _run_semantic_config(
         "resolved_run_config_v4",
         "resolved_run_config_v5",
         "resolved_run_config_v6",
+        "resolved_run_config_v7",
     }:
         for name in ("ppo_minimum_hold_bars", "ppo_settle_terminal_position"):
             if name not in candidate_config:
@@ -489,19 +506,39 @@ def _run_semantic_config(
                 )
             resolved[name] = candidate_config[name]
 
-    if config_schema in {"resolved_run_config_v5", "resolved_run_config_v6"}:
+    if config_schema in {
+        "resolved_run_config_v5",
+        "resolved_run_config_v6",
+        "resolved_run_config_v7",
+    }:
         if "pretrade_risk_config" not in candidate_config:
             raise ArtifactIntegrityError(
                 "EvidenceSet Run config is missing pretrade_risk_config"
             )
         resolved["pretrade_risk_config"] = candidate_config["pretrade_risk_config"]
-    if config_schema == "resolved_run_config_v6":
+    if config_schema in {"resolved_run_config_v6", "resolved_run_config_v7"}:
         horizon = candidate_config.get("supervised_forecast_horizon_hours")
         if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
             raise ArtifactIntegrityError(
                 "EvidenceSet Run supervised forecast horizon is malformed"
             )
         resolved["supervised_forecast_horizon_hours"] = horizon
+    if config_schema == "resolved_run_config_v7":
+        if "forecast_switch_cost" not in candidate_config:
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run config is missing forecast_switch_cost"
+            )
+        switch_cost = candidate_config["forecast_switch_cost"]
+        if switch_cost is not None and (
+            isinstance(switch_cost, bool)
+            or not isinstance(switch_cost, (int, float))
+            or not np.isfinite(float(switch_cost))
+            or float(switch_cost) < 0.0
+        ):
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run forecast switch cost is malformed"
+            )
+        resolved["forecast_switch_cost"] = switch_cost
     return resolved
 
 

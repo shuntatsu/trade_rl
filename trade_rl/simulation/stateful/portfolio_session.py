@@ -60,6 +60,8 @@ class SharedPortfolioSession:
         settle_terminal_position: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
+        execution_trace_observer: Callable[[StatefulExecutionObservation], None]
+        | None = None,
     ) -> None:
         if not isinstance(dataset, MarketDataset):
             raise TypeError("dataset must be a MarketDataset")
@@ -86,6 +88,10 @@ class SharedPortfolioSession:
             raise TypeError("settle_terminal_position must be boolean")
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
+        if execution_trace_observer is not None and not callable(
+            execution_trace_observer
+        ):
+            raise TypeError("execution_trace_observer must be callable")
 
         resolved_cost = (
             ExecutionCostConfig.zero() if execution_cost is None else execution_cost
@@ -116,6 +122,7 @@ class SharedPortfolioSession:
             resolved_cost,
             market_order_profile=market_order_profile,
             execution_observer=execution_observer,
+            execution_trace_observer=execution_trace_observer,
         )
         risk_controller = (
             PreTradeRisk.default_for_execution(max_leverage=executor.cost.max_leverage)

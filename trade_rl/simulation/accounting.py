@@ -623,7 +623,10 @@ class BookState:
         mark_prices: np.ndarray,
         funding_amount: float,
         period_start_value: float | None = None,
+        unbounded_loss_metrics: bool = False,
     ) -> float:
+        if not isinstance(unbounded_loss_metrics, bool):
+            raise ValueError("unbounded_loss_metrics must be a boolean")
         if not np.isfinite(funding_amount):
             raise ValueError("funding_amount must be finite")
         starting_value = (
@@ -639,19 +642,23 @@ class BookState:
         value = self.portfolio_value
         if not np.isfinite(value):
             raise ValueError("base-bar portfolio value became non-finite")
-        net_return = max(value / starting_value - 1.0, -1.0 + 1e-12)
-        self._update_drawdown()
+        net_return = value / starting_value - 1.0
+        if not unbounded_loss_metrics:
+            net_return = max(net_return, -1.0 + 1e-12)
+        self._update_drawdown(unbounded_loss=unbounded_loss_metrics)
         self.funding_pnl += float(funding_amount)
         self.returns_history.append(float(net_return))
         return float(net_return)
 
-    def refresh_drawdown(self) -> None:
+    def refresh_drawdown(self, *, unbounded_loss: bool = False) -> None:
         """Refresh peak and drawdown after a causal mark change."""
 
-        self._update_drawdown()
+        self._update_drawdown(unbounded_loss=unbounded_loss)
 
-    def _update_drawdown(self) -> None:
-        value = max(self.portfolio_value, 0.0)
+    def _update_drawdown(self, *, unbounded_loss: bool = False) -> None:
+        value = (
+            self.portfolio_value if unbounded_loss else max(self.portfolio_value, 0.0)
+        )
         self.peak_value = max(self.peak_value, value)
         self.max_drawdown = max(
             self.max_drawdown,

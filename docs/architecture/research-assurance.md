@@ -21,7 +21,7 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 このcontractは、新しいproduction runtime、Study artifact schema、経済モデル、winner ruleを追加しない。既存のimmutable Study/Run/EvidenceSetを遡及的に書き換えず、過去の結果を別の判定へ再分類しない。
 
-また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
+既存のpreregistration、StudyPlan、Issue/PRのresult-blind design recordは維持する。新しい経済研究プロトコルや重要な変更では、Issue #687 の **Research Assurance Gate** として、新規の research_assurance_v1 著者レコードと独立した research_assurance_review_v1 を用いる。既存のimmutable Study/Run/EvidenceSetへ遡及移行や再分類を行わない。結果を観測した後から不足項目を埋めて「事前に証明した」と扱うことは禁止する。
 
 ### Declarative financial objective and clock
 
@@ -42,6 +42,35 @@ gamma-one equity-delta reward; `fit_shared_portfolio_ppo` checks its bound clock
 This connection does not itself prove actual reward/ledger parity, economic
 learnability, Study authorization, or real-data profitability. The historical
 per-symbol PPO defaults are unchanged; G0–G2 independent oracles still apply.
+
+## Research Assurance Gate（Issue #687 / Issue #667 とは別責務）
+
+Issue #667 は選択済みmechanismが実際に期待どおり実装されたかを監査する。本ゲートはさらにその前段で、問いの妥当性（G0）、代替仮説、mechanism（G1）、根拠が主張に十分か（G3）、独立オラクル・反例（G2）、結論の許容範囲を検証する。両者は置き換えずに併用する。
+
+**書式**：author packetは tools/agent_repo/examples/research_assurance.json と同じ research_assurance_v1 とし、research thesis、canonical source → availability → feature/state → model/strategy → intent → order → fill → accounting → evidence → decision chain、unit/time/state/sign/risk/execution/accounting/evidence各boundary、独立oracle、evidenceとstage、permitted/forbidden claimsと次のactionを含む。claims には検証可能な decision_rule と、経済・live認可を与えない型付き next_action_class（documentation_only / synthetic_verification_only / request_separate_economic_authorization）も必須とする。production_eligible や live_trading_authorized を自己申告で true にしてもBLOCKEDとなる。packetから review 欄を排除し、canonical JSON SHA-256を記録digestとする。完了したauthor packetを後から黙って変更できず、変更すればレビューは失効する。
+
+**独立review**：レビューは別レコード research_assurance_review_v1 に保持し、正確なpacket digest、protocol HEAD、implementation HEAD、result blindness、G0/G1/G2、blocking findings、missing evidence、限界、dispositionに束縛する。承認を自己申告するだけではPASSにしない。GitHubの実際のPRレビューobject（principal・review commit_id・レビュー本文bytes）または同等の独立した認証済みrunを、authorによって改変できない外部adapterから検証する。認証済み外部証拠がない場合は **BLOCKED**。同じGitHub principalによるprose/tagのみではindependenceを認めない。
+
+**検証状態**：有効なauthor packetのみなら UNREVIEWED、欠落・矛盾・古いdigest/HEAD・review非独立・G0/G1/G2失敗・主張の格上げがあれば BLOCKED、完全な構造と独立した認証済み肯定レビューの両方があれば限定的な研究保証 PASS。**項目を全部埋めただけではPASSにならない**。正常なsource CI、同じbytesの再生成、GitHubコメント内のPASS文字列も独立評価の代わりにはならない。
+
+CLI（外部認証不要のネットワーク非使用版）：
+
+    python -m tools.agent_repo assurance digest path/to/author-packet.json
+    python -m tools.agent_repo assurance inspect path/to/author-packet.json
+    python -m tools.agent_repo assurance inspect path/to/author-packet.json --review path/to/review.json
+    python -m tools.agent_repo assurance check path/to/author-packet.json
+
+inspect は状態を表示するだけ、check はPASS以外で非0終了。ネットワーク非使用版は外部principalの真正性を証明しないため、reviewを付けただけではPASSを返さない。これを無理に突破するために任意のJSONファイルを「認証済み証拠」として受理してはならない。
+
+版付きJSON Schemaは tools/agent_repo/schemas/research_assurance_v1.schema.json と tools/agent_repo/schemas/research_assurance_review_v1.schema.json。schema検証だけでは承認にならず、Python verifierがstage/claim/protocol/HEADと各changed boundaryへの独立counterexample/oracleを検証する。review bodyのモデル判断は外部adversarial reviewによる意味の検証が必要。
+
+**認証済みGitHub reviewerの照合**：network-free parserの外側に、読み取り専用の tools.research_assurance_github adapterを置く。review JSONを正確なcanonical JSON本文として、対象PRのGitHub公式reviewに**著者とは別のprincipal**から投稿する。GitHubレビューID・投稿主体の数値ID・実 review commit_id ・実本文bytesとpacket digest、reviewed headを比較し、PRのHEADと対象review objectをもう一度取得して、途中のHEAD移動・review編集・dismissalを拒否する。Review本文の自行の自己申告だけでは認証扱いしない。
+
+    python -m tools.research_assurance_github --repository OWNER/REPO --pr 123 --review-id 456 --packet author-packet.json
+
+上記は通常のGitHub CLIの認証を必要とし、実際のGitHub APIを読めない場合や本人による投稿ならBLOCKED。GitHub principalが別であってもモデルの認知的独立性までは証明しない。非正本の保存ファイル、未確認のjob/run IDを経済実行認可へ昇格させない。
+
+**重要な境界**：このmoduleが返すPASSも **economic_execution_authorized=false** であり、G4研究結果生成、unused/final dataへのアクセス、G5、本番・実取引を単独では認可しない。歴史的結果や当初の判定を上書きしない。reviewerのアカウントが別であることはプロセスの独立性の一部の検証であり、思考の独立性・モデル品質を証明するものではない。
 
 ## G0: Research Question Validity
 
@@ -135,6 +164,30 @@ example-based unit testだけで重要なmechanismを保証済みとしない。
   target, not ranking, general sizing, or candidate selection. It does not
   establish complete risk or liquidation conformance, full source-to-ledger
   conformance, formal G2 approval, real-feed behavior, or economic performance.
+
+### Synthetic software invariant: identity-bound event-price funding
+
+- **Statement:** Legacy identity v6/artifact v3 datasets keep the existing
+  position-notional-at-mark calculation. Identity v7/artifact v4 datasets bind
+  an explicit per-event `funding_price_rate` and charge signed contracts times
+  contract multiplier times that event value, only on due rows. Funding trace
+  v2 preserves the original event-price input and closes to the same amount;
+  legacy v1 mappings and default v6 IDs remain unchanged.
+- **Scope:** `MarketDataset` identity, v3/v4 artifact codec and publication,
+  native `MarketExecutor` carry, and `FundingBoundaryEvidence` in the focused
+  synthetic data and simulation tests.
+- **Counterexamples:** A v4 artifact missing or changing the identity-bound
+  event-price array must fail even when its outer file digests are recomputed.
+  A v7 rate different from bar funding rate times mark must use the event-price
+  amount for both long and short signed quantities, including a non-due control.
+  A v7 funding boundary cannot be serialized as v1 mark-rate evidence.
+- **Oracle:** Tests compare native account funding with an independent signed
+  quantity × contract multiplier × stored event-price calculation, round-trip
+  the raw rate through v2 evidence, and verify legacy v1/v6/v3 compatibility.
+- **Known limitations:** Synthetic tests establish only the declared versioned
+  software equations and identity/serialization boundaries. They do not attest
+  the historical source of a funding value, completeness of any dataset, actual
+  venue settlement, profitability, G0-G4 approval, or live readiness.
 
 ### Synthetic software diagnostic: conditional PPO under delayed gains and fees
 
@@ -1284,10 +1337,15 @@ the endpoint is settled, flat, order-free, non-insolvent, and has no
 termination reason. It does not establish all objective/risk/digest checks or
 study admission. A stop cannot prevent a larger realized drawdown after a
 price gap. The existing native insolvency path floors terminal cash/equity at
-zero; the adapter adds no reward clipping but does not establish debt-loss
-semantics below -100% of fixed initial capital. Insolvent episodes remain
-invalid rather than being filtered. This adapter is not a trainer and
-establishes no learned-policy or economic result.
+zero by default. The opt-in native `retain_debt` mode preserves signed terminal
+cash/equity, simple returns below -100%, and drawdown above 100%; only
+`interval_log_return` remains a finite lower-bound compatibility diagnostic
+because logarithmic return is undefined at nonpositive wealth. The adapter adds
+no reward clipping. Callers using `retain_debt` must treat the raw terminal book,
+uncapped simple-return/drawdown diagnostics, and an independent accounting oracle
+as the debt-loss authority rather than the bounded logarithmic diagnostic.
+Insolvent episodes remain invalid rather than being filtered. This adapter is
+not a trainer and establishes no learned-policy or economic result.
 
 ### GYM-002 — forward observation-transform binding
 
@@ -1387,12 +1445,37 @@ Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and le
 v2 valid and unchanged. `available` embeds the verification of a root that the
 existing v1 journal reader read read-only (protocol digest, event count, final tip,
 last observation, root path); `attempt2` cannot build it without a root path that
-passes that read, the generic `seal_paper_study`/`paper.cli seal` refuse any v3
-lineage, and a first `attempt2 launch` re-reads the recorded root and refuses if it
-is gone or differs.
+passes that read. `seal_collection`, `seal_paper_study` and `paper.cli seal` refuse a
+v3 lineage unless given a module-private token that only `attempt2` holds (a caller
+contract, not authentication). One shared classifier decides every lineage at every
+supported entry point (`seal_collection`, `seal_paper_study`, `paper.cli seal`,
+`PaperEngine` initialization and opening, `validate_attempt_lineage`, the collector):
+in-memory study/plan/lineage keys must all have the exact native `str` type,
+recursively before any mapping lookup (a `str` subclass can hide a v3 lineage
+from `dict.get` while serializing to ordinary JSON text);
+the v2 label requires exactly the v2 key set, exact integer attempt number `1`
+and null predecessor (float/boolean/int subclass values are refused); it is accepted
+only for attempt 1 (this
+tightens the earlier v2 rule, which accepted any successor with caller-asserted
+predecessor values), and the v3 label requires the type-strict canonical record, so a
+`predecessor_root` cannot ride under another label. These
+gates guard against accidental or non-canonical records through the supported entry
+points; they do not authenticate against a malicious local operator. In scope is
+crafted data through JSON files, the CLI and plain built-in Python values; out of scope
+are objects whose classes override dunder methods to deceive a check, monkeypatching,
+private internals, and editing code or sealed roots. The exact-type checks on
+containers and mapping keys are defence in depth, not a security boundary. Every
+`attempt2 launch` re-reads an `available` root, including a relaunch after start; a
+heartbeat never substitutes for an independently verified prior-root receipt. The
+collector (`PaperCollector`, `cli run`, `cli supervise`) re-reads an `available`
+predecessor on **every** entry, including after a journal event; a public
+`PaperEngine.gap` event does not attest the prior root. A predecessor root that is
+lost or unreadable then permanently prevents that available-lineage collector from
+restarting (the watchdog records the refusal). This stricter fail-closed rule is
+fixed before any attempt-2 seal.
 `unavailable` is the honest case where the preserved root is lost: it records that the
 lineage values come from the prior public result-blind review record (document and
-commit), that they were not re-verified at seal time, the user's statement quoted
+commit), that they were not re-verified at seal time, the user's chat statement quoted
 verbatim with its date, and the replacement review rule. For attempt 2 the root is
 unavailable, so the G0 requirement that a fresh review resolve the preserved root is
 replaced, for this case only, by a fresh result-blind review of the lineage

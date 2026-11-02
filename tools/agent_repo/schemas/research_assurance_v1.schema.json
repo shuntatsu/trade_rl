@@ -1,0 +1,378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_level": {
+          "enum": [
+            "software_validity",
+            "mechanism_validity",
+            "relative_improvement",
+            "development_profitability",
+            "unused_validation",
+            "prospective_paper",
+            "production"
+          ]
+        },
+        "decision_rule": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "forbidden": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "live_trading_authorized": {
+          "type": "boolean"
+        },
+        "next_action_class": {
+          "enum": [
+            "documentation_only",
+            "synthetic_verification_only",
+            "request_separate_economic_authorization"
+          ]
+        },
+        "next_authorized_action": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "permitted": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "production_eligible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "claim_level",
+        "permitted",
+        "forbidden",
+        "next_authorized_action",
+        "production_eligible",
+        "live_trading_authorized",
+        "decision_rule",
+        "next_action_class"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "common_accounting": {
+          "type": "boolean"
+        },
+        "controls": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 0,
+          "type": "array"
+        },
+        "evidence_level": {
+          "enum": [
+            "software_validity",
+            "mechanism_validity",
+            "relative_improvement",
+            "development_profitability",
+            "unused_validation",
+            "prospective_paper",
+            "production"
+          ]
+        },
+        "fit_development_unused_separated": {
+          "type": "boolean"
+        },
+        "hard_risk": {
+          "type": "boolean"
+        },
+        "independent_reconstruction": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "multi_period": {
+          "type": "boolean"
+        },
+        "multi_symbol": {
+          "type": "boolean"
+        },
+        "no_development_rescue": {
+          "type": "boolean"
+        },
+        "point_in_time": {
+          "type": "boolean"
+        },
+        "realistic_costs": {
+          "type": "boolean"
+        },
+        "robustness": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 0,
+          "type": "array"
+        },
+        "terminal_state": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "point_in_time",
+        "common_accounting",
+        "realistic_costs",
+        "hard_risk",
+        "terminal_state",
+        "fit_development_unused_separated",
+        "multi_symbol",
+        "multi_period",
+        "no_development_rescue",
+        "controls",
+        "robustness",
+        "independent_reconstruction",
+        "evidence_level"
+      ],
+      "type": "object"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "implementation_head": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "protocol_head": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_head",
+        "implementation_head"
+      ],
+      "type": "object"
+    },
+    "mechanism": {
+      "additionalProperties": false,
+      "properties": {
+        "authorities": {
+          "additionalProperties": false,
+          "properties": {
+            "accounting": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "evidence": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "execution": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "risk": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sign": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "state": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "time": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "unit": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "unit",
+            "time",
+            "state",
+            "sign",
+            "risk",
+            "execution",
+            "accounting",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "chain": {
+          "const": [
+            "source",
+            "availability",
+            "feature_state",
+            "model_strategy",
+            "intent",
+            "order",
+            "fill",
+            "accounting",
+            "evidence",
+            "decision"
+          ]
+        },
+        "changed_boundaries": {
+          "items": {
+            "enum": [
+              "unit",
+              "time",
+              "state",
+              "sign",
+              "risk",
+              "execution",
+              "accounting",
+              "evidence"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "independent_oracles": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "counterexample": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "known_limitations": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "oracle": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "statement": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "statement",
+              "counterexample",
+              "oracle",
+              "known_limitations"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "enum": [
+              "unit",
+              "time",
+              "state",
+              "sign",
+              "risk",
+              "execution",
+              "accounting",
+              "evidence"
+            ]
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "chain",
+        "authorities",
+        "independent_oracles",
+        "changed_boundaries"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "research_assurance_v1"
+    },
+    "thesis": {
+      "additionalProperties": false,
+      "properties": {
+        "cheapest_falsifier": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "counter_hypothesis": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "economic_mechanism": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "final_decision": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "hypothesis": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "information_gain": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "limitations": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "metric_proxy_rationale": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "discovery",
+            "development",
+            "unused_validation",
+            "prospective_paper",
+            "production"
+          ]
+        },
+        "stop_rule": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "final_decision",
+        "hypothesis",
+        "economic_mechanism",
+        "counter_hypothesis",
+        "information_gain",
+        "cheapest_falsifier",
+        "stop_rule",
+        "metric_proxy_rationale",
+        "limitations",
+        "stage"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "identity",
+    "thesis",
+    "mechanism",
+    "evidence",
+    "claims"
+  ],
+  "title": "Trade RL authored research assurance packet v1",
+  "type": "object"
+}

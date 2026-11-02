@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Literal, Sequence
 
 import numpy as np
 
@@ -23,6 +23,7 @@ from trade_rl.simulation.accounting import (
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
+    TerminalOrderArchive,
 )
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
@@ -322,7 +323,11 @@ class _FillResult:
 
 
 class MarketExecutor:
-    """Execute one decision target while holding filled quantities."""
+    """Execute one decision target while holding filled quantities.
+
+    The public execution observer receives a cumulative terminal-order archive.
+    The internal trace observer receives only the suffix appended this call.
+    """
 
     def __init__(
         self,
@@ -333,9 +338,13 @@ class MarketExecutor:
         market_order_profile: MarketOrderProfile | None = None,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
+        execution_trace_observer: Callable[[StatefulExecutionObservation], None]
+        | None = None,
+        insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        self.insolvency_valuation = insolvency_valuation
         if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
             raise ValueError(
                 "isolated margin requires a per-symbol collateral ledger; "
@@ -345,7 +354,12 @@ class MarketExecutor:
         self.market_order_profile = market_order_profile
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
+        if execution_trace_observer is not None and not callable(
+            execution_trace_observer
+        ):
+            raise TypeError("execution_trace_observer must be callable")
         self._execution_observer = execution_observer
+        self._execution_trace_observer = execution_trace_observer
         self._execution_policy_digest_cache: str | None = None
         self._execution_policy_digest_cache_inputs: (
             tuple[
@@ -353,6 +367,8 @@ class MarketExecutor:
                 ExecutionRuleStress,
                 MarketOrderProfile | None,
                 tuple[str, ...],
+                str,
+                str | None,
             ]
             | None
         ) = None
@@ -380,6 +396,20 @@ class MarketExecutor:
         self._rng = np.random.default_rng(self.cost.random_seed)
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
+
+    def _get_insolvency_valuation(self) -> Literal["floor_zero", "retain_debt"]:
+        return self._insolvency_valuation
+
+    def _set_insolvency_valuation(
+        self, value: Literal["floor_zero", "retain_debt"]
+    ) -> None:
+        if not isinstance(value, str) or value not in ("floor_zero", "retain_debt"):
+            raise ValueError("insolvency_valuation must be floor_zero or retain_debt")
+        self._insolvency_valuation = value
+
+    insolvency_valuation = property(
+        _get_insolvency_valuation, _set_insolvency_valuation
+    )
 
     def _base_rule_array(
         self,
@@ -691,13 +721,17 @@ class MarketExecutor:
         return result
 
     def _flatten_after_termination(self, book: BookState, prices: np.ndarray) -> None:
-        value = max(book.portfolio_value, 0.0)
+        value = book.portfolio_value
+        if self.insolvency_valuation == "floor_zero":
+            value = max(value, 0.0)
         book.quantities = np.zeros_like(book.quantities)
         book.mark_prices = prices.copy()
         book.cash = value
         book.margin_used = 0.0
         book.maintenance_margin = 0.0
         book.maintenance_requirement = 0.0
+        if self.insolvency_valuation == "retain_debt":
+            book.refresh_drawdown(unbounded_loss=True)
 
     def _update_margin(self, book: BookState) -> None:
         position_values = book.position_values
@@ -981,14 +1015,17 @@ class MarketExecutor:
         index: int,
         year_fraction: float | None = None,
     ) -> tuple[float, float]:
-        funding_notional = self.dataset.quantity_notional(index, book.quantities)
-        funding_amount = -float(
-            np.dot(
-                funding_notional,
-                self.dataset.funding_rate[index]
-                * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
-            )
+        funding_due = self.dataset.resolved_array("funding_due")[index].astype(
+            np.float64
         )
+        if self.dataset.funding_price_rate is None:
+            funding_notional = self.dataset.quantity_notional(index, book.quantities)
+            funding_rate = self.dataset.funding_rate[index]
+        else:
+            multipliers = self.dataset.resolved_array("contract_multipliers")
+            funding_notional = book.quantities * multipliers
+            funding_rate = self.dataset.funding_price_rate[index]
+        funding_amount = -float(np.dot(funding_notional, funding_rate * funding_due))
         previous_index = max(0, index - 1)
         resolved_year_fraction = (
             self.dataset.elapsed_year_fraction(previous_index, index)
@@ -1008,11 +1045,18 @@ class MarketExecutor:
             f"{type(value).__module__}.{type(value).__qualname__}:{value!r}"
             for value in self.cost.trigger_volume_fractions
         )
+        funding_semantics = (
+            "dataset_funding_price_rate_v1"
+            if self.dataset.funding_price_rate is not None
+            else None
+        )
         cache_inputs = (
             self.cost,
             self.rule_stress,
             self.market_order_profile,
             trigger_fraction_snapshot,
+            self.insolvency_valuation,
+            funding_semantics,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -1023,6 +1067,8 @@ class MarketExecutor:
             and previous_inputs[1] is self.rule_stress
             and previous_inputs[2] is self.market_order_profile
             and previous_inputs[3] == trigger_fraction_snapshot
+            and previous_inputs[4] == self.insolvency_valuation
+            and previous_inputs[5] == funding_semantics
         ):
             return cached_digest
 
@@ -1045,6 +1091,25 @@ class MarketExecutor:
             )
         else:
             digest = self.cost.execution_policy_digest
+
+        if self.insolvency_valuation == "retain_debt":
+            digest = content_digest(
+                {
+                    "schema_version": "insolvency_execution_policy_v2",
+                    "base_policy_digest": digest,
+                    "insolvency_valuation": self.insolvency_valuation,
+                    "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
+                }
+            )
+
+        if funding_semantics is not None:
+            digest = content_digest(
+                {
+                    "schema_version": "funding_execution_policy_v1",
+                    "base_policy_digest": digest,
+                    "funding_semantics": funding_semantics,
+                }
+            )
 
         self._execution_policy_digest_cache_inputs = cache_inputs
         self._execution_policy_digest_cache = digest
@@ -1076,12 +1141,19 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-    ) -> tuple[ExecutionResult, StatefulExecutionResult]:
+    ) -> tuple[
+        ExecutionResult,
+        StatefulExecutionResult,
+        TerminalOrderArchive,
+    ]:
         state = (
             self._compatibility_order_book
             if book is self._compatibility_last_book
             else OrderBookState.empty()
         )
+        previous_terminal_orders = state.terminal_orders
+        if not isinstance(previous_terminal_orders, TerminalOrderArchive):
+            raise RuntimeError("terminal order archive was not normalized")
         target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
         target_identity = content_digest(
             {
@@ -1153,7 +1225,7 @@ class MarketExecutor:
             participation_by_symbol=stateful.participation_by_symbol,
             cost_by_symbol=stateful.cost_by_symbol,
         )
-        return compatibility, stateful
+        return compatibility, stateful, previous_terminal_orders
 
     def execute_interval(
         self,
@@ -1164,15 +1236,23 @@ class MarketExecutor:
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
     ) -> ExecutionResult:
-        compatibility, stateful = self._execute_interval_with_stateful_evidence(
-            book,
-            target,
-            start_index=start_index,
-            bars=bars,
-            hold_current_quantity_symbols=hold_current_quantity_symbols,
+        compatibility, stateful, previous_terminal_orders = (
+            self._execute_interval_with_stateful_evidence(
+                book,
+                target,
+                start_index=start_index,
+                bars=bars,
+                hold_current_quantity_symbols=hold_current_quantity_symbols,
+            )
         )
         if self._execution_observer is not None:
             self._execution_observer(StatefulExecutionObservation.from_result(stateful))
+        if self._execution_trace_observer is not None:
+            self._execution_trace_observer(
+                StatefulExecutionObservation.from_result_since(
+                    stateful, previous_terminal_orders
+                )
+            )
         return compatibility
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
@@ -1196,10 +1276,15 @@ class MarketExecutor:
             market_index=index,
             force_market=True,
         )
-        interval_net_return = max(
-            max(result_book.portfolio_value, 0.0) / starting_value - 1.0,
-            -1.0 + 1e-12,
+        ending_value = (
+            result_book.portfolio_value
+            if self.insolvency_valuation == "retain_debt"
+            else max(result_book.portfolio_value, 0.0)
         )
+        interval_net_return = ending_value / starting_value - 1.0
+        if self.insolvency_valuation != "retain_debt":
+            interval_net_return = max(interval_net_return, -1.0 + 1e-12)
+        interval_log_return = math.log1p(max(interval_net_return, -1.0 + 1e-12))
         requested_notional = fill.original_requested_notional
         requested_turnover = requested_notional / starting_value
         filled_turnover = fill.filled_notional / starting_value
@@ -1215,7 +1300,7 @@ class MarketExecutor:
             interval_cost=fill.cost_amount,
             interval_funding=0.0,
             interval_net_return=interval_net_return,
-            interval_log_return=math.log1p(interval_net_return),
+            interval_log_return=interval_log_return,
             requested_turnover=requested_turnover,
             filled_turnover=filled_turnover,
             unfilled_turnover=max(0.0, requested_turnover - filled_turnover),

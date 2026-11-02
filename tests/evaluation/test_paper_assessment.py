@@ -101,7 +101,6 @@ def test_assessment_rejects_invalid_lineage_in_a_consistently_sealed_protocol(
 ):
     from trade_rl.evaluation.paper.engine import PaperSettings
     from trade_rl.evaluation.paper.operations import screen_plan
-    from trade_rl.evaluation.paper.supervisor import seal_collection
 
     start = NOW + timedelta(minutes=5)
     lineage = {
@@ -119,11 +118,26 @@ def test_assessment_rejects_invalid_lineage_in_a_consistently_sealed_protocol(
     plan = screen_plan(attempt_lineage=FIRST_ATTEMPT_LINEAGE)
     plan["attempt_lineage"] = lineage
     root = tmp_path / "invalid-lineage"
-    digest = seal_collection(
+    # The sealing gates now refuse this record, so write it below them, at the
+    # journal layer, to keep exercising the assessment-time check.
+    from trade_rl.evaluation.paper.store import PaperJournal
+    from trade_rl.evaluation.runs import build_candidate_run_provenance
+
+    settings = PaperSettings(start_at=start, close_at=start + timedelta(days=90))
+    digest = PaperJournal.initialize(
         root,
-        settings=PaperSettings(start_at=start, close_at=start + timedelta(days=90)),
-        research_plan=plan,
-        clock=lambda: NOW,
+        dict(
+            engine="funding_carry_paper_engine_v1",
+            settings=settings.to_dict(),
+            study=dict(
+                schema="paper_public_collection_v1",
+                created_at=NOW.isoformat(),
+                interval_seconds=60,
+                terminal_grace_seconds=180,
+                provenance=build_candidate_run_provenance(),
+                research_plan=plan,
+            ),
+        ),
     )
 
     with pytest.raises(ValueError, match="paper attempt lineage is invalid"):

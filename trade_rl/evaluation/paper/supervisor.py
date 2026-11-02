@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import time
 import uuid
@@ -19,6 +18,11 @@ from trade_rl.evaluation.paper.control import CollectionControl
 from trade_rl.evaluation.paper.engine import EvidenceRef, PaperEngine, PaperSettings
 from trade_rl.evaluation.paper.failure import FAILURE_NAME, write_collection_failure
 from trade_rl.evaluation.paper.lock import acquire_collector_lock
+from trade_rl.evaluation.paper.predecessor import (
+    collection_lineage_problems,
+    load_canonical_protocol,
+    require_seal_token,
+)
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.integrations.binance.forward import capture_forward_snapshot
 from trade_rl.integrations.binance.forward_rules import capture_forward_rules
@@ -36,9 +40,17 @@ def seal_collection(
     *,
     settings: PaperSettings,
     research_plan: dict[str, Any],
+    attempt2_seal_token: object | None = None,
     clock: Callable[[], datetime] = _now,
 ) -> str:
-    """Freeze collection identity; the caller owns the separate economic plan."""
+    """Freeze collection identity; the caller owns the separate economic plan.
+
+    A research plan carrying an attempt lineage v3 is refused unless the module-private
+    ``attempt2`` token is given, and any lineage the shared classifier rejects is
+    refused. This guards against accidental or non-canonical records through the
+    supported entry points; it is not authentication against a local operator.
+    """
+    require_seal_token(research_plan, attempt2_seal_token)
     created = require_aware_datetime(clock(), field="collection seal")
     if created >= settings.start_at:
         raise ValueError("collection must be sealed before its future start")
@@ -47,6 +59,7 @@ def seal_collection(
     return PaperEngine.initialize(
         root,
         settings=settings,
+        attempt2_seal_token=attempt2_seal_token,
         study=dict(
             schema=_SCHEMA,
             created_at=created.isoformat(),
@@ -92,7 +105,7 @@ class PaperCollector:
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != self.digest:
             raise ValueError("collection protocol digest mismatch")
-        protocol = json.loads(raw)["protocol"]
+        protocol = load_canonical_protocol(raw)["protocol"]
         study = protocol["study"]
         if (
             study.get("schema") != _SCHEMA
@@ -107,6 +120,18 @@ class PaperCollector:
         self.close_at = timestamp(protocol["settings"]["close_at"])
         if timestamp(study["created_at"]) >= self.start_at:
             raise ValueError("collection was not sealed before start")
+        # A lineage v3 ``available`` record is re-read like ``attempt2 launch`` does,
+        # before the lock is taken, so a refusal writes no failure marker.
+        problems = collection_lineage_problems(
+            study.get("research_plan"),
+            root=self.root,
+            start_at=self.start_at,
+            now=self.clock,
+        )
+        if problems:
+            raise ValueError(
+                "collection lineage cannot be re-verified: " + "; ".join(problems)
+            )
         self._lock = acquire_collector_lock(self.root)
         try:
             self._guard()

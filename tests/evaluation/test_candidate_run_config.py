@@ -691,3 +691,23 @@ def test_resolve_candidate_run_spec_rejects_invalid_dataset_resolution(
             dataset_artifact_digest="d" * 64,
             config=parse_candidate_run_config(raw),
         )
+
+
+def test_forecast_switch_cost_is_optional_but_canonical_when_declared() -> None:
+    baseline = parse_candidate_run_config(raw_config())
+    assert baseline.forecast_switch_cost is None
+    assert baseline.to_json_payload()["forecast_switch_cost"] is None
+
+    raw = raw_config()
+    raw["forecast_switch_cost"] = 0.0007
+    candidate = parse_candidate_run_config(raw)
+    assert candidate.forecast_switch_cost == pytest.approx(0.0007)
+    assert candidate.to_json_payload()["forecast_switch_cost"] == pytest.approx(0.0007)
+
+
+@pytest.mark.parametrize("value", [True, -0.1, math.inf, -math.inf, math.nan])
+def test_forecast_switch_cost_rejects_invalid_values(value: object) -> None:
+    raw = raw_config()
+    raw["forecast_switch_cost"] = value
+    with pytest.raises(ValueError, match="forecast_switch_cost"):
+        parse_candidate_run_config(raw)

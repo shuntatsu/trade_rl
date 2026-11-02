@@ -46,7 +46,10 @@ _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
 _RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
 _RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
-_SHARED_CASH_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9})
+_RESULT_SCHEMA_V10 = "lean_candidate_result_v10"
+_SHARED_CASH_RESULT_SCHEMAS = frozenset(
+    {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9, _RESULT_SCHEMA_V10}
+)
 
 
 def supports_shared_cash_result_schema(result_schema: object) -> bool:
@@ -68,6 +71,7 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V7,
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
+        _RESULT_SCHEMA_V10,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -125,6 +129,7 @@ class LoadedCandidateRun:
             _RESULT_SCHEMA_V7,
             _RESULT_SCHEMA_V8,
             _RESULT_SCHEMA_V9,
+            _RESULT_SCHEMA_V10,
         }:
             return False
         evaluation = self.summary.get("evaluation")
@@ -167,7 +172,9 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
-        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9}:
+        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9} or (
+            schema == _RESULT_SCHEMA_V10 and "shared_cash_ppo" in self.summary
+        ):
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
                 return False
@@ -317,11 +324,7 @@ def _result_payload(
         )
 
     summary: dict[str, object] = {
-        "schema_version": (
-            _RESULT_SCHEMA_V9
-            if result.comparison.shared_cash_ppo is not None
-            else _RESULT_SCHEMA_V8
-        ),
+        "schema_version": _RESULT_SCHEMA_V10,
         "ppo_observation": ppo_observation_contract_payload(
             config.ppo_observation_schema
         ),
@@ -362,6 +365,7 @@ def _result_payload(
             "supervised_forecast_horizon_hours": (
                 lean_config.supervised_forecast_horizon_hours
             ),
+            "forecast_switch_cost": lean_config.forecast_switch_cost,
         },
         "evaluation": {
             "start": str(config.evaluation_start),
@@ -651,6 +655,7 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V7,
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
+        _RESULT_SCHEMA_V10,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -682,7 +687,7 @@ def _validate_ppo_training_evidence(
             raise ValueError(
                 "candidate PPO duration requires the age-aware observation"
             )
-        if result_schema in {_RESULT_SCHEMA_V8, _RESULT_SCHEMA_V9}:
+        if result_schema in {_RESULT_SCHEMA_V8, _RESULT_SCHEMA_V9, _RESULT_SCHEMA_V10}:
             horizon = candidate_config.get("supervised_forecast_horizon_hours")
             if (
                 isinstance(horizon, bool)
@@ -691,6 +696,17 @@ def _validate_ppo_training_evidence(
                 or horizon > MAX_SUPERVISED_FORECAST_HORIZON_HOURS
             ):
                 raise ValueError("candidate supervised forecast horizon is malformed")
+        if result_schema == _RESULT_SCHEMA_V10:
+            switch_cost = candidate_config.get("forecast_switch_cost")
+            if switch_cost is not None and (
+                isinstance(switch_cost, bool)
+                or not isinstance(switch_cost, (int, float))
+                or not math.isfinite(float(switch_cost))
+                or float(switch_cost) < 0.0
+            ):
+                raise ValueError("candidate forecast switch cost is malformed")
+            if "forecast_switch_cost" not in candidate_config:
+                raise ValueError("candidate forecast switch cost identity is missing")
         evaluation = summary.get("evaluation")
         if not isinstance(evaluation, Mapping):
             raise ValueError("candidate evaluation config is malformed")
@@ -709,6 +725,7 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V7,
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
+        _RESULT_SCHEMA_V10,
     }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
@@ -1183,6 +1200,14 @@ def _validate_v9_replay_evidence(summary: Mapping[str, object]) -> None:
     _validate_v7_replay_evidence(summary)
 
 
+def _validate_v10_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_shared_cash_result_schema(summary, result_schema=_RESULT_SCHEMA_V10)
+    if "shared_cash_ppo" in summary:
+        _validate_v7_replay_evidence(summary)
+    else:
+        _validate_v8_replay_evidence(summary)
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -1335,6 +1360,13 @@ def _load_with_evidence(
     result_schema = summary.get("schema_version")
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
+    candidate_config = summary.get("candidate_config")
+    if (
+        result_schema != _RESULT_SCHEMA_V10
+        and isinstance(candidate_config, Mapping)
+        and "forecast_switch_cost" in candidate_config
+    ):
+        raise ValueError("legacy candidate result cannot define forecast switch cost")
     if (
         result_schema in {_RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
         and summary.get("ppo_observation") != ppo_observation_contract_payload()
@@ -1359,6 +1391,9 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V9:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v9_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V10:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v10_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -1376,6 +1411,11 @@ def _load_with_evidence(
         _validate_v6_return_coverage(summary, returns)
     if result_schema == _RESULT_SCHEMA_V9:
         _validate_v7_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V10:
+        if "shared_cash_ppo" in summary:
+            _validate_v7_return_coverage(summary, returns)
+        else:
+            _validate_v6_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,
         summary=summary,

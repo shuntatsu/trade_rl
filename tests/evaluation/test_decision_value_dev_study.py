@@ -12,7 +12,6 @@ from trade_rl.data.market import MarketCalendarKind, MarketDataset
 from trade_rl.evaluation.decision_value_dev_study import (
     DecisionValueBlockSpec,
     DecisionValueDevStudyProtocol,
-    compute_real_scope_authorization_digest,
     default_2024q1_decision_value_dev_protocol,
     run_decision_value_dev_study,
 )
@@ -405,9 +404,16 @@ def test_default_2024q1_protocol_construction_and_fail_closed() -> None:
 def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
     tmp_path: Path,
 ) -> None:
-    dataset = _compact_market(90)
+    from trade_rl.data.artifacts.publication import (
+        publish_market_dataset_artifact,
+    )
+
+    dataset = _compact_market(90).with_content_identity(
+        {"synthetic_only": True, "generator": "issue1025-fixed-seed-e2e"}
+    )
+    artifact = publish_market_dataset_artifact(tmp_path / "synthetic_dataset", dataset)
     dataset_id = dataset.dataset_id
-    artifact_digest = "e" * 64
+    artifact_digest = artifact.artifact_digest
     symbols = dataset.symbols
     initial_capital = 100_000.0
     target_abs_weights = (0.25, 0.25)
@@ -436,7 +442,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         DecisionValueBlockSpec(
             block_id="test_block_1",
             train_start_index=0,
-            train_stop_index=20,
+            train_stop_index=24,
             train_step=4,
             fit_cutoff_index=30,
             eval_start_index=35,
@@ -459,31 +465,8 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
     exit_thresh = 0.0005
     prior_disclosure = "compact synthetic test disclosure"
 
-    auth_digest = compute_real_scope_authorization_digest(
-        dataset_id=dataset_id,
-        expected_artifact_digest=artifact_digest,
-        symbols=symbols,
-        initial_capital=initial_capital,
-        target_abs_weights=target_abs_weights,
-        horizon_bars=horizon_bars,
-        terminal_reserve_bars=terminal_reserve_bars,
-        candidate_actions=candidate_actions,
-        fee_rate=fee_rate,
-        spread_rate=spread_rate,
-        impact_rate=impact_rate,
-        max_participation_rate=max_participation_rate,
-        risk_config=risk_config,
-        blocks=blocks,
-        ridge_feature_indices=ridge_features,
-        ridge_horizon_hours=ridge_horizon,
-        ridge_alpha=alpha,
-        ridge_entry_threshold=entry_thresh,
-        ridge_exit_threshold=exit_thresh,
-        prior_usage_disclosure=prior_disclosure,
-    )
-
     plan = DecisionValueStudyPlan(
-        data_scope="real_development",
+        data_scope="synthetic_only",
         account_mode="shared_portfolio",
         symbols=symbols,
         initial_capital=initial_capital,
@@ -493,8 +476,8 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         fee_rate=fee_rate,
         spread_rate=spread_rate,
         max_policy_improvements=1,
-        learner_roster=("linear", "shallow"),
-        real_scope_authorization_digest=auth_digest,
+        learner_roster=("linear", "conservative_linear", "shallow"),
+        real_scope_authorization_digest=None,
     )
 
     protocol = DecisionValueDevStudyProtocol(
@@ -511,6 +494,8 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         ridge_entry_threshold=entry_thresh,
         ridge_exit_threshold=exit_thresh,
         prior_usage_disclosure=prior_disclosure,
+        label_prefix_bars=4,
+        reference_min_fit_bars=6,
     )
 
     out_dir = tmp_path / "study_output"
@@ -518,16 +503,18 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         dataset,
         protocol,
         actual_artifact_digest=artifact_digest,
+        artifact_root=artifact.root,
         output_dir=out_dir,
     )
 
-    assert result.schema_version == "decision_value_dev_study_result_v1"
-    assert result.verdict in (
-        "DEVELOPMENT_IMPROVED",
-        "INCONCLUSIVE",
-        "NO_IMPROVEMENT",
-        "INVALID / BLOCKED",
+    assert result.schema_version == "decision_value_dev_study_result_v4_software"
+    assert result.verdict == "SOFTWARE_ONLY"
+    assert "no independent G0-G3" in result.verdict_reason
+    assert protocol.to_mapping()["schema_version"] == (
+        "decision_value_dev_study_protocol_v4_software"
     )
+    assert protocol.study_plan.real_scope_authorization_digest is None
+    assert result.actual_artifact_digest == artifact.artifact_digest
     assert len(result.blocks) == 2
     for b in result.blocks:
         assert b.causality_probe_passed
@@ -536,6 +523,64 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
         assert b.paired_replay_runs > 0
         assert len(b.b1c_model_coefficients_sha256) == 64
         assert len(b.arms) == 24
+        # TD8 evidence: chosen margins, B1c dof, label population and shift.
+        assert set(b.chosen_margin_multipliers) == {
+            "linear_value",
+            "conservative_linear_value",
+            "shallow_value",
+        }
+        assert all(
+            m in protocol.margin_multiplier_grid
+            for m in b.chosen_margin_multipliers.values()
+        )
+        assert len(b.b1c_residual_dof) == len(candidate_actions) - 1
+        assert all(dof >= 1.0 for dof in b.b1c_residual_dof)
+        assert b.distinct_decision_times > 0
+        assert b.ineligible_pairs >= 0
+        assert b.label_evidence_digest is not None
+        assert b.label_bound_reference_digest is not None
+        with pytest.raises(ValueError, match="bound|reference|population"):
+            replace(b, label_bound_reference_digest="f" * 64).to_mapping()
+        with pytest.raises(ValueError, match="evidence|population|root"):
+            replace(
+                result,
+                blocks=(
+                    replace(result.blocks[0], label_evidence_digest=None),
+                    *result.blocks[1:],
+                ),
+            ).to_mapping()
+        from trade_rl.artifacts.hashing import content_digest
+
+        assert b.label_evidence_digest == content_digest(b.eligible_pair_outcomes)
+        mutated = dict(b.eligible_pair_outcomes[0])
+        mutated["label_delta"] = float(mutated["label_delta"]) + 0.5
+        forged = replace(
+            b, eligible_pair_outcomes=(mutated, *b.eligible_pair_outcomes[1:])
+        )
+        with pytest.raises(ValueError, match="population digest"):
+            forged.to_mapping()
+        assert len(b.eligible_pair_outcomes) == b.training_rows
+        for item in b.eligible_pair_outcomes:
+            assert item["evidence_digest"] == content_digest(
+                {k: v for k, v in item.items() if k != "evidence_digest"}
+            )
+            assert item["schema"] == "decision_value_eligible_pair_evidence_v2"
+            assert item["study_protocol_digest"] == protocol.protocol_digest
+            assert item["reference_vintage"]["model_digest"]
+            assert item["baseline"]["ledger_digest"]
+            assert item["candidate"]["ledger_digest"]
+        assert len(b.ineligible_pair_outcomes) == b.ineligible_pairs
+        assert b.to_mapping()["ineligible_pair_outcomes"] == [
+            dict(record) for record in b.ineligible_pair_outcomes
+        ]
+        assert all(
+            record["schema"] == "decision_value_ineligible_pair_v1"
+            for record in b.ineligible_pair_outcomes
+        )
+        assert b.nonflat_branch_states >= 0
+        assert len(b.covariate_shift) > 0
+        assert {r["scope"] for r in b.covariate_shift} == {"symbol", "global"}
+        assert all(a.turnover_total >= 0.0 for a in b.arms)
 
     assert "conservative_linear_value" in result.aggregate_metrics
 
@@ -549,6 +594,7 @@ def test_run_decision_value_dev_study_end_to_end_on_compact_dataset(
             dataset,
             protocol,
             actual_artifact_digest=artifact_digest,
+            artifact_root=artifact.root,
             output_dir=out_dir,
         )
 
@@ -568,3 +614,67 @@ def test_study_preflight_rejections() -> None:
             proto,
             actual_artifact_digest="f" * 64,
         )
+
+
+def test_paired_portfolio_action_latency_2bar_preservation() -> None:
+    from trade_rl.evaluation.decision_value_dev_study import _HoldQuantityPolicy
+
+    dataset = _compact_market(60)
+    cost_lat2 = replace(_COST, order_latency_bars=2)
+    pair = run_paired_portfolio_action(
+        dataset,
+        reference_policy_factory=lambda: _HoldQuantityPolicy(
+            target_abs_weights=(0.25, 0.25)
+        ),
+        start_index=10,
+        stop_index=25,
+        intervention_index=10,
+        baseline_action=_HOLD,
+        candidate_action=_LONG,
+        target_abs_weights=(0.25, 0.25),
+        initial_capital=100_000.0,
+        execution_cost=cost_lat2,
+        risk=_RISK,
+    )
+    assert pair.eligible_for_label
+    assert pair.delta_per_initial_capital is not None
+    assert pair.delta_per_initial_capital != 0.0
+
+
+def test_cost_aware_ridge_policy_latency_2bar_fills() -> None:
+    from trade_rl.evaluation.decision_value_dev_study import (
+        _CostAwareRidgePortfolioPolicy,
+    )
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+    from trade_rl.strategies.forecasts.ridge import fit_ridge_forecast
+
+    dataset = _compact_market(60)
+    cost_lat2 = replace(_COST, order_latency_bars=2)
+    model = fit_ridge_forecast(
+        dataset,
+        feature_indices=(0, 1),
+        fit_cutoff=dataset.timestamps[30],
+        horizon_hours=4,
+        alpha=1.0,
+    )
+    policy = _CostAwareRidgePortfolioPolicy(
+        dataset=dataset,
+        model=model,
+        target_abs_weights=(0.25, 0.25),
+        entry_threshold=0.0001,
+        exit_threshold=0.00005,
+        one_way_switch_cost=0.0008,
+    )
+    replay_res = run_shared_portfolio_replay(
+        dataset,
+        policy,
+        start_index=30,
+        stop_index=55,
+        initial_capital=100_000.0,
+        execution_cost=cost_lat2,
+        risk=_RISK,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    assert replay_res.book.turnover_total > 0.0
+    assert replay_res.ledger_evidence is not None

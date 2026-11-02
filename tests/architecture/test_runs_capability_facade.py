@@ -258,12 +258,23 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert not hasattr(facade, "PROVENANCE_SCHEMA")
 
 
+def test_run_schema_capability_docs_track_current_v10_contract() -> None:
+    text = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    assert "v7/v9/v10" in text
+    assert "`lean_candidate_result_v10`" in text
+    assert "v7/v9だけを許可する" not in text
+    assert "`lean_candidate_result_v8`（per-symbol）" not in text
+
+
 def test_run_schema_capability_is_available_through_public_facade() -> None:
     from trade_rl.evaluation.runs import supports_shared_cash_result_schema
 
     assert supports_shared_cash_result_schema("lean_candidate_result_v7")
     assert not supports_shared_cash_result_schema("lean_candidate_result_v8")
     assert supports_shared_cash_result_schema("lean_candidate_result_v9")
+    assert supports_shared_cash_result_schema("lean_candidate_result_v10")
     assert not supports_shared_cash_result_schema(None)
 
 

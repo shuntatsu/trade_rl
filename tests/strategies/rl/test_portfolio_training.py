@@ -413,6 +413,24 @@ def test_two_rollouts_bind_actual_policy_samples_to_native_episode_steps(
     assert (output / "completion.json").is_file()
     native_events = _json_files(output / "native" / "events")
     assert sum(event["event"] == "step_result" for event in native_events) == 8
+    assert env.execution_observer is None
+    native_manifest = json.loads(
+        (output / "native" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert native_manifest["schema"] == "shared_portfolio_episode_journal_v2"
+    step_results = [
+        event["data"] for event in native_events if event["event"] == "step_result"
+    ]
+    assert all("decision_trace" in event for event in step_results)
+    assert all(
+        event["decision_trace"]["schema"] == "shared_portfolio_decision_trace_v1"
+        and event["decision_trace"]["raw_action_codes"] == event["raw_action_codes"]
+        for event in step_results
+    )
+    first_transition = step_results[0]["decision_trace"]["transitions"][0]
+    assert "approved_weights" in first_transition
+    assert "reasons" in first_transition
+    assert "order_events" in first_transition["execution_observation"]
     assert any(
         event["event"] == "episode_interrupted" and event["data"]["reason"] == "close"
         for event in native_events

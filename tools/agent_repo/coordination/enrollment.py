@@ -117,24 +117,14 @@ def prepare_enrollment_projection(
     return EnrollmentProjection(repository, issue_number, issue_node_id, status)
 
 
-def require_local_registry_preflight(
+def validate_enrollment_transition(
     previous: EnrollmentProjection | None,
     candidate: EnrollmentProjection,
     *,
-    expected_registry_oid: str,
-    observed_registry_oid: str,
     enumerated_task_ids: Sequence[str],
 ) -> None:
-    """Check one proposed transition; remote atomic CAS is still mandatory.
+    """Validate one local Task-record transition without granting persistence."""
 
-    The supplied roster is not proof that GitHub enumeration was complete or
-    authenticated; this function is deliberately not an enrollment writer.
-    """
-
-    _require_sha(expected_registry_oid, "expected_registry_oid")
-    _require_sha(observed_registry_oid, "observed_registry_oid")
-    if expected_registry_oid != observed_registry_oid:
-        raise ValueError("registry reference changed since expected version")
     if (
         isinstance(enumerated_task_ids, (str, bytes))
         or any(not isinstance(task, str) or not task for task in enumerated_task_ids)
@@ -188,6 +178,31 @@ def require_local_registry_preflight(
         raise ValueError("branch advance requires verified remote ancestry")
 
 
+def require_local_registry_preflight(
+    previous: EnrollmentProjection | None,
+    candidate: EnrollmentProjection,
+    *,
+    expected_registry_oid: str,
+    observed_registry_oid: str,
+    enumerated_task_ids: Sequence[str],
+) -> None:
+    """Check one proposed transition; remote atomic CAS is still mandatory.
+
+    The supplied roster is not proof that GitHub enumeration was complete or
+    authenticated; this function is deliberately not an enrollment writer.
+    """
+
+    _require_sha(expected_registry_oid, "expected_registry_oid")
+    _require_sha(observed_registry_oid, "observed_registry_oid")
+    if expected_registry_oid != observed_registry_oid:
+        raise ValueError("registry reference changed since expected version")
+    validate_enrollment_transition(
+        previous,
+        candidate,
+        enumerated_task_ids=enumerated_task_ids,
+    )
+
+
 def require_enrollment_readback(
     expected: EnrollmentProjection,
     observed: EnrollmentProjection,
@@ -217,4 +232,5 @@ __all__ = [
     "prepare_enrollment_projection",
     "require_enrollment_readback",
     "require_local_registry_preflight",
+    "validate_enrollment_transition",
 ]

@@ -89,6 +89,10 @@ trade_rl/
     ├── paired_portfolio_label.py
     ├── decision_value_fit.py
     ├── decision_value_plan.py
+    ├── decision_value_feature_transform.py
+    ├── decision_value_ledger_oracle.py
+    ├── decision_value_reachable_labels.py
+    ├── decision_value_margin.py
     ├── decision_value_dev_study.py
     ├── portfolio_inference.py
     ├── bot.py
@@ -110,7 +114,10 @@ trade_rl/
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
-    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,supervisor.py,operations.py,watchdog.py,attempt2.py,storage_probe.py,assessment.py,cli.py}
+    ├── paper/
+    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py}
+    │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
+    │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -217,8 +224,17 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
-Lineage v3 is sealable only through `attempt2`; `seal_paper_study` and `cli seal`
-refuse it otherwise. These operations contain no production routing.
+`paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
+records, the single lineage classifier (`lineage_structure_problems`) and the
+read-only re-verification of a recorded predecessor root. `seal_collection`,
+`seal_paper_study`, `cli seal`, `PaperEngine.initialize` and `PaperEngine(root)`
+(on open), `validate_attempt_lineage`, `attempt2`, `PaperCollector`, `cli run` and
+`cli supervise` all use it; v3 also needs a module-private token held by `attempt2`
+at the seal functions (a caller contract), and the collector re-reads an `available`
+root on every entry. This guards against accidental or non-canonical records through
+the supported entry points; it is not authentication against a malicious local
+operator. Among paper modules it imports only `account` at load time. These
+operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and
@@ -501,7 +517,7 @@ Gym/SB3 imports are local to the callable path.
 - `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` はshared data helperでexact integer normalizationを行う。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
-- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持つresult schemaとしてv7/v9だけを許可する。新規Runは正のforecast horizonを`lean_candidate_result_v8`（per-symbol）または`lean_candidate_result_v9`（shared-cash）へbindする。v9はv7の追加portfolio return seriesとsettlement / ledger evidenceを維持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。旧result schemasは不変のまま読み込む。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持てるresult schemaとしてv7/v9/v10を許可する。新規Runは正のforecast horizonと明示的な`forecast_switch_cost`（`null`または有限な非負値）を`lean_candidate_result_v10`へbindし、per-symbolとoptional shared-cashの両方を同じcurrent schemaで表現する。v10はrisk config・完全なevaluation-period coverage・training/replay suppression evidenceを保持し、shared-cash時はsettlement / ledger evidenceも必須とする。loaderはreturn / maximum drawdownをraw seriesから再計算する。historical v8/v9を含む旧result schemasは不変のまま読み込み、新fieldのbackfillを拒否する。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 - `ridge_artifact_comparison.py`: verified Datasetとcaller-bound frozen Ridge artifactで4つの固定shared-cash armを比較するfilesystem入口。既存paired Dataset loader、Ridge artifact loader、shared-cash comparison、replay/ledgerの所有境界を再利用し、fit、winner選択、result publicationは行わない。
 - `ridge_comparison_artifact.py`: 上記比較の完全な4-arm結果を一つのcanonical JSONへwrite-once保存し、外部digestを必須とするstrict loaderで再検証する。既存のledger / metric / provenance ownerを再利用し、`BASE_BAR`・elapsed-years未指定・全arm共通annualization、flat no-flow cash/equity closure、funding-event合計を検証する。FLAT-only cash armはtrade/rebalance、closed/open-position、realized net/gross P&L diagnosticsもゼロでなければならない。interval-end metric drawdownはledger intrainterval drawdown以下であることを確認し、両者を同一視しない。ledger v2に独立記録されないcorporate settlement proceedsを含むuniversal fill-to-cash再構築は行わない。保存されたmarket profileは宣言データとして保持する。replay前後のprovenance採取、Dataset cadenceの再認証、fit、Study、winner選択は所有しない。
@@ -707,6 +723,10 @@ star importはliteral `__all__`、または明示的なpublic import re-export�
 - toolingのstatic analysisはruntime reachabilityの完全証明ではなく、source reviewとfinal full CIを置き換えない。
 - local `verify` は開発中の検査選択を支援するが、完了判定ではpermanent CIのfull gateへ収束する。
 
+`tools/issue810_portfolio_probability_probe.py` is opt-in repository-only tooling. It accepts an already-loaded PPO model, one transformed observation, and caller-declared symbol names; it lazily imports the pinned `stable-baselines3 2.3.2` and `torch 2.4.1` runtime only when invoked. It reports per-coordinate action probabilities but does not verify Dataset, transform, or checkpoint provenance. It does not load checkpoints, fit, train, replay, or provide economic or live-readiness authority. This helper stays outside the production wheel and `trade_rl` runtime.
+
+`tools/issue810_joint_fee_only_fixture.py` is repository-only deterministic input tooling for one fixed synthetic joint-portfolio Dataset. `build_joint_fee_only_fixture()` returns an in-memory content-identified `MarketDataset` and a read-only recipe declaration bound with `MarketDataset.with_content_identity`. The Dataset has zero fee, spread, funding, and borrow arrays; its fixed volume and market-participation metadata describe only synthetic capacity. A later execution-cost configuration and experiment harness remain caller-owned. The helper does not load market artifacts, write files, create or step an environment, load or fit models, replay, or establish economic evidence or authorization. It remains outside the production wheel and `trade_rl` runtime.
+
 ### Agent Coordination Plane
 
 `tools/agent_repo/coordination/` は複数AgentのTask分離・ownership・dependency・semantic collision・review/verification freshnessを扱うrepository toolingである。既存Control PlaneがRepositoryのsource-derived factを読むのに対し、Coordination Planeはそのfactを使って「誰が何を同時に実行できるか」を管理する。どちらも`trade_rl` runtime/domain authorityではなく、**production wheelへ混入させない**。
@@ -786,7 +806,7 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 `evaluation/dev_realdata_study/` は Issue #810 P2 の development-only real-data walk-forward study だけを所有する。`protocol.py` は事前固定した全parameter・5 arm roster・3 scenario・selection ruleの定数とSHA-256 digestを持ち、実データ実行の前にcommitする。`runner.py` は `strategies/forecasts/prequential.py` の causal packet を log→simple return に写す adapter、`strategies/allocation/` の policy、armごと・scenarioごとに1回の連続 `run_shared_portfolio_replay`（terminal flat settle、ledger capture）、raw fill からの独立 ledger reconciliation、未来perturbation causality probeを束ねる。`metrics.py` は equity-path metrics、20日block bootstrap、`DEVELOPMENT_PROMISING` / `NO_WINNER` だけを返す選定ruleを持つ。このpackageは `WINNER` を出さず、unused-future窓を開かず、account・P&L ledger・fill modelを持たず、`trade_rl.evaluation` の公開APIを拡張しない。CLI (`python -m trade_rl.evaluation.dev_realdata_study`) は新規出力のみを書き、既存出力を上書きしない。`dataset_build.py` は同study用Datasetをlocalの Binance Vision archiveだけから作る **offline・opt-in** builder（`python -m trade_rl.evaluation.dev_realdata_study.dataset_build`）で、networkへ出ず、非空の出力先を拒否し、economic replayを実行しない。gap policy (`non_tradable_rows`: 欠損1h barはnon-tradable row・forward-fill mark・funding非計上、4h/1d barは完全な1h windowからaggregate、欠損windowは `available_at=range end` のplaceholderにして再帰的な上位clock featureを以降unavailable化) と入力rosterを `DATASET_BUILD_POLICY` とそのdigestとしてreceiptへ固定する。gap許容は `integrations/binance/dataset.py` の明示的な `BinanceGapPolicy` option（default `STRICT` = 従来どおり欠損barを拒否）と `integrations/binance/derived_klines.py` の1h→4h/1d aggregation transportが所有し、monkeypatchは使わない。
 
-Phase 2 trial registry は同じpackage内の `trials.py`（T1-T8の事前固定spec・定数・実装判断、JSON exportは `report/issue810-phase2-trial-registry-20261029.json`）、`trial_sources.py`（`ExpectedReturnSource` registry、causalなTSMOM/XS-momentum/funding carry/blend source、T7のdrawdown overlay policy wrapper）、`trial_study.py`（armごとの隔離実行・FAILED_TO_RUN記録・13 arm Bonferroni・同一selection rule）、`trial_cli.py`、事後ラベル再計算の `trial_labels.py`（PR-C probe ruleとamended ruleの両ラベルをcommit済み証拠からcodeで計算）が所有する。PR-Cの `runner.py` を `arm_builder` / `build_allocator` / 汎用causality probeで拡張して再利用し、複製しない。同じくaccount・P&L ledgerは持たず、`WINNER` を出さない。
+Phase 2 trial registry は同じpackage内の `trials.py`（T1-T8の事前固定spec・定数・実装判断、JSON exportは `report/issue810-phase2-trial-registry-20261029.json`）、`trial_sources.py`（`ExpectedReturnSource` registry、causalなTSMOM/XS-momentum/funding carry/blend source、T7のdrawdown overlay policy wrapper）、`trial_study.py`（armごとの隔離実行・FAILED_TO_RUN記録・13 arm Bonferroni・同一selection rule）、`trial_cli.py`、事後ラベル再計算の `trial_labels.py`（PR-C probe ruleとamended ruleの両ラベルをcommit済み証拠からcodeで計算）が所有する。PR-Cの `runner.py` を `arm_builder` / `build_allocator` / 汎用causality probeで拡張して再利用し、複製しない。同じくaccount・P&L ledgerは持たず、`WINNER` を出さない。 今後のreplayはcontrol両armの有効性・probe matrixをselection gateで検査する。経済結果の凍結を維持したまま、途中終了や非対応日時のbootstrap比較を除外理由とともに記録する。CLIは新規の非重複出力先だけを許可し、登録cut以外の因果性検証はdiagnostic-onlyと記録する。T7 overlayはinner allocatorの同時刻fail-closed HOLDを保持し、risk縮小の抑止件数を診断出力する。
 
 Phase 3 roster（turnover aversion `kappa` とex-ante volatility target `VT12`、POST_HOC_EXPLORATORY・事前登録ではない）は `phase3_registry.py`（8 armの凍結roster・公開事前記録のverbatim本文とSHA-256・実装判断notes・JSON exportは `report/issue810-phase3-trial-registry-20261029.json`）、`phase3_sources.py`（T4×7 source、T2/T4 z-blend、vol-scaled passive comparatorのpolicy、arm builder）、`phase3_study.py`（armごとの隔離実行・causality probe/matrix・PR-C probe rule主ラベルと補助のamended rule・Phase 3 family 8とall-arms 21のBonferroni）、`phase3_cli.py`（新規出力のみ・全実行を数える`--execution-ledger`）が所有する。`kappa`（optimizerのL1 cost penalty倍率のみ。実行costは不変）とVT（解いたtargetをmin-trade rule前に`cap/sigma_p`倍へ縮小）は `strategies/allocation/cost_aware.py` のopt-in引数で、defaultでは従来のdecisionとbit-identical。label語彙は `POST_HOC_PROMISING` / `NO_WINNER` で、`WINNER` は出さない。
 

@@ -122,6 +122,7 @@ def _result() -> object:
         ppo_rollout_steps_per_env=None,
         ppo_minimum_hold_bars=0,
         supervised_forecast_horizon_hours=24,
+        forecast_switch_cost=None,
     )
     metrics = SimpleNamespace(
         total_return=0.0,
@@ -260,7 +261,7 @@ def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> 
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "lean_candidate_result_v8"
+    assert summary["schema_version"] == "lean_candidate_result_v10"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     loaded = load_candidate_run_artifact(artifact.root)
     candidate_config = loaded.summary["candidate_config"]
@@ -306,7 +307,7 @@ def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
     )
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v8"
+    assert summary["schema_version"] == "lean_candidate_result_v10"
     assert summary["ppo_observation"] == ppo_observation_contract_payload(
         PPO_OBSERVATION_SCHEMA_V3
     )
@@ -336,7 +337,7 @@ def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
     assert ppo_summary["active_order_remainders"] == []
 
     loaded = load_candidate_run_artifact(artifact.root)
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v8"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v10"
 
 
 @pytest.mark.parametrize(
@@ -463,6 +464,37 @@ def test_terminal_settlement_requires_full_unterminated_evaluation(
     assert ppo_summary["terminal_settlement_complete"] is False
 
 
+@pytest.mark.parametrize(
+    "legacy_schema", ("lean_candidate_result_v5", "lean_candidate_result_v8")
+)
+@pytest.mark.parametrize("injected_cost", (None, 0.0007))
+def test_historical_candidate_rejects_backfilled_forecast_switch_cost(
+    tmp_path: Path,
+    legacy_schema: str,
+    injected_cost: float | None,
+) -> None:
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        _result(),
+        _provenance(),  # type: ignore[arg-type]
+    )
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = legacy_schema
+    summary["candidate_config"].pop("forecast_switch_cost")
+    if legacy_schema == "lean_candidate_result_v5":
+        summary["evaluation"].pop("expected_periods")
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    assert (
+        load_candidate_run_artifact(artifact.root).summary["schema_version"]
+        == legacy_schema
+    )
+
+    summary["candidate_config"]["forecast_switch_cost"] = injected_cost
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    with pytest.raises(ValueError, match="legacy.*forecast switch cost"):
+        load_candidate_run_artifact(artifact.root)
+
+
 def test_historical_v5_candidate_artifact_remains_readable(tmp_path: Path) -> None:
     artifact = publish_candidate_run(
         tmp_path / "run",
@@ -471,6 +503,7 @@ def test_historical_v5_candidate_artifact_remains_readable(tmp_path: Path) -> No
     )
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
     summary["schema_version"] = "lean_candidate_result_v5"
+    summary["candidate_config"].pop("forecast_switch_cost", None)
     summary["evaluation"].pop("expected_periods")
     artifact.summary_path.write_text(
         json.dumps(summary, sort_keys=True, indent=2),
@@ -504,6 +537,7 @@ def test_historical_v5_terminal_flag_is_not_full_coverage_evidence(
             )
             summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
             summary["schema_version"] = "lean_candidate_result_v5"
+            summary["candidate_config"].pop("forecast_switch_cost", None)
             summary["evaluation"].pop("expected_periods")
             artifact.summary_path.write_text(
                 json.dumps(summary, sort_keys=True, indent=2),

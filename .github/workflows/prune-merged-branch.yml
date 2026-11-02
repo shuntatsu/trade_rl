@@ -1,0 +1,96 @@
+name: Verified merged-PR branch prune (manual only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Exact merged local PR source branch (one only)"
+        type: string
+        required: true
+      expected_sha:
+        description: "Exact 40-character source branch commit SHA"
+        type: string
+        required: true
+      merged_pr_number:
+        description: "Closed and merged PR number whose final head matches"
+        type: number
+        required: true
+      retention_record_sha:
+        description: "Existing retention observation commit (tip as parent)"
+        type: string
+        required: true
+      confirm:
+        description: "I authorize deleting this single verified redundant branch"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: verified-merged-pr-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Verify and prune one merged PR source branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout authoritative default branch only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require explicit operator confirmation
+        shell: bash
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "shuntatsu/trade_rl"
+          test "$CONFIRM" = "true"
+
+      - name: Fetch current remote refs
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Preflight merged source branch (no deletion)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRUNE_BRANCH: ${{ inputs.branch }}
+          PRUNE_SHA: ${{ inputs.expected_sha }}
+          PRUNE_PR: ${{ inputs.merged_pr_number }}
+          PRUNE_RETENTION: ${{ inputs.retention_record_sha }}
+        run: |
+          set -euo pipefail
+          python3 -m tools.verified_merged_branch_prune \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$PRUNE_BRANCH" \
+            --expected-sha "$PRUNE_SHA" \
+            --merged-pr-number "$PRUNE_PR" \
+            --retention-record-sha "$PRUNE_RETENTION"
+
+      - name: Prune only the exact verified branch SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRUNE_BRANCH: ${{ inputs.branch }}
+          PRUNE_SHA: ${{ inputs.expected_sha }}
+          PRUNE_PR: ${{ inputs.merged_pr_number }}
+          PRUNE_RETENTION: ${{ inputs.retention_record_sha }}
+        run: |
+          set -euo pipefail
+          python3 -m tools.verified_merged_branch_prune \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$PRUNE_BRANCH" \
+            --expected-sha "$PRUNE_SHA" \
+            --merged-pr-number "$PRUNE_PR" \
+            --retention-record-sha "$PRUNE_RETENTION" \
+            --apply

@@ -80,6 +80,7 @@ class CandidateRunConfig:
         "ppo_seed",
         "gross_budget",
         "initial_capital",
+        "forecast_switch_cost",
         "ppo_training_layout",
         "ppo_rollout_steps_per_env",
         "ppo_minimum_hold_bars",
@@ -103,6 +104,7 @@ class CandidateRunConfig:
     ppo_seed: int
     gross_budget: float
     initial_capital: float
+    forecast_switch_cost: float | None = None
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
     ppo_minimum_hold_bars: int = 0
@@ -148,6 +150,12 @@ class CandidateRunConfig:
             raise ValueError("rule exit threshold must be below entry threshold")
         if self.forecast_exit_threshold >= self.forecast_entry_threshold:
             raise ValueError("forecast exit threshold must be below entry threshold")
+        forecast_switch_cost = self.forecast_switch_cost
+        if forecast_switch_cost is not None:
+            forecast_switch_cost = _require_non_negative_finite(
+                forecast_switch_cost,
+                field="forecast_switch_cost",
+            )
         if (
             isinstance(self.ppo_total_timesteps, bool)
             or not isinstance(self.ppo_total_timesteps, int)
@@ -233,6 +241,7 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
         object.__setattr__(
             self,
             "supervised_forecast_horizon_hours",
@@ -536,6 +545,14 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         rule_exit_threshold=_required_float(raw, "rule_exit_threshold"),
         forecast_entry_threshold=_required_float(raw, "forecast_entry_threshold"),
         forecast_exit_threshold=_required_float(raw, "forecast_exit_threshold"),
+        forecast_switch_cost=(
+            None
+            if raw.get("forecast_switch_cost") is None
+            else _require_non_negative_finite(
+                raw.get("forecast_switch_cost"),
+                field="forecast_switch_cost",
+            )
+        ),
         ppo_total_timesteps=_required_int(raw, "ppo_total_timesteps"),
         ppo_seed=_required_int(raw, "ppo_seed"),
         ppo_training_layout=training_layout,
@@ -636,6 +653,7 @@ def resolve_candidate_run_spec(
         rule_exit_threshold=config.rule_exit_threshold,
         forecast_entry_threshold=config.forecast_entry_threshold,
         forecast_exit_threshold=config.forecast_exit_threshold,
+        forecast_switch_cost=config.forecast_switch_cost,
         ppo_total_timesteps=config.ppo_total_timesteps,
         ppo_seed=config.ppo_seed,
         ppo_training_layout=config.ppo_training_layout,

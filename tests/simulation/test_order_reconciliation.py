@@ -438,3 +438,62 @@ def test_invalid_shapes_gross_latency_and_offsets_fail_closed() -> None:
         _reconcile(target_weight=0.5, latency_bars=-1)
     with pytest.raises(OrderReconciliationError, match="offset"):
         _reconcile(target_weight=0.5, limit_offset_rate=1.0)
+
+
+@pytest.mark.parametrize(
+    ("order_type", "time_in_force", "expiry_index"),
+    (
+        (OrderType.MARKET, TimeInForce.DAY, 8),
+        (OrderType.MARKET, TimeInForce.IOC, None),
+        (OrderType.MARKET, TimeInForce.GTC, 8),
+        (OrderType.LIMIT, TimeInForce.GTC, None),
+        (OrderType.STOP_MARKET, TimeInForce.GTC, None),
+    ),
+)
+def test_matching_residual_replaces_changed_order_lifetime_or_type(
+    order_type: OrderType,
+    time_in_force: TimeInForce,
+    expiry_index: int | None,
+) -> None:
+    """A matching quantity must not preserve an obsolete execution contract."""
+
+    old = _active(3.0)
+    result = _reconcile(
+        target_weight=0.5,
+        book=_book(2.0),
+        order_book=OrderBookState(active_orders=(old,), terminal_orders=()),
+        order_type=order_type,
+        time_in_force=time_in_force,
+        expiry_index=expiry_index,
+    )
+
+    assert len(result.cancelled_orders) == 1
+    assert result.cancelled_orders[0].order_id == old.order_id
+    assert result.cancelled_orders[0].terminal_reason == "superseded"
+    assert result.order_book.active_orders == ()
+    assert len(result.new_intents) == 1
+    replacement = result.new_intents[0]
+    assert replacement.replaced_order_id == old.order_id
+    assert replacement.requested_quantity == pytest.approx(3.0)
+    assert replacement.order_type is order_type
+    assert replacement.time_in_force is time_in_force
+    assert replacement.expiry_index == expiry_index
+    assert replacement.eligible_index == 5
+
+
+def test_matching_residual_preserves_original_latency_when_contract_unchanged() -> None:
+    """Repeated identical decisions must not restart an in-flight GTC order."""
+
+    old = _active(3.0)
+    result = _reconcile(
+        target_weight=0.5,
+        book=_book(2.0),
+        order_book=OrderBookState(active_orders=(old,), terminal_orders=()),
+        submit_index=4,
+        latency_bars=3,
+    )
+
+    assert result.new_intents == ()
+    assert result.cancelled_orders == ()
+    assert result.order_book.active_orders == (old,)
+    assert old.intent.eligible_index == 3

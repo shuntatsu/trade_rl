@@ -308,10 +308,10 @@ class GitHubApi:
         credential = base64.b64encode(
             f"x-access-token:{self._token}".encode("utf-8")
         ).decode("ascii")
+        # Avoid exposing a reversible Base64 credential in the process argv.
+        # Git config via the child environment leaves it out of command lines.
         command = [
             "git",
-            "-c",
-            f"http.https://github.com/.extraheader=AUTHORIZATION: basic {credential}",
             "push",
             "--atomic",
             "--porcelain",
@@ -327,7 +327,13 @@ class GitHubApi:
             text=True,
             capture_output=True,
             check=False,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            env={
+                **os.environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
+            },
         )
         if process.returncode != 0:
             detail = process.stderr.strip() or process.stdout.strip()
@@ -560,70 +566,14 @@ def apply_cleanup(
     *,
     default_branch: str,
 ) -> tuple[str, ...]:
-    first_snapshot = {branch.name: branch for branch in api.branches()}
-    first_open_names = open_pull_request_branch_names(api.open_pull_request_refs())
-    first_active_names = api.active_workflow_branch_names()
+    """Hard-refuse the obsolete bulk deletion entry even if imported directly.
 
-    archive_candidates: list[BranchInfo] = []
-    for decision in decisions:
-        if decision.action != "archive-keep":
-            continue
-        expected = decision.branch
-        current = first_snapshot.get(expected.name)
-        if (
-            expected.name not in first_open_names
-            and expected.name not in first_active_names
-            and current is not None
-            and not current.protected
-            and current.sha == expected.sha
-        ):
-            archive_candidates.append(expected)
+    The only manual prune path is tools.verified_merged_branch_prune, which
+    checks a single closed merged PR, exact Git SHAs, active references, and
+    durable retention before invoking the conditional lease primitive.
+    """
 
-    retention_sha = archive_observed_tips(
-        api,
-        default_branch=default_branch,
-        current_by_name=first_snapshot,
-        branches=archive_candidates,
-    )
-
-    current_by_name = {branch.name: branch for branch in api.branches()}
-    if archive_candidates:
-        retention = current_by_name.get(RETENTION_BRANCH)
-        if retention is None or retention.sha != retention_sha:
-            raise RuntimeError(
-                "retention branch did not reach the expected archive commit"
-            )
-
-    delete_candidates: list[BranchInfo] = []
-    for decision in decisions:
-        if decision.action != "delete":
-            continue
-        expected = decision.branch
-        current = current_by_name.get(expected.name)
-        if current is None or current.protected or current.sha != expected.sha:
-            continue
-        delete_candidates.append(expected)
-
-    deleted: list[str] = []
-    for batch in chunks(tuple(delete_candidates), DELETE_BATCH_SIZE):
-        open_names = open_pull_request_branch_names(api.open_pull_request_refs())
-        active_names = api.active_workflow_branch_names()
-        safe_batch = tuple(
-            branch
-            for branch in batch
-            if branch.name not in open_names and branch.name not in active_names
-        )
-        if not safe_batch:
-            continue
-        api.delete_branches_with_leases(safe_batch)
-        deleted.extend(branch.name for branch in safe_batch)
-
-    remaining_names = {branch.name for branch in api.branches()}
-    unexpectedly_remaining = sorted(set(deleted) & remaining_names)
-    if unexpectedly_remaining:
-        joined = ", ".join(unexpectedly_remaining)
-        raise RuntimeError(f"deleted branches still present after cleanup: {joined}")
-    return tuple(deleted)
+    raise RuntimeError("bulk apply_cleanup is disabled; use verified merged-PR pruning")
 
 
 def render_summary(

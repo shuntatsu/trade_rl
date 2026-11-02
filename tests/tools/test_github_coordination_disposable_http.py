@@ -75,6 +75,19 @@ def test_graphql_transport_rejects_untrusted_response(
     assert "secret-do-not-print" not in str(error.value)
 
 
+def test_graphql_transport_rejects_arbitrary_mutation_before_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubGraphQLHttpApi("safe-token")
+    observed = _stub_post(api, monkeypatch, b'{"data":{}}')
+    with pytest.raises(ValueError, match="coordination GraphQL operation"):
+        api.execute(
+            "mutation Arbitrary($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }",
+            {"input": {"repositoryId": "R_production", "refUpdates": []}},
+        )
+    assert observed == []
+
+
 def test_graphql_transport_never_leaks_token_in_network_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

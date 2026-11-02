@@ -218,11 +218,16 @@ class GitHubGraphQLHttpApi:
         ).encode("utf-8")
         if len(data) > _MAX_REQUEST_BYTES:
             raise ValueError("GraphQL request exceeds the bounded payload limit")
+        # Validate the exact bytes that will be sent, not a concurrently mutable
+        # caller mapping that may differ after JSON serialization.
+        wire_variables = json.loads(data)["variables"]
+        if not isinstance(wire_variables, dict):
+            raise ValueError("GraphQL encoded variables must be an object")
         if document == cas._READ_REF_QUERY:
-            if variables != self._read_variables:
+            if wire_variables != self._read_variables:
                 raise ValueError("coordination GraphQL read is not bound to target")
         elif document == cas._UPDATE_REF_MUTATION:
-            self._require_mutation(variables)
+            self._require_mutation(wire_variables)
         else:
             raise ValueError("coordination GraphQL operation is not allowed")
         request = urllib.request.Request(

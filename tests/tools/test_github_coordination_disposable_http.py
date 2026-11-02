@@ -209,6 +209,53 @@ def test_graphql_transport_query_variables_are_exactly_bound(
     assert observed == []
 
 
+def test_graphql_read_checks_serialized_bytes_not_mutable_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _graphql_api()
+    seen = _stub_post(api, monkeypatch, _read_body())
+    variables = _query_vars()
+    variables["name"] = "trade_rl"
+    original_dumps = json.dumps
+
+    def mutate_after_encoding(value: object, *args: object, **kwargs: object) -> str:
+        raw = original_dumps(value, *args, **kwargs)
+        if isinstance(value, dict) and value.get("query") == _READ_REF_QUERY:
+            variables["name"] = "trade-rl-coordination-disposable"
+        return raw
+
+    monkeypatch.setattr(json, "dumps", mutate_after_encoding)
+    with pytest.raises(ValueError, match="read is not bound"):
+        api.execute(_READ_REF_QUERY, variables)
+    assert seen == []
+
+
+def test_graphql_mutation_checks_serialized_bytes_not_mutable_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _graphql_api(allow_mutation=True)
+    seen = _stub_post(api, monkeypatch, _read_body())
+    api.execute(_READ_REF_QUERY, _query_vars())
+    variables = _mutation_vars()
+    item = variables["input"]
+    assert isinstance(item, dict)
+    updates = item["refUpdates"]
+    assert isinstance(updates, list)
+    updates[0]["afterOid"] = "c" * 40
+    original_dumps = json.dumps
+
+    def mutate_after_encoding(value: object, *args: object, **kwargs: object) -> str:
+        raw = original_dumps(value, *args, **kwargs)
+        if isinstance(value, dict) and value.get("query") == _UPDATE_REF_MUTATION:
+            updates[0]["afterOid"] = AFTER
+        return raw
+
+    monkeypatch.setattr(json, "dumps", mutate_after_encoding)
+    with pytest.raises(ValueError, match="not an exact CAS"):
+        api.execute(_UPDATE_REF_MUTATION, variables)
+    assert len(seen) == 1
+
+
 def test_graphql_transport_refuses_mutation_without_preflight_or_optin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

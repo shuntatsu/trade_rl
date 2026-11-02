@@ -142,17 +142,13 @@ def test_default_python_redirect_copies_auth_but_guard_blocks_it() -> None:
     assert redirected is not None
     assert redirected.get_header("Authorization") == "Bearer simulated-secret"
     # The test-only transports must explicitly suppress that redirect path.
-    assert _NoRedirect().redirect_request(
-        request, None, 302, "Found", {}, url
-    ) is None
+    assert _NoRedirect().redirect_request(request, None, 302, "Found", {}, url) is None
 
 
 def test_rest_git_reader_uses_fixed_host_get_and_no_redirect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    api = GitHubGitObjectHttpApi(
-        repository=REPOSITORY, token="secret-never-log"
-    )
+    api = GitHubGitObjectHttpApi(repository=REPOSITORY, token="secret-never-log")
     seen: list[urllib.request.Request] = []
 
     class Response:
@@ -167,9 +163,7 @@ def test_rest_git_reader_uses_fixed_host_get_and_no_redirect(
             return b'{"sha":"' + COMMIT_OID.encode() + b'"}'
 
     class Opener:
-        def open(
-            self, request: urllib.request.Request, *, timeout: int
-        ) -> Response:
+        def open(self, request: urllib.request.Request, *, timeout: int) -> Response:
             assert timeout == 30
             seen.append(request)
             return Response()
@@ -179,9 +173,7 @@ def test_rest_git_reader_uses_fixed_host_get_and_no_redirect(
         return Opener()
 
     monkeypatch.setattr(urllib.request, "build_opener", build)
-    assert api._request_json("GET", f"git/commits/{COMMIT_OID}") == {
-        "sha": COMMIT_OID
-    }
+    assert api._request_json("GET", f"git/commits/{COMMIT_OID}") == {"sha": COMMIT_OID}
     assert api._request_json(
         "GET", f"git/trees/{TREE_OID}", query={"recursive": "1"}
     ) == {"sha": COMMIT_OID}
@@ -191,8 +183,7 @@ def test_rest_git_reader_uses_fixed_host_get_and_no_redirect(
     ]
     assert all(req.get_method() == "GET" for req in seen)
     assert all(
-        req.get_header("Authorization") == "Bearer secret-never-log"
-        for req in seen
+        req.get_header("Authorization") == "Bearer secret-never-log" for req in seen
     )
     assert "secret-never-log" not in repr(api)
 
@@ -231,12 +222,9 @@ def test_rest_redirect_and_errors_never_reveal_bearer_secret(
     api = GitHubGitObjectHttpApi(repository=REPOSITORY, token="secret-never-log")
 
     class FailingOpener:
-        def open(
-            self, request: urllib.request.Request, *, timeout: int
-        ) -> None:
+        def open(self, request: urllib.request.Request, *, timeout: int) -> None:
             raise urllib.error.HTTPError(
-                request.full_url, 302, "redirect with secret-never-log", {},
-                None
+                request.full_url, 302, "redirect with secret-never-log", {}, None
             )
 
     def builder(*handlers: object) -> FailingOpener:
@@ -275,14 +263,10 @@ def test_rest_reader_rejects_malformed_untrusted_json(
             return response
 
     class FakeOpener:
-        def open(
-            self, _req: urllib.request.Request, *, timeout: int
-        ) -> FakeResponse:
+        def open(self, _req: urllib.request.Request, *, timeout: int) -> FakeResponse:
             return FakeResponse()
 
-    monkeypatch.setattr(
-        urllib.request, "build_opener", lambda *handlers: FakeOpener()
-    )
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: FakeOpener())
     with pytest.raises(ValueError, match=message):
         api._request_json("GET", f"git/commits/{COMMIT_OID}")
 

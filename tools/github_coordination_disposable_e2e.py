@@ -122,7 +122,6 @@ class GitHubGraphQLHttpApi:
         return decoded
 
 
-
 class GitHubGitObjectHttpApi:
     """Disposable-only, bounded, GET-only Git object transport.
 
@@ -166,9 +165,7 @@ class GitHubGitObjectHttpApi:
             or not isinstance(suffix, str)
             or not _GIT_READ_SUFFIX.fullmatch(suffix)
         ):
-            raise ValueError(
-                "REST reader permits only GET exact commit/tree/blob OIDs"
-            )
+            raise ValueError("REST reader permits only GET exact commit/tree/blob OIDs")
         is_tree = suffix.startswith("git/trees/")
         if (is_tree and query != {"recursive": "1"}) or (
             not is_tree and query is not None
@@ -205,6 +202,7 @@ class GitHubGitObjectHttpApi:
         if not isinstance(decoded, dict):
             raise ValueError("GitHub REST response must be an object")
         return decoded
+
 
 def prepare_disposable_registry_plan(
     objects: RegistryObjectReader,

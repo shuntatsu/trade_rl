@@ -21,18 +21,7 @@ import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any, Protocol
 
-from tools.github_coordination_ref_cas import (
-    ZERO_OID,
-    _READ_REF_QUERY,
-    _UPDATE_REF_MUTATION,
-    _graphql_data,
-    _login,
-    _mapping,
-    _repository,
-    _sha,
-    _text,
-    _validated_test_only_update,
-)
+from tools import github_coordination_ref_cas as cas
 
 if TYPE_CHECKING:
     from tools.agent_repo.coordination.registry import RegistryTransitionPlan
@@ -112,7 +101,7 @@ class GitHubGraphQLHttpApi:
             expected_oid,
             after_oid,
             expected_login,
-        ) = _validated_test_only_update(
+        ) = cas._validated_test_only_update(
             repository=repository,
             ref_name=ref_name,
             expected_oid=expected_oid,
@@ -120,7 +109,7 @@ class GitHubGraphQLHttpApi:
             expected_coordinator_login=expected_coordinator_login,
             allow_unprotected_test_mutation=True,  # target validation, not a grant
         )
-        _, owner, name = _repository(repository)
+        _, owner, name = cas._repository(repository)
         self._read_variables: dict[str, object] = {
             "owner": owner,
             "name": name,
@@ -147,20 +136,20 @@ class GitHubGraphQLHttpApi:
             ) from None
 
     def _require_readback(self, decoded: dict[str, Any]) -> None:
-        data = _graphql_data(decoded, "coordination ref read")
-        viewer = _mapping(data.get("viewer"), "viewer")
-        login = _login(viewer.get("login"), "authenticated viewer login")
+        data = cas._graphql_data(decoded, "coordination ref read")
+        viewer = cas._mapping(data.get("viewer"), "viewer")
+        login = cas._login(viewer.get("login"), "authenticated viewer login")
         if login.casefold() != self._expected_login.casefold():
             raise ValueError("authenticated Coordinator differs from expected login")
-        repo = _mapping(data.get("repository"), "repository")
-        repository_id = _text(repo.get("id"), "repository node id")
+        repo = cas._mapping(data.get("repository"), "repository")
+        repository_id = cas._text(repo.get("id"), "repository node id")
         ref = repo.get("ref")
         if ref is None:
-            oid = ZERO_OID
+            oid = cas.ZERO_OID
         else:
-            ref_object = _mapping(ref, "repository ref")
-            target = _mapping(ref_object.get("target"), "ref target")
-            oid = _sha(target.get("oid"), "repository ref OID", allow_zero=False)
+            ref_object = cas._mapping(ref, "repository ref")
+            target = cas._mapping(ref_object.get("target"), "ref target")
+            oid = cas._sha(target.get("oid"), "repository ref OID", allow_zero=False)
         with self._lock:
             if self._repository_id is not None and repository_id != self._repository_id:
                 raise ValueError("repository identity changed during GraphQL transport")
@@ -231,10 +220,10 @@ class GitHubGraphQLHttpApi:
         ).encode("utf-8")
         if len(data) > _MAX_REQUEST_BYTES:
             raise ValueError("GraphQL request exceeds the bounded payload limit")
-        if document == _READ_REF_QUERY:
+        if document == cas._READ_REF_QUERY:
             if variables != self._read_variables:
                 raise ValueError("coordination GraphQL read is not bound to target")
-        elif document == _UPDATE_REF_MUTATION:
+        elif document == cas._UPDATE_REF_MUTATION:
             self._require_mutation(variables)
         else:
             raise ValueError("coordination GraphQL operation is not allowed")
@@ -262,7 +251,7 @@ class GitHubGraphQLHttpApi:
             raise ValueError("GitHub GraphQL response is not strict JSON") from None
         if not isinstance(decoded, dict):
             raise ValueError("GitHub GraphQL response must be an object")
-        if document == _READ_REF_QUERY:
+        if document == cas._READ_REF_QUERY:
             self._require_readback(decoded)
         return decoded
 

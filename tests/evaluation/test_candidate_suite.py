@@ -236,15 +236,20 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
     monkeypatch.setattr(candidate_suite, "fit_lightgbm_forecast", fake_lightgbm)
     monkeypatch.setattr(candidate_suite, "fit_ppo_strategy", fake_ppo)
-    monkeypatch.setattr(
-        candidate_suite,
-        "RidgeForecastStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
-    )
+
+    def fake_ridge_strategy(*args, **kwargs):
+        calls["ridge_strategy_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    def fake_lightgbm_strategy(*args, **kwargs):
+        calls["lightgbm_strategy_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    monkeypatch.setattr(candidate_suite, "RidgeForecastStrategy", fake_ridge_strategy)
     monkeypatch.setattr(
         candidate_suite,
         "LightGBMForecastStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
+        fake_lightgbm_strategy,
     )
 
     def fake_ppo_wrapper(*args, **kwargs):
@@ -278,6 +283,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        forecast_switch_cost=0.0007,
         ppo_training_layout="interleaved",
         ppo_rollout_steps_per_env=512,
         fit_symbol_indices=(0,),
@@ -352,6 +358,12 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ridge_kwargs"]["horizon_hours"] == horizon_hours
     assert calls["lightgbm_kwargs"]["horizon_hours"] == horizon_hours
+    assert calls["ridge_strategy_kwargs"]["one_way_switch_cost"] == pytest.approx(
+        0.0007
+    )
+    assert calls["lightgbm_strategy_kwargs"]["one_way_switch_cost"] == pytest.approx(
+        0.0007
+    )
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["stop_index"] == 53
     assert calls["ppo_kwargs"]["training_layout"] == "interleaved"

@@ -79,6 +79,7 @@ def test_candidate_run_config_owns_normalized_raw_json_payload() -> None:
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "forecast_switch_cost": None,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
         "ppo_minimum_hold_bars": 0,

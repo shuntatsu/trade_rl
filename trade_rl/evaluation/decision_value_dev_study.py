@@ -1,17 +1,23 @@
-"""Bounded real-data development study runner and contracts for TD5 (#1025).
+"""Historical TD8 contracts and current synthetic-only software diagnostics.
 
-This module implements the frozen development study protocol on real market data
-under the "real_development" source scope. It enforces strict preflight validation,
-causal training isolation, write-once artifact persistence, ledger reconciliation,
-and fail-closed causality verification.
+The original real-development TD8 protocol remains readable but cannot run on
+this corrected source. The current v3 runner requires a published synthetic
+artifact and preserves the old research outcomes without reclassification.
+Software diagnostics enforce distinct causal teacher, temporary calibration,
+and final block feature vintages; an incomplete paired label stops model fitting
+and is retained as an invalid attempt rather than a zero-valued label.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+import os
+import shutil
+import tempfile
 import time
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, replace
 from fractions import Fraction
 from pathlib import Path
 
@@ -20,29 +26,52 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.artifacts.publication import (
+    load_published_market_dataset_artifact,
+)
+from trade_rl.data.identity import parse_identity_json
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.decision_value_feature_transform import (
+    apply_feature_transform,
+    covariate_shift_report,
+    fit_train_feature_transform,
+)
 from trade_rl.evaluation.decision_value_fit import (
     fit_conservative_linear_decision_value,
     fit_synthetic_linear_decision_value,
     fit_synthetic_shallow_decision_value,
 )
+from trade_rl.evaluation.decision_value_ledger_oracle import (
+    verify_paired_economic_ledger,
+)
+from trade_rl.evaluation.decision_value_margin import (
+    MarginSelection,
+    select_margin_multiplier,
+)
 from trade_rl.evaluation.decision_value_plan import DecisionValueStudyPlan
-from trade_rl.evaluation.paired_portfolio_action import run_paired_portfolio_action
+from trade_rl.evaluation.decision_value_reachable_labels import (
+    IneligiblePairOutcome,
+    ReachableLabelCollection,
+    ReferencePolicyFactory,
+    collect_reachable_state_labels,
+)
 from trade_rl.evaluation.paired_portfolio_label import (
-    SyntheticPairedLabel,
-    build_synthetic_paired_label,
+    ReferenceVintage,
     build_synthetic_paired_label_batch,
 )
 from trade_rl.evaluation.replay import (
+    SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.quantities import project_quantity
+from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
 from trade_rl.strategies.decision_value import (
     ConservativeLinearDecisionValuePolicy,
     LinearDecisionValuePolicy,
     LinearDecisionValueRuntimeContext,
+    compute_effective_posture_weights,
     preserve_posture_aware_proposal,
 )
 from trade_rl.strategies.decision_value_shallow import (
@@ -53,6 +82,7 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioPolicy,
@@ -69,12 +99,56 @@ from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
     ACTION_LONG,
     ACTION_SHORT,
-    portfolio_action_to_proposal,
+)
+from trade_rl.strategies.position_intent import PositionIntent
+
+DEFAULT_SCENARIOS: tuple[tuple[str, float, int], ...] = (
+    ("base", 1.0, 0),
+    ("cost_x2", 2.0, 0),
+    ("latency_1bar", 1.0, 1),
+    ("latency_2bar", 1.0, 2),
 )
 
-_REFERENCE_POLICY_DIGEST = hashlib.sha256(
-    b"hold_current_quantity_reference_policy_v1"
-).hexdigest()
+
+DEFAULT_MARGIN_GRID: tuple[float, ...] = (0.0, 0.5, 1.0, 2.0)
+LEARNER_ARMS: tuple[str, ...] = (
+    "linear_value",
+    "conservative_linear_value",
+    "shallow_value",
+)
+
+
+def _finite(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field} must be a number")
+    val = float(value)
+    if not math.isfinite(val):
+        raise ValueError(f"{field} must be finite")
+    return val
+
+
+def _verify_ledger_reconciliation(
+    replay_res: SharedCashPortfolioReplayResult,
+    *,
+    dataset: MarketDataset,
+    expected_intervals: int,
+    expected_start_index: int,
+    initial_capital: float,
+    execution_cost: ExecutionCostConfig | None = None,
+) -> bool:
+    """Validate source-backed interval fills/cash/marked equity, not just totals.
+
+    Actual fee/funding/borrow/dividend/interest amounts still originate from the
+    observer rather than independently priced financial contracts.
+    """
+    return verify_paired_economic_ledger(
+        replay_res,
+        dataset,
+        expected_intervals=expected_intervals,
+        expected_start_index=expected_start_index,
+        initial_capital=initial_capital,
+        execution_cost=execution_cost,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,10 +227,20 @@ def compute_real_scope_authorization_digest(
     ridge_entry_threshold: float,
     ridge_exit_threshold: float,
     prior_usage_disclosure: str,
+    learner_roster: tuple[str, ...] = ("linear", "conservative_linear", "shallow"),
+    value_ridge_penalty: float = 10.0,
+    uncertainty_penalty_weight: float = 1.0,
+    scenarios: tuple[tuple[str, float, int], ...] = DEFAULT_SCENARIOS,
+    label_prefix_bars: int = 48,
+    reference_min_fit_bars: int = 96,
+    margin_multiplier_grid: tuple[float, ...] = DEFAULT_MARGIN_GRID,
+    margin_calibration_fraction: float = 0.25,
+    feature_clip: float = 3.0,
+    unexcited_prior_std: float = 1.0,
 ) -> str:
     """Canonical lowercase SHA-256 digest of the pre-authorization specification."""
     payload = {
-        "schema_version": "decision_value_real_scope_authorization_v1",
+        "schema_version": "decision_value_real_scope_authorization_v2",
         "dataset_id": dataset_id,
         "expected_artifact_digest": expected_artifact_digest,
         "symbols": list(symbols),
@@ -183,13 +267,30 @@ def compute_real_scope_authorization_digest(
         "ridge_entry_threshold": float(ridge_entry_threshold),
         "ridge_exit_threshold": float(ridge_exit_threshold),
         "prior_usage_disclosure": prior_usage_disclosure,
+        "learner_roster": list(learner_roster),
+        "value_ridge_penalty": float(value_ridge_penalty),
+        "uncertainty_penalty_weight": float(uncertainty_penalty_weight),
+        "scenarios": [
+            {
+                "name": name,
+                "cost_multiplier": float(cost_mult),
+                "order_latency_bars": int(lat),
+            }
+            for name, cost_mult, lat in scenarios
+        ],
+        "label_prefix_bars": int(label_prefix_bars),
+        "reference_min_fit_bars": int(reference_min_fit_bars),
+        "margin_multiplier_grid": [float(k) for k in margin_multiplier_grid],
+        "margin_calibration_fraction": float(margin_calibration_fraction),
+        "feature_clip": float(feature_clip),
+        "unexcited_prior_std": float(unexcited_prior_std),
     }
     return content_digest(payload)
 
 
 @dataclass(frozen=True, slots=True)
 class DecisionValueDevStudyProtocol:
-    """Frozen protocol specification binding all parameters for the TD5 study."""
+    """Frozen TD8 parameters; real v2 is archival and synthetic v4 is runnable."""
 
     study_plan: DecisionValueStudyPlan
     dataset_id: str
@@ -204,12 +305,36 @@ class DecisionValueDevStudyProtocol:
     ridge_entry_threshold: float
     ridge_exit_threshold: float
     prior_usage_disclosure: str
+    value_ridge_penalty: float = 10.0
+    uncertainty_penalty_weight: float = 1.0
+    scenarios: tuple[tuple[str, float, int], ...] = DEFAULT_SCENARIOS
+    label_prefix_bars: int = 48
+    reference_min_fit_bars: int = 96
+    margin_multiplier_grid: tuple[float, ...] = DEFAULT_MARGIN_GRID
+    margin_calibration_fraction: float = 0.25
+    feature_clip: float = 3.0
+    unexcited_prior_std: float = 1.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_plan, DecisionValueStudyPlan):
             raise TypeError("study_plan must be DecisionValueStudyPlan")
-        if self.study_plan.data_scope != "real_development":
-            raise ValueError("study_plan data_scope must be real_development")
+        if self.study_plan.data_scope not in ("real_development", "synthetic_only"):
+            raise ValueError(
+                "study_plan data_scope must be real_development or synthetic_only"
+            )
+        if self.study_plan.data_scope == "synthetic_only":
+            # The result table uses a fixed arm/scenario roster; do not execute
+            # hidden arms under a smaller protocol declaration.
+            if self.study_plan.learner_roster != (
+                "linear",
+                "conservative_linear",
+                "shallow",
+            ):
+                raise ValueError(
+                    "TD8 synthetic learner roster must name all three heads"
+                )
+            if self.scenarios != DEFAULT_SCENARIOS:
+                raise ValueError("TD8 synthetic scenario roster must match four cases")
         require_sha256(self.dataset_id, field="dataset_id")
         require_sha256(self.expected_artifact_digest, field="expected_artifact_digest")
         if type(self.blocks) is not tuple or not (1 <= len(self.blocks) <= 3):
@@ -223,6 +348,10 @@ class DecisionValueDevStudyProtocol:
             ):
                 raise ValueError(
                     "train_stop_index + horizon_bars must precede fit_cutoff_index"
+                )
+            if block.train_step < self.study_plan.horizon_bars:
+                raise ValueError(
+                    "train_step must be at least horizon_bars so branch labels do not overlap"
                 )
         for i in range(len(self.blocks) - 1):
             if (
@@ -278,6 +407,50 @@ class DecisionValueDevStudyProtocol:
             or not self.prior_usage_disclosure.strip()
         ):
             raise ValueError("prior_usage_disclosure must be a non-empty string")
+        pen = _finite(self.value_ridge_penalty, field="value_ridge_penalty")
+        if pen <= 0.0:
+            raise ValueError("value_ridge_penalty must be positive and finite")
+        unc_w = _finite(
+            self.uncertainty_penalty_weight, field="uncertainty_penalty_weight"
+        )
+        if unc_w < 0.0:
+            raise ValueError(
+                "uncertainty_penalty_weight must be non-negative and finite"
+            )
+
+        if (
+            isinstance(self.label_prefix_bars, bool)
+            or not isinstance(self.label_prefix_bars, int)
+            or self.label_prefix_bars < 0
+        ):
+            raise ValueError("label_prefix_bars must be a non-negative integer")
+        if (
+            isinstance(self.reference_min_fit_bars, bool)
+            or not isinstance(self.reference_min_fit_bars, int)
+            or self.reference_min_fit_bars < 0
+        ):
+            raise ValueError("reference_min_fit_bars must be a non-negative integer")
+        grid = self.margin_multiplier_grid
+        if type(grid) is not tuple or not grid:
+            raise ValueError("margin_multiplier_grid must be a non-empty tuple")
+        for item in grid:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise ValueError("margin_multiplier_grid must contain real numbers")
+            if not math.isfinite(item) or item < 0.0:
+                raise ValueError(
+                    "margin_multiplier_grid must be finite and non-negative"
+                )
+        if any(b <= a for a, b in zip(grid, grid[1:], strict=False)):
+            raise ValueError("margin_multiplier_grid must be strictly increasing")
+        fraction = _finite(
+            self.margin_calibration_fraction, field="margin_calibration_fraction"
+        )
+        if not 0.0 < fraction < 1.0:
+            raise ValueError("margin_calibration_fraction must lie inside (0, 1)")
+        if _finite(self.feature_clip, field="feature_clip") <= 0.0:
+            raise ValueError("feature_clip must be positive and finite")
+        if _finite(self.unexcited_prior_std, field="unexcited_prior_std") <= 0.0:
+            raise ValueError("unexcited_prior_std must be positive and finite")
 
         expected_digest = compute_real_scope_authorization_digest(
             dataset_id=self.dataset_id,
@@ -300,15 +473,53 @@ class DecisionValueDevStudyProtocol:
             ridge_entry_threshold=self.ridge_entry_threshold,
             ridge_exit_threshold=self.ridge_exit_threshold,
             prior_usage_disclosure=self.prior_usage_disclosure,
+            learner_roster=self.study_plan.learner_roster,
+            value_ridge_penalty=self.value_ridge_penalty,
+            uncertainty_penalty_weight=self.uncertainty_penalty_weight,
+            scenarios=self.scenarios,
+            label_prefix_bars=self.label_prefix_bars,
+            reference_min_fit_bars=self.reference_min_fit_bars,
+            margin_multiplier_grid=self.margin_multiplier_grid,
+            margin_calibration_fraction=self.margin_calibration_fraction,
+            feature_clip=self.feature_clip,
+            unexcited_prior_std=self.unexcited_prior_std,
         )
-        if self.study_plan.real_scope_authorization_digest != expected_digest:
-            raise ValueError(
-                "study_plan real_scope_authorization_digest does not match pre-authorization specification"
+        if self.study_plan.data_scope == "real_development":
+            historical_execution = ExecutionCostConfig(
+                fee_rate=self.base_execution_cost.fee_rate,
+                spread_rate=self.base_execution_cost.spread_rate,
+                impact_rate=self.base_execution_cost.impact_rate,
+                max_participation_rate=self.base_execution_cost.max_participation_rate,
+                order_latency_bars=self.base_execution_cost.order_latency_bars,
             )
+            historical_risk = PreTradeRiskConfig(
+                max_gross=self.risk_config.max_gross,
+                max_abs_weight=self.risk_config.max_abs_weight,
+                max_turnover=self.risk_config.max_turnover,
+                drawdown_start=self.risk_config.drawdown_start,
+                drawdown_stop=self.risk_config.drawdown_stop,
+            )
+            if (
+                self.base_execution_cost != historical_execution
+                or self.risk_config != historical_risk
+            ):
+                raise ValueError(
+                    "historical v2 authorization rejects undeclared execution/risk options"
+                )
+            if self.study_plan.real_scope_authorization_digest != expected_digest:
+                raise ValueError(
+                    "study_plan real_scope_authorization_digest does not match pre-authorization specification"
+                )
+        elif self.study_plan.real_scope_authorization_digest is not None:
+            raise ValueError("synthetic_only study cannot claim real authorization")
 
     def to_mapping(self) -> dict[str, object]:
         return {
-            "schema_version": "decision_value_dev_study_protocol_v1",
+            "schema_version": (
+                "decision_value_dev_study_protocol_v4_software"
+                if self.study_plan.data_scope == "synthetic_only"
+                else "decision_value_dev_study_protocol_v2"
+            ),
             "study_plan": {
                 "data_scope": self.study_plan.data_scope,
                 "account_mode": self.study_plan.account_mode,
@@ -331,26 +542,50 @@ class DecisionValueDevStudyProtocol:
             "expected_artifact_digest": self.expected_artifact_digest,
             "blocks": [b.to_mapping() for b in self.blocks],
             "target_abs_weights": list(self.target_abs_weights),
-            "risk_config": {
-                "max_gross": self.risk_config.max_gross,
-                "max_abs_weight": self.risk_config.max_abs_weight,
-                "max_turnover": self.risk_config.max_turnover,
-                "drawdown_start": self.risk_config.drawdown_start,
-                "drawdown_stop": self.risk_config.drawdown_stop,
-            },
-            "base_execution_cost": {
-                "fee_rate": self.base_execution_cost.fee_rate,
-                "spread_rate": self.base_execution_cost.spread_rate,
-                "impact_rate": self.base_execution_cost.impact_rate,
-                "max_participation_rate": self.base_execution_cost.max_participation_rate,
-                "order_latency_bars": self.base_execution_cost.order_latency_bars,
-            },
+            "risk_config": (
+                asdict(self.risk_config)
+                if self.study_plan.data_scope == "synthetic_only"
+                else {
+                    "max_gross": self.risk_config.max_gross,
+                    "max_abs_weight": self.risk_config.max_abs_weight,
+                    "max_turnover": self.risk_config.max_turnover,
+                    "drawdown_start": self.risk_config.drawdown_start,
+                    "drawdown_stop": self.risk_config.drawdown_stop,
+                }
+            ),
+            "base_execution_cost": (
+                self.base_execution_cost.execution_policy_payload()
+                if self.study_plan.data_scope == "synthetic_only"
+                else {
+                    "fee_rate": self.base_execution_cost.fee_rate,
+                    "spread_rate": self.base_execution_cost.spread_rate,
+                    "impact_rate": self.base_execution_cost.impact_rate,
+                    "max_participation_rate": self.base_execution_cost.max_participation_rate,
+                    "order_latency_bars": self.base_execution_cost.order_latency_bars,
+                }
+            ),
             "ridge_feature_indices": list(self.ridge_feature_indices),
             "ridge_horizon_hours": self.ridge_horizon_hours,
             "ridge_alpha": self.ridge_alpha,
             "ridge_entry_threshold": self.ridge_entry_threshold,
             "ridge_exit_threshold": self.ridge_exit_threshold,
             "prior_usage_disclosure": self.prior_usage_disclosure,
+            "value_ridge_penalty": self.value_ridge_penalty,
+            "uncertainty_penalty_weight": self.uncertainty_penalty_weight,
+            "scenarios": [
+                {
+                    "name": name,
+                    "cost_multiplier": float(cost_mult),
+                    "order_latency_bars": int(lat),
+                }
+                for name, cost_mult, lat in self.scenarios
+            ],
+            "label_prefix_bars": self.label_prefix_bars,
+            "reference_min_fit_bars": self.reference_min_fit_bars,
+            "margin_multiplier_grid": [float(k) for k in self.margin_multiplier_grid],
+            "margin_calibration_fraction": self.margin_calibration_fraction,
+            "feature_clip": self.feature_clip,
+            "unexcited_prior_std": self.unexcited_prior_std,
         }
 
     @property
@@ -372,10 +607,10 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
     candidate_actions = (
         (ACTION_HOLD, ACTION_HOLD),
         (ACTION_FLAT, ACTION_FLAT),
-        (ACTION_LONG, ACTION_HOLD),
-        (ACTION_SHORT, ACTION_HOLD),
-        (ACTION_HOLD, ACTION_LONG),
-        (ACTION_HOLD, ACTION_SHORT),
+        (ACTION_LONG, ACTION_FLAT),
+        (ACTION_SHORT, ACTION_FLAT),
+        (ACTION_FLAT, ACTION_LONG),
+        (ACTION_FLAT, ACTION_SHORT),
         (ACTION_LONG, ACTION_LONG),
         (ACTION_SHORT, ACTION_SHORT),
         (ACTION_LONG, ACTION_SHORT),
@@ -404,7 +639,7 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
             block_id="block_1",
             train_start_index=24,
             train_stop_index=954,
-            train_step=6,
+            train_step=24,
             fit_cutoff_index=984,
             eval_start_index=985,
             eval_stop_index=1344,
@@ -413,7 +648,7 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
             block_id="block_2",
             train_start_index=24,
             train_stop_index=1338,
-            train_step=6,
+            train_step=24,
             fit_cutoff_index=1368,
             eval_start_index=1369,
             eval_stop_index=1728,
@@ -422,7 +657,7 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
             block_id="block_3",
             train_start_index=24,
             train_stop_index=1722,
-            train_step=6,
+            train_step=24,
             fit_cutoff_index=1752,
             eval_start_index=1753,
             eval_stop_index=2183,
@@ -438,6 +673,10 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         "previously consumed in bot-development-2024q1 and bot-cash-control-2024q1; "
         "not eligible for G5 unused validation or live trading promotion."
     )
+    value_ridge_penalty = 10.0
+    uncertainty_penalty_weight = 1.0
+    scenarios = DEFAULT_SCENARIOS
+    learner_roster = ("linear", "conservative_linear", "shallow")
     auth_digest = compute_real_scope_authorization_digest(
         dataset_id=dataset_id,
         expected_artifact_digest=expected_artifact_digest,
@@ -459,6 +698,16 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         ridge_entry_threshold=ridge_entry_threshold,
         ridge_exit_threshold=ridge_exit_threshold,
         prior_usage_disclosure=prior_usage_disclosure,
+        learner_roster=learner_roster,
+        value_ridge_penalty=value_ridge_penalty,
+        uncertainty_penalty_weight=uncertainty_penalty_weight,
+        scenarios=scenarios,
+        label_prefix_bars=48,
+        reference_min_fit_bars=96,
+        margin_multiplier_grid=DEFAULT_MARGIN_GRID,
+        margin_calibration_fraction=0.25,
+        feature_clip=3.0,
+        unexcited_prior_std=1.0,
     )
     study_plan = DecisionValueStudyPlan(
         data_scope="real_development",
@@ -471,7 +720,7 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         fee_rate=fee_rate,
         spread_rate=spread_rate,
         max_policy_improvements=1,
-        learner_roster=("linear", "shallow"),
+        learner_roster=learner_roster,
         real_scope_authorization_digest=auth_digest,
     )
     return DecisionValueDevStudyProtocol(
@@ -488,6 +737,15 @@ def default_2024q1_decision_value_dev_protocol() -> DecisionValueDevStudyProtoco
         ridge_entry_threshold=ridge_entry_threshold,
         ridge_exit_threshold=ridge_exit_threshold,
         prior_usage_disclosure=prior_usage_disclosure,
+        value_ridge_penalty=value_ridge_penalty,
+        uncertainty_penalty_weight=uncertainty_penalty_weight,
+        scenarios=scenarios,
+        label_prefix_bars=48,
+        reference_min_fit_bars=96,
+        margin_multiplier_grid=DEFAULT_MARGIN_GRID,
+        margin_calibration_fraction=0.25,
+        feature_clip=3.0,
+        unexcited_prior_std=1.0,
     )
 
 
@@ -506,6 +764,7 @@ class DecisionValueArmMetrics:
     n_decisions: int
     terminal_quantities: tuple[str, ...]
     terminal_flat: bool
+    turnover_total: float = 0.0
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -515,6 +774,7 @@ class DecisionValueArmMetrics:
             "final_portfolio_value": self.final_portfolio_value,
             "net_return": self.net_return,
             "total_cost": self.total_cost,
+            "turnover_total": self.turnover_total,
             "funding_pnl": self.funding_pnl,
             "max_drawdown": self.max_drawdown,
             "n_decisions": self.n_decisions,
@@ -541,8 +801,51 @@ class DecisionValueBlockResult:
     causality_probe_passed: bool
     ledger_evidence_reconciled: bool
     arms: tuple[DecisionValueArmMetrics, ...]
+    chosen_margin_multipliers: dict[str, float]
+    margin_selections: dict[str, dict[str, object]]
+    b1c_residual_dof: tuple[float, ...]
+    distinct_decision_times: int
+    ineligible_pairs: int
+    nonflat_branch_states: int
+    skipped_branches_without_reference: int
+    feature_transform_digest: str
+    covariate_shift: tuple[dict[str, object], ...]
+    ineligible_pair_outcomes: tuple[dict[str, object], ...] = ()
+    eligible_pair_outcomes: tuple[dict[str, object], ...] = ()
+    label_evidence_digest: str | None = None
+    label_bound_reference_digest: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
+        if self.label_evidence_digest is not None:
+            if (
+                not self.eligible_pair_outcomes
+                or content_digest(self.eligible_pair_outcomes)
+                != self.label_evidence_digest
+            ):
+                raise ValueError(
+                    "TD8 eligible label evidence population digest mismatch"
+                )
+            for receipt in self.eligible_pair_outcomes:
+                if receipt.get("evidence_digest") != content_digest(
+                    {k: v for k, v in receipt.items() if k != "evidence_digest"}
+                ):
+                    raise ValueError("TD8 per-pair evidence digest mismatch")
+            recipe_roots = {
+                r.get("reference_policy_digest") for r in self.eligible_pair_outcomes
+            }
+            if len(recipe_roots) != 1:
+                raise ValueError("TD8 label evidence has inconsistent teacher recipe")
+            recipe_root = next(iter(recipe_roots))
+            if not isinstance(
+                recipe_root, str
+            ) or self.label_bound_reference_digest != content_digest(
+                {
+                    "schema_version": "td8_reference_with_label_population_v1",
+                    "reference_recipe_digest": recipe_root,
+                    "label_evidence_digest": self.label_evidence_digest,
+                }
+            ):
+                raise ValueError("TD8 label-bound reference digest mismatch")
         return {
             "block_id": self.block_id,
             "paired_replay_runs": self.paired_replay_runs,
@@ -557,6 +860,31 @@ class DecisionValueBlockResult:
             "b2_model_coefficients_sha256": self.b2_model_coefficients_sha256,
             "causality_probe_passed": self.causality_probe_passed,
             "ledger_evidence_reconciled": self.ledger_evidence_reconciled,
+            "chosen_margin_multipliers": dict(self.chosen_margin_multipliers),
+            "margin_selections": {
+                k: dict(v) for k, v in self.margin_selections.items()
+            },
+            "b1c_residual_dof": list(self.b1c_residual_dof),
+            "distinct_decision_times": self.distinct_decision_times,
+            "ineligible_pairs": self.ineligible_pairs,
+            "ineligible_pair_outcomes": [
+                dict(r) for r in self.ineligible_pair_outcomes
+            ],
+            "eligible_pair_outcomes": [dict(r) for r in self.eligible_pair_outcomes],
+            **(
+                {
+                    "label_evidence_digest": self.label_evidence_digest,
+                    "label_bound_reference_digest": self.label_bound_reference_digest,
+                }
+                if self.label_evidence_digest is not None
+                else {}
+            ),
+            "nonflat_branch_states": self.nonflat_branch_states,
+            "skipped_branches_without_reference": (
+                self.skipped_branches_without_reference
+            ),
+            "feature_transform_digest": self.feature_transform_digest,
+            "covariate_shift": [dict(r) for r in self.covariate_shift],
             "arms": [arm.to_mapping() for arm in self.arms],
         }
 
@@ -576,6 +904,15 @@ class DecisionValueDevStudyResult:
     total_wall_clock_seconds: float
 
     def to_mapping(self) -> dict[str, object]:
+        if self.schema_version == "decision_value_dev_study_result_v4_software":
+            if not self.blocks or any(
+                block.label_evidence_digest is None
+                or block.label_bound_reference_digest is None
+                for block in self.blocks
+            ):
+                raise ValueError(
+                    "TD8 v4 result requires a label evidence root per block"
+                )
         return {
             "schema_version": self.schema_version,
             "protocol_digest": self.protocol_digest,
@@ -590,59 +927,42 @@ class DecisionValueDevStudyResult:
 
 
 class _HoldQuantityPolicy:
-    """Quantity-preserving HOLD reference policy."""
+    """Posture-aware and in-flight-preserving HOLD reference policy."""
 
-    __slots__ = ()
-
-    def decide_portfolio(
-        self, snapshot: PortfolioDecisionSnapshot
-    ) -> PortfolioTargetProposal:
-        return PortfolioTargetProposal(
-            snapshot.account.weights,
-            hold_current_quantity_symbols=tuple(range(len(snapshot.symbols))),
-        )
-
-
-class _WarmupReferencePolicy:
-    """Warmup action on bar 0 (t - 1), followed by exact-quantity HOLD."""
-
-    __slots__ = ("_warmup_action", "_target_abs_weights", "_entered")
+    __slots__ = ("_target_abs_weights",)
 
     def __init__(
         self,
-        *,
-        warmup_action: tuple[int, ...],
-        target_abs_weights: tuple[float, ...],
+        target_abs_weights: tuple[float, ...] = (0.25, 0.25),
     ) -> None:
-        self._warmup_action = warmup_action
         self._target_abs_weights = target_abs_weights
-        self._entered = False
 
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        if not self._entered:
-            self._entered = True
-            return portfolio_action_to_proposal(
-                self._warmup_action, snapshot, self._target_abs_weights
-            )
-        return PortfolioTargetProposal(
-            snapshot.account.weights,
-            hold_current_quantity_symbols=tuple(range(len(snapshot.symbols))),
+        return preserve_posture_aware_proposal(
+            (ACTION_HOLD,) * len(snapshot.symbols),
+            snapshot,
+            self._target_abs_weights,
+            all_scores_non_positive=False,
         )
 
 
 class _FixedEntryPolicy:
     """One fixed entry on the first decision bar, followed by exact-quantity HOLD."""
 
-    __slots__ = ("_action", "_target_abs_weights", "_entered")
+    __slots__ = ("_action", "_target_abs_weights", "_entered", "_proposal_version")
 
     def __init__(
         self,
         *,
         action: tuple[int, ...],
         target_abs_weights: tuple[float, ...],
+        proposal_version: str = "legacy_v1",
     ) -> None:
+        if proposal_version not in ("legacy_v1", "td8_v2"):
+            raise ValueError("unknown fixed-entry proposal version")
+        self._proposal_version = proposal_version
         self._action = action
         self._target_abs_weights = target_abs_weights
         self._entered = False
@@ -652,14 +972,19 @@ class _FixedEntryPolicy:
     ) -> PortfolioTargetProposal:
         if not self._entered:
             self._entered = True
-            return portfolio_action_to_proposal(
-                self._action, snapshot, self._target_abs_weights
+            return preserve_posture_aware_proposal(
+                self._action,
+                snapshot,
+                self._target_abs_weights,
+                all_scores_non_positive=False,
+                version=self._proposal_version,
             )
         return preserve_posture_aware_proposal(
             (ACTION_HOLD,) * len(snapshot.symbols),
             snapshot,
             self._target_abs_weights,
             all_scores_non_positive=False,
+            version=self._proposal_version,
         )
 
 
@@ -673,6 +998,8 @@ class _CostAwareRidgePortfolioPolicy:
         "_last_index",
         "_last_timestamp_ns",
         "_agent_stop_index",
+        "_proposal_version",
+        "_reference_feature_dataset",
     )
 
     def __init__(
@@ -684,8 +1011,24 @@ class _CostAwareRidgePortfolioPolicy:
         entry_threshold: float,
         exit_threshold: float,
         one_way_switch_cost: float,
+        proposal_version: str = "legacy_v1",
+        reference_feature_dataset: MarketDataset | None = None,
     ) -> None:
-
+        if proposal_version not in ("legacy_v1", "td8_v2"):
+            raise ValueError("unknown cost-aware proposal version")
+        self._proposal_version = proposal_version
+        if reference_feature_dataset is not None and (
+            reference_feature_dataset.dataset_id != dataset.dataset_id
+            or reference_feature_dataset.symbols != dataset.symbols
+            or reference_feature_dataset.feature_names != dataset.feature_names
+            or reference_feature_dataset.global_feature_names
+            != dataset.global_feature_names
+            or not np.array_equal(
+                reference_feature_dataset.timestamps, dataset.timestamps
+            )
+        ):
+            raise ValueError("reference features differ from the native market roster")
+        self._reference_feature_dataset = reference_feature_dataset
         self._symbols = tuple(dataset.symbols)
         self._budgets = target_abs_weights
         self._strategies = tuple(
@@ -704,9 +1047,6 @@ class _CostAwareRidgePortfolioPolicy:
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
-        from trade_rl.strategies.interface import StrategyObservation
-        from trade_rl.strategies.position_intent import PositionIntent
-
         if (
             snapshot.account.insolvent
             or snapshot.account.termination_reason is not None
@@ -716,66 +1056,92 @@ class _CostAwareRidgePortfolioPolicy:
         if np.isnat(timestamp):
             raise ValueError("decision timestamp must not be NaT")
 
-        targets: list[float] = []
+        # TD8 teachers score on a frozen pre-prefix feature vintage while the
+        # native account/intervention remains on the shared block dataset.
+        scoring_snapshot = snapshot
+        source = self._reference_feature_dataset
+        if source is not None:
+            if (
+                not 0 <= snapshot.index < source.n_bars
+                or source.timestamps[snapshot.index] != timestamp
+                or source.symbols != snapshot.symbols
+            ):
+                raise ValueError("reference feature vintage does not match the clock")
+            scoring_snapshot = replace(
+                snapshot,
+                features=tuple(
+                    tuple(float(v) for v in row)
+                    for row in source.features[snapshot.index]
+                ),
+                feature_available=tuple(
+                    tuple(bool(v) for v in row)
+                    for row in source.feature_available[snapshot.index]
+                ),
+                feature_staleness=tuple(
+                    tuple(float(v) for v in row)
+                    for row in source.resolved_array("feature_staleness")[
+                        snapshot.index
+                    ]
+                ),
+                global_features=tuple(
+                    float(v) for v in source.global_features[snapshot.index]
+                ),
+                global_feature_available=tuple(
+                    bool(v)
+                    for v in source.resolved_array("global_feature_available")[
+                        snapshot.index
+                    ]
+                ),
+            )
+
+        effective_weights = compute_effective_posture_weights(snapshot, self._budgets)
+        actions: list[int] = []
         for i, (strategy, budget) in enumerate(
             zip(self._strategies, self._budgets, strict=True)
         ):
-            raw_exact = snapshot.account.exact_quantities[i]
-            exact = Fraction(raw_exact)
-            quantity = project_quantity(exact)
+            w_eff = effective_weights[i]
             current = (
                 PositionIntent.LONG
-                if exact > 0
+                if w_eff > 1e-6
                 else PositionIntent.SHORT
-                if exact < 0
+                if w_eff < -1e-6
                 else PositionIntent.FLAT
             )
             obs = StrategyObservation(
                 index=snapshot.index,
                 timestamp=timestamp,
                 symbol=self._symbols[i],
-                features=np.asarray(snapshot.features[i], dtype=np.float64),
+                features=np.asarray(scoring_snapshot.features[i], dtype=np.float64),
                 feature_available=np.asarray(
-                    snapshot.feature_available[i], dtype=np.bool_
+                    scoring_snapshot.feature_available[i], dtype=np.bool_
                 ),
                 feature_staleness=np.asarray(
-                    snapshot.feature_staleness[i], dtype=np.float32
+                    scoring_snapshot.feature_staleness[i], dtype=np.float32
                 ),
-                global_features=np.asarray(snapshot.global_features, dtype=np.float64),
+                global_features=np.asarray(
+                    scoring_snapshot.global_features, dtype=np.float64
+                ),
                 global_feature_available=np.asarray(
-                    snapshot.global_feature_available, dtype=np.bool_
+                    scoring_snapshot.global_feature_available, dtype=np.bool_
                 ),
                 current_intent=current,
-                current_weight=snapshot.account.weights[i],
-                current_position_quantity=quantity,
+                current_weight=w_eff,
                 intent_gross_budget=budget,
             )
             intent = strategy.decide(obs)
-            targets.append(float(int(intent)) * budget)
+            if intent == PositionIntent.LONG:
+                actions.append(ACTION_LONG)
+            elif intent == PositionIntent.SHORT:
+                actions.append(ACTION_SHORT)
+            else:
+                actions.append(ACTION_FLAT)
 
         self._last_index = snapshot.index
         self._last_timestamp_ns = snapshot.timestamp_ns
         self._agent_stop_index = snapshot.agent_stop_index
-        return PortfolioTargetProposal(target_weights=tuple(targets))
-
-
-class _LatencyAwareDecisionValuePolicy:
-    """Wrap a frozen decision value policy to mask pending orders under latency stress."""
-
-    __slots__ = ("_policy",)
-
-    def __init__(
-        self, policy: LinearDecisionValuePolicy | ShallowDecisionValuePolicy
-    ) -> None:
-        self._policy = policy
-
-    def decide_portfolio(
-        self, snapshot: PortfolioDecisionSnapshot
-    ) -> PortfolioTargetProposal:
-        if snapshot.active_orders:
-            clean_snapshot = replace(snapshot, active_orders=())
-            return self._policy.decide_portfolio(clean_snapshot)
-        return self._policy.decide_portfolio(snapshot)
+        return preserve_posture_aware_proposal(
+            tuple(actions), snapshot, self._budgets, version=self._proposal_version
+        )
 
 
 def _perturb_after(dataset: MarketDataset, last_unchanged_bar: int) -> MarketDataset:
@@ -810,13 +1176,496 @@ def _perturb_after(dataset: MarketDataset, last_unchanged_bar: int) -> MarketDat
     )
 
 
+def causal_b0_reference_provider(
+    dataset: MarketDataset,
+    *,
+    feature_indices: tuple[int, ...],
+    horizon_hours: int,
+    alpha: float,
+    entry_threshold: float,
+    exit_threshold: float,
+    target_abs_weights: tuple[float, ...],
+    one_way_switch_cost: float,
+    min_fit_bars: int,
+    first_fit_index: int,
+    raw_dataset: MarketDataset | None = None,
+    causal_feature_clip: float | None = None,
+) -> Callable[[int, int], Callable[[], PortfolioPolicy] | None]:
+    """Per-branch B0 reference: the B0 recipe refitted causally before the prefix.
+
+    ``RidgeForecastStrategy`` rejects decisions earlier than its ``fit_cutoff``, so
+    the block-level B0 model (fitted at the block fit cutoff) cannot legally act
+    inside the train window. For a branch whose prefix starts at ``start`` this
+    provider refits the identical recipe (same features, horizon, alpha, thresholds)
+    with ``fit_cutoff = timestamps[start]``. A raw source and clip fit a
+    per-prefix normalizer and serve that same vintage to the teacher. It returns ``None`` when fewer than
+    ``min_fit_bars`` bars precede ``start`` in the train window, because no
+    informed causal reference exists there.
+    """
+    if (raw_dataset is None) != (causal_feature_clip is None):
+        raise ValueError("reference vintage requires raw_dataset and clip together")
+    if raw_dataset is not None and (
+        raw_dataset.dataset_id != dataset.dataset_id
+        or raw_dataset.symbols != dataset.symbols
+        or raw_dataset.feature_names != dataset.feature_names
+        or raw_dataset.global_feature_names != dataset.global_feature_names
+        or not np.array_equal(raw_dataset.timestamps, dataset.timestamps)
+    ):
+        raise ValueError("reference raw source differs from replay source")
+    cache: dict[int, tuple[RidgeForecastModel, MarketDataset]] = {}
+    # Bind the actual source and runtime that produced each reference teacher.
+    # Compute this once per provider, not for every paired candidate.
+    source_runtime_digest: str | None = None
+    if raw_dataset is not None:
+        provenance = build_candidate_run_provenance()
+        source_runtime_digest = content_digest(
+            {
+                "implementation_digest": provenance["implementation_digest"],
+                "runtime_environment_digest": provenance["runtime_environment_digest"],
+                "dataset_id": raw_dataset.dataset_id,
+                "source_normalization_digest": raw_dataset.normalization_digest,
+                "feature_config_digest": raw_dataset.feature_config_digest,
+            }
+        )
+
+    def provider(_t: int, start: int) -> Callable[[], PortfolioPolicy] | None:
+        minimum = max(min_fit_bars, 2) if raw_dataset is not None else min_fit_bars
+        if start - first_fit_index < minimum:
+            return None
+        fitted = cache.get(start)
+        if fitted is None:
+            vintage_view = dataset
+            if raw_dataset is not None:
+                assert causal_feature_clip is not None
+                transform = fit_train_feature_transform(
+                    raw_dataset,
+                    train_start_index=first_fit_index,
+                    train_stop_index=start - 1,
+                    clip=causal_feature_clip,
+                    as_of_index=start,
+                )
+                vintage_view = apply_feature_transform(raw_dataset, transform)
+            model = fit_ridge_forecast(
+                vintage_view,
+                feature_indices=feature_indices,
+                fit_cutoff=vintage_view.timestamps[start],
+                horizon_hours=horizon_hours,
+                alpha=alpha,
+            )
+            fitted = (model, vintage_view)
+            cache[start] = fitted
+        model, vintage_view = fitted
+
+        def factory() -> PortfolioPolicy:
+            return _CostAwareRidgePortfolioPolicy(
+                dataset=dataset,
+                model=model,
+                target_abs_weights=target_abs_weights,
+                entry_threshold=entry_threshold,
+                exit_threshold=exit_threshold,
+                one_way_switch_cost=one_way_switch_cost,
+                proposal_version="td8_v2",
+                reference_feature_dataset=(
+                    vintage_view if raw_dataset is not None else None
+                ),
+            )
+
+        if raw_dataset is None:
+            return factory  # legacy reference contract is unchanged
+        assert source_runtime_digest is not None
+        model_digest = content_digest(
+            {
+                "schema": "decision_value_b0_reference_model_v1",
+                "fit_cutoff_ns": int(model.fit_cutoff.astype(np.int64)),
+                "feature_indices": list(model.feature_indices),
+                "feature_mean": model.feature_mean.tolist(),
+                "feature_scale": model.feature_scale.tolist(),
+                "coefficients": model.coefficients.tolist(),
+                "intercept": model.intercept,
+                "horizon_hours": model.horizon_hours,
+                "alpha": model.alpha,
+                "n_samples": model.n_samples,
+                "entry_threshold": entry_threshold,
+                "exit_threshold": exit_threshold,
+                "one_way_switch_cost": one_way_switch_cost,
+                "target_abs_weights": list(target_abs_weights),
+            }
+        )
+        vintage = ReferenceVintage(
+            source_dataset_id=dataset.dataset_id,
+            prefix_start_index=start,
+            fit_cutoff_ns=int(model.fit_cutoff.astype(np.int64)),
+            normalization_digest=vintage_view.normalization_digest,
+            model_digest=model_digest,
+            source_runtime_digest=source_runtime_digest,
+        )
+        return ReferencePolicyFactory(factory, vintage)
+
+    return provider
+
+
+def _runtime_context(
+    model: object, dataset: MarketDataset
+) -> LinearDecisionValueRuntimeContext:
+    return LinearDecisionValueRuntimeContext(
+        source_scope=model.source_scope,  # type: ignore[attr-defined]
+        feature_config_digest=dataset.feature_config_digest,
+        normalization_digest=dataset.normalization_digest,
+        execution_policy_digest=model.execution_policy_digest,  # type: ignore[attr-defined]
+        reference_policy_digest=model.reference_policy_digest,  # type: ignore[attr-defined]
+    )
+
+
+def _build_value_policy(
+    arm: str,
+    model: object,
+    dataset: MarketDataset,
+    *,
+    margin_multiplier: float,
+    eval_one_way_cost: float,
+    train_one_way_cost: float,
+) -> PortfolioPolicy:
+    """HOLD-relative value policy for one learner arm with the given margin."""
+    context = _runtime_context(model, dataset)
+    common = {
+        "runtime_context": context,
+        "allow_active_orders": True,
+        "eval_one_way_cost": eval_one_way_cost,
+        "train_one_way_cost": train_one_way_cost,
+        "hold_relative": True,
+        "decision_margin_multiplier": margin_multiplier,
+    }
+    if arm == "linear_value":
+        return LinearDecisionValuePolicy(model, **common)  # type: ignore[arg-type]
+    if arm == "conservative_linear_value":
+        return ConservativeLinearDecisionValuePolicy(model, **common)  # type: ignore[arg-type]
+    if arm == "shallow_value":
+        return ShallowDecisionValuePolicy(model, **common)  # type: ignore[arg-type]
+    raise ValueError(f"unknown learner arm {arm}")
+
+
+def _coefficient_sha256(model: object) -> str:
+    return hashlib.sha256(
+        canonical_json_bytes([list(row) for row in model.coefficients])  # type: ignore[attr-defined]
+    ).hexdigest()
+
+
+def _fit_all_learners(
+    batch: object,
+    protocol: DecisionValueDevStudyProtocol,
+    train_switch_cost: float,
+    dof_out: list[float] | None = None,
+) -> dict[str, object]:
+    actions = protocol.study_plan.candidate_actions
+    return {
+        "linear_value": fit_synthetic_linear_decision_value(
+            batch,  # type: ignore[arg-type]
+            candidate_actions=actions,
+            ridge_penalty=protocol.value_ridge_penalty,
+            solver_version="td8_v2",
+        ),
+        "conservative_linear_value": fit_conservative_linear_decision_value(
+            batch,  # type: ignore[arg-type]
+            candidate_actions=actions,
+            ridge_penalty=protocol.value_ridge_penalty,
+            solver_version="td8_v2",
+            uncertainty_penalty_weight=protocol.uncertainty_penalty_weight,
+            one_way_switch_cost=train_switch_cost,
+            unexcited_prior_std=protocol.unexcited_prior_std,
+            residual_dof_out=dof_out,
+        ),
+        "shallow_value": fit_synthetic_shallow_decision_value(
+            batch,  # type: ignore[arg-type]
+            candidate_actions=actions,
+            ridge_penalty=protocol.value_ridge_penalty,
+            solver_version="td8_v2",
+        ),
+    }
+
+
+class IncompletePairedLabelsError(ValueError):
+    """No learned fit is admitted from outcome-selected survivor pairs."""
+
+    def __init__(
+        self, block_id: str, evidence: tuple[IneligiblePairOutcome, ...]
+    ) -> None:
+        self.block_id = block_id
+        self.evidence = evidence
+        super().__init__(
+            f"TD8 block {block_id} contains {len(evidence)} incomplete/terminated "
+            "paired labels; outcomes must be recorded and research fit is blocked"
+        )
+
+
+def _require_complete_reachable_labels(
+    collection: ReachableLabelCollection, *, block_id: str
+) -> None:
+    if collection.ineligible_pairs != len(collection.ineligible_outcomes):
+        raise ValueError("incomplete paired-label evidence count mismatch")
+    if collection.ineligible_outcomes:
+        raise IncompletePairedLabelsError(block_id, collection.ineligible_outcomes)
+    if collection.samples and len(collection.eligible_pair_outcomes) != len(
+        collection.samples
+    ):
+        raise ValueError("TD8 eligible paired evidence count mismatch")
+
+
+def _persist_incomplete_pair_attempt(
+    output_dir: Path,
+    failure: IncompletePairedLabelsError,
+    *,
+    dataset_id: str,
+    protocol_digest: str,
+) -> None:
+    """Preserve blocked synthetic-label evidence without publishing a success result.
+
+    Prepare a canonical receipt off to the side, then atomically claim the
+    destination with mkdir(exist_ok=False) before installing that receipt. A
+    concurrent writer must never be silently overwritten, including an empty
+    destination created between preliminary checks and publication.
+    """
+    destination = Path(output_dir)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"output_dir already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
+    try:
+        payload = {
+            "schema_version": "decision_value_incomplete_pair_attempt_v1",
+            "verdict": "INVALID / BLOCKED",
+            "dataset_id": dataset_id,
+            "protocol_digest": protocol_digest,
+            "block_id": failure.block_id,
+            "ineligible_pairs": len(failure.evidence),
+            "pairs": [e.to_mapping() for e in failure.evidence],
+        }
+        (stage / "incomplete-pairs.json").write_bytes(canonical_json_bytes(payload))
+        # Directory rename would silently replace a concurrently created EMPTY
+        # directory on POSIX. Atomic mkdir is the write-once ownership gate.
+        destination.mkdir(exist_ok=False)
+        try:
+            # Hard-link creation is O_EXCL-like for the destination file:
+            # even a writer racing *inside* our claimed directory cannot have
+            # their pre-existing evidence replaced by a file rename.
+            os.link(
+                stage / "incomplete-pairs.json", destination / "incomplete-pairs.json"
+            )
+        except OSError:
+            # Best effort cleanup of our empty reservation. A failed receipt
+            # may never be interpreted as a successful research result.
+            try:
+                destination.rmdir()
+            except OSError:
+                pass
+            raise
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
+@dataclass(frozen=True, slots=True)
+class _BlockTraining:
+    """Everything fitted from one dataset view of the train window."""
+
+    dataset: MarketDataset
+    b0_model: RidgeForecastModel
+    collection_summary: tuple[int, int, int, int, int]
+    batch: object
+    models: dict[str, object]
+    b1c_dof: tuple[float, ...]
+    margins: dict[str, MarginSelection]
+    ineligible_pair_outcomes: tuple[dict[str, object], ...]
+    eligible_pair_outcomes: tuple[dict[str, object], ...]
+    label_evidence_digest: str
+    label_bound_reference_digest: str
+
+
+def _train_block(
+    raw_dataset: MarketDataset,
+    protocol: DecisionValueDevStudyProtocol,
+    block: DecisionValueBlockSpec,
+    train_switch_cost: float,
+) -> _BlockTraining:
+    """Transform, fit B0, collect labels, fit all heads, and select margins.
+
+    Used both for the real block and for the future-perturbed causality probe, so
+    the probe exercises exactly the same code path.
+    """
+    plan = protocol.study_plan
+    fit_cutoff = raw_dataset.timestamps[block.fit_cutoff_index]
+    eval_start = raw_dataset.timestamps[block.eval_start_index]
+    transform = fit_train_feature_transform(
+        raw_dataset,
+        train_start_index=block.train_start_index,
+        train_stop_index=block.train_stop_index,
+        clip=protocol.feature_clip,
+        as_of_index=block.fit_cutoff_index,
+    )
+    view = apply_feature_transform(raw_dataset, transform)
+    b0_model = fit_ridge_forecast(
+        view,
+        feature_indices=protocol.ridge_feature_indices,
+        fit_cutoff=fit_cutoff,
+        horizon_hours=protocol.ridge_horizon_hours,
+        alpha=protocol.ridge_alpha,
+    )
+    ref_digest = content_digest(
+        {
+            # Version both the teacher feature vintage and native TD8 actions;
+            # the archived exploratory run keeps its original provenance.
+            "policy": "b0_causal_refit_prefix_hold_relative_v3",
+            "teacher_normalization": "preprefix_asof_available_v1",
+            "raw_normalization_digest": raw_dataset.normalization_digest,
+            "intervention_projection": "posture_v2",
+            "native_proposal_version": "td8_v2",
+            "target_abs_weights": [float(w) for w in protocol.target_abs_weights],
+            "label_prefix_bars": protocol.label_prefix_bars,
+            "reference_min_fit_bars": protocol.reference_min_fit_bars,
+            "horizon_bars": plan.horizon_bars,
+            "ridge_feature_indices": list(protocol.ridge_feature_indices),
+            "ridge_horizon_hours": protocol.ridge_horizon_hours,
+            "ridge_alpha": protocol.ridge_alpha,
+            "ridge_entry_threshold": protocol.ridge_entry_threshold,
+            "ridge_exit_threshold": protocol.ridge_exit_threshold,
+            "feature_transform_digest": transform.digest,
+        }
+    )
+    provider = causal_b0_reference_provider(
+        view,
+        feature_indices=protocol.ridge_feature_indices,
+        horizon_hours=protocol.ridge_horizon_hours,
+        alpha=protocol.ridge_alpha,
+        entry_threshold=protocol.ridge_entry_threshold,
+        exit_threshold=protocol.ridge_exit_threshold,
+        target_abs_weights=protocol.target_abs_weights,
+        one_way_switch_cost=train_switch_cost,
+        min_fit_bars=protocol.reference_min_fit_bars,
+        first_fit_index=block.train_start_index,
+        raw_dataset=raw_dataset,
+        causal_feature_clip=protocol.feature_clip,
+    )
+    branches = tuple(
+        range(block.train_start_index, block.train_stop_index + 1, block.train_step)
+    )
+    collection = collect_reachable_state_labels(
+        view,
+        reference_policy_provider=provider,
+        reference_policy_digest=ref_digest,
+        branch_indices=branches,
+        train_start_index=block.train_start_index,
+        prefix_bars=protocol.label_prefix_bars,
+        horizon_bars=plan.horizon_bars,
+        candidate_actions=plan.candidate_actions,
+        target_abs_weights=protocol.target_abs_weights,
+        initial_capital=plan.initial_capital,
+        execution_cost=protocol.base_execution_cost,
+        risk_config=protocol.risk_config,
+        fit_cutoff=fit_cutoff,
+        source_scope=protocol.study_plan.data_scope,
+        require_reference_vintage=True,
+        require_v4_evidence=True,
+        study_protocol_digest=protocol.protocol_digest,
+    )
+    _require_complete_reachable_labels(collection, block_id=block.block_id)
+    if not collection.samples:
+        raise ValueError(f"block {block.block_id} produced no admissible labels")
+    if len(collection.eligible_pair_outcomes) != len(collection.samples):
+        raise ValueError("TD8 v4 eligible evidence must cover every training row")
+    label_evidence_digest = content_digest(collection.eligible_pair_outcomes)
+    # Bind the model to the *observed* teacher/outcome population, not only the
+    # common recipe. The pre-binding receipts retain the original recipe root
+    # to avoid a circular hash dependency.
+    bound_ref_digest = content_digest(
+        {
+            "schema_version": "td8_reference_with_label_population_v1",
+            "reference_recipe_digest": ref_digest,
+            "label_evidence_digest": label_evidence_digest,
+        }
+    )
+    bound_samples = tuple(
+        replace(
+            sample,
+            reference_policy_digest=bound_ref_digest,
+            reference_policy_recipe_digest=ref_digest,
+            label_population_digest=label_evidence_digest,
+        )
+        for sample in collection.samples
+    )
+    batch = build_synthetic_paired_label_batch(
+        bound_samples,
+        fit_cutoff=fit_cutoff,
+        evaluation_start=eval_start,
+        expected_reference_policy_digest=bound_ref_digest,
+        require_v4_evidence=True,
+    )
+    dof: list[float] = []
+    models = _fit_all_learners(batch, protocol, train_switch_cost, dof)
+
+    margins: dict[str, MarginSelection] = {}
+    for arm in LEARNER_ARMS:
+
+        def fit_for_arm(sub_batch: object, _arm: str = arm) -> object:
+            return _fit_all_learners(sub_batch, protocol, train_switch_cost)[_arm]
+
+        def policy_for_arm(
+            model: object, k: float, calibration_view: MarketDataset, _arm: str = arm
+        ) -> PortfolioPolicy:
+            return _build_value_policy(
+                _arm,
+                model,
+                calibration_view,
+                margin_multiplier=k,
+                eval_one_way_cost=train_switch_cost,
+                train_one_way_cost=train_switch_cost,
+            )
+
+        margins[arm] = select_margin_multiplier(
+            dataset=view,
+            samples=bound_samples,
+            fit_model=fit_for_arm,
+            make_policy=policy_for_arm,
+            grid=protocol.margin_multiplier_grid,
+            calibration_fraction=protocol.margin_calibration_fraction,
+            horizon_bars=plan.horizon_bars,
+            initial_capital=plan.initial_capital,
+            execution_cost=protocol.base_execution_cost,
+            risk_config=protocol.risk_config,
+            reference_policy_digest=bound_ref_digest,
+            raw_dataset=raw_dataset,
+            train_start_index=block.train_start_index,
+            feature_clip=protocol.feature_clip,
+            require_v4_evidence=True,
+        )
+    return _BlockTraining(
+        dataset=view,
+        b0_model=b0_model,
+        collection_summary=(
+            collection.paired_replay_runs,
+            collection.ineligible_pairs,
+            collection.nonflat_branch_states,
+            collection.skipped_branches_without_reference,
+            len({s.decision_time_ns for s in collection.samples}),
+        ),
+        batch=batch,
+        models=models,
+        b1c_dof=tuple(dof),
+        margins=margins,
+        ineligible_pair_outcomes=tuple(
+            record.to_mapping() for record in collection.ineligible_outcomes
+        ),
+        eligible_pair_outcomes=collection.eligible_pair_outcomes,
+        label_evidence_digest=label_evidence_digest,
+        label_bound_reference_digest=bound_ref_digest,
+    )
+
+
 def _format_markdown_summary(
     protocol: DecisionValueDevStudyProtocol,
     result: DecisionValueDevStudyResult,
 ) -> str:
     """Generate human-readable Markdown summary of the study results."""
     lines = [
-        "# TD5 Development Study Report: Direct Decision-Value Learning on Real Market Data",
+        "# TD8 Synthetic-only Software Diagnostics (#1025)",
         "",
         f"- **Verdict**: `{result.verdict}`",
         f"- **Reason**: {result.verdict_reason}",
@@ -855,19 +1704,35 @@ def _format_markdown_summary(
         ]
     )
     for b in result.blocks:
+        margins = ", ".join(
+            f"{arm}={k:g}" for arm, k in sorted(b.chosen_margin_multipliers.items())
+        )
+        dof = ", ".join(f"{d:.1f}" for d in b.b1c_residual_dof)
         lines.extend(
             [
                 f"### {b.block_id}",
-                f"- Training rows: {b.training_rows}, Overlap groups: {b.overlap_groups}, Paired replays: {b.paired_replay_runs}, Wall clock: {b.wall_clock_seconds:.2f}s",
+                f"- Training rows: {b.training_rows}, Distinct decision times: {b.distinct_decision_times}, Overlap groups: {b.overlap_groups}, Paired replays: {b.paired_replay_runs}, Wall clock: {b.wall_clock_seconds:.2f}s",
+                f"- Non-flat branch states: {b.nonflat_branch_states}, Ineligible pairs: {b.ineligible_pairs}, Branches without causal reference: {b.skipped_branches_without_reference}",
+                f"- Chosen margin multipliers: {margins}",
+                f"- B1c residual dof per head: [{dof}]",
                 f"- Causality probe: {'PASSED' if b.causality_probe_passed else 'FAILED'}, Ledger reconciliation: {'PASSED' if b.ledger_evidence_reconciled else 'FAILED'}",
                 "",
-                "| Arm | Scenario | Final Value | Net Return | Total Cost | Max Drawdown |",
-                "|---|---|---|---|---|---|",
+                "| Arm | Scenario | Final Value | Net Return | Total Cost | Turnover | Max Drawdown |",
+                "|---|---|---|---|---|---|---|",
             ]
         )
         for arm_res in b.arms:
             lines.append(
-                f"| `{arm_res.arm}` | `{arm_res.scenario}` | {arm_res.final_portfolio_value:.2f} | {arm_res.net_return:+.4%} | {arm_res.total_cost:.2f} | {arm_res.max_drawdown:.4%} |"
+                f"| `{arm_res.arm}` | `{arm_res.scenario}` | {arm_res.final_portfolio_value:.2f} | {arm_res.net_return:+.4%} | {arm_res.total_cost:.2f} | {arm_res.turnover_total:.2f} | {arm_res.max_drawdown:.4%} |"
+            )
+        lines.append("")
+        lines.append("Covariate shift (eval vs train z-score, diagnostic only):")
+        lines.append("")
+        lines.append("| Feature | Scope | Mean z | Max abs z | Fraction clipped |")
+        lines.append("|---|---|---|---|---|")
+        for row in b.covariate_shift:
+            lines.append(
+                f"| `{row['name']}` | {row['scope']} | {float(row['mean_z']):+.2f} | {float(row['max_abs_z']):.2f} | {float(row['fraction_clipped']):.2%} |"  # type: ignore[arg-type]
             )
         lines.append("")
     return "\n".join(lines)
@@ -879,11 +1744,12 @@ def run_decision_value_dev_study(
     *,
     actual_artifact_digest: str | None = None,
     output_dir: str | Path | None = None,
+    artifact_root: str | Path | None = None,
 ) -> DecisionValueDevStudyResult:
-    """Execute the bounded real-development study under strict contracts."""
+    """Execute only verified synthetic TD8 diagnostics; historical real TD8 is frozen."""
     study_start_time = time.perf_counter()
 
-    # Preflight verification (G0–G2)
+    # Software-only preflight. Identity checks are not independent G0–G2 approval.
     if not isinstance(dataset, MarketDataset):
         raise TypeError("dataset must be a MarketDataset")
     if not isinstance(protocol, DecisionValueDevStudyProtocol):
@@ -901,6 +1767,43 @@ def run_decision_value_dev_study(
         raise ValueError(
             f"actual_artifact_digest {resolved_artifact_digest} differs from expected {protocol.expected_artifact_digest}"
         )
+    # The archived TD8 real-development authorization refers to the original
+    # source SHA a775b577e. It cannot authorize this post-review software:
+    # versioned fitting, paired intervention, and native proposal all changed.
+    if protocol.study_plan.data_scope != "synthetic_only":
+        raise ValueError(
+            "G0-G3 independent research authorization NOT_ESTABLISHED for revised "
+            "TD8 source; historical real_development protocol is read-only"
+        )
+    if artifact_root is None:
+        raise ValueError(
+            "synthetic_only TD8 diagnostics require a verified published artifact_root"
+        )
+    if not dataset.identity_verified:
+        raise ValueError(
+            "synthetic_only TD8 requires canonical verified input identity"
+        )
+    artifact, verified_dataset = load_published_market_dataset_artifact(artifact_root)
+    if artifact.artifact_digest != protocol.expected_artifact_digest:
+        raise ValueError("published artifact digest differs from frozen protocol")
+    if verified_dataset.dataset_id != protocol.dataset_id:
+        raise ValueError("published dataset identity differs from frozen protocol")
+    if not verified_dataset.identity_verified:
+        raise ValueError("published dataset identity is not verified")
+    provenance = parse_identity_json(verified_dataset.identity_payload_json or "{}")
+    # This synthetic flag is source-provided provenance, not independent proof
+    # of origin. It must not unlock real-data authorization or G4 claims.
+    if provenance.get("synthetic_only") is not True:
+        raise ValueError(
+            "synthetic_only TD8 diagnostics require declared synthetic_only provenance"
+        )
+    if verified_dataset.dataset_id != dataset.dataset_id:
+        raise ValueError("provided and published dataset identities differ")
+    dataset = verified_dataset
+    # Fail before costly fit; the write-once check remains at persistence for
+    # a racing writer who creates the destination during the study.
+    if output_dir is not None and Path(output_dir).exists():
+        raise FileExistsError(f"output_dir already exists: {output_dir}")
     if tuple(dataset.symbols) != protocol.study_plan.symbols:
         raise ValueError("dataset symbols do not match study_plan symbols")
     for block in protocol.blocks:
@@ -916,304 +1819,221 @@ def run_decision_value_dev_study(
                 f"features not fully available in block {block.block_id} training slice"
             )
 
+    train_switch_cost = (
+        protocol.study_plan.fee_rate
+        + protocol.study_plan.spread_rate
+        + protocol.base_execution_cost.impact_rate
+    )
     block_results: list[DecisionValueBlockResult] = []
 
     for block in protocol.blocks:
         block_t0 = time.perf_counter()
-        fit_cutoff = dataset.timestamps[block.fit_cutoff_index]
-        eval_start = dataset.timestamps[block.eval_start_index]
 
-        # 1. Fit B0 (Ridge Forecast)
-        b0_model = fit_ridge_forecast(
-            dataset,
-            feature_indices=protocol.ridge_feature_indices,
-            fit_cutoff=fit_cutoff,
-            horizon_hours=protocol.ridge_horizon_hours,
-            alpha=protocol.ridge_alpha,
-        )
-
-        # 2. Collect paired action interventions for B1/B2
-        samples: list[SyntheticPairedLabel] = []
-        intervention_indices = range(
-            block.train_start_index, block.train_stop_index + 1, block.train_step
-        )
-        non_hold_candidates = protocol.study_plan.candidate_actions[1:]
-        paired_replay_runs = 0
-
-        for t in intervention_indices:
-            for cand_action in non_hold_candidates:
-                if all(a == ACTION_FLAT for a in cand_action) and t > 0:
-                    warmup_act = (
-                        (ACTION_LONG,) * len(dataset.symbols)
-                        if (t // block.train_step) % 2 == 0
-                        else (ACTION_SHORT,) * len(dataset.symbols)
-                    )
-                    w_action = warmup_act
-
-                    def make_warmup() -> _WarmupReferencePolicy:
-                        return _WarmupReferencePolicy(
-                            warmup_action=w_action,
-                            target_abs_weights=protocol.target_abs_weights,
-                        )
-
-                    pair = run_paired_portfolio_action(
-                        dataset,
-                        reference_policy_factory=make_warmup,
-                        start_index=t - 1,
-                        stop_index=t + protocol.study_plan.horizon_bars,
-                        intervention_index=t,
-                        baseline_action=protocol.study_plan.candidate_actions[0],
-                        candidate_action=cand_action,
-                        target_abs_weights=protocol.target_abs_weights,
-                        initial_capital=protocol.study_plan.initial_capital,
-                        execution_cost=protocol.base_execution_cost,
-                        risk=PreTradeRisk(protocol.risk_config),
-                    )
-                else:
-                    pair = run_paired_portfolio_action(
-                        dataset,
-                        reference_policy_factory=_HoldQuantityPolicy,
-                        start_index=t,
-                        stop_index=t + protocol.study_plan.horizon_bars,
-                        intervention_index=t,
-                        baseline_action=protocol.study_plan.candidate_actions[0],
-                        candidate_action=cand_action,
-                        target_abs_weights=protocol.target_abs_weights,
-                        initial_capital=protocol.study_plan.initial_capital,
-                        execution_cost=protocol.base_execution_cost,
-                        risk=PreTradeRisk(protocol.risk_config),
-                    )
-                paired_replay_runs += 2  # Baseline + Candidate
-                label = build_synthetic_paired_label(
-                    dataset,
-                    pair,
-                    baseline_action=protocol.study_plan.candidate_actions[0],
-                    candidate_action=cand_action,
-                    target_abs_weights=protocol.target_abs_weights,
-                    reference_policy_digest=_REFERENCE_POLICY_DIGEST,
-                    expected_execution_policy_digest=(
-                        protocol.base_execution_cost.execution_policy_digest
-                    ),
-                    observation_record_available_at=dataset.timestamps[t],
-                    settlement_record_available_at=(
-                        dataset.timestamps[t + protocol.study_plan.horizon_bars]
-                    ),
-                    fit_cutoff=fit_cutoff,
-                    source_scope="real_development",
+        # 1-4. Uniform feature transform, B0, reachable-state labels, three heads,
+        #      and the train-internal margin selection.
+        try:
+            training = _train_block(dataset, protocol, block, train_switch_cost)
+        except IncompletePairedLabelsError as failure:
+            if output_dir is not None:
+                _persist_incomplete_pair_attempt(
+                    Path(output_dir),
+                    failure,
+                    dataset_id=dataset.dataset_id,
+                    protocol_digest=protocol.protocol_digest,
                 )
-                samples.append(label)
-
+            raise
+        view = training.dataset
+        b0_model = training.b0_model
+        models = training.models
+        (
+            paired_replay_runs,
+            ineligible_pairs,
+            nonflat_states,
+            skipped_branches,
+            distinct_times,
+        ) = training.collection_summary
         paired_transitions = paired_replay_runs * protocol.study_plan.horizon_bars
-        training_rows = len(samples)
+        batch = training.batch
+        training_rows = len(batch.samples)  # type: ignore[attr-defined]
+        overlap_groups = len(set(batch.group_ids))  # type: ignore[attr-defined]
+        transform = fit_train_feature_transform(
+            dataset,
+            train_start_index=block.train_start_index,
+            train_stop_index=block.train_stop_index,
+            clip=protocol.feature_clip,
+            as_of_index=block.fit_cutoff_index,
+        )
+        transform_digest = transform.digest
+        shift = covariate_shift_report(
+            dataset,
+            transform,
+            start_index=block.eval_start_index,
+            stop_index=block.eval_stop_index,
+        )
+        chosen = {arm: training.margins[arm].multiplier for arm in LEARNER_ARMS}
+        coef_sha = {arm: _coefficient_sha256(models[arm]) for arm in LEARNER_ARMS}
 
-        # 3. Build paired label batch
-        batch = build_synthetic_paired_label_batch(
-            tuple(samples),
-            fit_cutoff=fit_cutoff,
-            evaluation_start=eval_start,
-            expected_reference_policy_digest=_REFERENCE_POLICY_DIGEST,
+        # 5. Causality perturbation probe: the whole pipeline (transform, B0,
+        #    labels, heads, margins) is re-run on a dataset whose bars differ
+        #    strictly after the fit cutoff; nothing it produces may change.
+        dataset_perturbed = _perturb_after(dataset, block.fit_cutoff_index)
+        perturbed = _train_block(dataset_perturbed, protocol, block, train_switch_cost)
+        b0_pert = perturbed.b0_model
+        b0_fit_ok = bool(
+            np.allclose(b0_model.coefficients, b0_pert.coefficients)
+            and math.isclose(b0_model.intercept, b0_pert.intercept)
         )
-        overlap_groups = len(set(batch.group_ids))
-
-        # 4. Fit B1 (Linear), B1c (Conservative Linear), and B2 (Shallow)
-        b1_model = fit_synthetic_linear_decision_value(
-            batch, candidate_actions=protocol.study_plan.candidate_actions
+        fits_ok = {
+            arm: coef_sha[arm] == _coefficient_sha256(perturbed.models[arm])
+            for arm in LEARNER_ARMS
+        }
+        b1c_model = models["conservative_linear_value"]
+        b1c_pert = perturbed.models["conservative_linear_value"]
+        fits_ok["conservative_linear_value"] = bool(
+            fits_ok["conservative_linear_value"]
+            and np.allclose(
+                b1c_model.covariance_matrices,  # type: ignore[attr-defined]
+                b1c_pert.covariance_matrices,  # type: ignore[attr-defined]
+                rtol=0.0,
+                atol=1e-12,
+            )
         )
-        switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
-        b1c_model = fit_conservative_linear_decision_value(
-            batch,
-            candidate_actions=protocol.study_plan.candidate_actions,
-            uncertainty_penalty_weight=1.0,
-            one_way_switch_cost=switch_cost,
-        )
-        b2_model = fit_synthetic_shallow_decision_value(
-            batch, candidate_actions=protocol.study_plan.candidate_actions
-        )
-
-        b1_coef_sha256 = hashlib.sha256(
-            canonical_json_bytes([list(row) for row in b1_model.coefficients])
-        ).hexdigest()
-        b1c_coef_sha256 = hashlib.sha256(
-            canonical_json_bytes([list(row) for row in b1c_model.coefficients])
-        ).hexdigest()
-        b2_coef_sha256 = hashlib.sha256(
-            canonical_json_bytes([list(row) for row in b2_model.coefficients])
-        ).hexdigest()
-
-        # 5. Causality perturbation probe
-        dataset_perturbed = _perturb_after(dataset, block.eval_start_index)
-        b0_perturbed = fit_ridge_forecast(
-            dataset_perturbed,
-            feature_indices=protocol.ridge_feature_indices,
-            fit_cutoff=fit_cutoff,
-            horizon_hours=protocol.ridge_horizon_hours,
-            alpha=protocol.ridge_alpha,
-        )
-        b0_fit_ok = np.allclose(
-            b0_model.coefficients, b0_perturbed.coefficients
-        ) and math.isclose(b0_model.intercept, b0_perturbed.intercept)
-
-        b1_runtime_ctx = LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
-            feature_config_digest=dataset.feature_config_digest,
-            normalization_digest=dataset.normalization_digest,
-            execution_policy_digest=b1_model.execution_policy_digest,
-            reference_policy_digest=b1_model.reference_policy_digest,
-        )
-        b1c_runtime_ctx = LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
-            feature_config_digest=dataset.feature_config_digest,
-            normalization_digest=dataset.normalization_digest,
-            execution_policy_digest=b1c_model.execution_policy_digest,
-            reference_policy_digest=b1c_model.reference_policy_digest,
-        )
-        b2_runtime_ctx = LinearDecisionValueRuntimeContext(
-            source_scope="real_development",
-            feature_config_digest=dataset.feature_config_digest,
-            normalization_digest=dataset.normalization_digest,
-            execution_policy_digest=b2_model.execution_policy_digest,
-            reference_policy_digest=b2_model.reference_policy_digest,
-        )
-        pol_b1 = LinearDecisionValuePolicy(b1_model, runtime_context=b1_runtime_ctx)
-        pol_b1c = ConservativeLinearDecisionValuePolicy(
-            b1c_model, runtime_context=b1c_runtime_ctx
-        )
-        pol_b2 = ShallowDecisionValuePolicy(b2_model, runtime_context=b2_runtime_ctx)
-
-        # Build initial snapshot using SharedPortfolioSession to get valid BookState
-        from trade_rl.simulation.stateful.portfolio_session import (
-            SharedPortfolioSession,
+        margins_ok = all(
+            training.margins[arm].multiplier == perturbed.margins[arm].multiplier
+            and training.margins[arm].net_returns == perturbed.margins[arm].net_returns
+            for arm in LEARNER_ARMS
         )
 
         session_clean = SharedPortfolioSession(
-            dataset,
+            view,
             start_index=block.eval_start_index,
             stop_index=block.eval_stop_index,
             initial_capital=protocol.study_plan.initial_capital,
             execution_cost=protocol.base_execution_cost,
             risk=PreTradeRisk(protocol.risk_config),
         )
-        session_perturbed = SharedPortfolioSession(
-            dataset_perturbed,
-            start_index=block.eval_start_index,
-            stop_index=block.eval_stop_index,
-            initial_capital=protocol.study_plan.initial_capital,
-            execution_cost=protocol.base_execution_cost,
-            risk=PreTradeRisk(protocol.risk_config),
-        )
-
         snap_clean = build_portfolio_decision_snapshot(
-            dataset,
+            view,
             index=block.eval_start_index,
             agent_stop_index=block.eval_stop_index,
             book=session_clean.book,
             active_orders=session_clean.active_orders,
             risk_config=protocol.risk_config,
         )
-        snap_perturbed = build_portfolio_decision_snapshot(
-            dataset_perturbed,
-            index=block.eval_start_index,
-            agent_stop_index=block.eval_stop_index,
-            book=session_perturbed.book,
-            active_orders=session_perturbed.active_orders,
-            risk_config=protocol.risk_config,
-        )
-        switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
+
         pol_b0_probe = _CostAwareRidgePortfolioPolicy(
-            dataset=dataset,
+            dataset=view,
             model=b0_model,
             target_abs_weights=protocol.target_abs_weights,
             entry_threshold=protocol.ridge_entry_threshold,
             exit_threshold=protocol.ridge_exit_threshold,
-            one_way_switch_cost=switch_cost,
+            one_way_switch_cost=train_switch_cost,
+            proposal_version="td8_v2",
         )
         pol_b0_probe_perturbed = _CostAwareRidgePortfolioPolicy(
-            dataset=dataset_perturbed,
-            model=b0_model,
+            dataset=view,
+            model=b0_pert,
             target_abs_weights=protocol.target_abs_weights,
             entry_threshold=protocol.ridge_entry_threshold,
             exit_threshold=protocol.ridge_exit_threshold,
-            one_way_switch_cost=switch_cost,
+            one_way_switch_cost=train_switch_cost,
+            proposal_version="td8_v2",
         )
         prop_b0_clean = pol_b0_probe.decide_portfolio(snap_clean)
-        prop_b0_perturbed = pol_b0_probe_perturbed.decide_portfolio(snap_perturbed)
+        prop_b0_pert = pol_b0_probe_perturbed.decide_portfolio(snap_clean)
         b0_probe_ok = b0_fit_ok and (
-            prop_b0_clean.target_weights == prop_b0_perturbed.target_weights
+            prop_b0_clean.target_weights == prop_b0_pert.target_weights
         )
 
-        b1_probe_ok = pol_b1.decide_action(snap_clean) == pol_b1.decide_action(
-            snap_perturbed
-        )
-        b1c_probe_ok = (
-            pol_b1c.decide_action(snap_clean) == pol_b1c.decide_action(snap_perturbed)
-            and pol_b1c.decide_portfolio(snap_clean).target_weights
-            == pol_b1c.decide_portfolio(snap_perturbed).target_weights
-        )
-        b2_probe_ok = pol_b2.decide_action(snap_clean) == pol_b2.decide_action(
-            snap_perturbed
-        )
-        causality_probe_passed = bool(
-            b0_probe_ok and b1_probe_ok and b1c_probe_ok and b2_probe_ok
-        )
+        learner_probe_ok = True
+        for arm in LEARNER_ARMS:
+            clean_policy = _build_value_policy(
+                arm,
+                models[arm],
+                view,
+                margin_multiplier=chosen[arm],
+                eval_one_way_cost=train_switch_cost,
+                train_one_way_cost=train_switch_cost,
+            )
+            pert_policy = _build_value_policy(
+                arm,
+                perturbed.models[arm],
+                view,
+                margin_multiplier=perturbed.margins[arm].multiplier,
+                eval_one_way_cost=train_switch_cost,
+                train_one_way_cost=train_switch_cost,
+            )
+            learner_probe_ok = bool(
+                learner_probe_ok
+                and fits_ok[arm]
+                and (
+                    clean_policy.decide_portfolio(snap_clean).target_weights
+                    == pert_policy.decide_portfolio(snap_clean).target_weights
+                )
+            )
 
-        # 6. Evaluate 6 arms across 4 scenarios
-        scenarios: tuple[tuple[str, ExecutionCostConfig], ...] = (
-            ("base", protocol.base_execution_cost),
-            (
-                "cost_x2",
-                replace(
-                    protocol.base_execution_cost,
-                    fee_rate=protocol.base_execution_cost.fee_rate * 2.0,
-                    spread_rate=protocol.base_execution_cost.spread_rate * 2.0,
-                    impact_rate=protocol.base_execution_cost.impact_rate * 2.0,
-                ),
-            ),
-            (
-                "latency_1bar",
-                replace(protocol.base_execution_cost, order_latency_bars=1),
-            ),
-            (
-                "latency_2bar",
-                replace(protocol.base_execution_cost, order_latency_bars=2),
-            ),
-        )
+        causality_probe_passed = bool(b0_probe_ok and learner_probe_ok and margins_ok)
+
+        # 6. Evaluate 6 arms across scenarios
+        scenarios: list[tuple[str, ExecutionCostConfig, float]] = []
+        for s_name, cost_mult, lat_bars in protocol.scenarios:
+            s_cost = replace(
+                protocol.base_execution_cost,
+                fee_rate=protocol.base_execution_cost.fee_rate * cost_mult,
+                spread_rate=protocol.base_execution_cost.spread_rate * cost_mult,
+                impact_rate=protocol.base_execution_cost.impact_rate * cost_mult,
+                order_latency_bars=lat_bars,
+            )
+            scen_switch_cost = s_cost.fee_rate + s_cost.spread_rate + s_cost.impact_rate
+            scenarios.append((s_name, s_cost, scen_switch_cost))
 
         arms_metrics: list[DecisionValueArmMetrics] = []
         ledger_all_reconciled = True
         eval_replay_runs = 0
 
-        for scen_name, scen_cost in scenarios:
-            # Policy builders for each arm (fresh instances per scenario)
-            switch_cost = protocol.study_plan.fee_rate + protocol.study_plan.spread_rate
-            arm_policies: tuple[tuple[str, PortfolioPolicy], ...] = (
+        for scen_name, scen_cost, scen_switch_cost in scenarios:
+            arm_policies: list[tuple[str, PortfolioPolicy]] = [
                 ("cash", CashPortfolioPolicy(symbols=dataset.symbols)),
                 (
                     "fixed_long",
                     _FixedEntryPolicy(
                         action=(ACTION_LONG,) * len(dataset.symbols),
                         target_abs_weights=protocol.target_abs_weights,
+                        proposal_version="td8_v2",
                     ),
                 ),
                 (
                     "cost_aware_ridge",
                     _CostAwareRidgePortfolioPolicy(
-                        dataset=dataset,
+                        dataset=view,
                         model=b0_model,
                         target_abs_weights=protocol.target_abs_weights,
                         entry_threshold=protocol.ridge_entry_threshold,
                         exit_threshold=protocol.ridge_exit_threshold,
-                        one_way_switch_cost=switch_cost,
+                        one_way_switch_cost=scen_switch_cost,
+                        proposal_version="td8_v2",
                     ),
                 ),
-                ("linear_value", pol_b1),
-                ("conservative_linear_value", pol_b1c),
-                ("shallow_value", pol_b2),
-            )
+            ]
+            for arm in LEARNER_ARMS:
+                arm_policies.append(
+                    (
+                        arm,
+                        _build_value_policy(
+                            arm,
+                            models[arm],
+                            view,
+                            margin_multiplier=chosen[arm],
+                            eval_one_way_cost=scen_switch_cost,
+                            train_one_way_cost=train_switch_cost,
+                        ),
+                    )
+                )
 
             for arm_name, policy in arm_policies:
                 eval_replay_runs += 1
                 replay_res = run_shared_portfolio_replay(
-                    dataset,
+                    view,
                     policy,
                     start_index=block.eval_start_index,
                     stop_index=block.eval_stop_index,
@@ -1224,27 +2044,16 @@ def run_decision_value_dev_study(
                     capture_ledger_evidence=True,
                 )
 
-                # Reconcile ledger evidence
-                ledger = replay_res.ledger_evidence
-                if ledger is None:
+                expected_intervals = block.eval_stop_index - block.eval_start_index
+                if not _verify_ledger_reconciliation(
+                    replay_res,
+                    dataset=view,
+                    expected_intervals=expected_intervals,
+                    expected_start_index=block.eval_start_index,
+                    initial_capital=protocol.study_plan.initial_capital,
+                    execution_cost=scen_cost,
+                ):
                     ledger_all_reconciled = False
-                else:
-                    iv = ledger.intervals
-                    reconciled = (
-                        math.isclose(
-                            iv.final_portfolio_value,
-                            float(replay_res.book.portfolio_value),
-                        )
-                        and math.isclose(
-                            iv.final_total_cost, float(replay_res.book.total_cost)
-                        )
-                        and math.isclose(
-                            iv.final_funding_pnl, float(replay_res.book.funding_pnl)
-                        )
-                        and math.isclose(iv.final_cash, float(replay_res.book.cash))
-                    )
-                    if not reconciled:
-                        ledger_all_reconciled = False
 
                 terminal_quantities = tuple(
                     str(q) for q in replay_res.book.exact_quantities
@@ -1269,6 +2078,7 @@ def run_decision_value_dev_study(
                         n_decisions=len(replay_res.decisions),
                         terminal_quantities=terminal_quantities,
                         terminal_flat=terminal_flat,
+                        turnover_total=float(replay_res.book.turnover_total),
                     )
                 )
 
@@ -1283,12 +2093,27 @@ def run_decision_value_dev_study(
                 eval_replay_runs=eval_replay_runs,
                 wall_clock_seconds=block_wall_clock,
                 b0_model_intercept=float(b0_model.intercept),
-                b1_model_coefficients_sha256=b1_coef_sha256,
-                b1c_model_coefficients_sha256=b1c_coef_sha256,
-                b2_model_coefficients_sha256=b2_coef_sha256,
+                b1_model_coefficients_sha256=coef_sha["linear_value"],
+                b1c_model_coefficients_sha256=coef_sha["conservative_linear_value"],
+                b2_model_coefficients_sha256=coef_sha["shallow_value"],
                 causality_probe_passed=causality_probe_passed,
                 ledger_evidence_reconciled=ledger_all_reconciled,
                 arms=tuple(arms_metrics),
+                chosen_margin_multipliers=chosen,
+                margin_selections={
+                    arm: training.margins[arm].to_mapping() for arm in LEARNER_ARMS
+                },
+                b1c_residual_dof=training.b1c_dof,
+                distinct_decision_times=distinct_times,
+                ineligible_pairs=ineligible_pairs,
+                ineligible_pair_outcomes=training.ineligible_pair_outcomes,
+                eligible_pair_outcomes=training.eligible_pair_outcomes,
+                label_evidence_digest=training.label_evidence_digest,
+                label_bound_reference_digest=training.label_bound_reference_digest,
+                nonflat_branch_states=nonflat_states,
+                skipped_branches_without_reference=skipped_branches,
+                feature_transform_digest=transform_digest,
+                covariate_shift=shift,
             )
         )
 
@@ -1382,8 +2207,17 @@ def run_decision_value_dev_study(
             verdict = "NO_IMPROVEMENT"
             verdict_reason = "Neither linear_value, conservative_linear_value, nor shallow_value outperformed baselines across evaluation scenarios"
 
+    # The synthetic fixture is NOT a G4 market experiment, even if its
+    # internal fixed-control comparison happens to be statistically favorable.
+    if verdict != "INVALID / BLOCKED":
+        verdict = "SOFTWARE_ONLY"
+        verdict_reason = (
+            "Synthetic TD8 diagnostic only; revised source has no independent "
+            "G0-G3 real-development authorization or G4 economic verdict"
+        )
+
     result = DecisionValueDevStudyResult(
-        schema_version="decision_value_dev_study_result_v1",
+        schema_version="decision_value_dev_study_result_v4_software",
         protocol_digest=protocol.protocol_digest,
         dataset_id=dataset.dataset_id,
         actual_artifact_digest=resolved_artifact_digest,

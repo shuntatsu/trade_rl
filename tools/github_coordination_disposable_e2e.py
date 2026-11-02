@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -25,6 +27,7 @@ _GRAPHQL_URL = "https://api.github.com/graphql"
 _API_URL = "https://api.github.com"
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _MAX_REQUEST_BYTES = 64 * 1024
+_GIT_READ_SUFFIX = re.compile(r"git/(?:commits|trees|blobs)/[0-9a-f]{40}")
 
 
 class RegistryObjectReader(Protocol):
@@ -57,7 +60,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     data: dict[str, Any] = {}
     for key, value in pairs:
         if key in data:
-            raise ValueError("GitHub GraphQL response has duplicate JSON fields")
+            raise ValueError("GitHub JSON response has duplicate JSON fields")
         data[key] = value
     return data
 
@@ -118,6 +121,90 @@ class GitHubGraphQLHttpApi:
             raise ValueError("GitHub GraphQL response must be an object")
         return decoded
 
+
+
+class GitHubGitObjectHttpApi:
+    """Disposable-only, bounded, GET-only Git object transport.
+
+    Never reuse the generic branch-hygiene client here: urllib's default
+    redirect handler forwards Authorization on redirected GET requests.
+    """
+
+    def __init__(self, *, repository: str, token: str) -> None:
+        from tools.github_coordination_ref_cas import _repository
+
+        _, owner, name = _repository(repository)
+        if (
+            not owner
+            or not name
+            or not name.casefold().endswith("-coordination-disposable")
+        ):
+            raise ValueError("REST reader requires a disposable repository")
+        if (
+            not isinstance(token, str)
+            or not token
+            or any(character.isspace() for character in token)
+        ):
+            raise ValueError("GitHub token must be a non-empty single-line secret")
+        self._repository = repository
+        self._token = token
+        self._url = (
+            f"{_API_URL}/repos/"
+            f"{urllib.parse.quote(owner, safe='')}/"
+            f"{urllib.parse.quote(name, safe='')}"
+        )
+
+    def _request_json(
+        self,
+        method: str,
+        suffix: str,
+        *,
+        query: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        if (
+            method != "GET"
+            or not isinstance(suffix, str)
+            or not _GIT_READ_SUFFIX.fullmatch(suffix)
+        ):
+            raise ValueError(
+                "REST reader permits only GET exact commit/tree/blob OIDs"
+            )
+        is_tree = suffix.startswith("git/trees/")
+        if (is_tree and query != {"recursive": "1"}) or (
+            not is_tree and query is not None
+        ):
+            raise ValueError("REST reader requires exact recursive-tree query only")
+        url = f"{self._url}/{suffix}"
+        if is_tree:
+            url += "?recursive=1"
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {self._token}",
+                "User-Agent": "trade-rl-disposable-coordination-cas",
+            },
+        )
+        try:
+            opener = urllib.request.build_opener(_NoRedirect())
+            with opener.open(request, timeout=30) as response:
+                raw = response.read(_MAX_RESPONSE_BYTES + 1)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise RuntimeError(
+                "GitHub REST transport failed; read outcome unknown"
+            ) from None
+        if not raw or len(raw) > _MAX_RESPONSE_BYTES:
+            raise ValueError("GitHub REST response is empty or oversized")
+        try:
+            decoded = json.loads(
+                raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ValueError("GitHub REST response is not strict JSON") from None
+        if not isinstance(decoded, dict):
+            raise ValueError("GitHub REST response must be an object")
+        return decoded
 
 def prepare_disposable_registry_plan(
     objects: RegistryObjectReader,
@@ -304,11 +391,10 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         parser.error("GH_TOKEN or GITHUB_TOKEN is required for disposable CAS")
 
-    from tools.branch_hygiene import GitHubApi
     from tools.github_coordination_registry_reader import GitHubRegistryObjectReader
 
     reader = GitHubRegistryObjectReader(
-        GitHubApi(repository=args.repository, token=token, api_url=_API_URL),
+        GitHubGitObjectHttpApi(repository=args.repository, token=token),
         expected_repository=args.repository,
         registry_path=args.registry_path,
     )
@@ -338,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "GitHubGitObjectHttpApi",
     "GitHubGraphQLHttpApi",
     "execute_disposable_registry_cas",
     "inspect_disposable_interrupted_cas",

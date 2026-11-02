@@ -9,7 +9,12 @@ from typing import Any
 
 import pytest
 
-from tools.github_coordination_disposable_e2e import GitHubGraphQLHttpApi, main
+from tools.github_coordination_disposable_e2e import (
+    GitHubGitObjectHttpApi,
+    GitHubGraphQLHttpApi,
+    _NoRedirect,
+    main,
+)
 
 
 def _stub_post(
@@ -117,3 +122,181 @@ def test_http_client_rejects_oversized_request_without_network(
     with pytest.raises(ValueError, match="bounded payload"):
         api.execute("query " + "x" * 65536, {})
     assert observed == []
+
+
+REPOSITORY = "shuntatsu/trade-rl-coordination-disposable"
+COMMIT_OID = "a" * 40
+TREE_OID = "b" * 40
+
+
+def test_default_python_redirect_copies_auth_but_guard_blocks_it() -> None:
+    request = urllib.request.Request(
+        "https://api.github.com/repos/a/b",
+        headers={"Authorization": "Bearer simulated-secret"},
+    )
+    url = "https://untrusted.example/steal"
+    # Regression: standard urllib handler *does* copy the bearer credential.
+    redirected = urllib.request.HTTPRedirectHandler().redirect_request(
+        request, None, 302, "Found", {}, url
+    )
+    assert redirected is not None
+    assert redirected.get_header("Authorization") == "Bearer simulated-secret"
+    # The test-only transports must explicitly suppress that redirect path.
+    assert _NoRedirect().redirect_request(
+        request, None, 302, "Found", {}, url
+    ) is None
+
+
+def test_rest_git_reader_uses_fixed_host_get_and_no_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubGitObjectHttpApi(
+        repository=REPOSITORY, token="secret-never-log"
+    )
+    seen: list[urllib.request.Request] = []
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            assert size == 1024 * 1024 + 1
+            return b'{"sha":"' + COMMIT_OID.encode() + b'"}'
+
+    class Opener:
+        def open(
+            self, request: urllib.request.Request, *, timeout: int
+        ) -> Response:
+            assert timeout == 30
+            seen.append(request)
+            return Response()
+
+    def build(*handlers: object) -> Opener:
+        assert len(handlers) == 1 and isinstance(handlers[0], _NoRedirect)
+        return Opener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", build)
+    assert api._request_json("GET", f"git/commits/{COMMIT_OID}") == {
+        "sha": COMMIT_OID
+    }
+    assert api._request_json(
+        "GET", f"git/trees/{TREE_OID}", query={"recursive": "1"}
+    ) == {"sha": COMMIT_OID}
+    assert [req.full_url for req in seen] == [
+        f"https://api.github.com/repos/{REPOSITORY}/git/commits/{COMMIT_OID}",
+        f"https://api.github.com/repos/{REPOSITORY}/git/trees/{TREE_OID}?recursive=1",
+    ]
+    assert all(req.get_method() == "GET" for req in seen)
+    assert all(
+        req.get_header("Authorization") == "Bearer secret-never-log"
+        for req in seen
+    )
+    assert "secret-never-log" not in repr(api)
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix", "query"),
+    [
+        ("POST", f"git/commits/{COMMIT_OID}", None),
+        ("GET", "branches", None),
+        ("GET", "git/commits/../main", None),
+        ("GET", f"git/blobs/{COMMIT_OID}?evil=true", None),
+        ("GET", f"git/commits/{COMMIT_OID}", {"recursive": "1"}),
+        ("GET", f"git/trees/{TREE_OID}", None),
+        ("GET", f"git/trees/{TREE_OID}", {"recursive": "0"}),
+    ],
+)
+def test_rest_read_rejects_unapproved_method_path_or_query_before_io(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    suffix: str,
+    query: dict[str, str] | None,
+) -> None:
+    api = GitHubGitObjectHttpApi(repository=REPOSITORY, token="test-token")
+
+    def forbid(*_args: object) -> None:
+        raise AssertionError("unauthorized HTTP call")
+
+    monkeypatch.setattr(urllib.request, "build_opener", forbid)
+    with pytest.raises(ValueError, match="REST reader"):
+        api._request_json(method, suffix, query=query)
+
+
+def test_rest_redirect_and_errors_never_reveal_bearer_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubGitObjectHttpApi(repository=REPOSITORY, token="secret-never-log")
+
+    class FailingOpener:
+        def open(
+            self, request: urllib.request.Request, *, timeout: int
+        ) -> None:
+            raise urllib.error.HTTPError(
+                request.full_url, 302, "redirect with secret-never-log", {},
+                None
+            )
+
+    def builder(*handlers: object) -> FailingOpener:
+        assert len(handlers) == 1 and isinstance(handlers[0], _NoRedirect)
+        return FailingOpener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", builder)
+    with pytest.raises(RuntimeError, match="REST transport failed") as exc:
+        api._request_json("GET", f"git/commits/{COMMIT_OID}")
+    assert "secret-never-log" not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (b"", "empty or oversized"),
+        (b"x" * (1024 * 1024 + 1), "empty or oversized"),
+        (b"not-json", "not strict JSON"),
+        (b'{"sha":"a","sha":"b"}', "duplicate JSON fields"),
+        (b"[]", "must be an object"),
+    ],
+)
+def test_rest_reader_rejects_malformed_untrusted_json(
+    monkeypatch: pytest.MonkeyPatch, response: bytes, message: str
+) -> None:
+    api = GitHubGitObjectHttpApi(repository=REPOSITORY, token="test-token")
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int) -> bytes:
+            return response
+
+    class FakeOpener:
+        def open(
+            self, _req: urllib.request.Request, *, timeout: int
+        ) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        urllib.request, "build_opener", lambda *handlers: FakeOpener()
+    )
+    with pytest.raises(ValueError, match=message):
+        api._request_json("GET", f"git/commits/{COMMIT_OID}")
+
+
+@pytest.mark.parametrize(
+    ("repository", "message"),
+    [
+        ("shuntatsu/trade_rl", "disposable"),
+        ("shuntatsu/not-disposable", "disposable"),
+        ("bad", "repository"),
+    ],
+)
+def test_rest_disposable_repository_guard_is_independent_of_cli(
+    repository: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        GitHubGitObjectHttpApi(repository=repository, token="test-token")

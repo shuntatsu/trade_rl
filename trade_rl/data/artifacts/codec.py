@@ -241,6 +241,11 @@ def _load_dataset_files_with_digest(
     if manifest.get("arrays_file") != DATASET_ARRAYS_NAME:
         raise ValueError("dataset arrays file identity is invalid")
     metadata = _mapping(manifest.get("arrays"), field="arrays")
+    overlapping_fields = sorted(set(scalar_meta).intersection(metadata))
+    if overlapping_fields:
+        raise ValueError(
+            f"dataset artifact scalar/array field overlap: {overlapping_fields}"
+        )
     has_funding_price_rate = "funding_price_rate" in metadata
     if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 and not has_funding_price_rate:
         raise ValueError("v4 artifact is missing funding_price_rate")

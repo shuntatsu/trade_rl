@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -309,6 +310,33 @@ def test_v4_loader_rejects_missing_and_changed_funding_price_rate(
 
     with pytest.raises(ValueError, match="dataset_id"):
         load_market_dataset_artifact(tmp_path)
+
+
+@pytest.mark.parametrize("schema", ("v3", "v4"))
+@pytest.mark.parametrize(
+    "loader",
+    (load_market_dataset_artifact, load_published_market_dataset_artifact),
+)
+def test_dataset_artifact_rejects_shadowed_array_metadata_even_with_valid_manifest_digest(
+    tmp_path: Path,
+    schema: str,
+    loader: Callable[[Path], object],
+) -> None:
+    # Duplicate field names across the scalar and array sections must not be
+    # silently overwritten: the outer digest authenticates the crafted JSON,
+    # not the uniqueness of fields across two different namespaces.
+    dataset = _dataset_v7() if schema == "v4" else _dataset()
+    field = "funding_price_rate" if schema == "v4" else "funding_rate"
+    manifest_path = write_market_dataset_files(tmp_path, dataset).manifest_path
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert field in manifest["arrays"] and field not in manifest["dataset"]
+    manifest["dataset"][field] = "spoofed scalar field"
+    manifest.pop("artifact_digest")
+    manifest["artifact_digest"] = content_digest(manifest)
+    manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+    with pytest.raises(ValueError, match="scalar/array field overlap"):
+        loader(tmp_path)
 
 
 def test_v4_artifact_cannot_be_downgraded_to_v3(tmp_path: Path) -> None:

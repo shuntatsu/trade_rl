@@ -188,9 +188,7 @@ class GitHubGraphQLHttpApi:
             }
             input_value = variables.get("input")
             updates = (
-                input_value.get("refUpdates")
-                if type(input_value) is dict
-                else None
+                input_value.get("refUpdates") if type(input_value) is dict else None
             )
             update = (
                 updates[0]

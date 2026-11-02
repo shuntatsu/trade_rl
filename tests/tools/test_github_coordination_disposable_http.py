@@ -412,6 +412,7 @@ def test_graphql_rejects_nonfinite_request_before_network(
         api.execute(_READ_REF_QUERY, {"invalid": float("nan")})
     assert observed == []
 
+
 COMMIT_OID = "a" * 40
 TREE_OID = "b" * 40
 

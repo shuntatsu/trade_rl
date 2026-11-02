@@ -80,6 +80,10 @@ candidateの比較対象は、このreachable lineage上のbaselineです。
 
 PPO training layoutの比較では、`ppo_training_layout`と`ppo_rollout_steps_per_env`の組だけをControlled Factorとして変えます。SB3はwhole rollout単位で学習するため、requested timestep数だけでは公平な比較になりません。candidate evidenceに実際のtransition数を保存し、両条件で揃えて比べます。
 
+`FORECAST_SWITCH_COST`はRidge / LightGBMだけの一因子です。共通の24時間先log-return予測を保ち、`forecast_switch_cost=null`（従来通り）と片道simple-return費用proxy（5bpのfee + 2bpのspread = `0.0007`）を明示的に区別します。`resolved_run_config_v7`と結果`lean_candidate_result_v10`はこの差をdigestへ記録します。意図の切替判定と実際の約定feeは別の責務です。
+
+結果を見る前のG0では「コスト制御に利益改善の証拠はまだない」とします。G1ではRidge / LightGBM以外を変更しないことを固定し、G2ではentry・exit・reversal、等号で変更しない厳密条件、log/simple単位換算、無効値の拒否、PPO・rules・controlsのraw returns不変を人工データで検証します。旧ridge-only研究の数字は単位修正後の効果ではありません。このsoftware整備だけでは新しい経済実験やunused/final評価、実売買を認可しません。
+
 ## 4. Candidate EvidenceSetを生成する
 
 同じStudy authorityの下でcandidateを実行します。候補だけ別のexecution accountingや別の評価期間へ切り替えません。

@@ -264,6 +264,7 @@ def test_run_schema_capability_is_available_through_public_facade() -> None:
     assert supports_shared_cash_result_schema("lean_candidate_result_v7")
     assert not supports_shared_cash_result_schema("lean_candidate_result_v8")
     assert supports_shared_cash_result_schema("lean_candidate_result_v9")
+    assert supports_shared_cash_result_schema("lean_candidate_result_v10")
     assert not supports_shared_cash_result_schema(None)
 
 

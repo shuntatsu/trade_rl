@@ -37,6 +37,7 @@ from trade_rl.evaluation.runs import (
         ("lean_candidate_result_v7", False),
         ("lean_candidate_result_v8", True),
         ("lean_candidate_result_v9", False),
+        ("lean_candidate_result_v10", False),
     ),
 )
 def test_evidence_set_run_schema_enforces_shared_cash_capability(
@@ -61,6 +62,8 @@ def test_evidence_set_run_schema_enforces_shared_cash_capability(
     candidate_config = dict(summary["candidate_config"])
     if result_schema == "lean_candidate_result_v7":
         candidate_config.pop("supervised_forecast_horizon_hours")
+    if result_schema != "lean_candidate_result_v10":
+        candidate_config.pop("forecast_switch_cost", None)
     summary["candidate_config"] = candidate_config
     run = replace(run, summary=summary)
 
@@ -238,6 +241,7 @@ def _legacy_semantic_config(
         "ppo_settle_terminal_position": 4,
         "pretrade_risk_config": 5,
         "supervised_forecast_horizon_hours": 6,
+        "forecast_switch_cost": 7,
     }
     for field, introduced_version in introduced_versions.items():
         if version < introduced_version:
@@ -263,6 +267,7 @@ def _downgrade_summary_to_version(summary: dict[str, object], version: int) -> N
         "ppo_training_minimum_hold_suppressed_count": 4,
         "pretrade_risk_config": 5,
         "supervised_forecast_horizon_hours": 8,
+        "forecast_switch_cost": 10,
     }
     for field, introduced_version in candidate_fields.items():
         if version < introduced_version:

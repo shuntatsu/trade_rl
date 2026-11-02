@@ -34,6 +34,7 @@ _RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
 _RESOLVED_RUN_CONFIG_V4 = "resolved_run_config_v4"
 _RESOLVED_RUN_CONFIG_V5 = "resolved_run_config_v5"
 _RESOLVED_RUN_CONFIG_V6 = "resolved_run_config_v6"
+_RESOLVED_RUN_CONFIG_V7 = "resolved_run_config_v7"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -70,6 +71,7 @@ class ResolvedRunConfig:
     gross_budget: float
     initial_capital: float
     execution_overlay: str
+    forecast_switch_cost: float | None = None
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
@@ -169,7 +171,7 @@ class ResolvedRunConfig:
             field="execution_overlay",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
-        if schema_version == _RESOLVED_RUN_CONFIG_V6:
+        if schema_version in {_RESOLVED_RUN_CONFIG_V6, _RESOLVED_RUN_CONFIG_V7}:
             try:
                 supervised_forecast_horizon_hours = (
                     validate_supervised_forecast_horizon_hours(
@@ -211,6 +213,7 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
@@ -255,6 +258,7 @@ class ResolvedRunConfig:
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
                 _RESOLVED_RUN_CONFIG_V6,
+                _RESOLVED_RUN_CONFIG_V7,
             }:
                 if ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
                     if ppo_rollout_steps_per_env is not None:
@@ -273,6 +277,7 @@ class ResolvedRunConfig:
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
                 _RESOLVED_RUN_CONFIG_V6,
+                _RESOLVED_RUN_CONFIG_V7,
             }:
                 ppo_minimum_hold_bars = contract_non_negative_int(
                     self.ppo_minimum_hold_bars,
@@ -297,6 +302,7 @@ class ResolvedRunConfig:
             if schema_version in {
                 _RESOLVED_RUN_CONFIG_V5,
                 _RESOLVED_RUN_CONFIG_V6,
+                _RESOLVED_RUN_CONFIG_V7,
             }:
                 if self.pretrade_risk_config is not None and not isinstance(
                     self.pretrade_risk_config, PreTradeRiskConfig
@@ -325,6 +331,22 @@ class ResolvedRunConfig:
         else:
             raise ContractViolationError("unsupported resolved-run config schema")
 
+        forecast_switch_cost = self.forecast_switch_cost
+        if schema_version == _RESOLVED_RUN_CONFIG_V7:
+            if forecast_switch_cost is not None:
+                forecast_switch_cost = contract_finite(
+                    forecast_switch_cost,
+                    field="forecast_switch_cost",
+                )
+                if forecast_switch_cost < 0.0:
+                    raise ContractViolationError(
+                        "forecast_switch_cost must be finite and non-negative"
+                    )
+        elif forecast_switch_cost is not None:
+            raise ContractViolationError(
+                "legacy resolved-run config cannot define forecast_switch_cost"
+            )
+
         object.__setattr__(self, "signal_name", signal_name)
         object.__setattr__(self, "signal_index", signal_index)
         object.__setattr__(self, "feature_names", feature_names)
@@ -343,6 +365,7 @@ class ResolvedRunConfig:
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
         object.__setattr__(self, "execution_overlay", execution_overlay)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
         object.__setattr__(self, "ppo_observation_schema", ppo_observation_schema)
         object.__setattr__(self, "ppo_global_feature_names", ppo_global_feature_names)
         object.__setattr__(self, "schema_version", schema_version)
@@ -370,7 +393,7 @@ class ResolvedRunConfig:
         cls,
         spec: ResolvedCandidateRunSpec,
         *,
-        schema_version: str = _RESOLVED_RUN_CONFIG_V6,
+        schema_version: str = _RESOLVED_RUN_CONFIG_V7,
     ) -> ResolvedRunConfig:
         """Project one Run Core spec into the controlled-experiment contract."""
 
@@ -382,15 +405,18 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }
         uses_duration = schema_version in {
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }
         uses_risk = schema_version in {
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }
         return cls(
             signal_name=config.signal_name,
@@ -432,6 +458,11 @@ class ResolvedRunConfig:
             ),
             pretrade_risk_config=config.pretrade_risk_config if uses_risk else None,
             supervised_forecast_horizon_hours=(lean.supervised_forecast_horizon_hours),
+            forecast_switch_cost=(
+                config.forecast_switch_cost
+                if schema_version == _RESOLVED_RUN_CONFIG_V7
+                else None
+            ),
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -462,6 +493,7 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
@@ -470,6 +502,7 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             payload["ppo_training_layout"] = self.ppo_training_layout
             payload["ppo_rollout_steps_per_env"] = self.ppo_rollout_steps_per_env
@@ -477,12 +510,14 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             payload["ppo_minimum_hold_bars"] = self.ppo_minimum_hold_bars
             payload["ppo_settle_terminal_position"] = self.ppo_settle_terminal_position
         if self.schema_version in {
             _RESOLVED_RUN_CONFIG_V5,
             _RESOLVED_RUN_CONFIG_V6,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             risk = self.pretrade_risk_config
             payload["pretrade_risk_config"] = (
@@ -498,10 +533,12 @@ class ResolvedRunConfig:
                     "fail_closed_tolerance": risk.fail_closed_tolerance,
                 }
             )
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V6:
+        if self.schema_version in {_RESOLVED_RUN_CONFIG_V6, _RESOLVED_RUN_CONFIG_V7}:
             payload["supervised_forecast_horizon_hours"] = (
                 self.supervised_forecast_horizon_hours
             )
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V7:
+            payload["forecast_switch_cost"] = self.forecast_switch_cost
         return payload
 
     @property

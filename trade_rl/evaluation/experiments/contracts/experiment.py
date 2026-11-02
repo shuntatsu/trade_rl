@@ -27,6 +27,7 @@ class ControlledFactor(StrEnum):
     PPO_TRAINING_LAYOUT = "PPO_TRAINING_LAYOUT"
     PPO_MINIMUM_HOLD = "PPO_MINIMUM_HOLD"
     GROSS_BUDGET = "GROSS_BUDGET"
+    FORECAST_SWITCH_COST = "FORECAST_SWITCH_COST"
 
 
 @dataclass(frozen=True, slots=True)

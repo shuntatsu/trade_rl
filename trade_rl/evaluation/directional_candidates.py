@@ -111,6 +111,7 @@ def fit_directional_candidate(
             ridge,
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
+            one_way_switch_cost=config.forecast_switch_cost,
         )
     if arm == "lightgbm24":
         gbm = fit_lightgbm_forecast(
@@ -126,6 +127,7 @@ def fit_directional_candidate(
             gbm,
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
+            one_way_switch_cost=config.forecast_switch_cost,
         )
     cutoff = (
         int(np.searchsorted(dataset.timestamps, np.datetime64(config.fit_cutoff))) - 1

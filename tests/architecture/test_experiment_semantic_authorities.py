@@ -75,7 +75,7 @@ def test_resolved_run_config_owns_candidate_spec_conversion() -> None:
     resolved = ResolvedRunConfig.from_candidate_spec(_spec())
 
     assert resolved.to_payload() == {
-        "schema_version": "resolved_run_config_v6",
+        "schema_version": "resolved_run_config_v7",
         "signal_name": "signal",
         "signal_index": 0,
         "feature_names": ["signal", "volatility"],
@@ -97,6 +97,7 @@ def test_resolved_run_config_owns_candidate_spec_conversion() -> None:
         "ppo_settle_terminal_position": False,
         "pretrade_risk_config": None,
         "supervised_forecast_horizon_hours": 24,
+        "forecast_switch_cost": None,
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,

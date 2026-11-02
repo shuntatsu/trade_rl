@@ -90,6 +90,7 @@ class LeanCandidateConfig:
     forecast_exit_threshold: float
     ppo_total_timesteps: int
     ppo_seed: int = 0
+    forecast_switch_cost: float | None = None
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
     ppo_minimum_hold_bars: int = 0
@@ -140,6 +141,18 @@ class LeanCandidateConfig:
             raise ValueError("rule exit threshold must be below entry threshold")
         if self.forecast_exit_threshold >= self.forecast_entry_threshold:
             raise ValueError("forecast exit threshold must be below entry threshold")
+        forecast_switch_cost = self.forecast_switch_cost
+        if forecast_switch_cost is not None:
+            if (
+                isinstance(forecast_switch_cost, bool)
+                or not isinstance(forecast_switch_cost, (int, float))
+                or not math.isfinite(forecast_switch_cost)
+                or forecast_switch_cost < 0.0
+            ):
+                raise ValueError(
+                    "forecast_switch_cost must be a finite non-negative number or null"
+                )
+            forecast_switch_cost = float(forecast_switch_cost)
         if (
             isinstance(self.ppo_total_timesteps, bool)
             or not isinstance(self.ppo_total_timesteps, int)
@@ -193,6 +206,7 @@ class LeanCandidateConfig:
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", fit_cutoff)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
         object.__setattr__(
             self,
             "supervised_forecast_horizon_hours",
@@ -360,6 +374,7 @@ def run_lean_candidate_suite(
                 ridge_model,
                 entry_threshold=config.forecast_entry_threshold,
                 exit_threshold=config.forecast_exit_threshold,
+                one_way_switch_cost=config.forecast_switch_cost,
             )
         ),
         f"lightgbm{config.supervised_forecast_horizon_hours}": lambda: (
@@ -367,6 +382,7 @@ def run_lean_candidate_suite(
                 lightgbm_model,
                 entry_threshold=config.forecast_entry_threshold,
                 exit_threshold=config.forecast_exit_threshold,
+                one_way_switch_cost=config.forecast_switch_cost,
             )
         ),
         "ppo": lambda: PPOIntentStrategy(

@@ -93,6 +93,15 @@ def _v6_payload(*, horizon_hours: int = 24) -> dict[str, object]:
     return payload
 
 
+def _v7_payload(
+    *, horizon_hours: int = 24, forecast_switch_cost: float | None = None
+) -> dict[str, object]:
+    payload = _v6_payload(horizon_hours=horizon_hours)
+    payload["schema_version"] = "resolved_run_config_v7"
+    payload["forecast_switch_cost"] = forecast_switch_cost
+    return payload
+
+
 def _study_plan(baseline_config) -> StudyPlan:
     return StudyPlan(
         research_question="Does the frozen M2 baseline generalize?",
@@ -350,3 +359,22 @@ def test_historical_v1_study_rejects_new_v2_evidence_before_execution() -> None:
 
     with pytest.raises(ArtifactIntegrityError, match="Study-fixed"):
         _check_study_fixed_config(plan, current)
+
+
+def test_resolved_run_v7_binds_optional_forecast_switch_cost() -> None:
+    payload = _v7_payload(forecast_switch_cost=0.0007)
+    resolved = _resolved_from_payload(payload, field="current")
+    assert resolved.to_payload() == payload
+    assert resolved.forecast_switch_cost == pytest.approx(0.0007)
+
+    null_payload = _v7_payload(forecast_switch_cost=None)
+    null_resolved = _resolved_from_payload(null_payload, field="current-null")
+    assert null_resolved.to_payload()["forecast_switch_cost"] is None
+    assert null_resolved.digest != resolved.digest
+
+
+def test_resolved_run_v6_cannot_backfill_forecast_switch_cost() -> None:
+    payload = _v6_payload()
+    payload["forecast_switch_cost"] = 0.0007
+    with pytest.raises(ArtifactIntegrityError):
+        _resolved_from_payload(payload, field="legacy-v6")

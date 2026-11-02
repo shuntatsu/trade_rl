@@ -423,6 +423,8 @@ def test_evidence_loader_rejects_newer_run_fields_after_schema_downgrade(
         )
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         summary["schema_version"] = "lean_candidate_result_v1"
+        # Keep the old test focused on other newer-than-v1 Run fields.
+        summary["candidate_config"].pop("forecast_switch_cost", None)
         summary_path.write_text(
             json.dumps(summary, sort_keys=True, indent=2),
             encoding="utf-8",

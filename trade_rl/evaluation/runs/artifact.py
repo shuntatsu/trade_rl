@@ -1360,6 +1360,13 @@ def _load_with_evidence(
     result_schema = summary.get("schema_version")
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
+    candidate_config = summary.get("candidate_config")
+    if (
+        result_schema != _RESULT_SCHEMA_V10
+        and isinstance(candidate_config, Mapping)
+        and "forecast_switch_cost" in candidate_config
+    ):
+        raise ValueError("legacy candidate result cannot define forecast switch cost")
     if (
         result_schema in {_RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
         and summary.get("ppo_observation") != ppo_observation_contract_payload()

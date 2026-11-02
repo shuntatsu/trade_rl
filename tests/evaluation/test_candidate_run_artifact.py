@@ -504,6 +504,7 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     legacy_summary = json.loads(legacy_summary_path.read_text(encoding="utf-8"))
     legacy_summary["schema_version"] = "lean_candidate_result_v7"
     legacy_summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    legacy_summary["candidate_config"].pop("forecast_switch_cost")
     legacy_summary_path.write_text(
         json.dumps(legacy_summary, sort_keys=True, separators=(",", ":")),
         encoding="utf-8",

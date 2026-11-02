@@ -52,13 +52,12 @@ def _false(value: Mapping[str, Any], *keys: str) -> None:
 
 
 def _unique_strings(value: object, label: str) -> list[str]:
-    rows = _rows(value, label)
-    names = list(rows)
-    if (
-        any(type(name) is not str or not name.strip() for name in names)
-        or len(set(names)) != len(names)
-        or names != sorted(names)
-    ):
+    names: list[str] = []
+    for name in _rows(value, label):
+        if not isinstance(name, str) or type(name) is not str or not name.strip():
+            raise ValueError(f"{label} is malformed, duplicated or unordered")
+        names.append(name)
+    if len(set(names)) != len(names) or names != sorted(names):
         raise ValueError(f"{label} is malformed, duplicated or unordered")
     return names
 

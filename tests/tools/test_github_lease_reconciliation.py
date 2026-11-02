@@ -486,3 +486,28 @@ def test_unfinished_supplied_attempt_requires_workflow_branch_in_inventory(
     e["artifacts"][0]["conclusion"] = None  # type: ignore[index]
     with pytest.raises(ValueError, match="unfinished workflow"):
         _inspect(e)
+
+
+class _StrSubclass(str):
+    """Reject a non-native string even though it supports str operations."""
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [False, 7, 1.0, None, {}, [], _StrSubclass("branch"), ""],
+)
+def test_unfinished_workflow_refs_require_native_nonempty_strings(
+    invalid: object,
+) -> None:
+    e = _evidence()
+    e["inventory"]["unfinished_workflow_branches"] = [invalid]  # type: ignore[index]
+    with pytest.raises(ValueError, match="malformed, duplicated or unordered"):
+        _inspect(e)
+
+
+def test_unfinished_workflow_refs_reject_unsorted_values() -> None:
+    e = _evidence()
+    values = ["zzz", "aaa"]
+    e["inventory"]["unfinished_workflow_branches"] = values  # type: ignore[index]
+    with pytest.raises(ValueError, match="malformed, duplicated or unordered"):
+        _inspect(e)

@@ -23,6 +23,7 @@ from trade_rl.simulation.accounting import (
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
+    TerminalOrderArchive,
 )
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
@@ -322,7 +323,11 @@ class _FillResult:
 
 
 class MarketExecutor:
-    """Execute one decision target while holding filled quantities."""
+    """Execute one decision target while holding filled quantities.
+
+    The public execution observer receives a cumulative terminal-order archive.
+    The internal trace observer receives only the suffix appended this call.
+    """
 
     def __init__(
         self,
@@ -332,6 +337,8 @@ class MarketExecutor:
         rule_stress: ExecutionRuleStress | None = None,
         market_order_profile: MarketOrderProfile | None = None,
         execution_observer: Callable[[StatefulExecutionObservation], None]
+        | None = None,
+        execution_trace_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     ) -> None:
@@ -347,7 +354,12 @@ class MarketExecutor:
         self.market_order_profile = market_order_profile
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
+        if execution_trace_observer is not None and not callable(
+            execution_trace_observer
+        ):
+            raise TypeError("execution_trace_observer must be callable")
         self._execution_observer = execution_observer
+        self._execution_trace_observer = execution_trace_observer
         self._execution_policy_digest_cache: str | None = None
         self._execution_policy_digest_cache_inputs: (
             tuple[
@@ -1109,12 +1121,19 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-    ) -> tuple[ExecutionResult, StatefulExecutionResult]:
+    ) -> tuple[
+        ExecutionResult,
+        StatefulExecutionResult,
+        TerminalOrderArchive,
+    ]:
         state = (
             self._compatibility_order_book
             if book is self._compatibility_last_book
             else OrderBookState.empty()
         )
+        previous_terminal_orders = state.terminal_orders
+        if not isinstance(previous_terminal_orders, TerminalOrderArchive):
+            raise RuntimeError("terminal order archive was not normalized")
         target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
         target_identity = content_digest(
             {
@@ -1186,7 +1205,7 @@ class MarketExecutor:
             participation_by_symbol=stateful.participation_by_symbol,
             cost_by_symbol=stateful.cost_by_symbol,
         )
-        return compatibility, stateful
+        return compatibility, stateful, previous_terminal_orders
 
     def execute_interval(
         self,
@@ -1197,15 +1216,23 @@ class MarketExecutor:
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
     ) -> ExecutionResult:
-        compatibility, stateful = self._execute_interval_with_stateful_evidence(
-            book,
-            target,
-            start_index=start_index,
-            bars=bars,
-            hold_current_quantity_symbols=hold_current_quantity_symbols,
+        compatibility, stateful, previous_terminal_orders = (
+            self._execute_interval_with_stateful_evidence(
+                book,
+                target,
+                start_index=start_index,
+                bars=bars,
+                hold_current_quantity_symbols=hold_current_quantity_symbols,
+            )
         )
         if self._execution_observer is not None:
             self._execution_observer(StatefulExecutionObservation.from_result(stateful))
+        if self._execution_trace_observer is not None:
+            self._execution_trace_observer(
+                StatefulExecutionObservation.from_result_since(
+                    stateful, previous_terminal_orders
+                )
+            )
         return compatibility
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:

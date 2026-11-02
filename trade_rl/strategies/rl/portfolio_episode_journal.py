@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 from collections.abc import Mapping, Sequence
@@ -18,7 +19,8 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes, to_json_value
 from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 
-PORTFOLIO_EPISODE_JOURNAL_SCHEMA = "shared_portfolio_episode_journal_v1"
+PORTFOLIO_EPISODE_JOURNAL_SCHEMA = "shared_portfolio_episode_journal_v2"
+_DECISION_TRACE_SCHEMA = "shared_portfolio_decision_trace_v1"
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _MAX_ACTION_VALUES = 256
 
@@ -174,6 +176,7 @@ class PortfolioEpisodeJournalWrapper(
             "recorded_content": [
                 "submitted_action",
                 "source_action_codes",
+                "proposal_and_approved_targets_with_native_execution_events",
                 "reward",
                 "termination_flags",
                 "native_interval_and_terminal_facts",
@@ -325,8 +328,21 @@ class PortfolioEpisodeJournalWrapper(
         raw_effective_holds = info.get("effective_hold_symbols")
         if type(raw_effective_holds) not in (tuple, list):
             raise TypeError("source effective_hold_symbols must be a sequence")
+        raw_decision_trace = info.get("decision_trace")
+        if type(raw_decision_trace) is not dict:
+            raise TypeError("source decision_trace must be a dict")
+        if raw_decision_trace.get("schema") != _DECISION_TRACE_SCHEMA:
+            raise ValueError("source decision_trace schema is unsupported")
+        decision_trace = json.loads(canonical_json_bytes(raw_decision_trace))
+        if type(decision_trace) is not dict:
+            raise TypeError("source decision_trace must canonicalize to a dict")
+        if decision_trace.get("raw_action_codes") != list(
+            cast(Sequence[int], raw_action)
+        ):
+            raise ValueError("decision_trace action codes differ from source action")
         facts = {
             "raw_action_codes": list(cast(Sequence[int], raw_action)),
+            "decision_trace": decision_trace,
             "current_index": current_index,
             "elapsed_intervals": elapsed_intervals,
             "target_weights": [
@@ -341,6 +357,8 @@ class PortfolioEpisodeJournalWrapper(
             "objective_endpoint_valid": endpoint_valid,
             "terminal_state": terminal_state,
         }
+        if decision_trace.get("proposal_weights") != facts["target_weights"]:
+            raise ValueError("decision_trace proposal differs from source target")
         canonical_json_bytes(facts)
         return resolved_reward, resolved_terminated, resolved_truncated, facts
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +92,107 @@ def _named_project_surfaces(signals: tuple[SemanticSignal, ...], kind: str) -> s
     return ", ".join(values)
 
 
+def _add_existing_tests(root: Path, selected: set[str], paths: tuple[str, ...]) -> None:
+    """Only select maintained tests verified to exist as ordinary files."""
+
+    for path in paths:
+        if _existing(root, path):
+            selected.add(path)
+
+
+def _has_scope_symbols(root: Path, source: str) -> bool:
+    """Detect real names, not comments mentioning dataset or symbol scope."""
+
+    path = checked_repo_file(root, root / source)
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=source)
+    names = {
+        node.id if isinstance(node, ast.Name) else node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Name, ast.Attribute))
+    }
+    names.update(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+    return any(
+        any(piece in name.lower() for piece in ("feature", "symbol", "dataset_scope"))
+        for name in names
+    )
+
+
+def _contract_routes(
+    root: Path,
+    source: str,
+    *,
+    validation_hints: tuple[str, ...],
+    tests: set[str],
+) -> set[str]:
+    """Supplement static imports with existing cross-boundary contract oracles.
+
+    These are regression-test routes, not authorization or task answer keys.
+    """
+
+    areas: set[str] = set()
+    if source == "trade_rl/evaluation/runs/config.py":
+        _add_existing_tests(
+            root,
+            tests,
+            (
+                "tests/evaluation/test_candidate_run_config.py",
+                "tests/evaluation/test_candidate_run_cli.py",
+                "tests/evaluation/test_candidate_run_artifact.py",
+                "tests/evaluation/test_candidate_run_provenance.py",
+            ),
+        )
+        areas.add("run_config")
+    if source in (
+        "trade_rl/evaluation/runs/artifact.py",
+        "trade_rl/evaluation/runs/provenance.py",
+    ):
+        _add_existing_tests(
+            root,
+            tests,
+            (
+                "tests/evaluation/test_candidate_run_artifact.py",
+                "tests/evaluation/test_candidate_run_artifact_identity.py",
+                "tests/evaluation/test_candidate_run_malformed_archive_errors.py",
+                "tests/evaluation/test_candidate_run_provenance.py",
+            ),
+        )
+        areas.add("run_artifact")
+    if source == "trade_rl/_validation.py" or validation_hints:
+        _add_existing_tests(root, tests, ("tests/test_validation.py",))
+        areas.add("validation")
+    if source.startswith(
+        (
+            "trade_rl/data/",
+            "trade_rl/strategies/",
+            "trade_rl/evaluation/runs/",
+        )
+    ) and _has_scope_symbols(root, source):
+        _add_existing_tests(
+            root, tests, ("tests/strategies/test_dataset_scope_contract.py",)
+        )
+        areas.add("dataset_scope")
+    if source in (
+        "trade_rl/integrations/binance/transport.py",
+        "trade_rl/integrations/binance/cache.py",
+    ):
+        _add_existing_tests(
+            root,
+            tests,
+            (
+                "tests/integrations/test_binance_exchange_info_fallback.py",
+                "tests/integrations/test_binance_response_bounds.py",
+                "tests/integrations/test_binance_cache_integrity_contract.py",
+                "tests/integrations/test_binance_cache_only.py",
+            ),
+        )
+        areas.add("binance")
+    return areas
+
+
 def plan_verification(
     repository: Path,
     *,
@@ -109,6 +211,7 @@ def plan_verification(
     }
 
     fast_tests: set[str] = set()
+    contract_areas: set[str] = set()
     index = SourceIndex.build(root)
     for path in sorted(production_paths):
         candidate = root / path
@@ -117,10 +220,23 @@ def plan_verification(
         checked_repo_file(root, candidate)
         context = index.context(path)
         fast_tests.update(context.test_candidates)
+        contract_areas.update(
+            _contract_routes(
+                root,
+                path,
+                validation_hints=context.validation_hints,
+                tests=fast_tests,
+            )
+        )
         if path.startswith("trade_rl/evaluation/runs/") and _existing(
             root, "tests/architecture/test_runs_capability_facade.py"
         ):
             fast_tests.add("tests/architecture/test_runs_capability_facade.py")
+
+    # A changed test is itself a valid targeted test; no import is required.
+    for path in changed_paths:
+        if path.startswith("tests/") and path.endswith(".py"):
+            _add_existing_tests(root, fast_tests, (path,))
 
     signal_kinds = {signal.kind for signal in signals}
     if "DEPENDENCY" in signal_kinds:
@@ -175,6 +291,30 @@ def plan_verification(
                     "network effect changed; verify transport, retry, fallback, and offline boundaries",
                 )
             )
+    if "run_artifact" in contract_areas:
+        steps.append(
+            VerificationStep(
+                "extended",
+                "manual: compare candidate artifact v1/v2 readers and tamper oracles",
+                "preserve historical artifact compatibility, digest and malformed input rejection",
+            )
+        )
+    if "binance" in contract_areas:
+        steps.append(
+            VerificationStep(
+                "extended",
+                "manual: inspect Binance fallback and invalid cache/response oracles",
+                "endpoint fallback must not accept integrity-invalid cached or malformed data",
+            )
+        )
+    if "DATA_FIELD" in signal_kinds:
+        steps.append(
+            VerificationStep(
+                "extended",
+                "manual: validate dataclass field serialization and consumer compatibility",
+                "added or changed typed state requires matching persisted and public contracts",
+            )
+        )
     if "SCHEMA" in signal_kinds:
         steps.append(
             VerificationStep(

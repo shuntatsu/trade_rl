@@ -133,6 +133,7 @@ class StatefulExecutionRuntime:
         *,
         processing_index: int,
         funding_amount: float,
+        observed_equity_before_funding: float,
     ) -> None:
         dataset = self.executor.dataset
         funding_due_array = np.asarray(
@@ -155,6 +156,17 @@ class StatefulExecutionRuntime:
             dtype=np.float64,
         )
         equity_after_funding = float(self.book.portfolio_value)
+        # Compare independent state observations; preserve legacy serialized
+        # before-equity arithmetic for v1 artifact byte compatibility.
+        if not math.isclose(
+            equity_after_funding,
+            observed_equity_before_funding + funding_amount,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                "funding book equity does not reconcile with pre-funding state"
+            )
         self.funding_evidence.append(
             FundingBoundaryEvidence(
                 processing_index=processing_index,
@@ -167,8 +179,20 @@ class StatefulExecutionRuntime:
                 ),
                 funding_rates=tuple(float(value) for value in funding_rates),
                 funding_amount=float(funding_amount),
-                equity_before_funding=equity_after_funding - float(funding_amount),
+                equity_before_funding=(
+                    observed_equity_before_funding
+                    if dataset.funding_price_rate is not None
+                    else equity_after_funding - float(funding_amount)
+                ),
                 equity_after_funding=equity_after_funding,
+                funding_price_rates=(
+                    tuple(
+                        float(value)
+                        for value in dataset.funding_price_rate[processing_index]
+                    )
+                    if dataset.funding_price_rate is not None
+                    else None
+                ),
             )
         )
 

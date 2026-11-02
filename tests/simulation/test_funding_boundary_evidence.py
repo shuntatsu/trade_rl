@@ -148,3 +148,34 @@ def test_multi_bar_execution_keeps_funding_boundaries_separate() -> None:
         [-1.2, -2.2]
     )
     assert result.interval_funding == pytest.approx(-3.4)
+
+
+def test_funding_boundary_rejects_executor_that_drops_funding_charge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A derived equity_before = equity_after - funding_amount would always
+    # agree even if the production book failed to apply the funding charge.
+    original = BookState.mark_to_market
+
+    def faulty_mark(
+        self: BookState,
+        *,
+        mark_prices: np.ndarray,
+        funding_amount: float,
+        period_start_value: float | None = None,
+        unbounded_loss_metrics: bool = False,
+    ) -> float:
+        return original(
+            self,
+            mark_prices=mark_prices,
+            funding_amount=0.0,
+            period_start_value=period_start_value,
+            unbounded_loss_metrics=unbounded_loss_metrics,
+        )
+
+    dataset = _dataset()
+    monkeypatch.setattr(BookState, "mark_to_market", faulty_mark)
+    with pytest.raises(ValueError, match="funding.*equity|equity.*funding"):
+        _executor(dataset).execute_orders(
+            _book(dataset), OrderBookState.empty(), (), start_index=0, bars=1
+        )

@@ -216,8 +216,18 @@ class StatefulBarLifecycle:
         if self._finish_retained_termination(runtime, context):
             return
         runtime.total_funding += funding_amount
+        mark_prices = dataset.resolved_array("mark_price")[processing_index]
+        multipliers = runtime.book.contract_multipliers
+        if multipliers is None:
+            raise ValueError("stateful funding requires contract multipliers")
+        # Snapshot book cash and marked inventory before funding is credited.
+        # Deriving this from the post-funding equity would make closure tautological.
+        equity_before_funding = float(
+            runtime.book.cash
+            + np.sum(runtime.book.quantities * mark_prices * multipliers)
+        )
         runtime.book.mark_to_market(
-            mark_prices=dataset.resolved_array("mark_price")[processing_index],
+            mark_prices=mark_prices,
             funding_amount=funding_amount,
             period_start_value=context.period_start_value,
             unbounded_loss_metrics=(executor.insolvency_valuation == "retain_debt"),
@@ -225,6 +235,7 @@ class StatefulBarLifecycle:
         runtime.record_funding_boundary(
             processing_index=processing_index,
             funding_amount=funding_amount,
+            observed_equity_before_funding=equity_before_funding,
         )
         executor._update_margin(runtime.book)
         if runtime.book.insolvent:

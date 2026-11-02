@@ -162,7 +162,11 @@ def test_test_only_real_model_plan_is_single_task_and_payload_bound() -> None:
         "cleanup_authorized",
     ):
         assert result[flag] is False
+    # Caller plan, executor preflight, and CAS validation independently
+    # re-read both commits before the final post-mutation payload check.
     assert objects.calls == [
+        (REPOSITORY, A),
+        (REPOSITORY, B),
         (REPOSITORY, A),
         (REPOSITORY, B),
         (REPOSITORY, A),

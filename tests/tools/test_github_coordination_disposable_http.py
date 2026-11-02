@@ -60,6 +60,8 @@ def test_real_http_request_is_fixed_host_post_bearer_json(
         (b"[]", "must be an object"),
         (b'{"data":{},"data":{}}', "duplicate JSON fields"),
         (b'{"data":{"viewer":{},"viewer":{}}}', "duplicate JSON fields"),
+        (b'{"data":{"value":NaN}}', "non-finite JSON constants"),
+        (b'{"data":{"value":Infinity}}', "non-finite JSON constants"),
         (b"x" * (1024 * 1024 + 1), "empty or oversized"),
     ],
 )
@@ -121,6 +123,16 @@ def test_http_client_rejects_oversized_request_without_network(
     observed = _stub_post(api, monkeypatch, b'{"data":{}}')
     with pytest.raises(ValueError, match="bounded payload"):
         api.execute("query " + "x" * 65536, {})
+    assert observed == []
+
+
+def test_graphql_rejects_nonfinite_request_before_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubGraphQLHttpApi("safe-token")
+    observed = _stub_post(api, monkeypatch, b'{"data":{}}')
+    with pytest.raises(ValueError, match="Out of range float values"):
+        api.execute("query X { viewer { login } }", {"invalid": float("nan")})
     assert observed == []
 
 
@@ -244,6 +256,7 @@ def test_rest_redirect_and_errors_never_reveal_bearer_secret(
         (b"x" * (1024 * 1024 + 1), "empty or oversized"),
         (b"not-json", "not strict JSON"),
         (b'{"sha":"a","sha":"b"}', "duplicate JSON fields"),
+        (b'{"sha":"a","noise":-Infinity}', "non-finite JSON constants"),
         (b"[]", "must be an object"),
     ],
 )

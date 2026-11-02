@@ -65,6 +65,10 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return data
 
 
+def _reject_nonfinite_json_constant(_constant: str) -> None:
+    raise ValueError("GitHub JSON response has non-finite JSON constants")
+
+
 class GitHubGraphQLHttpApi:
     """Fixed-host POST transport for the existing narrow GraphQL CAS protocol.
 
@@ -93,7 +97,9 @@ class GitHubGraphQLHttpApi:
         if not isinstance(variables, dict):
             raise ValueError("GraphQL variables must be a mapping")
         data = json.dumps(
-            {"query": document, "variables": variables}, separators=(",", ":")
+            {"query": document, "variables": variables},
+            separators=(",", ":"),
+            allow_nan=False,
         ).encode("utf-8")
         if len(data) > _MAX_REQUEST_BYTES:
             raise ValueError("GraphQL request exceeds the bounded payload limit")
@@ -113,7 +119,9 @@ class GitHubGraphQLHttpApi:
             raise ValueError("GitHub GraphQL response is empty or oversized")
         try:
             decoded = json.loads(
-                response.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys
+                response.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_nonfinite_json_constant,
             )
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise ValueError("GitHub GraphQL response is not strict JSON") from None
@@ -195,7 +203,9 @@ class GitHubGitObjectHttpApi:
             raise ValueError("GitHub REST response is empty or oversized")
         try:
             decoded = json.loads(
-                raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys
+                raw.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_nonfinite_json_constant,
             )
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise ValueError("GitHub REST response is not strict JSON") from None

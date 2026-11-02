@@ -23,17 +23,17 @@ class FakeReader:
 def test_stable_branches_include_active_and_do_not_claim_authority() -> None:
     names = frozenset({"main", "agent/T810/e0002-owner"})
     reader = FakeReader(names, names)
-    assert stable_workflow_branch_refs(
-        reader, known_branch_names=frozenset({*names, "provenance/branch-retention"})
-    ) == ("agent/T810/e0002-owner", "main")
+    known_branches = frozenset({*names, "provenance/branch-retention"})
+    actual = stable_workflow_branch_refs(reader, known_branch_names=known_branches)
+    assert actual == ("agent/T810/e0002-owner", "main")
     assert reader.calls == 2
 
 
 def test_empty_active_roster_requires_two_reads() -> None:
     reader = FakeReader(frozenset(), frozenset())
-    assert stable_workflow_branch_refs(
-        reader, known_branch_names=frozenset({"main"})
-    ) == ()
+    known_branches = frozenset({"main"})
+    actual = stable_workflow_branch_refs(reader, known_branch_names=known_branches)
+    assert actual == ()
     assert reader.calls == 2
 
 

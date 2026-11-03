@@ -731,8 +731,14 @@ def test_retention_log_parser_accepts_canonical_only_and_earliest_observation() 
     title = "Retain merged PR #1096 exact source after verified normal integration"
     canonical_late = f"{title}\n\n{branch}\t{sha}\n"
     canonical_early = f"{title}\n\n{branch}\t{sha}\n"
-    legacy = f"Observe non-anchor branch tips before cleanup grace period\n\n{branch}\t{sha}\n"
-    other_old = f"Observe merged PR #1096 source before cleanup grace period\n\n{branch}\t{sha}\n"
+    legacy = (
+        "Observe non-anchor branch tips before cleanup grace period\n\n"
+        f"{branch}\t{sha}\n"
+    )
+    other_old = (
+        "Observe merged PR #1096 source before cleanup grace period\n\n"
+        f"{branch}\t{sha}\n"
+    )
     payload = (
         f"200\x1f{canonical_late}\x1e150\x1f{canonical_early}\x1e"
         f"100\x1f{legacy}\x1e50\x1f{other_old}\x1e"
@@ -750,7 +756,9 @@ def test_retention_log_parser_accepts_canonical_only_and_earliest_observation() 
         "Retain merged PR #1096 exact source after verified normal integration extra",
     ],
 )
-def test_retention_log_parser_rejects_obsolete_or_ambiguous_titles(message: str) -> None:
+def test_retention_log_parser_rejects_obsolete_or_ambiguous_titles(
+    message: str,
+) -> None:
     branch = "automation/recent"
     sha = "a" * 40
     assert parse_retention_log(f"100\x1f{message}\n\n{branch}\t{sha}\x1e") == {}

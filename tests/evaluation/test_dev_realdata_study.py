@@ -323,13 +323,9 @@ def test_adapter_rejects_a_horizon_that_is_not_a_multiple_of_the_interval() -> N
 def test_prequential_adapter_rejects_symbol_roster_drift_before_scoring(
     bad_roster: tuple[str, ...],
 ) -> None:
-    fake = FakeSource(
-        24,
-        {0: SimpleNamespace(point_forecast=0.4, residual_variance=0.0)},
-    )
-    adapter = runner.PrequentialSimpleReturnSource(
-        fake, decision_interval_hours=24  # type: ignore[arg-type]
-    )
+    packet = SimpleNamespace(point_forecast=0.4, residual_variance=0.0)
+    fake = FakeSource(24, {0: packet})
+    adapter = runner.PrequentialSimpleReturnSource(fake, decision_interval_hours=24)  # type: ignore[arg-type]
     snapshot = SimpleNamespace(
         symbols=bad_roster,
         timestamp_ns=int(START.astype(np.int64)),

@@ -1,4 +1,4 @@
-"""The pre-cut causality oracle must observe native events, not only account totals."""
+"""Future-perturbation oracles must compare native events, not just account totals."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from trade_rl.evaluation.replay import (
 
 @pytest.fixture(scope="module")
 def captured_result() -> SharedCashPortfolioReplayResult:
-    """Small real native replay: avoid using historical research/results artifacts."""
+    """Capture a short synthetic native replay without historical research artifacts."""
 
     market = synthetic_market()
     protocol = small_protocol()
@@ -44,14 +44,11 @@ def _with_interval(
 ) -> SharedCashPortfolioReplayResult:
     evidence = result.ledger_evidence
     assert evidence is not None
-    original = evidence.intervals.intervals
-    intervals = (*original[:index], replacement, *original[index + 1 :])
-    return replace(
-        result,
-        ledger_evidence=replace(
-            evidence, intervals=replace(evidence.intervals, intervals=intervals)
-        ),
-    )
+    intervals = list(evidence.intervals.intervals)
+    intervals[index] = replacement
+    changed_ledger = replace(evidence.intervals, intervals=tuple(intervals))
+    changed_evidence = replace(evidence, intervals=changed_ledger)
+    return replace(result, ledger_evidence=changed_evidence)
 
 
 def test_causal_trace_detects_changed_order_event_with_same_cash_and_position(
@@ -59,24 +56,18 @@ def test_causal_trace_detects_changed_order_event_with_same_cash_and_position(
 ) -> None:
     evidence = captured_result.ledger_evidence
     assert evidence is not None
-    index, interval = next(
-        (index, value)
-        for index, value in enumerate(evidence.intervals.intervals)
-        if value.order_events
-    )
-    event = interval.order_events[0]
-    changed_event = replace(event, sequence=event.sequence + 10_000)
+    intervals = evidence.intervals.intervals
+    index = next(i for i, interval in enumerate(intervals) if interval.order_events)
+    original = intervals[index]
+    events = list(original.order_events)
+    events[0] = replace(events[0], sequence=events[0].sequence + 10_000)
     changed = _with_interval(
         captured_result,
         index,
-        replace(
-            interval,
-            order_events=(changed_event, *interval.order_events[1:]),
-        ),
+        replace(original, order_events=tuple(events)),
     )
     assert changed.book is captured_result.book
     assert changed.decisions == captured_result.decisions
-    # Only an observer event has changed, not the previously compared totals.
     assert runner._trace(changed) != runner._trace(captured_result)
 
 
@@ -86,12 +77,10 @@ def test_causal_trace_detects_changed_interval_flow_with_same_equity(
 ) -> None:
     evidence = captured_result.ledger_evidence
     assert evidence is not None
-    interval = evidence.intervals.intervals[0]
-    changed = _with_interval(
-        captured_result,
-        0,
-        replace(interval, **{field: getattr(interval, field) + 0.01}),
-    )
+    original = evidence.intervals.intervals[0]
+    changed_value = getattr(original, field) + 0.01
+    changed_interval = replace(original, **{field: changed_value})
+    changed = _with_interval(captured_result, 0, changed_interval)
     assert changed.book is captured_result.book
     assert runner._trace(changed) != runner._trace(captured_result)
 
@@ -100,18 +89,16 @@ def test_causal_trace_detects_decision_risk_reason_divergence(
     captured_result: SharedCashPortfolioReplayResult,
 ) -> None:
     assert captured_result.decisions
-    old = captured_result.decisions[0]
-    altered_decision = replace(
-        old, risk_reasons=(*old.risk_reasons, "future_sensitive_reason")
-    )
-    changed = replace(
-        captured_result, decisions=(altered_decision, *captured_result.decisions[1:])
-    )
+    original = captured_result.decisions[0]
+    reasons = (*original.risk_reasons, "future_sensitive_reason")
+    altered_decision = replace(original, risk_reasons=reasons)
+    decisions = (altered_decision, *captured_result.decisions[1:])
+    changed = replace(captured_result, decisions=decisions)
     assert changed.book is captured_result.book
     assert runner._trace(changed) != runner._trace(captured_result)
 
 
-def test_causal_trace_keeps_original_intervals_and_decision_partition(
+def test_causal_trace_preserves_original_interval_and_decision_partition(
     captured_result: SharedCashPortfolioReplayResult,
 ) -> None:
     evidence = captured_result.ledger_evidence

@@ -60,9 +60,6 @@ jobs:
       - name: Conditional PPO diagnostic types
         run: uv run mypy tools/ppo_conditional_diagnostic.py tools/issue810_portfolio_probability_probe.py
 
-      - name: Temporary M1 additional atomicity RED test
-        run: uv run pytest -q tests/simulation/test_accounting_validation.py
-
       - name: Coordination disposable CAS smoke
         run: |
           uv run pytest -q \

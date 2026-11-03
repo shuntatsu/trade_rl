@@ -20,6 +20,7 @@ from typing import Any, cast
 
 import numpy as np
 
+from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study.metrics import (
     bootstrap_excess,
@@ -652,6 +653,13 @@ def perturb_future(
 
 
 def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
+    """Compare complete canonical native evidence, not only cash and positions.
+
+    Preserve the initial interval and decision fields for the existing trace
+    partition and quantity diagnostics. The appended canonical JSON bytes include
+    submitted/cancelled order events, funding/capacity flows and risk decisions.
+    """
+
     ledger = result.ledger_evidence
     assert ledger is not None
     return [
@@ -660,9 +668,18 @@ def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
             interval.exact_quantities_after,
             interval.cash_after,
             interval.portfolio_value_after,
+            canonical_json_bytes(interval.to_mapping()),
         )
         for interval in ledger.intervals.intervals
-    ] + [(d.index, d.proposal_weights, d.target_weights) for d in result.decisions]
+    ] + [
+        (
+            decision.index,
+            decision.proposal_weights,
+            decision.target_weights,
+            canonical_json_bytes(decision.to_mapping()),
+        )
+        for decision in result.decisions
+    ]
 
 
 def _pre_cut_has_trades(result: SharedCashPortfolioReplayResult) -> bool:
@@ -705,8 +722,9 @@ def causality_probe(
 ) -> dict[str, object]:
     """Replay one arm to the cut on real and future-perturbed data.
 
-    Every decision, quantity, cash and equity value up to the cut must be
-    bit-identical: nothing after the cut may influence what happened before it.
+    Every native interval/decision observer payload up to the cut must be
+    canonical-byte-identical, including order events and economic flows:
+    nothing after the cut may influence what happened before it.
     The defaults (allocator-24h, base scenario, ``protocol.causality_cut``) are the
     probe embedded in :func:`run_study`; the other parameters serve
     :func:`causality_probe_matrix`. ``arm_builder`` / ``sources_builder`` let another

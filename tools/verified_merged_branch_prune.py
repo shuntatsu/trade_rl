@@ -169,16 +169,21 @@ def _require_retention_record(
     )
     message = record.get("message")
     parents = record.get("parents")
+    mapping_lines = (
+        [line for line in message.splitlines() if "\t" in line]
+        if isinstance(message, str)
+        else []
+    )
     committer = _mapping(record.get("committer"), "retention committer")
     if (
         record.get("sha") != record_sha
         or not isinstance(message, str)
         or message.split("\n", 1)[0] != merged_pr_retention_title(merged_pr_number)
-        or f"{branch}\t{sha}" not in message.splitlines()
+        or mapping_lines != [f"{branch}\t{sha}"]
         or not isinstance(parents, list)
-        or len(parents) < 2
+        or len(parents) != 2
         or not all(isinstance(p, dict) for p in parents)
-        or sha not in [p.get("sha") for p in parents[1:]]
+        or parents[1].get("sha") != sha
     ):
         raise ValueError("retention record must bind the exact branch tip as a parent")
     when_text = committer.get("date")

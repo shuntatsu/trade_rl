@@ -252,6 +252,41 @@ def test_exact_merged_pr_retention_title_is_accepted() -> None:
 
 
 @pytest.mark.parametrize(
+    "extra_mapping",
+    [
+        f"\nother/merged\t{'9' * 40}",
+        f"\n{NAME}\t{TIP}",
+        "\nnot-a-branch\tmalformed-sha",
+    ],
+)
+def test_retention_record_with_extra_mapping_line_is_rejected(
+    extra_mapping: str,
+) -> None:
+    api = FakeGitHub()
+    api.retention_record["message"] += extra_mapping
+    with pytest.raises(ValueError, match="retention record"):
+        _prune(api)
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
+    "parents",
+    [
+        [{"sha": "b" * 40}, {"sha": TIP}, {"sha": "9" * 40}],
+        [{"sha": "b" * 40}, {"sha": "9" * 40}, {"sha": TIP}],
+    ],
+)
+def test_retention_record_must_have_exactly_one_source_parent(
+    parents: list[dict[str, str]],
+) -> None:
+    api = FakeGitHub()
+    api.retention_record["parents"] = parents
+    with pytest.raises(ValueError, match="retention record"):
+        _prune(api)
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
     "title",
     [
         "Observe non-anchor branch tips before cleanup grace period",

@@ -109,3 +109,45 @@ def test_causal_trace_preserves_original_interval_and_decision_partition(
     assert len(intervals) == len(evidence.intervals.intervals)
     assert len(decisions) == len(captured_result.decisions)
     assert intervals[0][1] == evidence.intervals.intervals[0].exact_quantities_after
+
+
+def test_causality_probe_rejects_event_only_divergence(
+    captured_result: SharedCashPortfolioReplayResult,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = captured_result.ledger_evidence
+    assert evidence is not None
+    intervals = evidence.intervals.intervals
+    index = next(i for i, interval in enumerate(intervals) if interval.order_events)
+    original = intervals[index]
+    events = list(original.order_events)
+    events[0] = replace(events[0], sequence=events[0].sequence + 10_000)
+    altered = _with_interval(
+        captured_result,
+        index,
+        replace(original, order_events=tuple(events)),
+    )
+    responses = iter((captured_result, altered))
+    calls = 0
+
+    def fake_replay(*args: object, **kwargs: object) -> SharedCashPortfolioReplayResult:
+        nonlocal calls
+        calls += 1
+        return next(responses)
+
+    monkeypatch.setattr(runner, "run_shared_portfolio_replay", fake_replay)
+    market = synthetic_market()
+    protocol = small_protocol()
+    start = runner._row_of(market, protocol.evaluation_start)
+    report = runner.causality_probe(
+        market,
+        protocol,
+        {},
+        start_index=start,
+        arm=ARM_BUY_AND_HOLD,
+        expect_trades=False,
+        perturbed_pair=(market, {}),
+    )
+    assert calls == 2
+    assert report["identical_pre_cut_trace"] is False
+    assert report["passed"] is False

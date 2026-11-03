@@ -241,3 +241,40 @@ def test_book_state_clone_uses_constructor_copy_without_array_aliasing(
     assert book.returns_history == original_history
     assert clone.returns_history == [*original_history, 0.3]
     assert clone.returns_history is not book.returns_history
+
+def test_mark_to_market_invalid_price_does_not_apply_funding_or_change_book() -> None:
+    book = _book()
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="mark_prices"):
+        book.mark_to_market(
+            mark_prices=np.array([-1.0, 50.0]),
+            funding_amount=25.0,
+            period_start_value=1_000.0,
+        )
+
+    assert book.cash == before.cash
+    assert book.funding_pnl == before.funding_pnl
+    assert book.returns_history == before.returns_history
+    assert book.max_drawdown == before.max_drawdown
+    assert book.termination_reason == before.termination_reason
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    np.testing.assert_array_equal(book.quantities, before.quantities)
+
+
+def test_mark_to_market_nonfinite_projected_equity_does_not_mutate_book() -> None:
+    book = BookState.zero(1, 1e308, np.array([100.0]))
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="non-finite"):
+        book.mark_to_market(
+            mark_prices=np.array([100.0]),
+            funding_amount=1e308,
+            period_start_value=1e308,
+        )
+
+    assert book.cash == before.cash
+    assert book.funding_pnl == before.funding_pnl
+    assert book.returns_history == before.returns_history
+    assert book.termination_reason == before.termination_reason
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)

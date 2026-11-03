@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor, EmergencyRiskConfig
@@ -103,3 +104,32 @@ def test_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
     np.testing.assert_array_equal(result.weights, np.zeros(2))
     assert "emergency_flatten" in result.reasons
     assert result.turnover_overridden is True
+
+def test_emergency_risk_rejects_current_unavailable_close() -> None:
+    dataset = market_with_last_bar_shock()
+    available_at = dataset.available_at.copy()
+    available_at[-1, 0] = dataset.timestamps[-1] + np.timedelta64(15, "m")
+    delayed = replace(dataset, available_at=available_at, information_available=None)
+    monitor = CausalEmergencyRiskMonitor(
+        EmergencyRiskConfig(stop_loss_return=0.03, stop_loss_hours=1.0)
+    )
+
+    with pytest.raises(ValueError, match="not available at decision time"):
+        monitor.assess(
+            delayed, index=delayed.n_bars - 1, weights=np.array([0.4, 0.0])
+        )
+
+
+def test_emergency_risk_allows_history_received_before_current_decision() -> None:
+    dataset = market_with_last_bar_shock()
+    available_at = dataset.available_at.copy()
+    available_at[-5, 0] = dataset.timestamps[-2]
+    delayed = replace(dataset, available_at=available_at, information_available=None)
+    monitor = CausalEmergencyRiskMonitor(
+        EmergencyRiskConfig(stop_loss_return=0.03, stop_loss_hours=1.0)
+    )
+
+    result = monitor.assess(
+        delayed, index=delayed.n_bars - 1, weights=np.array([0.4, 0.0])
+    )
+    np.testing.assert_array_equal(result.flatten_mask, np.array([True, False]))

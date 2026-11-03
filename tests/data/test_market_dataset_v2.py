@@ -434,3 +434,41 @@ def test_market_notional_rejects_finite_inputs_with_overflowed_liquidity() -> No
     market = MarketDataset(**kwargs(n_symbols=1))
     with pytest.raises(ValueError, match="market notional"):
         market.market_notional(0, prices=np.array([1e308]), volume=np.array([1e308]))
+
+
+def _session_with_extreme_timestamp_span() -> MarketDataset:
+    limits = np.iinfo(np.int64)
+    times = np.array([limits.min + 1, 0, limits.max], dtype=np.int64).astype(
+        "datetime64[ns]"
+    )
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        timestamps=times,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+    return MarketDataset(**values)
+
+
+def test_elapsed_hours_uses_full_integer_span_without_int64_wrap() -> None:
+    market = _session_with_extreme_timestamp_span()
+    timestamps = market._timestamp_ns
+    expected = (int(timestamps[-1]) - int(timestamps[0])) / 3_600_000_000_000
+    assert market.elapsed_hours(0, 2) == pytest.approx(expected)
+    assert market.elapsed_year_fraction(0, 2) > 0.0
+
+
+def test_lookback_index_uses_python_integers_on_extreme_session_clock() -> None:
+    market = _session_with_extreme_timestamp_span()
+    assert market.lookback_index(2, 3_000_000.0) == 0
+
+
+def test_minimum_index_for_history_uses_nonwrapping_time_target() -> None:
+    market = _session_with_extreme_timestamp_span()
+    assert market.minimum_index_for_history(3_000_000.0) == 2
+
+
+def test_forward_index_uses_nonwrapping_time_target() -> None:
+    market = _session_with_extreme_timestamp_span()
+    assert market.forward_index(0, 3_000_000.0) == 2

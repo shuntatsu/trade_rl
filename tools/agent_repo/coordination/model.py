@@ -76,8 +76,16 @@ class Capability(str, Enum):
     MERGE_WRITE = "merge_write"
 
 
-def _tuple_strings(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
-    return tuple(str(value) for value in values)
+def _tuple_strings(
+    values: tuple[str, ...] | list[str], *, field_name: str
+) -> tuple[str, ...]:
+    """Freeze ordered contract text without silently changing the input types."""
+
+    if type(values) not in (tuple, list):
+        raise ValueError(f"{field_name} must be an ordered text sequence")
+    if any(type(value) is not str for value in values):
+        raise ValueError(f"{field_name} entries must be native strings")
+    return tuple(values)
 
 
 def _require_full_sha(value: str, *, field_name: str) -> None:
@@ -96,8 +104,10 @@ class WriteScope:
     deny: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "allow", _tuple_strings(self.allow))
-        object.__setattr__(self, "deny", _tuple_strings(self.deny))
+        object.__setattr__(
+            self, "allow", _tuple_strings(self.allow, field_name="allow")
+        )
+        object.__setattr__(self, "deny", _tuple_strings(self.deny, field_name="deny"))
         if len(set(self.allow)) != len(self.allow):
             raise ValueError("duplicate write allow path")
         if len(set(self.deny)) != len(self.deny):
@@ -168,12 +178,24 @@ class TaskPacket:
 
         object.__setattr__(self, "execution_mode", ExecutionMode(self.execution_mode))
         object.__setattr__(self, "risk", RiskLevel(self.risk))
-        object.__setattr__(self, "non_goals", _tuple_strings(self.non_goals))
-        object.__setattr__(self, "resource_keys", _tuple_strings(self.resource_keys))
         object.__setattr__(
-            self, "acceptance_criteria", _tuple_strings(self.acceptance_criteria)
+            self, "non_goals", _tuple_strings(self.non_goals, field_name="non_goals")
         )
-        object.__setattr__(self, "test_oracle", _tuple_strings(self.test_oracle))
+        object.__setattr__(
+            self,
+            "resource_keys",
+            _tuple_strings(self.resource_keys, field_name="resource_keys"),
+        )
+        object.__setattr__(
+            self,
+            "acceptance_criteria",
+            _tuple_strings(self.acceptance_criteria, field_name="acceptance_criteria"),
+        )
+        object.__setattr__(
+            self,
+            "test_oracle",
+            _tuple_strings(self.test_oracle, field_name="test_oracle"),
+        )
         object.__setattr__(
             self,
             "capabilities",

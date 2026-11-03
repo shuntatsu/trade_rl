@@ -135,6 +135,8 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - GitHub UIから実行する場合は `.github/workflows/prune-merged-branch.yml` の **Run workflow（手動`workflow_dispatch`のみ）** を利用する。入力は `branch`、`expected_sha`、`merged_pr_number`、`retention_record_sha` と明示的な `confirm=true`。Workflowはdefault branchのコードだけをcheckoutし、読取preflightと適用直前の再検証を独立に実行する。既存 `.github/workflows/branch-hygiene.yml` はread-onlyのままで自動削除を再開しない。WorkflowsのUIからの実行権限と`GITHUB_TOKEN`のcontents write設定が必要で、拒否された場合にGitHub保護設定を迂回して削除してはならない。
 - dry-run summaryの`first-observation archival candidates`は候補数でありarchive済みの件数ではない。`durable anchors kept`はdefault/protected/open PR/active workflow/provenanceの理由だけを数え、grace中やretentionに未到達の一時branchは含めない。CLI helpに`--apply`が残っても破壊的cleanupの再開許可ではない。
 
+- `TaskPacket`/ `WriteScope` の非権限テキスト宣言（non_goals/resource_keys/acceptance_criteria/test_oracle、allow/deny）はlist/tupleのnative文字列要素だけを許容する。整数・null・真偽値・set/map/generatorや単体文字列を`str()`で契約文へ変換せず、正規listは不変tupleへコピーしてdigestと書き込み範囲の変質を防ぐ。Task登録・lease発行・削除の権限判定は別契約であり、この型検査だけでは許可しない。
+
 ## Agent Eval protocol
 
 Agent向けRepository構造の改善を評価する場合、baselineとcomparisonで同一suite/rubricを使い、**評価対象変更以外のRepository差分を混ぜない**。

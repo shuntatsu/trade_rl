@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tools.agent_repo.coordination.model import (
@@ -350,3 +352,80 @@ def test_evidence_identity_rejects_integer_shaped_float_and_non_string_id() -> N
 def test_task_status_reason_requires_text() -> None:
     with pytest.raises(ValueError, match="status reason"):
         TaskStatus(phase=TaskPhase.REVIEW, reason=123)
+
+
+_TASK_TEXT_FIELDS = ("non_goals", "resource_keys", "acceptance_criteria", "test_oracle")
+
+
+@pytest.mark.parametrize("field", ("allow", "deny"))
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param((42,), id="integer"),
+        pytest.param((None,), id="null"),
+        pytest.param((True,), id="boolean"),
+        pytest.param(("valid", 7), id="mixed"),
+        pytest.param("abc", id="raw-string"),
+        pytest.param({"p": 1}, id="mapping"),
+        pytest.param({"p", "q"}, id="set"),
+    ],
+)
+def test_write_scope_rejects_nontext_or_unordered_paths(
+    field: str, bad: object
+) -> None:
+    with pytest.raises(ValueError, match=field):
+        WriteScope(**{field: bad})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", _TASK_TEXT_FIELDS)
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param((None,), id="null"),
+        pytest.param((42,), id="integer"),
+        pytest.param((True,), id="boolean"),
+        pytest.param("identity:one", id="raw-string"),
+        pytest.param({"identity:one": 1}, id="mapping"),
+        pytest.param({"identity:one", "identity:two"}, id="unordered-set"),
+    ],
+)
+def test_task_packet_rejects_nonstring_or_unordered_contract_fields(
+    field: str, bad: object
+) -> None:
+    packet = _packet()
+    with pytest.raises(ValueError, match=field):
+        replace(packet, **{field: bad})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", ("allow", "deny"))
+def test_write_scope_freezes_list_without_changing_payload(field: str) -> None:
+    paths = ["tools/one/**", "tools/two/**"]
+    result = WriteScope(**{field: paths})  # type: ignore[arg-type]
+    assert getattr(result, field) == ("tools/one/**", "tools/two/**")
+    paths.append("unverified")
+    assert getattr(result, field) == ("tools/one/**", "tools/two/**")
+    assert result.canonical_payload()[field] == ["tools/one/**", "tools/two/**"]
+
+
+@pytest.mark.parametrize("field", _TASK_TEXT_FIELDS)
+def test_task_packet_freezes_list_with_same_contract_digest_as_tuple(
+    field: str,
+) -> None:
+    packet = _packet()
+    texts = (
+        ["identity:one", "identity:two"] if field == "resource_keys" else ["one", "two"]
+    )
+    expected = replace(packet, **{field: tuple(texts)})  # type: ignore[arg-type]
+    actual = replace(packet, **{field: texts})  # type: ignore[arg-type]
+    assert getattr(actual, field) == tuple(texts)
+    assert actual.canonical_payload() == expected.canonical_payload()
+    assert actual.contract_digest() == expected.contract_digest()
+    texts.append("unverified")
+    assert actual.contract_digest() == expected.contract_digest()
+
+
+@pytest.mark.parametrize("field", _TASK_TEXT_FIELDS)
+def test_task_packet_rejects_generator_contract_field(field: str) -> None:
+    packet = _packet()
+    with pytest.raises(ValueError, match=field):
+        replace(packet, **{field: (x for x in ("one", "two"))})  # type: ignore[arg-type]

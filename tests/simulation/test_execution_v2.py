@@ -203,6 +203,56 @@ def test_native_transition_hold_cancels_partial_remainder_without_resizing() -> 
     )
 
 
+def test_native_transition_fractional_exact_hold_does_not_rebalance_or_charge_cost() -> (
+    None
+):
+    exact_quantity = Fraction(1, 3)
+    prices = np.asarray([[100.0], [120.0], [120.0], [120.0], [120.0]])
+    dataset = market(
+        open=prices.copy(),
+        high=prices + 1.0,
+        low=prices - 1.0,
+        close=prices,
+    )
+    quantity = float(exact_quantity)
+    initial_capital = 1_000.0
+    book = BookState(
+        quantities=np.asarray([quantity]),
+        cash=initial_capital - quantity * prices[0, 0],
+        mark_prices=prices[0].copy(),
+        peak_value=initial_capital,
+        _exact_quantities=(str(exact_quantity),),
+    )
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig(
+            fee_rate=0.01,
+            spread_rate=0.01,
+            impact_rate=0.01,
+        ),
+    )
+    risk = PreTradeRisk.default_for_execution(max_leverage=1.0)
+    proposal = np.asarray(book.weights, dtype=np.float64)
+
+    _, result, effective_holds = execute_native_target_transition(
+        executor,
+        book,
+        risk,
+        proposal,
+        start_index=0,
+        hold_current_quantity_symbols=(0,),
+    )
+
+    assert effective_holds == (0,)
+    assert result.book.exact_quantities == (exact_quantity,)
+    assert result.book.fill_count == book.fill_count == 0
+    assert result.book.rebalance_events == book.rebalance_events == 0
+    assert result.book.total_cost == book.total_cost == 0.0
+    assert result.book.turnover_total == book.turnover_total == 0.0
+    assert executor.compatibility_order_book.active_orders == ()
+    assert result.book.weights[0] != pytest.approx(proposal[0])
+
+
 def test_native_transition_rejects_invalid_hold_before_execution() -> None:
     dataset = market()
     observations: list[StatefulExecutionObservation] = []

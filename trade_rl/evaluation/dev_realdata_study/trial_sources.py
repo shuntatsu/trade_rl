@@ -183,13 +183,11 @@ class DailyPanel:
         first_daily = np.searchsorted(self.timestamps_ns, stamps, side="left")
         has_daily = first_daily < rows.size
         next_daily_ns = self.timestamps_ns[np.minimum(first_daily, rows.size - 1)]
-        due_late = np.any(
-            due & (available_ns > next_daily_ns[:, None]), axis=1
-        ) & has_daily
+        due_late_rows = np.any(due & (available_ns > next_daily_ns[:, None]), axis=1)
+        due_late = due_late_rows & has_daily
         funding_late = np.bincount(first_daily[due_late], minlength=rows.size) > 0
-        self._unavailable_signal_history = np.maximum.accumulate(
-            mark_late | funding_late
-        )
+        late_signal_day = mark_late | funding_late
+        self._unavailable_signal_history = np.maximum.accumulate(late_signal_day)
 
     @property
     def n_days(self) -> int:

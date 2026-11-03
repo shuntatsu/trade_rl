@@ -156,6 +156,8 @@ Integration invariant: tested PR head contains current `main`. PRの成功証拠
 
 Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
 
+通常のCI workflowの`concurrency.group = ci-${{ github.workflow }}-${{ github.ref }}` は同じrefのrunをまとめる。`cancel-in-progress` は`pull_request_review`の`submitted`かつ`commented`のときだけfalseにし、すでに走っている同ref Full CIを不要なレビュー追記で中断しない。一方、新HEADの`pull_request/synchronize`、通常push、レビュー`edited`/`dismissed`、`changes_requested`/`approved`は従来どおりrunning runをcancelする。これは同一HEADのre-reviewに伴う無駄な**再起動の抑制**であり、レビューごとにpending Fullが発生すること、pending同士のキャンセルやGitHubの実スケジューラの順序は防げない。Full CIの全必須job SUCCESS、レビューreceiptの有効性とunresolved blocking 0、**最終PR HEADが最新mainを包含**する条件は一切緩めない。古いHEAD/取消run、Fast Push、一部job Greenはmerge証拠にならない。
+
 ### Independent Research Review / PR lifecycle
 
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。

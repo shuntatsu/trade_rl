@@ -887,7 +887,7 @@ class MarketDataset:
     def elapsed_hours(self, start_index: int, end_index: int) -> float:
         if not 0 <= start_index < end_index < self.n_bars:
             raise ValueError("elapsed-hour indices are outside the dataset")
-        delta_ns = self._timestamp_ns[end_index] - self._timestamp_ns[start_index]
+        delta_ns = int(self._timestamp_ns[end_index]) - int(self._timestamp_ns[start_index])
         return float(delta_ns / _NS_PER_HOUR)
 
     def bars_for_hours(self, hours: float) -> int:

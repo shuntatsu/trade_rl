@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -15,14 +16,19 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 RETENTION_BRANCH = "provenance/branch-retention"
-RETENTION_BATCH_SIZE = 20
-DELETE_BATCH_SIZE = 25
 RETENTION_GRACE_SECONDS = 60 * 60
-RETENTION_MESSAGE_PREFIXES = (
-    "Archive unique non-anchor branch tips before ref cleanup",
-    "Observe non-anchor branch tips before cleanup grace period",
+_CANONICAL_RETENTION_TITLE_RE = re.compile(
+    r"Retain merged PR #([1-9][0-9]*) exact source after verified normal integration"
 )
 API_VERSION = "2022-11-28"
+
+
+def merged_pr_retention_title(pr_number: int) -> str:
+    """One current, exact-number title for post-merge source retention."""
+
+    if type(pr_number) is not int or pr_number < 1:
+        raise ValueError("merged PR number must be a positive native integer")
+    return f"Retain merged PR #{pr_number} exact source after verified normal integration"
 
 
 @dataclass(frozen=True)
@@ -255,53 +261,6 @@ class GitHubApi:
                 page += 1
         return frozenset(names)
 
-    def git_commit_tree_sha(self, commit_sha: str) -> str:
-        encoded = urllib.parse.quote(commit_sha, safe="")
-        payload = self._request_json("GET", f"git/commits/{encoded}")
-        if not isinstance(payload, dict):
-            raise RuntimeError("git commit lookup is not an object")
-        tree = payload.get("tree")
-        if not isinstance(tree, dict):
-            raise RuntimeError("git commit tree is missing")
-        tree_sha = tree.get("sha")
-        if not isinstance(tree_sha, str) or not tree_sha:
-            raise RuntimeError("git commit tree SHA is missing")
-        return tree_sha
-
-    def create_retention_commit(
-        self,
-        *,
-        tree_sha: str,
-        parent_shas: Sequence[str],
-        message: str,
-    ) -> str:
-        payload = self._request_json(
-            "POST",
-            "git/commits",
-            body={"message": message, "tree": tree_sha, "parents": list(parent_shas)},
-        )
-        if not isinstance(payload, dict):
-            raise RuntimeError("created git commit is not an object")
-        sha = payload.get("sha")
-        if not isinstance(sha, str) or not sha:
-            raise RuntimeError("created git commit SHA is missing")
-        return sha
-
-    def create_branch_ref(self, name: str, sha: str) -> None:
-        self._request_json(
-            "POST",
-            "git/refs",
-            body={"ref": f"refs/heads/{name}", "sha": sha},
-        )
-
-    def update_branch_ref(self, name: str, sha: str) -> None:
-        encoded = urllib.parse.quote(name, safe="/")
-        self._request_json(
-            "PATCH",
-            f"git/refs/heads/{encoded}",
-            body={"sha": sha, "force": False},
-        )
-
     def delete_branches_with_leases(self, branches: Sequence[BranchInfo]) -> None:
         if not branches:
             return
@@ -411,6 +370,8 @@ def reachable_commits(shas: Iterable[str]) -> frozenset[str]:
 
 
 def parse_retention_log(log_output: str) -> dict[tuple[str, str], int]:
+    """Read only per-PR canonical observations; historical titles are inert."""
+
     observed: dict[tuple[str, str], int] = {}
     for raw_record in log_output.split("\x1e"):
         record = raw_record.strip("\n")
@@ -423,21 +384,26 @@ def parse_retention_log(log_output: str) -> dict[tuple[str, str], int]:
             timestamp = int(timestamp_text.strip())
         except ValueError as exc:
             raise RuntimeError("retention log timestamp is invalid") from exc
-        if not message.lstrip().startswith(RETENTION_MESSAGE_PREFIXES):
+
+        title = message.split("\n", 1)[0]
+        match = _CANONICAL_RETENTION_TITLE_RE.fullmatch(title)
+        if match is None or title != merged_pr_retention_title(int(match.group(1))):
             continue
+        mappings: list[tuple[str, str]] = []
         for line in message.splitlines():
-            branch_name, mapping_separator, sha = line.partition("\t")
-            if not mapping_separator:
-                continue
+            name, separator, sha = line.partition("\t")
             if (
-                not branch_name
-                or len(sha) != 40
-                or any(character not in "0123456789abcdef" for character in sha)
+                separator
+                and name
+                and len(sha) == 40
+                and all(character in "0123456789abcdef" for character in sha)
             ):
-                continue
-            key = (branch_name, sha)
-            previous = observed.get(key)
-            observed[key] = timestamp if previous is None else min(previous, timestamp)
+                mappings.append((name, sha))
+        if len(mappings) != 1:
+            continue
+        key = mappings[0]
+        previous = observed.get(key)
+        observed[key] = timestamp if previous is None else min(previous, timestamp)
     return observed
 
 
@@ -504,60 +470,6 @@ def plan_cleanup(
                 decision = BranchDecision(branch, "keep", "retained-tip-not-reachable")
         decisions.append(decision)
     return tuple(decisions)
-
-
-def chunks(items: Sequence[BranchInfo], size: int) -> Iterable[Sequence[BranchInfo]]:
-    for start in range(0, len(items), size):
-        yield items[start : start + size]
-
-
-def retention_message(branches: Sequence[BranchInfo]) -> str:
-    lines = [
-        "Observe non-anchor branch tips before cleanup grace period",
-        "",
-        "Each mapping below records the remote branch name and exact observed tip SHA.",
-        "Cleanup requires the same observed tip to survive the grace period.",
-        "Restore with: git branch <name> <sha>",
-        "",
-    ]
-    lines.extend(f"{branch.name}\t{branch.sha}" for branch in branches)
-    return "\n".join(lines)
-
-
-def archive_observed_tips(
-    api: GitHubApi,
-    *,
-    default_branch: str,
-    current_by_name: dict[str, BranchInfo],
-    branches: Sequence[BranchInfo],
-) -> str | None:
-    if not branches:
-        retention = current_by_name.get(RETENTION_BRANCH)
-        return retention.sha if retention is not None else None
-
-    default = current_by_name.get(default_branch)
-    if default is None:
-        raise RuntimeError("default branch disappeared before archival")
-    retention = current_by_name.get(RETENTION_BRANCH)
-    parent_sha = retention.sha if retention is not None else default.sha
-    tree_sha = api.git_commit_tree_sha(parent_sha)
-    retention_exists = retention is not None
-
-    for batch in chunks(tuple(branches), RETENTION_BATCH_SIZE):
-        unique_tip_shas = tuple(dict.fromkeys(branch.sha for branch in batch))
-        commit_sha = api.create_retention_commit(
-            tree_sha=tree_sha,
-            parent_shas=(parent_sha, *unique_tip_shas),
-            message=retention_message(batch),
-        )
-        if retention_exists:
-            api.update_branch_ref(RETENTION_BRANCH, commit_sha)
-        else:
-            api.create_branch_ref(RETENTION_BRANCH, commit_sha)
-            retention_exists = True
-        parent_sha = commit_sha
-
-    return parent_sha
 
 
 def apply_cleanup(

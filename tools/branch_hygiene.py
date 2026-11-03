@@ -28,7 +28,9 @@ def merged_pr_retention_title(pr_number: int) -> str:
 
     if type(pr_number) is not int or pr_number < 1:
         raise ValueError("merged PR number must be a positive native integer")
-    return f"Retain merged PR #{pr_number} exact source after verified normal integration"
+    return (
+        f"Retain merged PR #{pr_number} exact source after verified normal integration"
+    )
 
 
 @dataclass(frozen=True)

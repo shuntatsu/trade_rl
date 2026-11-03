@@ -179,18 +179,14 @@ class DailyPanel:
         available_at = dataset.available_at
         assert available_at is not None
         available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
-        mark_late = np.any(
-            available_ns[rows] > self.timestamps_ns[:, None], axis=1
-        )
+        mark_late = np.any(available_ns[rows] > self.timestamps_ns[:, None], axis=1)
         first_daily = np.searchsorted(self.timestamps_ns, stamps, side="left")
         has_daily = first_daily < rows.size
         next_daily_ns = self.timestamps_ns[np.minimum(first_daily, rows.size - 1)]
         due_late = np.any(
             due & (available_ns > next_daily_ns[:, None]), axis=1
         ) & has_daily
-        funding_late = (
-            np.bincount(first_daily[due_late], minlength=rows.size) > 0
-        )
+        funding_late = np.bincount(first_daily[due_late], minlength=rows.size) > 0
         self._unavailable_signal_history = np.maximum.accumulate(
             mark_late | funding_late
         )

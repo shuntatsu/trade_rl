@@ -58,10 +58,7 @@ def test_phase2_rejects_unarrived_source_before_recording_signal(
     delayed = _delayed(market, source_time=source_time, arrival_time=arrival_time)
     panel = DailyPanel(delayed)
     adapter = _adapter(panel)
-    snapshot = SimpleNamespace(
-        symbols=market.symbols,
-        timestamp_ns=_ns(DECISION),
-    )
+    snapshot = SimpleNamespace(symbols=market.symbols, timestamp_ns=_ns(DECISION))
     # This is a property of the recorded source arrival, not of the future
     # perturbation probe: the original panel accepted both late observations.
     with pytest.raises(ValueError, match="Phase 2 source not available"):
@@ -104,9 +101,7 @@ def test_late_future_observation_does_not_block_prior_decisions() -> None:
 
 def test_non_daily_non_funding_source_delay_is_not_used_by_daily_signals() -> None:
     market = synthetic_market()
-    row = int(
-        np.searchsorted(market.timestamps, np.datetime64("2021-10-03T17:00:00"))
-    )
+    row = int(np.searchsorted(market.timestamps, np.datetime64("2021-10-03T17:00:00")))
     assert not bool(market.funding_due[row, 0])
     delayed = _delayed(
         market,

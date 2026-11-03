@@ -274,9 +274,12 @@ def test_the_rule_can_never_return_a_winner_label() -> None:
 class FakeSource:
     def __init__(self, horizon_hours: int, packets: dict[int, object]) -> None:
         self.horizon_hours = horizon_hours
+        self.symbols = ("S0", "S1", "S2")
         self._packets = packets
+        self.lookups: list[int] = []
 
     def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
+        self.lookups.append(symbol_index)
         return self._packets.get(symbol_index)
 
 
@@ -306,6 +309,41 @@ def test_adapter_rejects_a_horizon_that_is_not_a_multiple_of_the_interval() -> N
             FakeSource(36, {}),
             decision_interval_hours=24,  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.parametrize(
+    "bad_roster",
+    [
+        ("S1", "S0", "S2"),
+        ("S0", "S1"),
+        ("S0", "S1", "S2", "S3"),
+        ("S0", "S1", "OTHER"),
+    ],
+)
+def test_prequential_adapter_rejects_symbol_roster_drift_before_scoring(
+    bad_roster: tuple[str, ...],
+) -> None:
+    packet = SimpleNamespace(point_forecast=0.4, residual_variance=0.0)
+    fake = FakeSource(24, {0: packet})
+    adapter = runner.PrequentialSimpleReturnSource(fake, decision_interval_hours=24)  # type: ignore[arg-type]
+    snapshot = SimpleNamespace(
+        symbols=bad_roster,
+        timestamp_ns=int(START.astype(np.int64)),
+    )
+    with pytest.raises(ValueError, match="symbol roster"):
+        adapter.expected_simple_returns(snapshot)  # type: ignore[arg-type]
+    assert fake.lookups == []
+    assert adapter.calls == 0
+    assert adapter.null_packets == 0
+    assert adapter.history == []
+
+
+def test_prequential_adapter_uses_same_order_as_real_dataset(
+    market: MarketDataset,
+) -> None:
+    sources = runner.build_forecast_sources(market, small_protocol())
+    assert sources[24].symbols == market.symbols
+    assert sources[72].symbols == market.symbols
 
 
 def test_feature_roster_rule_excludes_funding_and_other_timeframes(
@@ -423,6 +461,7 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
         horizon_hours = 24
 
         def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
             self._close = dataset.close
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 
@@ -486,6 +525,7 @@ def test_causality_probe_matrix_catches_a_leak_in_a_non_default_arm(
         horizon_hours = 72
 
         def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
             self._close = dataset.close
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 

@@ -75,7 +75,7 @@ def test_mismatched_packet_fails_without_recording_partial_diagnostics(
         "wrong_horizon": replace(good, horizon_hours=72),
         "untyped": SimpleNamespace(point_forecast=0.03, residual_variance=0.01),
     }[bad_kind]
-    source = FakeSource({0: None, 1: bad, 2: good})
+    source = FakeSource({0: None, 1: bad, 2: _packet(2)})
     adapter = PrequentialSimpleReturnSource(source, decision_interval_hours=24)  # type: ignore[arg-type]
 
     with pytest.raises((TypeError, ValueError), match="packet"):
@@ -95,7 +95,7 @@ def test_mismatched_packet_fails_without_recording_partial_diagnostics(
     assert adapter.history == [values]
 
 
-def test_forecast_conversion_overflow_is_a_atomic_rejection() -> None:
+def test_forecast_conversion_overflow_is_an_atomic_rejection() -> None:
     source = FakeSource({0: None, 1: _packet(point_forecast=1000.0)})
     adapter = PrequentialSimpleReturnSource(source, decision_interval_hours=24)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="forecast"):

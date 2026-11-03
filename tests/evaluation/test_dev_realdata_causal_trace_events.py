@@ -74,7 +74,7 @@ def test_causal_trace_detects_changed_order_event_with_same_cash_and_position(
             order_events=(changed_event, *interval.order_events[1:]),
         ),
     )
-    assert changed.book == captured_result.book
+    assert changed.book is captured_result.book
     assert changed.decisions == captured_result.decisions
     # Only an observer event has changed, not the previously compared totals.
     assert runner._trace(changed) != runner._trace(captured_result)
@@ -90,7 +90,7 @@ def test_causal_trace_detects_changed_interval_flow_with_same_equity(
     changed = _with_interval(
         captured_result, 0, replace(interval, **{field: getattr(interval, field) + 0.01})
     )
-    assert changed.book == captured_result.book
+    assert changed.book is captured_result.book
     assert runner._trace(changed) != runner._trace(captured_result)
 
 
@@ -105,7 +105,7 @@ def test_causal_trace_detects_decision_risk_reason_divergence(
     changed = replace(
         captured_result, decisions=(altered_decision, *captured_result.decisions[1:])
     )
-    assert changed.book == captured_result.book
+    assert changed.book is captured_result.book
     assert runner._trace(changed) != runner._trace(captured_result)
 
 

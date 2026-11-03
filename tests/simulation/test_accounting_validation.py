@@ -279,3 +279,66 @@ def test_mark_to_market_nonfinite_projected_equity_does_not_mutate_book() -> Non
     assert book.returns_history == before.returns_history
     assert book.termination_reason == before.termination_reason
     np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+
+
+def _assert_cash_and_inventory_unchanged(book: BookState, before: BookState) -> None:
+    for name in (
+        "cash", "funding_pnl", "borrow_cost", "peak_value", "max_drawdown",
+        "turnover_total", "total_cost", "insolvent", "termination_reason",
+    ):
+        assert getattr(book, name) == getattr(before, name), name
+    assert book.exact_quantities == before.exact_quantities
+    assert book.returns_history == before.returns_history
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    np.testing.assert_array_equal(book.quantities, before.quantities)
+
+
+def test_interest_overflow_does_not_corrupt_cash() -> None:
+    book = BookState.zero(1, 1e308, np.array([1.0]))
+    before = book.clone()
+    with pytest.raises(ValueError, match="non-finite"):
+        book.apply_cash_interest(2.0, year_fraction=1.0)
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_dividend_overflow_does_not_corrupt_cash() -> None:
+    book = BookState.from_weights(
+        weights=np.array([1.0]), capital=1e308, prices=np.array([1.0])
+    )
+    before = book.clone()
+    with pytest.raises(ValueError, match="non-finite"):
+        book.apply_dividend(np.array([2.0]))
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_borrow_overflow_does_not_corrupt_cash_or_borrow_cost() -> None:
+    book = BookState.from_weights(
+        weights=np.array([1.5]),
+        capital=1e308,
+        prices=np.array([1.0]),
+        max_gross=2.0,
+    )
+    before = book.clone()
+    with pytest.raises(ValueError, match="non-finite"):
+        book.charge_borrow(1.7e308)
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_revalue_overflow_does_not_corrupt_mark_prices() -> None:
+    book = BookState.from_weights(
+        weights=np.array([1.0]), capital=1e308, prices=np.array([1.0])
+    )
+    before = book.clone()
+    with pytest.raises(ValueError, match="non-finite"):
+        book.revalue(np.array([2.0]))
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_split_price_overflow_does_not_corrupt_quantities_or_marks() -> None:
+    book = BookState.from_weights(
+        weights=np.array([1.0]), capital=100.0, prices=np.array([1.0])
+    )
+    before = book.clone()
+    with pytest.raises(ValueError, match="non-finite"):
+        book.apply_split(np.array([1e-309]))
+    _assert_cash_and_inventory_unchanged(book, before)

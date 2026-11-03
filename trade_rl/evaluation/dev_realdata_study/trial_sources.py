@@ -147,7 +147,10 @@ class DailyPanel:
 
     The whole dataset is read at construction, but every consumer indexes it at a
     decision position ``p`` and uses days ``<= p`` only (the series helpers are
-    causal recursions); the perturbation tests pin this.
+    causal recursions). Daily marks and funding events must also have arrived
+    by their first eligible 00:00 UTC decision. Once an invalid historical
+    signal day exists, future day positions fail closed rather than reusing
+    a potentially hindsight-contaminated signal history.
     """
 
     def __init__(self, dataset: MarketDataset) -> None:
@@ -171,6 +174,26 @@ class DailyPanel:
         self._funding_prefix = np.vstack(
             [np.zeros((1, paid.shape[1])), np.cumsum(paid, axis=0)]
         )
+        # An event is first eligible at the next daily UTC decision. Never
+        # let a signal (or later blend history) use values arriving after it.
+        available_at = dataset.available_at
+        assert available_at is not None
+        available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+        mark_late = np.any(
+            available_ns[rows] > self.timestamps_ns[:, None], axis=1
+        )
+        first_daily = np.searchsorted(self.timestamps_ns, stamps, side="left")
+        has_daily = first_daily < rows.size
+        next_daily_ns = self.timestamps_ns[np.minimum(first_daily, rows.size - 1)]
+        due_late = np.any(
+            due & (available_ns > next_daily_ns[:, None]), axis=1
+        ) & has_daily
+        funding_late = (
+            np.bincount(first_daily[due_late], minlength=rows.size) > 0
+        )
+        self._unavailable_signal_history = np.maximum.accumulate(
+            mark_late | funding_late
+        )
 
     @property
     def n_days(self) -> int:
@@ -180,6 +203,8 @@ class DailyPanel:
         day = int(np.searchsorted(self.timestamps_ns, timestamp_ns))
         if day >= self.n_days or int(self.timestamps_ns[day]) != timestamp_ns:
             raise ValueError("decision time must be a daily 00:00 UTC dataset bar")
+        if self._unavailable_signal_history[day]:
+            raise ValueError("Phase 2 source not available at daily decision time")
         return day
 
     def funding_carry_series(self, window_days: int) -> np.ndarray:

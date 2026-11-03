@@ -482,6 +482,12 @@ class PrequentialForecastSource:
         return self._horizon_hours
 
     @property
+    def symbols(self) -> tuple[str, ...]:
+        """Dataset symbol order used by every served forecast packet."""
+
+        return self._dataset.symbols
+
+    @property
     def schedule(self) -> PrequentialSchedule:
         return self._schedule
 

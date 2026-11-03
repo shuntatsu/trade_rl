@@ -101,6 +101,8 @@ class PrequentialSimpleReturnSource:
     ``mu_simple = expm1(mu_log + 0.5 * residual_variance) / (horizon_hours / interval)``.
     A symbol without a usable packet (unavailable features, e.g. an exchange gap)
     contributes ``0.0``. Only the packet for ``snapshot.timestamp_ns`` is read.
+    The snapshot symbol tuple must exactly equal the forecast dataset's symbol
+    order before any scoring; mismatches fail without changing diagnostics.
     """
 
     def __init__(
@@ -118,6 +120,8 @@ class PrequentialSimpleReturnSource:
     def expected_simple_returns(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[float, ...]:
+        if snapshot.symbols != self._source.symbols:
+            raise ValueError("prequential forecast symbol roster must match snapshot")
         when = np.datetime64(snapshot.timestamp_ns, "ns")
         values: list[float] = []
         for symbol_index in range(len(snapshot.symbols)):

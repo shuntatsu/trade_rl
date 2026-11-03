@@ -8,7 +8,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from tests.evaluation.test_dev_realdata_phase2_trials import small_protocol, synthetic_market
+from tests.evaluation.test_dev_realdata_phase2_trials import (
+    small_protocol,
+    synthetic_market,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study.trial_sources import (
     DailyPanel,

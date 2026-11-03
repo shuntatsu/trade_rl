@@ -102,8 +102,20 @@ def test_phase2_ridge_cache_rejects_misbound_packets_atomically(bad: str) -> Non
     assert source.lookups == [0, 1, 0, 1]
 
 
-def test_phase2_ridge_cache_rejects_overflow_without_caching() -> None:
-    source = FakeSource({0: replace(_packet(0), point_forecast=1000.0)})
+@pytest.mark.parametrize(
+    "packet",
+    [
+        pytest.param(replace(_packet(0), point_forecast=1000.0), id="expm1_overflow"),
+        pytest.param(
+            replace(_packet(0), point_forecast=1.6e308, residual_variance=1e308),
+            id="finite_inputs_sum_overflow",
+        ),
+    ],
+)
+def test_phase2_ridge_cache_rejects_overflow_without_caching(
+    packet: ForecastPacket,
+) -> None:
+    source = FakeSource({0: packet})
     component = RidgeDailyComponent(source, _panel(), divisor=1.0)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="forecast"):
         component.value_at(0)

@@ -45,9 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Temporary Ruff accounting formatter diff
-        run: uv run ruff format --diff trade_rl/simulation/accounting.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

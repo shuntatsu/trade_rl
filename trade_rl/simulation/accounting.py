@@ -343,9 +343,7 @@ class BookState:
             raise ValueError("split_factor must match the book and be positive")
         exact_after = tuple(
             quantity * exact_quantity(float(factor))
-            for quantity, factor in zip(
-                self._quantity_values(), factors, strict=True
-            )
+            for quantity, factor in zip(self._quantity_values(), factors, strict=True)
         )
         projected = np.array([project_quantity(value) for value in exact_after])
         with np.errstate(over="ignore", divide="ignore", invalid="ignore"):

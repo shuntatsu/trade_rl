@@ -144,30 +144,21 @@ class PrequentialSimpleReturnSource:
                 values.append(0.0)
                 continue
             if not isinstance(packet, ForecastPacket):
-                raise TypeError(
-                    "prequential source packet must be ForecastPacket or None"
-                )
+                raise TypeError("invalid prequential packet type")
             if (
                 packet.symbol != symbol
                 or packet.symbol_index != symbol_index
                 or packet.horizon_hours != self._horizon_hours
                 or packet.decision_time != when
             ):
-                raise ValueError(
-                    "prequential source packet identity must match request"
-                )
+                raise ValueError("prequential packet identity mismatch")
+            log_mean = packet.point_forecast + 0.5 * packet.residual_variance
             try:
-                simple = math.expm1(
-                    packet.point_forecast + 0.5 * packet.residual_variance
-                )
+                simple = math.expm1(log_mean)
             except OverflowError as exc:
-                raise ValueError(
-                    "prequential packet forecast conversion overflow"
-                ) from exc
+                raise ValueError("forecast conversion overflow") from exc
             if not math.isfinite(simple):
-                raise ValueError(
-                    "prequential packet forecast conversion must be finite"
-                )
+                raise ValueError("non-finite forecast conversion")
             values.append(simple / self._divisor)
         result = tuple(values)
         self.history.append(result)

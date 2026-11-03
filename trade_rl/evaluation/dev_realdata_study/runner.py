@@ -157,7 +157,9 @@ class PrequentialSimpleReturnSource:
                     packet.point_forecast + 0.5 * packet.residual_variance
                 )
             except OverflowError as exc:
-                raise ValueError("prequential packet forecast conversion overflow") from exc
+                raise ValueError(
+                    "prequential packet forecast conversion overflow"
+                ) from exc
             if not math.isfinite(simple):
                 raise ValueError("prequential packet forecast conversion must be finite")
             values.append(simple / self._divisor)

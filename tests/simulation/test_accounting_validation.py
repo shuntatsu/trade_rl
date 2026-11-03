@@ -283,8 +283,15 @@ def test_mark_to_market_nonfinite_projected_equity_does_not_mutate_book() -> Non
 
 def _assert_cash_and_inventory_unchanged(book: BookState, before: BookState) -> None:
     for name in (
-        "cash", "funding_pnl", "borrow_cost", "peak_value", "max_drawdown",
-        "turnover_total", "total_cost", "insolvent", "termination_reason",
+        "cash",
+        "funding_pnl",
+        "borrow_cost",
+        "peak_value",
+        "max_drawdown",
+        "turnover_total",
+        "total_cost",
+        "insolvent",
+        "termination_reason",
     ):
         assert getattr(book, name) == getattr(before, name), name
     assert book.exact_quantities == before.exact_quantities

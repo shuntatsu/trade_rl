@@ -421,22 +421,16 @@ def test_mark_and_index_prices_reject_nonfinite_values(
 def test_quantity_notional_rejects_finite_inputs_with_overflowed_notional() -> None:
     market = MarketDataset(**kwargs(n_symbols=1))
     with pytest.raises(ValueError, match="notional"):
-        market.quantity_notional(
-            0, np.array([1e308]), prices=np.array([1e308])
-        )
+        market.quantity_notional(0, np.array([1e308]), prices=np.array([1e308]))
 
 
 def test_notional_to_quantity_rejects_finite_inputs_with_overflowed_quantity() -> None:
     market = MarketDataset(**kwargs(n_symbols=1))
     with pytest.raises(ValueError, match="quantit"):
-        market.notional_to_quantity(
-            0, np.array([1e308]), prices=np.array([1e-308])
-        )
+        market.notional_to_quantity(0, np.array([1e308]), prices=np.array([1e-308]))
 
 
 def test_market_notional_rejects_finite_inputs_with_overflowed_liquidity() -> None:
     market = MarketDataset(**kwargs(n_symbols=1))
     with pytest.raises(ValueError, match="market notional"):
-        market.market_notional(
-            0, prices=np.array([1e308]), volume=np.array([1e308])
-        )
+        market.market_notional(0, prices=np.array([1e308]), volume=np.array([1e308]))

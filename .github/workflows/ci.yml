@@ -45,9 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: M1 temporary format diff
-        run: uv run ruff format --diff tests/data/test_market_dataset_v2.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

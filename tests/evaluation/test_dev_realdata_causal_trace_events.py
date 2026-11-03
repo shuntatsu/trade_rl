@@ -88,7 +88,9 @@ def test_causal_trace_detects_changed_interval_flow_with_same_equity(
     assert evidence is not None
     interval = evidence.intervals.intervals[0]
     changed = _with_interval(
-        captured_result, 0, replace(interval, **{field: getattr(interval, field) + 0.01})
+        captured_result,
+        0,
+        replace(interval, **{field: getattr(interval, field) + 0.01}),
     )
     assert changed.book is captured_result.book
     assert runner._trace(changed) != runner._trace(captured_result)

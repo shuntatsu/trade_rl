@@ -122,7 +122,6 @@ def test_causal_inputs_feed_portfolio_risk_directly() -> None:
     assert np.isfinite(constrained.weights).all()
 
 
-
 def test_rolling_inputs_reject_prices_not_available_at_decision() -> None:
     dataset = _dataset()
     available_at = dataset.available_at.copy()

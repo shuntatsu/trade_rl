@@ -243,7 +243,6 @@ def test_book_state_clone_uses_constructor_copy_without_array_aliasing(
     assert clone.returns_history is not book.returns_history
 
 
-
 def test_mark_to_market_invalid_price_does_not_apply_funding_or_change_book() -> None:
     book = _book()
     before = book.clone()

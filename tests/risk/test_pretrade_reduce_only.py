@@ -117,7 +117,6 @@ def test_reduce_only_does_not_change_emergency_flatten() -> None:
     assert "emergency_flatten" in result.reasons
 
 
-
 @pytest.mark.parametrize(
     ("current", "target"),
     [(0.0001, -1e-9), (-0.0001, 1e-9), (1e-5, -1e-8)],

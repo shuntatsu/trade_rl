@@ -106,7 +106,6 @@ def test_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
     assert result.turnover_overridden is True
 
 
-
 def test_emergency_risk_rejects_current_unavailable_close() -> None:
     dataset = market_with_last_bar_shock()
     available_at = dataset.available_at.copy()

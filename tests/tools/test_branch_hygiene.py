@@ -754,18 +754,38 @@ def test_cleanup_requires_observation_and_grace_before_delete() -> None:
     assert by_name[unreachable.name].reason == "retained-tip-not-reachable"
 
 
-def test_retention_log_parser_uses_earliest_observation() -> None:
+def test_retention_log_parser_accepts_canonical_only_and_earliest_observation() -> None:
     branch = "automation/recent"
     sha = "a" * 40
-    old_message = (
-        f"Archive unique non-anchor branch tips before ref cleanup\n\n{branch}\t{sha}\n"
-    )
-    new_message = (
-        "Observe non-anchor branch tips before cleanup grace period\n\n"
-        f"{branch}\t{sha}\n"
-    )
+    title = "Retain merged PR #1096 exact source after verified normal integration"
+    canonical_late = f"{title}\n\n{branch}\t{sha}\n"
+    canonical_early = f"{title}\n\n{branch}\t{sha}\n"
+    legacy = f"Observe non-anchor branch tips before cleanup grace period\n\n{branch}\t{sha}\n"
+    other_old = f"Observe merged PR #1096 source before cleanup grace period\n\n{branch}\t{sha}\n"
     payload = (
-        f"200\x1f{new_message}\x1e100\x1f{old_message}\x1e50\x1funrelated commit\x1e"
+        f"200\x1f{canonical_late}\x1e150\x1f{canonical_early}\x1e"
+        f"100\x1f{legacy}\x1e50\x1f{other_old}\x1e"
     )
+    assert parse_retention_log(payload) == {(branch, sha): 150}
 
-    assert parse_retention_log(payload) == {(branch, sha): 100}
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Archive unique non-anchor branch tips before ref cleanup",
+        "Observe non-anchor branch tips before cleanup grace period",
+        "Observe merged PR #1096 source before cleanup grace period",
+        "Retain merged PR #001096 exact source after verified normal integration",
+        "Retain merged PR #1096 exact source after verified normal integration extra",
+    ],
+)
+def test_retention_log_parser_rejects_obsolete_or_ambiguous_titles(message: str) -> None:
+    branch = "automation/recent"
+    sha = "a" * 40
+    assert parse_retention_log(f"100\x1f{message}\n\n{branch}\t{sha}\x1e") == {}
+
+
+def test_retention_log_parser_rejects_multi_branch_record() -> None:
+    title = "Retain merged PR #1096 exact source after verified normal integration"
+    payload = f"100\x1f{title}\n\nbranch/a\t{'a' * 40}\nbranch/b\t{'b' * 40}\x1e"
+    assert parse_retention_log(payload) == {}

@@ -113,6 +113,7 @@ def test_non_daily_non_funding_source_delay_is_not_used_by_daily_signals() -> No
     )
     assert DailyPanel(delayed).position(_ns(DECISION)) >= 0
 
+
 def test_registered_t3_source_rejects_unarrived_due_funding() -> None:
     market = synthetic_market()
     delayed = _delayed(

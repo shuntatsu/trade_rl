@@ -435,7 +435,7 @@ def test_missing_explicit_cli_mode_fails_before_any_network() -> None:
 
 
 def test_http_client_rejects_empty_and_multiline_tokens() -> None:
-    for token in ("", "abc\\ndef", "abc def"):
+    for token in ("", "abc\ndef", "abc def"):
         with pytest.raises(ValueError, match="non-empty single-line"):
             _graphql_api(token)
 

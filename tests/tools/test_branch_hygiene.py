@@ -157,10 +157,8 @@ class FakeCleanupApi:
     ) -> None:
         self._branches = {branch.name: branch for branch in branches}
         self._open_refs = open_refs
-        self._commit_index = 0
         self.deleted: list[str] = []
         self.events: list[str] = []
-        self.messages: list[str] = []
 
     def branches(self) -> tuple[BranchInfo, ...]:
         return tuple(self._branches.values())
@@ -170,33 +168,6 @@ class FakeCleanupApi:
 
     def active_workflow_branch_names(self) -> frozenset[str]:
         return frozenset()
-
-    def git_commit_tree_sha(self, commit_sha: str) -> str:
-        self.events.append(f"tree:{commit_sha}")
-        return "f" * 40
-
-    def create_retention_commit(
-        self,
-        *,
-        tree_sha: str,
-        parent_shas: tuple[str, ...],
-        message: str,
-    ) -> str:
-        assert tree_sha == "f" * 40
-        assert parent_shas
-        self._commit_index += 1
-        sha = f"{self._commit_index:040x}"
-        self.events.append(f"commit:{sha}")
-        self.messages.append(message)
-        return sha
-
-    def create_branch_ref(self, name: str, sha: str) -> None:
-        self.events.append(f"create-ref:{name}:{sha}")
-        self._branches[name] = BranchInfo(name, sha, False)
-
-    def update_branch_ref(self, name: str, sha: str) -> None:
-        self.events.append(f"update-ref:{name}:{sha}")
-        self._branches[name] = BranchInfo(name, sha, False)
 
     def delete_branches_with_leases(self, branches: tuple[BranchInfo, ...]) -> None:
         names = ",".join(branch.name for branch in branches)

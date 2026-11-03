@@ -132,3 +132,17 @@ def test_emergency_risk_allows_history_received_before_current_decision() -> Non
         delayed, index=delayed.n_bars - 1, weights=np.array([0.4, 0.0])
     )
     np.testing.assert_array_equal(result.flatten_mask, np.array([True, False]))
+
+
+def test_flatten_untradable_treats_unavailable_trade_status_as_unobservable() -> None:
+    dataset = market_with_last_bar_shock()
+    available_at = dataset.available_at.copy()
+    available_at[-1, 1] = dataset.timestamps[-1] + np.timedelta64(15, "m")
+    delayed = replace(dataset, available_at=available_at, information_available=None)
+    monitor = CausalEmergencyRiskMonitor(EmergencyRiskConfig(flatten_untradable=True))
+
+    result = monitor.assess(
+        delayed, index=delayed.n_bars - 1, weights=np.array([0.4, -0.2])
+    )
+    np.testing.assert_array_equal(result.flatten_mask, np.array([False, True]))
+    assert result.reasons == ("untradable:ETH",)

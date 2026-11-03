@@ -637,16 +637,45 @@ class BookState:
         if not np.isfinite(starting_value) or starting_value <= 0.0:
             raise ValueError("period_start_value must be finite and positive")
 
-        self.cash += float(funding_amount)
-        self.revalue(mark_prices)
-        value = self.portfolio_value
-        if not np.isfinite(value):
-            raise ValueError("base-bar portfolio value became non-finite")
-        net_return = value / starting_value - 1.0
+        # Validate the complete proposed mark/funding transition before writing
+        # either cash or marks. Revalue() alone can fail after changing the book.
+        marks = _finite_vector(mark_prices, field_name="mark_prices")
+        if marks.shape != self.quantities.shape or np.any(marks <= 0.0):
+            raise ValueError("mark_prices must match the book and be positive")
+        proposed_cash = self.cash + float(funding_amount)
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        with np.errstate(over="ignore", invalid="ignore"):
+            proposed_value = float(
+                proposed_cash + (self.quantities * marks * multipliers).sum()
+            )
+        proposed_funding_pnl = self.funding_pnl + float(funding_amount)
+        if not all(
+            math.isfinite(value)
+            for value in (proposed_cash, proposed_value, proposed_funding_pnl)
+        ):
+            raise ValueError("base-bar portfolio value or funding became non-finite")
+
+        net_return = proposed_value / starting_value - 1.0
+        if not math.isfinite(net_return):
+            raise ValueError("base-bar net return became non-finite")
         if not unbounded_loss_metrics:
             net_return = max(net_return, -1.0 + 1e-12)
+        drawdown_value = (
+            proposed_value if unbounded_loss_metrics else max(proposed_value, 0.0)
+        )
+        projected_peak = max(self.peak_value, drawdown_value)
+        projected_drawdown = max(
+            self.max_drawdown,
+            1.0 - drawdown_value / max(projected_peak, _MIN_EQUITY),
+        )
+        if not math.isfinite(projected_drawdown):
+            raise ValueError("base-bar drawdown became non-finite")
+
+        self.cash = proposed_cash
+        self.revalue(marks)
         self._update_drawdown(unbounded_loss=unbounded_loss_metrics)
-        self.funding_pnl += float(funding_amount)
+        self.funding_pnl = proposed_funding_pnl
         self.returns_history.append(float(net_return))
         return float(net_return)
 

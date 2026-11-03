@@ -993,6 +993,12 @@ intraminute drawdown, optimal returns or private-account suitability.
 
 Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
+## Development-only pre-cut causal evidence
+
+`trade_rl/evaluation/dev_realdata_study/runner.py::_trace` は開発用の未来摂動検証に限り、各intervalの数量・cash・equityだけでなく、native observerの `SharedCashLedgerIntervalEvidence.to_mapping()` 全体をcanonical JSON bytesとして照合する。これには注文提出・取消・非約定・約定イベント、capacity/fundingイベント、fee/borrow/interest/dividend等のflow、before/afterの口座事実が含まれる。各decisionも `SharedCashPortfolioReplayDecision.to_mapping()` からrisk reason・HOLDなどの情報を照合する。旧traceのinterval/decision順序および数量・期間診断の位置を維持し、数値上のcash/equityが同じでも、future perturbationで変わったnative注文イベントを同一traceと誤認しない。
+
+この照合は同一dataset identityの人工的な未来変更による**ソフトウェア因果性反証**であり、datasetの独立したvenue arrival/source timestampの真正性、予測fitの全履歴、unused/final data、実際の収益性を証明しない。過去の研究artifactやその当時の検証基準を上書きせず、新しいsource HEADで実行する将来のprobeにのみ適用する。
+
 ## 非目標
 
 Lean coreが保証しないもの:

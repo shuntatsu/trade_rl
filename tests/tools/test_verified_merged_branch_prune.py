@@ -243,6 +243,38 @@ def test_retention_must_include_exact_observation_and_tip() -> None:
         _prune(api)
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Observe merged PR #1076 source before cleanup grace period",
+        "Retain merged PR #1076 exact source after verified normal integration",
+    ],
+)
+def test_recent_merged_pr_retention_title_is_accepted(title: str) -> None:
+    api = FakeGitHub()
+    api.retention_record["message"] = f"{title}\n\n{NAME}\t{TIP}"
+    result = _prune(api)
+    assert result.deleted is False
+    assert result.merged_pr_number == 1076
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Observe merged PR #1077 source before cleanup grace period",
+        "Retain merged PR #1077 exact source after verified normal integration",
+        "Retain merged PR #1076 exact source after verified normal integration extra",
+    ],
+)
+def test_recent_retention_title_must_match_exact_merged_pr(title: str) -> None:
+    api = FakeGitHub()
+    api.retention_record["message"] = f"{title}\n\n{NAME}\t{TIP}"
+    with pytest.raises(ValueError, match="retention record"):
+        _prune(api)
+    assert api.deleted == []
+
+
 def test_retention_grace_is_mandatory() -> None:
     api = FakeGitHub()
     api.retention_record["committer"] = {"date": "2026-11-01T23:59:00Z"}

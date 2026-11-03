@@ -14,6 +14,7 @@ from tools.github_workflow_ref_guard import stable_workflow_branch_refs
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _TASK_MARKER = "<!-- agent-coordination:"
+_MAX_TASK_ISSUE_COMMENTS = 1000
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
@@ -32,6 +33,62 @@ def _number(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
     return value
+
+
+def _issue_identity(value: Any, repository: str) -> tuple[int, int, str, str, int, str]:
+    """Fix Issue identity, current state and comment count for later readback."""
+
+    issue = _mapping(value, "open Issue")
+    number = _number(issue.get("number"), "Issue number")
+    issue_id = _number(issue.get("id"), "Issue id")
+    node_id = issue.get("node_id")
+    repository_url = issue.get("repository_url")
+    if (
+        not isinstance(repository_url, str)
+        or repository_url.casefold()
+        != f"https://api.github.com/repos/{repository}".casefold()
+    ):
+        raise ValueError("open Issue repository identity differs")
+    state = issue.get("state")
+    count = issue.get("comments")
+    updated_at = issue.get("updated_at")
+    if not isinstance(node_id, str) or not node_id.strip() or state != "open":
+        raise ValueError("open Issue identity or state is invalid")
+    if type(count) is not int or count < 0 or count > _MAX_TASK_ISSUE_COMMENTS:
+        raise ValueError("open Issue comments count is invalid or unbounded")
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("open Issue updated_at is missing")
+    return (number, issue_id, node_id, state, count, updated_at)
+
+
+def _comment_snapshot(
+    api: GitHubWorkApi, issue_number: int, expected_count: int
+) -> tuple[tuple[int, int, str, str], ...]:
+    """Require exact comment cardinality and unchanged identity, author and body."""
+
+    comments = api.issue_comments(issue_number)
+    if not isinstance(comments, list) or len(comments) != expected_count:
+        raise RuntimeError(f"Issue #{issue_number} comments count differs from Issue")
+    identities: list[tuple[int, int, str, str]] = []
+    seen: set[int] = set()
+    for raw in comments:
+        comment = _mapping(raw, "Issue comment")
+        comment_id = _number(comment.get("id"), "Issue comment id")
+        if comment_id in seen:
+            raise RuntimeError(f"Issue #{issue_number} contains duplicate comment IDs")
+        seen.add(comment_id)
+        publisher = _mapping(comment.get("user"), "Issue comment publisher")
+        publisher_id = _number(publisher.get("id"), "Issue comment publisher id")
+        body = comment.get("body")
+        updated_at = comment.get("updated_at")
+        if (
+            not isinstance(body, str)
+            or not isinstance(updated_at, str)
+            or not updated_at.strip()
+        ):
+            raise ValueError("Issue comment body or updated_at is malformed")
+        identities.append((comment_id, publisher_id, body, updated_at))
+    return tuple(identities)
 
 
 def classify_ancestry(compare: dict[str, Any]) -> str:
@@ -120,7 +177,26 @@ class GitHubWorkApi:
         return self._reader._list_pages("issues", state="open")
 
     def issue_comments(self, issue_number: int) -> list[Any]:
-        return self._reader._list_pages(f"issues/{issue_number}/comments")
+        _number(issue_number, "Issue number")
+        items: list[Any] = []
+        # A full 1000-comment list needs one terminal empty page to prove that
+        # the caller was not silently given a truncated pagination result.
+        for page in range(1, _MAX_TASK_ISSUE_COMMENTS // 100 + 2):
+            response = self._reader._request_json(
+                "GET",
+                f"issues/{issue_number}/comments",
+                query={"per_page": "100", "page": str(page)},
+            )
+            if not isinstance(response, list) or len(response) > 100:
+                raise RuntimeError("Issue comment page has invalid size or shape")
+            if page > _MAX_TASK_ISSUE_COMMENTS // 100:
+                if response:
+                    raise RuntimeError("Issue comment enumeration exceeds limit")
+                return items
+            items.extend(response)
+            if len(response) < 100:
+                return items
+        raise RuntimeError("Issue comment enumeration is incomplete")
 
     def unfinished_workflow_branch_names(self) -> frozenset[str]:
         return self._reader.active_workflow_branch_names()
@@ -190,21 +266,32 @@ def build_inventory(
     task_branches: set[str] = set()
     task_ids: set[str] = set()
     open_issues = 0
-    issue_ids: set[int] = set()
+    issue_identities: dict[int, tuple[int, int, str, str, int, str]] = {}
+    issue_comments: dict[int, tuple[tuple[int, int, str, str], ...]] = {}
+    seen_issue_ids: set[int] = set()
+    seen_issue_node_ids: set[str] = set()
+    seen_comment_ids: set[int] = set()
     for item in api.open_issues():
         issue = _mapping(item, "open Issue")
         if "pull_request" in issue:
             continue
-        issue_number = _number(issue.get("number"), "Issue number")
-        if issue_number in issue_ids:
+        identity = _issue_identity(issue, api.repository)
+        issue_number = identity[0]
+        if issue_number in issue_identities:
             raise RuntimeError(f"duplicate open Issue number: {issue_number}")
-        issue_ids.add(issue_number)
+        if identity[1] in seen_issue_ids or identity[2] in seen_issue_node_ids:
+            raise RuntimeError("open Issue identity is duplicated across numbers")
+        seen_issue_ids.add(identity[1])
+        seen_issue_node_ids.add(identity[2])
+        issue_identities[issue_number] = identity
         open_issues += 1
-        for entry in api.issue_comments(issue_number):
-            comment = _mapping(entry, "Issue comment")
-            body = comment.get("body")
-            if not isinstance(body, str):
-                raise ValueError("Issue comment body is missing")
+        comments = _comment_snapshot(api, issue_number, identity[4])
+        for comment_id, _author, _body, _timestamp in comments:
+            if comment_id in seen_comment_ids:
+                raise RuntimeError("duplicate Issue comment ID across open Issues")
+            seen_comment_ids.add(comment_id)
+        issue_comments[issue_number] = comments
+        for _id, _publisher, body, _updated_at in comments:
             if _TASK_MARKER not in body:
                 continue
             try:
@@ -219,18 +306,34 @@ def build_inventory(
             if record.lease_branch is not None:
                 task_branches.add(record.lease_branch)
 
-    # A changed or duplicated API page is not one coherent inventory snapshot.
+    # The second/third Issue reads and full comment reread catch ordinary
+    # changes before publication, but are not an atomic GitHub snapshot.
     if sorted(pull_identities) != sorted(
         _pull_identity(item, api.repository) for item in api.open_pulls()
     ):
         raise RuntimeError("open PR refs changed during inventory")
-    latest_issue_ids = [
-        _number(item.get("number"), "Issue number")
-        for item in map(lambda value: _mapping(value, "open Issue"), api.open_issues())
-        if "pull_request" not in item
-    ]
-    if sorted(latest_issue_ids) != sorted(issue_ids):
-        raise RuntimeError("open Issue roster changed during inventory")
+    expected_issues = sorted(issue_identities.values())
+
+    def reread_issue_identities() -> list[tuple[int, int, str, str, int, str]]:
+        rows = [
+            _issue_identity(issue, api.repository)
+            for issue in (_mapping(item, "open Issue") for item in api.open_issues())
+            if "pull_request" not in issue
+        ]
+        if len(rows) != len(set(row[0] for row in rows)):
+            raise RuntimeError("duplicate open Issue number during readback")
+        return sorted(rows)
+
+    if reread_issue_identities() != expected_issues:
+        raise RuntimeError("open Issue roster or metadata changed during inventory")
+    for issue_number, first in sorted(issue_comments.items()):
+        second = _comment_snapshot(api, issue_number, issue_identities[issue_number][4])
+        if first != second:
+            raise RuntimeError(
+                f"Issue #{issue_number} comments changed during inventory"
+            )
+    if reread_issue_identities() != expected_issues:
+        raise RuntimeError("open Issue roster or metadata changed during inventory")
     if tuple(sorted(api.branches(), key=lambda b: b.name)) != tuple(
         sorted(branches, key=lambda b: b.name)
     ):

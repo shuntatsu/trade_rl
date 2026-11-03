@@ -461,6 +461,7 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
         horizon_hours = 24
 
         def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
             self._close = dataset.close
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 
@@ -524,6 +525,7 @@ def test_causality_probe_matrix_catches_a_leak_in_a_non_default_arm(
         horizon_hours = 72
 
         def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
             self._close = dataset.close
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 

@@ -116,9 +116,7 @@ def test_emergency_risk_rejects_current_unavailable_close() -> None:
     )
 
     with pytest.raises(ValueError, match="not available at decision time"):
-        monitor.assess(
-            delayed, index=delayed.n_bars - 1, weights=np.array([0.4, 0.0])
-        )
+        monitor.assess(delayed, index=delayed.n_bars - 1, weights=np.array([0.4, 0.0]))
 
 
 def test_emergency_risk_allows_history_received_before_current_decision() -> None:

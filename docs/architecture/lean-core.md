@@ -995,7 +995,7 @@ Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data
 
 ## Development-only Phase 2 declared-source arrival fence
 
-`trade_rl/evaluation/dev_realdata_study/trial_sources.py::DailyPanel.position` は将来のPhase 2日次意思決定に対し、Datasetの `available_at` 宣言とUTC 00:00の実際のdecision時刻を照合する。日次markがその当日00:00まで未到着、またはfunding due eventが直後の最初の00:00意思決定まで未到着なら、該当日とそれ以降の歴史系列参照をfail closedとする。これは、過去日に本来未到着だった値から算出した指標を、後日のblend scalingで再利用することも避けるための保守的な拒否である。非日次・非fundingのbar遅延だけでは本経路を拒否せず、現在のdecisionより後に発生する遅延も過去の判断へ影響させない。次の日次判断より前に到着した過去のfundingは許容する。過去の封印結果、計算式、採用閾値、実市場データ利用履歴を再計算・再分類しない。これはDataset自己申告のavailabilityしか確認せず、venue/source arrivalの独立した真偽やfunding sourceの真正性を証明しない。
+`trade_rl/evaluation/dev_realdata_study/trial_sources.py::DailyPanel.position` は将来のPhase 2のDailyPanel経由シグナル（T1/T2/T3/T6–T8）に限り、Datasetの `available_at` 宣言とUTC 00:00の実際のdecision時刻を照合する。日次markがその当日00:00まで未到着、またはfunding due eventが直後の最初の00:00意思決定まで未到着なら、該当日とそれ以降の歴史系列参照をfail closedとする。これは、過去日に本来未到着だった値から算出した指標を、後日のblend scalingで再利用することも避けるための保守的な拒否である。非日次・非fundingのbar遅延だけでは本経路を拒否せず、現在のdecisionより後に発生する遅延も過去の判断へ影響させない。次の日次判断より前に到着した過去のfundingは許容する。過去の封印結果、計算式、採用閾値、実市場データ利用履歴を再計算・再分類しない。T4/T5とPR-Cのprequential packetは別の入力経路であり、本DailyPanel gateの適用対象ではない。これはDataset自己申告のavailabilityしか確認せず、venue/source arrivalの独立した真偽やfunding sourceの真正性を証明しない。
 
 ## Development-only Phase 2 Ridge forecast binding
 

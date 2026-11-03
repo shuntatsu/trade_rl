@@ -21,6 +21,7 @@ from tools.branch_hygiene import (
     RETENTION_BRANCH,
     BranchInfo,
     GitHubApi,
+    merged_pr_retention_title,
     open_pull_request_branch_names,
 )
 
@@ -38,10 +39,6 @@ _PRESERVED = (
     "archive/",
     "release/",
     "artifact/",
-)
-_RETENTION_PREFIXES = (
-    "Observe non-anchor branch tips before cleanup grace period",
-    "Archive unique non-anchor branch tips before ref cleanup",
 )
 _GRACE = timedelta(hours=1)
 
@@ -163,6 +160,7 @@ def _require_retention_record(
     record_sha: str,
     branch: str,
     sha: str,
+    merged_pr_number: int,
     now: datetime,
 ) -> None:
     record = _mapping(
@@ -175,7 +173,7 @@ def _require_retention_record(
     if (
         record.get("sha") != record_sha
         or not isinstance(message, str)
-        or not message.startswith(_RETENTION_PREFIXES)
+        or message.split("\n", 1)[0] != merged_pr_retention_title(merged_pr_number)
         or f"{branch}\t{sha}" not in message.splitlines()
         or not isinstance(parents, list)
         or len(parents) < 2
@@ -227,6 +225,7 @@ def _observe(
         record_sha=retention_record_sha,
         branch=branch,
         sha=expected_sha,
+        merged_pr_number=merged_pr_number,
         now=now,
     )
     return VerifiedMergedPrune(

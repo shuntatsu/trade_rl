@@ -394,3 +394,49 @@ def test_execution_and_missingness_metadata_are_immutable_and_shaped() -> None:
     assert np.all(market.mark_price > market.index_price)
     with pytest.raises(ValueError):
         market.close[0, 0] = 0.0
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid"),
+    (
+        ("mark_price", math.nan),
+        ("mark_price", math.inf),
+        ("mark_price", -math.inf),
+        ("index_price", math.nan),
+        ("index_price", math.inf),
+        ("index_price", -math.inf),
+    ),
+)
+def test_mark_and_index_prices_reject_nonfinite_values(
+    field_name: str, invalid: float
+) -> None:
+    values = kwargs()
+    prices = np.asarray(values["close"]).copy()
+    prices[3, 1] = invalid
+    values[field_name] = prices
+    with pytest.raises(ValueError, match="mark_price|index_price"):
+        MarketDataset(**values)
+
+
+def test_quantity_notional_rejects_finite_inputs_with_overflowed_notional() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="notional"):
+        market.quantity_notional(
+            0, np.array([1e308]), prices=np.array([1e308])
+        )
+
+
+def test_notional_to_quantity_rejects_finite_inputs_with_overflowed_quantity() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="quantit"):
+        market.notional_to_quantity(
+            0, np.array([1e308]), prices=np.array([1e-308])
+        )
+
+
+def test_market_notional_rejects_finite_inputs_with_overflowed_liquidity() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="market notional"):
+        market.market_notional(
+            0, prices=np.array([1e308]), volume=np.array([1e308])
+        )

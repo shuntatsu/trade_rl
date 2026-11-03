@@ -387,3 +387,30 @@ def test_invalid_requests_and_capacity_inputs_fail_closed() -> None:
             lot_size=0.0,
             minimum_notional=0.0,
         )
+
+
+def test_capacity_pool_rejects_nonfinite_result_from_finite_inputs() -> None:
+    with pytest.raises(LiquidityAllocationError, match="capacity|notional"):
+        allocate_symbol_capacity(
+            requests=(),
+            processing_volume=1e308,
+            price=1e308,
+            contract_multiplier=1.0,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )
+
+
+def test_capacity_request_rejects_overflowed_filled_notional() -> None:
+    with pytest.raises(LiquidityAllocationError, match="notional|capacity"):
+        allocate_symbol_capacity(
+            requests=(_request("a", 1e308, price=1e308),),
+            processing_volume=1e308,
+            processing_market_notional=1e308,
+            price=1e308,
+            contract_multiplier=1.0,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )

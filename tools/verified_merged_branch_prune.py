@@ -46,6 +46,16 @@ _RETENTION_PREFIXES = (
 _GRACE = timedelta(hours=1)
 
 
+def _has_authorized_retention_title(message: str, merged_pr_number: int) -> bool:
+    """Accept historical records or a recent title bound to the exact merged PR."""
+
+    title = message.split("\n", 1)[0]
+    return message.startswith(_RETENTION_PREFIXES) or title in (
+        f"Observe merged PR #{merged_pr_number} source before cleanup grace period",
+        f"Retain merged PR #{merged_pr_number} exact source after verified normal integration",
+    )
+
+
 @dataclass(frozen=True)
 class VerifiedMergedPrune:
     """Bounded evidence for a redundant PR branch, not Task cleanup authority."""
@@ -163,6 +173,7 @@ def _require_retention_record(
     record_sha: str,
     branch: str,
     sha: str,
+    merged_pr_number: int,
     now: datetime,
 ) -> None:
     record = _mapping(
@@ -175,7 +186,7 @@ def _require_retention_record(
     if (
         record.get("sha") != record_sha
         or not isinstance(message, str)
-        or not message.startswith(_RETENTION_PREFIXES)
+        or not _has_authorized_retention_title(message, merged_pr_number)
         or f"{branch}\t{sha}" not in message.splitlines()
         or not isinstance(parents, list)
         or len(parents) < 2
@@ -227,6 +238,7 @@ def _observe(
         record_sha=retention_record_sha,
         branch=branch,
         sha=expected_sha,
+        merged_pr_number=merged_pr_number,
         now=now,
     )
     return VerifiedMergedPrune(

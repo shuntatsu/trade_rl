@@ -38,6 +38,7 @@ from trade_rl.evaluation.dev_realdata_study.protocol import (
     DevStudyProtocol,
     protocol_digest,
 )
+from trade_rl.strategies.forecasts.prequential import ForecastPacket
 from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot
 
 HOUR = np.timedelta64(1, "h")
@@ -280,7 +281,49 @@ class FakeSource:
 
     def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
         self.lookups.append(symbol_index)
-        return self._packets.get(symbol_index)
+        item = self._packets.get(symbol_index)
+        if isinstance(item, SimpleNamespace):
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=item.point_forecast,
+                residual_variance=item.residual_variance,
+            )
+        return item
+
+
+def _synthetic_packet(
+    *,
+    symbol: str,
+    symbol_index: int,
+    horizon_hours: int,
+    decision_time: np.datetime64,
+    point_forecast: float,
+    residual_variance: float,
+) -> ForecastPacket:
+    """Synthetic provenance for adapter and future-leak tests; not market proof."""
+    fit = decision_time - np.timedelta64(1, "h")
+    return ForecastPacket(
+        symbol=symbol,
+        symbol_index=symbol_index,
+        horizon_hours=horizon_hours,
+        decision_time=decision_time,
+        forecast_available_at=decision_time,
+        return_unit="log",
+        point_forecast=point_forecast,
+        residual_variance=residual_variance,
+        vintage_id="0" * 64,
+        fit_time=fit,
+        fit_cutoff=fit,
+        max_training_label_available_at=fit - np.timedelta64(1, "h"),
+        n_training_samples=1,
+        fitter_identity="synthetic-leak-test",
+        training_digest="1" * 64,
+        model_digest="2" * 64,
+        feature_digest="3" * 64,
+    )
 
 
 def snapshot_stub(n: int = 3, timestamp: str = "2022-03-01T00:00:00") -> object:
@@ -474,7 +517,14 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
                     self._close[row + 72, symbol_index] / self._close[row, symbol_index]
                 )
             )
-            return SimpleNamespace(point_forecast=future, residual_variance=0.0)
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=future,
+                residual_variance=0.0,
+            )
 
     monkeypatch.setattr(
         runner,
@@ -538,7 +588,14 @@ def test_causality_probe_matrix_catches_a_leak_in_a_non_default_arm(
                     self._close[row + 72, symbol_index] / self._close[row, symbol_index]
                 )
             )
-            return SimpleNamespace(point_forecast=future, residual_variance=0.0)
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=future,
+                residual_variance=0.0,
+            )
 
     protocol = small_protocol()
     clean = runner.build_forecast_sources(market, protocol)

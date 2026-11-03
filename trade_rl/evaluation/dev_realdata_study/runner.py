@@ -51,6 +51,7 @@ from trade_rl.strategies.allocation.buy_and_hold import BuyAndHoldPortfolioPolic
 from trade_rl.strategies.allocation.cost_aware import CostAwareAllocationPolicy
 from trade_rl.strategies.allocation.costs import one_way_cost_rates
 from trade_rl.strategies.forecasts.prequential import (
+    ForecastPacket,
     PrequentialForecastSource,
     PrequentialSchedule,
     RidgeForecastFitter,
@@ -103,15 +104,26 @@ class PrequentialSimpleReturnSource:
     contributes ``0.0``. Only the packet for ``snapshot.timestamp_ns`` is read.
     The snapshot symbol tuple must exactly equal the forecast dataset's symbol
     order before any scoring; mismatches fail without changing diagnostics.
+    Each non-null ForecastPacket must bind the exact asset, horizon and decision
+    timestamp. Rejected packets must not advance decision diagnostics.
     """
 
     def __init__(
         self, source: PrequentialForecastSource, *, decision_interval_hours: int
     ) -> None:
+        if (
+            isinstance(decision_interval_hours, bool)
+            or not isinstance(decision_interval_hours, int)
+            or decision_interval_hours <= 0
+        ):
+            raise ValueError("decision interval must be a positive integer of hours")
         horizon = source.horizon_hours
+        if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
+            raise ValueError("forecast horizon must be a positive integer of hours")
         if horizon % decision_interval_hours != 0:
             raise ValueError("horizon must be a multiple of the decision interval")
         self._source = source
+        self._horizon_hours = horizon
         self._divisor = float(horizon // decision_interval_hours)
         self.calls = 0
         self.null_packets = 0
@@ -124,17 +136,35 @@ class PrequentialSimpleReturnSource:
             raise ValueError("prequential forecast symbol roster must match snapshot")
         when = np.datetime64(snapshot.timestamp_ns, "ns")
         values: list[float] = []
-        for symbol_index in range(len(snapshot.symbols)):
+        null_packets = 0
+        for symbol_index, symbol in enumerate(snapshot.symbols):
             packet = self._source.packet(symbol_index, when)
             if packet is None:
-                self.null_packets += 1
+                null_packets += 1
                 values.append(0.0)
                 continue
-            simple = math.expm1(packet.point_forecast + 0.5 * packet.residual_variance)
+            if not isinstance(packet, ForecastPacket):
+                raise TypeError("prequential source packet must be ForecastPacket or None")
+            if (
+                packet.symbol != symbol
+                or packet.symbol_index != symbol_index
+                or packet.horizon_hours != self._horizon_hours
+                or packet.decision_time != when
+            ):
+                raise ValueError("prequential source packet identity must match request")
+            try:
+                simple = math.expm1(
+                    packet.point_forecast + 0.5 * packet.residual_variance
+                )
+            except OverflowError as exc:
+                raise ValueError("prequential packet forecast conversion overflow") from exc
+            if not math.isfinite(simple):
+                raise ValueError("prequential packet forecast conversion must be finite")
             values.append(simple / self._divisor)
-        self.calls += 1
         result = tuple(values)
         self.history.append(result)
+        self.calls += 1
+        self.null_packets += null_packets
         return result
 
 

@@ -605,8 +605,11 @@ class MarketDataset:
             or np.any(participation > 1.0)
         ):
             raise ValueError("max_participation_rate must be within (0, 1]")
-        if any(np.any(price <= 0.0) for price in (mark_price, index_price)):
-            raise ValueError("mark_price and index_price must be strictly positive")
+        if any(
+            not np.isfinite(price).all() or np.any(price <= 0.0)
+            for price in (mark_price, index_price)
+        ):
+            raise ValueError("mark_price and index_price must be finite and positive")
         if not np.isfinite(dividend).all():
             raise ValueError("dividend must be finite")
         if not np.isfinite(split_factor).all() or np.any(split_factor <= 0.0):
@@ -1045,7 +1048,11 @@ class MarketDataset:
         ):
             raise ValueError("quantities and prices must match symbols and be finite")
         multipliers = self.resolved_array("contract_multipliers")
-        return quantity_vector * price_vector * multipliers
+        with np.errstate(over="ignore", invalid="ignore"):
+            result = quantity_vector * price_vector * multipliers
+        if not np.isfinite(result).all():
+            raise ValueError("quantity notional must be finite")
+        return result
 
     def notional_to_quantity(
         self,
@@ -1069,7 +1076,15 @@ class MarketDataset:
         ):
             raise ValueError("notionals and prices must match symbols and be finite")
         multipliers = self.resolved_array("contract_multipliers")
-        return notional_vector / (price_vector * multipliers)
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            denominator = price_vector * multipliers
+        if not np.isfinite(denominator).all() or np.any(denominator <= 0.0):
+            raise ValueError("notional-to-quantity price multiplier must be finite")
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            result = notional_vector / denominator
+        if not np.isfinite(result).all():
+            raise ValueError("notional-to-quantity result must be finite")
+        return result
 
     def market_notional(
         self,
@@ -1106,16 +1121,19 @@ class MarketDataset:
         ):
             raise ValueError("market volume must match symbols and be non-negative")
         result = np.empty(self.n_symbols, dtype=np.float64)
-        for symbol_index, unit in enumerate(self.volume_units):
-            raw = raw_volume[symbol_index]
-            if unit is VolumeUnit.QUOTE_NOTIONAL:
-                result[symbol_index] = raw
-            elif unit is VolumeUnit.BASE_ASSET:
-                result[symbol_index] = raw * price_vector[symbol_index]
-            else:
-                result[symbol_index] = (
-                    raw * multipliers[symbol_index] * price_vector[symbol_index]
-                )
+        with np.errstate(over="ignore", invalid="ignore"):
+            for symbol_index, unit in enumerate(self.volume_units):
+                raw = raw_volume[symbol_index]
+                if unit is VolumeUnit.QUOTE_NOTIONAL:
+                    result[symbol_index] = raw
+                elif unit is VolumeUnit.BASE_ASSET:
+                    result[symbol_index] = raw * price_vector[symbol_index]
+                else:
+                    result[symbol_index] = (
+                        raw * multipliers[symbol_index] * price_vector[symbol_index]
+                    )
+        if not np.isfinite(result).all():
+            raise ValueError("market notional must be finite")
         return result
 
 

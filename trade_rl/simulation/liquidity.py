@@ -293,12 +293,21 @@ def allocate_symbol_capacity(
         else processing_market_notional
     )
     initial_capacity = market_notional * participation_limit
-    remaining_capacity = initial_capacity
     initial_quantity_capacity = (
         None
         if processing_quantity_capacity is None
         else processing_quantity_capacity * participation_limit
     )
+    if (
+        not math.isfinite(market_notional)
+        or not math.isfinite(initial_capacity)
+        or (
+            initial_quantity_capacity is not None
+            and not math.isfinite(initial_quantity_capacity)
+        )
+    ):
+        raise LiquidityAllocationError("symbol capacity or market notional is non-finite")
+    remaining_capacity = initial_capacity
     remaining_quantity_capacity = initial_quantity_capacity
     allocations: list[LiquidityAllocation] = []
 
@@ -321,6 +330,8 @@ def allocate_symbol_capacity(
             * request.execution_price
             * contract_multiplier
         )
+        if not math.isfinite(requested_notional):
+            raise LiquidityAllocationError("requested notional is non-finite")
 
         if request.maximum_quantity is not None and abs(
             exact_quantity(request.remaining_quantity)
@@ -405,6 +416,8 @@ def allocate_symbol_capacity(
         exact_notional = (
             abs(filled_quantity) * request.execution_price * contract_multiplier
         )
+        if not math.isfinite(exact_notional):
+            raise LiquidityAllocationError("filled notional is non-finite")
         filled_exact = accepted_fill_quantity(
             filled_quantity,
             lot_size=lot_size if filled_lot_count is not None else 0.0,

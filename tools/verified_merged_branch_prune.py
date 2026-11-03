@@ -21,6 +21,7 @@ from tools.branch_hygiene import (
     RETENTION_BRANCH,
     BranchInfo,
     GitHubApi,
+    merged_pr_retention_title,
     open_pull_request_branch_names,
 )
 
@@ -39,21 +40,7 @@ _PRESERVED = (
     "release/",
     "artifact/",
 )
-_RETENTION_PREFIXES = (
-    "Observe non-anchor branch tips before cleanup grace period",
-    "Archive unique non-anchor branch tips before ref cleanup",
-)
 _GRACE = timedelta(hours=1)
-
-
-def _has_authorized_retention_title(message: str, merged_pr_number: int) -> bool:
-    """Accept historical records or a recent title bound to the exact merged PR."""
-
-    title = message.split("\n", 1)[0]
-    return message.startswith(_RETENTION_PREFIXES) or title in (
-        f"Observe merged PR #{merged_pr_number} source before cleanup grace period",
-        f"Retain merged PR #{merged_pr_number} exact source after verified normal integration",
-    )
 
 
 @dataclass(frozen=True)
@@ -186,7 +173,7 @@ def _require_retention_record(
     if (
         record.get("sha") != record_sha
         or not isinstance(message, str)
-        or not _has_authorized_retention_title(message, merged_pr_number)
+        or message.split("\n", 1)[0] != merged_pr_retention_title(merged_pr_number)
         or f"{branch}\t{sha}" not in message.splitlines()
         or not isinstance(parents, list)
         or len(parents) < 2

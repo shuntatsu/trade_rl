@@ -88,11 +88,28 @@ def _actual_inputs() -> tuple[RegistryRefSnapshot, LeaseRecord, dict[str, object
             return []
 
         def open_issues(self) -> list[object]:
-            return [{"number": 1067}]
+            return [
+                {
+                    "id": 6142352475,
+                    "number": 1067,
+                    "node_id": entry.issue_node_id,
+                    "repository_url": f"https://api.github.com/repos/{REPOSITORY}",
+                    "state": "open",
+                    "comments": 1,
+                    "updated_at": "2026-11-02T11:50:00Z",
+                }
+            ]
 
         def issue_comments(self, issue_number: int) -> list[object]:
             assert issue_number == 1067
-            return [{"body": render_status_comment(status)}]
+            return [
+                {
+                    "id": 6600000001,
+                    "user": {"id": 148511409},
+                    "body": render_status_comment(status),
+                    "updated_at": "2026-11-02T11:50:00Z",
+                }
+            ]
 
         def unfinished_workflow_branch_names(self) -> frozenset[str]:
             return frozenset({branch})

@@ -250,3 +250,81 @@ def test_handoff_rejects_integer_shaped_floats(
     kwargs[field] = value
     with pytest.raises(ValueError, match=message):
         HandoffPacket(**kwargs)
+
+
+_HANDOFF_TEXT_FIELDS = (
+    "verified",
+    "pending",
+    "known_failures",
+    "do_not_repeat",
+    "evidence_ids",
+)
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param((123,), id="integer-entry"),
+        pytest.param((None,), id="null-entry"),
+        pytest.param((True,), id="boolean-entry"),
+        pytest.param(("valid", 123), id="mixed-entry"),
+        pytest.param("already-a-string", id="string-instead-of-entries"),
+        pytest.param({"one": "two"}, id="mapping-instead-of-entries"),
+        pytest.param({"one", "two"}, id="unordered-set"),
+    ],
+)
+def test_handoff_rejects_implicit_stringification_and_nonordered_evidence(
+    field: str, bad: object
+) -> None:
+    packet = _packet()
+    lease = _lease()
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: bad,
+    }
+    with pytest.raises(ValueError, match=f"handoff {field}"):
+        HandoffPacket(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+def test_handoff_normalizes_only_ordered_exact_strings_without_mutable_alias(
+    field: str,
+) -> None:
+    packet = _packet()
+    lease = _lease()
+    observations = ["source:sha", "ci:123456"]
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: observations,
+    }
+    handoff = HandoffPacket(**values)  # type: ignore[arg-type]
+    assert getattr(handoff, field) == ("source:sha", "ci:123456")
+    assert type(getattr(handoff, field)) is tuple
+    observations.append("unverified")
+    assert getattr(handoff, field) == ("source:sha", "ci:123456")
+    validate_handoff(handoff, packet, lease)
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+def test_handoff_refuses_lazy_generator_instead_of_fixed_evidence(field: str) -> None:
+    packet = _packet()
+    lease = _lease()
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: (name for name in ("ci:1", "ci:2")),
+    }
+    with pytest.raises(ValueError, match=f"handoff {field}"):
+        HandoffPacket(**values)  # type: ignore[arg-type]

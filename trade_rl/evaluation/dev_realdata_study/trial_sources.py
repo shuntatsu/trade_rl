@@ -39,6 +39,7 @@ from trade_rl.evaluation.dev_realdata_study.trials import (
 from trade_rl.strategies.allocation.costs import one_way_cost_rate
 from trade_rl.strategies.forecasts.lightgbm import LightGBMForecastModel
 from trade_rl.strategies.forecasts.prequential import (
+    ForecastPacket,
     PrequentialForecastModel,
     PrequentialForecastSource,
     PrequentialSchedule,
@@ -266,15 +267,20 @@ class RidgeDailyComponent:
 
     ``value_at`` reads the packet of the vintage usable at that date, so a past
     date always uses a vintage fitted before it. Dates before the first vintage
-    are unavailable (``None``). Results are cached by day.
+    are unavailable (``None``). Source and panel symbol rosters must align,
+    and every packet must bind its asset/horizon/time before the day is cached.
+    Results are cached by day.
     """
 
     def __init__(
         self, source: PrequentialForecastSource, panel: DailyPanel, *, divisor: float
     ) -> None:
+        if source.symbols != panel.symbols:
+            raise ValueError("Ridge source symbol roster must match daily panel")
         schedule = source.schedule
         self._source = source
         self._panel = panel
+        self._horizon_hours = source.horizon_hours
         self._divisor = divisor
         self._first_usable_ns = int(schedule.first_fit_time.astype(np.int64)) + (
             schedule.activation_delay_hours * _NS_PER_HOUR
@@ -289,15 +295,27 @@ class RidgeDailyComponent:
         if cached is None:
             cached = np.full(len(self._panel.symbols), np.nan)
             when = np.datetime64(stamp, "ns")
-            for index in range(cached.size):
+            for index, symbol in enumerate(self._panel.symbols):
                 packet = self._source.packet(index, when)
-                if packet is not None:
-                    cached[index] = (
-                        math.expm1(
-                            packet.point_forecast + 0.5 * packet.residual_variance
-                        )
-                        / self._divisor
-                    )
+                if packet is None:
+                    continue
+                if not isinstance(packet, ForecastPacket):
+                    raise TypeError("invalid Ridge forecast packet type")
+                if (
+                    packet.symbol != symbol
+                    or packet.symbol_index != index
+                    or packet.horizon_hours != self._horizon_hours
+                    or packet.decision_time != when
+                ):
+                    raise ValueError("Ridge forecast packet identity mismatch")
+                log_mean = packet.point_forecast + 0.5 * packet.residual_variance
+                try:
+                    simple = math.expm1(log_mean)
+                except OverflowError as exc:
+                    raise ValueError("Ridge forecast conversion overflow") from exc
+                if not math.isfinite(simple):
+                    raise ValueError("non-finite Ridge forecast conversion")
+                cached[index] = simple / self._divisor
             self._cache[day] = cached
         return cached
 

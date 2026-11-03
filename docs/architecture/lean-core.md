@@ -993,6 +993,10 @@ intraminute drawdown, optimal returns or private-account suitability.
 
 Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
+## Development-only Phase 2 Ridge forecast binding
+
+`trade_rl/evaluation/dev_realdata_study/trial_sources.py::RidgeDailyComponent` は開発用Phase 2のRidge forecast packetを日次配列へ変換する際、sourceとpanelの銘柄順を厳密に一致させ、各非null `ForecastPacket` の銘柄名・index・予測horizon・decision時刻を要求時点と照合する。欠損packetは従来どおりNaNとし、packet identityの不一致やoverflowはその日のcacheを書き込まずfail closedとする。正常packetのlog-to-simple変換式、既存研究条件・過去artifactは変えない。この照合だけでvenue到着やfit provenanceの独立認証、実運用の利益は成立しない。
+
 ## Development-only pre-cut causal evidence
 
 `trade_rl/evaluation/dev_realdata_study/runner.py::_trace` は開発用の未来摂動検証に限り、各intervalの数量・cash・equityだけでなく、native observerの `SharedCashLedgerIntervalEvidence.to_mapping()` 全体をcanonical JSON bytesとして照合する。これには注文提出・取消・非約定・約定イベント、capacity/fundingイベント、fee/borrow/interest/dividend等のflow、before/afterの口座事実が含まれる。各decisionも `SharedCashPortfolioReplayDecision.to_mapping()` からrisk reason・HOLDなどの情報を照合する。旧traceのinterval/decision順序および数量・期間診断の位置を維持し、数値上のcash/equityが同じでも、future perturbationで変わったnative注文イベントを同一traceと誤認しない。

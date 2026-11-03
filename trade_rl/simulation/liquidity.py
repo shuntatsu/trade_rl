@@ -306,7 +306,9 @@ def allocate_symbol_capacity(
             and not math.isfinite(initial_quantity_capacity)
         )
     ):
-        raise LiquidityAllocationError("symbol capacity or market notional is non-finite")
+        raise LiquidityAllocationError(
+            "symbol capacity or market notional is non-finite"
+        )
     remaining_capacity = initial_capacity
     remaining_quantity_capacity = initial_quantity_capacity
     allocations: list[LiquidityAllocation] = []

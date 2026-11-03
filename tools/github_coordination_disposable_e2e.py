@@ -15,10 +15,13 @@ import argparse
 import json
 import os
 import re
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any, Protocol
+
+from tools import github_coordination_ref_cas as cas
 
 if TYPE_CHECKING:
     from tools.agent_repo.coordination.registry import RegistryTransitionPlan
@@ -70,15 +73,56 @@ def _reject_nonfinite_json_constant(_constant: str) -> None:
 
 
 class GitHubGraphQLHttpApi:
-    """Fixed-host POST transport for the existing narrow GraphQL CAS protocol.
+    """Bound, test-only GraphQL ref transport; no arbitrary GraphQL capability.
 
-    No user-provided URL, automatic retry, response-body error disclosure or
-    redirect is allowed. A timeout after a mutation could mean it committed.
+    Reads are scoped to a disposable repository/ref and expected actor. One
+    explicitly opted-in exact-OID mutation requires a validated prior read.
+    After a mutation attempt (including a transport failure) there is no retry.
     """
 
-    def __init__(self, token: str) -> None:
+    def __init__(
+        self,
+        token: str,
+        *,
+        repository: str,
+        ref_name: str,
+        expected_oid: str,
+        after_oid: str,
+        expected_coordinator_login: str,
+        allow_disposable_mutation: bool = False,
+    ) -> None:
         if not isinstance(token, str) or not token or any(c.isspace() for c in token):
             raise ValueError("GitHub token must be a non-empty single-line secret")
+        if type(allow_disposable_mutation) is not bool:
+            raise ValueError("disposable mutation mode must be an explicit boolean")
+        (
+            repository,
+            ref_name,
+            expected_oid,
+            after_oid,
+            expected_login,
+        ) = cas._validated_test_only_update(
+            repository=repository,
+            ref_name=ref_name,
+            expected_oid=expected_oid,
+            after_oid=after_oid,
+            expected_coordinator_login=expected_coordinator_login,
+            allow_unprotected_test_mutation=True,  # target validation, not a grant
+        )
+        _, owner, name = cas._repository(repository)
+        self._read_variables: dict[str, object] = {
+            "owner": owner,
+            "name": name,
+            "ref": ref_name,
+        }
+        self._ref_name = ref_name
+        self._expected_oid = expected_oid
+        self._after_oid = after_oid
+        self._expected_login = expected_login
+        self._mutation_enabled = allow_disposable_mutation
+        self._repository_id: str | None = None
+        self._mutation_attempted = False
+        self._lock = threading.Lock()
         self._token = token
 
     def _request(self, request: urllib.request.Request) -> bytes:
@@ -90,6 +134,77 @@ class GitHubGraphQLHttpApi:
             raise RuntimeError(
                 "GitHub GraphQL transport failed; mutation outcome may be unknown"
             ) from None
+
+    def _require_readback(self, decoded: dict[str, Any]) -> None:
+        data = cas._graphql_data(decoded, "coordination ref read")
+        viewer = cas._mapping(data.get("viewer"), "viewer")
+        login = cas._login(viewer.get("login"), "authenticated viewer login")
+        if login.casefold() != self._expected_login.casefold():
+            raise ValueError("authenticated Coordinator differs from expected login")
+        repo = cas._mapping(data.get("repository"), "repository")
+        repository_id = cas._text(repo.get("id"), "repository node id")
+        ref = repo.get("ref")
+        if ref is None:
+            oid = cas.ZERO_OID
+        else:
+            ref_object = cas._mapping(ref, "repository ref")
+            target = cas._mapping(ref_object.get("target"), "ref target")
+            oid = cas._sha(target.get("oid"), "repository ref OID", allow_zero=False)
+        with self._lock:
+            if self._repository_id is not None and repository_id != self._repository_id:
+                raise ValueError("repository identity changed during GraphQL transport")
+            if self._mutation_enabled:
+                wanted = (
+                    self._after_oid if self._mutation_attempted else self._expected_oid
+                )
+                if oid != wanted:
+                    raise ValueError("coordination ref does not match bound OID")
+            self._repository_id = repository_id
+
+    def _require_mutation(self, variables: dict[str, object]) -> None:
+        with self._lock:
+            if not self._mutation_enabled:
+                raise ValueError("disposable GraphQL mutation is disabled")
+            if self._mutation_attempted:
+                raise ValueError("disposable GraphQL mutation cannot be retried")
+            if self._repository_id is None:
+                raise ValueError("disposable GraphQL mutation requires prior ref read")
+            mutation_id = (
+                f"coordination-cas:{self._expected_oid[:12]}:{self._after_oid[:12]}"
+            )
+            expected: dict[str, object] = {
+                "input": {
+                    "repositoryId": self._repository_id,
+                    "clientMutationId": mutation_id,
+                    "refUpdates": [
+                        {
+                            "name": self._ref_name,
+                            "beforeOid": self._expected_oid,
+                            "afterOid": self._after_oid,
+                            "force": False,
+                        }
+                    ],
+                }
+            }
+            input_value = variables.get("input")
+            updates = (
+                input_value.get("refUpdates") if type(input_value) is dict else None
+            )
+            update = (
+                updates[0]
+                if type(updates) is list
+                and len(updates) == 1
+                and type(updates[0]) is dict
+                else None
+            )
+            if (
+                variables != expected
+                or update is None
+                or update.get("force") is not False
+            ):
+                raise ValueError("disposable GraphQL mutation is not an exact CAS")
+            # Set before HTTP I/O: a timeout/HTTP error may follow a remote commit.
+            self._mutation_attempted = True
 
     def execute(self, document: str, variables: dict[str, object]) -> dict[str, object]:
         if not isinstance(document, str) or not document.strip():
@@ -103,6 +218,18 @@ class GitHubGraphQLHttpApi:
         ).encode("utf-8")
         if len(data) > _MAX_REQUEST_BYTES:
             raise ValueError("GraphQL request exceeds the bounded payload limit")
+        # Validate the exact bytes that will be sent, not a concurrently mutable
+        # caller mapping that may differ after JSON serialization.
+        wire_variables = json.loads(data)["variables"]
+        if not isinstance(wire_variables, dict):
+            raise ValueError("GraphQL encoded variables must be an object")
+        if document == cas._READ_REF_QUERY:
+            if wire_variables != self._read_variables:
+                raise ValueError("coordination GraphQL read is not bound to target")
+        elif document == cas._UPDATE_REF_MUTATION:
+            self._require_mutation(wire_variables)
+        else:
+            raise ValueError("coordination GraphQL operation is not allowed")
         request = urllib.request.Request(
             _GRAPHQL_URL,
             data=data,
@@ -127,6 +254,8 @@ class GitHubGraphQLHttpApi:
             raise ValueError("GitHub GraphQL response is not strict JSON") from None
         if not isinstance(decoded, dict):
             raise ValueError("GitHub GraphQL response must be an object")
+        if document == cas._READ_REF_QUERY:
+            self._require_readback(decoded)
         return decoded
 
 
@@ -406,9 +535,18 @@ def main(argv: list[str] | None = None) -> int:
         expected_repository=args.repository,
         registry_path=args.registry_path,
     )
+    graphql = GitHubGraphQLHttpApi(
+        token,
+        repository=args.repository,
+        ref_name=args.ref_name,
+        expected_oid=args.expected_oid,
+        after_oid=args.after_oid,
+        expected_coordinator_login=args.expected_coordinator_login,
+        allow_disposable_mutation=args.allow_disposable_mutation,
+    )
     if args.inspect_interrupted_mutation:
         result = inspect_disposable_interrupted_cas(
-            GitHubGraphQLHttpApi(token),
+            graphql,
             reader,
             repository=args.repository,
             ref_name=args.ref_name,
@@ -418,7 +556,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         result = execute_disposable_registry_cas(
-            GitHubGraphQLHttpApi(token),
+            graphql,
             reader,
             repository=args.repository,
             ref_name=args.ref_name,

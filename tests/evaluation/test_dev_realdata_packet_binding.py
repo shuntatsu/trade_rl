@@ -95,8 +95,20 @@ def test_mismatched_packet_fails_without_recording_partial_diagnostics(
     assert adapter.history == [values]
 
 
-def test_forecast_conversion_overflow_is_an_atomic_rejection() -> None:
-    source = FakeSource({0: None, 1: _packet(point_forecast=1000.0)})
+@pytest.mark.parametrize(
+    "packet",
+    [
+        pytest.param(_packet(point_forecast=1000.0), id="expm1_overflow"),
+        pytest.param(
+            replace(_packet(point_forecast=1.6e308), residual_variance=1e308),
+            id="finite_inputs_sum_overflow",
+        ),
+    ],
+)
+def test_forecast_conversion_overflow_is_an_atomic_rejection(
+    packet: ForecastPacket,
+) -> None:
+    source = FakeSource({0: None, 1: packet})
     adapter = PrequentialSimpleReturnSource(source, decision_interval_hours=24)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="forecast"):
         adapter.expected_simple_returns(_snapshot())  # type: ignore[arg-type]

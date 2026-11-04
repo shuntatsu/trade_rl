@@ -1090,7 +1090,9 @@ class MarketDataset:
         if not np.isfinite(result).all():
             raise ValueError("notional-to-quantity result must be finite")
         if np.any((notional_vector != 0.0) & (result == 0.0)):
-            raise ValueError("nonzero notional-to-quantity result cannot be represented")
+            raise ValueError(
+                "nonzero notional-to-quantity result cannot be represented"
+            )
         return result
 
     def market_notional(

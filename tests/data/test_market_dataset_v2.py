@@ -473,6 +473,7 @@ def test_forward_index_uses_nonwrapping_time_target() -> None:
     market = _session_with_extreme_timestamp_span()
     assert market.forward_index(0, 3_000_000.0) == 2
 
+
 @pytest.mark.parametrize("sign", (-1.0, 1.0))
 def test_quantity_notional_rejects_nonzero_underflow(sign: float) -> None:
     """Nonzero quantities must not turn into a zero requested notional."""
@@ -496,14 +497,10 @@ def test_notional_to_quantity_rejects_nonzero_underflow(sign: float) -> None:
 def test_zero_notional_and_zero_quantity_remain_valid() -> None:
     market = MarketDataset(**kwargs(n_symbols=1))
     np.testing.assert_array_equal(
-        market.quantity_notional(
-            0, np.array([0.0]), prices=np.array([1e-200])
-        ),
+        market.quantity_notional(0, np.array([0.0]), prices=np.array([1e-200])),
         np.array([0.0]),
     )
     np.testing.assert_array_equal(
-        market.notional_to_quantity(
-            0, np.array([0.0]), prices=np.array([1e308])
-        ),
+        market.notional_to_quantity(0, np.array([0.0]), prices=np.array([1e308])),
         np.array([0.0]),
     )

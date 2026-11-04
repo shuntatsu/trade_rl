@@ -50,6 +50,7 @@ _ISO_SECOND_FRACTION = re.compile(
     r"(?:[zZ]|[+-]\d{2}(?::?\d{2})?)?\Z"
 )
 _ANY_SECOND_FRACTION = re.compile(r".\d{2}:\d{2}:\d{2}[.,]\d+")
+_NUMPY_COMPATIBLE_TZ = re.compile(r"(?:Z|[+-]\d{2}(?::?\d{2})?)\Z")
 _MIN_DATETIME64_NS = -(1 << 63) + 1  # The int64 minimum is reserved for NaT.
 _MAX_DATETIME64_NS = (1 << 63) - 1
 
@@ -334,10 +335,23 @@ def _normalized_timestamp(
             raise ValueError(f"{field} must be an ISO datetime") from conversion_error
         return _normalized_datetime64(coarse_timestamp, field=field)
 
-    # Keep NumPy's original RunConfig ISO syntax admission, but discard its
-    # converted value because that cast can wrap or truncate precision.
+    # Preserve NumPy's ISO lexical admission without its deprecated timezone
+    # conversion. Validate the original offset spelling, then pass only the
+    # timezone-free wall-time syntax; UTC is computed losslessly below.
+    lexical_value = value
+    if parsed.utcoffset() is not None:
+        timezone_match = _NUMPY_COMPATIBLE_TZ.search(value)
+        if timezone_match is None:
+            raise ValueError(f"{field} must be an ISO datetime")
+        lexical_value = value[: timezone_match.start()]
+    # NumPy rejects comma-based fractions and fractions of minutes or hours,
+    # but may warn before rejecting them. Do not widen Python's ISO admission.
+    if "," in lexical_value or re.search(
+        r"[Tt ]\d{2}(?::\d{2})?\.\d+\Z", lexical_value
+    ):
+        raise ValueError(f"{field} must be an ISO datetime")
     try:
-        np.datetime64(value, "ns")
+        np.datetime64(lexical_value, "ns")
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError(f"{field} must be an ISO datetime") from error
 

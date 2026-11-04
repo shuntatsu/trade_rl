@@ -288,7 +288,7 @@ class RidgeDailyComponent:
     date always uses a vintage fitted before it. Dates before the first vintage
     are unavailable (``None``). Source and panel symbol rosters must align,
     and every packet must bind its asset/horizon/time before the day is cached.
-    Results are cached by day.
+    Successfully cached rows share one immutable, read-only array per day.
     """
 
     def __init__(
@@ -335,6 +335,8 @@ class RidgeDailyComponent:
                 if not math.isfinite(simple):
                     raise ValueError("non-finite Ridge forecast conversion")
                 cached[index] = simple / self._divisor
+            # Publish frozen day bytes: consumers cannot alter historical signals.
+            cached = np.frombuffer(cached.tobytes(), dtype=cached.dtype)
             self._cache[day] = cached
         return cached
 

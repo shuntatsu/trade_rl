@@ -333,6 +333,14 @@ def allocate_symbol_capacity(
             * contract_multiplier
         )
         if not math.isfinite(requested_notional):
+            # A left-associative intermediate can overflow even when the final
+            # three-factor notional fits; retry before rejecting the request.
+            regrouped = abs(request.remaining_quantity) * (
+                request.execution_price * contract_multiplier
+            )
+            if math.isfinite(regrouped) and regrouped > 0.0:
+                requested_notional = regrouped
+        if not math.isfinite(requested_notional):
             raise LiquidityAllocationError("requested notional is non-finite")
 
         if request.maximum_quantity is not None and abs(

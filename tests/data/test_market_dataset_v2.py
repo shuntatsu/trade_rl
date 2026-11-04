@@ -472,3 +472,35 @@ def test_minimum_index_for_history_uses_nonwrapping_time_target() -> None:
 def test_forward_index_uses_nonwrapping_time_target() -> None:
     market = _session_with_extreme_timestamp_span()
     assert market.forward_index(0, 3_000_000.0) == 2
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_quantity_notional_rejects_nonzero_underflow(sign: float) -> None:
+    """Nonzero quantities must not turn into a zero requested notional."""
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="nonzero quantity notional"):
+        market.quantity_notional(
+            0, np.array([sign * 1e-200]), prices=np.array([1e-200])
+        )
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_notional_to_quantity_rejects_nonzero_underflow(sign: float) -> None:
+    """A nonzero allocated notional cannot silently become zero fill quantity."""
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="nonzero notional-to-quantity"):
+        market.notional_to_quantity(
+            0, np.array([sign * 1e-100]), prices=np.array([1e308])
+        )
+
+
+def test_zero_notional_and_zero_quantity_remain_valid() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    np.testing.assert_array_equal(
+        market.quantity_notional(0, np.array([0.0]), prices=np.array([1e-200])),
+        np.array([0.0]),
+    )
+    np.testing.assert_array_equal(
+        market.notional_to_quantity(0, np.array([0.0]), prices=np.array([1e308])),
+        np.array([0.0]),
+    )

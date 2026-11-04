@@ -48,6 +48,11 @@ jobs:
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 
+      - name: M1 conversion underflow diagnostic RED (test-only, expected to fail)
+        run: >-
+          uv run pytest -q tests/data/test_market_dataset_v2.py
+          -k 'test_quantity_notional_rejects_nonzero_underflow or test_notional_to_quantity_rejects_nonzero_underflow or test_zero_notional_and_zero_quantity_remain_valid'
+
       - name: Mypy
         run: uv run mypy trade_rl
 

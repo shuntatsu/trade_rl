@@ -504,3 +504,47 @@ def test_zero_notional_and_zero_quantity_remain_valid() -> None:
         market.notional_to_quantity(0, np.array([0.0]), prices=np.array([1e308])),
         np.array([0.0]),
     )
+
+
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    ((1e308, 1e308), (1e-308, 1e-308)),
+)
+def test_zero_target_skips_inactive_unrepresentable_unit(
+    price: float, multiplier: float
+) -> None:
+    """A zero fill is independent of an inactive contract's unit scale."""
+    values = kwargs(n_symbols=1)
+    values["contract_multipliers"] = np.array([multiplier])
+    market = MarketDataset(**values)
+    np.testing.assert_array_equal(
+        market.notional_to_quantity(0, np.array([0.0]), prices=np.array([price])),
+        np.array([0.0]),
+    )
+
+
+def test_active_fill_is_not_blocked_by_unrepresentable_inactive_unit() -> None:
+    values = kwargs(n_symbols=2)
+    values["contract_multipliers"] = np.array([1e308, 1.0])
+    market = MarketDataset(**values)
+    np.testing.assert_array_equal(
+        market.notional_to_quantity(
+            0, np.array([0.0, 200.0]), prices=np.array([1e308, 100.0])
+        ),
+        np.array([0.0, 2.0]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    ((1e308, 1e308), (1e-308, 1e-308)),
+)
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_nonzero_target_rejects_unrepresentable_active_unit(
+    price: float, multiplier: float, sign: float
+) -> None:
+    values = kwargs(n_symbols=1)
+    values["contract_multipliers"] = np.array([multiplier])
+    market = MarketDataset(**values)
+    with pytest.raises(ValueError, match="price multiplier"):
+        market.notional_to_quantity(0, np.array([sign]), prices=np.array([price]))

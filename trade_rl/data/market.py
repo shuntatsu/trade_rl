@@ -1079,17 +1079,23 @@ class MarketDataset:
         ):
             raise ValueError("notionals and prices must match symbols and be finite")
         multipliers = self.resolved_array("contract_multipliers")
-        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            denominator = price_vector * multipliers
-        if not np.isfinite(denominator).all() or np.any(denominator <= 0.0):
-            raise ValueError("notional-to-quantity price multiplier must be finite")
         with np.errstate(
             over="ignore", under="ignore", invalid="ignore", divide="ignore"
         ):
-            result = notional_vector / denominator
+            denominator = price_vector * multipliers
+        # A genuine zero target does not need a representable unit price.
+        # Reject unsafe nonzero conversions without poisoning other symbols.
+        active = notional_vector != 0.0
+        if np.any(active & (~np.isfinite(denominator) | (denominator <= 0.0))):
+            raise ValueError("notional-to-quantity price multiplier must be finite")
+        result = np.zeros_like(notional_vector)
+        with np.errstate(
+            over="ignore", under="ignore", invalid="ignore", divide="ignore"
+        ):
+            result[active] = notional_vector[active] / denominator[active]
         if not np.isfinite(result).all():
             raise ValueError("notional-to-quantity result must be finite")
-        if np.any((notional_vector != 0.0) & (result == 0.0)):
+        if np.any(active & (result == 0.0)):
             raise ValueError(
                 "nonzero notional-to-quantity result cannot be represented"
             )

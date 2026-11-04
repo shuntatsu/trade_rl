@@ -155,6 +155,8 @@ class DailyPanel:
     signal day exists, future day positions fail closed rather than reusing
     a potentially hindsight-contaminated signal history. Its derived source
     arrays are deeply immutable to prevent callers rewriting prior signals.
+    Finite funding events must also produce a finite accumulated carry prefix
+    and finite per-window carry results.
     """
 
     def __init__(self, dataset: MarketDataset) -> None:
@@ -175,9 +177,12 @@ class DailyPanel:
         paid = np.where(due, funding, 0.0)
         if not np.all(np.isfinite(paid)):
             raise ValueError("funding rates on due rows must be finite")
-        funding_prefix = np.vstack(
-            [np.zeros((1, paid.shape[1])), np.cumsum(paid, axis=0)]
-        )
+        with np.errstate(over="ignore", invalid="ignore"):
+            funding_prefix = np.vstack(
+                [np.zeros((1, paid.shape[1])), np.cumsum(paid, axis=0)]
+            )
+        if not np.isfinite(funding_prefix).all():
+            raise ValueError("cumulative funding must be finite")
         self._funding_prefix = _immutable_array(
             funding_prefix, dtype=np.dtype(np.float64)
         )
@@ -221,9 +226,12 @@ class DailyPanel:
                 continue
             low = int(np.searchsorted(self._stamps, start, side="right"))
             high = int(self.rows[day]) + 1
-            out[day] = -(self._funding_prefix[high] - self._funding_prefix[low]) / (
-                window_days
-            )
+            with np.errstate(over="ignore", invalid="ignore"):
+                funding_total = self._funding_prefix[high] - self._funding_prefix[low]
+                carry_row = -funding_total / window_days
+            if not np.isfinite(carry_row).all():
+                raise ValueError("funding carry must be finite")
+            out[day] = carry_row
         return out
 
 

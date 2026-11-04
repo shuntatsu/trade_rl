@@ -288,14 +288,20 @@ def test_job_contains_live_child_after_root_exits_and_cleanup_kills_it(
         "time.sleep(30)"
     )
     root_code = """
-import os,subprocess,sys,time
+import os,pathlib,subprocess,sys,time
 subprocess.Popen([sys.executable,'-I','-S','-c',sys.argv[1],sys.argv[2]],
     stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 deadline=time.monotonic()+10
-while not os.path.exists(sys.argv[2]) and time.monotonic()<deadline:
+marker=pathlib.Path(sys.argv[2])
+while time.monotonic()<deadline:
+    try:
+        if marker.read_text(encoding='ascii').isdecimal():
+            break
+    except FileNotFoundError:
+        pass
     time.sleep(.01)
-if not os.path.exists(sys.argv[2]):
-    raise SystemExit('contained child did not become ready')
+else:
+    raise SystemExit('contained child PID was not fully written')
 """
 
     with launch_contained_process(

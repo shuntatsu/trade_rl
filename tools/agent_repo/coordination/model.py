@@ -77,7 +77,14 @@ class Capability(str, Enum):
 
 
 def _tuple_strings(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
-    return tuple(str(value) for value in values)
+    # Snapshot caller-owned lists before validating, without coercing unknown
+    # Python objects into apparently legitimate durable evidence text.
+    if type(values) not in (tuple, list):
+        raise ValueError("text fields require an ordered native string list or tuple")
+    snapshot = tuple(values)
+    if any(type(value) is not str for value in snapshot):
+        raise ValueError("text fields require ordered native string entries")
+    return snapshot
 
 
 def _require_full_sha(value: str, *, field_name: str) -> None:

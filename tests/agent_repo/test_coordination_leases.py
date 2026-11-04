@@ -380,11 +380,12 @@ def test_reconciliation_validates_frozen_snapshot_before_list_mutation(
 
     def mutate_after_check(values: Iterable[object]) -> bool:
         nonlocal mutated
-        invalid = builtins.any(values)
-        if not mutated:
+        checked = tuple(values)
+        if not mutated and checked == (False,):
+            # Empty earlier fields must not consume the one-shot mutation.
             source[:] = [123]
             mutated = True
-        return invalid
+        return builtins.any(checked)
 
     # Deterministically interleave a caller mutation at the validation
     # boundary. The former implementation validated raw and copied it later.

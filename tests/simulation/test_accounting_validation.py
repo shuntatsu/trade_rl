@@ -457,3 +457,35 @@ def test_execute_offsetting_nonzero_legs_preserve_zero_net_cash() -> None:
     assert book.cash == 1_000.0
     assert book.fill_count == 2
     assert book.rebalance_events == 1
+
+
+def test_constructor_rejects_nonzero_position_value_underflow() -> None:
+    """A nonzero holding must not become zero in the valuation ledger."""
+    with pytest.raises(ValueError, match="nonzero.*position.*value"):
+        BookState(
+            quantities=np.array([1.0]),
+            cash=1_000.0,
+            mark_prices=np.array([1e-308]),
+            peak_value=1_000.0,
+            contract_multipliers=np.array([1e-308]),
+        )
+
+
+def test_revalue_rejects_nonzero_position_value_underflow_atomically() -> None:
+    """Revaluation must not erase an existing nonzero position economically."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_001.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    before_marks = book.mark_prices.copy()
+    before_value = book.portfolio_value
+
+    with pytest.raises(ValueError, match="nonzero.*position.*value"):
+        book.revalue(np.array([1e-308]))
+
+    np.testing.assert_array_equal(book.quantities, np.array([1.0]))
+    np.testing.assert_array_equal(book.mark_prices, before_marks)
+    assert book.portfolio_value == before_value

@@ -128,10 +128,9 @@ def validate_enrollment_transition(
     if isinstance(enumerated_task_ids, (str, bytes)):
         raise ValueError("registry roster is malformed or duplicated")
     task_ids = tuple(enumerated_task_ids)
-    if (
-        any(not isinstance(task, str) or not task for task in task_ids)
-        or len(set(task_ids)) != len(task_ids)
-    ):
+    if any(not isinstance(task, str) or not task for task in task_ids):
+        raise ValueError("registry roster is malformed or duplicated")
+    if len(set(task_ids)) != len(task_ids):
         raise ValueError("registry roster is malformed or duplicated")
     task_id = candidate.status.task_id
     if previous is None:

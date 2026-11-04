@@ -233,7 +233,9 @@ class BookState:
         # A nonzero target must not silently become a zero position when a
         # finite price and multiplier overflow their intermediate product or
         # a small requested exposure/quantity underflows to zero.
-        with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
+        with np.errstate(
+            over="ignore", under="ignore", divide="ignore", invalid="ignore"
+        ):
             target_values = weight_vector * capital
             unit_notionals = price_vector * multiplier_vector
         active = weight_vector != 0.0
@@ -249,7 +251,9 @@ class BookState:
             raise ValueError("nonzero weighted position cannot be represented")
 
         quantities = np.zeros_like(weight_vector)
-        with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
+        with np.errstate(
+            over="ignore", under="ignore", divide="ignore", invalid="ignore"
+        ):
             quantities[active] = target_values[active] / unit_notionals[active]
             position_values = quantities * price_vector * multiplier_vector
         if np.any(

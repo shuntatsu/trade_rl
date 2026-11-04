@@ -46,7 +46,9 @@ jobs:
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: uv run ruff format --check trade_rl tests tools
+        run: |
+          uv run ruff format --diff trade_rl/simulation/accounting.py
+          uv run ruff format --check trade_rl tests tools
 
       - name: M1 Gemini4 blockers RED (isolated diagnostic)
         run: >-

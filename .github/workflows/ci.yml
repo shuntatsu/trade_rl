@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up uv
@@ -50,10 +50,8 @@ jobs:
           uv run ruff format tests/data/test_market_dataset_v2.py trade_rl/data/market.py
           uv run ruff format --check trade_rl tests tools
 
-      - name: M1 optional LightGBM two synthetic regressions (isolated audit)
-        run: |
-          uv sync --extra dev --extra forecast-gbm
-          uv run --no-sync pytest -q -ra tests/evaluation/test_dev_realdata_phase2_trials.py -k 'test_lightgbm_signal_ignores_the_future or test_lightgbm_trial_fits_with_the_fixed_parameters'
+      - name: M1 full-history git identity test (isolated audit)
+        run: uv run pytest -q -ra tests/evaluation/test_forward_study_seal.py -k test_the_real_checkout_identity_matches_git_when_history_is_available
 
       - name: Mypy
         run: uv run mypy trade_rl

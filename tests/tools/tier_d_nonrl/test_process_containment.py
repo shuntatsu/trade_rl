@@ -284,24 +284,21 @@ def test_job_contains_live_child_after_root_exits_and_cleanup_kills_it(
         "import os,pathlib,sys,time; "
         "data=bytearray(64*1024*1024); "
         "[data.__setitem__(i,1) for i in range(0,len(data),4096)]; "
-        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()),encoding='ascii'); "
+        "marker=pathlib.Path(sys.argv[1]); "
+        "staged=marker.with_suffix('.tmp'); "
+        "staged.write_text(str(os.getpid()),encoding='ascii'); "
+        "staged.replace(marker); "
         "time.sleep(30)"
     )
     root_code = """
-import os,pathlib,subprocess,sys,time
-child=subprocess.Popen([sys.executable,'-I','-S','-c',sys.argv[1],sys.argv[2]],
+import os,subprocess,sys,time
+subprocess.Popen([sys.executable,'-I','-S','-c',sys.argv[1],sys.argv[2]],
     stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 deadline=time.monotonic()+10
-marker=pathlib.Path(sys.argv[2])
-while time.monotonic()<deadline:
-    try:
-        if marker.read_text(encoding='ascii') == str(child.pid):
-            break
-    except FileNotFoundError:
-        pass
+while not os.path.exists(sys.argv[2]) and time.monotonic()<deadline:
     time.sleep(.01)
-else:
-    raise SystemExit('contained child PID was not fully written')
+if not os.path.exists(sys.argv[2]):
+    raise SystemExit('contained child did not become ready')
 """
 
     with launch_contained_process(

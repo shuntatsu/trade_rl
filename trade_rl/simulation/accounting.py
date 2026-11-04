@@ -485,23 +485,30 @@ class BookState:
         multipliers = self.contract_multipliers
         assert multipliers is not None
         quantities = self._quantity_values()
-        proceeds = math.fsum(
-            float(
+        signed_legs: list[float] = []
+        for quantity, price, multiplier, recovered, settle in zip(
+            quantities,
+            price_vector,
+            multipliers,
+            recovery_vector,
+            settle_mask,
+            strict=True,
+        ):
+            if not settle:
+                continue
+            exact_proceeds = (
                 quantity
                 * exact_quantity(float(price))
                 * exact_quantity(float(multiplier))
                 * exact_quantity(float(recovered))
             )
-            for quantity, price, multiplier, recovered, settle in zip(
-                quantities,
-                price_vector,
-                multipliers,
-                recovery_vector,
-                settle_mask,
-                strict=True,
-            )
-            if settle
-        )
+            leg = float(exact_proceeds)
+            # Legitimate zero quantity or recovery is different from a nonzero
+            # recoverable leg silently rounded to zero before netting.
+            if exact_proceeds != 0 and leg == 0.0:
+                raise ValueError("nonzero settlement proceeds cannot be represented")
+            signed_legs.append(leg)
+        proceeds = math.fsum(signed_legs)
         exact_after = tuple(
             Fraction(0) if settle else value
             for value, settle in zip(quantities, settle_mask, strict=True)

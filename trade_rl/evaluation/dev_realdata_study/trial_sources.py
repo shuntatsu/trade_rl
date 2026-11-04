@@ -45,7 +45,10 @@ from trade_rl.strategies.forecasts.prequential import (
     PrequentialSchedule,
     RidgeForecastFitter,
 )
-from trade_rl.strategies.forecasts.supervised import CausalForecastTrainingSet
+from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
+    _immutable_array,
+)
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioTargetProposal,
@@ -150,7 +153,8 @@ class DailyPanel:
     causal recursions). Daily marks and funding events must also have arrived
     by their first eligible 00:00 UTC decision. Once an invalid historical
     signal day exists, future day positions fail closed rather than reusing
-    a potentially hindsight-contaminated signal history.
+    a potentially hindsight-contaminated signal history. Its derived source
+    arrays are deeply immutable to prevent callers rewriting prior signals.
     """
 
     def __init__(self, dataset: MarketDataset) -> None:
@@ -162,17 +166,20 @@ class DailyPanel:
         marks = np.asarray(dataset.resolved_array("mark_price"), dtype=np.float64)
         if not np.all(np.isfinite(marks)) or np.any(marks <= 0.0):
             raise ValueError("mark prices must be positive and finite")
-        self.rows = rows
-        self.timestamps_ns = stamps[rows]
-        self.marks = marks[rows]
-        self._stamps = stamps
+        self.rows = _immutable_array(rows, dtype=np.dtype(np.int64))
+        self.timestamps_ns = _immutable_array(stamps[rows], dtype=np.dtype(np.int64))
+        self.marks = _immutable_array(marks[rows], dtype=np.dtype(np.float64))
+        self._stamps = _immutable_array(stamps, dtype=np.dtype(np.int64))
         funding = np.asarray(dataset.funding_rate, dtype=np.float64)
         due = np.asarray(dataset.funding_due, dtype=np.bool_)
         paid = np.where(due, funding, 0.0)
         if not np.all(np.isfinite(paid)):
             raise ValueError("funding rates on due rows must be finite")
-        self._funding_prefix = np.vstack(
+        funding_prefix = np.vstack(
             [np.zeros((1, paid.shape[1])), np.cumsum(paid, axis=0)]
+        )
+        self._funding_prefix = _immutable_array(
+            funding_prefix, dtype=np.dtype(np.float64)
         )
         # An event is first eligible at the next daily UTC decision. Never
         # let a signal (or later blend history) use values arriving after it.
@@ -187,7 +194,9 @@ class DailyPanel:
         due_late = due_late_rows & has_daily
         funding_late = np.bincount(first_daily[due_late], minlength=rows.size) > 0
         late_signal_day = mark_late | funding_late
-        self._unavailable_signal_history = np.maximum.accumulate(late_signal_day)
+        self._unavailable_signal_history = _immutable_array(
+            np.maximum.accumulate(late_signal_day), dtype=np.dtype(np.bool_)
+        )
 
     @property
     def n_days(self) -> int:

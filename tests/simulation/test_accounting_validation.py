@@ -489,3 +489,30 @@ def test_revalue_rejects_nonzero_position_value_underflow_atomically() -> None:
     np.testing.assert_array_equal(book.quantities, np.array([1.0]))
     np.testing.assert_array_equal(book.mark_prices, before_marks)
     assert book.portfolio_value == before_value
+
+
+def test_mark_to_market_rejects_position_value_underflow_atomically() -> None:
+    """A failed underflowing mark/funding transition must not partially mutate cash."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    before_cash = book.cash
+    before_marks = book.mark_prices.copy()
+    before_funding = book.funding_pnl
+    before_history = list(book.returns_history)
+
+    with pytest.raises(ValueError, match="nonzero.*position.*value"):
+        book.mark_to_market(
+            mark_prices=np.array([1e-308]),
+            funding_amount=5.0,
+            period_start_value=1_000.0,
+        )
+
+    assert book.cash == before_cash
+    np.testing.assert_array_equal(book.mark_prices, before_marks)
+    assert book.funding_pnl == before_funding
+    assert book.returns_history == before_history

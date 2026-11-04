@@ -289,13 +289,13 @@ def test_job_contains_live_child_after_root_exits_and_cleanup_kills_it(
     )
     root_code = """
 import os,pathlib,subprocess,sys,time
-subprocess.Popen([sys.executable,'-I','-S','-c',sys.argv[1],sys.argv[2]],
+child=subprocess.Popen([sys.executable,'-I','-S','-c',sys.argv[1],sys.argv[2]],
     stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 deadline=time.monotonic()+10
 marker=pathlib.Path(sys.argv[2])
 while time.monotonic()<deadline:
     try:
-        if marker.read_text(encoding='ascii').isdecimal():
+        if marker.read_text(encoding='ascii') == str(child.pid):
             break
     except FileNotFoundError:
         pass

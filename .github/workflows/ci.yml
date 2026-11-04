@@ -486,3 +486,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run python -m tools.ppo_4h_indicator_smoke_actions review-status
+
+  m1-windows-audit:
+    name: M1 Windows Job Object audit
+    if: github.event_name == 'push' && github.ref == 'refs/heads/audit/m1-conversion-underflow-red-20261104'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install Python test environment
+        run: uv sync --extra dev
+      - name: Execute real Windows Job Object containment regressions
+        run: uv run pytest -q -ra tests/tools/tier_d_nonrl/test_process_containment.py -k "test_assignment_failure_terminates_and_reaps_suspended_process or test_job_contains_live_child_after_root_exits_and_cleanup_kills_it"

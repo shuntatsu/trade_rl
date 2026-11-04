@@ -999,7 +999,7 @@ Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data
 
 ## Development-only Phase 2 Ridge forecast binding
 
-`trade_rl/evaluation/dev_realdata_study/trial_sources.py::RidgeDailyComponent` は開発用Phase 2のRidge forecast packetを日次配列へ変換する際、sourceとpanelの銘柄順を厳密に一致させ、各非null `ForecastPacket` の銘柄名・index・予測horizon・decision時刻を要求時点と照合する。欠損packetは従来どおりNaNとし、packet identityの不一致やoverflowはその日のcacheを書き込まずfail closedとする。正常packetのlog-to-simple変換式、既存研究条件・過去artifactは変えない。この照合だけでvenue到着やfit provenanceの独立認証、実運用の利益は成立しない。
+`trade_rl/evaluation/dev_realdata_study/trial_sources.py::RidgeDailyComponent` は開発用Phase 2のRidge forecast packetを日次配列へ変換する際、sourceとpanelの銘柄順を厳密に一致させ、各非null `ForecastPacket` の銘柄名・index・予測horizon・decision時刻を要求時点と照合する。欠損packetは従来どおりNaNとし、packet identityの不一致やoverflowはその日のcacheを書き込まずfail closedとする。正常に構築した日次cacheはimmutable bytesに裏付けたread-only NumPy配列で保持し、同一日付の再取得は同一オブジェクトを返す。正常packetのlog-to-simple変換式、既存研究条件・過去artifactは変えない。この照合だけでvenue到着やfit provenanceの独立認証、実運用の利益は成立しない。
 
 ## Development-only pre-cut causal evidence
 

@@ -1049,10 +1049,12 @@ class MarketDataset:
         ):
             raise ValueError("quantities and prices must match symbols and be finite")
         multipliers = self.resolved_array("contract_multipliers")
-        with np.errstate(over="ignore", invalid="ignore"):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             result = quantity_vector * price_vector * multipliers
         if not np.isfinite(result).all():
             raise ValueError("quantity notional must be finite")
+        if np.any((quantity_vector != 0.0) & (result == 0.0)):
+            raise ValueError("nonzero quantity notional cannot be represented")
         return result
 
     def notional_to_quantity(
@@ -1081,10 +1083,16 @@ class MarketDataset:
             denominator = price_vector * multipliers
         if not np.isfinite(denominator).all() or np.any(denominator <= 0.0):
             raise ValueError("notional-to-quantity price multiplier must be finite")
-        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        with np.errstate(
+            over="ignore", under="ignore", invalid="ignore", divide="ignore"
+        ):
             result = notional_vector / denominator
         if not np.isfinite(result).all():
             raise ValueError("notional-to-quantity result must be finite")
+        if np.any((notional_vector != 0.0) & (result == 0.0)):
+            raise ValueError(
+                "nonzero notional-to-quantity result cannot be represented"
+            )
         return result
 
     def market_notional(

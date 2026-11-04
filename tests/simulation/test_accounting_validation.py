@@ -416,6 +416,7 @@ def test_from_weights_zero_weight_does_not_require_finite_product() -> None:
     assert book.cash == 1_000.0
     assert book.portfolio_value == 1_000.0
 
+
 @pytest.mark.parametrize("sign", (-1.0, 1.0))
 def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(sign: float) -> None:
     """A nonzero fill must not change inventory while debiting zero cash."""

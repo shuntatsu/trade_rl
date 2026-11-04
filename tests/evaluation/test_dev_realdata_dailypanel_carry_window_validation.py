@@ -54,3 +54,11 @@ def test_one_day_funding_window_uses_only_completed_history(panel: DailyPanel) -
     carry = panel.funding_carry_series(1)
     assert np.isnan(carry[0]).all()
     assert np.isfinite(carry[1:]).all()
+
+
+def test_large_positive_numpy_window_does_not_wrap_into_future(
+    panel: DailyPanel,
+) -> None:
+    # np.int64(130_000) * nanoseconds_per_day wraps to a negative value.
+    # A Python-integer lookback predates the available history instead.
+    assert np.isnan(panel.funding_carry_series(np.int64(130_000))).all()

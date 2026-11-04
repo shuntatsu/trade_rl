@@ -414,3 +414,22 @@ def test_capacity_request_rejects_overflowed_filled_notional() -> None:
             lot_size=0.0,
             minimum_notional=0.0,
         )
+
+
+def test_request_notional_regroups_finite_extreme_scales_before_no_fill() -> None:
+    """A huge intermediate product is not necessarily an infinite notional."""
+    allocations, _ = allocate_symbol_capacity(
+        requests=(_request("a", 1e300, price=1e10, fraction=0.0),),
+        processing_volume=1.0,
+        processing_market_notional=1.0,
+        price=1e10,
+        contract_multiplier=1e-20,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+
+    assert len(allocations) == 1
+    assert allocations[0].requested_notional == pytest.approx(1e290)
+    assert allocations[0].filled_quantity == 0.0
+    assert allocations[0].no_fill_reason == "zero_volume_fraction"

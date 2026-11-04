@@ -67,7 +67,7 @@ class ScaledSource:
     """Multiply another source's expected returns by a constant (T4 weekly: x7).
 
     ``calls`` / ``null_packets`` are read from the inner source; ``history`` holds
-    only finite scaled vectors accepted by the allocator. Non-finite output
+    only finite scaled vectors returned to the allocator. Non-finite output
     refuses the outer history append, not any side effects in the inner source.
     """
 

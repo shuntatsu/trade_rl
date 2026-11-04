@@ -50,10 +50,10 @@ jobs:
           uv run ruff format tests/data/test_market_dataset_v2.py trade_rl/data/market.py
           uv run ruff format --check trade_rl tests tools
 
-      - name: M1 inactive-zero denominator RED (isolated test-only)
-        run: >-
-          uv run pytest -q tests/data/test_market_dataset_v2.py
-          -k 'zero_target_skips_inactive_unrepresentable_unit or active_fill_is_not_blocked_by_unrepresentable_inactive_unit or nonzero_target_rejects_unrepresentable_active_unit'
+      - name: M1 optional LightGBM two synthetic regressions (isolated audit)
+        run: |
+          uv sync --extra dev --extra forecast-gbm
+          uv run --no-sync pytest -q -ra tests/evaluation/test_dev_realdata_phase2_trials.py -k 'test_lightgbm_signal_ignores_the_future or test_lightgbm_trial_fits_with_the_fixed_parameters'
 
       - name: Mypy
         run: uv run mypy trade_rl

@@ -42,10 +42,9 @@ def test_weekly_scaled_source_rejects_nonfinite_output_atomically(
     assert inner.calls == 1
 
     inner.values = (0.01, -0.02, 0.0)
-    assert adapter.expected_simple_returns(object()) == pytest.approx(
-        (0.07, -0.14, 0.0)
-    )
-    assert adapter.history == [(0.07, -0.14, 0.0)]
+    recovered = adapter.expected_simple_returns(object())
+    assert recovered == pytest.approx((0.07, -0.14, 0.0))
+    assert adapter.history == [recovered]
     assert inner.calls == 2
 
 

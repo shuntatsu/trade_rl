@@ -67,7 +67,8 @@ class ScaledSource:
     """Multiply another source's expected returns by a constant (T4 weekly: x7).
 
     ``calls`` / ``null_packets`` are read from the inner source; ``history`` holds
-    the scaled vectors that the allocator actually received.
+    only finite scaled vectors accepted by the allocator. Non-finite output
+    refuses the outer history append, not any side effects in the inner source.
     """
 
     def __init__(self, inner: Any, factor: float) -> None:
@@ -90,6 +91,8 @@ class ScaledSource:
     ) -> tuple[float, ...]:
         raw = self._inner.expected_simple_returns(snapshot)
         scaled = tuple(float(value) * self._factor for value in raw)
+        if not all(math.isfinite(value) for value in scaled):
+            raise ValueError("scaled expected returns must be finite")
         self.history.append(scaled)
         return scaled
 

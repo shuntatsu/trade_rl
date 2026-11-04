@@ -12,9 +12,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study.trial_sources import DailyPanel
 
 
-def _finite_funding(
-    *, due_events: int, non_due: bool = False
-) -> MarketDataset:
+def _finite_funding(*, due_events: int, non_due: bool = False) -> MarketDataset:
     market = synthetic_market()
     funding = np.zeros_like(market.funding_rate)
     due = market.funding_due

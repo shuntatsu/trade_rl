@@ -155,7 +155,8 @@ class DailyPanel:
     signal day exists, future day positions fail closed rather than reusing
     a potentially hindsight-contaminated signal history. Its derived source
     arrays are deeply immutable to prevent callers rewriting prior signals.
-    Finite funding events must also produce a finite accumulated carry prefix.
+    Finite funding events must also produce a finite accumulated carry prefix
+    and finite per-window carry results.
     """
 
     def __init__(self, dataset: MarketDataset) -> None:
@@ -225,9 +226,13 @@ class DailyPanel:
                 continue
             low = int(np.searchsorted(self._stamps, start, side="right"))
             high = int(self.rows[day]) + 1
-            out[day] = -(self._funding_prefix[high] - self._funding_prefix[low]) / (
-                window_days
-            )
+            with np.errstate(over="ignore", invalid="ignore"):
+                carry_row = -(
+                    self._funding_prefix[high] - self._funding_prefix[low]
+                ) / window_days
+            if not np.isfinite(carry_row).all():
+                raise ValueError("funding carry must be finite")
+            out[day] = carry_row
         return out
 
 

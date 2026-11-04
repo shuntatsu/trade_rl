@@ -35,6 +35,7 @@ def test_daily_panel_preserves_one_large_but_finite_funding_event() -> None:
     panel = DailyPanel(_finite_funding(due_events=1))
     assert np.isfinite(panel._funding_prefix).all()
     assert panel._funding_prefix[-1, 0] == pytest.approx(1e308)
+    assert np.isfinite(panel.funding_carry_series(7)[7:]).all()
 
 
 def test_daily_panel_ignores_huge_values_on_non_funding_due_rows() -> None:

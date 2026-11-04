@@ -41,3 +41,22 @@ def test_daily_panel_ignores_huge_values_on_non_funding_due_rows() -> None:
     panel = DailyPanel(_finite_funding(due_events=2, non_due=True))
     assert np.isfinite(panel._funding_prefix).all()
     assert np.count_nonzero(panel._funding_prefix) == 0
+
+def test_finite_funding_prefix_cannot_overflow_window_carry() -> None:
+    """Two finite prefix endpoints can still overflow their difference."""
+    market = synthetic_market()
+    due = market.funding_due
+    assert due is not None
+    first_due = int(np.flatnonzero(due[:, 0])[0])
+    late_due = np.array([100 * 24 + 8, 100 * 24 + 16])
+    assert np.all(due[late_due, 0])
+
+    funding = np.zeros_like(market.funding_rate)
+    funding[first_due, 0] = -1e308
+    funding[late_due, 0] = 1e308
+    changed = replace(market, funding_rate=funding)
+    panel = DailyPanel(changed)
+    assert np.isfinite(panel._funding_prefix).all()
+
+    with pytest.raises(ValueError, match="funding carry must be finite"):
+        panel.funding_carry_series(7)

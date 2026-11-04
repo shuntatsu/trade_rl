@@ -380,3 +380,38 @@ def test_overflowed_intermediate_cash_notional_rejects_atomically(
     assert book.rebalance_events == 0
     assert book.turnover_total == 0.0
     assert book.total_cost == 0.0
+
+
+@pytest.mark.parametrize(
+    ("capital", "price", "multiplier"),
+    (
+        (1_000.0, 1e308, 1e308),
+        (1e-200, 1e308, 1.0),
+        (1e-100, 1.0, 1.0),
+    ),
+)
+def test_from_weights_rejects_unrepresentable_nonzero_target(
+    capital: float, price: float, multiplier: float
+) -> None:
+    """A nonzero requested weight must never silently become a flat portfolio."""
+    weights = np.array([1e-300 if capital == 1e-100 else 1.0])
+    with pytest.raises(ValueError, match="weighted position"):
+        BookState.from_weights(
+            weights=weights,
+            capital=capital,
+            prices=np.array([price]),
+            contract_multipliers=np.array([multiplier]),
+        )
+
+
+def test_from_weights_zero_weight_does_not_require_finite_product() -> None:
+    """No active exposure needs pricing even when price * multiplier overflows."""
+    book = BookState.from_weights(
+        weights=np.array([0.0]),
+        capital=1_000.0,
+        prices=np.array([1e308]),
+        contract_multipliers=np.array([1e308]),
+    )
+    assert book.quantities[0] == 0.0
+    assert book.cash == 1_000.0
+    assert book.portfolio_value == 1_000.0

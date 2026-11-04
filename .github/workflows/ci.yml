@@ -42,9 +42,6 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: RED weighted-position representability probe
-        run: uv run pytest -q tests/simulation/test_accounting_validation.py -k from_weights_rejects_unrepresentable_nonzero_target
-
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 

@@ -230,8 +230,39 @@ class BookState:
         gross = float(np.abs(weight_vector).sum())
         if gross > max_gross + _TOLERANCE:
             raise ValueError("initial gross exposure exceeds max_gross")
-        quantities = weight_vector * capital / (price_vector * multiplier_vector)
-        cash = capital - float(np.sum(quantities * price_vector * multiplier_vector))
+        # A nonzero target must not silently become a zero position when a
+        # finite price and multiplier overflow their intermediate product or
+        # a small requested exposure/quantity underflows to zero.
+        with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
+            target_values = weight_vector * capital
+            unit_notionals = price_vector * multiplier_vector
+        active = weight_vector != 0.0
+        if np.any(
+            active
+            & (
+                ~np.isfinite(target_values)
+                | (target_values == 0.0)
+                | ~np.isfinite(unit_notionals)
+                | (unit_notionals <= 0.0)
+            )
+        ):
+            raise ValueError("nonzero weighted position cannot be represented")
+
+        quantities = np.zeros_like(weight_vector)
+        with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
+            quantities[active] = target_values[active] / unit_notionals[active]
+            position_values = quantities * price_vector * multiplier_vector
+        if np.any(
+            active
+            & (
+                ~np.isfinite(quantities)
+                | (quantities == 0.0)
+                | ~np.isfinite(position_values)
+                | (position_values == 0.0)
+            )
+        ):
+            raise ValueError("nonzero weighted position cannot be represented")
+        cash = capital - float(np.sum(position_values))
         resolved_peak = capital if peak_value is None else float(peak_value)
         if resolved_peak < capital:
             raise ValueError("peak_value cannot be below capital")

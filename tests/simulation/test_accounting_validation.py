@@ -415,3 +415,45 @@ def test_from_weights_zero_weight_does_not_require_finite_product() -> None:
     assert book.quantities[0] == 0.0
     assert book.cash == 1_000.0
     assert book.portfolio_value == 1_000.0
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(
+    sign: float,
+) -> None:
+    """A nonzero fill must not change inventory while debiting zero cash."""
+    book = BookState.zero(
+        1,
+        1_000.0,
+        np.array([1e-308]),
+        contract_multipliers=np.array([1e-308]),
+    )
+    with pytest.raises(ValueError, match="nonzero.*notional"):
+        book.execute_fill(
+            symbol_index=0,
+            quantity=sign,
+            fill_prices=np.array([1e-308]),
+            cost_amount=0.0,
+            turnover=0.0,
+        )
+    np.testing.assert_array_equal(book.quantities, np.array([0.0]))
+    assert book.exact_quantities == (0,)
+    assert book.cash == 1_000.0
+    assert book.portfolio_value == 1_000.0
+    assert book.fill_count == 0
+    assert book.rebalance_events == 0
+    assert book.turnover_total == 0.0
+
+
+def test_execute_offsetting_nonzero_legs_preserve_zero_net_cash() -> None:
+    """Real buy/sell offsets are not an individual leg underflow."""
+    book = BookState.zero(2, 1_000.0, np.array([100.0, 100.0]))
+    book.execute(
+        fill_prices=np.array([100.0, 100.0]),
+        target_quantities=np.array([1.0, -1.0]),
+        cost_amount=0.0,
+        turnover=200.0,
+    )
+    np.testing.assert_array_equal(book.quantities, np.array([1.0, -1.0]))
+    assert book.cash == 1_000.0
+    assert book.fill_count == 2
+    assert book.rebalance_events == 1

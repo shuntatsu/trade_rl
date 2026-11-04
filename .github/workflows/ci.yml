@@ -50,8 +50,10 @@ jobs:
           uv run ruff format tests/data/test_market_dataset_v2.py trade_rl/data/market.py
           uv run ruff format --check trade_rl tests tools
 
-      - name: M1 full-history git identity test (isolated audit)
-        run: uv run pytest -q -ra tests/evaluation/test_forward_study_seal.py -k test_the_real_checkout_identity_matches_git_when_history_is_available
+      - name: M1 signed execution-leg notional RED (isolated diagnostic)
+        run: >-
+          uv run pytest -q -ra tests/simulation/test_accounting_validation.py
+          -k 'test_execute_fill_rejects_underflowed_nonzero_leg_atomically or test_execute_offsetting_nonzero_legs_preserve_zero_net_cash'
 
       - name: Mypy
         run: uv run mypy trade_rl
@@ -487,25 +489,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run python -m tools.ppo_4h_indicator_smoke_actions review-status
 
-  m1-windows-audit:
-    name: M1 Windows Job Object audit
-    if: github.event_name == 'push' && github.ref == 'refs/heads/audit/m1-conversion-underflow-red-20261104'
-    runs-on: windows-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout exact diagnostic head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          python-version: "3.12"
-          enable-cache: true
-      - name: Install Python test environment
-        run: uv sync --extra dev
-      - name: Execute real Windows Job Object containment regressions
-        run: uv run pytest -q -ra tests/tools/tier_d_nonrl/test_process_containment.py -k "test_assignment_failure_terminates_and_reaps_suspended_process or test_job_contains_live_child_after_root_exits_and_cleanup_kills_it"

@@ -436,27 +436,19 @@ def test_request_notional_regroups_finite_extreme_scales_before_no_fill() -> Non
 
 
 @pytest.mark.parametrize("sign", [-1.0, 1.0])
-def test_extreme_finite_notional_full_fill_keeps_exact_capacity(
+def test_extreme_finite_algebraic_notional_rejects_unbookable_full_fill(
     sign: float,
 ) -> None:
-    """Intermediate overflow must not reject a capacity-equal full request."""
+    """Allocator must preserve BookState's float multiplication authority."""
     request = _request("e", sign * 1e200, price=1e200)
-    allocations, evidence = allocate_symbol_capacity(
-        requests=(request,),
-        processing_volume=1.0,
-        processing_market_notional=1e200,
-        price=1e200,
-        contract_multiplier=1e-200,
-        participation_limit=1.0,
-        lot_size=0.0,
-        minimum_notional=0.0,
-    )
-
-    assert len(allocations) == 1
-    allocation = allocations[0]
-    assert allocation.filled_quantity == pytest.approx(sign * 1e200)
-    assert allocation.requested_notional == pytest.approx(1e200)
-    assert allocation.filled_notional == pytest.approx(1e200)
-    assert allocation.no_fill_reason is None
-    assert evidence.consumed_capacity_notional == pytest.approx(1e200)
-    assert evidence.remaining_capacity_notional == 0.0
+    with pytest.raises(LiquidityAllocationError, match="capacity-derived quantity"):
+        allocate_symbol_capacity(
+            requests=(request,),
+            processing_volume=1.0,
+            processing_market_notional=1e200,
+            price=1e200,
+            contract_multiplier=1e-200,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )

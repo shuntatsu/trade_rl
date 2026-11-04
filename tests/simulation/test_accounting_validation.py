@@ -349,3 +349,34 @@ def test_split_price_overflow_does_not_corrupt_quantities_or_marks() -> None:
     with pytest.raises(ValueError, match="non-finite"):
         book.apply_split(np.array([1e-309]))
     _assert_cash_and_inventory_unchanged(book, before)
+
+
+@pytest.mark.parametrize("sign", [-1.0, 1.0])
+def test_overflowed_intermediate_cash_notional_rejects_atomically(
+    sign: float,
+) -> None:
+    """Algebraically finite three-factor fills remain unsafe in the float book."""
+    book = BookState.zero(
+        1,
+        1e200,
+        np.array([1e200]),
+        contract_multipliers=np.array([1e-200]),
+    )
+    assert math.isfinite(abs(sign * 1e200) * (1e200 * 1e-200))
+    with pytest.raises(ValueError, match="proposed execution must preserve finite"):
+        book.execute_fill(
+            symbol_index=0,
+            quantity=sign * 1e200,
+            fill_prices=np.array([1e200]),
+            cost_amount=0.0,
+            turnover=0.0,
+        )
+
+    np.testing.assert_array_equal(book.quantities, np.array([0.0]))
+    np.testing.assert_array_equal(book.mark_prices, np.array([1e200]))
+    assert book.cash == 1e200
+    assert book.portfolio_value == 1e200
+    assert book.fill_count == 0
+    assert book.rebalance_events == 0
+    assert book.turnover_total == 0.0
+    assert book.total_cost == 0.0

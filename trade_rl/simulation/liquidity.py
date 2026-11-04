@@ -134,24 +134,6 @@ class SymbolCapacityEvidence:
     remaining_capacity_notional: float
 
 
-def _notional_with_finite_regrouping(
-    quantity: float, execution_price: float, multiplier: float
-) -> float:
-    """Preserve the original float notional unless an intermediate overflows.
-
-    A full-request notional may be finite when the left-associated product
-    overflows; partial-capacity rounding deliberately retains its stricter
-    existing arithmetic and its eight-step adjustment limit.
-    """
-    notional = abs(quantity) * execution_price * multiplier
-    if math.isfinite(notional):
-        return notional
-    regrouped = abs(quantity) * (execution_price * multiplier)
-    if math.isfinite(regrouped) and regrouped > 0.0:
-        return regrouped
-    return notional
-
-
 def _capacity_quantity(
     request: LiquidityRequest,
     capacity: float,
@@ -186,9 +168,7 @@ def _capacity_quantity(
             quantity_bound = exact_quantity(quantity_capacity) // step
             count = min(abs(count), quantity_bound) * (-1 if count < 0 else 1)
             quantity = project_quantity(count * step)
-    if _notional_with_finite_regrouping(
-        quantity, request.execution_price, multiplier
-    ) <= capacity:
+    if abs(quantity) * request.execution_price * multiplier <= capacity:
         return quantity, count
     if count is None:
         raw = capacity / (request.execution_price * multiplier)
@@ -347,11 +327,20 @@ def allocate_symbol_capacity(
                 remaining_quantity_capacity,
                 fraction_quantity_cap,
             )
-        requested_notional = _notional_with_finite_regrouping(
-            request.remaining_quantity,
-            request.execution_price,
-            contract_multiplier,
+        requested_notional = (
+            abs(request.remaining_quantity)
+            * request.execution_price
+            * contract_multiplier
         )
+        if not math.isfinite(requested_notional):
+            # Diagnostic requested notional may be representable despite an
+            # overflowing intermediate. Actual fills keep the BookState
+            # multiplication order and may still need to fail closed.
+            regrouped = abs(request.remaining_quantity) * (
+                request.execution_price * contract_multiplier
+            )
+            if math.isfinite(regrouped) and regrouped > 0.0:
+                requested_notional = regrouped
         if not math.isfinite(requested_notional):
             raise LiquidityAllocationError("requested notional is non-finite")
 
@@ -435,8 +424,8 @@ def allocate_symbol_capacity(
 
         # Currency retains the shared float convention. BookState debits this
         # same projected signed fill; exact state is the quantity authority.
-        exact_notional = _notional_with_finite_regrouping(
-            filled_quantity, request.execution_price, contract_multiplier
+        exact_notional = (
+            abs(filled_quantity) * request.execution_price * contract_multiplier
         )
         if not math.isfinite(exact_notional):
             raise LiquidityAllocationError("filled notional is non-finite")

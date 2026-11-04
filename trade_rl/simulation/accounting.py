@@ -54,9 +54,7 @@ def _require_finite_post_update_equity(
     *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
 ) -> float:
     """Reject an unrepresentable proposed account transition before mutation."""
-    with np.errstate(
-        over="ignore", under="ignore", invalid="ignore", divide="ignore"
-    ):
+    with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
         position_values = quantities * marks * multipliers
         equity = float(cash + position_values.sum())
     if not np.isfinite(position_values).all() or not all(

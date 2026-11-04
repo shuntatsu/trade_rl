@@ -417,9 +417,7 @@ def test_from_weights_zero_weight_does_not_require_finite_product() -> None:
     assert book.portfolio_value == 1_000.0
 
 @pytest.mark.parametrize("sign", (-1.0, 1.0))
-def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(
-    sign: float,
-) -> None:
+def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(sign: float) -> None:
     """A nonzero fill must not change inventory while debiting zero cash."""
     book = BookState.zero(
         1,
@@ -530,6 +528,7 @@ def test_zero_position_allows_unrepresentable_unit_value() -> None:
     assert book.quantities[0] == 0.0
     assert book.cash == 1_000.0
     assert book.portfolio_value == 1_000.0
+
 
 @pytest.mark.parametrize("quantity", [1.0, -1.0])
 def test_settle_positions_rejects_nonzero_proceeds_underflow_atomically(

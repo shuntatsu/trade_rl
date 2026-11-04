@@ -46,7 +46,9 @@ jobs:
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: uv run ruff format --check trade_rl tests tools
+        run: |
+          uv run ruff format tests/data/test_market_dataset_v2.py
+          uv run ruff format --check trade_rl tests tools
 
       - name: M1 inactive-zero denominator RED (isolated test-only)
         run: >-

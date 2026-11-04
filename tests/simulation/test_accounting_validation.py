@@ -516,3 +516,17 @@ def test_mark_to_market_rejects_position_value_underflow_atomically() -> None:
     np.testing.assert_array_equal(book.mark_prices, before_marks)
     assert book.funding_pnl == before_funding
     assert book.returns_history == before_history
+
+
+def test_zero_position_allows_unrepresentable_unit_value() -> None:
+    """A flat symbol does not need a nonzero representable position value."""
+    book = BookState.zero(
+        1,
+        1_000.0,
+        np.array([1e-308]),
+        contract_multipliers=np.array([1e-308]),
+    )
+    book.revalue(np.array([1e-308]))
+    assert book.quantities[0] == 0.0
+    assert book.cash == 1_000.0
+    assert book.portfolio_value == 1_000.0

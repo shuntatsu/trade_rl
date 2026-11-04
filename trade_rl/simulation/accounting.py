@@ -52,12 +52,20 @@ def _cash_interest_amount(
 
 def _require_finite_post_update_equity(
     *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
-) -> None:
-    """Reject a proposed account transition before mutating its ledger."""
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        equity = float(cash + (quantities * marks * multipliers).sum())
-    if not math.isfinite(cash) or not math.isfinite(equity):
+) -> float:
+    """Reject an unrepresentable proposed account transition before mutation."""
+    with np.errstate(
+        over="ignore", under="ignore", invalid="ignore", divide="ignore"
+    ):
+        position_values = quantities * marks * multipliers
+        equity = float(cash + position_values.sum())
+    if not np.isfinite(position_values).all() or not all(
+        math.isfinite(value) for value in (cash, equity)
+    ):
         raise ValueError("proposed account state became non-finite")
+    if np.any((quantities != 0.0) & (position_values == 0.0)):
+        raise ValueError("nonzero position value cannot be represented")
+    return equity
 
 
 @dataclass(slots=True)
@@ -136,6 +144,12 @@ class BookState:
             raise ValueError("maintenance_margin must be within [0, 1]")
         if not isinstance(self.insolvent, bool):
             raise ValueError("insolvent must be a boolean")
+        _require_finite_post_update_equity(
+            cash=float(self.cash),
+            quantities=quantities,
+            marks=marks,
+            multipliers=multipliers,
+        )
         reason = self.termination_reason
         if reason is not None:
             try:
@@ -752,15 +766,14 @@ class BookState:
         proposed_cash = self.cash + float(funding_amount)
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        with np.errstate(over="ignore", invalid="ignore"):
-            proposed_value = float(
-                proposed_cash + (self.quantities * marks * multipliers).sum()
-            )
+        proposed_value = _require_finite_post_update_equity(
+            cash=proposed_cash,
+            quantities=self.quantities,
+            marks=marks,
+            multipliers=multipliers,
+        )
         proposed_funding_pnl = self.funding_pnl + float(funding_amount)
-        if not all(
-            math.isfinite(value)
-            for value in (proposed_cash, proposed_value, proposed_funding_pnl)
-        ):
+        if not math.isfinite(proposed_funding_pnl):
             raise ValueError("base-bar portfolio value or funding became non-finite")
 
         net_return = proposed_value / starting_value - 1.0

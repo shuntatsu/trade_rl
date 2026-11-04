@@ -666,12 +666,20 @@ class BookState:
         value_before = self.portfolio_value
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        signed_notional = math.fsum(
+        signed_legs = tuple(
             project_quantity(quantity) * float(price) * float(multiplier)
             for quantity, price, multiplier in zip(
                 delta, prices, multipliers, strict=True
             )
         )
+        # Check each nonzero leg before netting buys against sells: a net zero
+        # is valid, but a leg rounded to zero would change inventory for free.
+        if any(
+            quantity != 0 and leg == 0.0
+            for quantity, leg in zip(delta, signed_legs, strict=True)
+        ):
+            raise ValueError("nonzero execution leg notional cannot be represented")
+        signed_notional = math.fsum(signed_legs)
         cash_after = self.cash - (signed_notional + float(cost_amount))
         turnover_after = self.turnover_total + float(turnover)
         cost_after = self.total_cost + float(cost_amount)

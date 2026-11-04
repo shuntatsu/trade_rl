@@ -47,7 +47,7 @@ jobs:
 
       - name: Format
         run: |
-          uv run ruff format tests/data/test_market_dataset_v2.py trade_rl/data/market.py tests/simulation/test_accounting_validation.py
+          uv run ruff format tests/data/test_market_dataset_v2.py trade_rl/data/market.py tests/simulation/test_accounting_validation.py trade_rl/simulation/accounting.py
           uv run ruff format --check trade_rl tests tools
 
       - name: M1 signed execution-leg notional RED (isolated diagnostic)

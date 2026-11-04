@@ -222,7 +222,9 @@ class PreTradeRisk:
                 controlled[index] = 0.0
                 reduce_only_satisfied = True
                 continue
-            if target * current < -_TOLERANCE:
+            # A fixed product tolerance can hide an actual sign flip when
+            # either exposure is tiny. Only an exactly flat target may cross zero.
+            if target != 0.0 and (target < 0.0) != (current < 0.0):
                 raise ValueError("reduce-only target cannot change sign")
             if abs(target) >= abs(current) - _TOLERANCE:
                 controlled[index] = current

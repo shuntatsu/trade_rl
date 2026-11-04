@@ -115,3 +115,20 @@ def test_reduce_only_does_not_change_emergency_flatten() -> None:
 
     np.testing.assert_array_equal(result.weights, np.array([0.0]))
     assert "emergency_flatten" in result.reasons
+
+
+@pytest.mark.parametrize(
+    ("current", "target"),
+    [(0.0001, -1e-9), (-0.0001, 1e-9), (1e-5, -1e-8)],
+)
+def test_reduce_only_rejects_opposite_sign_even_when_product_is_tiny(
+    current: float, target: float
+) -> None:
+    """The sign contract cannot depend on a product absolute tolerance."""
+    with pytest.raises(ValueError, match="reduce-only target cannot change sign"):
+        _risk().constrain(
+            np.array([target]),
+            current=np.array([current]),
+            drawdown=0.0,
+            reduce_only_mask=np.array([True]),
+        )

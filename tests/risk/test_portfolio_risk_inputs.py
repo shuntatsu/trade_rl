@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -118,3 +120,26 @@ def test_causal_inputs_feed_portfolio_risk_directly() -> None:
         "max_stress_loss",
     }
     assert np.isfinite(constrained.weights).all()
+
+
+def test_rolling_inputs_reject_prices_not_available_at_decision() -> None:
+    dataset = _dataset()
+    available_at = dataset.available_at.copy()
+    available_at[115, 1] = dataset.timestamps[121]
+    delayed = replace(dataset, available_at=available_at, information_available=None)
+
+    with pytest.raises(ValueError, match="not available at decision time"):
+        _provider().inputs(delayed, index=120)
+
+
+def test_rolling_inputs_allow_past_row_received_before_decision() -> None:
+    dataset = _dataset()
+    available_at = dataset.available_at.copy()
+    available_at[115, 1] = dataset.timestamps[119]
+    delayed = replace(dataset, available_at=available_at, information_available=None)
+    expected = _provider().inputs(dataset, index=120)
+    received = _provider().inputs(delayed, index=120)
+
+    np.testing.assert_array_equal(expected.covariance, received.covariance)
+    np.testing.assert_array_equal(expected.beta, received.beta)
+    np.testing.assert_array_equal(expected.stress_losses, received.stress_losses)

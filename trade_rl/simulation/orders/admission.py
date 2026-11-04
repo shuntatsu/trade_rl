@@ -298,16 +298,26 @@ class OrderAdmissionPolicy:
             sell_marketable = admitted_quantity < 0.0 and price >= limit_price
             if not (buy_marketable or sell_marketable):
                 notional_price = limit_price
-        admitted_notional = abs(admitted_quantity) * notional_price * multiplier
+        with np.errstate(over="ignore", invalid="ignore"):
+            admitted_notional = abs(admitted_quantity) * notional_price * multiplier
+        if not math.isfinite(admitted_notional):
+            return self._reject("pretrade_leverage_exceeded")
         if admitted_notional + _TOLERANCE < minimum_notional:
             return self._reject("below_minimum_notional")
 
-        projected = quantities.copy()
-        projected[symbol] += admitted_quantity
-        gross_notional = float(np.sum(np.abs(projected * prices * multipliers)))
-        current_gross_notional = float(
-            np.sum(np.abs(quantities * prices * multipliers))
-        )
+        with np.errstate(over="ignore", invalid="ignore"):
+            projected = quantities.copy()
+            projected[symbol] += admitted_quantity
+            gross_notional = float(np.sum(np.abs(projected * prices * multipliers)))
+            current_gross_notional = float(
+                np.sum(np.abs(quantities * prices * multipliers))
+            )
+        if (
+            not np.isfinite(projected).all()
+            or not math.isfinite(gross_notional)
+            or not math.isfinite(current_gross_notional)
+        ):
+            return self._reject("pretrade_leverage_exceeded")
         equity = book.portfolio_value
         leverage_exceeded = gross_notional > equity * self.max_leverage + _TOLERANCE
         over_cap_reduction = (

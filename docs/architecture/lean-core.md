@@ -993,6 +993,18 @@ intraminute drawdown, optimal returns or private-account suitability.
 
 Prequential forecast packet（`strategies/forecasts/prequential.py`）は、Data contractのsupervised label規則（`label_end_time < fit_cutoff`、`available_at <= fit_cutoff`）を持つ `build_causal_forecast_training_set` だけからvintageを作り、fitterへdatasetを渡さずfrozenな `CausalForecastTrainingSet` だけを渡す。packetは `max_training_label_available_at < fit_time <= forecast_available_at <= decision_time` を構築時に強制し、`available_at > timestamp` の決定行はfail closedにする（`activation_delay_hours` はlabel availabilityとfit時刻の分離だけで、決定行のavailabilityは緩めない）。vintageのresidual varianceはin-sampleで、`max_training_label_available_at` は保守的な上界である。
 
+## Development-only Phase 2 declared-source arrival fence
+
+`trade_rl/evaluation/dev_realdata_study/trial_sources.py::DailyPanel.position` は将来のPhase 2のDailyPanel経由シグナル（T1/T2/T3/T6–T8）に限り、Datasetの `available_at` 宣言とUTC 00:00の実際のdecision時刻を照合する。日次markがその当日00:00まで未到着、またはfunding due eventが直後の最初の00:00意思決定まで未到着なら、該当日とそれ以降の歴史系列参照をfail closedとする。これは、過去日に本来未到着だった値から算出した指標を、後日のblend scalingで再利用することも避けるための保守的な拒否である。非日次・非fundingのbar遅延だけでは本経路を拒否せず、現在のdecisionより後に発生する遅延も過去の判断へ影響させない。次の日次判断より前に到着した過去のfundingは許容する。過去の封印結果、計算式、採用閾値、実市場データ利用履歴を再計算・再分類しない。T4/T5とPR-Cのprequential packetは別の入力経路であり、本DailyPanel gateの適用対象ではない。これはDataset自己申告のavailabilityしか確認せず、venue/source arrivalの独立した真偽やfunding sourceの真正性を証明しない。
+
+## Development-only immutable daily signal inputs
+
+`trade_rl/evaluation/dev_realdata_study/trial_sources.py::DailyPanel` の日次rows・timestamps・marks、全時刻配列、funding prefix、利用可否履歴は、共有する予測ソースへ渡す前にbyte-backedの読み取り専用NumPy配列として固定する。callerが値を書き換えたり `setflags(write=True)` で保護を解除したりして、過去の観測や後日のT1/T2/T3/blendの計算を変更できないようにする。元のDataset・配列のshape/dtype/値・計算式・過去の研究結果は変えない。このメモリ保護はソフトウェアの再現性だけを対象とし、取引所データの独立な到着時刻証明ではない。
+
+## Development-only Phase 2 Ridge forecast binding
+
+`trade_rl/evaluation/dev_realdata_study/trial_sources.py::RidgeDailyComponent` は開発用Phase 2のRidge forecast packetを日次配列へ変換する際、sourceとpanelの銘柄順を厳密に一致させ、各非null `ForecastPacket` の銘柄名・index・予測horizon・decision時刻を要求時点と照合する。欠損packetは従来どおりNaNとし、packet identityの不一致やoverflowはその日のcacheを書き込まずfail closedとする。正常に構築した日次cacheはimmutable bytesに裏付けたread-only NumPy配列で保持し、同一日付の再取得は同一オブジェクトを返す。正常packetのlog-to-simple変換式、既存研究条件・過去artifactは変えない。この照合だけでvenue到着やfit provenanceの独立認証、実運用の利益は成立しない。
+
 ## Development-only pre-cut causal evidence
 
 `trade_rl/evaluation/dev_realdata_study/runner.py::_trace` は開発用の未来摂動検証に限り、各intervalの数量・cash・equityだけでなく、native observerの `SharedCashLedgerIntervalEvidence.to_mapping()` 全体をcanonical JSON bytesとして照合する。これには注文提出・取消・非約定・約定イベント、capacity/fundingイベント、fee/borrow/interest/dividend等のflow、before/afterの口座事実が含まれる。各decisionも `SharedCashPortfolioReplayDecision.to_mapping()` からrisk reason・HOLDなどの情報を照合する。旧traceのinterval/decision順序および数量・期間診断の位置を維持し、数値上のcash/equityが同じでも、future perturbationで変わったnative注文イベントを同一traceと誤認しない。

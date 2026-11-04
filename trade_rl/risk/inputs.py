@@ -25,6 +25,12 @@ class PortfolioRiskDataset(Protocol):
     @property
     def close(self) -> np.ndarray: ...
 
+    @property
+    def timestamps(self) -> np.ndarray: ...
+
+    @property
+    def available_at(self) -> np.ndarray | None: ...
+
 
 class PortfolioRiskInputsProvider(Protocol):
     @property
@@ -180,6 +186,11 @@ class RollingPortfolioRiskInputsProvider:
         if not 0 <= self.config.benchmark_index < dataset.n_symbols:
             raise ValueError("benchmark_index is outside dataset symbols")
         start = max(1, index - self.config.lookback_bars + 1)
+        available_at = dataset.available_at
+        if available_at is None or np.any(
+            available_at[start - 1 : index + 1] > dataset.timestamps[index]
+        ):
+            raise ValueError("portfolio risk prices not available at decision time")
         prices = np.asarray(dataset.close[start - 1 : index + 1], dtype=np.float64)
         if prices.shape[1:] != (dataset.n_symbols,) or np.any(prices <= 0.0):
             raise ValueError(

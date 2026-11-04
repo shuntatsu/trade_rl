@@ -39,12 +39,16 @@ from trade_rl.evaluation.dev_realdata_study.trials import (
 from trade_rl.strategies.allocation.costs import one_way_cost_rate
 from trade_rl.strategies.forecasts.lightgbm import LightGBMForecastModel
 from trade_rl.strategies.forecasts.prequential import (
+    ForecastPacket,
     PrequentialForecastModel,
     PrequentialForecastSource,
     PrequentialSchedule,
     RidgeForecastFitter,
 )
-from trade_rl.strategies.forecasts.supervised import CausalForecastTrainingSet
+from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
+    _immutable_array,
+)
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
     PortfolioTargetProposal,
@@ -146,7 +150,13 @@ class DailyPanel:
 
     The whole dataset is read at construction, but every consumer indexes it at a
     decision position ``p`` and uses days ``<= p`` only (the series helpers are
-    causal recursions); the perturbation tests pin this.
+    causal recursions). Daily marks and funding events must also have arrived
+    by their first eligible 00:00 UTC decision. Once an invalid historical
+    signal day exists, future day positions fail closed rather than reusing
+    a potentially hindsight-contaminated signal history. Its derived source
+    arrays are deeply immutable to prevent callers rewriting prior signals.
+    Finite funding events must also produce a finite accumulated carry prefix
+    and finite per-window carry results.
     """
 
     def __init__(self, dataset: MarketDataset) -> None:
@@ -158,17 +168,39 @@ class DailyPanel:
         marks = np.asarray(dataset.resolved_array("mark_price"), dtype=np.float64)
         if not np.all(np.isfinite(marks)) or np.any(marks <= 0.0):
             raise ValueError("mark prices must be positive and finite")
-        self.rows = rows
-        self.timestamps_ns = stamps[rows]
-        self.marks = marks[rows]
-        self._stamps = stamps
+        self.rows = _immutable_array(rows, dtype=np.dtype(np.int64))
+        self.timestamps_ns = _immutable_array(stamps[rows], dtype=np.dtype(np.int64))
+        self.marks = _immutable_array(marks[rows], dtype=np.dtype(np.float64))
+        self._stamps = _immutable_array(stamps, dtype=np.dtype(np.int64))
         funding = np.asarray(dataset.funding_rate, dtype=np.float64)
         due = np.asarray(dataset.funding_due, dtype=np.bool_)
         paid = np.where(due, funding, 0.0)
         if not np.all(np.isfinite(paid)):
             raise ValueError("funding rates on due rows must be finite")
-        self._funding_prefix = np.vstack(
-            [np.zeros((1, paid.shape[1])), np.cumsum(paid, axis=0)]
+        with np.errstate(over="ignore", invalid="ignore"):
+            funding_prefix = np.vstack(
+                [np.zeros((1, paid.shape[1])), np.cumsum(paid, axis=0)]
+            )
+        if not np.isfinite(funding_prefix).all():
+            raise ValueError("cumulative funding must be finite")
+        self._funding_prefix = _immutable_array(
+            funding_prefix, dtype=np.dtype(np.float64)
+        )
+        # An event is first eligible at the next daily UTC decision. Never
+        # let a signal (or later blend history) use values arriving after it.
+        available_at = dataset.available_at
+        assert available_at is not None
+        available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+        mark_late = np.any(available_ns[rows] > self.timestamps_ns[:, None], axis=1)
+        first_daily = np.searchsorted(self.timestamps_ns, stamps, side="left")
+        has_daily = first_daily < rows.size
+        next_daily_ns = self.timestamps_ns[np.minimum(first_daily, rows.size - 1)]
+        due_late_rows = np.any(due & (available_ns > next_daily_ns[:, None]), axis=1)
+        due_late = due_late_rows & has_daily
+        funding_late = np.bincount(first_daily[due_late], minlength=rows.size) > 0
+        late_signal_day = mark_late | funding_late
+        self._unavailable_signal_history = _immutable_array(
+            np.maximum.accumulate(late_signal_day), dtype=np.dtype(np.bool_)
         )
 
     @property
@@ -179,6 +211,8 @@ class DailyPanel:
         day = int(np.searchsorted(self.timestamps_ns, timestamp_ns))
         if day >= self.n_days or int(self.timestamps_ns[day]) != timestamp_ns:
             raise ValueError("decision time must be a daily 00:00 UTC dataset bar")
+        if self._unavailable_signal_history[day]:
+            raise ValueError("Phase 2 source not available at daily decision time")
         return day
 
     def funding_carry_series(self, window_days: int) -> np.ndarray:
@@ -192,9 +226,12 @@ class DailyPanel:
                 continue
             low = int(np.searchsorted(self._stamps, start, side="right"))
             high = int(self.rows[day]) + 1
-            out[day] = -(self._funding_prefix[high] - self._funding_prefix[low]) / (
-                window_days
-            )
+            with np.errstate(over="ignore", invalid="ignore"):
+                funding_total = self._funding_prefix[high] - self._funding_prefix[low]
+                carry_row = -funding_total / window_days
+            if not np.isfinite(carry_row).all():
+                raise ValueError("funding carry must be finite")
+            out[day] = carry_row
         return out
 
 
@@ -266,15 +303,20 @@ class RidgeDailyComponent:
 
     ``value_at`` reads the packet of the vintage usable at that date, so a past
     date always uses a vintage fitted before it. Dates before the first vintage
-    are unavailable (``None``). Results are cached by day.
+    are unavailable (``None``). Source and panel symbol rosters must align,
+    and every packet must bind its asset/horizon/time before the day is cached.
+    Successfully cached rows share one immutable, read-only array per day.
     """
 
     def __init__(
         self, source: PrequentialForecastSource, panel: DailyPanel, *, divisor: float
     ) -> None:
+        if source.symbols != panel.symbols:
+            raise ValueError("Ridge source symbol roster must match daily panel")
         schedule = source.schedule
         self._source = source
         self._panel = panel
+        self._horizon_hours = source.horizon_hours
         self._divisor = divisor
         self._first_usable_ns = int(schedule.first_fit_time.astype(np.int64)) + (
             schedule.activation_delay_hours * _NS_PER_HOUR
@@ -289,15 +331,29 @@ class RidgeDailyComponent:
         if cached is None:
             cached = np.full(len(self._panel.symbols), np.nan)
             when = np.datetime64(stamp, "ns")
-            for index in range(cached.size):
+            for index, symbol in enumerate(self._panel.symbols):
                 packet = self._source.packet(index, when)
-                if packet is not None:
-                    cached[index] = (
-                        math.expm1(
-                            packet.point_forecast + 0.5 * packet.residual_variance
-                        )
-                        / self._divisor
-                    )
+                if packet is None:
+                    continue
+                if not isinstance(packet, ForecastPacket):
+                    raise TypeError("invalid Ridge forecast packet type")
+                if (
+                    packet.symbol != symbol
+                    or packet.symbol_index != index
+                    or packet.horizon_hours != self._horizon_hours
+                    or packet.decision_time != when
+                ):
+                    raise ValueError("Ridge forecast packet identity mismatch")
+                log_mean = packet.point_forecast + 0.5 * packet.residual_variance
+                try:
+                    simple = math.expm1(log_mean)
+                except OverflowError as exc:
+                    raise ValueError("Ridge forecast conversion overflow") from exc
+                if not math.isfinite(simple):
+                    raise ValueError("non-finite Ridge forecast conversion")
+                cached[index] = simple / self._divisor
+            # Publish frozen day bytes: consumers cannot alter historical signals.
+            cached = np.frombuffer(cached.tobytes(), dtype=cached.dtype)
             self._cache[day] = cached
         return cached
 

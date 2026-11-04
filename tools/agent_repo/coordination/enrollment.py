@@ -125,20 +125,22 @@ def validate_enrollment_transition(
 ) -> None:
     """Validate one local Task-record transition without granting persistence."""
 
+    if isinstance(enumerated_task_ids, (str, bytes)):
+        raise ValueError("registry roster is malformed or duplicated")
+    task_ids = tuple(enumerated_task_ids)
     if (
-        isinstance(enumerated_task_ids, (str, bytes))
-        or any(not isinstance(task, str) or not task for task in enumerated_task_ids)
-        or len(set(enumerated_task_ids)) != len(enumerated_task_ids)
+        any(not isinstance(task, str) or not task for task in task_ids)
+        or len(set(task_ids)) != len(task_ids)
     ):
         raise ValueError("registry roster is malformed or duplicated")
     task_id = candidate.status.task_id
     if previous is None:
         if candidate.status.phase is TaskPhase.COMPLETE:
             raise ValueError("completed Task cannot be newly enrolled")
-        if task_id in enumerated_task_ids:
+        if task_id in task_ids:
             raise ValueError("duplicate Task ID in registry")
         return
-    if previous.status.task_id != task_id or task_id not in enumerated_task_ids:
+    if previous.status.task_id != task_id or task_id not in task_ids:
         raise ValueError("registry entry is missing or belongs to another Task")
     if (
         previous.repository != candidate.repository

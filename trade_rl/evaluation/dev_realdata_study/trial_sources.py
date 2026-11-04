@@ -227,9 +227,8 @@ class DailyPanel:
             low = int(np.searchsorted(self._stamps, start, side="right"))
             high = int(self.rows[day]) + 1
             with np.errstate(over="ignore", invalid="ignore"):
-                carry_row = -(
-                    self._funding_prefix[high] - self._funding_prefix[low]
-                ) / window_days
+                funding_total = self._funding_prefix[high] - self._funding_prefix[low]
+                carry_row = -funding_total / window_days
             if not np.isfinite(carry_row).all():
                 raise ValueError("funding carry must be finite")
             out[day] = carry_row

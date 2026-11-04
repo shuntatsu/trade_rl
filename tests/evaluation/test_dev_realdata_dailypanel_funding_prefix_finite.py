@@ -43,6 +43,7 @@ def test_daily_panel_ignores_huge_values_on_non_funding_due_rows() -> None:
     assert np.isfinite(panel._funding_prefix).all()
     assert np.count_nonzero(panel._funding_prefix) == 0
 
+
 def test_finite_funding_prefix_cannot_overflow_window_carry() -> None:
     """Two finite prefix endpoints can still overflow their difference."""
     market = synthetic_market()

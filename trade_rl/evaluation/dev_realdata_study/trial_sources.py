@@ -216,7 +216,18 @@ class DailyPanel:
         return day
 
     def funding_carry_series(self, window_days: int) -> np.ndarray:
-        """T3 expected returns per day: minus the mean funding per 24h over ``(t-w, t]``."""
+        """T3: minus the mean funding per 24h over the positive lookback ``(t-w, t]``.
+
+        Negative windows reverse the prefix bounds and can read future events.
+        """
+
+        if (
+            isinstance(window_days, (bool, np.bool_))
+            or not isinstance(window_days, (int, np.integer))
+            or window_days <= 0
+        ):
+            raise ValueError("funding window_days must be a positive integer")
+        window_days = int(window_days)
 
         out = np.full(self.marks.shape, np.nan, dtype=np.float64)
         for day in range(self.n_days):

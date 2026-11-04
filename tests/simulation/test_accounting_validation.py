@@ -530,3 +530,57 @@ def test_zero_position_allows_unrepresentable_unit_value() -> None:
     assert book.quantities[0] == 0.0
     assert book.cash == 1_000.0
     assert book.portfolio_value == 1_000.0
+
+@pytest.mark.parametrize("quantity", [1.0, -1.0])
+def test_settle_positions_rejects_nonzero_proceeds_underflow_atomically(
+    quantity: float,
+) -> None:
+    """A nonzero recovered settlement leg must not silently become cash zero."""
+    book = BookState(
+        quantities=np.array([quantity]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    before_cash = book.cash
+    before_quantities = book.quantities.copy()
+    before_exact = book._exact_quantities
+    before_marks = book.mark_prices.copy()
+    before_peak = book.peak_value
+    before_drawdown = book.max_drawdown
+    before_fills = book.fill_count
+
+    with pytest.raises(ValueError, match="nonzero settlement proceeds"):
+        book.settle_positions(
+            mask=np.array([True]),
+            prices=np.array([1e-308]),
+            recovery=np.array([1e-308]),
+        )
+
+    assert book.cash == before_cash
+    np.testing.assert_array_equal(book.quantities, before_quantities)
+    np.testing.assert_array_equal(book.mark_prices, before_marks)
+    assert book._exact_quantities == before_exact
+    assert book.peak_value == before_peak
+    assert book.max_drawdown == before_drawdown
+    assert book.fill_count == before_fills
+
+
+def test_settle_positions_zero_recovery_is_legitimate() -> None:
+    """Exact zero recovery is allowed to clear the position without proceeds."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    proceeds = book.settle_positions(
+        mask=np.array([True]),
+        prices=np.array([1e-308]),
+        recovery=np.array([0.0]),
+    )
+    assert proceeds == 0.0
+    assert book.cash == 1_000.0
+    assert book.quantities[0] == 0.0

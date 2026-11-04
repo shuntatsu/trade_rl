@@ -55,6 +55,11 @@ jobs:
           uv run pytest -q -ra tests/simulation/test_accounting_validation.py
           -k 'test_constructor_rejects_nonzero_position_value_underflow or test_revalue_rejects_nonzero_position_value_underflow_atomically or test_mark_to_market_rejects_position_value_underflow_atomically'
 
+      - name: M1 nonzero settlement proceeds RED (isolated diagnostic)
+        run: >-
+          uv run pytest -q -ra tests/simulation/test_accounting_validation.py
+          -k 'test_settle_positions_rejects_nonzero_proceeds_underflow_atomically or test_settle_positions_zero_recovery_is_legitimate'
+
       - name: Mypy
         run: uv run mypy trade_rl
 

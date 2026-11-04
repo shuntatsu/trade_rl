@@ -584,3 +584,141 @@ def test_settle_positions_zero_recovery_is_legitimate() -> None:
     assert proceeds == 0.0
     assert book.cash == 1_000.0
     assert book.quantities[0] == 0.0
+
+
+def test_gemini4_execute_rejects_underflowed_residual_position_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-200]),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="nonzero position value"):
+        book.execute(
+            fill_prices=np.array([1.0]),
+            target_quantities=np.array([1e-200]),
+            cost_amount=0.0,
+            turnover=1.0,
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_gemini4_execute_fill_rejects_underflowed_valuation_atomically() -> None:
+    book = BookState.zero(
+        1,
+        1_000.0,
+        np.array([1e-200]),
+        contract_multipliers=np.array([1e-200]),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="nonzero position value"):
+        book.execute_fill(
+            symbol_index=0,
+            quantity=1.0,
+            fill_prices=np.array([1e200]),
+            valuation_prices=np.array([1e-200]),
+            cost_amount=0.0,
+            turnover=1.0,
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_gemini4_settlement_rejects_float_conversion_overflow_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1e200]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-200]),
+        peak_value=1_001.0,
+        contract_multipliers=np.array([1.0]),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="settlement.*(?:notional|proceeds)"):
+        book.settle_positions(
+            mask=np.array([True]),
+            prices=np.array([1e200]),
+            recovery=np.array([1.0]),
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_gemini4_settlement_rejects_fsum_overflow_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1e308, 1e308]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-308, 1e-308]),
+        peak_value=1_002.0,
+        contract_multipliers=np.ones(2),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="settlement.*(?:notional|proceeds)"):
+        book.settle_positions(
+            mask=np.array([True, True]),
+            prices=np.ones(2),
+            recovery=np.ones(2),
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_gemini4_execute_rejects_fsum_overflow_atomically() -> None:
+    book = BookState.zero(2, 1_000.0, np.ones(2))
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="execution.*notional|account"):
+        book.execute(
+            fill_prices=np.ones(2),
+            target_quantities=np.array([1e308, 1e308]),
+            cost_amount=0.0,
+            turnover=0.0,
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_gemini4_execute_rejects_nonfinite_signed_legs_before_netting() -> None:
+    book = BookState.zero(
+        2,
+        1_000.0,
+        np.ones(2),
+        contract_multipliers=np.array([1e-200, 1e-200]),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="execution.*notional"):
+        book.execute(
+            fill_prices=np.array([1e200, 1e200]),
+            target_quantities=np.array([1e200, -1e200]),
+            cost_amount=0.0,
+            turnover=0.0,
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+
+
+def test_gemini4_settlement_rejects_left_associative_overflow_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1e200]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-200]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-200]),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="settlement.*(?:notional|proceeds)"):
+        book.settle_positions(
+            mask=np.array([True]),
+            prices=np.array([1e200]),
+            recovery=np.array([1.0]),
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)

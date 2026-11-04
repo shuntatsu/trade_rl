@@ -119,6 +119,8 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Task状態は単一statusではなく `phase + condition` で表す。`review / stale` や `executing / blocked` を区別する。
 - `execution_mode=read_only` はimmutable snapshotを共有してよく、writable lease/branchを持たない。`write` Taskはactive ownerを1つに限定し、isolated writable worktree/branchを使う。
 - write ownershipはCoordinator-issued **lease epoch** をfencing tokenとして扱う。reassignment時はepochを増加し、new epoch専用branch/worktreeを作る。expired leaseはbranch/PR/CI/artifact side effectをreconcileするまで即reassignしない。
+- `LeaseReconciliation` の `pr_ids`・`ci_ids`・`artifact_ids` は順序付きlist/tuple内の**native文字列**のみを受理し、list入力は不変tupleへコピーする。null、数値、真偽値、map/set/generator、単体文字列を証跡IDとして黙って文字列化しない。これらは外部Coordinatorによるreconciliation・Task/lease完全列挙の証明ではなく、read-onlyのHOLD観測を再割当/削除権限へ昇格させない。
+- `WriteScope.allow/deny` と `TaskPacket.non_goals/resource_keys/acceptance_criteria/test_oracle` は直接Python生成でもnative文字列のlist/tupleだけを受理する。暗黙の`str()`変換、単体文字列・unordered set・map・generatorを拒否し、caller-owned listを検証前にtupleへ固定する。旧来の正常なcanonical digestや公開JSON schemaは変えない。
 - `LeaseRecord` は正の有限TTLと最終heartbeatからの厳密なexpiry算出を要求する。`lease_is_current` は最終heartbeat以降、expiryより前の時刻だけを有効とする。時刻の逆行や延長された見かけのexpiryをTask登録・再割当権限へ昇格させない。
 - file overlapだけでなく `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` Resource Keyでsemantic collisionを判定する。hard conflictは同時実行しない。
 - CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。 projectionのJSON parseでは重複fieldをfail-closedで拒否する（最後の値を採用しない）。

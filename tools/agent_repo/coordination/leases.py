@@ -128,9 +128,20 @@ class LeaseReconciliation:
             _require_sha(self.observed_head_sha, field_name="observed_head_sha")
         object.__setattr__(self, "decision", ReconciliationDecision(self.decision))
         for field_name in ("pr_ids", "ci_ids", "artifact_ids"):
-            values = tuple(str(value) for value in getattr(self, field_name))
-            if any(not value.strip() for value in values):
-                raise ValueError(f"reconciliation {field_name} must be non-empty")
+            raw = getattr(self, field_name)
+            # A supplied evidence collection must be ordered and explicitly
+            # typed; str() would silently legitimize malformed observation IDs.
+            if type(raw) not in (tuple, list):
+                raise ValueError(
+                    f"reconciliation {field_name} must be an ordered text sequence"
+                )
+            # Snapshot caller-owned data before validation. Another thread
+            # could otherwise change the list between check and publication.
+            values = tuple(raw)
+            if any(type(value) is not str or not value.strip() for value in values):
+                raise ValueError(
+                    f"reconciliation {field_name} entries must be non-empty strings"
+                )
             if len(set(values)) != len(values):
                 raise ValueError(f"reconciliation {field_name} contains duplicates")
             object.__setattr__(self, field_name, values)

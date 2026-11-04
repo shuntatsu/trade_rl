@@ -416,9 +416,10 @@ def test_from_weights_zero_weight_does_not_require_finite_product() -> None:
     assert book.cash == 1_000.0
     assert book.portfolio_value == 1_000.0
 
-
 @pytest.mark.parametrize("sign", (-1.0, 1.0))
-def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(sign: float) -> None:
+def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(
+    sign: float,
+) -> None:
     """A nonzero fill must not change inventory while debiting zero cash."""
     book = BookState.zero(
         1,
@@ -456,3 +457,130 @@ def test_execute_offsetting_nonzero_legs_preserve_zero_net_cash() -> None:
     assert book.cash == 1_000.0
     assert book.fill_count == 2
     assert book.rebalance_events == 1
+
+
+def test_constructor_rejects_nonzero_position_value_underflow() -> None:
+    """A nonzero holding must not become zero in the valuation ledger."""
+    with pytest.raises(ValueError, match="nonzero.*position.*value"):
+        BookState(
+            quantities=np.array([1.0]),
+            cash=1_000.0,
+            mark_prices=np.array([1e-308]),
+            peak_value=1_000.0,
+            contract_multipliers=np.array([1e-308]),
+        )
+
+
+def test_revalue_rejects_nonzero_position_value_underflow_atomically() -> None:
+    """Revaluation must not erase an existing nonzero position economically."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_001.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    before_marks = book.mark_prices.copy()
+    before_value = book.portfolio_value
+
+    with pytest.raises(ValueError, match="nonzero.*position.*value"):
+        book.revalue(np.array([1e-308]))
+
+    np.testing.assert_array_equal(book.quantities, np.array([1.0]))
+    np.testing.assert_array_equal(book.mark_prices, before_marks)
+    assert book.portfolio_value == before_value
+
+
+def test_mark_to_market_rejects_position_value_underflow_atomically() -> None:
+    """A failed underflowing mark/funding transition must not partially mutate cash."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    before_cash = book.cash
+    before_marks = book.mark_prices.copy()
+    before_funding = book.funding_pnl
+    before_history = list(book.returns_history)
+
+    with pytest.raises(ValueError, match="nonzero.*position.*value"):
+        book.mark_to_market(
+            mark_prices=np.array([1e-308]),
+            funding_amount=5.0,
+            period_start_value=1_000.0,
+        )
+
+    assert book.cash == before_cash
+    np.testing.assert_array_equal(book.mark_prices, before_marks)
+    assert book.funding_pnl == before_funding
+    assert book.returns_history == before_history
+
+
+def test_zero_position_allows_unrepresentable_unit_value() -> None:
+    """A flat symbol does not need a nonzero representable position value."""
+    book = BookState.zero(
+        1,
+        1_000.0,
+        np.array([1e-308]),
+        contract_multipliers=np.array([1e-308]),
+    )
+    book.revalue(np.array([1e-308]))
+    assert book.quantities[0] == 0.0
+    assert book.cash == 1_000.0
+    assert book.portfolio_value == 1_000.0
+
+@pytest.mark.parametrize("quantity", [1.0, -1.0])
+def test_settle_positions_rejects_nonzero_proceeds_underflow_atomically(
+    quantity: float,
+) -> None:
+    """A nonzero recovered settlement leg must not silently become cash zero."""
+    book = BookState(
+        quantities=np.array([quantity]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    before_cash = book.cash
+    before_quantities = book.quantities.copy()
+    before_exact = book._exact_quantities
+    before_marks = book.mark_prices.copy()
+    before_peak = book.peak_value
+    before_drawdown = book.max_drawdown
+    before_fills = book.fill_count
+
+    with pytest.raises(ValueError, match="nonzero settlement proceeds"):
+        book.settle_positions(
+            mask=np.array([True]),
+            prices=np.array([1e-308]),
+            recovery=np.array([1e-308]),
+        )
+
+    assert book.cash == before_cash
+    np.testing.assert_array_equal(book.quantities, before_quantities)
+    np.testing.assert_array_equal(book.mark_prices, before_marks)
+    assert book._exact_quantities == before_exact
+    assert book.peak_value == before_peak
+    assert book.max_drawdown == before_drawdown
+    assert book.fill_count == before_fills
+
+
+def test_settle_positions_zero_recovery_is_legitimate() -> None:
+    """Exact zero recovery is allowed to clear the position without proceeds."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-308]),
+    )
+    proceeds = book.settle_positions(
+        mask=np.array([True]),
+        prices=np.array([1e-308]),
+        recovery=np.array([0.0]),
+    )
+    assert proceeds == 0.0
+    assert book.cash == 1_000.0
+    assert book.quantities[0] == 0.0

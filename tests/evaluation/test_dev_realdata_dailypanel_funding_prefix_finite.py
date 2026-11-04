@@ -8,10 +8,13 @@ import numpy as np
 import pytest
 
 from tests.evaluation.test_dev_realdata_phase2_trials import synthetic_market
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study.trial_sources import DailyPanel
 
 
-def _finite_funding(*, due_events: int, non_due: bool = False):
+def _finite_funding(
+    *, due_events: int, non_due: bool = False
+) -> MarketDataset:
     market = synthetic_market()
     funding = np.zeros_like(market.funding_rate)
     due = market.funding_due

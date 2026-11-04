@@ -132,3 +132,21 @@ def test_phase2_ridge_keeps_valid_horizon_conversion(
     assert values is not None
     assert values[0] == pytest.approx(math.expm1(0.025) / divisor)
     assert np.isnan(values[1])
+
+
+def test_cached_ridge_day_cannot_be_mutated_by_a_consumer() -> None:
+    """An external array write must not poison future reads of a frozen day."""
+    source = FakeSource({0: _packet(0)})
+    component = RidgeDailyComponent(source, _panel(), divisor=1.0)  # type: ignore[arg-type]
+    values = component.value_at(0)
+    assert values is not None
+    expected = float(values[0])
+
+    with pytest.raises(ValueError):
+        values[0] = 123.0
+    with pytest.raises(ValueError):
+        values.setflags(write=True)
+
+    assert component.value_at(0) is values
+    assert values[0] == pytest.approx(expected)
+    assert source.lookups == [0, 1]

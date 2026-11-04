@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -365,3 +367,41 @@ def test_reconciliation_freezes_valid_list_of_string_ids(field: str) -> None:
     assert type(getattr(record, field)) is tuple
     source.append("not-verified")
     assert getattr(record, field) == ("pr:17", "ci:200")
+
+
+@pytest.mark.parametrize("field", _RECONCILIATION_ID_FIELDS)
+def test_reconciliation_validates_frozen_snapshot_before_list_mutation(
+    field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller's concurrent mutation cannot enter a previously validated record."""
+    source: list[object] = ["original-id"]
+    branch = lease_branch_name("T500-03", 1, "agent-a")
+    mutated = False
+
+    def mutate_after_check(values: Iterable[object]) -> bool:
+        nonlocal mutated
+        invalid = builtins.any(values)
+        if not mutated:
+            source[:] = [123]
+            mutated = True
+        return invalid
+
+    # Deterministically interleave a caller mutation at the validation
+    # boundary. The former implementation validated raw and copied it later.
+    monkeypatch.setattr(
+        "tools.agent_repo.coordination.leases.any",
+        mutate_after_check,
+        raising=False,
+    )
+    kwargs: dict[str, object] = {
+        "task_id": "T500-03",
+        "expired_epoch": 1,
+        "observed_branch": branch,
+        "observed_head_sha": HEAD_SHA,
+        "decision": ReconciliationDecision.REASSIGN,
+        field: source,
+    }
+    record = LeaseReconciliation(**kwargs)  # type: ignore[arg-type]
+    assert mutated
+    assert source == [123]
+    assert getattr(record, field) == ("original-id",)

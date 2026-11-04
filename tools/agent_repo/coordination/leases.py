@@ -135,11 +135,13 @@ class LeaseReconciliation:
                 raise ValueError(
                     f"reconciliation {field_name} must be an ordered text sequence"
                 )
-            if any(type(value) is not str or not value.strip() for value in raw):
+            # Snapshot caller-owned data before validation. Another thread
+            # could otherwise change the list between check and publication.
+            values = tuple(raw)
+            if any(type(value) is not str or not value.strip() for value in values):
                 raise ValueError(
                     f"reconciliation {field_name} entries must be non-empty strings"
                 )
-            values = tuple(raw)
             if len(set(values)) != len(values):
                 raise ValueError(f"reconciliation {field_name} contains duplicates")
             object.__setattr__(self, field_name, values)

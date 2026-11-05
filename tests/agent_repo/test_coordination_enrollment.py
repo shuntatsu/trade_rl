@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -32,6 +33,24 @@ BASE = "a" * 40
 HEAD = "b" * 40
 OID = "c" * 40
 NOW = datetime(2026, 11, 1, 0, 0, tzinfo=UTC)
+
+
+class _RosterThatClearsAfterFirstIteration(Sequence[str]):
+    """Expose a valid first observation, then mutate the caller-owned roster."""
+
+    def __init__(self, values: tuple[str, ...]) -> None:
+        self._values = list(values)
+
+    def __iter__(self) -> Iterator[str]:
+        snapshot = tuple(self._values)
+        self._values.clear()
+        return iter(snapshot)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: int | slice) -> str | list[str]:
+        return self._values[index]
 
 
 def _packet() -> TaskPacket:
@@ -164,6 +183,33 @@ def test_preflight_rejects_mismatched_status_and_read_only_contract() -> None:
             issue_is_open=True,
             now=NOW + timedelta(minutes=2),
         )
+
+
+def test_initial_registration_uses_one_roster_snapshot_when_caller_mutates() -> None:
+    candidate = _enrollment()
+    roster = _RosterThatClearsAfterFirstIteration((candidate.status.task_id,))
+    with pytest.raises(ValueError, match="duplicate Task ID"):
+        require_local_registry_preflight(
+            None,
+            candidate,
+            expected_registry_oid=OID,
+            observed_registry_oid=OID,
+            enumerated_task_ids=roster,
+        )
+    assert len(roster) == 0
+
+
+def test_update_uses_same_roster_snapshot_for_membership_after_mutation() -> None:
+    current = _enrollment()
+    roster = _RosterThatClearsAfterFirstIteration((current.status.task_id,))
+    require_local_registry_preflight(
+        current,
+        current,
+        expected_registry_oid=OID,
+        observed_registry_oid=OID,
+        enumerated_task_ids=roster,
+    )
+    assert len(roster) == 0
 
 
 def test_initial_registration_preflight_rejects_duplicate_task_and_stale_ref() -> None:

@@ -514,9 +514,7 @@ class BookState:
             try:
                 leg = float(exact_proceeds)
             except OverflowError as error:
-                raise ValueError(
-                    "settlement proceeds cannot be represented"
-                ) from error
+                raise ValueError("settlement proceeds cannot be represented") from error
             if not math.isfinite(leg) or leg == 0.0:
                 raise ValueError("nonzero settlement proceeds cannot be represented")
             signed_legs.append(leg)
@@ -732,9 +730,7 @@ class BookState:
             marks=marks,
             multipliers=multipliers,
         )
-        if not all(
-            math.isfinite(value) for value in (turnover_after, cost_after)
-        ):
+        if not all(math.isfinite(value) for value in (turnover_after, cost_after)):
             raise ValueError("proposed execution must preserve finite account values")
         self.cash = cash_after
         self.quantities = targets

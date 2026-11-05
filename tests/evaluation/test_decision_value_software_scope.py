@@ -235,6 +235,7 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
         failure,
         dataset_id="1" * 64,
         protocol_digest="f" * 64,
+        actual_artifact_digest="2" * 64,
     )
     recorded = json.loads((output / "incomplete-pairs.json").read_text())
     assert recorded["verdict"] == "INVALID / BLOCKED"
@@ -247,6 +248,7 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
             failure,
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
+            actual_artifact_digest="2" * 64,
         )
     assert len(tuple(output.iterdir())) == 1
 
@@ -359,6 +361,7 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
             error,
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
+            actual_artifact_digest="2" * 64,
         )
     assert destination.is_dir()
     assert tuple(destination.iterdir()) == ()
@@ -400,6 +403,7 @@ def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
             error,
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
+            actual_artifact_digest="2" * 64,
         )
     assert (destination / "incomplete-pairs.json").read_text() == "other-writer"
 

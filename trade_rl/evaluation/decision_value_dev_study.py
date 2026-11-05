@@ -11,6 +11,7 @@ and is retained as an invalid attempt rather than a zero-valued label.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import shutil
@@ -26,6 +27,7 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts.publication import (
     load_published_market_dataset_artifact,
 )
@@ -1391,6 +1393,9 @@ class IncompletePairedLabelsError(ValueError):
     ) -> None:
         self.block_id = block_id
         self.evidence = evidence
+        # Set once the write-once failure receipt has been durably published;
+        # it lets a caller pin the exact receipt when strictly reloading it.
+        self.receipt_digest: str | None = None
         super().__init__(
             f"TD8 block {block_id} contains {len(evidence)} incomplete/terminated "
             "paired labels; outcomes must be recorded and research fit is blocked"
@@ -1410,36 +1415,92 @@ def _require_complete_reachable_labels(
         raise ValueError("TD8 eligible paired evidence count mismatch")
 
 
+_INCOMPLETE_RECEIPT_FILE = "incomplete-pairs.json"
+_INCOMPLETE_RECEIPT_SCHEMA = "decision_value_incomplete_pair_attempt_v2"
+_INCOMPLETE_RECEIPT_VERDICT = "INVALID / BLOCKED"
+_INCOMPLETE_RECEIPT_REASON = "incomplete_paired_labels"
+_INCOMPLETE_RECEIPT_RETRY_POLICY = "write_once_no_restart"
+_INCOMPLETE_PAIR_SCHEMA = "decision_value_ineligible_pair_v1"
+_INCOMPLETE_RECEIPT_SHA_FIELDS = (
+    "dataset_id",
+    "protocol_digest",
+    "actual_artifact_digest",
+    "implementation_digest",
+    "runtime_environment_digest",
+    "pairs_digest",
+)
+_INCOMPLETE_RECEIPT_KEYS = frozenset(
+    {
+        "schema_version",
+        "verdict",
+        "reason",
+        "retry_policy",
+        "fit_admitted",
+        "block_id",
+        "ineligible_pairs",
+        "pairs",
+        "receipt_digest",
+        *_INCOMPLETE_RECEIPT_SHA_FIELDS,
+    }
+)
+
+
 def _persist_incomplete_pair_attempt(
     output_dir: Path,
     failure: IncompletePairedLabelsError,
     *,
     dataset_id: str,
     protocol_digest: str,
-) -> None:
+    actual_artifact_digest: str,
+) -> str:
     """Preserve blocked synthetic-label evidence without publishing a success result.
+
+    The receipt binds the exact dataset, frozen protocol, published artifact and
+    checkout-independent implementation/runtime identity to every ineligible
+    branch record and carries a self digest. It never admits a fit and never
+    permits a restart into the same root. Return that digest so a caller can pin
+    the receipt on strict reload.
 
     Prepare a canonical receipt off to the side, then atomically claim the
     destination with mkdir(exist_ok=False) before installing that receipt. A
     concurrent writer must never be silently overwritten, including an empty
     destination created between preliminary checks and publication.
     """
+    for name, value in (
+        ("dataset_id", dataset_id),
+        ("protocol_digest", protocol_digest),
+        ("actual_artifact_digest", actual_artifact_digest),
+    ):
+        require_sha256(value, field=name)
+    if not failure.evidence:
+        raise ValueError("a failure receipt requires at least one ineligible pair")
     destination = Path(output_dir)
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"output_dir already exists: {destination}")
+    provenance = build_candidate_run_provenance()
+    pairs = [e.to_mapping() for e in failure.evidence]
+    body: dict[str, object] = {
+        "schema_version": _INCOMPLETE_RECEIPT_SCHEMA,
+        "verdict": _INCOMPLETE_RECEIPT_VERDICT,
+        "reason": _INCOMPLETE_RECEIPT_REASON,
+        "retry_policy": _INCOMPLETE_RECEIPT_RETRY_POLICY,
+        "fit_admitted": False,
+        "dataset_id": dataset_id,
+        "protocol_digest": protocol_digest,
+        "actual_artifact_digest": actual_artifact_digest,
+        "implementation_digest": provenance["implementation_digest"],
+        "runtime_environment_digest": provenance["runtime_environment_digest"],
+        "block_id": failure.block_id,
+        "ineligible_pairs": len(pairs),
+        "pairs": pairs,
+        "pairs_digest": content_digest(pairs),
+    }
+    receipt_digest = content_digest(body)
+    encoded = canonical_json_bytes({**body, "receipt_digest": receipt_digest})
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
     try:
-        payload = {
-            "schema_version": "decision_value_incomplete_pair_attempt_v1",
-            "verdict": "INVALID / BLOCKED",
-            "dataset_id": dataset_id,
-            "protocol_digest": protocol_digest,
-            "block_id": failure.block_id,
-            "ineligible_pairs": len(failure.evidence),
-            "pairs": [e.to_mapping() for e in failure.evidence],
-        }
-        (stage / "incomplete-pairs.json").write_bytes(canonical_json_bytes(payload))
+        (stage / _INCOMPLETE_RECEIPT_FILE).write_bytes(encoded)
         # Directory rename would silently replace a concurrently created EMPTY
         # directory on POSIX. Atomic mkdir is the write-once ownership gate.
         destination.mkdir(exist_ok=False)
@@ -1448,7 +1509,8 @@ def _persist_incomplete_pair_attempt(
             # even a writer racing *inside* our claimed directory cannot have
             # their pre-existing evidence replaced by a file rename.
             os.link(
-                stage / "incomplete-pairs.json", destination / "incomplete-pairs.json"
+                stage / _INCOMPLETE_RECEIPT_FILE,
+                destination / _INCOMPLETE_RECEIPT_FILE,
             )
         except OSError:
             # Best effort cleanup of our empty reservation. A failed receipt
@@ -1461,6 +1523,83 @@ def _persist_incomplete_pair_attempt(
     finally:
         if stage.exists():
             shutil.rmtree(stage)
+    return receipt_digest
+
+
+def load_incomplete_pair_attempt(
+    root: str | Path, *, expected_receipt_digest: str | None = None
+) -> dict[str, object]:
+    """Strictly reload a TD8 failure receipt; reject any tampering.
+
+    The root must contain exactly the canonical receipt file. The self digest,
+    pair digest, pair count, fixed ``INVALID / BLOCKED`` verdict, no-fit and
+    no-restart policy, and every pair record's inadmissibility are re-verified.
+    Pass ``expected_receipt_digest`` (the value returned at write time) to also
+    reject a fully re-sealed forgery.
+    """
+    if expected_receipt_digest is not None:
+        require_sha256(expected_receipt_digest, field="expected_receipt_digest")
+    directory = Path(root)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("failure receipt root must be a real directory")
+    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
+        raise ValueError("failure receipt root contents are malformed")
+    with open_regular_binary(
+        directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
+    ) as handle:
+        raw = handle.read()
+    try:
+        loaded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("failure receipt JSON is malformed") from error
+    if not isinstance(loaded, dict) or any(not isinstance(k, str) for k in loaded):
+        raise ValueError("failure receipt must contain a JSON object")
+    if raw != canonical_json_bytes(loaded):
+        raise ValueError("failure receipt must use canonical JSON bytes")
+    if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
+        raise ValueError("failure receipt fields are malformed")
+    if (
+        loaded["schema_version"] != _INCOMPLETE_RECEIPT_SCHEMA
+        or loaded["verdict"] != _INCOMPLETE_RECEIPT_VERDICT
+        or loaded["reason"] != _INCOMPLETE_RECEIPT_REASON
+        or loaded["retry_policy"] != _INCOMPLETE_RECEIPT_RETRY_POLICY
+        or loaded["fit_admitted"] is not False
+    ):
+        raise ValueError("failure receipt contract fields are malformed")
+    for name in _INCOMPLETE_RECEIPT_SHA_FIELDS:
+        value = loaded[name]
+        if not isinstance(value, str):
+            raise ValueError(f"failure receipt {name} must be a SHA-256 digest")
+        require_sha256(value, field=name)
+    block_id = loaded["block_id"]
+    if not isinstance(block_id, str) or not block_id:
+        raise ValueError("failure receipt block_id is malformed")
+    pairs = loaded["pairs"]
+    if not isinstance(pairs, list) or not pairs:
+        raise ValueError("failure receipt requires ineligible pair records")
+    if type(loaded["ineligible_pairs"]) is not int or loaded["ineligible_pairs"] != len(
+        pairs
+    ):
+        raise ValueError("failure receipt pair count mismatch")
+    for pair in pairs:
+        if (
+            not isinstance(pair, dict)
+            or pair.get("schema") != _INCOMPLETE_PAIR_SCHEMA
+            or pair.get("admissible_for_fit") is not False
+        ):
+            raise ValueError("failure receipt pair record is malformed or admissible")
+    if loaded["pairs_digest"] != content_digest(pairs):
+        raise ValueError("failure receipt pairs digest mismatch")
+    body = {k: v for k, v in loaded.items() if k != "receipt_digest"}
+    receipt_digest = loaded["receipt_digest"]
+    if not isinstance(receipt_digest, str) or receipt_digest != content_digest(body):
+        raise ValueError("failure receipt digest mismatch")
+    if (
+        expected_receipt_digest is not None
+        and receipt_digest != expected_receipt_digest
+    ):
+        raise ValueError("failure receipt differs from the pinned digest")
+    return dict(loaded)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1835,11 +1974,12 @@ def run_decision_value_dev_study(
             training = _train_block(dataset, protocol, block, train_switch_cost)
         except IncompletePairedLabelsError as failure:
             if output_dir is not None:
-                _persist_incomplete_pair_attempt(
+                failure.receipt_digest = _persist_incomplete_pair_attempt(
                     Path(output_dir),
                     failure,
                     dataset_id=dataset.dataset_id,
                     protocol_digest=protocol.protocol_digest,
+                    actual_artifact_digest=resolved_artifact_digest,
                 )
             raise
         view = training.dataset
@@ -2256,5 +2396,6 @@ __all__ = [
     "DecisionValueDevStudyResult",
     "compute_real_scope_authorization_digest",
     "default_2024q1_decision_value_dev_protocol",
+    "load_incomplete_pair_attempt",
     "run_decision_value_dev_study",
 ]

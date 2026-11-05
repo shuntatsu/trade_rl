@@ -1159,20 +1159,24 @@ unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 (`available` only with a root path that the existing v1 reader verifies; otherwise
 `unavailable` with the source record and the user's quoted statement) and keeps the
 disposition `invalidated` with reason `observation_gap`. For this case the G0
-requirement that a fresh review resolve the preserved root is replaced by a fresh
+requirement that a fresh review resolve the preserved root cannot be met; the bounded
+predecessor-root-unavailable path in `docs/architecture/research-assurance.md` records
+what is recorded instead (the predecessor chain stays `not_established`), and a fresh
 result-blind review of the lineage documentation and the pull request that introduced
-the rule. A short public-network storage probe (`paper/storage_probe.py`, a scratch
+the rule replaces the root resolution. It does not apply to any other case. A short public-network storage probe (`paper/storage_probe.py`, a scratch
 root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
 measurement; it has not been run. Nothing has been sealed, launched or collected, no
 attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
 
 2026-11-05: a Research Assurance author packet for attempt 2 is recorded in
 [`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json)
-(digest `f8faa1e083a3c15361d8834387e41c3ed4cc1ea600aec16b0a8a33eb338b9ca3`, status UNREVIEWED). It restates the existing frozen
+(digest `fcad0eb2dc6d595e26fdd8a30eeeef264613dc31a5dba6b6007aed9ba2c2c85d`, status UNREVIEWED). It restates the existing frozen
 screen and lineage without changing any criterion. Sealing attempt 2 still requires an
-independent `research_assurance_v1` review, whose accepted route is an owner-accepted
-same-account Gemini (Antigravity) review, a deviation from the different-principal rule that
-`tools.research_assurance_github` would not verify as independent. Issue #810 authorization
+independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review is acceptable);
+that it would be posted under the same account is the planner's reading, and
+`tools.research_assurance_github` rejects a same-principal review, so that route cannot
+satisfy sealing condition (a) with the tool and is not a PASS. Issue #810 authorization
 evidence is https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178. The storage probe has not been
 run, nothing is sealed or launched, and no economic result exists.
 

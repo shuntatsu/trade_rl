@@ -489,7 +489,9 @@ first; nothing here proves the comment exists or says what it should say.
      (`--predecessor-root-status unavailable`, the current case): obtain a fresh
      result-blind review of the lineage documentation and the pull request that
      introduced the lost-predecessor rule instead; it does not re-verify the
-     predecessor;
+     predecessor, and the predecessor chain stays `not_established` (the bounded
+     predecessor-root-unavailable path in `docs/architecture/research-assurance.md`
+     defines when this applies and what is recorded; it applies to no other case);
    * obtain an independent `research_assurance_v1` review of the attempt-2 author
      packet (see the packet section below) from a different authenticated GitHub
      principal; a missing review leaves the packet UNREVIEWED and attempt 2 unsealed;
@@ -638,7 +640,7 @@ rule), the G1 chain from source to decision with all eight boundaries, the G2
 independent oracles by test path, the evidence stage and claim boundary, the
 attempt-1 `not_established` limits, the threat model and the storage-probe step.
 
-* Canonical digest: `f8faa1e083a3c15361d8834387e41c3ed4cc1ea600aec16b0a8a33eb338b9ca3`
+* Canonical digest: `fcad0eb2dc6d595e26fdd8a30eeeef264613dc31a5dba6b6007aed9ba2c2c85d`
   (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
 * Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
   `economic_execution_authorized=false`. No review exists, so this is not a pass.
@@ -657,10 +659,12 @@ it; it names no UTC start, which must still be chosen at plan and seal; code che
 only the URL shape). It is authorization evidence and does not replace (a).
 
 Review route. AGENTS.md (#687) requires the review from a different authenticated
-GitHub principal. The owner accepted a Gemini review produced through Antigravity
-(agy) and posted under the same GitHub account as the different-model review. This is
-an **owner-accepted deviation** from the different-principal rule. It does not
-establish principal independence: `tools.research_assurance_github` rejects a
+GitHub principal. The owner's words of 2026-11-05 were "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing
+account does not matter; an agy review, that is Antigravity/Gemini, is acceptable).
+That it would be posted under the same GitHub account is the planner's reading in the
+Issue #810 record, not the owner's wording. A same-principal review is an
+**owner-recorded route** and a deviation from the different-principal rule, not a
+PASS. It does not establish principal independence: `tools.research_assurance_github` rejects a
 same-principal review, so such a review would not turn the packet into a PASS with
 that tool. The packet stays UNREVIEWED until a review of this exact digest exists and
 the tooling verifies it. Until then nothing is sealed, launched or collected under

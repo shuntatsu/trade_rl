@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
+from trade_rl.evaluation.paper.attempt2 import (
+    CAPACITY_HEADROOM,
+    SCREEN_DAYS,
+    SCREEN_SLOTS,
+    TERMINAL_GRACE_SECONDS,
+)
 from trade_rl.evaluation.paper.operations import screen_plan
 from trade_rl.evaluation.paper.predecessor import (
     ATTEMPT_ONE_FINAL_TIP_SHA256,
@@ -23,15 +29,29 @@ from trade_rl.evaluation.paper.predecessor import (
     ATTEMPT_ONE_PROTOCOL_SHA256,
     LINEAGE_RECORD_COMMIT,
     UNAVAILABLE_NOT_ESTABLISHED,
+    UNAVAILABLE_REVIEW_RULE,
+    USER_STATEMENT_DATE,
+    USER_STATEMENT_QUOTE,
     canonical_lineage,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "f8faa1e083a3c15361d8834387e41c3ed4cc1ea600aec16b0a8a33eb338b9ca3"
+PINNED_DIGEST = "fcad0eb2dc6d595e26fdd8a30eeeef264613dc31a5dba6b6007aed9ba2c2c85d"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
+)
+# The owner's verbatim words of 2026-11-05 (Issue #810 comment 6659653178). They say the
+# reviewing account does not matter and that an agy review is acceptable; they do not
+# name the same GitHub account.
+OWNER_REVIEW_WORDS = (
+    "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"
+)
+DOCUMENTS = (
+    "docs/specs/funding-carry-paper.md",
+    "docs/architecture/research-assurance.md",
+    "docs/research/current-status.md",
 )
 BOUNDARIES = {
     "unit",
@@ -47,6 +67,40 @@ BOUNDARIES = {
 
 def _packet() -> Any:
     return json.loads(PACKET.read_text(encoding="utf-8"))
+
+
+def _text(packet: Any) -> str:
+    return json.dumps(packet, ensure_ascii=False)
+
+
+def _doc(relative: str) -> str:
+    return " ".join((ROOT / relative).read_text(encoding="utf-8").split())
+
+
+def _raw(relative: str) -> str:
+    return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def _added_section(relative: str) -> str:
+    """The part of a document that records the attempt-2 packet."""
+    document = _raw(relative)
+    marker, end = {
+        "docs/specs/funding-carry-paper.md": (
+            "### Attempt 2 research-assurance author packet",
+            None,
+        ),
+        "docs/architecture/research-assurance.md": (
+            "#### Bounded exception: predecessor root unavailable",
+            "**Known limitations:**",
+        ),
+        "docs/research/current-status.md": (
+            "2026-11-05: a Research Assurance author packet",
+            "\n\n",
+        ),
+    }[relative]
+    start = document.index(marker)
+    stop = document.index(end, start) if end else len(document)
+    return " ".join(document[start:stop].split())
 
 
 def _cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -125,43 +179,175 @@ def test_packet_grants_no_authorization_and_names_the_required_gates() -> None:
 
     assert claims["production_eligible"] is False
     assert claims["live_trading_authorized"] is False
-    assert claims["next_action_class"] == ("request_separate_economic_authorization")
+    assert claims["next_action_class"] == "request_separate_economic_authorization"
     assert claims["claim_level"] == "software_validity"
+    assert packet["evidence"]["evidence_level"] == "software_validity"
     assert thesis["stage"] == "prospective_paper"
-    text = json.dumps(packet)
-    assert "Issue #810" in text
-    assert AUTHORIZATION_URL in text
-    assert "UNREVIEWED" in text
-    assert "owner-accepted deviation" in text
-    assert "different authenticated GitHub principal" in text
+    assert "Issue #810" in thesis["stop_rule"]
+    assert AUTHORIZATION_URL in thesis["stop_rule"]
+    assert AUTHORIZATION_URL in claims["decision_rule"]
+    assert "different authenticated GitHub principal" in thesis["stop_rule"]
     assert "PASS" not in claims["next_authorized_action"]
     # Every boundary is covered by an oracle that cites existing test paths.
     mechanism = packet["mechanism"]
     assert set(mechanism["changed_boundaries"]) == BOUNDARIES
-    cited = set(re.findall(r"tests/[\w/]+\.py", text))
+    assert set(mechanism["independent_oracles"]) == BOUNDARIES
+    cited = set(re.findall(r"tests/[\w/]+\.py", _text(packet)))
     assert cited
     missing = sorted(path for path in cited if not (ROOT / path).is_file())
     assert missing == []
+
+
+def test_packet_records_no_development_result_label() -> None:
+    """A result-blind packet may not carry a development economic outcome label."""
+    packet = _packet()
+    text = _text(packet)
+    hypothesis = packet["thesis"]["hypothesis"]
+
+    forbidden = (
+        re.compile(
+            r"\bpass(?:ed|es)\b[^.;]{0,60}\b(?:screens?|criteria|preregistered)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\bpast development profit", re.IGNORECASE),
+        re.compile(
+            r"\bdevelopment (?:replay|run|result)s?[^.;]{0,40}\b(?:profit|passed|positive)",
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in forbidden:
+        assert pattern.search(text) is None, pattern.pattern
+        for relative in DOCUMENTS:
+            assert pattern.search(_added_section(relative)) is None, (
+                relative,
+                pattern.pattern,
+            )
+    assert "reused-development evidence only" in hypothesis
+    assert "no development economic outcome is recorded" in hypothesis
+
+
+def test_review_route_is_owner_recorded_not_accepted_and_not_a_pass() -> None:
+    packet = _packet()
+    limitations = packet["thesis"]["limitations"]
+    permitted = " ".join(packet["claims"]["permitted"])
+    next_action = packet["claims"]["next_authorized_action"]
+
+    assert OWNER_REVIEW_WORDS in limitations
+    assert "do not name the same GitHub account" in limitations
+    assert "planner's reading" in limitations
+    assert "owner-recorded" in limitations
+    for field in (limitations, permitted, next_action):
+        assert "owner-accepted" not in field
+        assert "explicitly accepted" not in field
+    assert (
+        "tools.research_assurance_github rejects a same-principal review" in limitations
+    )
+    assert "makes no PASS claim" in limitations
+    for relative in DOCUMENTS:
+        document = _doc(relative)
+        assert "owner-accepted" not in document, relative
+        assert "explicitly accepted" not in document, relative
+        assert OWNER_REVIEW_WORDS in _raw(relative).replace("\n", " "), relative
+        assert "planner's reading" in document, relative
+        assert "tools.research_assurance_github" in document, relative
+        assert "rejects" in document, relative
+
+
+def test_predecessor_exception_is_bounded_and_documented_in_the_contract() -> None:
+    packet = _packet()
+    limitations = packet["thesis"]["limitations"]
+    lineage = canonical_lineage("unavailable")
+    contract = _doc("docs/architecture/research-assurance.md")
+    heading = "Bounded exception: predecessor root unavailable"
+
+    assert heading in contract
+    section = contract[
+        contract.index(heading) : contract.index("The attempt-2 author packet")
+    ]
+    # The general rule still stands and names the single exception.
+    assert (
+        "G0 review must verify the complete predecessor chain before a successor is "
+        "sealed, with one bounded exception"
+    ) in contract
+    for required in (
+        "--predecessor-root-status unavailable",
+        "does not apply to any other family",
+        "any other attempt number",
+        "relaxes no screen criterion",
+        "invalidated",
+        "observation_gap",
+        "re_verified_at_seal",
+        "no attempt-1 economic or status readout was used",
+        "global attempt uniqueness stays unestablished",
+        "does **not** attest the lineage values",
+        "**Does not replace:**",
+        AUTHORIZATION_URL.rsplit("-", 1)[-1],
+        *UNAVAILABLE_NOT_ESTABLISHED,
+    ):
+        assert required in section, required
+    # The packet states the same bounded path and never a general waiver.
+    assert "does not apply generally" in limitations
+    assert "not performed for attempt 2 and is not claimed" in limitations
+    assert "No screen criterion is relaxed" in limitations
+    assert "replaced by a fresh result-blind review" not in limitations
+    # The sealed record carries what the contract says is recorded in its place.
+    record = lineage["predecessor_root"]
+    assert record["status"] == "unavailable"
+    assert record["re_verified_at_seal"] is False
+    assert record["not_established"] == list(UNAVAILABLE_NOT_ESTABLISHED)
+    assert record["user_statement"]["quote"] == USER_STATEMENT_QUOTE
+    assert record["user_statement"]["date"] == USER_STATEMENT_DATE
+    assert record["review_rule"] == UNAVAILABLE_REVIEW_RULE
+    assert USER_STATEMENT_DATE in limitations
+    assert lineage["predecessor"]["disposition"] == "invalidated"
+    assert lineage["predecessor"]["reason_codes"] == ["observation_gap"]
 
 
 def test_packet_restates_the_frozen_screen_and_lineage_without_changing_them() -> None:
     lineage = canonical_lineage("unavailable")
     plan = screen_plan(attempt_lineage=lineage)
     packet = _packet()
-    text = json.dumps(packet)
+    text = _text(packet)
     rule = packet["claims"]["decision_rule"]
+    evidence_oracle = packet["mechanism"]["independent_oracles"]["evidence"][
+        "statement"
+    ]
 
     assert plan["schema"] == "carry_paper_screen_v2"
     assert "carry_paper_screen_v2" in text
-    assert plan["duration_days"] == 90 and "ninety-day" in text
-    assert plan["block_count"] == 3 and "three thirty-day blocks" in rule
+    assert plan["duration_days"] == SCREEN_DAYS == 90 and "ninety-day" in text
+    assert plan["block_days"] == 30 and plan["block_count"] == 3
+    assert "three thirty-day blocks" in rule
     assert plan["maximum_drawdown_exclusive"] == 0.1 and "below 10%" in rule
     assert plan["comparison"] == "cash_zero_interest"
-    assert "cash_zero_interest" in packet["evidence"]["controls"]
+    assert packet["evidence"]["controls"] == [plan["comparison"]]
     assert plan["production_eligible"] is False
     assert plan["minimum_seal_notice_seconds"] == 300 and "five minutes" in text
+    assert TERMINAL_GRACE_SECONDS == 180 and "close plus 180 seconds" in rule
+    assert SCREEN_SLOTS == 129604 and f"{SCREEN_SLOTS:,}-slot" in evidence_oracle
+    assert CAPACITY_HEADROOM == 1.25 and "1.25 headroom" in evidence_oracle
+    fills = {(row["symbol"], row["venue"]) for row in plan["required_fill_coverage"]}
+    assert fills == {
+        ("BTCUSDT", "spot"),
+        ("BTCUSDT", "perpetual"),
+        ("ETHUSDT", "spot"),
+        ("ETHUSDT", "perpetual"),
+    }
+    assert (
+        "one fill in each of BTC spot, BTC perpetual, ETH spot and ETH perpetual"
+        in evidence_oracle
+    )
+    for flag in (
+        "positive_net_profit",
+        "positive_each_block",
+        "net_profit_exceeds_recorded_fees",
+        "nonzero_funding_each_block",
+        "complete_coverage_and_actual_flat",
+    ):
+        assert plan[flag] is True, flag
 
     assert lineage["schema"] == "carry_paper_attempt_lineage_v3"
+    assert lineage["attempt_number"] == 2
     assert lineage["predecessor_root"]["status"] == "unavailable"
     assert lineage["predecessor_root"]["re_verified_at_seal"] is False
     for value in (
@@ -171,21 +357,63 @@ def test_packet_restates_the_frozen_screen_and_lineage_without_changing_them() -
         LINEAGE_RECORD_COMMIT,
         *UNAVAILABLE_NOT_ESTABLISHED,
     ):
-        assert value in text
-    assert "observation_gap" in text and "invalidated" in text
+        assert value in packet["thesis"]["limitations"], value
+    assert lineage["predecessor"] == {
+        "attempt_number": 1,
+        "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
+        "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,
+        "disposition": "invalidated",
+        "reason_codes": ["observation_gap"],
+        "last_observed_at": ATTEMPT_ONE_LAST_OBSERVED_AT,
+    }
+
+
+def test_evidence_booleans_are_bound_to_what_the_source_establishes() -> None:
+    """Booleans say what is established now; a paper design is not prospective evidence."""
+    packet = _packet()
+    evidence = packet["evidence"]
+    plan = screen_plan(attempt_lineage=canonical_lineage("unavailable"))
+    limitations = packet["thesis"]["limitations"]
+
+    expected = {
+        # Enforced in software and tests by the frozen plan and canonical ledger.
+        "common_accounting": True,
+        "hard_risk": plan["maximum_drawdown_exclusive"] == 0.1,
+        "terminal_state": plan["complete_coverage_and_actual_flat"] is True,
+        "multi_symbol": len({row["symbol"] for row in plan["required_fill_coverage"]})
+        > 1,
+        "no_development_rescue": True,
+        # Need prospective observation or are paper assumptions: not established.
+        "point_in_time": False,
+        "realistic_costs": False,
+        "fit_development_unused_separated": False,
+        "multi_period": False,
+    }
+    assert {name: evidence[name] for name in expected} == expected
+    oracles = packet["mechanism"]["independent_oracles"]
+    assert (
+        "paper assumptions, not measured venue costs"
+        in (oracles["execution"]["known_limitations"])
+    )
+    assert (
+        "Spot REST depth has no exchange timestamp"
+        in (oracles["time"]["known_limitations"])
+    )
+    assert "Paper trading establishes no queue position, latency" in limitations
+    assert (
+        "No prospective observation has been collected"
+        in (evidence["independent_reconstruction"])
+    )
+    assert evidence["evidence_level"] == "software_validity"
 
 
 def test_docs_point_to_the_packet_digest_and_unreviewed_status() -> None:
-    for relative in (
-        "docs/specs/funding-carry-paper.md",
-        "docs/architecture/research-assurance.md",
-        "docs/research/current-status.md",
-    ):
+    for relative in DOCUMENTS:
         document = (ROOT / relative).read_text(encoding="utf-8")
         assert RELATIVE_PACKET in document, relative
         assert PINNED_DIGEST in document, relative
         assert "UNREVIEWED" in document, relative
         assert AUTHORIZATION_URL in document, relative
-    spec = (ROOT / "docs/specs/funding-carry-paper.md").read_text(encoding="utf-8")
-    assert "owner-accepted deviation" in spec.lower().replace("**", "")
-    assert "different authenticated GitHub principal" in " ".join(spec.split())
+    spec = _doc("docs/specs/funding-carry-paper.md").replace("**", "")
+    assert "owner-recorded route" in spec
+    assert "different authenticated GitHub principal" in spec

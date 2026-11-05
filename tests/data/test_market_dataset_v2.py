@@ -5,6 +5,7 @@ import math
 import numpy as np
 import pytest
 
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
 
 
@@ -394,3 +395,206 @@ def test_execution_and_missingness_metadata_are_immutable_and_shaped() -> None:
     assert np.all(market.mark_price > market.index_price)
     with pytest.raises(ValueError):
         market.close[0, 0] = 0.0
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid"),
+    (
+        ("mark_price", math.nan),
+        ("mark_price", math.inf),
+        ("mark_price", -math.inf),
+        ("index_price", math.nan),
+        ("index_price", math.inf),
+        ("index_price", -math.inf),
+    ),
+)
+def test_mark_and_index_prices_reject_nonfinite_values(
+    field_name: str, invalid: float
+) -> None:
+    values = kwargs()
+    prices = np.asarray(values["close"]).copy()
+    prices[3, 1] = invalid
+    values[field_name] = prices
+    with pytest.raises(ValueError, match="mark_price|index_price"):
+        MarketDataset(**values)
+
+
+def test_quantity_notional_rejects_finite_inputs_with_overflowed_notional() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="notional"):
+        market.quantity_notional(0, np.array([1e308]), prices=np.array([1e308]))
+
+
+def test_notional_to_quantity_rejects_finite_inputs_with_overflowed_quantity() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="quantit"):
+        market.notional_to_quantity(0, np.array([1e308]), prices=np.array([1e-308]))
+
+
+def test_market_notional_rejects_finite_inputs_with_overflowed_liquidity() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="market notional"):
+        market.market_notional(0, prices=np.array([1e308]), volume=np.array([1e308]))
+
+
+def _session_with_extreme_timestamp_span() -> MarketDataset:
+    limits = np.iinfo(np.int64)
+    times = np.array([limits.min + 1, 0, limits.max], dtype=np.int64).astype(
+        "datetime64[ns]"
+    )
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        timestamps=times,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+    return MarketDataset(**values)
+
+
+def test_elapsed_hours_uses_full_integer_span_without_int64_wrap() -> None:
+    market = _session_with_extreme_timestamp_span()
+    timestamps = market._timestamp_ns
+    expected = (int(timestamps[-1]) - int(timestamps[0])) / 3_600_000_000_000
+    assert market.elapsed_hours(0, 2) == pytest.approx(expected)
+    assert market.elapsed_year_fraction(0, 2) > 0.0
+
+
+def test_lookback_index_uses_python_integers_on_extreme_session_clock() -> None:
+    market = _session_with_extreme_timestamp_span()
+    assert market.lookback_index(2, 3_000_000.0) == 0
+
+
+def test_minimum_index_for_history_uses_nonwrapping_time_target() -> None:
+    market = _session_with_extreme_timestamp_span()
+    assert market.minimum_index_for_history(3_000_000.0) == 2
+
+
+def test_forward_index_uses_nonwrapping_time_target() -> None:
+    market = _session_with_extreme_timestamp_span()
+    assert market.forward_index(0, 3_000_000.0) == 2
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_quantity_notional_rejects_nonzero_underflow(sign: float) -> None:
+    """Nonzero quantities must not turn into a zero requested notional."""
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="nonzero quantity notional"):
+        market.quantity_notional(
+            0, np.array([sign * 1e-200]), prices=np.array([1e-200])
+        )
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_notional_to_quantity_rejects_nonzero_underflow(sign: float) -> None:
+    """A nonzero allocated notional cannot silently become zero fill quantity."""
+    market = MarketDataset(**kwargs(n_symbols=1))
+    with pytest.raises(ValueError, match="nonzero notional-to-quantity"):
+        market.notional_to_quantity(
+            0, np.array([sign * 1e-100]), prices=np.array([1e308])
+        )
+
+
+def test_zero_notional_and_zero_quantity_remain_valid() -> None:
+    market = MarketDataset(**kwargs(n_symbols=1))
+    np.testing.assert_array_equal(
+        market.quantity_notional(0, np.array([0.0]), prices=np.array([1e-200])),
+        np.array([0.0]),
+    )
+    np.testing.assert_array_equal(
+        market.notional_to_quantity(0, np.array([0.0]), prices=np.array([1e308])),
+        np.array([0.0]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    ((1e308, 1e308), (1e-308, 1e-308)),
+)
+def test_zero_target_skips_inactive_unrepresentable_unit(
+    price: float, multiplier: float
+) -> None:
+    """A zero fill is independent of an inactive contract's unit scale."""
+    values = kwargs(n_symbols=1)
+    values["contract_multipliers"] = np.array([multiplier])
+    market = MarketDataset(**values)
+    np.testing.assert_array_equal(
+        market.notional_to_quantity(0, np.array([0.0]), prices=np.array([price])),
+        np.array([0.0]),
+    )
+
+
+def test_active_fill_is_not_blocked_by_unrepresentable_inactive_unit() -> None:
+    values = kwargs(n_symbols=2)
+    values["contract_multipliers"] = np.array([1e308, 1.0])
+    market = MarketDataset(**values)
+    np.testing.assert_array_equal(
+        market.notional_to_quantity(
+            0, np.array([0.0, 200.0]), prices=np.array([1e308, 100.0])
+        ),
+        np.array([0.0, 2.0]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    ((1e308, 1e308), (1e-308, 1e-308)),
+)
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_nonzero_target_rejects_unrepresentable_active_unit(
+    price: float, multiplier: float, sign: float
+) -> None:
+    values = kwargs(n_symbols=1)
+    values["contract_multipliers"] = np.array([multiplier])
+    market = MarketDataset(**values)
+    with pytest.raises(ValueError, match="price multiplier"):
+        market.notional_to_quantity(0, np.array([sign]), prices=np.array([price]))
+
+
+@pytest.mark.parametrize(
+    ("notional", "price", "multiplier"),
+    (
+        (1e200, 1e200, 1e-200),
+        (1e-150, 1e-200, 1e200),
+    ),
+)
+def test_gemini4_notional_to_quantity_rejects_unrepresentable_roundtrip(
+    notional: float, price: float, multiplier: float
+) -> None:
+    values = kwargs(n_symbols=1)
+    values["contract_multipliers"] = np.array([multiplier])
+    market = MarketDataset(**values)
+
+    with pytest.raises(ValueError, match="notional-to-quantity.*represent"):
+        market.notional_to_quantity(
+            0,
+            np.array([notional]),
+            prices=np.array([price]),
+        )
+
+
+def test_gemini4_contract_market_notional_uses_authoritative_float_order() -> None:
+    values = kwargs(n_symbols=1)
+    values["volume_units"] = (VolumeUnit.CONTRACTS,)
+    values["contract_multipliers"] = np.array([1e-200])
+    market = MarketDataset(**values)
+
+    with pytest.raises(ValueError, match="market notional"):
+        market.market_notional(
+            0,
+            prices=np.array([1e200]),
+            volume=np.array([1e200]),
+        )
+
+
+def test_gemini4_market_notional_rejects_nonzero_underflow() -> None:
+    values = kwargs(n_symbols=1)
+    values["volume_units"] = (VolumeUnit.BASE_ASSET,)
+    market = MarketDataset(**values)
+
+    with pytest.raises(ValueError, match="market notional"):
+        market.market_notional(
+            0,
+            prices=np.array([1e-200]),
+            volume=np.array([1e-200]),
+        )

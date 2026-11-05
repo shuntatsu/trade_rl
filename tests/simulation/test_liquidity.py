@@ -387,3 +387,68 @@ def test_invalid_requests_and_capacity_inputs_fail_closed() -> None:
             lot_size=0.0,
             minimum_notional=0.0,
         )
+
+
+def test_capacity_pool_rejects_nonfinite_result_from_finite_inputs() -> None:
+    with pytest.raises(LiquidityAllocationError, match="capacity|notional"):
+        allocate_symbol_capacity(
+            requests=(),
+            processing_volume=1e308,
+            price=1e308,
+            contract_multiplier=1.0,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )
+
+
+def test_capacity_request_rejects_overflowed_filled_notional() -> None:
+    with pytest.raises(LiquidityAllocationError, match="notional|capacity"):
+        allocate_symbol_capacity(
+            requests=(_request("a", 1e308, price=1e308),),
+            processing_volume=1e308,
+            processing_market_notional=1e308,
+            price=1e308,
+            contract_multiplier=1.0,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )
+
+
+def test_request_notional_regroups_finite_extreme_scales_before_no_fill() -> None:
+    """A huge intermediate product is not necessarily an infinite notional."""
+    allocations, _ = allocate_symbol_capacity(
+        requests=(_request("a", 1e300, price=1e10, fraction=0.0),),
+        processing_volume=1.0,
+        processing_market_notional=1.0,
+        price=1e10,
+        contract_multiplier=1e-20,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+
+    assert len(allocations) == 1
+    assert allocations[0].requested_notional == pytest.approx(1e290)
+    assert allocations[0].filled_quantity == 0.0
+    assert allocations[0].no_fill_reason == "zero_volume_fraction"
+
+
+@pytest.mark.parametrize("sign", [-1.0, 1.0])
+def test_extreme_finite_algebraic_notional_rejects_unbookable_full_fill(
+    sign: float,
+) -> None:
+    """Allocator must preserve BookState's float multiplication authority."""
+    request = _request("e", sign * 1e200, price=1e200)
+    with pytest.raises(LiquidityAllocationError, match="capacity-derived quantity"):
+        allocate_symbol_capacity(
+            requests=(request,),
+            processing_volume=1.0,
+            processing_market_notional=1e200,
+            price=1e200,
+            contract_multiplier=1e-200,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )

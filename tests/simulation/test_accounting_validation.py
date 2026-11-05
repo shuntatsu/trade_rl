@@ -363,7 +363,7 @@ def test_overflowed_intermediate_cash_notional_rejects_atomically(
         contract_multipliers=np.array([1e-200]),
     )
     assert math.isfinite(abs(sign * 1e200) * (1e200 * 1e-200))
-    with pytest.raises(ValueError, match="proposed execution must preserve finite"):
+    with pytest.raises(ValueError, match="nonzero execution leg notional"):
         book.execute_fill(
             symbol_index=0,
             quantity=sign * 1e200,

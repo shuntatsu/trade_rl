@@ -1099,6 +1099,12 @@ class MarketDataset:
             raise ValueError(
                 "nonzero notional-to-quantity result cannot be represented"
             )
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            roundtrip = result * price_vector * multipliers
+        if np.any(active & (~np.isfinite(roundtrip) | (roundtrip == 0.0))):
+            raise ValueError(
+                "notional-to-quantity result cannot be represented in the book"
+            )
         return result
 
     def market_notional(
@@ -1136,7 +1142,7 @@ class MarketDataset:
         ):
             raise ValueError("market volume must match symbols and be non-negative")
         result = np.empty(self.n_symbols, dtype=np.float64)
-        with np.errstate(over="ignore", invalid="ignore"):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             for symbol_index, unit in enumerate(self.volume_units):
                 raw = raw_volume[symbol_index]
                 if unit is VolumeUnit.QUOTE_NOTIONAL:
@@ -1145,10 +1151,12 @@ class MarketDataset:
                     result[symbol_index] = raw * price_vector[symbol_index]
                 else:
                     result[symbol_index] = (
-                        raw * multipliers[symbol_index] * price_vector[symbol_index]
+                        raw * price_vector[symbol_index] * multipliers[symbol_index]
                     )
         if not np.isfinite(result).all():
             raise ValueError("market notional must be finite")
+        if np.any((raw_volume != 0.0) & (result == 0.0)):
+            raise ValueError("nonzero market notional cannot be represented")
         return result
 
 

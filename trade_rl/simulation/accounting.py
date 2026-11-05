@@ -494,19 +494,36 @@ class BookState:
         ):
             if not settle:
                 continue
+            if quantity == 0 or recovered == 0.0:
+                signed_legs.append(0.0)
+                continue
+            float_order_leg = (
+                project_quantity(quantity)
+                * float(price)
+                * float(multiplier)
+                * float(recovered)
+            )
+            if not math.isfinite(float_order_leg) or float_order_leg == 0.0:
+                raise ValueError("nonzero settlement proceeds cannot be represented")
             exact_proceeds = (
                 quantity
                 * exact_quantity(float(price))
                 * exact_quantity(float(multiplier))
                 * exact_quantity(float(recovered))
             )
-            leg = float(exact_proceeds)
-            # Legitimate zero quantity or recovery is different from a nonzero
-            # recoverable leg silently rounded to zero before netting.
-            if exact_proceeds != 0 and leg == 0.0:
+            try:
+                leg = float(exact_proceeds)
+            except OverflowError as error:
+                raise ValueError("settlement proceeds cannot be represented") from error
+            if not math.isfinite(leg) or leg == 0.0:
                 raise ValueError("nonzero settlement proceeds cannot be represented")
             signed_legs.append(leg)
-        proceeds = math.fsum(signed_legs)
+        try:
+            proceeds = math.fsum(signed_legs)
+        except (OverflowError, ValueError) as error:
+            raise ValueError("settlement proceeds sum must be finite") from error
+        if not math.isfinite(proceeds):
+            raise ValueError("settlement proceeds sum must be finite")
         exact_after = tuple(
             Fraction(0) if settle else value
             for value, settle in zip(quantities, settle_mask, strict=True)
@@ -692,22 +709,28 @@ class BookState:
             )
         )
         # Check each nonzero leg before netting buys against sells: a net zero
-        # is valid, but a leg rounded to zero would change inventory for free.
+        # is valid, but a non-finite or zero leg cannot change inventory safely.
         if any(
-            quantity != 0 and leg == 0.0
+            quantity != 0 and (not math.isfinite(leg) or leg == 0.0)
             for quantity, leg in zip(delta, signed_legs, strict=True)
         ):
             raise ValueError("nonzero execution leg notional cannot be represented")
-        signed_notional = math.fsum(signed_legs)
+        try:
+            signed_notional = math.fsum(signed_legs)
+        except (OverflowError, ValueError) as error:
+            raise ValueError("execution leg notional sum must be finite") from error
+        if not math.isfinite(signed_notional):
+            raise ValueError("execution leg notional sum must be finite")
         cash_after = self.cash - (signed_notional + float(cost_amount))
         turnover_after = self.turnover_total + float(turnover)
         cost_after = self.total_cost + float(cost_amount)
-        with np.errstate(over="ignore", invalid="ignore"):
-            equity_after = float(cash_after + (targets * marks * multipliers).sum())
-        if not all(
-            math.isfinite(value)
-            for value in (cash_after, turnover_after, cost_after, equity_after)
-        ):
+        _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=targets,
+            marks=marks,
+            multipliers=multipliers,
+        )
+        if not all(math.isfinite(value) for value in (turnover_after, cost_after)):
             raise ValueError("proposed execution must preserve finite account values")
         self.cash = cash_after
         self.quantities = targets

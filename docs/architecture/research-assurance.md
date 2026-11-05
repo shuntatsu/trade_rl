@@ -1412,6 +1412,15 @@ resolving the root: the predecessor protocol, tip and gap are carried forward fr
 recorded review and are not re-verified, and global attempt uniqueness stays
 unestablished. Disposition remains `invalidated` with reason `observation_gap`.
 
+The attempt-2 author packet is `report/issue810-carry-attempt2-research-assurance-20261105.json`
+(canonical digest `f8faa1e083a3c15361d8834387e41c3ed4cc1ea600aec16b0a8a33eb338b9ca3`). Its status is UNREVIEWED: no independent
+`research_assurance_review_v1` verified by the tooling exists. The owner accepted a
+Gemini (Antigravity) review under the same GitHub account; that is an owner-accepted
+deviation from the different-principal rule, and `tools.research_assurance_github`
+rejects same-principal reviews. Issue #810 authorization evidence:
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (it does not replace the review). The packet authorizes neither a seal, a
+launch, the storage probe nor any economic run. See `docs/specs/funding-carry-paper.md`.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
 ## Research-specific contract: PPO versus A2C update families

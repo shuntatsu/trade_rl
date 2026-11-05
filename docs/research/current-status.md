@@ -1166,6 +1166,16 @@ root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the
 measurement; it has not been run. Nothing has been sealed, launched or collected, no
 attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
 
+2026-11-05: a Research Assurance author packet for attempt 2 is recorded in
+[`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json)
+(digest `f8faa1e083a3c15361d8834387e41c3ed4cc1ea600aec16b0a8a33eb338b9ca3`, status UNREVIEWED). It restates the existing frozen
+screen and lineage without changing any criterion. Sealing attempt 2 still requires an
+independent `research_assurance_v1` review, whose accepted route is an owner-accepted
+same-account Gemini (Antigravity) review, a deviation from the different-principal rule that
+`tools.research_assurance_github` would not verify as independent. Issue #810 authorization
+evidence is https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178. The storage probe has not been
+run, nothing is sealed or launched, and no economic result exists.
+
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
 engine rejected the unmatched hedge, actually flattened all four legs on the

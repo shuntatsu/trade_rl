@@ -553,6 +553,84 @@ def test_ewma_covariance_weights_recent_returns_and_shrinks() -> None:
     assert np.all(np.linalg.eigvalsh(constant) > 0.0)
 
 
+def test_ewma_covariance_rejects_finite_input_with_overflowed_second_moment() -> None:
+    # Every raw return is finite, but its weighted square is not.
+    returns = np.array([[1e155, 0.0], [0.0, 0.0]])
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="covariance"):
+            ewma_covariance(
+                returns,
+                halflife_periods=5.0,
+                shrinkage=0.2,
+                variance_floor=1e-8,
+            )
+
+    # A large-but-representable second moment must remain admissible.
+    finite = ewma_covariance(
+        np.array([[1e150, 0.0], [0.0, 0.0]]),
+        halflife_periods=5.0,
+        shrinkage=0.2,
+        variance_floor=1e-8,
+    )
+    assert np.isfinite(finite).all()
+
+
+@pytest.mark.parametrize(
+    ("old_mark", "new_mark"),
+    [(1e-300, 1e300), (1.0, 1e155)],
+)
+def test_valid_finite_marks_with_overflowed_return_or_covariance_hold(
+    old_mark: float, new_mark: float
+) -> None:
+    # Capture a valid, scheduled public snapshot from the native replay path.
+    seen: list[PortfolioDecisionSnapshot] = []
+
+    def capture(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        seen.append(snapshot)
+        return (0.0, 0.0, 0.0)
+
+    source = _CallableSource(capture)
+    _replay(
+        _dataset(_noise(seed=41)),
+        _policy(source, min_history_periods=2),
+        stop_day=5,
+    )
+    assert seen
+    snapshot = seen[0]
+    day_ns = 24 * 3_600 * 1_000_000_000
+    policy_calls: list[PortfolioDecisionSnapshot] = []
+
+    def predicted(current: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        policy_calls.append(current)
+        return (0.01, 0.01, 0.01)
+
+    policy = _policy(
+        _CallableSource(predicted),
+        min_history_periods=2,
+        warmup_timestamps_ns=(
+            snapshot.timestamp_ns - 2 * day_ns,
+            snapshot.timestamp_ns - day_ns,
+        ),
+        warmup_mark_prices=(
+            (old_mark, 1.0, 1.0),
+            (old_mark, 1.0, 1.0),
+        ),
+    )
+    extreme = replace(
+        snapshot,
+        account=replace(snapshot.account, mark_prices=(new_mark, 1.0, 1.0)),
+    )
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        proposal = policy.decide_portfolio(extreme)
+
+    assert proposal.target_weights == extreme.account.weights
+    assert proposal.hold_current_quantity_symbols == (0, 1, 2)
+    assert policy_calls == []
+    assert len(policy.records) == 1
+    assert policy.records[0].outcome == "fail_closed"
+    assert policy.records[0].reason == "invalid_covariance"
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

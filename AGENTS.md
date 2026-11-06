@@ -13,7 +13,7 @@
 
 ## PR / integration safety
 
-- 通常の統合経路はPR。Agentはmainへの直接変更、force-push、history rewriteを行わない。branch削除は、次の厳格な **merged-PR sourceの個別整理** に限り許可する。
+- 通常の統合経路はPR。Agentはmainへの直接変更、force-push、history rewriteを行わない。mainに統合済みのPRの**exact final HEADと一致する**不要な作業branchは、exact-SHA leaseとGitHub再照合によって定期的に削除する。
 - **tested PR head contains current `main`**。PR最終HEADに対応するFull CI・必要な独立レビューを確認し、merge直前にもmainの祖先関係を再確認する。HEADまたはmainが進めば旧Greenを使わず再検証する。Fast PushはFull CIの代わりではない。
 - Independent Research Review / Generic reviewのreceipt・差戻し・承認条件はdocs/AGENTS.mdとdocs/architecture/research-assurance.mdに従う。ソフトウェアPRのレビューがGreenでも経済実験、unused/final data、live注文は認可されない。
 - GitHubのbranch protection/rulesetはGit tree外の状態。必須チェック・force-push/削除禁止をread-back確認できない限り、設定済みと主張しない。
@@ -26,7 +26,9 @@
 
 - causal/point-in-time data、現実的執行費用、common accounting、hard risk、unused data、研究証拠の不変性を維持する。結果後の合格条件変更・leakage・過去の封印結果の再分類は禁止。研究変更はG0–G2のresult-blind反証と必要な独立reviewを先に行う。
 - `tools.agent_repo` のsource-derived出力は便利な補助であり、GitHub PR/branch現況・実コード・Full CIの代替ではない。生成reportをcommitしない。
-- `main`、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、active Task、保護branch、研究・freeze・seal・run・evidence、`provenance/branch-retention`を保持する。未統合・曖昧なbranch、Task/leaseの完全性を必要とする一般cleanupは引き続き削除不可とする。
-- 例外は **すでにmainに統合済みのローカルPRのexact final-head source branch** を1本ずつ明示して整理する場合のみ。`tools.verified_merged_branch_prune` が、closed/merged PRと最終HEADの一致、mainとretentionへのSHA祖先関係、retention commitのbranch名・exact SHA記録と追加parent、1時間以上の猶予、open PRとunfinished workflowからの非参照、前後main/retention/sourceの不変性を再検証し、Gitのexact-SHA leaseによるconditional deleteと削除後readbackを行う。条件未達・失敗・不明なら必ずfail-closedで削除しない。消してもcommitと復元記録は残す。Active Task等がなお使用中と判明したbranchはmerged済みでも保持する。
-- `tools.branch_hygiene --apply`と直接`apply_cleanup()`は一括削除のまま**常時拒否**し、既存のBranch hygiene Actions workflowもread-only dry-runに維持する。別の `.github/workflows/prune-merged-branch.yml` は明示的な `workflow_dispatch` のみ（1件・確認フラグ・exact SHAとmerged PR/retention record必須）で削除可能とし、自動/scheduled削除は行わない。上記の個別pruneは本番CoordinatorのTask登録/`cleanup_authorized`をtrueにしない。
+- `main`、保護ref、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、研究・freeze・seal・run・evidence、`provenance/branch-retention`を保持する。**mainに未統合のbranchも削除しない。** 現在使うTaskはopen PRまたは明示された実行中workflowで参照を残し、統合済み旧branchの恒久保存を要求しない。
+- **マージ済みPRのexact source tipがmainに到達可能であれば、保全はmainのGit historyで完了している。** 旧契約の「1本ごとにretention追加parent、1時間grace、手動1件」条件は、統合済みbranchの定常削除には適用しない。未統合履歴や封印済み研究成果の保全条件は変更しない。
+- 旧workflowはGitHub側で手動無効化されたまま保持し、新しいworkflow identityとして別パスを登録する。二つの定常実行を同時に有効化せず、GitHub上で新workflowがactiveと読み戻せるまでは稼働済みとは扱わない。
+- `tools.branch_hygiene --retire-merged --apply` を標準の削除経路とし、`.github/workflows/retire-merged-pr-branches.yml`がmain更新時と定期実行で処理する。現在のmain SHA、全branchのexact SHA、closed/merged PRのexact source HEAD、open PR、未完了workflowを取得し、**sourceのPRマージ証拠を持つmain祖先refのみ**をatomicなSHA leaseで限定削除、各バッチ後にGitHubを再照合する。情報不完全・更新競合・認証失敗時は停止し、成功とみなさない。古い汎用`--apply`は`--retire-merged`無しでは拒否を維持し、未統合分を一括削除しない。
+- 従来の`tools.verified_merged_branch_prune`と手動workflowは旧retention記録を用いた個別の補助経路として維持するが、定常運用の前提にはしない。Coordinatorのregistry/lease認証・`cleanup_authorized`の成立、経済実験やlive注文の認可をbranch整理から推定しない。
 - `docs/` は現行正本のみ。完了済みplan/specは必要な契約を昇格してGit historyに残し、`docs/history`・`docs/archive`を増やさない。`LICENSE`・`LICENSES/`と、immutable研究artifactは通常のdocs整理から除外する。

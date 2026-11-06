@@ -478,10 +478,17 @@ def test_reconciliation_detects_tampered_ledger_cash(market: MarketDataset) -> N
 def test_perturb_future_only_changes_rows_after_the_cut(market: MarketDataset) -> None:
     cut = 500
     other = runner.perturb_future(market, after_index=cut)
+    assert other.dataset_id == market.dataset_id
     assert np.array_equal(other.close[: cut + 1], market.close[: cut + 1])
     assert np.array_equal(other.features[: cut + 1], market.features[: cut + 1])
+    assert np.array_equal(other.tradable[: cut + 1], market.tradable[: cut + 1])
     assert not np.array_equal(other.close[cut + 1 :], market.close[cut + 1 :])
     assert not np.array_equal(other.features[cut + 1 :], market.features[cut + 1 :])
+    assert not np.array_equal(other.tradable[cut + 1 :], market.tradable[cut + 1 :])
+    assert np.all(
+        ~other.tradable[cut + 1 :]
+        | other.resolved_array("asset_active")[cut + 1 :]
+    )
 
 
 def test_causality_probe_passes_for_the_real_pipeline(market: MarketDataset) -> None:

@@ -236,6 +236,10 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
         dataset_id="1" * 64,
         protocol_digest="f" * 64,
         actual_artifact_digest="2" * 64,
+        implementation_digest="3" * 64,
+        runtime_environment_digest="4" * 64,
+        phase="training",
+        observed_view_digest=None,
     )
     recorded = json.loads((output / "incomplete-pairs.json").read_text())
     assert recorded["verdict"] == "INVALID / BLOCKED"
@@ -249,6 +253,10 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
             actual_artifact_digest="2" * 64,
+            implementation_digest="3" * 64,
+            runtime_environment_digest="4" * 64,
+            phase="training",
+            observed_view_digest=None,
         )
     assert len(tuple(output.iterdir())) == 1
 
@@ -362,6 +370,10 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
             actual_artifact_digest="2" * 64,
+            implementation_digest="3" * 64,
+            runtime_environment_digest="4" * 64,
+            phase="training",
+            observed_view_digest=None,
         )
     assert destination.is_dir()
     assert tuple(destination.iterdir()) == ()
@@ -404,6 +416,10 @@ def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
             actual_artifact_digest="2" * 64,
+            implementation_digest="3" * 64,
+            runtime_environment_digest="4" * 64,
+            phase="training",
+            observed_view_digest=None,
         )
     assert (destination / "incomplete-pairs.json").read_text() == "other-writer"
 

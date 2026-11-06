@@ -97,6 +97,8 @@ def test_failure_receipt_contract_is_documented_and_exported() -> None:
         "write_once_no_restart",
         "receipt_digest",
         "fit_admitted=false",
+        "causality_probe",
+        "observed_view_digest",
     ):
         assert term in lean_core, term
     status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")

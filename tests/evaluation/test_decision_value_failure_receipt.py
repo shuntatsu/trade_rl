@@ -13,6 +13,7 @@ import shutil
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,6 +30,7 @@ from trade_rl.evaluation import decision_value_reachable_labels as labels
 from trade_rl.evaluation.decision_value_plan import DecisionValueStudyPlan
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.risk.pretrade import PreTradeRiskConfig
+from trade_rl.simulation.accounting import EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.portfolio_policy_codec import (
     ACTION_HOLD,
@@ -37,6 +39,7 @@ from trade_rl.strategies.portfolio_policy_codec import (
 )
 
 _RECEIPT = "incomplete-pairs.json"
+_REAL_PAIRS: list[Any] = []
 _HOLD = (ACTION_HOLD, ACTION_HOLD)
 _LONG = (ACTION_LONG, ACTION_HOLD)
 _SHORT = (ACTION_SHORT, ACTION_HOLD)
@@ -111,11 +114,18 @@ def _setup(base: Path) -> _Setup:
 
 
 def _flag_ineligible(
-    monkeypatch: pytest.MonkeyPatch, *, when: Callable[[int], bool]
-) -> dict[str, int]:
-    """Run the real paired replay, then mark selected pairs not label-eligible."""
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    when: Callable[[int], bool],
+    insolvent_candidate: bool = False,
+) -> dict[str, Any]:
+    """Run the real paired replay, then mark selected pairs not label-eligible.
+
+    With ``insolvent_candidate`` the real candidate book is additionally marked
+    insolvent/terminated so the collector derives genuine reason codes.
+    """
     real = labels.run_paired_portfolio_action
-    counter = {"calls": 0, "flagged": 0}
+    counter: dict[str, Any] = {"calls": 0, "flagged": 0, "pairs": []}
 
     def wrapped(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
         pair = real(*args, **kwargs)  # type: ignore[arg-type]
@@ -123,6 +133,11 @@ def _flag_ineligible(
         counter["calls"] += 1
         if when(index):
             counter["flagged"] += 1
+            if insolvent_candidate:
+                book = pair.candidate_result.book
+                book.insolvent = True
+                book.termination_reason = EconomicTerminationReason.INSOLVENCY
+            counter["pairs"].append(pair)
             return replace(
                 pair, eligible_for_label=False, delta_per_initial_capital=None
             )
@@ -130,6 +145,21 @@ def _flag_ineligible(
 
     monkeypatch.setattr(labels, "run_paired_portfolio_action", wrapped)
     return counter
+
+
+def _receipt_kwargs(setup: _Setup, **overrides: Any) -> dict[str, Any]:
+    provenance = build_candidate_run_provenance()
+    values: dict[str, Any] = {
+        "dataset_id": setup.dataset.dataset_id,
+        "protocol_digest": setup.protocol.protocol_digest,
+        "actual_artifact_digest": setup.artifact.artifact_digest,
+        "implementation_digest": provenance["implementation_digest"],
+        "runtime_environment_digest": provenance["runtime_environment_digest"],
+        "phase": "training",
+        "observed_view_digest": None,
+    }
+    values.update(overrides)
+    return values
 
 
 def _forbid_fit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,7 +177,9 @@ def failed_all(
     setup = _setup(base)
     destination = base / "attempt"
     with pytest.MonkeyPatch.context() as patch:
-        counter = _flag_ineligible(patch, when=lambda _i: True)
+        counter = _flag_ineligible(
+            patch, when=lambda _i: True, insolvent_candidate=True
+        )
         _forbid_fit(patch)
         with pytest.raises(study.IncompletePairedLabelsError) as caught:
             study.run_decision_value_dev_study(
@@ -158,6 +190,7 @@ def failed_all(
                 output_dir=destination,
             )
     assert counter["calls"] == counter["flagged"] > 0
+    _REAL_PAIRS[:] = counter["pairs"]
     yield setup, destination, caught.value, counter["flagged"]
 
 
@@ -206,6 +239,37 @@ def test_all_candidates_ineligible_persists_identity_bound_receipt(
                 assert key in endpoint, key
     assert receipt["fit_admitted"] is False
     assert receipt["retry_policy"] == "write_once_no_restart"
+    assert receipt["phase"] == "training"
+    assert receipt["observed_view_digest"] is None
+    # Endpoint fidelity: each recorded endpoint equals the real replay result,
+    # and the reason codes are the ones derived from the (insolvent) candidate.
+    assert len(_REAL_PAIRS) == len(pairs)
+    for real_pair, recorded in zip(_REAL_PAIRS, pairs, strict=True):
+        for arm, result in (
+            ("baseline", real_pair.baseline_result),
+            ("candidate", real_pair.candidate_result),
+        ):
+            book = result.book
+            endpoint = recorded[arm]
+            assert endpoint["terminal_marked_equity"] == str(book.portfolio_value)
+            assert endpoint["terminal_cash"] == str(book.cash)
+            assert endpoint["terminal_exact_quantities"] == [
+                str(q) for q in book.exact_quantities
+            ]
+            assert endpoint["total_cost"] == str(book.total_cost)
+            assert endpoint["funding_pnl"] == str(book.funding_pnl)
+            assert endpoint["insolvent"] is bool(book.insolvent)
+            assert endpoint["observed_intervals"] == len(
+                result.ledger_evidence.to_mapping()["intervals"]
+            )
+        assert recorded["baseline"]["insolvent"] is False
+        assert recorded["baseline"]["termination_reason"] is None
+        assert recorded["candidate"]["insolvent"] is True
+        assert recorded["candidate"]["termination_reason"] == "insolvency"
+        assert recorded["candidate"]["settled_label_eligible"] is False
+        assert "candidate_insolvent" in recorded["reason_codes"]
+        assert "candidate_terminated" in recorded["reason_codes"]
+        assert "baseline_insolvent" not in recorded["reason_codes"]
 
 
 def test_second_attempt_on_same_root_is_rejected_and_receipt_is_unchanged(
@@ -230,11 +294,7 @@ def test_second_attempt_on_same_root_is_rejected_and_receipt_is_unchanged(
     # Even bypassing the pre-flight check the writer refuses to replace it.
     with pytest.raises(FileExistsError):
         study._persist_incomplete_pair_attempt(
-            destination,
-            failure,
-            dataset_id=setup.dataset.dataset_id,
-            protocol_digest=setup.protocol.protocol_digest,
-            actual_artifact_digest=setup.artifact.artifact_digest,
+            destination, failure, **_receipt_kwargs(setup)
         )
     assert (destination / _RECEIPT).read_bytes() == before
     assert sorted(p.name for p in destination.iterdir()) == [_RECEIPT]
@@ -266,6 +326,15 @@ def test_partial_block_still_aborts_without_fitting_survivors(
     assert len(receipt["pairs"]) == 2
     assert all(pair["admissible_for_fit"] is False for pair in receipt["pairs"])
     assert sorted(p.name for p in destination.iterdir()) == [_RECEIPT]
+    # Valid replays forced ineligible fall back to the generic reason and still
+    # record the real endpoint values. A partial block now writes this receipt
+    # and locks the root (previously nothing was written).
+    assert receipt["phase"] == "training"
+    for real_pair, recorded in zip(counter["pairs"], receipt["pairs"], strict=True):
+        assert recorded["reason_codes"] == ["invalid_endpoint"]
+        assert recorded["candidate"]["terminal_marked_equity"] == str(
+            real_pair.candidate_result.book.portfolio_value
+        )
 
 
 def test_no_output_dir_still_aborts_without_creating_anything(
@@ -427,3 +496,207 @@ def test_non_canonical_or_foreign_files_are_rejected(
 
     with pytest.raises(ValueError, match="pinned|sha256|digest"):
         study.load_incomplete_pair_attempt(destination, expected_receipt_digest="xyz")
+
+
+def test_probe_only_ineligibility_persists_probe_scoped_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A label failure in the causality-probe re-run must not abort receipt-less."""
+    setup = _setup(tmp_path)
+    state = {"trains": 0}
+    real_train = study._train_block
+
+    def counting_train(*args: Any, **kwargs: Any):  # type: ignore[no-untyped-def]
+        result = real_train(*args, **kwargs)
+        state["trains"] += 1
+        return result
+
+    monkeypatch.setattr(study, "_train_block", counting_train)
+    counter = _flag_ineligible(
+        monkeypatch, when=lambda _i: state["trains"] >= 1, insolvent_candidate=True
+    )
+    destination = tmp_path / "probe"
+    with pytest.raises(study.IncompletePairedLabelsError) as caught:
+        study.run_decision_value_dev_study(
+            setup.dataset,
+            setup.protocol,
+            actual_artifact_digest=setup.artifact.artifact_digest,
+            artifact_root=setup.artifact.root,
+            output_dir=destination,
+        )
+    # The primary block fitted normally; only the probe re-run was blocked.
+    assert state["trains"] == 1
+    assert counter["flagged"] == counter["calls"] - counter["flagged"] > 0
+    assert caught.value.receipt_digest is not None
+    receipt = study.load_incomplete_pair_attempt(
+        destination, expected_receipt_digest=caught.value.receipt_digest
+    )
+    assert receipt["phase"] == "causality_probe"
+    assert receipt["block_id"] == "receipt_block"
+    assert receipt["dataset_id"] == setup.dataset.dataset_id
+    assert receipt["ineligible_pairs"] == counter["flagged"]
+    view_digest = receipt["observed_view_digest"]
+    assert isinstance(view_digest, str) and len(view_digest) == 64
+    # The recorded view identity is the perturbed (not the original) source.
+    perturbed = study._perturb_after(
+        setup.dataset, setup.protocol.blocks[0].fit_cutoff_index
+    )
+    assert view_digest == study._dataset_view_digest(perturbed)
+    assert view_digest != study._dataset_view_digest(setup.dataset)
+    assert sorted(p.name for p in destination.iterdir()) == [_RECEIPT]
+
+    # Same root is not retryable and nothing was published or replaced.
+    before = (destination / _RECEIPT).read_bytes()
+    monkeypatch.setattr(study, "_train_block", lambda *a, **k: pytest.fail("retry"))
+    with pytest.raises(FileExistsError):
+        study.run_decision_value_dev_study(
+            setup.dataset,
+            setup.protocol,
+            actual_artifact_digest=setup.artifact.artifact_digest,
+            artifact_root=setup.artifact.root,
+            output_dir=destination,
+        )
+    assert (destination / _RECEIPT).read_bytes() == before
+    assert not (destination / "result.json").exists()
+
+
+def test_receipt_writer_does_not_need_provenance_on_the_abort_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Identities are fixed before the run; the abort path cannot lose the receipt."""
+    setup = _setup(tmp_path)
+    kwargs = _receipt_kwargs(setup)
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("provenance failed on the abort path")
+
+    monkeypatch.setattr(study, "build_candidate_run_provenance", boom)
+    row = labels.IneligiblePairOutcome(
+        intervention_index=1,
+        prefix_start_index=0,
+        terminal_index=7,
+        candidate_action=(1, 0),
+        reason_codes=("candidate_terminated",),
+        baseline={"terminal_marked_equity": "1000"},
+        candidate={"terminal_marked_equity": "900"},
+    )
+    failure = study.IncompletePairedLabelsError("b1", (row,))
+    destination = tmp_path / "writer"
+    digest = study._persist_incomplete_pair_attempt(destination, failure, **kwargs)
+    assert (destination / _RECEIPT).is_file()
+    assert len(digest) == 64
+
+
+def test_provenance_failure_aborts_before_any_work_and_creates_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup = _setup(tmp_path)
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("provenance unavailable")
+
+    monkeypatch.setattr(study, "build_candidate_run_provenance", boom)
+    monkeypatch.setattr(study, "_train_block", lambda *a, **k: pytest.fail("trained"))
+    destination = tmp_path / "never"
+    with pytest.raises(RuntimeError, match="provenance unavailable"):
+        study.run_decision_value_dev_study(
+            setup.dataset,
+            setup.protocol,
+            actual_artifact_digest=setup.artifact.artifact_digest,
+            artifact_root=setup.artifact.root,
+            output_dir=destination,
+        )
+    assert not destination.exists()
+
+
+def _on_pair(payload: dict[str, object], fn: Callable[[dict[str, Any]], None]) -> None:
+    pairs = payload["pairs"]
+    assert isinstance(pairs, list)
+    fn(pairs[0])
+
+
+def _drop_equity(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p["baseline"].pop("terminal_marked_equity"))
+
+
+def _nan_equity(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p["candidate"].update(terminal_marked_equity="nan"))
+
+
+def _inf_cost(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p["candidate"].update(total_cost="inf"))
+
+
+def _bad_flag(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p["candidate"].update(insolvent="yes"))
+
+
+def _bad_quantities(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p["baseline"].update(terminal_exact_quantities="0"))
+
+
+def _bad_pending(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p["baseline"].update(pending_order_remainders=[[1]]))
+
+
+def _bad_index(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p.update(intervention_index=True))
+
+
+def _bad_reasons(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p.update(reason_codes="candidate_terminated"))
+
+
+def _no_reasons(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p.update(reason_codes=[]))
+
+
+def _bad_action(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p.update(candidate_action=["a"]))
+
+
+def _missing_endpoint(payload: dict[str, object]) -> None:
+    _on_pair(payload, lambda p: p.pop("candidate"))
+
+
+def _bad_phase(payload: dict[str, object]) -> None:
+    payload["phase"] = "fit"
+
+
+def _training_with_view(payload: dict[str, object]) -> None:
+    payload["observed_view_digest"] = "a" * 64
+
+
+def _probe_without_view(payload: dict[str, object]) -> None:
+    payload["phase"] = "causality_probe"
+
+
+_STRUCTURAL = (
+    _drop_equity,
+    _nan_equity,
+    _inf_cost,
+    _bad_flag,
+    _bad_quantities,
+    _bad_pending,
+    _bad_index,
+    _bad_reasons,
+    _no_reasons,
+    _bad_action,
+    _missing_endpoint,
+    _bad_phase,
+    _training_with_view,
+    _probe_without_view,
+)
+
+
+@pytest.mark.parametrize("mutate", _STRUCTURAL, ids=lambda f: f.__name__)
+def test_resealed_structurally_invalid_content_is_rejected_without_a_pin(
+    failed_all: tuple[_Setup, Path, study.IncompletePairedLabelsError, int],
+    tmp_path: Path,
+    mutate: Callable[[dict[str, object]], None],
+) -> None:
+    _setup_, destination, _failure, _ = failed_all
+    resealed = _copy_receipt(destination, tmp_path / "resealed")
+    _rewrite(resealed, mutate, redigest=True)
+    with pytest.raises(ValueError):
+        study.load_incomplete_pair_attempt(resealed)

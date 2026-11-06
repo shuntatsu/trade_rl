@@ -409,7 +409,8 @@ def _desired_quantity_from_weight(
     symbol_index: int,
 ) -> float:
     multipliers = book.contract_multipliers
-    assert multipliers is not None
+    if multipliers is None:
+        raise RuntimeError("book contract multipliers are unavailable")
     return target_quantity_from_weight(
         target_weight,
         equity=float(book.portfolio_value),

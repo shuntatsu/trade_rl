@@ -212,6 +212,9 @@ def reconcile_target(
     desired = np.zeros_like(weights)
     try:
         for symbol_index, weight in enumerate(weights):
+            if symbol_index in hold_current_quantity_symbols:
+                desired[symbol_index] = quantities[symbol_index]
+                continue
             desired[symbol_index] = target_quantity_from_weight(
                 float(weight),
                 equity=float(decision_equity),

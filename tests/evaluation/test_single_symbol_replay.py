@@ -162,14 +162,27 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
 
 
 @pytest.mark.parametrize(
-    ("price", "multiplier"),
+    ("price", "multiplier", "initial_capital"),
     (
-        pytest.param(1e308, 1e308, id="unit-overflow"),
-        pytest.param(1e-200, 1e-200, id="unit-underflow"),
+        pytest.param(1e308, 1e308, 1_000.0, id="unit-overflow"),
+        pytest.param(1e-200, 1e-200, 1_000.0, id="unit-underflow"),
+        pytest.param(1e308, 1.0, 1e-200, id="quantity-underflow"),
+        pytest.param(
+            1e-200,
+            1e200,
+            2e-150,
+            id="roundtrip-intermediate-underflow",
+        ),
+        pytest.param(
+            1e200,
+            1e-200,
+            2e150,
+            id="roundtrip-intermediate-overflow",
+        ),
     ),
 )
 def test_replay_rejects_unrepresentable_nonzero_target_quantity(
-    price: float, multiplier: float
+    price: float, multiplier: float, initial_capital: float
 ) -> None:
     base = _rising_market()
     prices = np.full_like(base.close, price)
@@ -194,7 +207,7 @@ def test_replay_rejects_unrepresentable_nonzero_target_quantity(
             start_index=0,
             stop_index=1,
             gross_budget=0.5,
-            initial_capital=1_000.0,
+            initial_capital=initial_capital,
             settle_terminal_position=False,
         )
 

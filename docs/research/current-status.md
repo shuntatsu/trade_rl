@@ -1143,8 +1143,8 @@ storage and journal-replay latency remain operator-measured. No economics, P&L o
 profitability evidence was produced. The runbook is in
 `docs/specs/funding-carry-paper.md`.
 
-2026-10-31: attempt 1's evidence root is lost; its lineage rests on a prior
-recorded review. The `funding-carry-forward-20260918` worktree is not on the
+2026-10-31: attempt 1's evidence root was not located; its lineage rests on a prior
+recorded review. The `funding-carry-forward-20260918` worktree was not found on the
 collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
 2026-10-30 the user stated in chat, quoted verbatim (two chat lines, joined by one
 newline in the sealed record):
@@ -1172,7 +1172,7 @@ tip, observation gap and the absence of an earlier unreported attempt remain
 `not_established` (full quotation in `docs/architecture/research-assurance.md`). That is
 a G0 exception bounded to funding-carry attempt 2 and predecessor attempt 1; it relaxes
 no screen criterion, applies to no other case, and `unavailable` is recorded on
-attestation (the code does not check that the root is unreadable). The same comment
+attestation (the code does not check whether the root was located or can be read). The same comment
 records the screen start `2026-11-07T00:00:00Z` and approval of Windows Task Scheduler
 supervisor and watchdog jobs, and does not authorize FS1 scoring, unused or final-window
 reads, live trading or order routing, or the use of any attempt-1 readout. A fresh
@@ -1181,14 +1181,21 @@ the rule replaces the root resolution, and the predecessor chain stays
 `not_established`. Attempt 2 is not yet sealed: the independent `research_assurance_v1`
 review, the storage probe and the other seal requirements remain. A short public-network storage probe (`paper/storage_probe.py`, a scratch
 root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
-measurement; no completed run is recorded (a root named `carry-a2-storage-probe-20261105` on the collection
-machine holds a started scratch collector root that ended with a `collection-failure.json`, "source timestamp is stale or in the future"; who ran it and
-under which authorization is not recorded, and no result from it is used or will be reused). Nothing has been sealed, launched or collected, no
+measurement; no completed run is recorded. A root named `carry-a2-storage-probe-20261105` on the collection
+machine holds an earlier storage-probe start: a scratch collector root that ended with a `collection-failure.json`
+("source timestamp is stale or in the future", recorded 2026-11-05T13:51:55Z). Issue #810 comment 6659653178
+(created 2026-11-05T13:49:34Z) lists the storage probe as the first authorized step; that root's `protocol.json`
+was written at 13:50:55Z (file time, 1 minute 21 seconds after the comment was created) and the failure was
+recorded 2 minutes 21 seconds after it, so the probe ran about two minutes after that comment and before the
+packet review. Who ran it is not recorded here. A file listing (names, sizes and times only; contents not read)
+shows 14 files of about 1.3 MB: the protocol, control, heartbeat and journal databases, the failure marker and raw
+capture files named for spot and perpetual exchange rules and spot time under `sources/`. No completed probe or
+bytes-per-observation report is recorded, and that root is not used or reused for any result or byte rate. No attempt-2 root has been sealed or launched, no
 sealed attempt-2 start exists (the owner has chosen `2026-11-07T00:00:00Z`, not yet sealed), and no economics, P&L or profitability evidence was produced.
 
 2026-11-05: a Research Assurance author packet for attempt 2 is recorded in
 [`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json)
-(digest `039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9`, status UNREVIEWED). It restates the existing frozen
+(digest `8f6368a56c01ae4236b99ae40b4ed3f39cf61cb2424a7d36c65540a48ac6d8a4`, status UNREVIEWED). It restates the existing frozen
 screen and lineage without changing any criterion. Sealing attempt 2 still requires an
 independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
 "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review is acceptable);

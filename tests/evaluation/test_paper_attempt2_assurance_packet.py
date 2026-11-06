@@ -38,7 +38,7 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9"
+PINNED_DIGEST = "8f6368a56c01ae4236b99ae40b4ed3f39cf61cb2424a7d36c65540a48ac6d8a4"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
 )
@@ -369,9 +369,29 @@ def test_predecessor_unavailable_case_is_a_bounded_owner_authorized_g0_exception
     assert record["user_statement"]["quote"] == USER_STATEMENT_QUOTE
     assert record["user_statement"]["date"] == USER_STATEMENT_DATE
     assert record["review_rule"] == UNAVAILABLE_REVIEW_RULE
+    # The sealed record may say only what the evidence supports: not located.
+    assert "was not located" in UNAVAILABLE_REVIEW_RULE
+    assert "lost" not in UNAVAILABLE_REVIEW_RULE.lower()
+    assert "has not been located" in limitations
+    assert "unreadable" not in UNAVAILABLE_REVIEW_RULE
+    # The earlier storage-probe root is described against the authorization comment.
+    assert "lists the storage probe as the first authorized step" in limitations
+    assert "(created 2026-11-05T13:49:34Z)" in limitations
+    assert "is not recorded here" in limitations
+    assert "under which authorization is not recorded" not in limitations
     assert USER_STATEMENT_DATE in limitations
     assert lineage["predecessor"]["disposition"] == "invalidated"
     assert lineage["predecessor"]["reason_codes"] == ["observation_gap"]
+
+
+_WORD_NUMBERS = {"three": 3, "five": 5, "thirty": 30, "ninety": 90}
+
+
+def _only(pattern: str, text: str) -> str:
+    """The single distinct value the packet states for ``pattern`` (all repeats equal)."""
+    values = set(re.findall(pattern, text))
+    assert len(values) == 1, (pattern, values)
+    return values.pop()
 
 
 def test_packet_restates_the_frozen_screen_and_lineage_without_changing_them() -> None:
@@ -379,35 +399,17 @@ def test_packet_restates_the_frozen_screen_and_lineage_without_changing_them() -
     plan = screen_plan(attempt_lineage=lineage)
     packet = _packet()
     text = _text(packet)
-    rule = packet["claims"]["decision_rule"]
-    evidence_oracle = packet["mechanism"]["independent_oracles"]["evidence"][
-        "statement"
-    ]
+    limitations = packet["thesis"]["limitations"]
 
+    # Structured packet fields are compared to the code by equality.
     assert plan["schema"] == "carry_paper_screen_v2"
-    assert "carry_paper_screen_v2" in text
-    assert plan["duration_days"] == SCREEN_DAYS == 90 and "ninety-day" in text
-    assert plan["block_days"] == 30 and plan["block_count"] == 3
-    assert "three thirty-day blocks" in rule
-    assert plan["maximum_drawdown_exclusive"] == 0.1 and "below 10%" in rule
     assert plan["comparison"] == "cash_zero_interest"
     assert packet["evidence"]["controls"] == [plan["comparison"]]
     assert plan["production_eligible"] is False
-    assert plan["minimum_seal_notice_seconds"] == 300 and "five minutes" in text
-    assert TERMINAL_GRACE_SECONDS == 180 and "close plus 180 seconds" in rule
-    assert SCREEN_SLOTS == 129604 and f"{SCREEN_SLOTS:,}-slot" in evidence_oracle
-    assert CAPACITY_HEADROOM == 1.25 and "1.25 headroom" in evidence_oracle
-    fills = {(row["symbol"], row["venue"]) for row in plan["required_fill_coverage"]}
-    assert fills == {
-        ("BTCUSDT", "spot"),
-        ("BTCUSDT", "perpetual"),
-        ("ETHUSDT", "spot"),
-        ("ETHUSDT", "perpetual"),
-    }
-    assert (
-        "one fill in each of BTC spot, BTC perpetual, ETH spot and ETH perpetual"
-        in evidence_oracle
-    )
+    assert packet["claims"]["production_eligible"] is plan["production_eligible"]
+    assert plan["duration_days"] == SCREEN_DAYS
+    assert TERMINAL_GRACE_SECONDS == 180
+    assert plan["minimum_seal_notice_seconds"] == 300
     for flag in (
         "positive_net_profit",
         "positive_each_block",
@@ -416,20 +418,68 @@ def test_packet_restates_the_frozen_screen_and_lineage_without_changing_them() -
         "complete_coverage_and_actual_flat",
     ):
         assert plan[flag] is True, flag
+    fills = {(row["symbol"], row["venue"]) for row in plan["required_fill_coverage"]}
+    assert fills == {
+        ("BTCUSDT", "spot"),
+        ("BTCUSDT", "perpetual"),
+        ("ETHUSDT", "spot"),
+        ("ETHUSDT", "perpetual"),
+    }
 
-    assert lineage["schema"] == "carry_paper_attempt_lineage_v3"
+    # The packet restates the screen only in prose: extract each stated value and
+    # compare it to the code constant as a number, not as a substring of the text.
+    assert "carry_paper_screen_v2" in text
+    stated_days = _WORD_NUMBERS[_only(r"(\w+)-day (?:paper )?(?:screen|window)", text)]
+    assert stated_days == plan["duration_days"]
+    block_count = _WORD_NUMBERS[_only(r"(\w+) thirty-day blocks", text)]
+    assert block_count == plan["block_count"] == 3
+    assert _WORD_NUMBERS["thirty"] == plan["block_days"]
+    assert block_count * plan["block_days"] == plan["duration_days"]
+    assert int(_only(r"below (\d+)%", text)) / 100 == plan["maximum_drawdown_exclusive"]
+    assert int(_only(r"close plus (\d+) seconds", text)) == TERMINAL_GRACE_SECONDS
+    assert int(_only(r"([\d,]+)-slot", text).replace(",", "")) == SCREEN_SLOTS
+    assert float(_only(r"([\d.]+) headroom", text)) == CAPACITY_HEADROOM
+    assert (
+        _WORD_NUMBERS[_only(r"(five) minutes", text)] * 60
+        == (plan["minimum_seal_notice_seconds"])
+    )
+
+    # The lineage restatement is parsed from the packet and compared by equality.
+    assert lineage["schema"] == _only(
+        r"lineage (carry_paper_attempt_lineage_v\d)", text
+    )
     assert lineage["attempt_number"] == 2
     assert lineage["predecessor_root"]["status"] == "unavailable"
-    assert lineage["predecessor_root"]["re_verified_at_seal"] is False
-    for value in (
-        ATTEMPT_ONE_PROTOCOL_SHA256,
-        ATTEMPT_ONE_FINAL_TIP_SHA256,
-        ATTEMPT_ONE_LAST_OBSERVED_AT,
-        LINEAGE_RECORD_COMMIT,
-        *UNAVAILABLE_NOT_ESTABLISHED,
-    ):
-        assert value in packet["thesis"]["limitations"], value
-    assert lineage["predecessor"] == {
+    assert lineage["predecessor_root"]["re_verified_at_seal"] is (
+        _only(r"re_verified_at_seal (\w+)", limitations) == "true"
+    )
+    predecessor = lineage["predecessor"]
+    assert predecessor["protocol_sha256"] == ATTEMPT_ONE_PROTOCOL_SHA256
+    assert predecessor["protocol_sha256"] == _only(
+        r"predecessor protocol digest ([0-9a-f]{64})", limitations
+    )
+    assert predecessor["final_tip_sha256"] == ATTEMPT_ONE_FINAL_TIP_SHA256
+    assert predecessor["final_tip_sha256"] == _only(
+        r"final journal tip ([0-9a-f]{64})", limitations
+    )
+    assert predecessor["last_observed_at"] == ATTEMPT_ONE_LAST_OBSERVED_AT
+    assert predecessor["last_observed_at"] == _only(
+        r"last observation (\S+) \(disposition", limitations
+    )
+    assert (predecessor["disposition"], predecessor["reason_codes"]) == (
+        "invalidated",
+        ["observation_gap"],
+    )
+    assert (predecessor["disposition"], predecessor["reason_codes"][0]) == re.search(
+        r"disposition (\w+), reason (\w+)", limitations
+    ).groups()
+    assert LINEAGE_RECORD_COMMIT == _only(r"commit ([0-9a-f]{40})", limitations)
+    stated_not_established = re.sub(
+        r"\s+and\s+", ", ", _only(r"not_established: ([^.]*)\.", limitations)
+    ).split(", ")
+    assert stated_not_established == list(UNAVAILABLE_NOT_ESTABLISHED)
+    assert lineage["predecessor_root"]["not_established"] == stated_not_established
+    assert predecessor == {
         "attempt_number": 1,
         "protocol_sha256": ATTEMPT_ONE_PROTOCOL_SHA256,
         "final_tip_sha256": ATTEMPT_ONE_FINAL_TIP_SHA256,

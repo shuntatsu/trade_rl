@@ -93,9 +93,9 @@ def attempt2_lineage(
 ) -> dict[str, Any]:
     """The attempt-1 binding. Asserted values, not an authenticated root.
 
-    ``unavailable`` is the honest record when the root is lost; ``available`` records
-    the root path and is only built by :func:`resolve_lineage` (after the root has
-    been read) or by ``launch`` (which re-reads it).
+    ``unavailable`` is the honest record when the root was not located;
+    ``available`` records the root path and is only built by :func:`resolve_lineage`
+    (after the root has been read) or by ``launch`` (which re-reads it).
     """
     return canonical_lineage(
         predecessor_root_status,
@@ -314,8 +314,8 @@ def _review_prerequisite(predecessor_root_status: str) -> str:
         return "result-blind G0 review of the preserved attempt-1 root"
     return (
         "result-blind review of the lineage documentation and the pull request that "
-        "introduced the lost-predecessor rule (attempt 1's root is lost and is not "
-        "re-verified)"
+        "introduced the unavailable-predecessor rule (attempt 1's root was not located "
+        "and is not re-verified)"
     )
 
 
@@ -531,8 +531,8 @@ def launch_attempt2(
     """Start the supervised collector for the sealed attempt-2 root (needs network).
 
     Every launch, including a supervisor relaunch after the start, re-reads an
-    ``available`` predecessor root with the v1 reader and refuses if it is lost,
-    unreadable or differs.
+    ``available`` predecessor root with the v1 reader and refuses if it cannot be
+    read or differs.
     """
     now = clock().astimezone(UTC)
     root_path = Path(root).absolute()

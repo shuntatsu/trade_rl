@@ -57,13 +57,15 @@ UNAVAILABLE_NOT_ESTABLISHED = (
     "absence_of_an_earlier_unreported_attempt",
 )
 UNAVAILABLE_REVIEW_RULE = (
-    "Attempt 1's evidence root is lost; its lineage rests on a prior recorded review "
-    "and was not re-verified against the root at seal time. The review that resolves "
-    "the preserved root cannot be performed. It is replaced, for this case only, by a "
-    "fresh result-blind review of the lineage documentation and the pull request that "
-    "introduced this rule. That replacement review cannot confirm the predecessor "
-    "protocol digest, final tip or observation gap, and it does not exclude an "
-    "earlier unreported attempt."
+    "Attempt 1's evidence root was not located on the collection machine (the owner "
+    "does not know where it is and a read-only search found none); its contents are "
+    "not established. Its lineage rests on a prior recorded review and was not "
+    "re-verified against the root at seal time. The review that would resolve the "
+    "preserved root could not be performed because the root was not located. It is "
+    "replaced, for this case only, by a fresh result-blind review of the lineage "
+    "documentation and the pull request that introduced this rule. That replacement "
+    "review cannot confirm the predecessor protocol digest, final tip or observation "
+    "gap, and it does not exclude an earlier unreported attempt."
 )
 # Module-private capability for sealing lineage v3; ``attempt2`` is its only user.
 _ATTEMPT2_SEAL_TOKEN = object()

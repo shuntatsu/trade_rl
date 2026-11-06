@@ -1405,14 +1405,14 @@ predecessor on **every** entry, including after a journal event; a public
 lost or unreadable then permanently prevents that available-lineage collector from
 restarting (the watchdog records the refusal). This stricter fail-closed rule is
 fixed before any attempt-2 seal.
-`unavailable` is the case where the preserved root cannot be read: it records that the
+`unavailable` is the case where the preserved root was not located: it records that the
 lineage values come from the prior public result-blind review record (document and
 commit), that they were not re-verified at seal time, the user's chat statement quoted
 verbatim with its date, and the replacement review rule. It is the only record that
 code path may carry (`canonical_root_record("unavailable")`; any other shape is
 refused). The code accepts `unavailable` on the caller's attestation alone: it does not
-check that the root is lost or unreadable, so the conditions below rest on the search
-record and on the owner authorization, not on code.
+check whether the root was located or can be read, so the conditions below rest on the
+search record and on the owner authorization, not on code.
 
 #### Predecessor root unavailable: owner-authorized G0 exception for carry attempt 2
 
@@ -1461,7 +1461,7 @@ exception rests only on the separate 2026-11-06 authorization quoted above.
 
 **Implementer search record (read-only, 2026-11-06).** An implementer searched the
 machine used for this repository for an attempt-1 root and found none. Scope: every
-file on drive C: (the only local drive) named `protocol.json`, `journal.sqlite`,
+file on drive C: (the only file-system drive mounted on the machine when checked) named `protocol.json`, `journal.sqlite`,
 `collection-control.sqlite`, `collector.sqlite` or `collection-failure.json`, excluding
 only `C:\Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`,
 `System Volume Information`, `Recovery`, `node_modules` and `site-packages`, which
@@ -1511,7 +1511,7 @@ The exception does not apply to any other family, attempt number or predecessor.
   (5) the statement that no attempt-1 economic or status readout was used to decide the
   restart, which is an author and planner attestation and not something code verifies.
 * **Replacement review:** a fresh result-blind review of the lineage documentation
-  and of the pull request that introduced the lost-predecessor rule. It cannot
+  and of the pull request that introduced the unavailable-predecessor rule. It cannot
   confirm the predecessor protocol digest, final tip or observation gap and does not
   exclude an earlier unreported attempt, so the predecessor chain stays unestablished
   and global attempt uniqueness stays unestablished. A review must say so and cannot
@@ -1521,7 +1521,7 @@ The exception does not apply to any other family, attempt number or predecessor.
   probe, or any other G0/G1/G2 requirement.
 
 The attempt-2 author packet is `report/issue810-carry-attempt2-research-assurance-20261105.json`
-(canonical digest `039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9`). Its status is UNREVIEWED: no independent
+(canonical digest `8f6368a56c01ae4236b99ae40b4ed3f39cf61cb2424a7d36c65540a48ac6d8a4`). Its status is UNREVIEWED: no independent
 `research_assurance_review_v1` verified by the tooling exists. On 2026-11-05 the owner
 wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
 Antigravity/Gemini, is acceptable). That the review would be posted under the same

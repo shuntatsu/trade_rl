@@ -293,8 +293,8 @@ lost or unreadable and do not mention G0. Attempt 2 uses lineage
   earlier attempt. A `not_established` list names the predecessor protocol digest,
   final tip, observation gap, and the absence of an earlier unreported attempt.
   The disposition stays `invalidated` with reason `observation_gap`. The code
-  accepts this status on attestation alone and does not check that the root is
-  unreadable. Using it skips G0 predecessor verification. The owner authorized that
+  accepts this status on attestation alone and does not check whether the root was
+  located or can be read. Using it skips G0 predecessor verification. The owner authorized that
   skip, bounded to funding-carry attempt 2, on Issue #810 on 2026-11-06 (comment
   6673566542, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542; the planner's
   record of the owner's chat answer 「承認する」, quoted verbatim in
@@ -346,7 +346,7 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
   record. `attempt2`'s own sealing preconditions (authorization URL shape, start
   notice, checkout identity, free space) are only enforced by `attempt2 seal`.
 * Every `attempt2 launch`, including a supervisor relaunch after the start,
-  re-reads an `available` root and refuses if it is lost, unreadable or differs. A
+  re-reads an `available` root and refuses if it cannot be read or differs. A
   gap event or heartbeat does not prove an earlier valid predecessor-root read.
 * The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
   before taking the lock and without writing a failure marker, any lineage the
@@ -486,7 +486,7 @@ journal; measure it before relying on the margin.
 
 Attempt 2 is prepared offline but is neither sealed nor started. Attempt 1's root
 is never resumed, backfilled or edited (and, if it exists, is preserved evidence that
-is only ever opened read-only; see the lost-root rule above).
+is only ever opened read-only; see the unavailable-predecessor rule above).
 `python -m trade_rl.evaluation.paper.attempt2` has three commands (`plan`, `seal`,
 `launch`) and `storage_probe` one more; each of which refuses unless
 `--authorization` is an Issue #810 comment URL
@@ -505,7 +505,7 @@ first; nothing here proves the comment exists or says what it should say.
      exception exists (comment 6673566542, 2026-11-06, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542;
      the owner's 2026-10-30 words alone say only that they do not know where the data
      is and that new data may be collected). Then obtain a fresh result-blind review of the lineage
-     documentation and the pull request that introduced the lost-predecessor rule
+     documentation and the pull request that introduced the unavailable-predecessor rule
      instead; it does not re-verify the predecessor, and the predecessor chain stays
      `not_established` (the predecessor-root-unavailable section in
      `docs/architecture/research-assurance.md` defines the conditions and what is
@@ -658,7 +658,7 @@ rule), the G1 chain from source to decision with all eight boundaries, the G2
 independent oracles by test path, the evidence stage and claim boundary, the
 attempt-1 `not_established` limits, the threat model and the storage-probe step.
 
-* Canonical digest: `039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9`
+* Canonical digest: `8f6368a56c01ae4236b99ae40b4ed3f39cf61cb2424a7d36c65540a48ac6d8a4`
   (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
 * Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
   `economic_execution_authorized=false`. No review exists, so this is not a pass.

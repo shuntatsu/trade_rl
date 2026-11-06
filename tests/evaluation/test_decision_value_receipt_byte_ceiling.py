@@ -253,3 +253,24 @@ def test_deeply_nested_untrusted_receipt_json_fails_as_value_error(
         study.load_incomplete_pair_attempt(root)
 
     assert receipt.read_bytes() == raw
+
+def test_json_canonicalization_recursion_fails_as_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recursion failure after parsing must use the same malformed-JSON contract."""
+    root = tmp_path / "attempt"
+    root.mkdir()
+    receipt = root / "incomplete-pairs.json"
+    raw = b'{"x":0}'
+    receipt.write_bytes(raw)
+
+    def recursive_canonical_json_bytes(_value: object) -> bytes:
+        raise RecursionError("synthetic canonicalization recursion")
+
+    monkeypatch.setattr(
+        study, "canonical_json_bytes", recursive_canonical_json_bytes
+    )
+    with pytest.raises(ValueError, match="failure receipt JSON"):
+        study.load_incomplete_pair_attempt(root)
+
+    assert receipt.read_bytes() == raw

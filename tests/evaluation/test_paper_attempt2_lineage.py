@@ -1,4 +1,4 @@
-"""Attempt-2 predecessor-root status: the lost-root rule and its refusals.
+"""Attempt-2 predecessor-root status: the not-located rule and its refusals.
 
 Offline only. The v1 journal reader is replaced by a fake except in one test that
 runs the real reader on a small synthetic root.
@@ -118,6 +118,9 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         "absence_of_an_earlier_unreported_attempt",
     ]
     assert "evidence root was not located" in rule
+    assert "selected paths on drive C:" in rule
+    assert "Docker volumes" in rule
+    assert "were not searched" in rule
     assert "is lost" not in rule
     assert "prior recorded review" in rule
     assert "not re-verified" in rule

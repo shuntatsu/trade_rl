@@ -1460,14 +1460,16 @@ contract does not treat it as an owner authorization of a G0 exception. The G0
 exception rests only on the separate 2026-11-06 authorization quoted above.
 
 **Implementer search record (read-only, 2026-11-06).** An implementer searched the
-machine used for this repository for an attempt-1 root and found none. Scope: every
-file on drive C: (the only file-system drive mounted on the machine when checked) named `protocol.json`, `journal.sqlite`,
+machine used for this repository for an attempt-1 root and found none within the
+recorded scope. Scope: selected paths on drive C: (the only file-system drive mounted
+on the machine when checked), looking for files named `protocol.json`, `journal.sqlite`,
 `collection-control.sqlite`, `collector.sqlite` or `collection-failure.json`, excluding
 only `C:\Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`,
 `System Volume Information`, `Recovery`, `node_modules` and `site-packages`, which
 covers the user profile (including `AppData\Local\Temp`, `.gemini`, `.codex`, `Desktop`
 and `Documents`), `C:\mnt`, `C:\tmp` and the other top-level directories; the SHA-256
-of each of the 627 `protocol.json` files found was compared with the attempt-1 protocol
+of 627 `protocol.json` files (the implementer's count at the time of this search,
+not a verified complete machine-wide enumeration) was compared with the attempt-1 protocol
 digest `843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7` and none
 matched; the Recycle Bin file listing (no database or protocol file by name); and
 every git worktree and ref (none is or contains `funding-carry-forward-20260918`). Only

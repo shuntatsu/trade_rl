@@ -1144,8 +1144,9 @@ profitability evidence was produced. The runbook is in
 `docs/specs/funding-carry-paper.md`.
 
 2026-10-31: attempt 1's evidence root was not located; its lineage rests on a prior
-recorded review. The `funding-carry-forward-20260918` worktree was not found on the
-collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
+recorded review. The earlier documented worktree search did not locate
+`funding-carry-forward-20260918` in its inspected locations; this does not
+establish absence from all drives, volumes or other storage. On
 2026-10-30 the user stated in chat, quoted verbatim (two chat lines, joined by one
 newline in the sealed record):
 「そのデータはしらない。結果保存もどこにあるわからないから、
@@ -1161,9 +1162,10 @@ unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 disposition `invalidated` with reason `observation_gap`. G0 predecessor verification
 is not waived in general. The user's words above say only that they do not know where
 the data is and that new data may be collected, and a documented read-only implementer
-search on 2026-11-06 of all of drive C: found no root with the attempt-1 protocol digest
-(scope and limits in `docs/architecture/research-assurance.md`; other machines were not
-searched). On 2026-11-06 the owner then answered 「承認する」 in a Claude Code chat to a
+search on 2026-11-06 of selected paths on drive C: (with system-directory and
+dependency exclusions) found no root with the attempt-1 protocol digest (scope and
+limits in `docs/architecture/research-assurance.md`; Docker volumes, other machines
+and external or backup storage were not searched). On 2026-11-06 the owner then answered 「承認する」 in a Claude Code chat to a
 statement that the planner recorded verbatim on Issue #810 (comment 6673566542,
 https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542): the attempt-1 root need not be
 found, attempt 2 may be sealed with `--predecessor-root-status unavailable`, G0

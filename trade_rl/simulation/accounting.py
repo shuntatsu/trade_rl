@@ -287,7 +287,9 @@ class BookState:
                     contract_multiplier=float(multiplier_vector[symbol_index]),
                 )
         except ValueError as error:
-            raise ValueError("nonzero weighted position cannot be represented") from error
+            raise ValueError(
+                "nonzero weighted position cannot be represented"
+            ) from error
         active = weight_vector != 0.0
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             position_values = quantities * price_vector * multiplier_vector

@@ -38,14 +38,14 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "8f6368a56c01ae4236b99ae40b4ed3f39cf61cb2424a7d36c65540a48ac6d8a4"
+PINNED_DIGEST = "f4484fa2193343cc718e70a20bb60dfc5071569e7de34f542cbde55fb5d561b5"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
 )
 # The planner's record (2026-11-06) of the owner's chat answers: the G0 predecessor-
 # verification exception for attempt 2, the screen start and the Task Scheduler jobs.
 G0_AUTHORIZATION_URL = (
-    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542"
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996"
 )
 # The statement the owner approved verbatim (chat answer 承認する), as quoted in the
 # comment above; whitespace is normalized because the documents wrap lines.
@@ -124,6 +124,38 @@ def _cli(*args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def test_corrected_g0_search_scope_is_explicit_and_cited() -> None:
+    """G0 may cite only the owner's corrected, bounded search premise."""
+    corrected = (
+        "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996"
+    )
+    packet = _packet()
+    thesis = packet["thesis"]
+    limitations = thesis["limitations"]
+    arch = _raw("docs/architecture/research-assurance.md")
+    spec = _raw("docs/specs/funding-carry-paper.md")
+    current = _raw("docs/research/current-status.md")
+    predecessor = UNAVAILABLE_REVIEW_RULE
+
+    assert corrected in thesis["stop_rule"]
+    assert corrected in packet["claims"]["decision_rule"]
+    assert corrected in packet["claims"]["next_authorized_action"]
+    assert corrected in limitations
+    assert corrected in arch and corrected in spec and corrected in current
+    assert "この前提で承認する" in arch
+    assert "616" in arch and "43" in arch and "50" in arch
+    assert "616" in limitations
+    assert "all of drive C:" not in limitations
+    assert "all 627" not in limitations
+    assert "was inaccurate" in arch
+    assert "System Volume Information" in predecessor
+    assert "Program Files (x86)" in arch
+    assert "excluded" in arch.lower()
+    assert "not a verified complete" in arch
+    assert "same-principal" in limitations
+    assert evaluate_assurance(packet).status == "UNREVIEWED"
 
 
 def test_packet_is_unreviewed_valid_and_pins_its_digest() -> None:
@@ -243,7 +275,7 @@ def test_packet_records_no_development_result_label() -> None:
     assert "no development economic outcome is recorded" in hypothesis
 
 
-def test_review_route_is_a_same_principal_deviation_not_accepted_and_not_a_pass() -> (
+def test_review_route_is_a_narrow_owner_exception_but_machine_gate_remains_unreviewed() -> (
     None
 ):
     packet = _packet()
@@ -251,29 +283,26 @@ def test_review_route_is_a_same_principal_deviation_not_accepted_and_not_a_pass(
     permitted = " ".join(packet["claims"]["permitted"])
     next_action = packet["claims"]["next_authorized_action"]
 
+    # Both the historical words and the new, explicit exception must be preserved.
     assert OWNER_REVIEW_WORDS in limitations
-    assert "do not name the same GitHub account" in limitations
-    assert "planner's reading" in limitations
-    assert "same-principal deviation" in limitations
-    assert "beyond those quoted words" in limitations
+    assert "6680576996" in limitations
+    assert "attempt 2 only" in limitations
+    assert "different" in limitations and "Claude Haiku 5.5" in limitations
+    assert "same shuntatsu principal" in limitations
+    assert "same-principal" in limitations
+    assert "tools.research_assurance_github" in limitations
+    assert "rejects a same-principal review" in limitations
+    assert "UNREVIEWED" in limitations
     for field in (limitations, permitted, next_action):
-        assert "owner-recorded" not in field
-    for field in (limitations, permitted, next_action):
-        assert "owner-accepted" not in field
-        assert "explicitly accepted" not in field
-    assert (
-        "tools.research_assurance_github rejects a same-principal review" in limitations
-    )
-    assert "makes no PASS claim" in limitations
+        assert "6680576996" in field
+        assert "same" in field and "principal" in field
     for relative in DOCUMENTS:
         document = _doc(relative)
-        assert "owner-accepted" not in document, relative
-        assert "explicitly accepted" not in document, relative
-        assert "owner-recorded" not in document, relative
         assert OWNER_REVIEW_WORDS in _raw(relative).replace("\n", " "), relative
-        assert "planner's reading" in document, relative
+        assert "6680576996" in document, relative
         assert "tools.research_assurance_github" in document, relative
         assert "rejects" in document, relative
+    assert evaluate_assurance(packet).status == "UNREVIEWED"
 
 
 def test_predecessor_unavailable_case_is_a_bounded_owner_authorized_g0_exception() -> (
@@ -345,7 +374,7 @@ def test_predecessor_unavailable_case_is_a_bounded_owner_authorized_g0_exception
     assert "not waived in general" in limitations
     assert "do not mention G0" in limitations
     assert G0_AUTHORIZATION_URL in limitations
-    assert "the planner's record of the owner's chat answer" in limitations
+    assert "corrected chat answer" in limitations
     assert "承認する" in limitations
     assert "applies to no other family, attempt or predecessor" in limitations
     assert "does not replace the independent review" in limitations
@@ -541,5 +570,5 @@ def test_docs_point_to_the_packet_digest_and_unreviewed_status() -> None:
         assert G0_AUTHORIZATION_URL in document, relative
         assert "G0 exception pending" not in document, relative
     spec = _doc("docs/specs/funding-carry-paper.md").replace("**", "")
-    assert "not attributed to the owner beyond those quoted words" in spec
+    assert "explicitly" in spec and "attempt 2 only" in spec
     assert "different authenticated GitHub principal" in spec

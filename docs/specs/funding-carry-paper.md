@@ -266,7 +266,7 @@ new attempt 1.
 Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) has not
 been located: on 2026-10-30 the user said in chat that they do not know that data or
 where its results were saved and that new data may be collected, and a documented
-read-only implementer search of the collection machine on 2026-11-06 found no root
+read-only implementer search of selected paths on drive C: on 2026-11-06 found no root
 with the attempt-1 protocol digest (scope and limits in the implementer search record
 of `docs/architecture/research-assurance.md`). The user's words do not say the root is
 lost or unreadable and do not mention G0. Attempt 2 uses lineage
@@ -296,10 +296,29 @@ lost or unreadable and do not mention G0. Attempt 2 uses lineage
   accepts this status on attestation alone and does not check whether the root was
   located or can be read. Using it skips G0 predecessor verification. The owner authorized that
   skip, bounded to funding-carry attempt 2, on Issue #810 on 2026-11-06 (comment
-  6673566542, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542; the planner's
-  record of the owner's chat answer 「承認する」, quoted verbatim in
+  6680576996, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996; the planner's
+  record of the owner's corrected chat answer 「この前提で承認する」, quoted verbatim in
   `docs/architecture/research-assurance.md`). It is not a general exception, relaxes no
   criterion, and the four `not_established` items stay `not_established`.
+
+**Search-scope correction (2026-11-06):** The original Issue #810 comment
+6673566542 and its question described a search across all of C:, which was
+inaccurate. The corrected [owner authorization](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996)
+records the fresh response 「この前提で承認する」 after the actual exclusions were
+disclosed. In a second read-only search, 143,061 directories were visited,
+43 paths were unreadable and 50 links/junctions were not followed. The
+enumerator excluded Windows, Program Files, ProgramData, System Volume
+Information, Recovery and all node_modules/site-packages, but **included**
+Program Files (x86). The **616 found** protocol.json files yielded no matching
+attempt-1 digest; the prior 627 count was an earlier scoped observation, not
+a machine-wide enumeration. Other machines, cloud/backup, Docker volumes,
+external media and excluded/unreadable locations were not searched. This
+does not establish absence of the root; the four predecessor facts remain
+not_established. The same owner record permits a different-model (Claude
+Haiku 5.5) research review through the same GitHub account **for attempt 2
+only**. It does not establish different-principal independence or override
+the existing tools.research_assurance_github same-principal refusal; the
+packet is UNREVIEWED and neither review nor seal is automatically approved.
 
 Threat model. These gates prevent accidental or non-canonical attempt-2 records
 from being sealed or run through the supported entry points (`attempt2`,
@@ -502,7 +521,7 @@ first; nothing here proves the comment exists or says what it should say.
      the lineage values are assertions until that review exists. If it cannot be
      found (`--predecessor-root-status unavailable`, the current case): the separate explicit
      owner authorization on Issue #810 that names the G0 predecessor-verification
-     exception exists (comment 6673566542, 2026-11-06, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542;
+     exception exists (corrected comment 6680576996, 2026-11-06, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996;
      the owner's 2026-10-30 words alone say only that they do not know where the data
      is and that new data may be collected). Then obtain a fresh result-blind review of the lineage
      documentation and the pull request that introduced the unavailable-predecessor rule
@@ -658,7 +677,7 @@ rule), the G1 chain from source to decision with all eight boundaries, the G2
 independent oracles by test path, the evidence stage and claim boundary, the
 attempt-1 `not_established` limits, the threat model and the storage-probe step.
 
-* Canonical digest: `8f6368a56c01ae4236b99ae40b4ed3f39cf61cb2424a7d36c65540a48ac6d8a4`
+* Canonical digest: `f4484fa2193343cc718e70a20bb60dfc5071569e7de34f542cbde55fb5d561b5`
   (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
 * Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
   `economic_execution_authorized=false`. No review exists, so this is not a pass.
@@ -678,27 +697,28 @@ names the G0 predecessor-verification exception (see
 (2026-11-05, posted from the owner's account and recorded by the planner relaying the
 owner; the owner can edit or revoke it; it names no UTC start; code checks only the URL
 shape). It is authorization evidence and does not replace (a); it does not satisfy (c),
-because the owner's quoted words in it do not mention G0. Evidence for (c) with
-`unavailable`, and for the start time, is the comment
-<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542>
-(2026-11-06, the planner's record of the owner's chat answers; the owner can edit or
-revoke it): it quotes the owner's 「承認する」 to the G0 predecessor-verification
-exception for attempt 2, bounded as stated there, and records the screen start
-`2026-11-07T00:00:00Z` and approval of Windows Task Scheduler supervisor and watchdog
-jobs. It authorizes no FS1 scoring, no unused or final-window read, no live trading or
-order routing, no criterion relaxation and no use of an attempt-1 readout, and it does
-not replace (a).
+because the owner's quoted words in it do not mention G0. Evidence for (c)
+with `unavailable` is the **corrected** comment
+<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996>,
+which records the owner's fresh 「この前提で承認する」 on the accurately bounded
+C: search premise and four `not_established` predecessor facts. The **original**
+comment 6673566542 separately records the selected screen start
+`2026-11-07T00:00:00Z` and the Windows Task Scheduler supervisor/watchdog
+authorization; its description of an all-C: search was inaccurate and is
+superseded only for that search premise. Neither comment authorizes FS1 scoring,
+unused or final-window reads, live trading, order routing, relaxed criteria,
+or use of an attempt-1 economic or status readout. Neither replaces (a).
 
-Review route. AGENTS.md (#687) requires the review from a different authenticated
-GitHub principal. The owner's words of 2026-11-05 were "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing
-account does not matter; an agy review, that is Antigravity/Gemini, is acceptable).
-That it would be posted under the same GitHub account is the planner's reading in the
-Issue #810 record, not the owner's wording. A same-principal review is a deviation
-from the different-principal rule and is not attributed to the owner beyond those
-quoted words; it is not a PASS. It does not establish principal independence:
-`tools.research_assurance_github` rejects a
-same-principal review, so such a review would not turn the packet into a PASS with
-that tool. The packet stays UNREVIEWED until a review of this exact digest exists and
-the tooling verifies it. Until then nothing is sealed, launched or collected under
-this packet, and the storage probe (the only networked step before launch) is not run
-under it.
+Review route. AGENTS.md (#687) ordinarily requires a review from a different
+authenticated GitHub principal. The owner's words of 2026-11-05 were
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"; those words alone
+did not establish principal independence or authorize a same-principal exception.
+The owner **explicitly** permitted a distinct-model (Claude Haiku 5.5) review
+posted through the same shuntatsu account **for attempt 2 only** in corrected
+Issue #810 comment 6680576996. This is a narrow deviation, not principal
+independence: `tools.research_assurance_github` still rejects same-principal
+reviews and cannot yield PASS for that route. The packet remains UNREVIEWED
+until an actual exact-digest/HEAD research review is completed and accepted under
+the owner-authorized rule. Nothing is sealed, launched or collected under
+this packet, and the storage probe (the only networked step before launch)
+is not run under it.

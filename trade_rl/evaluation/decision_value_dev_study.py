@@ -1571,16 +1571,37 @@ def _is_native_int(value: object) -> bool:
     return type(value) is int
 
 
+_MAX_RECEIPT_NUMERIC_CHARS = 16_384
+_MAX_RECEIPT_SCIENTIFIC_EXPONENT = 4_096
+
+
 def _require_finite_decimal(value: object, *, field: str) -> None:
-    """Accept only a finite exact decimal/fraction string (no nan/inf/blank)."""
-    if not isinstance(value, str) or not value or value != value.strip():
-        raise ValueError(f"failure receipt {field} must be a finite numeric string")
+    """Validate finite numeric evidence with bounded untrusted parse complexity."""
+    error_text = f"failure receipt {field} must be a finite numeric string"
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or len(value) > _MAX_RECEIPT_NUMERIC_CHARS
+    ):
+        raise ValueError(error_text)
+    # Native finite float exponents are within +/-308; the generous limit also
+    # permits large exact values without constructing attacker-sized integers.
+    _, separator, exponent = value.lower().partition("e")
+    if separator:
+        digits = exponent.lstrip("+-")
+        if (
+            not digits
+            or len(digits) > 4
+            or not digits.isascii()
+            or not digits.isdigit()
+            or abs(int(exponent)) > _MAX_RECEIPT_SCIENTIFIC_EXPONENT
+        ):
+            raise ValueError(error_text)
     try:
         Fraction(value)
     except (ValueError, ZeroDivisionError) as error:
-        raise ValueError(
-            f"failure receipt {field} must be a finite numeric string"
-        ) from error
+        raise ValueError(error_text) from error
 
 
 _ENDPOINT_DECIMALS = (

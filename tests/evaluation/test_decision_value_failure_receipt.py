@@ -719,3 +719,35 @@ def test_incomplete_receipt_numeric_parser_preserves_bounded_exact_forms(
     value: str,
 ) -> None:
     study._require_finite_decimal(value, field="terminal_cash")
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        pytest.param("1e99999999", id="huge-positive-exponent"),
+        pytest.param("1e-99999999", id="huge-negative-exponent"),
+        pytest.param("1" * 20_000, id="oversized-mantissa"),
+    ),
+)
+def test_incomplete_receipt_numeric_parser_rejects_resource_exhaustion(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study._require_finite_decimal(value, field="terminal_cash")
+
+
+def test_unpinned_resealed_receipt_rejects_numeric_exponent_bomb(
+    failed_all: tuple[_Setup, Path, study.IncompletePairedLabelsError, int],
+    tmp_path: Path,
+) -> None:
+    _setup_, destination, _failure, _ = failed_all
+    resealed = _copy_receipt(destination, tmp_path / "exponent-bomb")
+    _rewrite(
+        resealed,
+        lambda payload: _on_pair(
+            payload,
+            lambda pair: pair["candidate"].update(terminal_cash="1e99999999"),
+        ),
+        redigest=True,
+    )
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study.load_incomplete_pair_attempt(resealed)

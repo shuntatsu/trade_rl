@@ -544,6 +544,7 @@ retain their explicit reference-price sizing contract.
 - `interval_net_return` は実約定・全明示cash flow反映後の最終equityを正本とする。`interval_gross_return` は同じ実約定経路について、最終equityへexecution costとborrowを戻し、signed funding・dividend・cash interestを除いて価格損益を分離する。OPENからのasset returnへ事後weightを掛ける近似や、cost-zero条件で戦略を再実行した反実仮想とは扱わない。
 - partial fill後のpositionはrealized fill quantityで更新する。
 - `fill_ratio` と `unfilled_turnover` は注文の消化状態を表すため、requested側と同じsubmission reference priceでfilled quantityを評価する。adverse/favorableな実約定価格の変化だけで注文残量が消えたように見せない。`filled_turnover` は実際に売買した金額を表すためactual fill notional / starting equityを維持し、このcompletion指標とはprice basisを分ける。 真にrequested notionalが0のidentityケースだけ`fill_ratio=1.0`とし、0より大きい微小要求を固定toleranceで要求なしへ丸めない。未約定なら0、部分約定なら実際の消化率を返す。
+- completion evidenceのsubmission-reference notionalは、非ゼロ要求・非ゼロ約定について0/非有限へ潰れることを許さない。要求側が表現不能ならstateful実行開始前に、約定分のreference notionalが表現不能ならBookState更新前にfail closedとし、偽のrequested/fill_ratio証拠を残さない。
 - lot数量はdecimal表記をexact rationalへ変換し、承認された整数lot数を保有・注文残量の共通authorityとする。任意の初期端数は保持し、float表示はゼロ方向へ保守的に射影する。float表示値の足し引きで次の残高を作らない。
 - 数量のcanonical文字列解析とFractionからfloatへの射影は、入力の意味を変えずに反復計算を省くため、標準型かつサイズ上限内の値だけを保持する2,048-entry LRU cachesを使う。型サブクラスや大きな入力はcacheを迂回し、canonical判定・有限範囲判定・保守的射影は従来どおり実行する。
 - per-barのcorporate-action処理は、すべてのsplit factorが厳密に`1.0`のときだけ`BookState.apply_split`を省略する。1.0と異なる係数は、注文cancel閾値より小さい差でも正確に適用し、order-cancellation toleranceは従来どおり注文をcancelするかの判定だけに使う。

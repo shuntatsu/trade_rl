@@ -446,9 +446,7 @@ def test_invalid_shapes_gross_latency_and_offsets_fail_closed() -> None:
     (
         pytest.param(1.0, 1_000.0, 1e308, 1e308, 1.0, id="unit-overflow"),
         pytest.param(1.0, 1_000.0, 1e-200, 1e-200, 1.0, id="unit-underflow"),
-        pytest.param(
-            1e-300, 1e-100, 1.0, 1.0, 1.0, id="target-value-underflow"
-        ),
+        pytest.param(1e-300, 1e-100, 1.0, 1.0, 1.0, id="target-value-underflow"),
         pytest.param(2.0, 1e308, 1.0, 1.0, 2.0, id="target-value-overflow"),
         pytest.param(1.0, 1e-200, 1e308, 1.0, 1.0, id="quantity-underflow"),
     ),

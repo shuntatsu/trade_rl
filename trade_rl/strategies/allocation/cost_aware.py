@@ -133,11 +133,16 @@ def ewma_covariance(
     ages = np.arange(array.shape[0] - 1, -1, -1, dtype=np.float64)
     weights = np.power(0.5, ages / halflife_periods)
     weights = weights / weights.sum()
-    second_moment = (array * weights[:, None]).T @ array
-    second_moment = 0.5 * (second_moment + second_moment.T)
-    diagonal = np.diag(np.diag(second_moment))
-    shrunk = (1.0 - shrinkage) * second_moment + shrinkage * diagonal
-    return np.asarray(shrunk + variance_floor * np.eye(array.shape[1]))
+    # Finite returns can still overflow when squared or accumulated.
+    with np.errstate(over="ignore", invalid="ignore"):
+        second_moment = (array * weights[:, None]).T @ array
+        second_moment = 0.5 * (second_moment + second_moment.T)
+        diagonal = np.diag(np.diag(second_moment))
+        shrunk = (1.0 - shrinkage) * second_moment + shrinkage * diagonal
+        covariance = np.asarray(shrunk + variance_floor * np.eye(array.shape[1]))
+    if not np.isfinite(covariance).all():
+        raise ValueError("covariance must remain finite after weighting")
+    return covariance
 
 
 def _real(value: object, *, name: str) -> float:
@@ -402,12 +407,18 @@ class CostAwareAllocationPolicy:
             return fail("insufficient_history")
 
         prices = np.vstack(self._sample_prices)
-        covariance = ewma_covariance(
-            prices[1:] / prices[:-1] - 1.0,
-            halflife_periods=self._halflife_periods,
-            shrinkage=self._shrinkage,
-            variance_floor=self._variance_floor,
-        )
+        # Positive, finite prices may produce non-finite relative returns.
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            returns = prices[1:] / prices[:-1] - 1.0
+        try:
+            covariance = ewma_covariance(
+                returns,
+                halflife_periods=self._halflife_periods,
+                shrinkage=self._shrinkage,
+                variance_floor=self._variance_floor,
+            )
+        except ValueError:
+            return fail("invalid_covariance")
 
         raw = self._source.expected_simple_returns(snapshot)
         try:

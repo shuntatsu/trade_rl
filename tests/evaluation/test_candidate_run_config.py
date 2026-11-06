@@ -704,6 +704,12 @@ def test_candidate_run_config_accepts_full_gross_budget_boundary() -> None:
         ),
         pytest.param(
             "gross_budget",
+            -0.1,
+            "gross_budget must be within \\(0, 1\\]",
+            id="direct-negative-gross-budget",
+        ),
+        pytest.param(
+            "gross_budget",
             1.0000000000000002,
             "gross_budget must be within \\(0, 1\\]",
             id="direct-gross-budget-above-one",
@@ -713,6 +719,12 @@ def test_candidate_run_config_accepts_full_gross_budget_boundary() -> None:
             0.0,
             "initial_capital must be finite and positive",
             id="direct-zero-initial-capital",
+        ),
+        pytest.param(
+            "initial_capital",
+            -1.0,
+            "initial_capital must be finite and positive",
+            id="direct-negative-initial-capital",
         ),
     ),
 )

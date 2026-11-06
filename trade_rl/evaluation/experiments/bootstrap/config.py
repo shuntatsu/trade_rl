@@ -160,15 +160,23 @@ def _int_value(value: object, *, field: str, positive: bool = False) -> int:
     return value
 
 
-def _seed_policy(value: object) -> tuple[int, ...]:
-    if not isinstance(value, list):
-        raise ValueError("ppo_seeds must be an integer array")
-    seeds = tuple(_int_value(item, field="ppo_seeds") for item in value)
+def _canonical_ppo_seed_roster(seeds: tuple[int, ...]) -> tuple[int, ...]:
+    """Keep bootstrap preregistration consistent with StudyPlan seed authority."""
+
     if len(seeds) < 2:
         raise ValueError("ppo_seeds must contain at least two seeds")
     if len(set(seeds)) != len(seeds):
         raise ValueError("ppo_seeds must not contain duplicate values")
+    if seeds != tuple(sorted(seeds)):
+        raise ValueError("ppo_seeds must use canonical ascending order")
     return seeds
+
+
+def _seed_policy(value: object) -> tuple[int, ...]:
+    if not isinstance(value, list):
+        raise ValueError("ppo_seeds must be an integer array")
+    seeds = tuple(_int_value(item, field="ppo_seeds") for item in value)
+    return _canonical_ppo_seed_roster(seeds)
 
 
 def _normalize_source_datetime(value: object, *, field: str) -> datetime:
@@ -461,13 +469,9 @@ class CanonicalM2BootstrapConfig:
             raise ValueError("fit_symbol_names must be a subset of symbols")
         if not isinstance(self.ppo_seeds, tuple):
             raise ValueError("ppo_seeds must be an integer tuple")
-        ppo_seeds = tuple(
-            _int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds
+        ppo_seeds = _canonical_ppo_seed_roster(
+            tuple(_int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds)
         )
-        if len(ppo_seeds) < 2:
-            raise ValueError("ppo_seeds must contain at least two seeds")
-        if len(set(ppo_seeds)) != len(ppo_seeds):
-            raise ValueError("ppo_seeds must not contain duplicate values")
         if self.baseline.ppo_seed != ppo_seeds[0]:
             raise ValueError("baseline ppo_seed must equal first ppo_seeds value")
 

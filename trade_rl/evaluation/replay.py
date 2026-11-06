@@ -25,8 +25,8 @@ from trade_rl.simulation import (
     ExecutionResult,
     MarketExecutor,
 )
-from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.accounting import target_quantity_from_weight
+from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.native_transition import (
     execute_native_target_transition,

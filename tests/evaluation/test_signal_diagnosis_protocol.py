@@ -858,9 +858,8 @@ def test_admission_returns_nothing_and_has_no_runner_or_reader() -> None:
         ), name
 
 
-
 def test_first_fit_partial_calendar_year_cannot_count_as_full_stability_year() -> None:
-    """The OOS schedule starts in April 2021, so 2021 cannot satisfy a full-year gate."""
+    """The OOS schedule starts in April 2021; 2021 is not a full stability year."""
     protocol = default_signal_diagnosis_protocol()
     first_fit_year = int(protocol.prequential.first_fit_time[:4])
 

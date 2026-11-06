@@ -696,6 +696,7 @@ def test_receipt_digest_binds_the_encoded_form(tmp_path: Path) -> None:
     assert content_digest(body) == digest
     assert loaded["pairs_digest"] == content_digest(loaded["pairs"])
 
+
 @pytest.mark.parametrize("tamper", ("source-text", "false-truncated-flag"))
 def test_unpinned_quarantine_metadata_rejects_inconsistent_inner_hash(
     tmp_path: Path, tamper: str
@@ -724,9 +725,8 @@ def test_unpinned_quarantine_metadata_rejects_inconsistent_inner_hash(
     with pytest.raises(ValueError, match="unvalidated source"):
         study.load_incomplete_pair_attempt(root)
 
-def test_quarantine_truncated_source_prefix_stays_readable(
-    tmp_path: Path,
-) -> None:
+
+def test_quarantine_truncated_source_prefix_stays_readable(tmp_path: Path) -> None:
     """A genuine clipped source is readable but cannot prove the missing tail."""
     root = tmp_path / "attempt"
     digest = _persist(

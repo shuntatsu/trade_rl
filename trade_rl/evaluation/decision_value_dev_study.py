@@ -2110,12 +2110,16 @@ def _validate_quarantine_record(record: object) -> None:
     text = record["text"]
     if record["truncated"]:
         if len(text) != _QUARANTINE_TEXT_LIMIT:
-            raise ValueError("failure receipt unvalidated source truncated prefix is malformed")
+            raise ValueError(
+                "failure receipt unvalidated source truncated prefix is malformed"
+            )
     else:
         try:
             source_bytes = text.encode("utf-8")
         except UnicodeEncodeError as error:
-            raise ValueError("failure receipt unvalidated source text is not UTF-8") from error
+            raise ValueError(
+                "failure receipt unvalidated source text is not UTF-8"
+            ) from error
         if hashlib.sha256(source_bytes).hexdigest() != digest:
             raise ValueError("failure receipt unvalidated source digest mismatch")
 

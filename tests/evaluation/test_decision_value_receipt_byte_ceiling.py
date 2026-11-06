@@ -13,11 +13,11 @@ from typing import BinaryIO, cast
 
 import pytest
 
-from trade_rl.evaluation import decision_value_dev_study as study
 from tests.evaluation.test_decision_value_failure_receipt_robustness import (
     _persist,
     _row,
 )
+from trade_rl.evaluation import decision_value_dev_study as study
 
 
 def test_strict_receipt_reader_never_uses_unbounded_file_read(

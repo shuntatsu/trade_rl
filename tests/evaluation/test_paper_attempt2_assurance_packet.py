@@ -38,7 +38,7 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "fcad0eb2dc6d595e26fdd8a30eeeef264613dc31a5dba6b6007aed9ba2c2c85d"
+PINNED_DIGEST = "9a35fcd888f85166e2abb34000dd35580c8b94e216de0c1591be003c676df2d0"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
 )
@@ -90,7 +90,7 @@ def _added_section(relative: str) -> str:
             None,
         ),
         "docs/architecture/research-assurance.md": (
-            "#### Bounded exception: predecessor root unavailable",
+            "#### Predecessor root unavailable: G0 exception pending owner authorization",
             "**Known limitations:**",
         ),
         "docs/research/current-status.md": (
@@ -226,7 +226,9 @@ def test_packet_records_no_development_result_label() -> None:
     assert "no development economic outcome is recorded" in hypothesis
 
 
-def test_review_route_is_owner_recorded_not_accepted_and_not_a_pass() -> None:
+def test_review_route_is_a_same_principal_deviation_not_accepted_and_not_a_pass() -> (
+    None
+):
     packet = _packet()
     limitations = packet["thesis"]["limitations"]
     permitted = " ".join(packet["claims"]["permitted"])
@@ -235,7 +237,10 @@ def test_review_route_is_owner_recorded_not_accepted_and_not_a_pass() -> None:
     assert OWNER_REVIEW_WORDS in limitations
     assert "do not name the same GitHub account" in limitations
     assert "planner's reading" in limitations
-    assert "owner-recorded" in limitations
+    assert "same-principal deviation" in limitations
+    assert "beyond those quoted words" in limitations
+    for field in (limitations, permitted, next_action):
+        assert "owner-recorded" not in field
     for field in (limitations, permitted, next_action):
         assert "owner-accepted" not in field
         assert "explicitly accepted" not in field
@@ -247,32 +252,46 @@ def test_review_route_is_owner_recorded_not_accepted_and_not_a_pass() -> None:
         document = _doc(relative)
         assert "owner-accepted" not in document, relative
         assert "explicitly accepted" not in document, relative
+        assert "owner-recorded" not in document, relative
         assert OWNER_REVIEW_WORDS in _raw(relative).replace("\n", " "), relative
         assert "planner's reading" in document, relative
         assert "tools.research_assurance_github" in document, relative
         assert "rejects" in document, relative
 
 
-def test_predecessor_exception_is_bounded_and_documented_in_the_contract() -> None:
+def test_predecessor_unavailable_case_is_not_a_waiver_and_needs_owner_authorization() -> (
+    None
+):
     packet = _packet()
     limitations = packet["thesis"]["limitations"]
+    stop_rule = packet["thesis"]["stop_rule"]
+    claims = packet["claims"]
     lineage = canonical_lineage("unavailable")
     contract = _doc("docs/architecture/research-assurance.md")
-    heading = "Bounded exception: predecessor root unavailable"
+    heading = "Predecessor root unavailable: G0 exception pending owner authorization"
 
     assert heading in contract
     section = contract[
         contract.index(heading) : contract.index("The attempt-2 author packet")
     ]
-    # The general rule still stands and names the single exception.
+    # The general rule stands unchanged: no exception is described as authorized,
+    # and the section never calls itself an existing bounded exception or a waiver.
     assert (
         "G0 review must verify the complete predecessor chain before a successor is "
-        "sealed, with one bounded exception"
+        "sealed. No G0 exception has been authorized"
     ) in contract
+    assert "one bounded exception" not in contract
+    assert "bounded exception" not in contract.lower()
+    assert "is **not waived**" in section
+    assert "may not be sealed with `--predecessor-root-status unavailable`" in section
+    assert "the planner's text, not the owner's words" in section
+    assert "does not say that the root is lost or unreadable" in section
+    assert "attestation alone" in contract
     for required in (
-        "--predecessor-root-status unavailable",
+        "a separate explicit owner authorization exists on Issue #810 that names the G0",
+        "predecessor-verification exception",
+        "The comment of 2026-11-05 does not say this and is not that authorization",
         "does not apply to any other family",
-        "any other attempt number",
         "relaxes no screen criterion",
         "invalidated",
         "observation_gap",
@@ -285,12 +304,38 @@ def test_predecessor_exception_is_bounded_and_documented_in_the_contract() -> No
         *UNAVAILABLE_NOT_ESTABLISHED,
     ):
         assert required in section, required
-    # The packet states the same bounded path and never a general waiver.
-    assert "does not apply generally" in limitations
-    assert "not performed for attempt 2 and is not claimed" in limitations
+    # The owner's verbatim words are quoted, not paraphrased into a stronger claim.
+    assert USER_STATEMENT_QUOTE.replace("\n", "") in section
+    # The implementer search record states its scope, its result and what it omits.
+    for required in (
+        "Implementer search record (read-only, 2026-11-06)",
+        ATTEMPT_ONE_PROTOCOL_SHA256,
+        "627",
+        "none matched",
+        "Not searched:",
+        "does not prove that the root does not exist elsewhere",
+    ):
+        assert required in section, required
+    # The packet states the same position and never claims the authorization exists.
+    assert USER_STATEMENT_QUOTE.replace("\n", "") in limitations
+    assert "not waived" in limitations
+    assert "do not mention G0" in limitations
+    assert "requires a separate explicit owner authorization" in limitations
+    assert (
+        "does not exist as of 2026-11-06 and this packet does not claim it"
+        in limitations
+    )
+    assert "a seal with unavailable is not permitted until it does" in limitations
     assert "No screen criterion is relaxed" in limitations
+    assert "does not apply generally" not in limitations
     assert "replaced by a fresh result-blind review" not in limitations
-    # The sealed record carries what the contract says is recorded in its place.
+    assert "no authorization of the (c) kind exists as of 2026-11-06" in stop_rule
+    assert any(
+        "predecessor-verification exception" in item for item in claims["forbidden"]
+    )
+    assert "predecessor-verification exception" in claims["decision_rule"]
+    assert "predecessor-verification exception" in claims["next_authorized_action"]
+    # The sealed record, if it is ever used, carries what the contract says.
     record = lineage["predecessor_root"]
     assert record["status"] == "unavailable"
     assert record["re_verified_at_seal"] is False
@@ -415,5 +460,5 @@ def test_docs_point_to_the_packet_digest_and_unreviewed_status() -> None:
         assert "UNREVIEWED" in document, relative
         assert AUTHORIZATION_URL in document, relative
     spec = _doc("docs/specs/funding-carry-paper.md").replace("**", "")
-    assert "owner-recorded route" in spec
+    assert "not attributed to the owner beyond those quoted words" in spec
     assert "different authenticated GitHub principal" in spec

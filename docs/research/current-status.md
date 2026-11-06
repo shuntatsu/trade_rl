@@ -1158,27 +1158,35 @@ were NOT re-verified against the root now, and global attempt uniqueness remains
 unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 (`available` only with a root path that the existing v1 reader verifies; otherwise
 `unavailable` with the source record and the user's quoted statement) and keeps the
-disposition `invalidated` with reason `observation_gap`. For this case the G0
-requirement that a fresh review resolve the preserved root cannot be met; the bounded
-predecessor-root-unavailable path in `docs/architecture/research-assurance.md` records
-what is recorded instead (the predecessor chain stays `not_established`), and a fresh
-result-blind review of the lineage documentation and the pull request that introduced
-the rule replaces the root resolution. It does not apply to any other case. A short public-network storage probe (`paper/storage_probe.py`, a scratch
+disposition `invalidated` with reason `observation_gap`. G0 predecessor verification
+is not waived: no owner authorization names a G0 exception (the user's words above say
+only that they do not know where the data is and that new data may be collected), and
+a documented read-only implementer search on 2026-11-06 of all of drive C: found no
+root with the attempt-1 protocol digest (scope and limits in
+`docs/architecture/research-assurance.md`; other machines were not searched). Sealing
+attempt 2 with `unavailable` therefore requires a separate explicit owner authorization
+on Issue #810 that names the G0 exception; until it exists attempt 2 is not sealed.
+If it is given, a fresh result-blind review of the lineage documentation and the pull
+request that introduced the rule replaces the root resolution and the predecessor chain stays `not_established`; it applies to no other case. A short public-network storage probe (`paper/storage_probe.py`, a scratch
 root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
-measurement; it has not been run. Nothing has been sealed, launched or collected, no
+measurement; no completed run is recorded (a root named `carry-a2-storage-probe-20261105` on the collection
+machine holds only a `collection-failure.json`, "source timestamp is stale or in the future"; who ran it and
+under which authorization is not recorded, and no result from it is used). Nothing has been sealed, launched or collected, no
 attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
 
 2026-11-05: a Research Assurance author packet for attempt 2 is recorded in
 [`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json)
-(digest `fcad0eb2dc6d595e26fdd8a30eeeef264613dc31a5dba6b6007aed9ba2c2c85d`, status UNREVIEWED). It restates the existing frozen
+(digest `9a35fcd888f85166e2abb34000dd35580c8b94e216de0c1591be003c676df2d0`, status UNREVIEWED). It restates the existing frozen
 screen and lineage without changing any criterion. Sealing attempt 2 still requires an
 independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
 "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review is acceptable);
 that it would be posted under the same account is the planner's reading, and
 `tools.research_assurance_github` rejects a same-principal review, so that route cannot
-satisfy sealing condition (a) with the tool and is not a PASS. Issue #810 authorization
-evidence is https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178. The storage probe has not been
-run, nothing is sealed or launched, and no economic result exists.
+satisfy sealing condition (a) with the tool and is not a PASS. Issue #810 record:
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178; it does not name
+the G0 predecessor-verification exception, so a separate owner authorization for that is
+still needed before a seal with `unavailable`. No storage probe is run under this
+packet, nothing is sealed or launched, and no economic result exists.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

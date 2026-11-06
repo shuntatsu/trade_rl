@@ -1367,8 +1367,10 @@ resolves the referenced prior protocol and event chain against their preserved
 roots. The lineage fields remain caller assertions: the schema alone does not
 authenticate external roots, prevent a caller from claiming a new attempt 1, or
 prove that the declared disposition is truthful. G0 review must verify the
-complete predecessor chain before a successor is sealed, with one bounded exception:
-the predecessor-root-unavailable path defined below.
+complete predecessor chain before a successor is sealed. No G0 exception has been
+authorized: the predecessor-root-unavailable case defined below is a proposal that
+needs a separate explicit owner authorization before it can be used, and until that
+exists G0 predecessor verification applies to attempt 2 unchanged.
 
 Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
 v2 valid and unchanged. `available` embeds the verification of a root that the
@@ -1400,44 +1402,88 @@ collector (`PaperCollector`, `cli run`, `cli supervise`) re-reads an `available`
 predecessor on **every** entry, including after a journal event; a public
 `PaperEngine.gap` event does not attest the prior root. A predecessor root that is
 lost or unreadable then permanently prevents that available-lineage collector from
-restarting (the watchdog records `unavailable` is the honest case where the preserved root is lost: it records that the
+restarting (the watchdog records the refusal). This stricter fail-closed rule is
+fixed before any attempt-2 seal.
+`unavailable` is the case where the preserved root cannot be read: it records that the
 lineage values come from the prior public result-blind review record (document and
 commit), that they were not re-verified at seal time, the user's chat statement quoted
-verbatim with its date, and the replacement review rule. It is the only code path for
-a predecessor whose root cannot be read, and `canonical_root_record("unavailable")`
-is the only record it may carry (any other shape is refused).
+verbatim with its date, and the replacement review rule. It is the only record that
+code path may carry (`canonical_root_record("unavailable")`; any other shape is
+refused). The code accepts `unavailable` on the caller's attestation alone: it does not
+check that the root is lost or unreadable, so the conditions below rest on the search
+record and on the owner authorization, not on code.
 
-#### Bounded exception: predecessor root unavailable
+#### Predecessor root unavailable: G0 exception pending owner authorization
 
-G0 predecessor verification is the rule above. The one bounded exception is the
-`predecessor_root` status `unavailable` of lineage v3 (`attempt2 ... --predecessor-root-status unavailable`).
-It is not a waiver of the rule and relaxes no screen criterion, window, symbol, cost,
-participation or stop level; it records that the verification **cannot be performed**
-and what is recorded in its place.
+G0 predecessor verification (resolve the preserved attempt-1 root with its v1 reader)
+is **not waived** by this section. No owner authorization that names a G0 exception
+exists. As of 2026-11-06 attempt 2 therefore may not be sealed with
+`--predecessor-root-status unavailable`; that seal is permitted only after the separate
+authorization in condition 3 below is recorded on Issue #810. This section only
+defines what the `unavailable` record is and what must exist before it may be used. It
+relaxes no screen criterion, window, symbol, cost, participation or stop level. If the
+attempt-1 root is found, the `available` path with the v1 reader must be used instead.
 
-* **Applies only when all of these hold:** the family is the funding-carry paper
-  screen; the attempt is 2 and its predecessor is attempt 1 with the protocol digest
-  pinned in `trade_rl/evaluation/paper/predecessor.py`; the predecessor's evidence
-  root is unavailable to the collection machine; the owner has stated that fact in
-  the repository's Issue (here the owner's 2026-10-30 words, which say that the
-  attempt-1 data and result location are unknown and that new data may be
-  collected, recorded in Issue #810 comment 6659653178); and the exception is reviewed
-  in the pull request that introduces or changes it. It does not apply to any other
-  family, any other attempt number, a predecessor whose root is merely inconvenient
-  to find, or a root that is readable (the `available` path must then be used and
-  verified with the v1 reader on every entry).
-* **Recorded in place of the root verification:** (1) the owner's authorization URL
-  on the Issue (code checks the URL shape only, not that the comment exists or says
-  what it should); (2) the owner's verbatim statement and date, which attests only the
-  unavailability and the permission to collect fresh data and does **not** attest the
-  lineage values or the absence of an earlier attempt; (3) the disposition
-  `invalidated` with reason `observation_gap`, taken from the prior public
-  result-blind review record at the pinned commit with `re_verified_at_seal` false;
-  (4) the `not_established` list `predecessor_protocol_digest`,
-  `predecessor_final_tip`, `predecessor_observation_gap` and
-  `absence_of_an_earlier_unreported_attempt`; and (5) the statement that no
-  attempt-1 economic or status readout was used to decide the restart, which is an
-  author and planner attestation and not something code verifies.
+**What the owner said.** On 2026-10-30 the owner wrote, verbatim (Issue #810 comment
+6659653178): 「そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ」
+(in English: I do not know that data; I do not know where the saved results are, so
+you may collect new data). This says that the owner does not know where the attempt-1
+data and results are and that new data may be collected. It does not say that the root
+is lost or unreadable, and it does not mention G0 or predecessor verification. The step
+list in the planner's 2026-11-05 record on the same comment, which names
+`predecessor_root: unavailable`, is the planner's text, not the owner's words; this
+contract does not treat it as an owner authorization of a G0 exception.
+
+**Implementer search record (read-only, 2026-11-06).** An implementer searched the
+machine used for this repository for an attempt-1 root and found none. Scope: every
+file on drive C: (the only local drive) named `protocol.json`, `journal.sqlite`,
+`collection-control.sqlite`, `collector.sqlite` or `collection-failure.json`, excluding
+only `C:\Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`,
+`System Volume Information`, `Recovery`, `node_modules` and `site-packages`, which
+covers the user profile (including `AppData\Local\Temp`, `.gemini`, `.codex`, `Desktop`
+and `Documents`), `C:\mnt`, `C:\tmp` and the other top-level directories; the SHA-256
+of each of the 627 `protocol.json` files found was compared with the attempt-1 protocol
+digest `843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7` and none
+matched; the Recycle Bin file listing (no database or protocol file by name); and
+every git worktree and ref (none is or contains `funding-carry-forward-20260918`). Only
+file names and the digests of the `protocol.json` files were read; no journal, status
+or economic readout was opened. Not searched: any other machine or host, cloud or
+backup storage, external media, and Docker volumes. A search that finds nothing on one
+machine does not prove that the root does not exist elsewhere.
+
+The exception can be used only when **all** of these hold:
+
+1. the family is the funding-carry paper screen, the attempt is 2 and its predecessor
+   is attempt 1 with the protocol digest pinned in
+   `trade_rl/evaluation/paper/predecessor.py`;
+2. the owner has stated, in the verbatim words above, that they do not know where the
+   attempt-1 data and results are, and a recorded read-only search (the record above,
+   repeated on any other machine the owner names) finds no root with that digest; a
+   root that is merely inconvenient to find, or is readable, requires the `available`
+   path;
+3. **a separate explicit owner authorization exists on Issue #810 that names the G0
+   predecessor-verification exception**: an owner comment, or an owner-written
+   statement quoted verbatim, that says in terms that attempt 2 may be sealed without
+   verifying the attempt-1 root with the v1 reader, and that the predecessor protocol
+   digest, final tip, observation gap and the absence of an earlier unreported attempt
+   then remain `not_established`. The comment of 2026-11-05 does not say this and is
+   not that authorization. Code checks the URL shape only, so a human reviewer must
+   read the comment; and
+4. the exception is reviewed in the pull request that records it.
+
+The exception does not apply to any other family, attempt number or predecessor.
+
+* **Recorded in place of the root verification (if the exception is authorized):**
+  (1) the URL of the authorization comment of condition 3; (2) the owner's verbatim
+  statement and date, which attests only the location statement and the permission to
+  collect fresh data and does **not** attest the lineage values or the absence of an
+  earlier attempt; (3) the disposition `invalidated` with reason `observation_gap`,
+  taken from the prior public result-blind review record at the pinned commit with
+  `re_verified_at_seal` false; (4) the `not_established` list
+  `predecessor_protocol_digest`, `predecessor_final_tip`,
+  `predecessor_observation_gap` and `absence_of_an_earlier_unreported_attempt`; and
+  (5) the statement that no attempt-1 economic or status readout was used to decide the
+  restart, which is an author and planner attestation and not something code verifies.
 * **Replacement review:** a fresh result-blind review of the lineage documentation
   and of the pull request that introduced the lost-predecessor rule. It cannot
   confirm the predecessor protocol digest, final tip or observation gap and does not
@@ -1445,28 +1491,22 @@ and what is recorded in its place.
   and global attempt uniqueness stays unestablished. A review must say so and cannot
   record a verified predecessor chain.
 * **Does not replace:** the independent `research_assurance_v1` review of the
-  author packet, the explicit Issue authorization, the storage probe, or any other
-  G0/G1/G2 requirement.
-
-The owner's words authorize a fresh restart without the attempt-1 root; they do not
-mention G0 or its predecessor verification. This section is therefore the repository's
-contract treatment of an unverifiable predecessor (`not_established`, not verified),
-and the pull request that adopts it is the place where a reviewer can reject it.
+  author packet, the explicit Issue authorization for the seal itself, the storage
+  probe, or any other G0/G1/G2 requirement.
 
 The attempt-2 author packet is `report/issue810-carry-attempt2-research-assurance-20261105.json`
-(canonical digest `fcad0eb2dc6d595e26fdd8a30eeeef264613dc31a5dba6b6007aed9ba2c2c85d`). Its status is UNREVIEWED: no independent
+(canonical digest `9a35fcd888f85166e2abb34000dd35580c8b94e216de0c1591be003c676df2d0`). Its status is UNREVIEWED: no independent
 `research_assurance_review_v1` verified by the tooling exists. On 2026-11-05 the owner
 wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
 Antigravity/Gemini, is acceptable). That the review would be posted under the same
 GitHub account is the planner's reading in the Issue #810 record, not the owner's
-wording. Such a same-principal review is an owner-recorded route and a deviation from
-the different-principal rule; `tools.research_assurance_github` rejects
-same-principal reviews, so it cannot satisfy that tool and is not a PASS. Issue #810
-authorization evidence:
-https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (it does not replace the review). The packet authorizes neither a seal, a
+wording. A same-principal review is a deviation from the different-principal rule and
+is not attributed to the owner beyond those quoted words;
+`tools.research_assurance_github` rejects same-principal reviews, so it cannot satisfy
+that tool and is not a PASS. Issue #810 record:
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (it does not replace the review
+and does not authorize the G0 exception). The packet authorizes neither a seal, a
 launch, the storage probe nor any economic run. See `docs/specs/funding-carry-paper.md`.
-
-he storage probe nor any economic run. See `docs/specs/funding-carry-paper.md`.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 

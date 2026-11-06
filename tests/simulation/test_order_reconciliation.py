@@ -442,11 +442,15 @@ def test_invalid_shapes_gross_latency_and_offsets_fail_closed() -> None:
 
 @pytest.mark.parametrize("sign", (-1.0, 1.0))
 @pytest.mark.parametrize(
-    ("target_weight", "equity", "price", "multiplier"),
+    ("target_weight", "equity", "price", "multiplier", "maximum_gross"),
     (
-        pytest.param(1.0, 1_000.0, 1e308, 1e308, id="unit-overflow"),
-        pytest.param(1e-300, 1e-100, 1.0, 1.0, id="target-value-underflow"),
-        pytest.param(1.0, 1e-200, 1e308, 1.0, id="quantity-underflow"),
+        pytest.param(1.0, 1_000.0, 1e308, 1e308, 1.0, id="unit-overflow"),
+        pytest.param(1.0, 1_000.0, 1e-200, 1e-200, 1.0, id="unit-underflow"),
+        pytest.param(
+            1e-300, 1e-100, 1.0, 1.0, 1.0, id="target-value-underflow"
+        ),
+        pytest.param(2.0, 1e308, 1.0, 1.0, 2.0, id="target-value-overflow"),
+        pytest.param(1.0, 1e-200, 1e308, 1.0, 1.0, id="quantity-underflow"),
     ),
 )
 def test_reconciliation_rejects_unrepresentable_nonzero_target(
@@ -454,6 +458,7 @@ def test_reconciliation_rejects_unrepresentable_nonzero_target(
     equity: float,
     price: float,
     multiplier: float,
+    maximum_gross: float,
     sign: float,
 ) -> None:
     """A nonzero portfolio target must not silently collapse to zero quantity."""
@@ -463,7 +468,7 @@ def test_reconciliation_rejects_unrepresentable_nonzero_target(
         np.array([price]),
         contract_multipliers=np.array([multiplier]),
     )
-    before_exact = book.exact_quantities
+    before_exact = tuple(book.exact_quantities)
 
     with pytest.raises(
         OrderReconciliationError,
@@ -485,17 +490,27 @@ def test_reconciliation_rejects_unrepresentable_nonzero_target(
             time_in_force=TimeInForce.GTC,
             expiry_index=None,
             limit_offset_rate=0.0,
+            maximum_gross=maximum_gross,
         )
 
     assert book.exact_quantities == before_exact
 
 
-def test_reconciliation_zero_target_allows_unrepresentable_unit_value() -> None:
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    (
+        pytest.param(1e308, 1e308, id="unit-overflow"),
+        pytest.param(1e-200, 1e-200, id="unit-underflow"),
+    ),
+)
+def test_reconciliation_zero_target_allows_unrepresentable_unit_value(
+    price: float, multiplier: float
+) -> None:
     book = BookState.zero(
         1,
         1_000.0,
-        np.array([1e308]),
-        contract_multipliers=np.array([1e308]),
+        np.array([price]),
+        contract_multipliers=np.array([multiplier]),
     )
 
     result = reconcile_target(
@@ -505,8 +520,8 @@ def test_reconciliation_zero_target_allows_unrepresentable_unit_value() -> None:
         target_weights=np.array([0.0]),
         book=book,
         order_book=OrderBookState.empty(),
-        reference_prices=np.array([1e308]),
-        valuation_prices=np.array([1e308]),
+        reference_prices=np.array([price]),
+        valuation_prices=np.array([price]),
         decision_equity=1_000.0,
         submit_index=0,
         latency_bars=0,
@@ -518,6 +533,39 @@ def test_reconciliation_zero_target_allows_unrepresentable_unit_value() -> None:
 
     assert result.new_intents == ()
     np.testing.assert_array_equal(result.desired_quantities, np.array([0.0]))
+
+
+def test_reconciliation_rejects_one_unrepresentable_leg_in_mixed_portfolio() -> None:
+    prices = np.array([100.0, 1e308])
+    multipliers = np.array([1.0, 1e308])
+    book = BookState.zero(
+        2,
+        1_000.0,
+        prices,
+        contract_multipliers=multipliers,
+    )
+
+    with pytest.raises(
+        OrderReconciliationError,
+        match="nonzero.*target.*represent",
+    ):
+        reconcile_target(
+            dataset_id="d" * 64,
+            target_identity="mixed-representability-target",
+            execution_policy_digest="e" * 64,
+            target_weights=np.array([0.5, 0.5]),
+            book=book,
+            order_book=OrderBookState.empty(),
+            reference_prices=prices,
+            valuation_prices=prices,
+            decision_equity=1_000.0,
+            submit_index=0,
+            latency_bars=0,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC,
+            expiry_index=None,
+            limit_offset_rate=0.0,
+        )
 
 
 @pytest.mark.parametrize(

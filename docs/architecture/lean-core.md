@@ -522,8 +522,15 @@ that transition. PPO's historical no-risk shortcut remains unchanged.
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
 basis as its equity and weights. An entirely cash book uses the current dataset
 mark for its first entry sizing, including `BookState.zero` callers that omitted
-initial prices; placeholder book marks must not determine entry units. This does
-not mutate the caller's book. Trading close remains the submission reference
+initial prices; placeholder book marks must not determine entry units. A nonzero
+target weight must produce a finite nonzero target value, unit notional, quantity,
+and book-authoritative `quantity * mark_price * contract_multiplier` value; any
+overflow or underflow at these stages fails closed instead of silently flattening
+the target. A true zero target short-circuits to zero quantity without requiring
+`mark_price * contract_multiplier` itself to be representable. Initial
+`BookState.from_weights`, stateful target reconciliation, single-symbol replay,
+and directional PPO share this sizing authority. This does not mutate the caller's
+book. Trading close remains the submission reference
 for order identity, limit/stop offsets, and order-completion diagnostics. Distinct
 mark and trading prices must not generate a rebalance for an unchanged quantity
 proposal. Direct low-level reconciliation callers that omit valuation prices

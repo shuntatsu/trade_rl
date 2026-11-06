@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl._validation import require_sha256
-from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.accounting import BookState, target_quantity_from_weight
 from trade_rl.simulation.orders.admission import snap_price_to_tick
 from trade_rl.simulation.orders.model import (
     OrderBookState,
@@ -209,7 +209,17 @@ def reconcile_target(
             "exact quantity hold target must equal the current book weight"
         )
 
-    desired = weights * decision_equity / (sizing_prices * multipliers)
+    desired = np.zeros_like(weights)
+    try:
+        for symbol_index, weight in enumerate(weights):
+            desired[symbol_index] = target_quantity_from_weight(
+                float(weight),
+                equity=float(decision_equity),
+                price=float(sizing_prices[symbol_index]),
+                contract_multiplier=float(multipliers[symbol_index]),
+            )
+    except ValueError as error:
+        raise OrderReconciliationError(str(error)) from error
     state = order_book
     cancelled: list[PendingOrder] = []
     intents: list[OrderIntent] = []

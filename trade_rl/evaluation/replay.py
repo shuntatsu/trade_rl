@@ -26,6 +26,7 @@ from trade_rl.simulation import (
     MarketExecutor,
 )
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
+from trade_rl.simulation.accounting import target_quantity_from_weight
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.native_transition import (
     execute_native_target_transition,
@@ -407,9 +408,14 @@ def _desired_quantity_from_weight(
     *,
     symbol_index: int,
 ) -> float:
-    multipliers = np.asarray(book.contract_multipliers, dtype=np.float64)
-    denominator = float(book.mark_prices[symbol_index] * multipliers[symbol_index])
-    return float(target_weight * book.portfolio_value / denominator)
+    multipliers = book.contract_multipliers
+    assert multipliers is not None
+    return target_quantity_from_weight(
+        target_weight,
+        equity=float(book.portfolio_value),
+        price=float(book.mark_prices[symbol_index]),
+        contract_multiplier=float(multipliers[symbol_index]),
+    )
 
 
 def _weight_for_desired_quantity(

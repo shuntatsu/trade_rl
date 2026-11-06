@@ -52,6 +52,7 @@ Dataset側で既に持っているコストをruntime側でももう一度控除
 - `BookState`更新
 
 partial fillなら、要求数量ではなくrealized fill quantityだけをpositionへ反映します。
+正しく表現できる極小の評価額は、利用側がNumPyの数値例外設定を厳格化していても帳簿へ反映されます。更新前の値チェックと更新後の評価計算に同じ演算の扱いを適用し、途中例外による保有量だけの更新を防ぎます。
 
 残数量が一致しても、注文種別・time-in-force（IOC/DAY/GTC）・明示有効期限・実行ポリシー等が変わった場合は古い未約定注文をcancel-and-replaceします。条件が同じ場合は既存注文のeligible時刻を維持し、毎回latencyをリセットしません。
 

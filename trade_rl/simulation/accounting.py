@@ -311,7 +311,11 @@ class BookState:
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        return self.quantities * self.mark_prices * multipliers
+        # The proposed state is checked for zero/nonfinite legs before mutation.
+        # Reading that state must use the same floating-point policy, even when
+        # a caller enabled strict NumPy errors for representable subnormals.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            return self.quantities * self.mark_prices * multipliers
 
     @property
     def portfolio_value(self) -> float:

@@ -315,7 +315,7 @@ def _review_prerequisite(predecessor_root_status: str) -> str:
     return (
         "result-blind review of the lineage documentation and the pull request that "
         "introduced the unavailable-predecessor rule (attempt 1's root was not found "
-        "in the recorded partial drive C: search and is not re-verified)"
+        "in the recorded bounded drive C: search and is not re-verified)"
     )
 
 

@@ -400,7 +400,8 @@ def test_predecessor_unavailable_case_is_a_bounded_owner_authorized_g0_exception
     assert record["review_rule"] == UNAVAILABLE_REVIEW_RULE
     # The sealed record may say only what the evidence supports: not located.
     assert "was not located" in UNAVAILABLE_REVIEW_RULE
-    assert "selected paths on drive C:" in UNAVAILABLE_REVIEW_RULE
+    assert "excluding the top-level directories" in UNAVAILABLE_REVIEW_RULE
+    assert "selected paths" not in UNAVAILABLE_REVIEW_RULE
     assert "Docker volumes" in UNAVAILABLE_REVIEW_RULE
     assert "were not searched" in UNAVAILABLE_REVIEW_RULE
     assert "lost" not in UNAVAILABLE_REVIEW_RULE.lower()

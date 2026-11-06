@@ -118,7 +118,10 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         "absence_of_an_earlier_unreported_attempt",
     ]
     assert "evidence root was not located" in rule
-    assert "selected paths on drive C:" in rule
+    assert "excluding the top-level directories" in rule
+    assert "at any depth (Program Files (x86) was searched)" in rule
+    assert "selected paths" not in rule
+    assert "43 paths could not be read and 50 links or junctions" in rule
     assert "Docker volumes" in rule
     assert "were not searched" in rule
     assert "is lost" not in rule

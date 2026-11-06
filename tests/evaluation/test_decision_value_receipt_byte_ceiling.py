@@ -26,7 +26,9 @@ def test_strict_receipt_reader_never_uses_unbounded_file_read(
     class ReadProbe:
         def read(self, size: int = -1) -> bytes:
             if size < 0:
-                raise AssertionError("strict receipt reader requested an unbounded read")
+                raise AssertionError(
+                    "strict receipt reader requested an unbounded read"
+                )
             requested_sizes.append(size)
             return b"{}"
 

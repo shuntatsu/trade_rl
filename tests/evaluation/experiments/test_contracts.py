@@ -144,7 +144,11 @@ def test_resolved_run_config_rejects_unexecutable_budget_contract(
     (
         pytest.param("gross_budget", 0.0, id="zero-gross-budget"),
         pytest.param("gross_budget", -0.1, id="negative-gross-budget"),
-        pytest.param("gross_budget", 1.0000000000000002, id="gross-budget-above-one"),
+        pytest.param(
+            "gross_budget",
+            1.0000000000000002,
+            id="gross-budget-above-one",
+        ),
         pytest.param("initial_capital", 0.0, id="zero-initial-capital"),
         pytest.param("initial_capital", -1.0, id="negative-initial-capital"),
     ),

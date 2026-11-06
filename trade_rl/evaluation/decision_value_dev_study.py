@@ -2279,8 +2279,15 @@ def load_incomplete_pair_attempt(
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
-    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
-        raise ValueError("failure receipt root contents are malformed")
+    # Verify the single-file root without Path.iterdir()'s eager full scan.
+    with os.scandir(directory) as entries:
+        first = next(entries, None)
+        if (
+            first is None
+            or first.name != _INCOMPLETE_RECEIPT_FILE
+            or next(entries, None) is not None
+        ):
+            raise ValueError("failure receipt root contents are malformed")
     with open_regular_binary(
         directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
     ) as handle:

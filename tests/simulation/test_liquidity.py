@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from trade_rl.simulation.accounting import BookState
-
 from trade_rl.simulation.liquidity import (
     LiquidityAllocationError,
     LiquidityPriority,

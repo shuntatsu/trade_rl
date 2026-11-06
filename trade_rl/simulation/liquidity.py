@@ -461,6 +461,20 @@ def allocate_symbol_capacity(
                 )
             )
             continue
+        # BookState must not receive a nonzero fill whose left-associated
+        # quote notional has silently underflowed to zero. Do not consume
+        # shared capacity or inventory for such a rejected allocation.
+        if exact_notional == 0.0:
+            allocations.append(
+                _zero_allocation(
+                    request,
+                    requested_notional=requested_notional,
+                    capacity_before=capacity_before,
+                    accessible_capacity=accessible_capacity,
+                    reason="unrepresentable_notional",
+                )
+            )
+            continue
         if exact_notional > capacity_before + _TOLERANCE:
             raise LiquidityAllocationError(
                 "rounded fill exceeds remaining symbol capacity"

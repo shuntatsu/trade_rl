@@ -332,14 +332,15 @@ def _adversarial_endpoint(draw: st.DrawFn) -> dict[str, object]:
     suppress_health_check=[HealthCheck.too_slow],
 )
 @given(baseline=_adversarial_endpoint(), candidate=_adversarial_endpoint())
-def test_every_persisted_receipt_passes_strict_reload(
+def test_bounded_synthetic_receipts_pass_strict_reload(
     baseline: dict[str, object], candidate: dict[str, object]
 ) -> None:
-    """Invariant: whatever the writer persists, the strict reader accepts."""
+    """Writer-generated bounded synthetic receipts reload under default budget."""
     with tempfile.TemporaryDirectory() as raw:
         root = Path(raw) / "attempt"
         digest = _persist(root, _row(baseline=baseline, candidate=candidate))
         assert sorted(p.name for p in root.iterdir()) == [_RECEIPT]
+        assert (root / _RECEIPT).stat().st_size <= 64 * 1024 * 1024
         receipt = study.load_incomplete_pair_attempt(
             root, expected_receipt_digest=digest
         )

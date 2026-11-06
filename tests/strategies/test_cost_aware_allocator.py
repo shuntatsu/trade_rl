@@ -584,7 +584,12 @@ def test_valid_finite_marks_with_overflowed_return_or_covariance_hold(
 ) -> None:
     # Capture a valid, scheduled public snapshot from the native replay path.
     seen: list[PortfolioDecisionSnapshot] = []
-    source = _CallableSource(lambda snapshot: (seen.append(snapshot) or (0.0,) * 3))
+
+    def capture(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        seen.append(snapshot)
+        return (0.0, 0.0, 0.0)
+
+    source = _CallableSource(capture)
     _replay(
         _dataset(_noise(seed=41)),
         _policy(source, min_history_periods=2),
@@ -594,10 +599,13 @@ def test_valid_finite_marks_with_overflowed_return_or_covariance_hold(
     snapshot = seen[0]
     day_ns = 24 * 3_600 * 1_000_000_000
     policy_calls: list[PortfolioDecisionSnapshot] = []
+
+    def predicted(current: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        policy_calls.append(current)
+        return (0.01, 0.01, 0.01)
+
     policy = _policy(
-        _CallableSource(
-            lambda current: (policy_calls.append(current) or (0.01,) * 3)
-        ),
+        _CallableSource(predicted),
         min_history_periods=2,
         warmup_timestamps_ns=(
             snapshot.timestamp_ns - 2 * day_ns,

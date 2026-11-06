@@ -82,7 +82,17 @@ def _cash_interest_amount(
         raise ValueError("annual_rate must be finite")
     if not np.isfinite(year_fraction) or year_fraction < 0.0:
         raise ValueError("year_fraction must be finite and non-negative")
-    return float(cash_basis * annual_rate * year_fraction)
+    amount = float(cash_basis * annual_rate * year_fraction)
+    if not math.isfinite(amount):
+        raise ValueError("cash interest amount became non-finite")
+    if (
+        cash_basis != 0.0
+        and annual_rate != 0.0
+        and year_fraction != 0.0
+        and amount == 0.0
+    ):
+        raise ValueError("nonzero cash interest amount cannot be represented")
+    return amount
 
 
 def _require_finite_post_update_equity(
@@ -432,8 +442,15 @@ class BookState:
             raise ValueError("dividend_per_unit must match the book")
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        with np.errstate(over="ignore", invalid="ignore"):
-            amount = float(np.dot(self.quantities * multipliers, dividend))
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            dividend_basis = self.quantities * multipliers
+            dividend_contributions = dividend_basis * dividend
+            amount = float(np.dot(dividend_basis, dividend))
+        if not np.isfinite(dividend_contributions).all() or not math.isfinite(amount):
+            raise ValueError("dividend amount became non-finite")
+        active = (self.quantities != 0.0) & (dividend != 0.0)
+        if np.any(active & (dividend_contributions == 0.0)):
+            raise ValueError("nonzero dividend amount cannot be represented")
         cash_after = self.cash + amount
         _require_finite_post_update_equity(
             cash=cash_after,

@@ -143,3 +143,45 @@ def test_zero_rate_cash_interest_is_identity() -> None:
     before = book.clone()
     assert book.apply_cash_interest(0.0, year_fraction=1.0) == 0.0
     _assert_unchanged(book, before)
+
+
+def test_funding_cancellation_to_exact_zero_remains_valid() -> None:
+    shape = (3, 2)
+    prices = np.ones(shape)
+    rates = np.zeros(shape)
+    rates[1] = np.array([0.25, 0.25])
+    due = np.zeros(shape, dtype=np.bool_)
+    due[1] = True
+    dataset = MarketDataset(
+        dataset_id="a" * 64,
+        symbols=("L", "S"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(3) * np.timedelta64(1, "h"),
+        features=np.zeros((3, 2, 1), dtype=np.float32),
+        global_features=np.zeros((3, 1), dtype=np.float32),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        volume=np.full(shape, 1_000.0),
+        funding_rate=rates,
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((3, 2, 1), dtype=np.bool_),
+        feature_names=("x",),
+        global_feature_names=("g",),
+        periods_per_year=8_760,
+        funding_due=due,
+        mark_price=prices.copy(),
+    )
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.ones(2),
+        peak_value=1_000.0,
+    )
+    before = book.clone()
+    funding, borrow = executor._charge_carry(book, index=1, year_fraction=0.0)
+    assert funding == 0.0
+    assert borrow == 0.0
+    _assert_unchanged(book, before)

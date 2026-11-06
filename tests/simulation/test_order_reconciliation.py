@@ -511,13 +511,6 @@ def test_reconciliation_rejects_unrepresentable_nonzero_target(
     assert book.exact_quantities == before_exact
 
 
-@pytest.mark.parametrize(
-    ("price", "multiplier"),
-    (
-        pytest.param(1e308, 1e308, id="unit-overflow"),
-        pytest.param(1e-200, 1e-200, id="unit-underflow"),
-    ),
-)
 def test_exact_quantity_hold_skips_unrepresentable_resizing_price() -> None:
     book = _book(2.0)
     current_weight = float(book.weights[0])
@@ -546,6 +539,13 @@ def test_exact_quantity_hold_skips_unrepresentable_resizing_price() -> None:
     np.testing.assert_array_equal(result.residual_quantities, np.array([0.0]))
 
 
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    (
+        pytest.param(1e308, 1e308, id="unit-overflow"),
+        pytest.param(1e-200, 1e-200, id="unit-underflow"),
+    ),
+)
 def test_reconciliation_zero_target_allows_unrepresentable_unit_value(
     price: float, multiplier: float
 ) -> None:

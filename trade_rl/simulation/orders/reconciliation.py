@@ -228,10 +228,19 @@ def reconcile_target(
     intents: list[OrderIntent] = []
     residuals = np.zeros_like(desired)
     exact_quantities = book.exact_quantities
-    decision_reference_gross = float(np.sum(np.abs(quantities * prices * multipliers)))
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        decision_reference_values = quantities * prices * multipliers
+        decision_reference_gross = float(np.sum(np.abs(decision_reference_values)))
+    if (
+        not np.isfinite(decision_reference_values).all()
+        or not math.isfinite(decision_reference_gross)
+        or np.any((quantities != 0.0) & (decision_reference_values == 0.0))
+    ):
+        raise OrderReconciliationError(
+            "nonzero decision reference position value cannot be represented"
+        )
     decision_reference_over_cap = (
-        math.isfinite(decision_reference_gross)
-        and decision_reference_gross > decision_equity * maximum_gross + _TOLERANCE
+        decision_reference_gross > decision_equity * maximum_gross + _TOLERANCE
     )
 
     for symbol_index in range(weights.size):

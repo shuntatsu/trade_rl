@@ -161,6 +161,57 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert features.flags.writeable is False
 
 
+@pytest.mark.parametrize(
+    ("price", "multiplier", "initial_capital"),
+    (
+        pytest.param(1e308, 1e308, 1_000.0, id="unit-overflow"),
+        pytest.param(1e-200, 1e-200, 1_000.0, id="unit-underflow"),
+        pytest.param(1e308, 1.0, 1e-200, id="quantity-underflow"),
+        pytest.param(
+            1e-200,
+            1e200,
+            2e-150,
+            id="roundtrip-intermediate-underflow",
+        ),
+        pytest.param(
+            1e200,
+            1e-200,
+            2e150,
+            id="roundtrip-intermediate-overflow",
+        ),
+    ),
+)
+def test_replay_rejects_unrepresentable_nonzero_target_quantity(
+    price: float, multiplier: float, initial_capital: float
+) -> None:
+    base = _rising_market()
+    prices = np.full_like(base.close, price)
+    dataset = replace(
+        base,
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        index_price=prices.copy(),
+        contract_multipliers=np.array([multiplier]),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="nonzero target quantity cannot be represented",
+    ):
+        evaluation.run_single_symbol_replay(
+            dataset,
+            AlwaysLong(),
+            start_index=0,
+            stop_index=1,
+            gross_budget=0.5,
+            initial_capital=initial_capital,
+            settle_terminal_position=False,
+        )
+
+
 def test_cost_aware_replay_cancels_unfilled_stale_long_before_latency_fill() -> None:
     weak_forecast = float(np.log1p(0.005))
     forecast_values = np.asarray(

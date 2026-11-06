@@ -112,6 +112,57 @@ def _zero_book(dataset: MarketDataset) -> BookState:
     )
 
 
+@pytest.mark.parametrize("capacity_volume,expected_ratio", [(0.0, 0.0), (1.0, 1.0)])
+def test_tiny_nonzero_stateful_request_has_real_fill_ratio(
+    capacity_volume: float, expected_ratio: float
+) -> None:
+    """A tiny real order is not the identity/no-request case."""
+    price = 0.1
+    prices = np.full((6, 1), price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        volume=np.full((6, 1), capacity_volume),
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="tiny-fill-ratio",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=2e-12,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=price,
+        decision_equity=1_000.0,
+    )
+    result = executor.execute_orders(
+        BookState.zero(1, 1_000.0, np.array([price])),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+    assert result.requested_notional == pytest.approx(2e-13)
+    assert result.requested_notional > 0.0
+    assert result.fill_ratio == expected_ratio
+    if expected_ratio == 0.0:
+        assert result.fill_count == 0
+        assert result.filled_notional == 0.0
+        assert result.unfilled_turnover == result.requested_turnover
+    else:
+        assert result.fill_count == 1
+        assert result.filled_notional > 0.0
+        assert result.unfilled_turnover == 0.0
+
+
 def test_empty_accepted_orders_do_not_scan_dataset_symbols(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

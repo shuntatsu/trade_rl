@@ -254,6 +254,7 @@ def test_deeply_nested_untrusted_receipt_json_fails_as_value_error(
 
     assert receipt.read_bytes() == raw
 
+
 def test_json_canonicalization_recursion_fails_as_value_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -267,9 +268,7 @@ def test_json_canonicalization_recursion_fails_as_value_error(
     def recursive_canonical_json_bytes(_value: object) -> bytes:
         raise RecursionError("synthetic canonicalization recursion")
 
-    monkeypatch.setattr(
-        study, "canonical_json_bytes", recursive_canonical_json_bytes
-    )
+    monkeypatch.setattr(study, "canonical_json_bytes", recursive_canonical_json_bytes)
     with pytest.raises(ValueError, match="failure receipt JSON"):
         study.load_incomplete_pair_attempt(root)
 

@@ -134,15 +134,19 @@ class StatefulOrderTransitionProcessor:
             mark_prices=context.open_prices,
         )
         processing_open_equity = projected_book.portfolio_value
-        processing_open_gross = float(
-            np.sum(
-                np.abs(
-                    projected_book.quantities
-                    * projected_book.mark_prices
-                    * projected_book.contract_multipliers
+        # The projector has already validated each marked position. Summing
+        # gross exposure must not depend on caller NumPy underflow settings,
+        # but an unrepresentable gross total cannot grant leverage headroom.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            processing_open_gross = float(
+                np.sum(
+                    np.abs(
+                        projected_book.quantities
+                        * projected_book.mark_prices
+                        * projected_book.contract_multipliers
+                    )
                 )
             )
-        )
         processing_open_over_cap = (
             not projected_book.insolvent
             and np.isfinite(processing_open_equity)

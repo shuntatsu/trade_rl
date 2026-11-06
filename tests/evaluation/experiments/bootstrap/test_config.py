@@ -79,6 +79,38 @@ def test_valid_config_injects_one_seed_authority_and_normalizes_identity(
     assert len(config.digest) == 64
 
 
+def test_bootstrap_seed_roster_accepts_ascending_nonzero_first_seed(
+    tmp_path: Path,
+) -> None:
+    payload = _valid_payload()
+    payload["ppo_seeds"] = [1, 2]
+
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+    assert config.ppo_seeds == (1, 2)
+    assert config.baseline.ppo_seed == 1
+
+
+def test_bootstrap_rejects_out_of_order_seeds_before_source_acquisition(
+    tmp_path: Path,
+) -> None:
+    payload = _valid_payload()
+    payload["ppo_seeds"] = [1, 0]
+
+    with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
+        load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+
+def test_direct_bootstrap_constructor_rejects_out_of_order_seeds(
+    tmp_path: Path,
+) -> None:
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
+    baseline = replace(config.baseline, ppo_seed=1)
+
+    with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
+        replace(config, baseline=baseline, ppo_seeds=(1, 0))
+
+
 @pytest.mark.parametrize(
     ("location", "key", "value"),
     [

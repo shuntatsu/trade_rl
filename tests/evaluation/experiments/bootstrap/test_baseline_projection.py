@@ -5,10 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.evaluation.experiments.bootstrap.test_config import (
-    _valid_payload,
-    _write,
-)
+from tests.evaluation.experiments.bootstrap.test_config import _valid_payload, _write
 from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
@@ -39,9 +36,9 @@ def test_direct_bootstrap_rejects_baseline_semantics_outside_digest_projection(
 ) -> None:
     config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
     changed_baseline = replace(config.baseline, **{field: value})
-    assert changed_baseline.to_json_payload()[field] != (
-        config.baseline.to_json_payload()[field]
-    )
+    changed_payload = changed_baseline.to_json_payload()
+    canonical_payload = config.baseline.to_json_payload()
+    assert changed_payload[field] != canonical_payload[field]
 
     with pytest.raises(ValueError, match="baseline.*(projection|canonical)"):
         replace(config, baseline=changed_baseline)

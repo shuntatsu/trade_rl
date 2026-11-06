@@ -723,3 +723,17 @@ def test_unpinned_quarantine_metadata_rejects_inconsistent_inner_hash(
     _rewrite(root, change_source, redigest=True)
     with pytest.raises(ValueError, match="unvalidated source"):
         study.load_incomplete_pair_attempt(root)
+
+def test_quarantine_truncated_source_prefix_stays_readable(
+    tmp_path: Path,
+) -> None:
+    """A genuine clipped source is readable but cannot prove the missing tail."""
+    root = tmp_path / "attempt"
+    digest = _persist(
+        root, _row(baseline={"terminal_cash": "untrusted-" + "x" * 70_000})
+    )
+    receipt = _assert_locked_and_reloadable(root, digest)
+    source = receipt["pairs"][0]["unvalidated_source_record"]
+    assert source["truncated"] is True
+    assert len(source["text"]) == 65_536
+    assert len(source["sha256"]) == 64

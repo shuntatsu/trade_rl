@@ -730,7 +730,8 @@ def test_quarantine_truncated_source_prefix_stays_readable(tmp_path: Path) -> No
     """A genuine clipped source is readable but cannot prove the missing tail."""
     root = tmp_path / "attempt"
     digest = _persist(
-        root, _row(baseline={"terminal_cash": "untrusted-" + "x" * 70_000})
+        root,
+        _row(baseline={"terminal_cash": "untrusted-" + "x" * 70_000}),
     )
     receipt = _assert_locked_and_reloadable(root, digest)
     source = receipt["pairs"][0]["unvalidated_source_record"]

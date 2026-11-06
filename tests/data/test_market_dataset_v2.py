@@ -551,6 +551,7 @@ def test_nonzero_target_rejects_unrepresentable_active_unit(
         market.notional_to_quantity(0, np.array([sign]), prices=np.array([price]))
 
 
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
 @pytest.mark.parametrize(
     ("notional", "price", "multiplier"),
     (
@@ -559,7 +560,7 @@ def test_nonzero_target_rejects_unrepresentable_active_unit(
     ),
 )
 def test_gemini4_notional_to_quantity_rejects_unrepresentable_roundtrip(
-    notional: float, price: float, multiplier: float
+    notional: float, price: float, multiplier: float, sign: float
 ) -> None:
     values = kwargs(n_symbols=1)
     values["contract_multipliers"] = np.array([multiplier])
@@ -568,7 +569,7 @@ def test_gemini4_notional_to_quantity_rejects_unrepresentable_roundtrip(
     with pytest.raises(ValueError, match="notional-to-quantity.*represent"):
         market.notional_to_quantity(
             0,
-            np.array([notional]),
+            np.array([sign * notional]),
             prices=np.array([price]),
         )
 
@@ -585,6 +586,35 @@ def test_gemini4_contract_market_notional_uses_authoritative_float_order() -> No
             prices=np.array([1e200]),
             volume=np.array([1e200]),
         )
+
+
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    (
+        pytest.param(1e-200, 1e200, id="intermediate-underflow"),
+        pytest.param(1e100, 1e-300, id="final-underflow"),
+    ),
+)
+def test_gemini4_contract_market_notional_underflow_and_true_zero(
+    price: float, multiplier: float
+) -> None:
+    """Nonzero contract volume cannot vanish; genuine zero volume stays zero."""
+    values = kwargs(n_symbols=1)
+    values["volume_units"] = (VolumeUnit.CONTRACTS,)
+    values["contract_multipliers"] = np.array([multiplier])
+    market = MarketDataset(**values)
+
+    with pytest.raises(ValueError, match="nonzero market notional"):
+        market.market_notional(
+            0, prices=np.array([price]), volume=np.array([1e-200])
+        )
+
+    np.testing.assert_array_equal(
+        market.market_notional(
+            0, prices=np.array([price]), volume=np.array([0.0])
+        ),
+        np.array([0.0]),
+    )
 
 
 def test_gemini4_market_notional_rejects_nonzero_underflow() -> None:

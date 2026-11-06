@@ -294,11 +294,12 @@ lost or unreadable and do not mention G0. Attempt 2 uses lineage
   final tip, observation gap, and the absence of an earlier unreported attempt.
   The disposition stays `invalidated` with reason `observation_gap`. The code
   accepts this status on attestation alone and does not check that the root is
-  unreadable. Using it skips G0 predecessor verification, which no owner
-  authorization names: it may be sealed only after a separate explicit owner
-  authorization naming the G0 exception exists on Issue #810 (see
-  `docs/architecture/research-assurance.md`). None exists as of 2026-11-06, so attempt
-  2 is not to be sealed with `unavailable` yet.
+  unreadable. Using it skips G0 predecessor verification. The owner authorized that
+  skip, bounded to funding-carry attempt 2, on Issue #810 on 2026-11-06 (comment
+  6673566542, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542; the planner's
+  record of the owner's chat answer 「承認する」, quoted verbatim in
+  `docs/architecture/research-assurance.md`). It is not a general exception, relaxes no
+  criterion, and the four `not_established` items stay `not_established`.
 
 Threat model. These gates prevent accidental or non-canonical attempt-2 records
 from being sealed or run through the supported entry points (`attempt2`,
@@ -361,15 +362,16 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
   G0 exception is separately authorized by the owner.
 
 Plainly: attempt 1's evidence root has not been located; if it is never found, its
-lineage rests on a prior recorded review and the predecessor is not re-verified. Only
-if the owner separately authorizes the G0 exception on Issue #810, the runbook's
-"fresh review resolves the preserved root" requirement is replaced by a fresh
-result-blind review of the lineage documentation (this section and the
-current-status record) and the pull request that introduced the rule. That review
+lineage rests on a prior recorded review and the predecessor is not re-verified. Because
+the owner authorized the G0 exception for attempt 2 on Issue #810 (2026-11-06, comment
+6673566542), the runbook's "fresh review resolves the preserved root" requirement is
+replaced by a fresh result-blind review of the lineage documentation (this section and
+the current-status record) and the pull request that introduced the rule. That review
 cannot confirm the predecessor digests, tip or gap against the root, and it does not
 establish that no earlier unreported attempt exists; the sealed record lists these
-as `not_established`. Without that authorization G0 predecessor verification applies
-and attempt 2 stays unsealed.
+as `not_established`. If the attempt-1 root is found, the `available` path with the v1
+reader must be used instead; for any other family, attempt or predecessor G0
+predecessor verification applies unchanged.
 
 Require positive net profit after actual simulated exits, positive marked equity
 change in every block, and total net profit greater than recorded fees. The last
@@ -498,11 +500,11 @@ first; nothing here proves the comment exists or says what it should say.
      resolves it with its v1 reader and confirms protocol, event chain, final tip,
      last observation and elapsed gap, and checks for an unreported earlier attempt;
      the lineage values are assertions until that review exists. If it cannot be
-     found (`--predecessor-root-status unavailable`, the current case): first obtain
-     a separate explicit owner authorization on Issue #810 that names the G0
-     predecessor-verification exception (none exists as of 2026-11-06; the owner's
-     2026-10-30 words say only that they do not know where the data is and that new
-     data may be collected). Then obtain a fresh result-blind review of the lineage
+     found (`--predecessor-root-status unavailable`, the current case): the separate explicit
+     owner authorization on Issue #810 that names the G0 predecessor-verification
+     exception exists (comment 6673566542, 2026-11-06, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542;
+     the owner's 2026-10-30 words alone say only that they do not know where the data
+     is and that new data may be collected). Then obtain a fresh result-blind review of the lineage
      documentation and the pull request that introduced the lost-predecessor rule
      instead; it does not re-verify the predecessor, and the predecessor chain stays
      `not_established` (the predecessor-root-unavailable section in
@@ -656,7 +658,7 @@ rule), the G1 chain from source to decision with all eight boundaries, the G2
 independent oracles by test path, the evidence stage and claim boundary, the
 attempt-1 `not_established` limits, the threat model and the storage-probe step.
 
-* Canonical digest: `9a35fcd888f85166e2abb34000dd35580c8b94e216de0c1591be003c676df2d0`
+* Canonical digest: `039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9`
   (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
 * Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
   `economic_execution_authorized=false`. No review exists, so this is not a pass.
@@ -674,10 +676,18 @@ names the G0 predecessor-verification exception (see
 `docs/architecture/research-assurance.md`). Evidence for (b) is the comment
 <https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178>
 (2026-11-05, posted from the owner's account and recorded by the planner relaying the
-owner; the owner can edit or revoke it; it names no UTC start, which must still be
-chosen at plan and seal; code checks only the URL shape). It is authorization
-evidence and does not replace (a); it also does not satisfy (c), because the owner's
-quoted words in it do not mention G0.
+owner; the owner can edit or revoke it; it names no UTC start; code checks only the URL
+shape). It is authorization evidence and does not replace (a); it does not satisfy (c),
+because the owner's quoted words in it do not mention G0. Evidence for (c) with
+`unavailable`, and for the start time, is the comment
+<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542>
+(2026-11-06, the planner's record of the owner's chat answers; the owner can edit or
+revoke it): it quotes the owner's 「承認する」 to the G0 predecessor-verification
+exception for attempt 2, bounded as stated there, and records the screen start
+`2026-11-07T00:00:00Z` and approval of Windows Task Scheduler supervisor and watchdog
+jobs. It authorizes no FS1 scoring, no unused or final-window read, no live trading or
+order routing, no criterion relaxation and no use of an attempt-1 readout, and it does
+not replace (a).
 
 Review route. AGENTS.md (#687) requires the review from a different authenticated
 GitHub principal. The owner's words of 2026-11-05 were "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing

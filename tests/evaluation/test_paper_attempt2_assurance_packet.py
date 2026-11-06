@@ -38,9 +38,22 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "9a35fcd888f85166e2abb34000dd35580c8b94e216de0c1591be003c676df2d0"
+PINNED_DIGEST = "039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
+)
+# The planner's record (2026-11-06) of the owner's chat answers: the G0 predecessor-
+# verification exception for attempt 2, the screen start and the Task Scheduler jobs.
+G0_AUTHORIZATION_URL = (
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542"
+)
+# The statement the owner approved verbatim (chat answer 承認する), as quoted in the
+# comment above; whitespace is normalized because the documents wrap lines.
+G0_APPROVED_STATEMENT = (
+    "「attempt 1 の証拠rootは見つからなくてよい。attempt 2 を "
+    "predecessor-root-status unavailable で封印してよい。G0 の predecessor 検証は行わず、"
+    "predecessor の protocol digest・final tip・observation gap・先行未報告attemptの不在は "
+    "not_established のままで承認する。」"
 )
 # The owner's verbatim words of 2026-11-05 (Issue #810 comment 6659653178). They say the
 # reviewing account does not matter and that an agy review is acceptable; they do not
@@ -90,7 +103,7 @@ def _added_section(relative: str) -> str:
             None,
         ),
         "docs/architecture/research-assurance.md": (
-            "#### Predecessor root unavailable: G0 exception pending owner authorization",
+            "#### Predecessor root unavailable: owner-authorized G0 exception for carry attempt 2",
             "**Known limitations:**",
         ),
         "docs/research/current-status.md": (
@@ -186,6 +199,10 @@ def test_packet_grants_no_authorization_and_names_the_required_gates() -> None:
     assert "Issue #810" in thesis["stop_rule"]
     assert AUTHORIZATION_URL in thesis["stop_rule"]
     assert AUTHORIZATION_URL in claims["decision_rule"]
+    assert G0_AUTHORIZATION_URL in thesis["stop_rule"]
+    assert G0_AUTHORIZATION_URL in claims["decision_rule"]
+    assert G0_AUTHORIZATION_URL in claims["next_authorized_action"]
+    assert "2026-11-07T00:00:00Z" in thesis["stop_rule"]
     assert "different authenticated GitHub principal" in thesis["stop_rule"]
     assert "PASS" not in claims["next_authorized_action"]
     # Every boundary is covered by an oracle that cites existing test paths.
@@ -259,7 +276,7 @@ def test_review_route_is_a_same_principal_deviation_not_accepted_and_not_a_pass(
         assert "rejects" in document, relative
 
 
-def test_predecessor_unavailable_case_is_not_a_waiver_and_needs_owner_authorization() -> (
+def test_predecessor_unavailable_case_is_a_bounded_owner_authorized_g0_exception() -> (
     None
 ):
     packet = _packet()
@@ -268,25 +285,29 @@ def test_predecessor_unavailable_case_is_not_a_waiver_and_needs_owner_authorizat
     claims = packet["claims"]
     lineage = canonical_lineage("unavailable")
     contract = _doc("docs/architecture/research-assurance.md")
-    heading = "Predecessor root unavailable: G0 exception pending owner authorization"
+    heading = "Predecessor root unavailable: owner-authorized G0 exception for carry attempt 2"
 
     assert heading in contract
+    assert "G0 exception pending" not in contract
     section = contract[
         contract.index(heading) : contract.index("The attempt-2 author packet")
     ]
-    # The general rule stands unchanged: no exception is described as authorized,
-    # and the section never calls itself an existing bounded exception or a waiver.
+    # The exception is authorized for exactly one lineage; it is not a general waiver.
     assert (
         "G0 review must verify the complete predecessor chain before a successor is "
-        "sealed. No G0 exception has been authorized"
+        "sealed. The only G0 exception is"
     ) in contract
-    assert "one bounded exception" not in contract
-    assert "bounded exception" not in contract.lower()
-    assert "is **not waived**" in section
-    assert "may not be sealed with `--predecessor-root-status unavailable`" in section
+    assert "is **not waived** in general" in section
+    assert "bounded G0 exception for funding-carry attempt 2 only" in section
+    assert G0_AUTHORIZATION_URL in section
+    assert G0_APPROVED_STATEMENT in section
+    assert "「承認する」" in section
+    assert "2026-11-07T00:00:00Z" in section
+    assert "not text the owner typed on GitHub" in section
     assert "the planner's text, not the owner's words" in section
     assert "does not say that the root is lost or unreadable" in section
     assert "attestation alone" in contract
+    assert "it is an attestation, not a verified property of the root" in section
     for required in (
         "a separate explicit owner authorization exists on Issue #810 that names the G0",
         "predecessor-verification exception",
@@ -300,7 +321,10 @@ def test_predecessor_unavailable_case_is_not_a_waiver_and_needs_owner_authorizat
         "global attempt uniqueness stays unestablished",
         "does **not** attest the lineage values",
         "**Does not replace:**",
+        "FS1 scoring",
+        "live trading or order routing",
         AUTHORIZATION_URL.rsplit("-", 1)[-1],
+        G0_AUTHORIZATION_URL.rsplit("-", 1)[-1],
         *UNAVAILABLE_NOT_ESTABLISHED,
     ):
         assert required in section, required
@@ -316,26 +340,28 @@ def test_predecessor_unavailable_case_is_not_a_waiver_and_needs_owner_authorizat
         "does not prove that the root does not exist elsewhere",
     ):
         assert required in section, required
-    # The packet states the same position and never claims the authorization exists.
+    # The packet states the same position and cites the authorization.
     assert USER_STATEMENT_QUOTE.replace("\n", "") in limitations
-    assert "not waived" in limitations
+    assert "not waived in general" in limitations
     assert "do not mention G0" in limitations
-    assert "requires a separate explicit owner authorization" in limitations
-    assert (
-        "does not exist as of 2026-11-06 and this packet does not claim it"
-        in limitations
-    )
-    assert "a seal with unavailable is not permitted until it does" in limitations
+    assert G0_AUTHORIZATION_URL in limitations
+    assert "the planner's record of the owner's chat answer" in limitations
+    assert "承認する" in limitations
+    assert "applies to no other family, attempt or predecessor" in limitations
+    assert "does not replace the independent review" in limitations
+    assert "pending" not in limitations.lower().replace("pending intent", "")
     assert "No screen criterion is relaxed" in limitations
-    assert "does not apply generally" not in limitations
-    assert "replaced by a fresh result-blind review" not in limitations
-    assert "no authorization of the (c) kind exists as of 2026-11-06" in stop_rule
+    assert "does not exist as of 2026-11-06" not in limitations
+    assert "no authorization of the (c) kind exists" not in stop_rule
+    assert "permitted for no other family, attempt or predecessor" in stop_rule
     assert any(
         "predecessor-verification exception" in item for item in claims["forbidden"]
     )
     assert "predecessor-verification exception" in claims["decision_rule"]
     assert "predecessor-verification exception" in claims["next_authorized_action"]
-    # The sealed record, if it is ever used, carries what the contract says.
+    # The packet remains UNREVIEWED: the exception is not the independent review.
+    assert evaluate_assurance(packet).status == "UNREVIEWED"
+    # The sealed record carries what the contract says.
     record = lineage["predecessor_root"]
     assert record["status"] == "unavailable"
     assert record["re_verified_at_seal"] is False
@@ -459,6 +485,8 @@ def test_docs_point_to_the_packet_digest_and_unreviewed_status() -> None:
         assert PINNED_DIGEST in document, relative
         assert "UNREVIEWED" in document, relative
         assert AUTHORIZATION_URL in document, relative
+        assert G0_AUTHORIZATION_URL in document, relative
+        assert "G0 exception pending" not in document, relative
     spec = _doc("docs/specs/funding-carry-paper.md").replace("**", "")
     assert "not attributed to the owner beyond those quoted words" in spec
     assert "different authenticated GitHub principal" in spec

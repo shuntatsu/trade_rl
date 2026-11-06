@@ -1367,10 +1367,11 @@ resolves the referenced prior protocol and event chain against their preserved
 roots. The lineage fields remain caller assertions: the schema alone does not
 authenticate external roots, prevent a caller from claiming a new attempt 1, or
 prove that the declared disposition is truthful. G0 review must verify the
-complete predecessor chain before a successor is sealed. No G0 exception has been
-authorized: the predecessor-root-unavailable case defined below is a proposal that
-needs a separate explicit owner authorization before it can be used, and until that
-exists G0 predecessor verification applies to attempt 2 unchanged.
+complete predecessor chain before a successor is sealed. The only G0 exception is the
+predecessor-root-unavailable case for funding-carry attempt 2 defined below, which the
+owner authorized on Issue #810 on 2026-11-06 (comment 6673566542); it is bounded to that
+family, attempt number and predecessor, and G0 predecessor verification applies
+unchanged to every other lineage.
 
 Lineage `carry_paper_attempt_lineage_v3` adds a `predecessor_root` record and leaves
 v2 valid and unchanged. `available` embeds the verification of a root that the
@@ -1413,16 +1414,39 @@ refused). The code accepts `unavailable` on the caller's attestation alone: it d
 check that the root is lost or unreadable, so the conditions below rest on the search
 record and on the owner authorization, not on code.
 
-#### Predecessor root unavailable: G0 exception pending owner authorization
+#### Predecessor root unavailable: owner-authorized G0 exception for carry attempt 2
 
 G0 predecessor verification (resolve the preserved attempt-1 root with its v1 reader)
-is **not waived** by this section. No owner authorization that names a G0 exception
-exists. As of 2026-11-06 attempt 2 therefore may not be sealed with
-`--predecessor-root-status unavailable`; that seal is permitted only after the separate
-authorization in condition 3 below is recorded on Issue #810. This section only
-defines what the `unavailable` record is and what must exist before it may be used. It
-relaxes no screen criterion, window, symbol, cost, participation or stop level. If the
+is **not waived** in general by this section. On 2026-11-06 the owner separately
+authorized, on Issue #810, one bounded G0 exception for funding-carry attempt 2 only
+(authorization comment https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542;
+the owner's answer is quoted verbatim below). Sealing attempt 2 with
+`--predecessor-root-status unavailable` is therefore permitted from the standpoint of
+condition 3 below, once the other seal requirements are met. This section defines what
+the `unavailable` record is and the conditions under which it may be used. It relaxes
+no screen criterion, window, symbol, cost, participation or stop level. If the
 attempt-1 root is found, the `available` path with the v1 reader must be used instead.
+
+**The owner's authorization of 2026-11-06.** Claude (Opus 5.5 planner, through a Sonnet
+5.5 agent) recorded on Issue #810 the owner's answers given in a Claude Code chat; the
+comment is the planner's record of that chat answer and not text the owner typed on
+GitHub, and the owner can edit or revoke it. The planner asked, and the owner selected
+「承認する」 to, the following statement, quoted verbatim:
+「attempt 1 の証拠rootは見つからなくてよい。attempt 2 を predecessor-root-status
+unavailable で封印してよい。G0 の predecessor 検証は行わず、predecessor の protocol
+digest・final tip・observation gap・先行未報告attemptの不在は not_established
+のままで承認する。」(in English: it is acceptable that the attempt-1 evidence root is not
+found; attempt 2 may be sealed with predecessor-root-status unavailable; G0
+predecessor verification is not performed, and the predecessor protocol digest, final
+tip, observation gap and the absence of an earlier unreported attempt remain
+not_established, and are approved as such). The same comment records the owner's
+choice of the attempt-2 screen start `2026-11-07T00:00:00Z` and the approval of
+Windows Task Scheduler supervisor and watchdog jobs, and states what it does not
+authorize: FS1 scoring, unused or final-window reads, live trading or order routing,
+relaxing any screen criterion, and use of any attempt-1 economic or status readout.
+The word `unavailable` records only that the root was not found by the search below and
+that the owner approved sealing without it; it is an attestation, not a verified
+property of the root.
 
 **What the owner said.** On 2026-10-30 the owner wrote, verbatim (Issue #810 comment
 6659653178): 「そのデータはしらない。結果保存もどこにあるわからないから、新しくとっていいよ」
@@ -1432,7 +1456,8 @@ data and results are and that new data may be collected. It does not say that th
 is lost or unreadable, and it does not mention G0 or predecessor verification. The step
 list in the planner's 2026-11-05 record on the same comment, which names
 `predecessor_root: unavailable`, is the planner's text, not the owner's words; this
-contract does not treat it as an owner authorization of a G0 exception.
+contract does not treat it as an owner authorization of a G0 exception. The G0
+exception rests only on the separate 2026-11-06 authorization quoted above.
 
 **Implementer search record (read-only, 2026-11-06).** An implementer searched the
 machine used for this repository for an attempt-1 root and found none. Scope: every
@@ -1462,19 +1487,20 @@ The exception can be used only when **all** of these hold:
    root that is merely inconvenient to find, or is readable, requires the `available`
    path;
 3. **a separate explicit owner authorization exists on Issue #810 that names the G0
-   predecessor-verification exception**: an owner comment, or an owner-written
-   statement quoted verbatim, that says in terms that attempt 2 may be sealed without
-   verifying the attempt-1 root with the v1 reader, and that the predecessor protocol
-   digest, final tip, observation gap and the absence of an earlier unreported attempt
-   then remain `not_established`. The comment of 2026-11-05 does not say this and is
-   not that authorization. Code checks the URL shape only, so a human reviewer must
-   read the comment; and
+   predecessor-verification exception**: a comment, or an owner statement quoted
+   verbatim, that says in terms that attempt 2 may be sealed without verifying the
+   attempt-1 root with the v1 reader, and that the predecessor protocol digest, final
+   tip, observation gap and the absence of an earlier unreported attempt then remain
+   `not_established`. The comment of 2026-11-05 does not say this and is not that
+   authorization; the comment of 2026-11-06 (6673566542, quoted above) does, as the
+   planner's record of the owner's chat answer. Code checks the URL shape only, so a
+   human reviewer must read the comment; and
 4. the exception is reviewed in the pull request that records it.
 
 The exception does not apply to any other family, attempt number or predecessor.
 
-* **Recorded in place of the root verification (if the exception is authorized):**
-  (1) the URL of the authorization comment of condition 3; (2) the owner's verbatim
+* **Recorded in place of the root verification:**
+  (1) the URL of the authorization comment of condition 3 (https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542); (2) the owner's verbatim
   statement and date, which attests only the location statement and the permission to
   collect fresh data and does **not** attest the lineage values or the absence of an
   earlier attempt; (3) the disposition `invalidated` with reason `observation_gap`,
@@ -1495,7 +1521,7 @@ The exception does not apply to any other family, attempt number or predecessor.
   probe, or any other G0/G1/G2 requirement.
 
 The attempt-2 author packet is `report/issue810-carry-attempt2-research-assurance-20261105.json`
-(canonical digest `9a35fcd888f85166e2abb34000dd35580c8b94e216de0c1591be003c676df2d0`). Its status is UNREVIEWED: no independent
+(canonical digest `039425802fd8e745d9983465d6b6b4a213efa7718f3c0162a83f8b08a390c5a9`). Its status is UNREVIEWED: no independent
 `research_assurance_review_v1` verified by the tooling exists. On 2026-11-05 the owner
 wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
 Antigravity/Gemini, is acceptable). That the review would be posted under the same
@@ -1503,9 +1529,12 @@ GitHub account is the planner's reading in the Issue #810 record, not the owner'
 wording. A same-principal review is a deviation from the different-principal rule and
 is not attributed to the owner beyond those quoted words;
 `tools.research_assurance_github` rejects same-principal reviews, so it cannot satisfy
-that tool and is not a PASS. Issue #810 record:
-https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (it does not replace the review
-and does not authorize the G0 exception). The packet authorizes neither a seal, a
+that tool and is not a PASS. Issue #810 records:
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (2026-11-05;
+it does not replace the review and does not authorize the G0 exception) and
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542 (2026-11-06; the G0
+exception, the start time and the Task Scheduler jobs; it does not replace the review
+either). The packet authorizes neither a seal, a
 launch, the storage probe nor any economic run. See `docs/specs/funding-carry-paper.md`.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。

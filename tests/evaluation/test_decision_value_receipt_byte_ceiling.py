@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 import pytest
 
@@ -77,10 +77,7 @@ def test_invalid_receipt_byte_budget_fails_closed(
     root.mkdir()
     (root / "incomplete-pairs.json").write_bytes(b"{}")
     with pytest.raises(ValueError, match="max_receipt_bytes"):
-        study.load_incomplete_pair_attempt(
-            root,
-            max_receipt_bytes=budget,  # type: ignore[arg-type]
-        )
+        study.load_incomplete_pair_attempt(root, max_receipt_bytes=cast(int, budget))
 
 
 def test_large_budget_requires_a_trusted_receipt_pin(tmp_path: Path) -> None:
@@ -88,9 +85,7 @@ def test_large_budget_requires_a_trusted_receipt_pin(tmp_path: Path) -> None:
     root.mkdir()
     (root / "incomplete-pairs.json").write_bytes(b"{}")
     with pytest.raises(ValueError, match="pinned digest"):
-        study.load_incomplete_pair_attempt(
-            root, max_receipt_bytes=64 * 1024 * 1024 + 1
-        )
+        study.load_incomplete_pair_attempt(root, max_receipt_bytes=64 * 1024 * 1024 + 1)
 
 
 def test_reader_rejects_file_growth_while_loading(

@@ -562,25 +562,26 @@ def test_order_admission_matches_bookstate_notional_representability(
         submission_reference_price=price,
         decision_equity=1_000.0,
     )
-    decision = OrderAdmissionPolicy(
-        expected_dataset_id="d" * 64,
-        expected_execution_policy_digest="e" * 64,
-        allow_short=True,
-        max_leverage=1.0,
-    ).evaluate(
-        intent,
-        book=book,
-        processing_index=1,
-        asset_active=True,
-        tradable=True,
-        buy_allowed=True,
-        sell_allowed=True,
-        borrow_available=True,
-        tick_size=0.0,
-        lot_size=0.0,
-        minimum_notional=0.0,
-        reference_prices=np.array([price]),
-    )
+    with np.errstate(under="raise"):
+        decision = OrderAdmissionPolicy(
+            expected_dataset_id="d" * 64,
+            expected_execution_policy_digest="e" * 64,
+            allow_short=True,
+            max_leverage=1.0,
+        ).evaluate(
+            intent,
+            book=book,
+            processing_index=1,
+            asset_active=True,
+            tradable=True,
+            buy_allowed=True,
+            sell_allowed=True,
+            borrow_available=True,
+            tick_size=0.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+            reference_prices=np.array([price]),
+        )
     actual_notional = abs(quantity) * price * multiplier
     if must_reject:
         assert actual_notional == 0.0

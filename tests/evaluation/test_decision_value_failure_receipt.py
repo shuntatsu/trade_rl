@@ -722,6 +722,14 @@ def test_incomplete_receipt_numeric_parser_preserves_bounded_exact_forms(
     study._require_finite_decimal(value, field="terminal_cash")
 
 
+@pytest.mark.parametrize("value", ("1e+-1", "1e--1", "1e-+1", "1e++1"))
+def test_incomplete_receipt_numeric_parser_rejects_malformed_signs(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study._require_finite_decimal(value, field="terminal_cash")
+
+
 @pytest.mark.parametrize(
     "value",
     (

@@ -710,13 +710,19 @@ attempt-1 `not_established` limits, the threat model and the storage-probe step.
   `limitations`, one `permitted` claim, `next_authorized_action` and `decision_rule`
   text (review-route and search-scope wording); the code at `326188fc0` was already
   final and `trade_rl/` did not change in it. A later change
-  to either head, or to `trade_rl/` (including a sync merge of `main`), requires the
-  heads to be re-pinned, which changes the digest and voids any review of the earlier
-  digest. The head-guard test
-  (`test_heads_name_one_final_implementation_commit_with_no_later_code_change`) enforces
-  this only on a checkout whose history contains the pinned commit; on a shallow clone,
-  including the default CI checkout (`fetch-depth: 2`), it is skipped, so it is not a CI
-  gate there.
+  to either head, or to the code the packet depends on (including through a sync merge of
+  `main`), requires the heads to be re-pinned, which changes the digest and voids any
+  review of the earlier digest. The code the packet depends on is
+  `trade_rl/evaluation/paper/` plus every `trade_rl` module it imports transitively
+  (lazy imports and ancestor `__init__.py` included), resolved at the pinned commit by
+  the head-guard test
+  (`test_heads_name_one_final_implementation_commit_with_no_later_code_change`), which
+  asserts that none of those paths differ between the pinned commit and `HEAD`. Changes
+  elsewhere in `trade_rl/`, for example `trade_rl/integrations/market_store/`, which the
+  paper code does not import, do not touch it and need no re-pin. The test enforces this
+  only on a checkout whose history contains the pinned commit; on a shallow clone,
+  including the default CI checkouts (`fetch-depth` 1 or 2), it is skipped, so it is
+  not a CI gate there.
 
 Sealing attempt 2 still needs all of the following, and this packet supplies none of
 them: (a) an independent `research_assurance_v1` review of the exact digest and

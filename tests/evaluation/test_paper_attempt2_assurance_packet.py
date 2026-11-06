@@ -7,6 +7,7 @@ pass, or any economic/live authorization, and any edit must change its digest.
 
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import re
@@ -591,12 +592,115 @@ def _git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _pinned_python_files(head: str) -> set[str]:
+    listing = _git("ls-tree", "-r", "--name-only", head, "trade_rl")
+    assert listing.returncode == 0, listing.stderr
+    return {path for path in listing.stdout.split() if path.endswith(".py")}
+
+
+def _module_file(module: str, files: set[str]) -> str | None:
+    base = module.replace(".", "/")
+    for candidate in (f"{base}.py", f"{base}/__init__.py"):
+        if candidate in files:
+            return candidate
+    return None
+
+
+def _module_name(path: str) -> str:
+    name = path[: -len(".py")].replace("/", ".")
+    return name.removesuffix(".__init__")
+
+
+def _imported_modules(path: str, source: str) -> set[str]:
+    """Every ``trade_rl`` module a file may import, lazy imports included."""
+
+    is_package = path.endswith("/__init__.py")
+    package = (
+        _module_name(path) if is_package else _module_name(path).rpartition(".")[0]
+    )
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                parts = package.split(".")
+                parts = parts[: len(parts) - (node.level - 1)]
+                module = ".".join([*parts, *([node.module] if node.module else [])])
+            else:
+                module = node.module or ""
+            found.add(module)
+            # ``from pkg import name`` may import the submodule ``pkg.name``
+            found.update(f"{module}.{alias.name}" for alias in node.names)
+    return {name for name in found if name.split(".")[0] == "trade_rl"}
+
+
+def paper_code_dependency_paths(head: str) -> list[str]:
+    """The attempt-2 paper code plus every trade_rl module it imports, at ``head``.
+
+    This is the code the packet and the sealed run depend on: all of
+    ``trade_rl/evaluation/paper/`` and, transitively, each ``trade_rl`` module its files
+    import (module-level and lazy imports alike) and the ``__init__.py`` of every
+    ancestor package, which Python executes on import. It is a deliberate superset
+    (package ``__init__`` re-exports pull in whole subpackages) and is resolved from
+    the immutable pinned commit, never from the working tree. Unrelated packages such
+    as ``trade_rl/integrations/market_store`` are not in it unless the paper code
+    really imports them. Non-Python package data is not covered.
+    """
+
+    files = _pinned_python_files(head)
+    pending = [path for path in files if path.startswith("trade_rl/evaluation/paper/")]
+    seen: set[str] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        parts = _module_name(path).split(".")
+        for depth in range(1, len(parts)):
+            init = "/".join(parts[:depth]) + "/__init__.py"
+            if init in files:
+                pending.append(init)
+        source = _git("show", f"{head}:{path}")
+        assert source.returncode == 0, source.stderr
+        for module in _imported_modules(path, source.stdout):
+            target = _module_file(module, files)
+            if target is not None:
+                pending.append(target)
+    return sorted(seen)
+
+
+def test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store() -> (
+    None
+):
+    head = _packet()["identity"]["implementation_head"]
+    if _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
+        pytest.skip("implementation_head is not available in this checkout")
+    paths = paper_code_dependency_paths(head)
+    assert "trade_rl/evaluation/paper/predecessor.py" in paths
+    assert "trade_rl/evaluation/paper/attempt2.py" in paths
+    assert "trade_rl/__init__.py" in paths
+    assert "trade_rl/simulation/accounting.py" in paths  # transitive, outside paper/
+    assert not [path for path in paths if "market_store" in path]
+
+
 def test_heads_name_one_final_implementation_commit_with_no_later_code_change() -> None:
-    """The packet pins one implementation commit; trade_rl/ does not change after it."""
+    """The packet pins one implementation commit; the code it depends on is unchanged.
+
+    Guarded paths are the paper code and its transitive ``trade_rl`` imports at the
+    pinned commit (:func:`paper_code_dependency_paths`), not all of ``trade_rl/``:
+    unrelated later changes (for example to the market-data store) do not touch what
+    the packet describes or what the sealed run executes.
+    """
+
     identity = _packet()["identity"]
     head = identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     assert identity["protocol_head"] == head
+    # The authority docs may not embed full SHAs, so they cite the 12-character form.
+    for relative in (DOCUMENTS[1], DOCUMENTS[2]):
+        assert head[:12] in _raw(relative), relative
+    assert head in _raw(DOCUMENTS[0])
     if (
         _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
         or _git("merge-base", "--is-ancestor", head, "HEAD").returncode != 0
@@ -604,18 +708,15 @@ def test_heads_name_one_final_implementation_commit_with_no_later_code_change() 
         pytest.skip(
             "implementation_head is not reachable from HEAD (shallow, squashed or "
             "exported checkout); the head guard needs full history, and the default "
-            "CI checkout (fetch-depth 2) skips it"
+            "CI checkout (fetch-depth 1 or 2) skips it"
         )
-    changed = _git("diff", "--name-only", head, "HEAD", "--", "trade_rl")
+    paths = paper_code_dependency_paths(head)
+    changed = _git("diff", "--name-only", head, "HEAD", "--", *paths)
     assert changed.returncode == 0, changed.stderr
     assert changed.stdout.strip() == "", (
-        "trade_rl/ changed after the pinned implementation_head; re-pin the heads "
-        "and the digest: " + changed.stdout
+        "code the paper packet depends on changed after the pinned "
+        "implementation_head; re-pin the heads and the digest: " + changed.stdout
     )
-    # The authority docs may not embed full SHAs, so they cite the 12-character form.
-    for relative in (DOCUMENTS[1], DOCUMENTS[2]):
-        assert head[:12] in _raw(relative), relative
-    assert head in _raw(DOCUMENTS[0])
 
 
 def test_search_scope_is_the_same_precise_statement_everywhere() -> None:

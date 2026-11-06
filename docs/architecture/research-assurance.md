@@ -1594,9 +1594,11 @@ empty); the packet is committed in a later descendant, because a packet in the t
 cannot name the commit that contains it. The PR head is therefore not the
 `implementation_head`, and `tools.research_assurance_github`, which requires the PR head
 and the review `commit_id` to equal `implementation_head`, cannot report PASS for an
-in-tree packet. A review must name this digest and these heads, and any later `trade_rl/`
-change (including a sync merge of `main`) needs a new `implementation_head`, digest and
-review. On 2026-11-05 the owner
+in-tree packet. A review must name this digest and these heads, and any later change to
+the code the packet depends on (`trade_rl/evaluation/paper/` and the `trade_rl` modules it
+imports transitively, resolved at the pinned commit by the head-guard test; a sync merge
+of `main` counts only if it touches those paths) needs a new `implementation_head`, digest
+and review. Changes elsewhere in `trade_rl/`, such as the market-data store, do not. On 2026-11-05 the owner
 wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review, that is
 Antigravity/Gemini, was named as acceptable to the owner). The 2026-11-05 words did not
 say that a review from the same GitHub account suffices and alone did not authorize a

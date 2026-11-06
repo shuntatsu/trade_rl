@@ -124,7 +124,7 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
     assert "is lost" not in rule
     assert "prior recorded review" in rule
     assert "not re-verified" in rule
-    assert "lineage documentation and the pull request" in rule
+    assert "lineage documentation and the introducing pull request" in rule
     for lineage in (
         attempt2_lineage("available", "D:/old"),
         attempt2_lineage("unavailable"),

@@ -14,6 +14,10 @@ from typing import BinaryIO, cast
 import pytest
 
 from trade_rl.evaluation import decision_value_dev_study as study
+from tests.evaluation.test_decision_value_failure_receipt_robustness import (
+    _persist,
+    _row,
+)
 
 
 def test_strict_receipt_reader_never_uses_unbounded_file_read(
@@ -118,6 +122,72 @@ def test_reader_rejects_file_growth_while_loading(
     def changing_open(path: Path, *, field: str) -> Iterator[GrowingRead]:
         with original_open(path, field=field) as handle:
             yield GrowingRead(handle)
+
+    monkeypatch.setattr(study, "open_regular_binary", changing_open)
+    with pytest.raises(ValueError, match="changed during read"):
+        study.load_incomplete_pair_attempt(root)
+
+
+def test_pinned_reader_accepts_real_receipt_at_declared_budget(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row())
+    size = (root / "incomplete-pairs.json").stat().st_size
+    assert size > 1
+    with pytest.raises(ValueError, match="byte budget"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=digest, max_receipt_bytes=size - 1
+        )
+    loaded = study.load_incomplete_pair_attempt(
+        root, expected_receipt_digest=digest, max_receipt_bytes=size
+    )
+    assert loaded["schema_version"] == "decision_value_incomplete_pair_attempt_v3"
+    assert loaded["receipt_digest"] == digest
+
+
+def test_oversized_regular_json_is_rejected_without_mutation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "attempt"
+    root.mkdir()
+    receipt = root / "incomplete-pairs.json"
+    raw = b'{"pairs":[' + b"0," * 2048 + b"0]}"
+    receipt.write_bytes(raw)
+    with pytest.raises(ValueError, match="byte budget"):
+        study.load_incomplete_pair_attempt(root, max_receipt_bytes=1024)
+    assert receipt.read_bytes() == raw
+
+
+def test_reader_rejects_file_truncation_while_loading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "attempt"
+    root.mkdir()
+    receipt = root / "incomplete-pairs.json"
+    receipt.write_bytes(b"{}")
+    real_open = study.open_regular_binary
+
+    class TruncatingRead:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+            self.done = False
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, size: int = -1) -> bytes:
+            assert size > 0
+            result = self.handle.read(size)
+            if not self.done:
+                self.done = True
+                receipt.write_bytes(b"")
+            return result
+
+    @contextmanager
+    def changing_open(path: Path, *, field: str) -> Iterator[TruncatingRead]:
+        with real_open(path, field=field) as handle:
+            yield TruncatingRead(handle)
 
     monkeypatch.setattr(study, "open_regular_binary", changing_open)
     with pytest.raises(ValueError, match="changed during read"):

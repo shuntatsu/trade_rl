@@ -484,11 +484,10 @@ def test_perturb_future_only_changes_rows_after_the_cut(market: MarketDataset) -
     assert np.array_equal(other.tradable[: cut + 1], market.tradable[: cut + 1])
     assert not np.array_equal(other.close[cut + 1 :], market.close[cut + 1 :])
     assert not np.array_equal(other.features[cut + 1 :], market.features[cut + 1 :])
-    assert not np.array_equal(other.tradable[cut + 1 :], market.tradable[cut + 1 :])
-    assert np.all(
-        ~other.tradable[cut + 1 :]
-        | other.resolved_array("asset_active")[cut + 1 :]
-    )
+    post_cut_tradable = other.tradable[cut + 1 :]
+    post_cut_active = other.resolved_array("asset_active")[cut + 1 :]
+    assert not np.array_equal(post_cut_tradable, market.tradable[cut + 1 :])
+    assert np.all(~post_cut_tradable | post_cut_active)
 
 
 def test_causality_probe_passes_for_the_real_pipeline(market: MarketDataset) -> None:

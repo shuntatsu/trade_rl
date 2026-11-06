@@ -160,6 +160,8 @@ def test_ppo_env_rejects_unrepresentable_nonzero_target_quantity(
         high=prices.copy(),
         low=prices.copy(),
         close=prices.copy(),
+        mark_price=prices.copy(),
+        index_price=prices.copy(),
         contract_multipliers=np.array([multiplier]),
     )
     env = PPOTradingEnv(

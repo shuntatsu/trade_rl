@@ -701,6 +701,7 @@ def test_resealed_structurally_invalid_content_is_rejected_without_a_pin(
     with pytest.raises(ValueError):
         study.load_incomplete_pair_attempt(resealed)
 
+
 # The receipt reader is a trust boundary: parsing attacker-supplied numeric
 # strings must be bounded *before* Fraction expands their exponent.
 @pytest.mark.parametrize("value", ("1e4097", "1e-4097"))
@@ -719,6 +720,7 @@ def test_incomplete_receipt_numeric_parser_preserves_bounded_exact_forms(
     value: str,
 ) -> None:
     study._require_finite_decimal(value, field="terminal_cash")
+
 
 @pytest.mark.parametrize(
     "value",

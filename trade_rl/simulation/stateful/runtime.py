@@ -348,7 +348,7 @@ class StatefulExecutionRuntime:
             ),
             "fill_ratio": (
                 1.0
-                if self.requested_notional <= _TOLERANCE
+                if self.requested_notional == 0.0
                 else min(
                     1.0,
                     self.filled_reference_notional / self.requested_notional,

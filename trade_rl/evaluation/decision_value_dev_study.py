@@ -1589,7 +1589,7 @@ def _require_finite_decimal(value: object, *, field: str) -> None:
     # permits large exact values without constructing attacker-sized integers.
     _, separator, exponent = value.lower().partition("e")
     if separator:
-        digits = exponent.lstrip("+-")
+        digits = exponent[1:] if exponent.startswith(("+", "-")) else exponent
         if (
             not digits
             or len(digits) > 4

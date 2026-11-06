@@ -506,9 +506,7 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
         def __init__(self, dataset: MarketDataset) -> None:
             self.symbols = dataset.symbols
             self._close = dataset.close
-            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(
-                np.int64
-            )
+            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 
         def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
             row = int(

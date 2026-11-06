@@ -700,3 +700,64 @@ def test_resealed_structurally_invalid_content_is_rejected_without_a_pin(
     _rewrite(resealed, mutate, redigest=True)
     with pytest.raises(ValueError):
         study.load_incomplete_pair_attempt(resealed)
+
+
+# The receipt reader is a trust boundary: parsing attacker-supplied numeric
+# strings must be bounded *before* Fraction expands their exponent.
+@pytest.mark.parametrize("value", ("1e4097", "1e-4097"))
+def test_incomplete_receipt_numeric_parser_rejects_unbounded_exponents(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study._require_finite_decimal(value, field="terminal_cash")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ("0", "-1/3", "3.5", "+2.5", "1e-308", "1e308", "1e4096"),
+)
+def test_incomplete_receipt_numeric_parser_preserves_bounded_exact_forms(
+    value: str,
+) -> None:
+    study._require_finite_decimal(value, field="terminal_cash")
+
+
+@pytest.mark.parametrize("value", ("1e+-1", "1e--1", "1e-+1", "1e++1"))
+def test_incomplete_receipt_numeric_parser_rejects_malformed_signs(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study._require_finite_decimal(value, field="terminal_cash")
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        pytest.param("1e99999999", id="huge-positive-exponent"),
+        pytest.param("1e-99999999", id="huge-negative-exponent"),
+        pytest.param("1" * 20_000, id="oversized-mantissa"),
+    ),
+)
+def test_incomplete_receipt_numeric_parser_rejects_resource_exhaustion(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study._require_finite_decimal(value, field="terminal_cash")
+
+
+def test_unpinned_resealed_receipt_rejects_numeric_exponent_bomb(
+    failed_all: tuple[_Setup, Path, study.IncompletePairedLabelsError, int],
+    tmp_path: Path,
+) -> None:
+    _setup_, destination, _failure, _ = failed_all
+    resealed = _copy_receipt(destination, tmp_path / "exponent-bomb")
+    _rewrite(
+        resealed,
+        lambda payload: _on_pair(
+            payload,
+            lambda pair: pair["candidate"].update(terminal_cash="1e99999999"),
+        ),
+        redigest=True,
+    )
+    with pytest.raises(ValueError, match="finite numeric string"):
+        study.load_incomplete_pair_attempt(resealed)

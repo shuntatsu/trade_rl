@@ -49,6 +49,12 @@ class OpenPullRequestRefs:
 
 
 @dataclass(frozen=True)
+class MergedPullRequestSource:
+    name: str
+    sha: str
+
+
+@dataclass(frozen=True)
 class BranchDecision:
     branch: BranchInfo
     action: str
@@ -200,6 +206,53 @@ class GitHubApi:
                     base_sha=base_sha,
                 )
             )
+        return tuple(result)
+
+    def merged_pr_source_refs(self) -> tuple[MergedPullRequestSource, ...]:
+        """Enumerate closed-and-merged local PR final heads, not merely ancestors.
+
+        A newly created branch at the main tip is main-reachable but not
+        necessarily finished. Only a matching merged PR can retire that ref.
+        """
+
+        result: list[MergedPullRequestSource] = []
+        for item in self._list_pages("pulls", state="closed"):
+            if not isinstance(item, dict) or item.get("state") != "closed":
+                raise RuntimeError("closed pull request roster is malformed")
+            merged_at = item.get("merged_at")
+            if merged_at is None:
+                continue
+            if not isinstance(merged_at, str) or not merged_at:
+                raise RuntimeError("merged pull request timestamp is malformed")
+            head = item.get("head")
+            base = item.get("base")
+            if not isinstance(head, dict) or not isinstance(base, dict):
+                raise RuntimeError("merged PR head/base is malformed")
+            base_repo = base.get("repo")
+            if not isinstance(base_repo, dict):
+                raise RuntimeError("merged PR base repository is missing")
+            if (
+                base_repo.get("full_name") != self._repository
+                or base.get("ref") != "main"
+            ):
+                continue
+            head_repo = head.get("repo")
+            if head_repo is None:
+                # Deleted heads cannot match a currently existing source ref.
+                continue
+            if not isinstance(head_repo, dict):
+                raise RuntimeError("merged PR head repository is malformed")
+            if head_repo.get("full_name") != self._repository:
+                continue
+            name, sha = head.get("ref"), head.get("sha")
+            if (
+                not isinstance(name, str)
+                or not name
+                or not isinstance(sha, str)
+                or not re.fullmatch(r"[0-9a-f]{40}", sha)
+            ):
+                raise RuntimeError("merged PR source ref is malformed")
+            result.append(MergedPullRequestSource(name, sha))
         return tuple(result)
 
     def active_workflow_branch_names(self) -> frozenset[str]:
@@ -516,8 +569,9 @@ def plan_merged_retirement(
     open_pull_request_refs: Sequence[OpenPullRequestRefs],
     active_workflow_branches: frozenset[str],
     reachable_from_main: frozenset[str],
+    merged_pr_sources: Sequence[MergedPullRequestSource] = (),
 ) -> tuple[BranchDecision, ...]:
-    """Retire only redundant, main-reachable refs, never unmerged work."""
+    """Retire only exact merged-PR main ancestors, never unclaimed branches."""
 
     names: set[str] = set()
     mains = 0
@@ -539,6 +593,7 @@ def plan_merged_retirement(
         )
 
     open_names = open_pull_request_branch_names(open_pull_request_refs)
+    merged_sources = {(source.name, source.sha) for source in merged_pr_sources}
     decisions = []
     for branch in sorted(branches, key=lambda entry: entry.name):
         if branch.name == default_branch:
@@ -553,8 +608,12 @@ def plan_merged_retirement(
             reason = "reserved-research-or-provenance"
         elif branch.sha not in reachable_from_main:
             reason = "not-in-main-history"
+        elif (branch.name, branch.sha) not in merged_sources:
+            reason = "no-exact-merged-pr-source"
         else:
-            decisions.append(BranchDecision(branch, "delete", "integrated-in-main"))
+            decisions.append(
+                BranchDecision(branch, "delete", "exact-merged-pr-in-main")
+            )
             continue
         decisions.append(BranchDecision(branch, "keep", reason))
     return tuple(decisions)
@@ -600,6 +659,9 @@ def apply_merged_retirement(
     if any(entry.sha not in reachable_from_main for entry in queue):
         raise ValueError("unmerged branch in retirement plan")
     queue = queue[:max_deletes]
+    # Closed/merged PR identities are stable: no need to re-download the entire
+    # historical 1k+ PR roster before every bounded branch batch.
+    merged_sources = api.merged_pr_source_refs() if queue else ()
     deleted: list[str] = []
     while queue:
         before = {branch.name: branch for branch in api.branches()}
@@ -613,6 +675,7 @@ def apply_merged_retirement(
             open_pull_request_refs=open_refs,
             active_workflow_branches=running,
             reachable_from_main=reachable_from_main,
+            merged_pr_sources=merged_sources,
         )
         eligible = {entry.branch for entry in fresh if entry.action == "delete"}
         batch = queue[:batch_size]
@@ -779,12 +842,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if local_main != main_refs[0].sha:
             raise RuntimeError("local main history differs from current GitHub ref")
         reachable_from_main = reachable_commits((local_main,))
+        merged_sources = api.merged_pr_source_refs()
         decisions = plan_merged_retirement(
             branches,
             default_branch=default_branch,
             open_pull_request_refs=open_refs,
             active_workflow_branches=active_branches,
             reachable_from_main=reachable_from_main,
+            merged_pr_sources=merged_sources,
         )
         if args.apply:
             require_retirement_origin()

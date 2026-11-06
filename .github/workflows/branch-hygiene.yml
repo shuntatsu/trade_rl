@@ -1,4 +1,4 @@
-name: Branch hygiene — retire merged refs
+name: Branch hygiene — retire verified merged PR source refs
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Retire main-integrated branches (exact SHA leases)
+    name: Retire main-integrated merged PR sources (exact SHA leases)
     if: github.repository == 'shuntatsu/trade_rl'
     runs-on: ubuntu-latest
     timeout-minutes: 20

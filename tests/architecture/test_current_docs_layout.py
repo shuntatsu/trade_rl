@@ -291,6 +291,7 @@ def test_short_agent_entry_preserves_main_ancestor_retirement_safety() -> None:
         "exact-SHA lease",
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
+        "closed/merged PR",
         "tools.verified_merged_branch_prune",
         "tested PR head contains current `main`",
     ):

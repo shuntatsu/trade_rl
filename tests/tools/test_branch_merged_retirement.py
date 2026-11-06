@@ -6,6 +6,7 @@ import pytest
 
 from tools.branch_hygiene import (
     BranchInfo,
+    MergedPullRequestSource,
     OpenPullRequestRefs,
     apply_merged_retirement,
     plan_merged_retirement,
@@ -40,6 +41,7 @@ def test_only_main_ancestors_without_current_owners_are_eligible() -> None:
         open_pull_request_refs=(_refs(),),
         active_workflow_branches=frozenset({"feature/unfinished-ci"}),
         reachable_from_main=frozenset({A, B, C}),
+        merged_pr_sources=(MergedPullRequestSource("feature/integrated", B),),
     )
     by_name = {item.branch.name: item for item in decisions}
     assert {item.branch.name for item in decisions if item.action == "delete"} == {
@@ -84,6 +86,7 @@ class FakeApi:
         ]
         self.pr_refs: tuple[OpenPullRequestRefs, ...] = ()
         self.running: frozenset[str] = frozenset()
+        self.merged = [MergedPullRequestSource("feature/done", B)]
         self.deleted: list[str] = []
         self.post_fail = False
 
@@ -95,6 +98,9 @@ class FakeApi:
 
     def active_workflow_branch_names(self) -> frozenset[str]:
         return self.running
+
+    def merged_pr_source_refs(self) -> tuple[MergedPullRequestSource, ...]:
+        return tuple(self.merged)
 
     def delete_branches_with_leases(self, branches: tuple[BranchInfo, ...]) -> None:
         self.deleted.extend(item.name for item in branches)
@@ -111,6 +117,7 @@ def _plan(api: FakeApi):
         open_pull_request_refs=(),
         active_workflow_branches=frozenset(),
         reachable_from_main=frozenset({A, B}),
+        merged_pr_sources=api.merged_pr_source_refs(),
     )
 
 
@@ -141,6 +148,7 @@ def test_exact_tip_and_post_delete_readback() -> None:
         "unfinished-workflow",
         "protected",
         "wrong-repo",
+        "merged-evidence-disappeared",
     ],
 )
 def test_pre_delete_changes_abort_without_mutating(change: str) -> None:
@@ -156,6 +164,8 @@ def test_pre_delete_changes_abort_without_mutating(change: str) -> None:
         api.running = frozenset({"feature/done"})
     elif change == "protected":
         api.current[1] = BranchInfo("feature/done", B, True)
+    elif change == "merged-evidence-disappeared":
+        api.merged = []
     else:
         api._repository = "different/repo"
     with pytest.raises((RuntimeError, ValueError)):
@@ -227,6 +237,17 @@ def test_apply_respects_max_delete_and_keeps_other_integrated_refs() -> None:
         open_pull_request_refs=(),
         active_workflow_branches=frozenset(),
         reachable_from_main=frozenset({A, B, C, D}),
+        merged_pr_sources=tuple(api.merged)
+        + (
+            MergedPullRequestSource("feature/done2", C),
+            MergedPullRequestSource("feature/done3", D),
+        ),
+    )
+    api.merged.extend(
+        [
+            MergedPullRequestSource("feature/done2", C),
+            MergedPullRequestSource("feature/done3", D),
+        ]
     )
     deleted = apply_merged_retirement(
         api,
@@ -253,3 +274,80 @@ def test_unsupported_delete_bound_is_rejected_before_any_write() -> None:
             max_deletes=101,
         )
     assert api.deleted == []
+
+
+def test_fresh_unclaimed_branch_at_main_commit_must_not_be_deleted() -> None:
+    # A new writer may create a branch before committing or opening a PR.
+    # Main ancestry alone does not prove that branch is retired work.
+    fresh = BranchInfo("feature/new-active", A, False)
+    decisions = plan_merged_retirement(
+        (BranchInfo("main", A, False), fresh),
+        default_branch="main",
+        open_pull_request_refs=(),
+        active_workflow_branches=frozenset(),
+        reachable_from_main=frozenset({A}),
+    )
+    result = next(item for item in decisions if item.branch.name == fresh.name)
+    assert result.action == "keep"
+    assert result.reason == "no-exact-merged-pr-source"
+
+
+def test_merged_pr_evidence_must_bind_branch_name_and_exact_sha() -> None:
+    branch = BranchInfo("feature/merged", B, False)
+    for evidence in (
+        (),
+        (MergedPullRequestSource("feature/unrelated", B),),
+        (MergedPullRequestSource("feature/merged", C),),
+    ):
+        decisions = plan_merged_retirement(
+            (BranchInfo("main", A, False), branch),
+            default_branch="main",
+            open_pull_request_refs=(),
+            active_workflow_branches=frozenset(),
+            reachable_from_main=frozenset({A, B, C}),
+            merged_pr_sources=evidence,
+        )
+        actual = next(item for item in decisions if item.branch.name == branch.name)
+        assert actual.action == "keep"
+        assert actual.reason == "no-exact-merged-pr-source"
+
+
+def test_only_closed_and_merged_local_pr_final_heads_count_as_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="shuntatsu/trade_rl", token="fake", api_url="https://github.invalid"
+    )
+
+    def entry(
+        name: str,
+        sha: str,
+        merged: bool = True,
+        head_repo: str | None = "shuntatsu/trade_rl",
+    ) -> dict[str, object]:
+        return {
+            "state": "closed",
+            "merged_at": "2026-11-06T00:00:00Z" if merged else None,
+            "head": {
+                "ref": name,
+                "sha": sha,
+                "repo": {"full_name": head_repo} if head_repo else None,
+            },
+            "base": {"ref": "main", "repo": {"full_name": "shuntatsu/trade_rl"}},
+        }
+
+    monkeypatch.setattr(
+        api,
+        "_list_pages",
+        lambda *args, **kwargs: [
+            entry("feature/merged", B),
+            entry("feature/closed-unmerged", B, merged=False),
+            entry("feature/fork", B, head_repo="different/repo"),
+            entry("feature/deleted", B, head_repo=None),
+        ],
+    )
+    assert api.merged_pr_source_refs() == (
+        MergedPullRequestSource("feature/merged", B),
+    )

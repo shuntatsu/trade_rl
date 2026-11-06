@@ -91,24 +91,36 @@ def test_bootstrap_seed_roster_accepts_ascending_nonzero_first_seed(
     assert config.baseline.ppo_seed == 1
 
 
+@pytest.mark.parametrize(
+    "seeds",
+    ((1, 0), (0, 2, 1)),
+    ids=("descending-pair", "late-inversion"),
+)
 def test_bootstrap_rejects_out_of_order_seeds_before_source_acquisition(
     tmp_path: Path,
+    seeds: tuple[int, ...],
 ) -> None:
     payload = _valid_payload()
-    payload["ppo_seeds"] = [1, 0]
+    payload["ppo_seeds"] = list(seeds)
 
     with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
         load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
 
 
+@pytest.mark.parametrize(
+    "seeds",
+    ((1, 0), (0, 2, 1)),
+    ids=("descending-pair", "late-inversion"),
+)
 def test_direct_bootstrap_constructor_rejects_out_of_order_seeds(
     tmp_path: Path,
+    seeds: tuple[int, ...],
 ) -> None:
     config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
-    baseline = replace(config.baseline, ppo_seed=1)
+    baseline = replace(config.baseline, ppo_seed=seeds[0])
 
     with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
-        replace(config, baseline=baseline, ppo_seeds=(1, 0))
+        replace(config, baseline=baseline, ppo_seeds=seeds)
 
 
 @pytest.mark.parametrize(

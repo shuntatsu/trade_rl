@@ -484,7 +484,9 @@ def test_perturb_future_only_changes_rows_after_the_cut(market: MarketDataset) -
     assert np.array_equal(other.tradable[: cut + 1], market.tradable[: cut + 1])
     assert not np.array_equal(other.close[cut + 1 :], market.close[cut + 1 :])
     assert not np.array_equal(other.features[cut + 1 :], market.features[cut + 1 :])
-    assert not np.array_equal(\n        other.tradable[cut + 1 :], market.tradable[cut + 1 :]\n    )
+    assert not np.array_equal(
+        other.tradable[cut + 1 :], market.tradable[cut + 1 :]
+    )
     assert np.all(
         ~other.tradable[cut + 1 :]
         | other.resolved_array("asset_active")[cut + 1 :]

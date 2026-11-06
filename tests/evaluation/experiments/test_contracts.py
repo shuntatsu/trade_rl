@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.evaluation.experiments.codec import _resolved_from_payload
 from trade_rl.evaluation.experiments.contracts.decision import (
     ExperimentDecision,
     ExperimentDecisionKind,
@@ -15,7 +16,6 @@ from trade_rl.evaluation.experiments.contracts.experiment import (
     ExperimentDefinition,
     ExperimentFailure,
 )
-from trade_rl.evaluation.experiments.codec import _resolved_from_payload
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.contracts.study import (
     CANDIDATE_STRATEGY_NAMES,

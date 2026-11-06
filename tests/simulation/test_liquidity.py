@@ -519,3 +519,41 @@ def test_liquidity_never_allocates_a_nonzero_zero_notional_fill(
         assert item.filled_quantity == direction
         assert item.filled_notional == 5e-324
         assert item.no_fill_reason is None
+
+
+@pytest.mark.parametrize("direction", [-1.0, 1.0])
+@pytest.mark.parametrize(
+    ("price", "multiplier", "reject"),
+    [(1e-200, 1e-200, True), (1e-160, 5e-164, False)],
+)
+def test_numpy_scalar_liquidity_underflow_remains_explicit_with_strict_errors(
+    direction: float, price: float, multiplier: float, reject: bool
+) -> None:
+    """NumPy input scalars must not turn zero/subnormal classification into FPE."""
+    request = _request(
+        "a",
+        np.float64(direction),
+        price=np.float64(price),
+        fraction=np.float64(1.0),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        allocations, evidence = allocate_symbol_capacity(
+            requests=(request,),
+            processing_volume=np.float64(100.0),
+            processing_market_notional=np.float64(100.0),
+            price=np.float64(price),
+            contract_multiplier=np.float64(multiplier),
+            participation_limit=np.float64(1.0),
+            lot_size=np.float64(0.0),
+            minimum_notional=np.float64(0.0),
+        )
+    assert len(allocations) == 1
+    item = allocations[0]
+    if reject:
+        assert item.filled_quantity == 0.0
+        assert item.no_fill_reason == "unrepresentable_notional"
+        assert evidence.consumed_capacity_notional == 0.0
+    else:
+        assert item.filled_quantity == direction
+        assert item.filled_notional == 5e-324
+        assert item.no_fill_reason is None

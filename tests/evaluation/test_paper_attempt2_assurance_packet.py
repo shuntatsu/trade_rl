@@ -38,7 +38,7 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "f4484fa2193343cc718e70a20bb60dfc5071569e7de34f542cbde55fb5d561b5"
+PINNED_DIGEST = "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
 )
@@ -236,7 +236,8 @@ def test_packet_grants_no_authorization_and_names_the_required_gates() -> None:
     assert G0_AUTHORIZATION_URL in claims["next_authorized_action"]
     assert "2026-11-07T00:00:00Z" in thesis["stop_rule"]
     assert "different authenticated GitHub principal" in thesis["stop_rule"]
-    assert "PASS" not in claims["next_authorized_action"]
+    assert "no PASS is claimed" in claims["next_authorized_action"]
+    assert "PASS verified" not in claims["next_authorized_action"]
     # Every boundary is covered by an oracle that cites existing test paths.
     mechanism = packet["mechanism"]
     assert set(mechanism["changed_boundaries"]) == BOUNDARIES
@@ -288,7 +289,7 @@ def test_review_route_is_a_narrow_owner_exception_but_machine_gate_remains_unrev
     assert "6680576996" in limitations
     assert "attempt 2 only" in limitations
     assert "different" in limitations and "Claude Haiku 5.5" in limitations
-    assert "same shuntatsu principal" in limitations
+    assert "shuntatsu account" in limitations
     assert "same-principal" in limitations
     assert "tools.research_assurance_github" in limitations
     assert "rejects a same-principal review" in limitations
@@ -573,3 +574,117 @@ def test_docs_point_to_the_packet_digest_and_unreviewed_status() -> None:
     spec = _doc("docs/specs/funding-carry-paper.md").replace("**", "")
     assert "explicitly" in spec and "attempt 2 only" in spec
     assert "different authenticated GitHub principal" in spec
+
+
+SEARCH_SCOPE = (
+    "excluding the top-level directories Windows, Program Files, ProgramData, "
+    "System Volume Information and Recovery and directories named node_modules or "
+    "site-packages at any depth"
+)
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+
+
+def test_heads_name_one_final_implementation_commit_with_no_later_code_change() -> None:
+    """The packet pins one implementation commit; trade_rl/ does not change after it."""
+    identity = _packet()["identity"]
+    head = identity["implementation_head"]
+    assert re.fullmatch(r"[0-9a-f]{40}", head)
+    assert identity["protocol_head"] == head
+    if (
+        _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
+        or _git("merge-base", "--is-ancestor", head, "HEAD").returncode != 0
+    ):
+        return  # shallow or squashed checkout: the commit is not reachable here
+    changed = _git("diff", "--name-only", head, "HEAD", "--", "trade_rl")
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.strip() == "", (
+        "trade_rl/ changed after the pinned implementation_head; re-pin the heads "
+        "and the digest: " + changed.stdout
+    )
+    # The authority docs may not embed full SHAs, so they cite the 12-character form.
+    for relative in (DOCUMENTS[1], DOCUMENTS[2]):
+        assert head[:12] in _raw(relative), relative
+    assert head in _raw(DOCUMENTS[0])
+
+
+def test_search_scope_is_the_same_precise_statement_everywhere() -> None:
+    packet = _packet()
+    limitations = packet["thesis"]["limitations"]
+    flat_limitations = " ".join(limitations.split())
+    assert (
+        "top-level directories C:" + chr(92) + "Windows, C:" + chr(92) + "Program Files"
+        in flat_limitations
+    )
+    assert "directories named node_modules or site-packages at any depth" in (
+        flat_limitations
+    )
+    assert "selected paths" not in flat_limitations
+    for relative in DOCUMENTS:
+        text = _doc(relative)
+        assert "selected paths" not in text, relative
+        assert "the top-level directories" in text, relative
+        assert "at any depth" in text, relative
+    arch = _doc("docs/architecture/research-assurance.md")
+    spec = _doc("docs/specs/funding-carry-paper.md")
+    status = _doc("docs/research/current-status.md")
+    assert SEARCH_SCOPE in spec
+    assert SEARCH_SCOPE in status
+    assert "excluding the top-level directories" in UNAVAILABLE_REVIEW_RULE
+    assert "at any depth (Program Files (x86) was searched)" in UNAVAILABLE_REVIEW_RULE
+    # Condition 2 names the corrected record, not the superseded 627-file one.
+    assert (
+        "the **corrected** search record of 2026-11-06 in Issue #810 comment "
+        "6680576996" in arch
+    )
+    assert "not the superseded earlier 627-file record" in arch
+    assert "the earlier search, superseded for scope and counts" in arch
+
+
+def test_owner_question_omissions_are_recorded_without_editing_the_comment() -> None:
+    omission = "not the 43 unreadable paths, the 50 unfollowed junctions"
+    assert omission in " ".join(_packet()["thesis"]["limitations"].split())
+    assert (
+        "was searched; those details are in the search record of the same comment"
+        in _doc("docs/architecture/research-assurance.md")
+    )
+    for relative in DOCUMENTS:
+        text = _doc(relative)
+        assert "43 unreadable paths" in text or "43 paths" in text, relative
+        assert "50 unfollowed" in text, relative
+
+
+def test_review_route_exception_is_described_identically_and_claims_no_pass() -> None:
+    packet = _packet()
+    thesis, claims = packet["thesis"], packet["claims"]
+    for text in (
+        thesis["limitations"],
+        thesis["stop_rule"],
+        claims["decision_rule"],
+        claims["next_authorized_action"],
+        claims["permitted"][1],
+    ):
+        flat = " ".join(text.split())
+        assert "attempt 2" in flat
+        assert "different from every implementation model" in flat or (
+            "owner exception" in flat and "Claude Haiku" in flat
+        )
+        assert "operator-enforced" in flat
+        assert "sealing code does not call the research tool" in flat
+        assert "rejects same-principal reviews" in flat or (
+            "rejects a same-principal review" in flat
+        )
+        assert "cannot attest PASS" not in flat
+        assert "cannot produce a PASS" not in flat
+    assert "satisfies sealing condition (a)" in " ".join(thesis["limitations"].split())
+    for relative in DOCUMENTS:
+        text = _doc(relative)
+        assert "operator-enforced" in text, relative
+        assert "no PASS is claimed" in text, relative
+        assert "cannot yield PASS" not in text, relative
+        assert "is not a PASS" not in text, relative
+    assert evaluate_assurance(packet).status == "UNREVIEWED"

@@ -1162,9 +1162,11 @@ unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 disposition `invalidated` with reason `observation_gap`. G0 predecessor verification
 is not waived in general. The user's words above say only that they do not know where
 the data is and that new data may be collected, and a documented read-only implementer
-search on 2026-11-06 of selected paths on drive C: (with system-directory and
-dependency exclusions) found no root with the attempt-1 protocol digest (scope and
-limits in `docs/architecture/research-assurance.md`; Docker volumes, other machines
+search on 2026-11-06 of drive C: (excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and directories
+named node_modules or site-packages at any depth; Program Files (x86) was searched)
+found no root with the attempt-1 protocol digest (scope and limits in
+`docs/architecture/research-assurance.md`; Docker volumes, other machines
 and external or backup storage were not searched). On 2026-11-06 the owner then answered 「承認する」 in a Claude Code chat to a
 statement that the planner originally recorded on Issue #810 (comment 6673566542,
 https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542): the attempt-1 root need not be
@@ -1197,16 +1199,20 @@ sealed attempt-2 start exists (the owner has chosen `2026-11-07T00:00:00Z`, not 
 
 2026-11-05: a Research Assurance author packet for attempt 2 is recorded in
 [`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json)
-(digest `f4484fa2193343cc718e70a20bb60dfc5071569e7de34f542cbde55fb5d561b5`, status UNREVIEWED). It restates the existing frozen
+(digest `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`, status UNREVIEWED). It restates the existing frozen
 screen and lineage without changing any criterion. Sealing attempt 2 still requires an
 independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
 "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review is acceptable);
 those words alone did not authorize same-principal review. The owner explicitly
-authorized a different-model review through the same shuntatsu GitHub principal
-for attempt 2 only in corrected comment 6680576996; this remains an exception
-rather than different-principal independence. `tools.research_assurance_github`
-rejects a same-principal review, so that route still cannot satisfy sealing
-condition (a) with this machine tool and is not a PASS. Issue #810 records:
+made an exception for attempt 2 only in corrected comment 6680576996: a review by a
+model different from every implementation model, posted from the shuntatsu GitHub
+account, satisfies sealing condition (a). It is operator-enforced (sealing code does
+not call the research tool) and is not different-principal independence.
+`tools.research_assurance_github` rejects a same-principal review and does not report
+PASS for it, so the packet stays UNREVIEWED and no PASS is claimed. The packet's
+`protocol_head` and `implementation_head` are both `326188fc0c3c`, the last commit that
+changes `trade_rl/` in the pull request; the packet is committed in a later
+descendant. Issue #810 records:
 https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (2026-11-05; it
 does not name the G0 predecessor-verification exception) and
 https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996 (2026-11-06;
@@ -1219,20 +1225,26 @@ sealed or launched, and no economic result exists.
 **2026-11-06 corrected G0 authorization (Issue #810 comment 6680576996).**
 The original operator question and comment 6673566542 overstated that all
 of drive C: had been searched. A repeat read-only scan covered **143,061
-directories**, excluded Windows, Program Files, ProgramData, System Volume
-Information, Recovery and directory names node_modules/site-packages, and
+directories**, covering drive C: excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and directories
+named node_modules or site-packages at any depth, and
 included Program Files (x86). It did not traverse 50 links/junctions or
-43 unreadable paths. None of **616 found protocol.json** files matched the
+could not read 43 paths. The question put to the owner listed the exclusions and
+the not-searched locations but not those 43 unreadable paths, the 50 unfollowed
+junctions or that Program Files (x86) was searched; those details are in the same
+comment's search record, which supersedes the earlier 627-file record. None of **616 found protocol.json** files matched the
 attempt-1 digest; the previous count of 627 pertains to a different,
 incomplete search. Other machines, Docker volumes, cloud/backup and external
 media remain unsearched. The owner replied 「この前提で承認する」 to the
 corrected question, with all four predecessor facts not_established;
 the corrected comment supersedes only the old search premise, not the
-historical start time or Task Scheduler authorization. A distinct-model
-review posted under the same GitHub principal was authorized **only for
-attempt 2**; the machine research_assurance_github checker still rejects
-same-principal reviews. The research-assurance author packet remains
-UNREVIEWED, and no seal, collection, FS1/unused/final or live authority
+historical start time or Task Scheduler authorization. For **attempt 2
+only**, a review by a model different from every implementation model, posted
+from the same GitHub account, satisfies sealing condition (a) as an owner
+exception (operator-enforced; sealing code does not call the research tool);
+the machine research_assurance_github checker still rejects same-principal
+reviews and does not report PASS. The research-assurance author packet remains
+UNREVIEWED and no PASS is claimed; no seal, collection, FS1/unused/final or live authority
 follows from this software/documentation state.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:

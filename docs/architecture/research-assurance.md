@@ -1460,12 +1460,14 @@ list in the planner's 2026-11-05 record on the same comment, which names
 contract does not treat it as an owner authorization of a G0 exception. The G0
 exception rests only on the separate 2026-11-06 authorization quoted above.
 
-**Implementer search record (read-only, 2026-11-06).** An implementer searched the
+**Implementer search record (read-only, 2026-11-06) - the earlier search, superseded for
+scope and counts by the corrected search record below.** An implementer searched the
 machine used for this repository for an attempt-1 root and found none within the
-recorded scope. Scope: selected paths on drive C: (the only file-system drive mounted
+recorded scope. Scope: drive C: (the only file-system drive mounted
 on the machine when checked), looking for files named `protocol.json`, `journal.sqlite`,
 `collection-control.sqlite`, `collector.sqlite` or `collection-failure.json`, excluding
-only `C:\Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`,
+only `C:\Windows`, `Program Files`, `Program Files (x86)` (excluded in this earlier
+search, searched in the corrected one), `ProgramData`,
 `System Volume Information`, `Recovery`, `node_modules` and `site-packages`, which
 covers the user profile (including `AppData\Local\Temp`, `.gemini`, `.codex`, `Desktop`
 and `Documents`), `C:\mnt`, `C:\tmp` and the other top-level directories; the SHA-256
@@ -1490,8 +1492,12 @@ time (`2026-11-07T00:00:00Z`) and Task Scheduler job permissions remain
 historical entries in comment 6673566542. Neither comment proves that the root
 does not exist outside the search scope.
 
-**Corrected read-only search (2026-11-06T08:23:27Z–08:24:02Z).** A new walk of
-drive C: visited **143,061 directories** searching file names `protocol.json`,
+**Corrected read-only search record (2026-11-06T08:23:27Z–08:24:02Z); this is the
+search record that sealing condition 2 below and the sealed rule refer to.** A new
+walk of drive C: (scope: drive `C:` excluding the top-level directories
+`C:\Windows`, `C:\Program Files`, `C:\ProgramData`, `C:\System Volume Information`
+and `C:\Recovery` and directories named `node_modules` or `site-packages` at any
+depth; `C:\Program Files (x86)` was searched) visited **143,061 directories** searching file names `protocol.json`,
 `journal.sqlite`, `collection-control.sqlite`, `collector.sqlite` and
 `collection-failure.json`. The enumerator excluded the top-level directories
 `C:\Windows`, `C:\Program Files`, `C:\ProgramData`,
@@ -1510,16 +1516,26 @@ volumes, other machines, external media, cloud/backup storage, unreadable
 paths and excluded directories remain **not searched**. This cannot prove
 that a preserved predecessor root is absent.
 
+**What the owner's question did and did not list.** The question put to the owner in
+comment 6680576996 listed the exclusions and the locations that were not searched
+(Docker volumes, other machines, external media, cloud or backup storage). It did not
+list the 43 unreadable paths, the 50 unfollowed links and junctions, or that
+`C:\Program Files (x86)` was searched; those details are in the search record of the
+same comment (and above). This record does not claim that the owner approved with
+those details in view, and the owner comment is not edited here.
+
 **Independent review transport (owner exception).** The same corrected Issue
-comment records an attempt-2-only owner exception permitting a **different
-review model** (Claude Haiku 5.5) to post its research-assurance review
-through the same GitHub account. The owner did **not** establish separate
-GitHub principal identity; `tools.research_assurance_github` continues to
-reject same-principal reviews and therefore cannot report PASS from them. An
-actual independent, exact-digest/HEAD, result-blind review still must be
-obtained and evaluated under the explicitly authorized route before any
-seal; **this author packet stays UNREVIEWED** and does not authorize a
-collection, unused/final read, economic decision or live order.
+comment records an attempt-2-only owner exception: a review by a model different
+from every implementation model (Claude Haiku 5.5), posted from the shuntatsu
+GitHub account, **satisfies sealing condition (a)** of the attempt-2 packet. The
+exception is **operator-enforced**: the sealing code does not call the research
+tool, so nothing in code checks that the review exists. The owner did **not**
+establish separate GitHub principal identity; `tools.research_assurance_github`
+continues to reject same-principal reviews and does **not** report PASS for them,
+so **this author packet stays UNREVIEWED** under the tool. No PASS is claimed
+anywhere. An actual independent, exact-digest/HEAD, result-blind review of the
+packet still has to exist before any seal. The packet authorizes no collection,
+unused/final read, economic decision or live order.
 
 The exception can be used only when **all** of these hold:
 
@@ -1527,8 +1543,10 @@ The exception can be used only when **all** of these hold:
    is attempt 1 with the protocol digest pinned in
    `trade_rl/evaluation/paper/predecessor.py`;
 2. the owner has stated, in the verbatim words above, that they do not know where the
-   attempt-1 data and results are, and a recorded read-only search (the record above,
-   repeated on any other machine the owner names) finds no root with that digest; a
+   attempt-1 data and results are, and a recorded read-only search (the **corrected**
+   search record of 2026-11-06 in Issue #810 comment 6680576996, summarized under
+   "Corrected read-only search record" above, and not the superseded earlier
+   627-file record; repeated on any other machine the owner names) finds no root with that digest; a
    root that is merely inconvenient to find, or is readable, requires the `available`
    path;
 3. **a separate explicit owner authorization exists on Issue #810 that names the G0
@@ -1568,15 +1586,26 @@ The exception does not apply to any other family, attempt number or predecessor.
   probe, or any other G0/G1/G2 requirement.
 
 The attempt-2 author packet is `report/issue810-carry-attempt2-research-assurance-20261105.json`
-(canonical digest `f4484fa2193343cc718e70a20bb60dfc5071569e7de34f542cbde55fb5d561b5`). Its status is UNREVIEWED: no independent
-`research_assurance_review_v1` verified by the tooling exists. On 2026-11-05 the owner
+(canonical digest `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`). Its status is UNREVIEWED: no independent
+`research_assurance_review_v1` verified by the tooling exists. Its `protocol_head` and
+`implementation_head` are both `326188fc0c3c`, the last commit that changes `trade_rl/`
+in the pull request that adds the packet (`git diff 326188fc0c3c..<PR head> -- trade_rl/` is
+empty); the packet is committed in a later descendant, because a packet in the tree
+cannot name the commit that contains it. The PR head is therefore not the
+`implementation_head`, and `tools.research_assurance_github`, which requires the PR head
+and the review `commit_id` to equal `implementation_head`, cannot report PASS for an
+in-tree packet. A review must name this digest and these heads, and any later `trade_rl/`
+change (including a sync merge of `main`) needs a new `implementation_head`, digest and
+review. On 2026-11-05 the owner
 wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
 Antigravity/Gemini, is acceptable). The 2026-11-05 words alone did not authorize a
 same-principal exception. In corrected Issue #810 comment 6680576996 the owner
-separately approved an attempt-2-only different-model review through the same
-GitHub account; that is an explicit **exception**, not principal independence.
-`tools.research_assurance_github` still rejects same-principal reviews, so the
-packet remains UNREVIEWED and the tool cannot report PASS for this route. Issue #810 records:
+separately approved an attempt-2-only exception: a review by a model different from
+every implementation model (Claude Haiku 5.5), posted from the same GitHub account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not call the
+research tool) and is **not** principal independence.
+`tools.research_assurance_github` still rejects same-principal reviews and does not
+report PASS for this route, so the packet stays UNREVIEWED and no PASS is claimed. Issue #810 records:
 https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (2026-11-05;
 it does not replace the review and does not authorize the G0 exception) and
 https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996 (2026-11-06; corrected

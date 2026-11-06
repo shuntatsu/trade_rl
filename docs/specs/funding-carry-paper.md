@@ -266,7 +266,7 @@ new attempt 1.
 Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) has not
 been located: on 2026-10-30 the user said in chat that they do not know that data or
 where its results were saved and that new data may be collected, and a documented
-read-only implementer search of selected paths on drive C: on 2026-11-06 found no root
+read-only implementer search of drive C: (excluding the top-level directories Windows, Program Files, ProgramData, System Volume Information and Recovery and directories named node_modules or site-packages at any depth) on 2026-11-06 found no root
 with the attempt-1 protocol digest (scope and limits in the implementer search record
 of `docs/architecture/research-assurance.md`). The user's words do not say the root is
 lost or unreadable and do not mention G0. Attempt 2 uses lineage
@@ -307,18 +307,26 @@ inaccurate. The corrected [owner authorization](https://github.com/shuntatsu/tra
 records the fresh response 「この前提で承認する」 after the actual exclusions were
 disclosed. In a second read-only search, 143,061 directories were visited,
 43 paths were unreadable and 50 links/junctions were not followed. The
-enumerator excluded Windows, Program Files, ProgramData, System Volume
-Information, Recovery and all node_modules/site-packages, but **included**
-Program Files (x86). The **616 found** protocol.json files yielded no matching
+search covered drive C: excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and
+directories named node_modules or site-packages at any depth, and **included**
+Program Files (x86). This corrected record (comment 6680576996), not the
+superseded 627-file record, is the search record the sealing conditions rely on. The **616 found** protocol.json files yielded no matching
 attempt-1 digest; the prior 627 count was an earlier scoped observation, not
 a machine-wide enumeration. Other machines, cloud/backup, Docker volumes,
 external media and excluded/unreadable locations were not searched. This
 does not establish absence of the root; the four predecessor facts remain
-not_established. The same owner record permits a different-model (Claude
-Haiku 5.5) research review through the same GitHub account **for attempt 2
-only**. It does not establish different-principal independence or override
-the existing tools.research_assurance_github same-principal refusal; the
-packet is UNREVIEWED and neither review nor seal is automatically approved.
+not_established. The question put to the owner listed the exclusions and the
+not-searched locations but not the 43 unreadable paths, the 50 unfollowed
+junctions or that Program Files (x86) was searched; those details are in the
+search record of the same comment. The same owner record makes an
+attempt-2-only exception: a review by a model different from every
+implementation model (Claude Haiku 5.5), posted from the same GitHub account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not
+call the research tool), does not establish different-principal independence and
+does not change the existing tools.research_assurance_github same-principal
+refusal: the tool does not report PASS for it, the packet is UNREVIEWED and no
+PASS is claimed.
 
 Threat model. These gates prevent accidental or non-canonical attempt-2 records
 from being sealed or run through the supported entry points (`attempt2`,
@@ -677,18 +685,24 @@ rule), the G1 chain from source to decision with all eight boundaries, the G2
 independent oracles by test path, the evidence stage and claim boundary, the
 attempt-1 `not_established` limits, the threat model and the storage-probe step.
 
-* Canonical digest: `f4484fa2193343cc718e70a20bb60dfc5071569e7de34f542cbde55fb5d561b5`
+* Canonical digest: `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`
   (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
 * Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
   `economic_execution_authorized=false`. No review exists, so this is not a pass.
-* The packet binds protocol and implementation head
-  `d59a941c48bf96b5cb9eb281117ed02d43b5457d`. A packet stored in the tree cannot
-  name the commit that contains it, so a later change to either head changes the
-  digest and voids any review of the earlier digest.
+* The packet binds protocol and implementation head `326188fc0c3cbcc4ff8bf453854e8515ed983abe`, the last commit that
+  changes `trade_rl/` in the pull request that adds the packet
+  (`git diff 326188fc0c3cbcc4ff8bf453854e8515ed983abe..<PR head> -- trade_rl/` is empty). A packet stored in the tree
+  cannot name the commit that contains it, so the packet is committed in a later
+  descendant and the PR head differs from the implementation head;
+  `tools.research_assurance_github` needs the PR head and the review `commit_id` to equal
+  `implementation_head`, so it cannot report PASS for an in-tree packet. A later change
+  to either head, or to `trade_rl/` (including a sync merge of `main`), changes the digest
+  and voids any review of the earlier digest.
 
 Sealing attempt 2 still needs all of the following, and this packet supplies none of
 them: (a) an independent `research_assurance_v1` review of the exact digest and
-heads, verified through `tools.research_assurance_github`; (b) explicit user
+heads (ordinarily verified through `tools.research_assurance_github`; for attempt 2 only,
+the owner-excepted review described under "Review route" below); (b) explicit user
 authorization on Issue #810 for the seal; and (c) either a verified attempt-1 root
 (the `available` path) or a separate explicit owner authorization on Issue #810 that
 names the G0 predecessor-verification exception (see
@@ -707,18 +721,19 @@ comment 6673566542 separately records the selected screen start
 authorization; its description of an all-C: search was inaccurate and is
 superseded only for that search premise. Neither comment authorizes FS1 scoring,
 unused or final-window reads, live trading, order routing, relaxed criteria,
-or use of an attempt-1 economic or status readout. Neither replaces (a).
+or use of an attempt-1 economic or status readout. Neither comment is itself the review that (a) requires; the corrected comment only defines which review route satisfies (a) for attempt 2.
 
 Review route. AGENTS.md (#687) ordinarily requires a review from a different
 authenticated GitHub principal. The owner's words of 2026-11-05 were
 "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"; those words alone
 did not establish principal independence or authorize a same-principal exception.
-The owner **explicitly** permitted a distinct-model (Claude Haiku 5.5) review
-posted through the same shuntatsu account **for attempt 2 only** in corrected
-Issue #810 comment 6680576996. This is a narrow deviation, not principal
-independence: `tools.research_assurance_github` still rejects same-principal
-reviews and cannot yield PASS for that route. The packet remains UNREVIEWED
-until an actual exact-digest/HEAD research review is completed and accepted under
-the owner-authorized rule. Nothing is sealed, launched or collected under
+The owner **explicitly** made an exception **for attempt 2 only** in corrected
+Issue #810 comment 6680576996: a review by a model different from every
+implementation model (Claude Haiku 5.5), posted from the shuntatsu account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not
+call the research tool) and is not principal independence:
+`tools.research_assurance_github` still rejects same-principal reviews and does not
+report PASS for that route. The packet stays UNREVIEWED, no PASS is claimed, and an
+actual exact-digest/HEAD result-blind review must still exist before any seal. Nothing is sealed, launched or collected under
 this packet, and the storage probe (the only networked step before launch)
 is not run under it.

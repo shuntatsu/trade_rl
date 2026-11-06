@@ -1815,12 +1815,13 @@ def _encode_incomplete_receipt(
     phase: str,
     observed_view_digest: str | None,
 ) -> tuple[bytes, str]:
-    """Return canonical receipt bytes that provably pass strict reload.
+    """Return canonical receipt bytes verified by the shared strict decoder.
 
-    The bytes are decoded by the reader's own validator before they are
-    returned. If the full encoding is rejected, every pair is quarantined and
-    the check is repeated, so that a reloadable receipt exists *before* the
-    destination root is claimed.
+    The bytes are checked by the reader's structural/canonical validator
+    before they are returned. If the encoding is rejected, every pair is
+    quarantined and checked again before claiming the destination root.
+    File-based reload also enforces a separate finite input-byte budget and
+    may reject an otherwise valid oversized receipt.
     """
     last_error: Exception | None = None
     for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):

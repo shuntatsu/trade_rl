@@ -157,6 +157,82 @@ def test_unrepresentable_order_is_rejected_at_stateful_admission(
     assert result.book.cash == 1_000.0
 
 
+@pytest.mark.parametrize("signed_quantity", [-1.0, 1.0])
+def test_projected_admission_economics_ignore_strict_underflow_for_subnormal(
+    signed_quantity: float,
+) -> None:
+    """Accepted subnormal values must not crash risk projection before fill."""
+    price = 1e-160
+    multiplier = 5e-164
+    book = BookState.zero(1, 1_000.0, np.array([price]), np.array([multiplier]))
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        projected = _AdmissionBookProjection.from_book(
+            book, mark_prices=np.array([price])
+        )
+        projected.apply_admitted_order(
+            symbol_index=0, quantity=signed_quantity, price=price
+        )
+        assert projected.portfolio_value == 1_000.0
+    assert projected.quantities.tolist() == [signed_quantity]
+    assert projected.cash == 1_000.0
+
+
+@pytest.mark.parametrize("signed_quantity", [-1.0, 1.0])
+def test_projected_existing_subnormal_book_evaluates_under_strict_numpy(
+    signed_quantity: float,
+) -> None:
+    book = BookState(
+        quantities=np.array([signed_quantity]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-160]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([5e-164]),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        projected = _AdmissionBookProjection.from_book(
+            book, mark_prices=np.array([1e-160])
+        )
+        assert projected.portfolio_value == 1_000.0
+    assert projected.quantities.tolist() == [signed_quantity]
+
+
+@pytest.mark.parametrize("price,multiplier", [(1e-200, 1e-200), (1e308, 1e308)])
+def test_projected_unrepresentable_order_does_not_mutate_projection(
+    price: float, multiplier: float
+) -> None:
+    """A failed proposed order must not reserve phantom inventory or cash."""
+    book = BookState.zero(1, 1_000.0, np.array([price]), np.array([multiplier]))
+    projected = _AdmissionBookProjection.from_book(book, mark_prices=np.array([price]))
+    before = (
+        projected.quantities.copy(),
+        projected.cash,
+        projected.portfolio_value,
+        projected.insolvent,
+    )
+    with pytest.raises(ValueError, match="non-finite|nonzero position value"):
+        projected.apply_admitted_order(symbol_index=0, quantity=1.0, price=price)
+    np.testing.assert_array_equal(projected.quantities, before[0])
+    assert projected.cash == before[1]
+    assert projected.portfolio_value == before[2]
+    assert projected.insolvent == before[3]
+    assert book.quantities.tolist() == [0.0]
+
+
+def test_existing_projection_exposure_cannot_underflow_at_processing_open() -> None:
+    """A bookable prior mark must not become phantom zero risk at new open."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-200]),
+    )
+    with pytest.raises(ValueError, match="nonzero position value"):
+        _AdmissionBookProjection.from_book(book, mark_prices=np.array([1e-200]))
+    assert book.quantities.tolist() == [1.0]
+    assert book.cash == 1_000.0
+
+
 def test_empty_accepted_orders_do_not_scan_dataset_symbols(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

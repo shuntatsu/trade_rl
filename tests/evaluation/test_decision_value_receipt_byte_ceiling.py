@@ -192,3 +192,48 @@ def test_reader_rejects_file_truncation_while_loading(
     monkeypatch.setattr(study, "open_regular_binary", changing_open)
     with pytest.raises(ValueError, match="changed during read"):
         study.load_incomplete_pair_attempt(root)
+
+
+def test_root_enumeration_is_bounded_before_receipt_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malicious root with many children must not be fully enumerated."""
+    root = tmp_path / "attempt"
+    root.mkdir()
+    (root / "incomplete-pairs.json").write_bytes(b"{}")
+    real_scandir = study.os.scandir
+
+    class ScanItem:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.path = str(root / name)
+
+    class FloodedScandir:
+        def __init__(self) -> None:
+            self.count = 0
+
+        def __enter__(self) -> FloodedScandir:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def __iter__(self) -> FloodedScandir:
+            return self
+
+        def __next__(self) -> ScanItem:
+            self.count += 1
+            if self.count == 1:
+                return ScanItem("incomplete-pairs.json")
+            if self.count == 2:
+                return ScanItem("second-file")
+            raise AssertionError("unbounded root directory enumeration")
+
+    def checked_scandir(path: object):  # type: ignore[no-untyped-def]
+        if Path(path) == root:  # type: ignore[arg-type]
+            return FloodedScandir()
+        return real_scandir(path)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(study.os, "scandir", checked_scandir)
+    with pytest.raises(ValueError, match="root contents are malformed"):
+        study.load_incomplete_pair_attempt(root)

@@ -169,9 +169,7 @@ class ResolvedRunConfig:
             field="initial_capital",
         )
         if initial_capital <= 0.0:
-            raise ContractViolationError(
-                "initial_capital must be finite and positive"
-            )
+            raise ContractViolationError("initial_capital must be finite and positive")
         execution_overlay = contract_text(
             self.execution_overlay,
             field="execution_overlay",

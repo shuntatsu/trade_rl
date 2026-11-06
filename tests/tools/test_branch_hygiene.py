@@ -298,9 +298,9 @@ def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     assert "schedule:" in workflow
     assert "workflow_dispatch:" in workflow
     assert "pull_request_target:" not in workflow
-    assert "contents: read" in workflow
-    assert "contents: write" not in workflow
-    assert "--apply" not in workflow
+    assert "contents: write" in workflow
+    assert "--retire-merged --apply --max-deletes 100" in workflow
+    assert "if: github.repository == 'shuntatsu/trade_rl'" in workflow
     assert "APPLY_REQUESTED" not in workflow
     assert "pull-requests: read" in workflow
     assert "actions: read" in workflow

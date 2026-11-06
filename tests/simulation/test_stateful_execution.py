@@ -1271,6 +1271,77 @@ def test_quote_notional_volume_is_not_multiplied_by_price_again() -> None:
     assert result.capacity_evidence[0].market_notional == pytest.approx(100.0)
 
 
+@pytest.mark.parametrize("time_in_force", [TimeInForce.GTC, TimeInForce.IOC])
+def test_triggered_stop_zero_notional_fill_preserves_state_and_lifecycle(
+    time_in_force: TimeInForce,
+) -> None:
+    """The allocator handles an unbookable intrabar stop fill after valid admission."""
+    opens = np.full((6, 1), 100.0)
+    lows = opens.copy()
+    lows[1, 0] = 1e-200
+    dataset = _market(
+        open=opens,
+        high=opens.copy(),
+        low=lows,
+        close=opens.copy(),
+        volume=np.full((6, 1), 100.0),
+        volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
+        contract_multipliers=np.array([1e-200]),
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = _intent(
+        executor,
+        -1.0,
+        order_type=OrderType.STOP_MARKET,
+        stop_price=1e-200,
+        time_in_force=time_in_force,
+    )
+    first = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+    expected_events = ["submitted", "eligible", "triggered", "no_fill"]
+    if time_in_force is TimeInForce.IOC:
+        expected_events.append("expired")
+    assert [event.event_type for event in first.order_events] == expected_events
+    assert next(e for e in first.order_events if e.event_type == "no_fill").reason == (
+        "unrepresentable_notional"
+    )
+    assert first.fill_count == 0
+    assert first.book.quantities.tolist() == [0.0]
+    assert first.book.cash == 1_000.0
+    assert len(first.capacity_evidence) == 1
+    capacity = first.capacity_evidence[0]
+    assert capacity.initial_capacity_notional == 100.0
+    assert capacity.consumed_capacity_notional == 0.0
+    assert capacity.remaining_capacity_notional == 100.0
+
+    if time_in_force is TimeInForce.IOC:
+        assert first.order_book.active_orders == ()
+        assert first.order_book.terminal_orders[-1].status is OrderStatus.EXPIRED
+        assert first.order_book.terminal_orders[-1].terminal_reason == "ioc_remainder"
+    else:
+        assert len(first.order_book.active_orders) == 1
+        pending = first.order_book.active_orders[0]
+        assert pending.status is OrderStatus.TRIGGERED
+        assert pending.remaining_quantity == -1.0
+        # A GTC triggered stop remains active and fills at a later valid price.
+        second = executor.execute_orders(
+            first.book,
+            first.order_book,
+            (),
+            start_index=1,
+            bars=1,
+        )
+        assert [event.event_type for event in second.order_events] == ["filled"]
+        assert second.book.quantities.tolist() == [-1.0]
+        assert second.order_book.active_orders == ()
+        assert second.order_book.terminal_orders[-1].status is OrderStatus.FILLED
+
+
 def test_same_inputs_replay_order_events_and_accounting_identically() -> None:
     volume = np.full((6, 1), 2.0)
     dataset = _market(volume=volume)

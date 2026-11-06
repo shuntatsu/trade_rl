@@ -85,6 +85,56 @@ def test_resolved_run_config_is_frozen_and_digest_stable() -> None:
         config.ppo_seed = 99  # type: ignore[misc]
 
 
+def test_resolved_run_config_accepts_full_gross_budget_boundary() -> None:
+    config = replace(resolved_config(), gross_budget=1.0)
+
+    assert config.gross_budget == 1.0
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        pytest.param(
+            "gross_budget",
+            0.0,
+            "gross_budget must be within \\(0, 1\\]",
+            id="zero-gross-budget",
+        ),
+        pytest.param(
+            "gross_budget",
+            -0.1,
+            "gross_budget must be within \\(0, 1\\]",
+            id="negative-gross-budget",
+        ),
+        pytest.param(
+            "gross_budget",
+            1.0000000000000002,
+            "gross_budget must be within \\(0, 1\\]",
+            id="gross-budget-above-one",
+        ),
+        pytest.param(
+            "initial_capital",
+            0.0,
+            "initial_capital must be finite and positive",
+            id="zero-initial-capital",
+        ),
+        pytest.param(
+            "initial_capital",
+            -1.0,
+            "initial_capital must be finite and positive",
+            id="negative-initial-capital",
+        ),
+    ),
+)
+def test_resolved_run_config_rejects_unexecutable_budget_contract(
+    field: str,
+    value: float,
+    message: str,
+) -> None:
+    with pytest.raises(ContractViolationError, match=message):
+        replace(resolved_config(), **{field: value})
+
+
 def test_study_plan_rejects_nondefault_supervised_forecast_horizon() -> None:
     baseline = replace(
         resolved_config(),

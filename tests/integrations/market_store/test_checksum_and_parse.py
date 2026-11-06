@@ -14,6 +14,7 @@ from tests.integrations.market_store.support import (
     kline_csv_rows,
     zip_csv,
 )
+from trade_rl.integrations.binance.dataset import _parse_kline_rows
 from trade_rl.integrations.market_store.checksum import (
     ChecksumError,
     parse_checksum,
@@ -375,6 +376,38 @@ def test_the_documented_spot_placeholder_is_skipped_and_reported() -> None:
         PLACEHOLDER_OPEN_MS - HOUR_MS,
         PLACEHOLDER_OPEN_MS + HOUR_MS,
     }
+
+
+def test_file_backed_reader_currently_retains_the_store_skipped_placeholder() -> None:
+    """Characterize the existing difference, without changing source data or readers."""
+    raw_rows = dec_2020_rows()
+    assert int(REAL_BTC_PLACEHOLDER[6]) < PLACEHOLDER_OPEN_MS
+
+    timestamps, _opens, _highs, _lows, closes, quote_volumes = _parse_kline_rows(
+        raw_rows,
+        interval_ms=HOUR_MS,
+        start_ms=ms_from_utc(DEC_2020),
+        end_ms=ms_from_utc(JAN_2021),
+    )
+    # This separate reader infers each close time from open+interval. It does
+    # not validate the archive's anomalous source close_time field.
+    close_times_ms = timestamps.astype("datetime64[ms]").astype("int64")
+    matches = [
+        i
+        for i, close_ms in enumerate(close_times_ms)
+        if int(close_ms) == PLACEHOLDER_OPEN_MS + HOUR_MS
+    ]
+    assert len(matches) == 1
+    assert len(timestamps) == 31 * 24
+    assert closes[matches[0]] == float(REAL_BTC_PLACEHOLDER[4])
+    assert quote_volumes[matches[0]] == 0.0
+
+    store = parse_kline_archive(
+        zip_csv(raw_rows), spec(start=DEC_2020, end=JAN_2021), embargo=ENFORCED
+    )
+    assert len(store.rows) == len(timestamps) - 1
+    assert PLACEHOLDER_OPEN_MS not in {row.open_time_ms for row in store.rows}
+    assert len(store.placeholders) == 1
 
 
 def test_an_ordinary_archive_has_no_placeholders() -> None:

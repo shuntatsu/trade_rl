@@ -14,10 +14,11 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, replace
 from fractions import Fraction
 from pathlib import Path
@@ -1415,27 +1416,62 @@ def _require_complete_reachable_labels(
         raise ValueError("TD8 eligible paired evidence count mismatch")
 
 
+_DATASET_VIEW_DIGEST_SCHEMA = "decision_value_dataset_view_v3"
+_DATASET_VIEW_ARRAYS = (
+    "timestamps",
+    "features",
+    "global_features",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "funding_rate",
+    "tradable",
+    "feature_available",
+)
+
+
 def _dataset_view_digest(dataset: MarketDataset) -> str:
-    """Digest the market arrays of one dataset view (e.g. a perturbed copy)."""
+    """Digest the declared arrays and names of one dataset view.
+
+    Scope, exactly: ``dataset_id``, ``symbols``, ``feature_names``,
+    ``global_feature_names`` and the arrays in ``_DATASET_VIEW_ARRAYS``
+    (timestamps, features, global features, OHLCV, funding rate, tradable mask
+    and feature-availability mask), each framed by name, dtype and shape. The
+    optional execution/cost/calendar/availability arrays (``fee_rate``,
+    ``mark_price``, ``available_at`` and so on) and ``identity_payload_json``
+    are **not** covered, so this identifies the observed view of a probe copy
+    for those arrays only, not an arbitrary complete source identity.
+    """
     digest = hashlib.sha256()
-    digest.update(dataset.dataset_id.encode("ascii"))
-    for name in (
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "funding_rate",
-        "features",
-    ):
+    digest.update(
+        canonical_json_bytes(
+            {
+                "schema": _DATASET_VIEW_DIGEST_SCHEMA,
+                "dataset_id": dataset.dataset_id,
+                "symbols": list(dataset.symbols),
+                "feature_names": list(dataset.feature_names),
+                "global_feature_names": list(dataset.global_feature_names),
+            }
+        )
+    )
+    for name in _DATASET_VIEW_ARRAYS:
         array = np.ascontiguousarray(getattr(dataset, name))
-        digest.update(f"{name}|{array.dtype.str}|{array.shape}".encode("ascii"))
+        digest.update(f"|{name}|{array.dtype.str}|{array.shape}|".encode("ascii"))
         digest.update(array.tobytes())
     return digest.hexdigest()
 
 
 _INCOMPLETE_RECEIPT_FILE = "incomplete-pairs.json"
-_INCOMPLETE_RECEIPT_SCHEMA = "decision_value_incomplete_pair_attempt_v2"
+_INCOMPLETE_RECEIPT_SCHEMA = "decision_value_incomplete_pair_attempt_v3"
+# v2 receipts may already exist on disk: the reader keeps accepting them (with
+# the plain finite-decimal rules only), but the writer only emits v3.
+_INCOMPLETE_RECEIPT_SCHEMA_V2 = "decision_value_incomplete_pair_attempt_v2"
+_INCOMPLETE_RECEIPT_READABLE_SCHEMAS = (
+    _INCOMPLETE_RECEIPT_SCHEMA_V2,
+    _INCOMPLETE_RECEIPT_SCHEMA,
+)
 _INCOMPLETE_RECEIPT_VERDICT = "INVALID / BLOCKED"
 _INCOMPLETE_RECEIPT_REASON = "incomplete_paired_labels"
 _INCOMPLETE_RECEIPT_RETRY_POLICY = "write_once_no_restart"
@@ -1466,6 +1502,355 @@ _INCOMPLETE_RECEIPT_KEYS = frozenset(
     }
 )
 
+# Bounded numeric-string grammar of the receipt (untrusted input to the reader).
+# Anything outside it is rejected before ``Fraction`` ever sees it.
+_MAX_RECEIPT_NUMERIC_CHARS = 16_384
+_MAX_RECEIPT_NUMERIC_DIGITS = 4_000
+_MAX_RECEIPT_EXPONENT = 4_096
+_MAX_RECEIPT_INT = 2**63 - 1
+_MAX_RECEIPT_JSON_DEPTH = 16
+_NONFINITE_PREFIX = "nonfinite:"
+_NONFINITE_KINDS = ("nan", "inf", "-inf", "oversized", "unparseable")
+_NONFINITE_SENTINELS = frozenset(
+    f"{_NONFINITE_PREFIX}{kind}" for kind in _NONFINITE_KINDS
+)
+_DECIMAL_TEXT = re.compile(
+    r"[+-]?(?P<int>[0-9]*)(?:\.(?P<frac>[0-9]*))?(?:[eE](?P<exp>[+-]?[0-9]+))?",
+    re.ASCII,
+)
+_RATIONAL_TEXT = re.compile(r"[+-]?(?P<num>[0-9]+)/(?P<den>[0-9]+)", re.ASCII)
+_QUARANTINE_REASON = "receipt:unvalidated_source_record"
+_QUARANTINE_FIELD = "unvalidated_source_record"
+_QUARANTINE_TEXT_LIMIT = 65_536
+_QUARANTINE_ERROR_LIMIT = 512
+_QUARANTINE_ENCODINGS = ("canonical_json", "repr")
+
+
+def _decimal_status(text: str) -> str:
+    """Classify numeric text; ``"ok"`` means a bounded, finite exact value.
+
+    The grammar is a strict ASCII decimal (optional sign, digits with an
+    optional fraction, optional ``e`` exponent) or ``numerator/denominator``,
+    at most 16,384 characters, at most 4,000 mantissa/numerator/denominator
+    digits and an exponent magnitude of at most 4,096. ``Fraction`` is only
+    called after these bounds hold, so hostile exponents or lengths cost
+    constant time. Other results name the failure: ``nan``, ``inf``, ``-inf``,
+    ``oversized`` (well formed but beyond a bound) or ``unparseable``.
+    """
+    if len(text) > _MAX_RECEIPT_NUMERIC_CHARS:
+        return "oversized"
+    lowered = text.strip().lower()
+    if lowered in ("nan", "+nan", "-nan"):
+        return "nan"
+    if lowered in ("inf", "+inf", "infinity", "+infinity"):
+        return "inf"
+    if lowered in ("-inf", "-infinity"):
+        return "-inf"
+    if not text or text != text.strip():
+        return "unparseable"
+    rational = _RATIONAL_TEXT.fullmatch(text)
+    if rational is not None:
+        longest = max(len(rational.group("num")), len(rational.group("den")))
+        if longest > _MAX_RECEIPT_NUMERIC_DIGITS:
+            return "oversized"
+    else:
+        decimal = _DECIMAL_TEXT.fullmatch(text)
+        if decimal is None:
+            return "unparseable"
+        digits = len(decimal.group("int") or "") + len(decimal.group("frac") or "")
+        if digits == 0:
+            return "unparseable"
+        if digits > _MAX_RECEIPT_NUMERIC_DIGITS:
+            return "oversized"
+        exponent = decimal.group("exp")
+        if exponent is not None:
+            magnitude = exponent.lstrip("+-")
+            if len(magnitude) > 4 or int(magnitude) > _MAX_RECEIPT_EXPONENT:
+                return "oversized"
+    try:
+        Fraction(text)
+    except (ValueError, ZeroDivisionError):
+        return "unparseable"
+    return "ok"
+
+
+def _require_finite_decimal(
+    value: object, *, field: str, allow_sentinel: bool = False
+) -> None:
+    """Accept only a bounded finite exact decimal/fraction string.
+
+    ``allow_sentinel`` additionally admits the v3 ``nonfinite:<kind>`` encoding
+    that the writer uses for values that are non-finite or unrepresentable.
+    """
+    message = f"failure receipt {field} must be a finite numeric string"
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(message)
+    if allow_sentinel and value in _NONFINITE_SENTINELS:
+        return
+    if _decimal_status(value) != "ok":
+        raise ValueError(message)
+
+
+def _sentinel(kind: str) -> str:
+    return f"{_NONFINITE_PREFIX}{kind}"
+
+
+def _receipt_decimal(value: object) -> object:
+    """Encode one numeric endpoint value for a v3 receipt.
+
+    A bounded finite decimal text is kept verbatim. A non-finite or
+    unrepresentable number becomes ``nonfinite:<kind>`` so that the receipt is
+    always writable. Values of any other type are returned unchanged and are
+    left to the shared validator.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return value
+    if isinstance(value, str) and value in _NONFINITE_SENTINELS:
+        return value
+    try:
+        text = value if isinstance(value, str) else str(value)
+    except ValueError:  # an int beyond the interpreter's string-conversion limit
+        return _sentinel("oversized")
+    status = _decimal_status(text)
+    return text if status == "ok" else _sentinel(status)
+
+
+def _receipt_remainder(value: object) -> object:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        if math.isnan(value):
+            return _sentinel("nan")
+        return _sentinel("inf" if value > 0 else "-inf")
+    if isinstance(value, int):
+        return value if abs(value) <= _MAX_RECEIPT_INT else _sentinel("oversized")
+    return _receipt_decimal(value)
+
+
+def _nonfinite_free(value: object, depth: int = 0) -> object:
+    """Replace non-finite floats anywhere in a record by their sentinel."""
+    if depth > _MAX_RECEIPT_JSON_DEPTH:
+        raise ValueError("failure receipt record is nested too deeply")
+    if isinstance(value, float) and not math.isfinite(value):
+        return _receipt_remainder(value)
+    if isinstance(value, dict):
+        return {key: _nonfinite_free(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_nonfinite_free(item, depth + 1) for item in value]
+    return value
+
+
+def _normalise_pair_mapping(mapping: dict[str, object]) -> object:
+    """Apply the v3 endpoint encoding to a copy of one source pair record."""
+    pair = dict(mapping)
+    for arm in ("baseline", "candidate"):
+        endpoint = pair.get(arm)
+        if not isinstance(endpoint, dict):
+            continue
+        record = dict(endpoint)
+        for name in _ENDPOINT_DECIMALS:
+            if name in record:
+                record[name] = _receipt_decimal(record[name])
+        quantities = record.get("terminal_exact_quantities")
+        if isinstance(quantities, (list, tuple)):
+            record["terminal_exact_quantities"] = [
+                _receipt_decimal(item) for item in quantities
+            ]
+        pending = record.get("pending_order_remainders")
+        if isinstance(pending, (list, tuple)):
+            record["pending_order_remainders"] = [
+                [item[0], _receipt_remainder(item[1])]
+                if isinstance(item, (list, tuple)) and len(item) == 2
+                else item
+                for item in pending
+            ]
+        pair[arm] = record
+    return _nonfinite_free(pair)
+
+
+def _safe_text(text: str) -> str:
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def _describe_error(error: BaseException) -> str:
+    try:
+        text = f"{type(error).__name__}: {error}"
+    except Exception:
+        text = type(error).__name__
+    return _safe_text(text)[:_QUARANTINE_ERROR_LIMIT]
+
+
+def _quarantine_source(evidence: object, error: BaseException) -> dict[str, object]:
+    """Preserve an unvalidatable source record as bounded text plus its digest."""
+    encoding = "canonical_json"
+    try:
+        text = canonical_json_bytes(
+            _nonfinite_free(evidence.to_mapping())  # type: ignore[attr-defined]
+        ).decode("utf-8")
+    except Exception:
+        encoding = "repr"
+        try:
+            text = repr(evidence)
+        except Exception:
+            text = "<unrepresentable source record>"
+    text = _safe_text(text)
+    return {
+        "encoding": encoding,
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "text": text[:_QUARANTINE_TEXT_LIMIT],
+        "truncated": len(text) > _QUARANTINE_TEXT_LIMIT,
+        "validation_error": _describe_error(error),
+    }
+
+
+def _placeholder_endpoint() -> dict[str, object]:
+    """An endpoint whose every field is a placeholder, never evidence."""
+    unknown = _sentinel("unparseable")
+    return {
+        **{name: unknown for name in _ENDPOINT_DECIMALS},
+        **{name: 0 for name in _ENDPOINT_INTS},
+        **{name: False for name in _ENDPOINT_BOOLS},
+        "terminal_exact_quantities": [unknown],
+        "termination_reason": None,
+        "pending_order_remainders": [],
+    }
+
+
+def _salvaged_index(value: object) -> int:
+    if isinstance(value, int) and _is_bounded_int(value, signed=False):
+        return value
+    return 0
+
+
+def _salvaged_reasons(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [
+        item
+        for item in value
+        if isinstance(item, str)
+        and item
+        and item != _QUARANTINE_REASON
+        and _safe_text(item) == item
+    ]
+
+
+def _quarantined_pair(evidence: object, error: BaseException) -> dict[str, object]:
+    """Minimal valid pair for a record that cannot be encoded as evidence.
+
+    Structure and every endpoint field are placeholders; the original record is
+    kept verbatim (bounded) in ``unvalidated_source_record``. The pair is never
+    admissible for fit and the reason codes lead with the quarantine marker.
+    """
+    action = getattr(evidence, "candidate_action", None)
+    if not (
+        isinstance(action, (list, tuple))
+        and action
+        and all(_is_bounded_int(item, signed=True) for item in action)
+    ):
+        action = (0,)
+    return {
+        "schema": _INCOMPLETE_PAIR_SCHEMA,
+        "intervention_index": _salvaged_index(
+            getattr(evidence, "intervention_index", None)
+        ),
+        "prefix_start_index": _salvaged_index(
+            getattr(evidence, "prefix_start_index", None)
+        ),
+        "terminal_index": _salvaged_index(getattr(evidence, "terminal_index", None)),
+        "candidate_action": list(action),
+        "reason_codes": [
+            _QUARANTINE_REASON,
+            *_salvaged_reasons(getattr(evidence, "reason_codes", None)),
+        ],
+        "baseline": _placeholder_endpoint(),
+        "candidate": _placeholder_endpoint(),
+        "admissible_for_fit": False,
+        _QUARANTINE_FIELD: _quarantine_source(evidence, error),
+    }
+
+
+def _receipt_pair(evidence: object) -> dict[str, object]:
+    """Encode one source record as the reloaded form of a v3 pair, never raising.
+
+    The record is normalised (non-finite values to ``nonfinite:<kind>``),
+    round-tripped through canonical JSON and then run through the *same*
+    validator the strict reader uses. A record that still cannot be validated
+    is quarantined instead of aborting the write: the root must be claimed.
+    """
+    try:
+        normalised = _normalise_pair_mapping(
+            evidence.to_mapping()  # type: ignore[attr-defined]
+        )
+        pair = json.loads(canonical_json_bytes(normalised).decode("utf-8"))
+        _validate_incomplete_pair_record(pair, allow_sentinel=True)
+    except Exception as error:  # every failure must still yield a receipt
+        return _quarantined_pair(evidence, error)
+    return dict(pair)
+
+
+def _receipt_pairs(evidence: Sequence[object]) -> list[dict[str, object]]:
+    return [_receipt_pair(item) for item in evidence]
+
+
+def _quarantined_receipt_pairs(evidence: Sequence[object]) -> list[dict[str, object]]:
+    error = ValueError("failure receipt self-check rejected the encoded pairs")
+    return [_quarantined_pair(item, error) for item in evidence]
+
+
+def _encode_incomplete_receipt(
+    failure: IncompletePairedLabelsError,
+    *,
+    dataset_id: str,
+    protocol_digest: str,
+    actual_artifact_digest: str,
+    implementation_digest: str,
+    runtime_environment_digest: str,
+    phase: str,
+    observed_view_digest: str | None,
+) -> tuple[bytes, str]:
+    """Return canonical receipt bytes that provably pass strict reload.
+
+    The bytes are decoded by the reader's own validator before they are
+    returned. If the full encoding is rejected, every pair is quarantined and
+    the check is repeated, so that a reloadable receipt exists *before* the
+    destination root is claimed.
+    """
+    last_error: Exception | None = None
+    for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):
+        try:
+            pairs = build_pairs(failure.evidence)
+            body: dict[str, object] = {
+                "schema_version": _INCOMPLETE_RECEIPT_SCHEMA,
+                "verdict": _INCOMPLETE_RECEIPT_VERDICT,
+                "reason": _INCOMPLETE_RECEIPT_REASON,
+                "retry_policy": _INCOMPLETE_RECEIPT_RETRY_POLICY,
+                "fit_admitted": False,
+                "dataset_id": dataset_id,
+                "protocol_digest": protocol_digest,
+                "actual_artifact_digest": actual_artifact_digest,
+                "implementation_digest": implementation_digest,
+                "runtime_environment_digest": runtime_environment_digest,
+                "block_id": failure.block_id,
+                "phase": phase,
+                "observed_view_digest": observed_view_digest,
+                "ineligible_pairs": len(pairs),
+                "pairs": pairs,
+                "pairs_digest": content_digest(pairs),
+            }
+            receipt_digest = content_digest(body)
+            encoded = canonical_json_bytes({**body, "receipt_digest": receipt_digest})
+            _decode_incomplete_receipt(encoded, expected_receipt_digest=receipt_digest)
+        except Exception as error:  # fall back to the all-quarantine encoding
+            last_error = error
+            continue
+        return encoded, receipt_digest
+    raise ValueError(
+        "failure receipt could not be encoded in a reloadable form"
+    ) from last_error
+
 
 def _persist_incomplete_pair_attempt(
     output_dir: Path,
@@ -1482,16 +1867,24 @@ def _persist_incomplete_pair_attempt(
     """Preserve blocked synthetic-label evidence without publishing a success result.
 
     The receipt binds the exact dataset, frozen protocol, published artifact and
-    checkout-independent implementation/runtime identity to every ineligible
-    branch record and carries a self digest. It never admits a fit and never
-    permits a restart into the same root. Return that digest so a caller can pin
-    the receipt on strict reload.
+    the package-source / runtime-manifest content digests (see
+    ``build_candidate_run_provenance``) to every ineligible branch record and
+    carries a self digest. It never admits a fit and never permits a restart
+    into the same root. Return that digest so a caller can pin the receipt on
+    strict reload.
 
     ``phase`` names where the block failed: ``training`` (the primary fit) or
     ``causality_probe`` (the perturbed re-run, whose ``observed_view_digest``
-    identifies the perturbed source). Implementation/runtime identities are
-    resolved once before the study starts, so this abort path never depends on
-    hashing the source tree.
+    identifies the perturbed view for the arrays that digest covers).
+    Implementation/runtime identities are resolved once before the study
+    starts, so this abort path never depends on hashing the source tree.
+
+    Order of operations, so that no data-dependent failure can leave the root
+    retryable: (1) cheap identity preconditions, (2) encode the receipt and
+    decode it with the strict reader's validator (non-finite or unrepresentable
+    values are encoded, never raised; see ``_encode_incomplete_receipt``), and
+    only then (3) claim the destination. Only environmental I/O failures after
+    step 2 remain; they happen before any result is published.
 
     Prepare a canonical receipt off to the side, then atomically claim the
     destination with mkdir(exist_ok=False) before installing that receipt. A
@@ -1517,27 +1910,16 @@ def _persist_incomplete_pair_attempt(
     destination = Path(output_dir)
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"output_dir already exists: {destination}")
-    pairs = [e.to_mapping() for e in failure.evidence]
-    body: dict[str, object] = {
-        "schema_version": _INCOMPLETE_RECEIPT_SCHEMA,
-        "verdict": _INCOMPLETE_RECEIPT_VERDICT,
-        "reason": _INCOMPLETE_RECEIPT_REASON,
-        "retry_policy": _INCOMPLETE_RECEIPT_RETRY_POLICY,
-        "fit_admitted": False,
-        "dataset_id": dataset_id,
-        "protocol_digest": protocol_digest,
-        "actual_artifact_digest": actual_artifact_digest,
-        "implementation_digest": implementation_digest,
-        "runtime_environment_digest": runtime_environment_digest,
-        "block_id": failure.block_id,
-        "phase": phase,
-        "observed_view_digest": observed_view_digest,
-        "ineligible_pairs": len(pairs),
-        "pairs": pairs,
-        "pairs_digest": content_digest(pairs),
-    }
-    receipt_digest = content_digest(body)
-    encoded = canonical_json_bytes({**body, "receipt_digest": receipt_digest})
+    encoded, receipt_digest = _encode_incomplete_receipt(
+        failure,
+        dataset_id=dataset_id,
+        protocol_digest=protocol_digest,
+        actual_artifact_digest=actual_artifact_digest,
+        implementation_digest=implementation_digest,
+        runtime_environment_digest=runtime_environment_digest,
+        phase=phase,
+        observed_view_digest=observed_view_digest,
+    )
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
     try:
@@ -1571,16 +1953,40 @@ def _is_native_int(value: object) -> bool:
     return type(value) is int
 
 
-def _require_finite_decimal(value: object, *, field: str) -> None:
-    """Accept only a finite exact decimal/fraction string (no nan/inf/blank)."""
-    if not isinstance(value, str) or not value or value != value.strip():
-        raise ValueError(f"failure receipt {field} must be a finite numeric string")
-    try:
-        Fraction(value)
-    except (ValueError, ZeroDivisionError) as error:
-        raise ValueError(
-            f"failure receipt {field} must be a finite numeric string"
-        ) from error
+def _is_bounded_int(value: object, *, signed: bool) -> bool:
+    """A native int that survives JSON reload (inside the 64-bit range)."""
+    if type(value) is not int:
+        return False
+    if signed:
+        return abs(value) <= _MAX_RECEIPT_INT
+    return 0 <= value <= _MAX_RECEIPT_INT
+
+
+def _require_json_safe(value: object, *, field: str, depth: int = 0) -> None:
+    """Reject anything that would not survive a canonical-JSON round trip."""
+    if depth > _MAX_RECEIPT_JSON_DEPTH:
+        raise ValueError(f"failure receipt {field} is nested too deeply")
+    if value is None or isinstance(value, (bool, str)):
+        return
+    if isinstance(value, int):
+        if not _is_bounded_int(value, signed=True):
+            raise ValueError(f"failure receipt {field} holds an out-of-range integer")
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"failure receipt {field} holds a non-finite float")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _require_json_safe(item, field=field, depth=depth + 1)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"failure receipt {field} has a non-string key")
+            _require_json_safe(item, field=field, depth=depth + 1)
+        return
+    raise ValueError(f"failure receipt {field} holds an unsupported value")
 
 
 _ENDPOINT_DECIMALS = (
@@ -1610,14 +2016,17 @@ _ENDPOINT_KEYS = frozenset(
 )
 
 
-def _validate_incomplete_endpoint(endpoint: object, *, arm: str) -> None:
+def _validate_incomplete_endpoint(
+    endpoint: object, *, arm: str, allow_sentinel: bool = False
+) -> None:
     if not isinstance(endpoint, dict) or set(endpoint) != _ENDPOINT_KEYS:
         raise ValueError(f"failure receipt {arm} endpoint fields are malformed")
     for name in _ENDPOINT_DECIMALS:
-        _require_finite_decimal(endpoint[name], field=f"{arm}.{name}")
+        _require_finite_decimal(
+            endpoint[name], field=f"{arm}.{name}", allow_sentinel=allow_sentinel
+        )
     for name in _ENDPOINT_INTS:
-        value = endpoint[name]
-        if not _is_native_int(value) or value < 0:
+        if not _is_bounded_int(endpoint[name], signed=False):
             raise ValueError(f"failure receipt {arm}.{name} must be an integer")
     for name in _ENDPOINT_BOOLS:
         if type(endpoint[name]) is not bool:
@@ -1626,7 +2035,11 @@ def _validate_incomplete_endpoint(endpoint: object, *, arm: str) -> None:
     if not isinstance(quantities, list) or not quantities:
         raise ValueError(f"failure receipt {arm} quantities are malformed")
     for quantity in quantities:
-        _require_finite_decimal(quantity, field=f"{arm}.terminal_exact_quantities")
+        _require_finite_decimal(
+            quantity,
+            field=f"{arm}.terminal_exact_quantities",
+            allow_sentinel=allow_sentinel,
+        )
     reason = endpoint["termination_reason"]
     if reason is not None and (not isinstance(reason, str) or not reason):
         raise ValueError(f"failure receipt {arm} termination reason is malformed")
@@ -1643,10 +2056,18 @@ def _validate_incomplete_endpoint(endpoint: object, *, arm: str) -> None:
             or not isinstance(item[1], (int, float, str))
         ):
             raise ValueError(f"failure receipt {arm} pending order is malformed")
-        if isinstance(item[1], str):
-            _require_finite_decimal(item[1], field=f"{arm}.pending_order_remainders")
-        elif isinstance(item[1], float) and not math.isfinite(item[1]):
-            raise ValueError(f"failure receipt {arm} pending order is not finite")
+        remainder = item[1]
+        if isinstance(remainder, str):
+            _require_finite_decimal(
+                remainder,
+                field=f"{arm}.pending_order_remainders",
+                allow_sentinel=allow_sentinel,
+            )
+        elif isinstance(remainder, float):
+            if not math.isfinite(remainder):
+                raise ValueError(f"failure receipt {arm} pending order is not finite")
+        elif not _is_bounded_int(remainder, signed=True):
+            raise ValueError(f"failure receipt {arm} pending order is out of range")
 
 
 _PAIR_KEYS = frozenset(
@@ -1662,25 +2083,67 @@ _PAIR_KEYS = frozenset(
         "admissible_for_fit",
     }
 )
+_QUARANTINE_KEYS = frozenset(
+    {"encoding", "sha256", "text", "truncated", "validation_error"}
+)
 
 
-def _validate_incomplete_pair_record(pair: object) -> None:
-    """Structurally validate one ``decision_value_ineligible_pair_v1`` record."""
+def _validate_quarantine_record(record: object) -> None:
+    if (
+        not isinstance(record, dict)
+        or set(record) != _QUARANTINE_KEYS
+        or record["encoding"] not in _QUARANTINE_ENCODINGS
+        or not isinstance(record["text"], str)
+        or len(record["text"]) > _QUARANTINE_TEXT_LIMIT
+        or type(record["truncated"]) is not bool
+        or not isinstance(record["validation_error"], str)
+        or len(record["validation_error"]) > _QUARANTINE_ERROR_LIMIT
+    ):
+        raise ValueError("failure receipt unvalidated source record is malformed")
+    digest = record["sha256"]
+    if not isinstance(digest, str):
+        raise ValueError("failure receipt unvalidated source digest is malformed")
+    require_sha256(digest, field="unvalidated_source_record.sha256")
+
+
+def _require_canonical_round_trip(value: object, *, field: str) -> None:
+    try:
+        raw = canonical_json_bytes(value)
+        again = canonical_json_bytes(json.loads(raw.decode("utf-8")))
+    except (ValueError, TypeError, RecursionError) as error:
+        raise ValueError(f"failure receipt {field} is not canonical JSON") from error
+    if again != raw:
+        raise ValueError(f"failure receipt {field} is not canonical JSON")
+
+
+def _validate_incomplete_pair_record(
+    pair: object, *, allow_sentinel: bool = False
+) -> None:
+    """Structurally validate one ``decision_value_ineligible_pair_v1`` record.
+
+    This is the single validator shared by the writer (before it claims the
+    root) and the strict reader. ``allow_sentinel`` is true for v3 receipts and
+    admits the ``nonfinite:<kind>`` numeric encoding and the quarantine record;
+    v2 receipts are validated without either.
+    """
+    optional = {"reference_vintage"}
+    if allow_sentinel:
+        optional.add(_QUARANTINE_FIELD)
     if (
         not isinstance(pair, dict)
         or not _PAIR_KEYS <= set(pair)
-        or not set(pair) <= _PAIR_KEYS | {"reference_vintage"}
+        or not set(pair) <= _PAIR_KEYS | optional
         or pair["schema"] != _INCOMPLETE_PAIR_SCHEMA
         or pair["admissible_for_fit"] is not False
     ):
         raise ValueError("failure receipt pair record is malformed or admissible")
     for name in ("intervention_index", "prefix_start_index", "terminal_index"):
-        if not _is_native_int(pair[name]) or pair[name] < 0:
+        if not _is_bounded_int(pair[name], signed=False):
             raise ValueError(f"failure receipt pair {name} must be an integer")
     action = pair["candidate_action"]
     if not isinstance(action, list) or not action:
         raise ValueError("failure receipt pair candidate_action is malformed")
-    if not all(_is_native_int(item) for item in action):
+    if not all(_is_bounded_int(item, signed=True) for item in action):
         raise ValueError("failure receipt pair candidate_action is malformed")
     reasons = pair["reason_codes"]
     if (
@@ -1689,35 +2152,31 @@ def _validate_incomplete_pair_record(pair: object) -> None:
         or not all(isinstance(item, str) and item for item in reasons)
     ):
         raise ValueError("failure receipt pair reason_codes are malformed")
-    _validate_incomplete_endpoint(pair["baseline"], arm="baseline")
-    _validate_incomplete_endpoint(pair["candidate"], arm="candidate")
+    quarantined = _QUARANTINE_FIELD in pair
+    if quarantined != (reasons[0] == _QUARANTINE_REASON) or (
+        _QUARANTINE_REASON in reasons[1:]
+    ):
+        raise ValueError("failure receipt quarantine marker is inconsistent")
+    if quarantined:
+        _validate_quarantine_record(pair[_QUARANTINE_FIELD])
+    _validate_incomplete_endpoint(
+        pair["baseline"], arm="baseline", allow_sentinel=allow_sentinel
+    )
+    _validate_incomplete_endpoint(
+        pair["candidate"], arm="candidate", allow_sentinel=allow_sentinel
+    )
     vintage = pair.get("reference_vintage")
-    if "reference_vintage" in pair and not isinstance(vintage, dict):
-        raise ValueError("failure receipt pair reference_vintage is malformed")
+    if "reference_vintage" in pair:
+        if not isinstance(vintage, dict):
+            raise ValueError("failure receipt pair reference_vintage is malformed")
+        _require_json_safe(vintage, field="reference_vintage")
+    _require_canonical_round_trip(pair, field="pair record")
 
 
-def load_incomplete_pair_attempt(
-    root: str | Path, *, expected_receipt_digest: str | None = None
+def _decode_incomplete_receipt(
+    raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:
-    """Strictly reload a TD8 failure receipt; reject any tampering.
-
-    The root must contain exactly the canonical receipt file. The self digest,
-    pair digest, pair count, fixed ``INVALID / BLOCKED`` verdict, no-fit and
-    no-restart policy, and every pair record's inadmissibility are re-verified.
-    Pass ``expected_receipt_digest`` (the value returned at write time) to also
-    reject a fully re-sealed forgery.
-    """
-    if expected_receipt_digest is not None:
-        require_sha256(expected_receipt_digest, field="expected_receipt_digest")
-    directory = Path(root)
-    if directory.is_symlink() or not directory.is_dir():
-        raise ValueError("failure receipt root must be a real directory")
-    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
-        raise ValueError("failure receipt root contents are malformed")
-    with open_regular_binary(
-        directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
-    ) as handle:
-        raw = handle.read()
+    """Strictly validate receipt bytes (shared by the reader and the writer)."""
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -1729,13 +2188,14 @@ def load_incomplete_pair_attempt(
     if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
         raise ValueError("failure receipt fields are malformed")
     if (
-        loaded["schema_version"] != _INCOMPLETE_RECEIPT_SCHEMA
+        loaded["schema_version"] not in _INCOMPLETE_RECEIPT_READABLE_SCHEMAS
         or loaded["verdict"] != _INCOMPLETE_RECEIPT_VERDICT
         or loaded["reason"] != _INCOMPLETE_RECEIPT_REASON
         or loaded["retry_policy"] != _INCOMPLETE_RECEIPT_RETRY_POLICY
         or loaded["fit_admitted"] is not False
     ):
         raise ValueError("failure receipt contract fields are malformed")
+    allow_sentinel = loaded["schema_version"] == _INCOMPLETE_RECEIPT_SCHEMA
     for name in _INCOMPLETE_RECEIPT_SHA_FIELDS:
         value = loaded[name]
         if not isinstance(value, str):
@@ -1762,7 +2222,7 @@ def load_incomplete_pair_attempt(
     ):
         raise ValueError("failure receipt pair count mismatch")
     for pair in pairs:
-        _validate_incomplete_pair_record(pair)
+        _validate_incomplete_pair_record(pair, allow_sentinel=allow_sentinel)
     if loaded["pairs_digest"] != content_digest(pairs):
         raise ValueError("failure receipt pairs digest mismatch")
     body = {k: v for k, v in loaded.items() if k != "receipt_digest"}
@@ -1775,6 +2235,37 @@ def load_incomplete_pair_attempt(
     ):
         raise ValueError("failure receipt differs from the pinned digest")
     return dict(loaded)
+
+
+def load_incomplete_pair_attempt(
+    root: str | Path, *, expected_receipt_digest: str | None = None
+) -> dict[str, object]:
+    """Strictly reload a TD8 failure receipt; reject any tampering.
+
+    The root must contain exactly the canonical receipt file. The self digest,
+    pair digest, pair count, fixed ``INVALID / BLOCKED`` verdict, no-fit and
+    no-restart policy, and every pair record's inadmissibility are re-verified
+    by the same validator the writer applies before it claims the root. Both
+    the current v3 and the earlier v2 schema are accepted; v2 receipts are
+    validated without the v3-only ``nonfinite:<kind>`` and quarantine
+    encodings. Numeric strings are parsed under a bounded grammar, so hostile
+    receipts are rejected quickly. Pass ``expected_receipt_digest`` (the value
+    returned at write time) to also reject a fully re-sealed forgery.
+    """
+    if expected_receipt_digest is not None:
+        require_sha256(expected_receipt_digest, field="expected_receipt_digest")
+    directory = Path(root)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("failure receipt root must be a real directory")
+    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
+        raise ValueError("failure receipt root contents are malformed")
+    with open_regular_binary(
+        directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
+    ) as handle:
+        raw = handle.read()
+    return _decode_incomplete_receipt(
+        raw, expected_receipt_digest=expected_receipt_digest
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2216,7 +2707,7 @@ def run_decision_value_dev_study(
                 dataset_perturbed, protocol, block, train_switch_cost
             )
         except IncompletePairedLabelsError as failure:
-            # Same write-once root and v2 receipt; the phase and the perturbed
+            # Same write-once root and v3 receipt; the phase and the perturbed
             # source identity are bound into the digest.
             _abort_with_receipt(
                 failure, phase="causality_probe", view=dataset_perturbed

@@ -121,8 +121,11 @@ def _flag_ineligible(
 ) -> dict[str, Any]:
     """Run the real paired replay, then mark selected pairs not label-eligible.
 
-    With ``insolvent_candidate`` the real candidate book is additionally marked
-    insolvent/terminated so the collector derives genuine reason codes.
+    The replay itself is real and its endpoint values are recorded as produced.
+    With ``insolvent_candidate`` the candidate book is *injected* as
+    insolvent/terminated **after** that replay (the real candidate is not
+    insolvent), so the collector derives the insolvency reason codes from the
+    injected flags, not from an organically insolvent account.
     """
     real = labels.run_paired_portfolio_action
     counter: dict[str, Any] = {"calls": 0, "flagged": 0, "pairs": []}
@@ -145,6 +148,27 @@ def _flag_ineligible(
 
     monkeypatch.setattr(labels, "run_paired_portfolio_action", wrapped)
     return counter
+
+
+def _valid_endpoint(equity: str) -> dict[str, object]:
+    """A complete, reader-valid endpoint record for hand-built source rows."""
+    return {
+        "terminal_marked_equity": equity,
+        "observed_equity_change": "0.0",
+        "initial_capital": equity,
+        "requested_stop_index": 7,
+        "observed_stop_index": 7,
+        "terminal_cash": equity,
+        "terminal_exact_quantities": ["0", "0"],
+        "total_cost": "0.0",
+        "funding_pnl": "0.0",
+        "insolvent": False,
+        "termination_reason": None,
+        "observed_intervals": 7,
+        "expected_intervals": 7,
+        "pending_order_remainders": [],
+        "settled_label_eligible": False,
+    }
 
 
 def _receipt_kwargs(setup: _Setup, **overrides: Any) -> dict[str, Any]:
@@ -205,7 +229,7 @@ def test_all_candidates_ineligible_persists_identity_bound_receipt(
         destination, expected_receipt_digest=failure.receipt_digest
     )
     provenance = build_candidate_run_provenance()
-    assert receipt["schema_version"] == "decision_value_incomplete_pair_attempt_v2"
+    assert receipt["schema_version"] == "decision_value_incomplete_pair_attempt_v3"
     assert receipt["verdict"] == "INVALID / BLOCKED"
     assert receipt["dataset_id"] == setup.dataset.dataset_id
     assert receipt["protocol_digest"] == setup.protocol.protocol_digest
@@ -242,7 +266,8 @@ def test_all_candidates_ineligible_persists_identity_bound_receipt(
     assert receipt["phase"] == "training"
     assert receipt["observed_view_digest"] is None
     # Endpoint fidelity: each recorded endpoint equals the real replay result,
-    # and the reason codes are the ones derived from the (insolvent) candidate.
+    # and the reason codes are the ones derived from the candidate whose insolvency
+    # was injected after the real replay.
     assert len(_REAL_PAIRS) == len(pairs)
     for real_pair, recorded in zip(_REAL_PAIRS, pairs, strict=True):
         for arm, result in (
@@ -577,14 +602,19 @@ def test_receipt_writer_does_not_need_provenance_on_the_abort_path(
         terminal_index=7,
         candidate_action=(1, 0),
         reason_codes=("candidate_terminated",),
-        baseline={"terminal_marked_equity": "1000"},
-        candidate={"terminal_marked_equity": "900"},
+        baseline=_valid_endpoint("1000"),
+        candidate=_valid_endpoint("900"),
     )
     failure = study.IncompletePairedLabelsError("b1", (row,))
     destination = tmp_path / "writer"
     digest = study._persist_incomplete_pair_attempt(destination, failure, **kwargs)
     assert (destination / _RECEIPT).is_file()
     assert len(digest) == 64
+    # Whatever the writer persists must pass strict reload.
+    receipt = study.load_incomplete_pair_attempt(
+        destination, expected_receipt_digest=digest
+    )
+    assert receipt["pairs"][0]["candidate"]["terminal_marked_equity"] == "900"
 
 
 def test_provenance_failure_aborts_before_any_work_and_creates_nothing(

@@ -486,6 +486,9 @@ class CanonicalM2BootstrapConfig:
             field="max_experiments",
             positive=True,
         )
+        # StudyPlan caps the budget at 9,999; reject earlier than any source I/O.
+        if max_experiments > 9_999:
+            raise ValueError("max_experiments must not exceed 9999")
         n_bootstrap = _int_value(
             self.n_bootstrap,
             field="n_bootstrap",

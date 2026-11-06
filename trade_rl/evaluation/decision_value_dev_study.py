@@ -2202,11 +2202,15 @@ def _decode_incomplete_receipt(
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
     try:
         loaded = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("failure receipt JSON is malformed") from error
     if not isinstance(loaded, dict) or any(not isinstance(k, str) for k in loaded):
         raise ValueError("failure receipt must contain a JSON object")
-    if raw != canonical_json_bytes(loaded):
+    try:
+        canonical = canonical_json_bytes(loaded)
+    except RecursionError as error:
+        raise ValueError("failure receipt JSON is malformed") from error
+    if raw != canonical:
         raise ValueError("failure receipt must use canonical JSON bytes")
     if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
         raise ValueError("failure receipt fields are malformed")

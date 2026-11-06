@@ -1,0 +1,57 @@
+name: Branch hygiene — retire verified merged PR source refs
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Retire main-integrated merged PR sources (exact SHA leases)
+    if: github.repository == 'shuntatsu/trade_rl'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout current main only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refresh all current remote branch histories
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Independent read-only retirement preview
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "shuntatsu/trade_rl"
+          python3 -m tools.branch_hygiene \
+            --repository "$GITHUB_REPOSITORY" --retire-merged
+
+      - name: Prune main ancestors after fresh PR/workflow/ref validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m tools.branch_hygiene \
+            --repository "$GITHUB_REPOSITORY" \
+            --retire-merged --apply --max-deletes 100 \
+            --summary "$GITHUB_STEP_SUMMARY"

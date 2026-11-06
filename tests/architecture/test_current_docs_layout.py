@@ -178,6 +178,7 @@ def test_only_permanent_workflows_remain() -> None:
     files = {path.name for path in workflows.iterdir() if path.is_file()}
     assert files == {
         "branch-hygiene.yml",
+        "retire-merged-pr-branches.yml",
         "ci.yml",
         "deploy-guide.yml",
         "ppo-4h-gemini-review.yml",

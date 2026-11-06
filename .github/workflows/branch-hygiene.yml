@@ -1,4 +1,4 @@
-name: Branch hygiene
+name: Branch hygiene — retire merged refs
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
   pull-requests: read
 
 concurrency:
@@ -19,29 +19,39 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Audit branch retention and cleanup candidates
+    name: Retire main-integrated branches (exact SHA leases)
+    if: github.repository == 'shuntatsu/trade_rl'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout default branch policy
+      - name: Checkout current main only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch all current remote branch tips
+      - name: Refresh all current remote branch histories
         shell: bash
         run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Report cleanup candidates without deleting refs
+      - name: Independent read-only retirement preview
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          args=(
-            --repository "$GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "shuntatsu/trade_rl"
+          python3 -m tools.branch_hygiene \
+            --repository "$GITHUB_REPOSITORY" --retire-merged
+
+      - name: Prune main ancestors after fresh PR/workflow/ref validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m tools.branch_hygiene \
+            --repository "$GITHUB_REPOSITORY" \
+            --retire-merged --apply --max-deletes 100 \
             --summary "$GITHUB_STEP_SUMMARY"
-          )
-          python3 -m tools.branch_hygiene "${args[@]}"

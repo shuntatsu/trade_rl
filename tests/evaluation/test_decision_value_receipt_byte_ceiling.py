@@ -56,7 +56,9 @@ def test_strict_receipt_reader_never_uses_unbounded_file_read(
     assert all(0 < size <= 64 * 1024 * 1024 + 1 for size in requested_sizes)
 
 
-def test_oversized_sparse_receipt_is_rejected_before_json_decode(tmp_path: Path) -> None:
+def test_oversized_sparse_receipt_is_rejected_before_json_decode(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "attempt"
     root.mkdir()
     receipt = root / "incomplete-pairs.json"
@@ -68,12 +70,17 @@ def test_oversized_sparse_receipt_is_rejected_before_json_decode(tmp_path: Path)
 
 
 @pytest.mark.parametrize("budget", (0, -1, True, 0.5, 512 * 1024 * 1024 + 1))
-def test_invalid_receipt_byte_budget_fails_closed(tmp_path: Path, budget: object) -> None:
+def test_invalid_receipt_byte_budget_fails_closed(
+    tmp_path: Path, budget: object
+) -> None:
     root = tmp_path / "attempt"
     root.mkdir()
     (root / "incomplete-pairs.json").write_bytes(b"{}")
     with pytest.raises(ValueError, match="max_receipt_bytes"):
-        study.load_incomplete_pair_attempt(root, max_receipt_bytes=budget)  # type: ignore[arg-type]
+        study.load_incomplete_pair_attempt(
+            root,
+            max_receipt_bytes=budget,  # type: ignore[arg-type]
+        )
 
 
 def test_large_budget_requires_a_trusted_receipt_pin(tmp_path: Path) -> None:

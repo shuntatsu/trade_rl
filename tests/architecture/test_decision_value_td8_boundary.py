@@ -87,3 +87,43 @@ def test_current_docs_record_the_corrected_design_and_the_withdrawn_calibration(
         "clip rule was chosen after the diagnosis",
     ):
         assert term in status, term
+
+
+def test_failure_receipt_contract_is_documented_and_exported() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
+    for term in (
+        "decision_value_incomplete_pair_attempt_v2",
+        "load_incomplete_pair_attempt",
+        "write_once_no_restart",
+        "receipt_digest",
+        "fit_admitted=false",
+        "causality_probe",
+        "observed_view_digest",
+    ):
+        assert term in lean_core, term
+    status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    assert "Failure-receipt hardening" in status
+    assert "decision_value_incomplete_pair_attempt_v2" in status
+    source = (EVALUATION / "decision_value_dev_study.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    exported: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            assert isinstance(node.value, ast.List)
+            exported = {
+                element.value
+                for element in node.value.elts
+                if isinstance(element, ast.Constant)
+            }
+    assert "load_incomplete_pair_attempt" in exported
+    # The receipt reuses the shared canonical/digest/verified-file helpers rather
+    # than a parallel artifact system.
+    imports = _imported_modules(EVALUATION / "decision_value_dev_study.py")
+    assert {
+        "trade_rl.artifacts.canonical",
+        "trade_rl.artifacts.hashing",
+        "trade_rl.artifacts.verified_file",
+    } <= imports

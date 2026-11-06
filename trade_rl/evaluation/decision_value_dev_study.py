@@ -11,6 +11,7 @@ and is retained as an invalid attempt rather than a zero-valued label.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import shutil
@@ -26,6 +27,7 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts.publication import (
     load_published_market_dataset_artifact,
 )
@@ -1391,6 +1393,9 @@ class IncompletePairedLabelsError(ValueError):
     ) -> None:
         self.block_id = block_id
         self.evidence = evidence
+        # Set once the write-once failure receipt has been durably published;
+        # it lets a caller pin the exact receipt when strictly reloading it.
+        self.receipt_digest: str | None = None
         super().__init__(
             f"TD8 block {block_id} contains {len(evidence)} incomplete/terminated "
             "paired labels; outcomes must be recorded and research fit is blocked"
@@ -1410,36 +1415,133 @@ def _require_complete_reachable_labels(
         raise ValueError("TD8 eligible paired evidence count mismatch")
 
 
+def _dataset_view_digest(dataset: MarketDataset) -> str:
+    """Digest the market arrays of one dataset view (e.g. a perturbed copy)."""
+    digest = hashlib.sha256()
+    digest.update(dataset.dataset_id.encode("ascii"))
+    for name in (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "funding_rate",
+        "features",
+    ):
+        array = np.ascontiguousarray(getattr(dataset, name))
+        digest.update(f"{name}|{array.dtype.str}|{array.shape}".encode("ascii"))
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+_INCOMPLETE_RECEIPT_FILE = "incomplete-pairs.json"
+_INCOMPLETE_RECEIPT_SCHEMA = "decision_value_incomplete_pair_attempt_v2"
+_INCOMPLETE_RECEIPT_VERDICT = "INVALID / BLOCKED"
+_INCOMPLETE_RECEIPT_REASON = "incomplete_paired_labels"
+_INCOMPLETE_RECEIPT_RETRY_POLICY = "write_once_no_restart"
+_INCOMPLETE_RECEIPT_PHASES = ("training", "causality_probe")
+_INCOMPLETE_PAIR_SCHEMA = "decision_value_ineligible_pair_v1"
+_INCOMPLETE_RECEIPT_SHA_FIELDS = (
+    "dataset_id",
+    "protocol_digest",
+    "actual_artifact_digest",
+    "implementation_digest",
+    "runtime_environment_digest",
+    "pairs_digest",
+)
+_INCOMPLETE_RECEIPT_KEYS = frozenset(
+    {
+        "schema_version",
+        "verdict",
+        "reason",
+        "retry_policy",
+        "fit_admitted",
+        "block_id",
+        "phase",
+        "observed_view_digest",
+        "ineligible_pairs",
+        "pairs",
+        "receipt_digest",
+        *_INCOMPLETE_RECEIPT_SHA_FIELDS,
+    }
+)
+
+
 def _persist_incomplete_pair_attempt(
     output_dir: Path,
     failure: IncompletePairedLabelsError,
     *,
     dataset_id: str,
     protocol_digest: str,
-) -> None:
+    actual_artifact_digest: str,
+    implementation_digest: str,
+    runtime_environment_digest: str,
+    phase: str,
+    observed_view_digest: str | None,
+) -> str:
     """Preserve blocked synthetic-label evidence without publishing a success result.
+
+    The receipt binds the exact dataset, frozen protocol, published artifact and
+    checkout-independent implementation/runtime identity to every ineligible
+    branch record and carries a self digest. It never admits a fit and never
+    permits a restart into the same root. Return that digest so a caller can pin
+    the receipt on strict reload.
+
+    ``phase`` names where the block failed: ``training`` (the primary fit) or
+    ``causality_probe`` (the perturbed re-run, whose ``observed_view_digest``
+    identifies the perturbed source). Implementation/runtime identities are
+    resolved once before the study starts, so this abort path never depends on
+    hashing the source tree.
 
     Prepare a canonical receipt off to the side, then atomically claim the
     destination with mkdir(exist_ok=False) before installing that receipt. A
     concurrent writer must never be silently overwritten, including an empty
     destination created between preliminary checks and publication.
     """
+    for name, value in (
+        ("dataset_id", dataset_id),
+        ("protocol_digest", protocol_digest),
+        ("actual_artifact_digest", actual_artifact_digest),
+        ("implementation_digest", implementation_digest),
+        ("runtime_environment_digest", runtime_environment_digest),
+    ):
+        require_sha256(value, field=name)
+    if phase not in _INCOMPLETE_RECEIPT_PHASES:
+        raise ValueError("failure receipt phase is not recognised")
+    if (phase == "training") != (observed_view_digest is None):
+        raise ValueError("only a causality_probe receipt carries a view digest")
+    if observed_view_digest is not None:
+        require_sha256(observed_view_digest, field="observed_view_digest")
+    if not failure.evidence:
+        raise ValueError("a failure receipt requires at least one ineligible pair")
     destination = Path(output_dir)
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"output_dir already exists: {destination}")
+    pairs = [e.to_mapping() for e in failure.evidence]
+    body: dict[str, object] = {
+        "schema_version": _INCOMPLETE_RECEIPT_SCHEMA,
+        "verdict": _INCOMPLETE_RECEIPT_VERDICT,
+        "reason": _INCOMPLETE_RECEIPT_REASON,
+        "retry_policy": _INCOMPLETE_RECEIPT_RETRY_POLICY,
+        "fit_admitted": False,
+        "dataset_id": dataset_id,
+        "protocol_digest": protocol_digest,
+        "actual_artifact_digest": actual_artifact_digest,
+        "implementation_digest": implementation_digest,
+        "runtime_environment_digest": runtime_environment_digest,
+        "block_id": failure.block_id,
+        "phase": phase,
+        "observed_view_digest": observed_view_digest,
+        "ineligible_pairs": len(pairs),
+        "pairs": pairs,
+        "pairs_digest": content_digest(pairs),
+    }
+    receipt_digest = content_digest(body)
+    encoded = canonical_json_bytes({**body, "receipt_digest": receipt_digest})
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
     try:
-        payload = {
-            "schema_version": "decision_value_incomplete_pair_attempt_v1",
-            "verdict": "INVALID / BLOCKED",
-            "dataset_id": dataset_id,
-            "protocol_digest": protocol_digest,
-            "block_id": failure.block_id,
-            "ineligible_pairs": len(failure.evidence),
-            "pairs": [e.to_mapping() for e in failure.evidence],
-        }
-        (stage / "incomplete-pairs.json").write_bytes(canonical_json_bytes(payload))
+        (stage / _INCOMPLETE_RECEIPT_FILE).write_bytes(encoded)
         # Directory rename would silently replace a concurrently created EMPTY
         # directory on POSIX. Atomic mkdir is the write-once ownership gate.
         destination.mkdir(exist_ok=False)
@@ -1448,7 +1550,8 @@ def _persist_incomplete_pair_attempt(
             # even a writer racing *inside* our claimed directory cannot have
             # their pre-existing evidence replaced by a file rename.
             os.link(
-                stage / "incomplete-pairs.json", destination / "incomplete-pairs.json"
+                stage / _INCOMPLETE_RECEIPT_FILE,
+                destination / _INCOMPLETE_RECEIPT_FILE,
             )
         except OSError:
             # Best effort cleanup of our empty reservation. A failed receipt
@@ -1461,6 +1564,217 @@ def _persist_incomplete_pair_attempt(
     finally:
         if stage.exists():
             shutil.rmtree(stage)
+    return receipt_digest
+
+
+def _is_native_int(value: object) -> bool:
+    return type(value) is int
+
+
+def _require_finite_decimal(value: object, *, field: str) -> None:
+    """Accept only a finite exact decimal/fraction string (no nan/inf/blank)."""
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"failure receipt {field} must be a finite numeric string")
+    try:
+        Fraction(value)
+    except (ValueError, ZeroDivisionError) as error:
+        raise ValueError(
+            f"failure receipt {field} must be a finite numeric string"
+        ) from error
+
+
+_ENDPOINT_DECIMALS = (
+    "terminal_marked_equity",
+    "observed_equity_change",
+    "initial_capital",
+    "terminal_cash",
+    "total_cost",
+    "funding_pnl",
+)
+_ENDPOINT_INTS = (
+    "requested_stop_index",
+    "observed_stop_index",
+    "observed_intervals",
+    "expected_intervals",
+)
+_ENDPOINT_BOOLS = ("insolvent", "settled_label_eligible")
+_ENDPOINT_KEYS = frozenset(
+    (
+        *_ENDPOINT_DECIMALS,
+        *_ENDPOINT_INTS,
+        *_ENDPOINT_BOOLS,
+        "terminal_exact_quantities",
+        "termination_reason",
+        "pending_order_remainders",
+    )
+)
+
+
+def _validate_incomplete_endpoint(endpoint: object, *, arm: str) -> None:
+    if not isinstance(endpoint, dict) or set(endpoint) != _ENDPOINT_KEYS:
+        raise ValueError(f"failure receipt {arm} endpoint fields are malformed")
+    for name in _ENDPOINT_DECIMALS:
+        _require_finite_decimal(endpoint[name], field=f"{arm}.{name}")
+    for name in _ENDPOINT_INTS:
+        value = endpoint[name]
+        if not _is_native_int(value) or value < 0:
+            raise ValueError(f"failure receipt {arm}.{name} must be an integer")
+    for name in _ENDPOINT_BOOLS:
+        if type(endpoint[name]) is not bool:
+            raise ValueError(f"failure receipt {arm}.{name} must be a boolean")
+    quantities = endpoint["terminal_exact_quantities"]
+    if not isinstance(quantities, list) or not quantities:
+        raise ValueError(f"failure receipt {arm} quantities are malformed")
+    for quantity in quantities:
+        _require_finite_decimal(quantity, field=f"{arm}.terminal_exact_quantities")
+    reason = endpoint["termination_reason"]
+    if reason is not None and (not isinstance(reason, str) or not reason):
+        raise ValueError(f"failure receipt {arm} termination reason is malformed")
+    pending = endpoint["pending_order_remainders"]
+    if not isinstance(pending, list):
+        raise ValueError(f"failure receipt {arm} pending orders are malformed")
+    for item in pending:
+        if (
+            not isinstance(item, list)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not item[0]
+            or isinstance(item[1], bool)
+            or not isinstance(item[1], (int, float, str))
+        ):
+            raise ValueError(f"failure receipt {arm} pending order is malformed")
+        if isinstance(item[1], str):
+            _require_finite_decimal(item[1], field=f"{arm}.pending_order_remainders")
+        elif isinstance(item[1], float) and not math.isfinite(item[1]):
+            raise ValueError(f"failure receipt {arm} pending order is not finite")
+
+
+_PAIR_KEYS = frozenset(
+    {
+        "schema",
+        "intervention_index",
+        "prefix_start_index",
+        "terminal_index",
+        "candidate_action",
+        "reason_codes",
+        "baseline",
+        "candidate",
+        "admissible_for_fit",
+    }
+)
+
+
+def _validate_incomplete_pair_record(pair: object) -> None:
+    """Structurally validate one ``decision_value_ineligible_pair_v1`` record."""
+    if (
+        not isinstance(pair, dict)
+        or not _PAIR_KEYS <= set(pair)
+        or not set(pair) <= _PAIR_KEYS | {"reference_vintage"}
+        or pair["schema"] != _INCOMPLETE_PAIR_SCHEMA
+        or pair["admissible_for_fit"] is not False
+    ):
+        raise ValueError("failure receipt pair record is malformed or admissible")
+    for name in ("intervention_index", "prefix_start_index", "terminal_index"):
+        if not _is_native_int(pair[name]) or pair[name] < 0:
+            raise ValueError(f"failure receipt pair {name} must be an integer")
+    action = pair["candidate_action"]
+    if not isinstance(action, list) or not action:
+        raise ValueError("failure receipt pair candidate_action is malformed")
+    if not all(_is_native_int(item) for item in action):
+        raise ValueError("failure receipt pair candidate_action is malformed")
+    reasons = pair["reason_codes"]
+    if (
+        not isinstance(reasons, list)
+        or not reasons
+        or not all(isinstance(item, str) and item for item in reasons)
+    ):
+        raise ValueError("failure receipt pair reason_codes are malformed")
+    _validate_incomplete_endpoint(pair["baseline"], arm="baseline")
+    _validate_incomplete_endpoint(pair["candidate"], arm="candidate")
+    vintage = pair.get("reference_vintage")
+    if "reference_vintage" in pair and not isinstance(vintage, dict):
+        raise ValueError("failure receipt pair reference_vintage is malformed")
+
+
+def load_incomplete_pair_attempt(
+    root: str | Path, *, expected_receipt_digest: str | None = None
+) -> dict[str, object]:
+    """Strictly reload a TD8 failure receipt; reject any tampering.
+
+    The root must contain exactly the canonical receipt file. The self digest,
+    pair digest, pair count, fixed ``INVALID / BLOCKED`` verdict, no-fit and
+    no-restart policy, and every pair record's inadmissibility are re-verified.
+    Pass ``expected_receipt_digest`` (the value returned at write time) to also
+    reject a fully re-sealed forgery.
+    """
+    if expected_receipt_digest is not None:
+        require_sha256(expected_receipt_digest, field="expected_receipt_digest")
+    directory = Path(root)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("failure receipt root must be a real directory")
+    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
+        raise ValueError("failure receipt root contents are malformed")
+    with open_regular_binary(
+        directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
+    ) as handle:
+        raw = handle.read()
+    try:
+        loaded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("failure receipt JSON is malformed") from error
+    if not isinstance(loaded, dict) or any(not isinstance(k, str) for k in loaded):
+        raise ValueError("failure receipt must contain a JSON object")
+    if raw != canonical_json_bytes(loaded):
+        raise ValueError("failure receipt must use canonical JSON bytes")
+    if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
+        raise ValueError("failure receipt fields are malformed")
+    if (
+        loaded["schema_version"] != _INCOMPLETE_RECEIPT_SCHEMA
+        or loaded["verdict"] != _INCOMPLETE_RECEIPT_VERDICT
+        or loaded["reason"] != _INCOMPLETE_RECEIPT_REASON
+        or loaded["retry_policy"] != _INCOMPLETE_RECEIPT_RETRY_POLICY
+        or loaded["fit_admitted"] is not False
+    ):
+        raise ValueError("failure receipt contract fields are malformed")
+    for name in _INCOMPLETE_RECEIPT_SHA_FIELDS:
+        value = loaded[name]
+        if not isinstance(value, str):
+            raise ValueError(f"failure receipt {name} must be a SHA-256 digest")
+        require_sha256(value, field=name)
+    block_id = loaded["block_id"]
+    if not isinstance(block_id, str) or not block_id:
+        raise ValueError("failure receipt block_id is malformed")
+    phase = loaded["phase"]
+    view_digest = loaded["observed_view_digest"]
+    if phase not in _INCOMPLETE_RECEIPT_PHASES:
+        raise ValueError("failure receipt phase is malformed")
+    if (phase == "training") != (view_digest is None):
+        raise ValueError("failure receipt view digest does not match its phase")
+    if view_digest is not None:
+        if not isinstance(view_digest, str):
+            raise ValueError("failure receipt view digest is malformed")
+        require_sha256(view_digest, field="observed_view_digest")
+    pairs = loaded["pairs"]
+    if not isinstance(pairs, list) or not pairs:
+        raise ValueError("failure receipt requires ineligible pair records")
+    if type(loaded["ineligible_pairs"]) is not int or loaded["ineligible_pairs"] != len(
+        pairs
+    ):
+        raise ValueError("failure receipt pair count mismatch")
+    for pair in pairs:
+        _validate_incomplete_pair_record(pair)
+    if loaded["pairs_digest"] != content_digest(pairs):
+        raise ValueError("failure receipt pairs digest mismatch")
+    body = {k: v for k, v in loaded.items() if k != "receipt_digest"}
+    receipt_digest = loaded["receipt_digest"]
+    if not isinstance(receipt_digest, str) or receipt_digest != content_digest(body):
+        raise ValueError("failure receipt digest mismatch")
+    if (
+        expected_receipt_digest is not None
+        and receipt_digest != expected_receipt_digest
+    ):
+        raise ValueError("failure receipt differs from the pinned digest")
+    return dict(loaded)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1825,6 +2139,32 @@ def run_decision_value_dev_study(
         + protocol.base_execution_cost.impact_rate
     )
     block_results: list[DecisionValueBlockResult] = []
+    # Resolve the source/runtime identity once, before any work, so that a
+    # failure on the abort path can never replace the incomplete-label error
+    # or skip its receipt (a failure here simply aborts a not-yet-started run).
+    run_provenance = build_candidate_run_provenance()
+
+    def _abort_with_receipt(
+        failure: IncompletePairedLabelsError,
+        *,
+        phase: str,
+        view: MarketDataset | None,
+    ) -> None:
+        if output_dir is None:
+            return
+        failure.receipt_digest = _persist_incomplete_pair_attempt(
+            Path(output_dir),
+            failure,
+            dataset_id=dataset.dataset_id,
+            protocol_digest=protocol.protocol_digest,
+            actual_artifact_digest=resolved_artifact_digest,
+            implementation_digest=str(run_provenance["implementation_digest"]),
+            runtime_environment_digest=str(
+                run_provenance["runtime_environment_digest"]
+            ),
+            phase=phase,
+            observed_view_digest=(None if view is None else _dataset_view_digest(view)),
+        )
 
     for block in protocol.blocks:
         block_t0 = time.perf_counter()
@@ -1834,13 +2174,7 @@ def run_decision_value_dev_study(
         try:
             training = _train_block(dataset, protocol, block, train_switch_cost)
         except IncompletePairedLabelsError as failure:
-            if output_dir is not None:
-                _persist_incomplete_pair_attempt(
-                    Path(output_dir),
-                    failure,
-                    dataset_id=dataset.dataset_id,
-                    protocol_digest=protocol.protocol_digest,
-                )
+            _abort_with_receipt(failure, phase="training", view=None)
             raise
         view = training.dataset
         b0_model = training.b0_model
@@ -1877,7 +2211,17 @@ def run_decision_value_dev_study(
         #    labels, heads, margins) is re-run on a dataset whose bars differ
         #    strictly after the fit cutoff; nothing it produces may change.
         dataset_perturbed = _perturb_after(dataset, block.fit_cutoff_index)
-        perturbed = _train_block(dataset_perturbed, protocol, block, train_switch_cost)
+        try:
+            perturbed = _train_block(
+                dataset_perturbed, protocol, block, train_switch_cost
+            )
+        except IncompletePairedLabelsError as failure:
+            # Same write-once root and v2 receipt; the phase and the perturbed
+            # source identity are bound into the digest.
+            _abort_with_receipt(
+                failure, phase="causality_probe", view=dataset_perturbed
+            )
+            raise
         b0_pert = perturbed.b0_model
         b0_fit_ok = bool(
             np.allclose(b0_model.coefficients, b0_pert.coefficients)
@@ -2256,5 +2600,6 @@ __all__ = [
     "DecisionValueDevStudyResult",
     "compute_real_scope_authorization_digest",
     "default_2024q1_decision_value_dev_protocol",
+    "load_incomplete_pair_attempt",
     "run_decision_value_dev_study",
 ]

@@ -142,6 +142,46 @@ def test_failed_normalized_policy_save_leaves_no_partial_destination(
     assert list(tmp_path.glob(".policy.staging-*")) == []
 
 
+@pytest.mark.parametrize("action", (0, 2), ids=("short", "long"))
+@pytest.mark.parametrize(
+    ("price", "multiplier"),
+    (
+        pytest.param(1e308, 1e308, id="unit-overflow"),
+        pytest.param(1e-200, 1e-200, id="unit-underflow"),
+    ),
+)
+def test_ppo_env_rejects_unrepresentable_nonzero_target_quantity(
+    price: float, multiplier: float, action: int
+) -> None:
+    base = market()
+    prices = np.full_like(base.close, price)
+    dataset = replace(
+        base,
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        index_price=prices.copy(),
+        contract_multipliers=np.array([multiplier]),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+    env.reset(seed=7)
+
+    with pytest.raises(
+        ValueError,
+        match="nonzero target quantity cannot be represented",
+    ):
+        env.step(action)
+
+
 def test_env_matches_canonical_replay_with_cost_capacity_and_turnover_risk() -> None:
     dataset = market()
     intents = (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)

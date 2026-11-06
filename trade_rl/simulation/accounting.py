@@ -292,7 +292,8 @@ class BookState:
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             position_values = quantities * price_vector * multiplier_vector
         if np.any(
-            active & (~np.isfinite(position_values) | (position_values == 0.0))
+            active
+            & (~np.isfinite(position_values) | (position_values == 0.0))
         ):
             raise ValueError("nonzero weighted position cannot be represented")
         cash = capital - float(np.sum(position_values))

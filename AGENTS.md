@@ -28,6 +28,7 @@
 - `tools.agent_repo` のsource-derived出力は便利な補助であり、GitHub PR/branch現況・実コード・Full CIの代替ではない。生成reportをcommitしない。
 - `main`、保護ref、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、研究・freeze・seal・run・evidence、`provenance/branch-retention`を保持する。**mainに未統合のbranchも削除しない。** 現在使うTaskはopen PRまたは明示された実行中workflowで参照を残し、統合済み旧branchの恒久保存を要求しない。
 - **マージ済みPRのexact source tipがmainに到達可能であれば、保全はmainのGit historyで完了している。** 旧契約の「1本ごとにretention追加parent、1時間grace、手動1件」条件は、統合済みbranchの定常削除には適用しない。未統合履歴や封印済み研究成果の保全条件は変更しない。
-- `tools.branch_hygiene --retire-merged --apply` を標準の削除経路とし、`.github/workflows/branch-hygiene.yml`がmain更新時と定期実行で処理する。現在のmain SHA、全branchのexact SHA、closed/merged PRのexact source HEAD、open PR、未完了workflowを取得し、**sourceのPRマージ証拠を持つmain祖先refのみ**をatomicなSHA leaseで限定削除、各バッチ後にGitHubを再照合する。情報不完全・更新競合・認証失敗時は停止し、成功とみなさない。古い汎用`--apply`は`--retire-merged`無しでは拒否を維持し、未統合分を一括削除しない。
+- 旧workflowはGitHub側で手動無効化されたまま保持し、新しいworkflow identityとして別パスを登録する。二つの定常実行を同時に有効化せず、GitHub上で新workflowがactiveと読み戻せるまでは稼働済みとは扱わない。
+- `tools.branch_hygiene --retire-merged --apply` を標準の削除経路とし、`.github/workflows/retire-merged-pr-branches.yml`がmain更新時と定期実行で処理する。現在のmain SHA、全branchのexact SHA、closed/merged PRのexact source HEAD、open PR、未完了workflowを取得し、**sourceのPRマージ証拠を持つmain祖先refのみ**をatomicなSHA leaseで限定削除、各バッチ後にGitHubを再照合する。情報不完全・更新競合・認証失敗時は停止し、成功とみなさない。古い汎用`--apply`は`--retire-merged`無しでは拒否を維持し、未統合分を一括削除しない。
 - 従来の`tools.verified_merged_branch_prune`と手動workflowは旧retention記録を用いた個別の補助経路として維持するが、定常運用の前提にはしない。Coordinatorのregistry/lease認証・`cleanup_authorized`の成立、経済実験やlive注文の認可をbranch整理から推定しない。
 - `docs/` は現行正本のみ。完了済みplan/specは必要な契約を昇格してGit historyに残し、`docs/history`・`docs/archive`を増やさない。`LICENSE`・`LICENSES/`と、immutable研究artifactは通常のdocs整理から除外する。

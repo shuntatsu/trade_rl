@@ -1597,12 +1597,17 @@ and the review `commit_id` to equal `implementation_head`, cannot report PASS fo
 in-tree packet. A review must name this digest and these heads, and any later `trade_rl/`
 change (including a sync merge of `main`) needs a new `implementation_head`, digest and
 review. On 2026-11-05 the owner
-wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
-Antigravity/Gemini, is acceptable). The 2026-11-05 words alone did not authorize a
+wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review, that is
+Antigravity/Gemini, was named as acceptable to the owner). The 2026-11-05 words did not
+say that a review from the same GitHub account suffices and alone did not authorize a
 same-principal exception. In corrected Issue #810 comment 6680576996 the owner
-separately approved an attempt-2-only exception: a review by a model different from
-every implementation model (Claude Haiku 5.5), posted from the same GitHub account,
-satisfies sealing condition (a). It is operator-enforced (sealing code does not call the
+separately approved an attempt-2-only exception, and only this: a review posted from the
+same GitHub account is acceptable for attempt 2 when the reviewer model differs from
+every implementation model (Claude Haiku 5.5) and a valid receipt for the exact packet
+digest and heads exists; with that, it satisfies sealing condition (a). The packet's
+`next_authorized_action` text, which paraphrases the 2026-11-05 words as the reviewing
+account not mattering, is frozen provenance (its digest is pinned and it is not edited
+here) and is to be read with this narrower meaning. The exception is operator-enforced (sealing code does not call the
 research tool) and is **not** principal independence.
 `tools.research_assurance_github` still rejects same-principal reviews and does not
 report PASS for this route, so the packet stays UNREVIEWED and no PASS is claimed. Issue #810 records:

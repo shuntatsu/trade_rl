@@ -8,6 +8,8 @@ import pytest
 
 from tests.integrations.market_store.support import (
     HOUR_MS,
+    PLACEHOLDER_OPEN_MS,
+    REAL_BTC_PLACEHOLDER,
     funding_csv_rows,
     kline_csv_rows,
     zip_csv,
@@ -126,7 +128,7 @@ def test_checksum_rejects_an_empty_archive() -> None:
 
 
 def test_klines_parse_to_exact_decimals_in_order() -> None:
-    rows = parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED)
+    rows = parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED).rows
     assert len(rows) == 31 * 24
     assert rows[0].open_time_ms == ms_from_utc(JAN)
     assert rows[1].open_time_ms - rows[0].open_time_ms == HOUR_MS
@@ -187,10 +189,10 @@ def test_trailing_zeros_do_not_change_value_or_digest() -> None:
 
 
 def test_header_row_and_microsecond_spot_timestamps_are_normalised() -> None:
-    plain = parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED)
+    plain = parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED).rows
     headered = parse_kline_archive(
         zip_csv(klines(header=True, micro=True)), spec(), embargo=ENFORCED
-    )
+    ).rows
     assert headered == plain
 
 
@@ -238,7 +240,7 @@ def test_gaps_are_preserved_not_filled() -> None:
     gap = ms_from_utc(JAN) + 10 * HOUR_MS
     rows = parse_kline_archive(
         zip_csv(klines(skip=frozenset({gap}))), spec(), embargo=ENFORCED
-    )
+    ).rows
     assert len(rows) == 31 * 24 - 1
     assert gap not in {row.open_time_ms for row in rows}
 
@@ -293,7 +295,7 @@ def test_a_warmup_kline_needs_the_authorization() -> None:
     payload = zip_csv(klines(FS1_WARMUP_START, datetime(2026, 9, 1, tzinfo=UTC)))
     with pytest.raises(Fs1WarmupSpanError, match="warm-up"):
         parse_kline_archive(payload, august, embargo=ENFORCED)
-    assert parse_kline_archive(payload, august, embargo=WARMUP)
+    assert parse_kline_archive(payload, august, embargo=WARMUP).rows
 
 
 def test_one_closed_span_row_poisons_an_otherwise_valid_archive() -> None:
@@ -304,7 +306,7 @@ def test_one_closed_span_row_poisons_an_otherwise_valid_archive() -> None:
     just_before = zip_csv(klines(JUL, FS1_WARMUP_START))
     rows = parse_kline_archive(
         just_before, spec(start=JUL, end=FS1_WARMUP_START), embargo=ENFORCED
-    )
+    ).rows
     assert rows[-1].open_time_ms == FS1_WARMUP_START_MS - HOUR_MS
     assert rows[-1].close_time_ms == FS1_WARMUP_START_MS - 1
     october = spec(start=OCT, end=datetime(2026, 11, 2, tzinfo=UTC))
@@ -342,3 +344,125 @@ def test_a_funding_row_at_the_boundary_is_refused() -> None:
 def test_time_helpers_round_trip_exactly() -> None:
     for value in (0, 1, 999, 1_704_067_200_123, SEALED_WINDOW_START_MS - 1):
         assert ms_from_utc(utc_from_ms(value)) == value
+
+
+# -- the documented 2020-12-21 spot placeholder candle ---------------------------
+
+DEC_2020 = datetime(2020, 12, 1, tzinfo=UTC)
+JAN_2021 = datetime(2021, 1, 1, tzinfo=UTC)
+
+
+def dec_2020_rows(replacement: list[str] | None = None) -> list[list[str]]:
+    rows = klines(DEC_2020, JAN_2021)
+    index = next(i for i, row in enumerate(rows) if int(row[0]) == PLACEHOLDER_OPEN_MS)
+    rows[index] = REAL_BTC_PLACEHOLDER if replacement is None else replacement
+    return rows
+
+
+def test_the_documented_spot_placeholder_is_skipped_and_reported() -> None:
+    parsed = parse_kline_archive(
+        zip_csv(dec_2020_rows()), spec(start=DEC_2020, end=JAN_2021), embargo=ENFORCED
+    )
+    assert len(parsed.rows) == 31 * 24 - 1
+    assert PLACEHOLDER_OPEN_MS not in {row.open_time_ms for row in parsed.rows}
+    (placeholder,) = parsed.placeholders
+    assert placeholder.open_time_ms == PLACEHOLDER_OPEN_MS
+    assert placeholder.close_time_ms == 1608558440521
+    assert placeholder.price == Decimal("22646.53")
+    assert placeholder.to_dict()["price"] == "22646.53000000"
+    # the neighbours are untouched, so the gap is visible rather than filled
+    assert {row.open_time_ms for row in parsed.rows} >= {
+        PLACEHOLDER_OPEN_MS - HOUR_MS,
+        PLACEHOLDER_OPEN_MS + HOUR_MS,
+    }
+
+
+def test_an_ordinary_archive_has_no_placeholders() -> None:
+    assert (
+        parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED).placeholders
+        == ()
+    )
+
+
+def with_columns(**changes: str) -> list[str]:
+    names = {
+        "open_ms": 0,
+        "open": 1,
+        "high": 2,
+        "low": 3,
+        "close": 4,
+        "volume": 5,
+        "close_ms": 6,
+        "quote": 7,
+        "trades": 8,
+        "taker_base": 9,
+        "taker_quote": 10,
+    }
+    row = list(REAL_BTC_PLACEHOLDER)
+    for name, value in changes.items():
+        row[names[name]] = value
+    return row
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        with_columns(volume="0.00000001"),  # any nonzero volume
+        with_columns(quote="0.00000001"),
+        with_columns(taker_base="0.00000001"),
+        with_columns(taker_quote="0.00000001"),
+        with_columns(trades="1"),  # any trade
+        with_columns(high="22646.54000000"),  # not flat
+        with_columns(low="22646.52000000"),
+        with_columns(close="22646.52000000"),
+        with_columns(
+            open="0.00000000",
+            high="0.00000000",
+            low="0.00000000",
+            close="0.00000000",
+        ),  # flat but non-positive price
+        with_columns(close_ms=str(PLACEHOLDER_OPEN_MS)),  # close == open
+        with_columns(close_ms=str(PLACEHOLDER_OPEN_MS - HOUR_MS)),  # a whole bar early
+        with_columns(close_ms=str(PLACEHOLDER_OPEN_MS - 2 * HOUR_MS)),
+    ],
+)
+def test_near_miss_placeholder_shapes_are_still_refused(row: list[str]) -> None:
+    with pytest.raises(ArchiveContentError):
+        parse_kline_archive(
+            zip_csv(dec_2020_rows(row)),
+            spec(start=DEC_2020, end=JAN_2021),
+            embargo=ENFORCED,
+        )
+
+
+def test_the_placeholder_shape_at_any_other_bar_is_refused() -> None:
+    next_hour = PLACEHOLDER_OPEN_MS + HOUR_MS
+    shifted = with_columns(
+        open_ms=str(next_hour), close_ms=str(next_hour - 12 * 60 * 1000)
+    )
+    rows = dec_2020_rows()
+    index = next(i for i, row in enumerate(rows) if int(row[0]) == next_hour)
+    rows[index] = shifted
+    with pytest.raises(ArchiveContentError, match="close_time not after open"):
+        parse_kline_archive(
+            zip_csv(rows), spec(start=DEC_2020, end=JAN_2021), embargo=ENFORCED
+        )
+
+
+def test_the_placeholder_is_only_recognised_in_the_spot_market() -> None:
+    futures = spec(start=DEC_2020, end=JAN_2021, market=StoreMarket.USDS_M)
+    with pytest.raises(ArchiveContentError, match="close_time not after open"):
+        parse_kline_archive(zip_csv(dec_2020_rows()), futures, embargo=ENFORCED)
+
+
+def test_a_zero_volume_row_with_a_valid_close_time_is_stored_not_skipped() -> None:
+    # e.g. the 2021-02-11 03:00 UTC spot rows: zero volume but close after open. These
+    # pass the unchanged validation and are NOT placeholders in the skip sense.
+    row = with_columns(close_ms=str(PLACEHOLDER_OPEN_MS + 40 * 60 * 1000))
+    parsed = parse_kline_archive(
+        zip_csv(dec_2020_rows(row)),
+        spec(start=DEC_2020, end=JAN_2021),
+        embargo=ENFORCED,
+    )
+    assert parsed.placeholders == ()
+    assert len(parsed.rows) == 31 * 24

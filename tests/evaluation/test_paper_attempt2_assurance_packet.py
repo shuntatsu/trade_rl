@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.paper.attempt2 import (
     CAPACITY_HEADROOM,
@@ -55,9 +57,9 @@ G0_APPROVED_STATEMENT = (
     "predecessor の protocol digest・final tip・observation gap・先行未報告attemptの不在は "
     "not_established のままで承認する。」"
 )
-# The owner's verbatim words of 2026-11-05 (Issue #810 comment 6659653178). They say the
-# reviewing account does not matter and that an agy review is acceptable; they do not
-# name the same GitHub account.
+# The owner's verbatim words of 2026-11-05 (Issue #810 comment 6659653178). They name an
+# agy review as acceptable; they do not say that a same-GitHub-account review suffices
+# (only comment 6680576996 approves that, for attempt 2 and a different model).
 OWNER_REVIEW_WORDS = (
     "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"
 )
@@ -599,7 +601,11 @@ def test_heads_name_one_final_implementation_commit_with_no_later_code_change() 
         _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
         or _git("merge-base", "--is-ancestor", head, "HEAD").returncode != 0
     ):
-        return  # shallow or squashed checkout: the commit is not reachable here
+        pytest.skip(
+            "implementation_head is not reachable from HEAD (shallow, squashed or "
+            "exported checkout); the head guard needs full history, and the default "
+            "CI checkout (fetch-depth 2) skips it"
+        )
     changed = _git("diff", "--name-only", head, "HEAD", "--", "trade_rl")
     assert changed.returncode == 0, changed.stderr
     assert changed.stdout.strip() == "", (

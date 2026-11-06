@@ -391,7 +391,9 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
 Plainly: attempt 1's evidence root has not been located; if it is never found, its
 lineage rests on a prior recorded review and the predecessor is not re-verified. Because
 the owner authorized the G0 exception for attempt 2 on Issue #810 (2026-11-06, comment
-6673566542), the runbook's "fresh review resolves the preserved root" requirement is
+6680576996: the corrected search premise, with the owner's re-approval and the same-account
+review route; the earlier comment 6673566542 is superseded for that premise and is cited
+only for the start time and the Task Scheduler jobs), the runbook's "fresh review resolves the preserved root" requirement is
 replaced by a fresh result-blind review of the lineage documentation (this section and
 the current-status record) and the pull request that introduced the rule. That review
 cannot confirm the predecessor digests, tip or gap against the root, and it does not
@@ -539,7 +541,13 @@ first; nothing here proves the comment exists or says what it should say.
      recorded; it applies to no other case);
    * obtain an independent `research_assurance_v1` review of the attempt-2 author
      packet (see the packet section below) from a different authenticated GitHub
-     principal; a missing review leaves the packet UNREVIEWED and attempt 2 unsealed;
+     principal (for attempt 2 only, the owner-authorized same-account exception of
+     Issue #810 comment 6680576996 applies instead: a review by a model different from
+     every implementation model posted from the same GitHub account, with a valid
+     receipt for the exact digest and heads; see "Review route" below and the
+     "Predecessor root unavailable: owner-authorized G0 exception for carry attempt 2"
+     section of `docs/architecture/research-assurance.md`); a missing review leaves the
+     packet UNREVIEWED and attempt 2 unsealed;
    * create a dedicated detached worktree of the merged commit and a private locked
      environment; keep it unmodified until the screen ends (the sealed
      implementation and runtime digests are rechecked before every acquisition);
@@ -695,9 +703,20 @@ attempt-1 `not_established` limits, the threat model and the storage-probe step.
   cannot name the commit that contains it, so the packet is committed in a later
   descendant and the PR head differs from the implementation head;
   `tools.research_assurance_github` needs the PR head and the review `commit_id` to equal
-  `implementation_head`, so it cannot report PASS for an in-tree packet. A later change
-  to either head, or to `trade_rl/` (including a sync merge of `main`), changes the digest
-  and voids any review of the earlier digest.
+  `implementation_head`, so it cannot report PASS for an in-tree packet. The digest is the
+  SHA-256 of the packet JSON alone (`assurance_digest`), so a change to `trade_rl/` does
+  not by itself alter it: the digest changed in the head re-pin commit `5399cc664`
+  because that commit re-pinned the two head fields and rewrote the packet's `stop_rule`,
+  `limitations`, one `permitted` claim, `next_authorized_action` and `decision_rule`
+  text (review-route and search-scope wording); the code at `326188fc0` was already
+  final and `trade_rl/` did not change in it. A later change
+  to either head, or to `trade_rl/` (including a sync merge of `main`), requires the
+  heads to be re-pinned, which changes the digest and voids any review of the earlier
+  digest. The head-guard test
+  (`test_heads_name_one_final_implementation_commit_with_no_later_code_change`) enforces
+  this only on a checkout whose history contains the pinned commit; on a shallow clone,
+  including the default CI checkout (`fetch-depth: 2`), it is skipped, so it is not a CI
+  gate there.
 
 Sealing attempt 2 still needs all of the following, and this packet supplies none of
 them: (a) an independent `research_assurance_v1` review of the exact digest and

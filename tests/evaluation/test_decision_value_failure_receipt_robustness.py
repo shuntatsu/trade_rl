@@ -704,9 +704,7 @@ def test_unpinned_quarantine_metadata_rejects_inconsistent_inner_hash(
     """A forged outer digest cannot validate a contradictory source checksum."""
     root = tmp_path / "attempt"
     digest = _persist(root, _row(baseline={"terminal_marked_equity": "893.0"}))
-    original = study.load_incomplete_pair_attempt(
-        root, expected_receipt_digest=digest
-    )
+    original = study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
     source = original["pairs"][0]["unvalidated_source_record"]
     assert source["truncated"] is False
     assert len(source["text"]) < 65_536

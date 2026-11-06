@@ -233,6 +233,63 @@ def test_existing_projection_exposure_cannot_underflow_at_processing_open() -> N
     assert book.cash == 1_000.0
 
 
+@pytest.mark.parametrize("signed_position", [-1.0, 1.0])
+@pytest.mark.parametrize("signed_order", [-1.0, 1.0])
+def test_stateful_existing_subnormal_exposure_admission_under_strict_numpy(
+    signed_position: float, signed_order: float
+) -> None:
+    """Existing valid tiny positions cannot crash the gross exposure guard."""
+    price = 1e-160
+    multiplier = 5e-164
+    prices = np.full((6, 1), price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        volume=np.full((6, 1), 100.0),
+        volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
+        contract_multipliers=np.array([multiplier]),
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=1_000.0,
+        mark_prices=np.array([price]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([multiplier]),
+    )
+    # Set up the real stateful runtime before entering strict NumPy mode:
+    # BookState cloning is a separate accounting contract covered in #1144.
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents((_intent(executor, signed_order),))
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([price]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+            runtime, context
+        )
+    assert len(accepted) == 1
+    assert accepted[0].status is OrderStatus.ELIGIBLE
+    assert accepted[0].remaining_quantity == signed_order
+    assert [event.event_type for event in runtime.events] == [
+        "submitted",
+        "eligible",
+    ]
+    # Admission only reserves the internal risk projection; no real fill yet.
+    assert runtime.book.quantities.tolist() == [signed_position]
+    assert runtime.book.cash == 1_000.0
+    assert runtime.fill_count == 0
+    assert book.quantities.tolist() == [signed_position]
+    assert book.cash == 1_000.0
+
+
 def test_empty_accepted_orders_do_not_scan_dataset_symbols(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

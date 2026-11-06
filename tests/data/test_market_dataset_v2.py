@@ -605,14 +605,10 @@ def test_gemini4_contract_market_notional_underflow_and_true_zero(
     market = MarketDataset(**values)
 
     with pytest.raises(ValueError, match="nonzero market notional"):
-        market.market_notional(
-            0, prices=np.array([price]), volume=np.array([1e-200])
-        )
+        market.market_notional(0, prices=np.array([price]), volume=np.array([1e-200]))
 
     np.testing.assert_array_equal(
-        market.market_notional(
-            0, prices=np.array([price]), volume=np.array([0.0])
-        ),
+        market.market_notional(0, prices=np.array([price]), volume=np.array([0.0])),
         np.array([0.0]),
     )
 

@@ -440,6 +440,86 @@ def test_invalid_shapes_gross_latency_and_offsets_fail_closed() -> None:
         _reconcile(target_weight=0.5, limit_offset_rate=1.0)
 
 
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+@pytest.mark.parametrize(
+    ("target_weight", "equity", "price", "multiplier"),
+    (
+        pytest.param(1.0, 1_000.0, 1e308, 1e308, id="unit-overflow"),
+        pytest.param(1e-300, 1e-100, 1.0, 1.0, id="target-value-underflow"),
+        pytest.param(1.0, 1e-200, 1e308, 1.0, id="quantity-underflow"),
+    ),
+)
+def test_reconciliation_rejects_unrepresentable_nonzero_target(
+    target_weight: float,
+    equity: float,
+    price: float,
+    multiplier: float,
+    sign: float,
+) -> None:
+    """A nonzero portfolio target must not silently collapse to zero quantity."""
+    book = BookState.zero(
+        1,
+        equity,
+        np.array([price]),
+        contract_multipliers=np.array([multiplier]),
+    )
+    before_exact = book.exact_quantities
+
+    with pytest.raises(
+        OrderReconciliationError,
+        match="nonzero.*target.*represent",
+    ):
+        reconcile_target(
+            dataset_id="d" * 64,
+            target_identity="representability-target",
+            execution_policy_digest="e" * 64,
+            target_weights=np.array([sign * target_weight]),
+            book=book,
+            order_book=OrderBookState.empty(),
+            reference_prices=np.array([price]),
+            valuation_prices=np.array([price]),
+            decision_equity=equity,
+            submit_index=0,
+            latency_bars=0,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC,
+            expiry_index=None,
+            limit_offset_rate=0.0,
+        )
+
+    assert book.exact_quantities == before_exact
+
+
+def test_reconciliation_zero_target_allows_unrepresentable_unit_value() -> None:
+    book = BookState.zero(
+        1,
+        1_000.0,
+        np.array([1e308]),
+        contract_multipliers=np.array([1e308]),
+    )
+
+    result = reconcile_target(
+        dataset_id="d" * 64,
+        target_identity="zero-target",
+        execution_policy_digest="e" * 64,
+        target_weights=np.array([0.0]),
+        book=book,
+        order_book=OrderBookState.empty(),
+        reference_prices=np.array([1e308]),
+        valuation_prices=np.array([1e308]),
+        decision_equity=1_000.0,
+        submit_index=0,
+        latency_bars=0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        expiry_index=None,
+        limit_offset_rate=0.0,
+    )
+
+    assert result.new_intents == ()
+    np.testing.assert_array_equal(result.desired_quantities, np.array([0.0]))
+
+
 @pytest.mark.parametrize(
     ("order_type", "time_in_force", "expiry_index"),
     (

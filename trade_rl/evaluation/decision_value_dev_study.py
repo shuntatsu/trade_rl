@@ -2104,6 +2104,24 @@ def _validate_quarantine_record(record: object) -> None:
     if not isinstance(digest, str):
         raise ValueError("failure receipt unvalidated source digest is malformed")
     require_sha256(digest, field="unvalidated_source_record.sha256")
+    # A truncated prefix cannot independently establish the digest of the
+    # omitted suffix. In that case require exactly the writer's prefix length;
+    # a complete source record must instead match its actual UTF-8 checksum.
+    text = record["text"]
+    if record["truncated"]:
+        if len(text) != _QUARANTINE_TEXT_LIMIT:
+            raise ValueError(
+                "failure receipt unvalidated source truncated prefix is malformed"
+            )
+    else:
+        try:
+            source_bytes = text.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ValueError(
+                "failure receipt unvalidated source text is not UTF-8"
+            ) from error
+        if hashlib.sha256(source_bytes).hexdigest() != digest:
+            raise ValueError("failure receipt unvalidated source digest mismatch")
 
 
 def _require_canonical_round_trip(value: object, *, field: str) -> None:

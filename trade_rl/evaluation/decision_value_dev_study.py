@@ -1464,6 +1464,10 @@ def _dataset_view_digest(dataset: MarketDataset) -> str:
 
 
 _INCOMPLETE_RECEIPT_FILE = "incomplete-pairs.json"
+# Default untrusted-reader resource budget, not a universal v2/v3 schema size.
+_DEFAULT_INCOMPLETE_RECEIPT_BYTES = 64 * 1024 * 1024
+# Exception for a separately pinned legacy/large receipt, still always bounded.
+_MAX_INCOMPLETE_RECEIPT_BYTES = 512 * 1024 * 1024
 _INCOMPLETE_RECEIPT_SCHEMA = "decision_value_incomplete_pair_attempt_v3"
 # v2 receipts may already exist on disk: the reader keeps accepting them (with
 # the plain finite-decimal rules only), but the writer only emits v3.
@@ -1811,12 +1815,13 @@ def _encode_incomplete_receipt(
     phase: str,
     observed_view_digest: str | None,
 ) -> tuple[bytes, str]:
-    """Return canonical receipt bytes that provably pass strict reload.
+    """Return canonical receipt bytes verified by the shared strict decoder.
 
-    The bytes are decoded by the reader's own validator before they are
-    returned. If the full encoding is rejected, every pair is quarantined and
-    the check is repeated, so that a reloadable receipt exists *before* the
-    destination root is claimed.
+    The bytes are checked by the reader's structural/canonical validator
+    before they are returned. If the encoding is rejected, every pair is
+    quarantined and checked again before claiming the destination root.
+    File-based reload also enforces a separate finite input-byte budget and
+    may reject an otherwise valid oversized receipt.
     """
     last_error: Exception | None = None
     for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):
@@ -2256,7 +2261,10 @@ def _decode_incomplete_receipt(
 
 
 def load_incomplete_pair_attempt(
-    root: str | Path, *, expected_receipt_digest: str | None = None
+    root: str | Path,
+    *,
+    expected_receipt_digest: str | None = None,
+    max_receipt_bytes: int = _DEFAULT_INCOMPLETE_RECEIPT_BYTES,
 ) -> dict[str, object]:
     """Strictly reload a TD8 failure receipt; reject any tampering.
 
@@ -2269,18 +2277,65 @@ def load_incomplete_pair_attempt(
     encodings. Numeric strings are parsed under a bounded grammar, so hostile
     receipts are rejected quickly. Pass ``expected_receipt_digest`` (the value
     returned at write time) to also reject a fully re-sealed forgery.
+
+    The default read budget is 64 MiB (not an invariant of older receipts).
+    An explicitly pinned trusted digest is required to request a larger finite
+    budget, up to 512 MiB. Reading a larger file never falls back to an
+    unbounded allocation, and changed regular-file metadata fails closed.
     """
+    if (
+        type(max_receipt_bytes) is not int
+        or not 0 < max_receipt_bytes <= _MAX_INCOMPLETE_RECEIPT_BYTES
+    ):
+        raise ValueError("max_receipt_bytes must be a positive bounded integer")
+    if (
+        max_receipt_bytes > _DEFAULT_INCOMPLETE_RECEIPT_BYTES
+        and expected_receipt_digest is None
+    ):
+        raise ValueError("larger receipt byte budget requires a pinned digest")
     if expected_receipt_digest is not None:
         require_sha256(expected_receipt_digest, field="expected_receipt_digest")
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
-    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
-        raise ValueError("failure receipt root contents are malformed")
+    # Verify the single-file root without Path.iterdir()'s eager full scan.
+    with os.scandir(directory) as entries:
+        first = next(entries, None)
+        if (
+            first is None
+            or first.name != _INCOMPLETE_RECEIPT_FILE
+            or next(entries, None) is not None
+        ):
+            raise ValueError("failure receipt root contents are malformed")
     with open_regular_binary(
         directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
     ) as handle:
-        raw = handle.read()
+        before = os.fstat(handle.fileno())
+        if before.st_size > max_receipt_bytes:
+            raise ValueError("failure receipt exceeds configured byte budget")
+        # Bounded even if the file grows between the first fstat and read.
+        raw = handle.read(max_receipt_bytes + 1)
+        if len(raw) > max_receipt_bytes:
+            raise ValueError("failure receipt exceeds configured byte budget")
+        if handle.read(1):
+            raise ValueError("failure receipt changed during read")
+        after = os.fstat(handle.fileno())
+        before_identity = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if len(raw) != before.st_size or before_identity != after_identity:
+            raise ValueError("failure receipt changed during read")
     return _decode_incomplete_receipt(
         raw, expected_receipt_digest=expected_receipt_digest
     )

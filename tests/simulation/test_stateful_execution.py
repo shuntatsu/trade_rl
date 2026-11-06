@@ -112,6 +112,51 @@ def _zero_book(dataset: MarketDataset) -> BookState:
     )
 
 
+@pytest.mark.parametrize("quantity", [-1.0, 1.0])
+@pytest.mark.parametrize("time_in_force", [TimeInForce.GTC, TimeInForce.IOC])
+def test_unrepresentable_order_is_rejected_at_stateful_admission(
+    quantity: float, time_in_force: TimeInForce
+) -> None:
+    """An order rejected at admission must not reach capacity or fill accounting."""
+    tiny_price = 1e-200
+    prices = np.full((6, 1), tiny_price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        volume=np.full((6, 1), 100.0),
+        volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
+        contract_multipliers=np.array([1e-200]),
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = _intent(executor, quantity, time_in_force=time_in_force)
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert [event.event_type for event in result.order_events] == [
+        "submitted",
+        "rejected",
+    ]
+    assert result.order_events[-1].reason == "unrepresentable_notional"
+    assert result.rejected_count == 1
+    assert result.fill_count == 0
+    assert result.capacity_evidence == ()
+    assert result.order_book.active_orders == ()
+    terminal = result.order_book.terminal_orders
+    assert len(terminal) == 1
+    assert terminal[0].status is OrderStatus.REJECTED
+    assert terminal[0].terminal_reason == "unrepresentable_notional"
+    assert result.book.quantities.tolist() == [0.0]
+    assert result.book.cash == 1_000.0
+
+
 def test_empty_accepted_orders_do_not_scan_dataset_symbols(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

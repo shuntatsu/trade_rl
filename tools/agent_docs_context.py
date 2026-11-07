@@ -56,6 +56,8 @@ def _heading_positions(source: str) -> list[tuple[str, int]]:
             if heading is not None:
                 headings.append((heading.group(1).strip(), offset))
         offset += len(line)
+    if fence is not None:
+        raise ValueError("unclosed Markdown code fence")
     return headings
 
 

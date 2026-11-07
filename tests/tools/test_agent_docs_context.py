@@ -70,7 +70,7 @@ def test_actual_contract_is_covered_and_core_is_reduced() -> None:
 
 def test_rejects_unclosed_fence_masquerading_as_sections() -> None:
     original = _fixture()
-    with pytest.raises(ValueError, match="missing sections"):
+    with pytest.raises(ValueError, match="unclosed"):
         split_sections(original.replace("## 目的\n", "## 目的\n```\n"))
 
 
@@ -104,4 +104,15 @@ def test_indented_and_tabbed_atx_heading_are_valid() -> None:
         .replace("## 目的\n", "  ##\t目的\n")
         .replace("## 読む順序\n", "   ## 読む順序\n")
     )
+    assert render(source, ("all",)) == source
+
+
+def test_terminal_unclosed_fence_cannot_hide_new_section() -> None:
+    source = _fixture() + "\n```markdown\n## New mandatory rule\n"
+    with pytest.raises(ValueError, match="unclosed"):
+        split_sections(source)
+
+
+def test_terminal_closed_fence_is_still_allowed() -> None:
+    source = _fixture() + "\n```markdown\n## Not a section\n```\n"
     assert render(source, ("all",)) == source

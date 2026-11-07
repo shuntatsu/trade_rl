@@ -165,7 +165,6 @@ def test_exact_tip_and_post_delete_readback() -> None:
     assert [entry.name for entry in api.current] == ["main"]
 
 
-
 def test_apply_preserves_m1_merged_ref_while_retiring_unrelated_source() -> None:
     api = FakeApi()
     m1_name = "fix/m1-carry-cashflow-underflow-20261106"

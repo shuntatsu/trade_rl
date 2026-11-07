@@ -685,6 +685,20 @@ def perturb_future(
         active[after_index + 1 :] & ~tradable[after_index + 1 :]
     )
     changes["tradable"] = tradable
+    # Future availability-clock peeks must be visible to the same oracle.
+    # Toggle on-time vs delayed after the cut; keep information masks valid.
+    future = slice(after_index + 1, None)
+    clock = dataset.timestamps[:, None]
+    available_at = dataset.resolved_array("available_at").copy()
+    available_at[future] = np.where(
+        available_at[future] == clock[future],
+        clock[future] + np.timedelta64(1, "ns"),
+        clock[future],
+    )
+    information_available = dataset.resolved_array("information_available").copy()
+    information_available[future] &= available_at[future] <= clock[future]
+    changes["available_at"] = available_at
+    changes["information_available"] = information_available
     # The dataset_id stays unchanged on purpose: same-bar order ids (and therefore
     # their admission order) are digests that include it, so a different id would
     # change pre-cut behaviour without any look-ahead.

@@ -927,35 +927,74 @@ class MarketExecutor:
             np.abs(filled_notional_vector[positive_capacity])
             / capacity_notional[positive_capacity]
         )
-        impact = self.cost.impact_rate * np.sqrt(participation)
+        impact_scale = np.sqrt(participation)
         slippage = self._slippage_rates(len(price_vector))
         # Forced close bypasses limit resting/price rules and therefore takes
         # liquidity even when the configured ordinary order type is LIMIT.
         takes_liquidity = force_market or self.cost.order_type != "limit"
         spread_multiplier = 1.0 if takes_liquidity else 0.5
-        venue_fee = (
-            self.cost.taker_fee_rate
-            + self.dataset.resolved_array("taker_fee_rate")[market_index]
-            if takes_liquidity
-            else self.cost.maker_fee_rate
-            + self.dataset.resolved_array("maker_fee_rate")[market_index]
-        )
-        unit_cost = self.cost.multiplier * (
-            self.cost.fee_rate
-            + self.dataset.resolved_array("fee_rate")[market_index]
-            + venue_fee
-            + spread_multiplier
-            * (
+        # A zero multiplier or zero fill is a genuine identity even if unused
+        # intermediate rates exceed float range. Validate charged symbols only.
+        chargeable = (filled_notional_vector != 0.0) & (self.cost.multiplier != 0.0)
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            venue_fee = (
+                self.cost.taker_fee_rate
+                + self.dataset.resolved_array("taker_fee_rate")[market_index]
+                if takes_liquidity
+                else self.cost.maker_fee_rate
+                + self.dataset.resolved_array("maker_fee_rate")[market_index]
+            )
+            spread_base = (
                 self.cost.spread_rate
                 + self.dataset.resolved_array("spread_rate")[market_index]
             )
-            + impact
-            + slippage
-        )
-        cost_vector = np.abs(filled_notional_vector) * unit_cost
-        cost_amount = float(np.sum(cost_vector))
-        if not math.isfinite(cost_amount):
+            spread_component = spread_multiplier * spread_base
+            impact = self.cost.impact_rate * impact_scale
+            base_unit_cost = (
+                self.cost.fee_rate
+                + self.dataset.resolved_array("fee_rate")[market_index]
+                + venue_fee
+                + spread_component
+                + impact
+                + slippage
+            )
+            unit_cost = self.cost.multiplier * base_unit_cost
+            cost_vector = np.where(
+                chargeable, np.abs(filled_notional_vector) * unit_cost, 0.0
+            )
+            cost_amount = float(np.sum(cost_vector))
+        if (
+            not np.isfinite(spread_component[chargeable]).all()
+            or not np.isfinite(impact[chargeable]).all()
+            or not np.isfinite(base_unit_cost[chargeable]).all()
+            or not np.isfinite(unit_cost[chargeable]).all()
+            or not np.isfinite(cost_vector).all()
+            or not math.isfinite(cost_amount)
+        ):
             raise ValueError("execution cost became non-finite")
+        if np.any(
+            chargeable
+            & (spread_base != 0.0)
+            & (spread_multiplier != 0.0)
+            & (spread_component == 0.0)
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
+        if np.any(
+            chargeable
+            & (self.cost.impact_rate != 0.0)
+            & (impact_scale != 0.0)
+            & (impact == 0.0)
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
+        if np.any(
+            chargeable
+            & (base_unit_cost != 0.0)
+            & (self.cost.multiplier != 0.0)
+            & (unit_cost == 0.0)
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
+        if np.any(chargeable & (unit_cost != 0.0) & (cost_vector == 0.0)):
+            raise ValueError("nonzero execution cost cannot be represented")
 
         fills_before = book.fill_count
         events_before = book.rebalance_events

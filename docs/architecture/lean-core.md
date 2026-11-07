@@ -541,6 +541,7 @@ retain their explicit reference-price sizing contract.
 - order submissionとfillを区別する。
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
+- 有効なcost multiplierが正で実約定notionalが非ゼロの場合だけ、resolved fee/spread/impact/slippageを現行のbinary64演算順でcostへ反映し、非ゼロのrate・cost額がfloat 0または非有限へ潰れればBookState更新前にfail closedとする。約定なしと明示cost multiplier 0はzero-cost identityとして保持し、recorded-depthの非ゼロfeeも0へのunderflowを許さない。
 - `interval_net_return` は実約定・全明示cash flow反映後の最終equityを正本とする。`interval_gross_return` は同じ実約定経路について、最終equityへexecution costとborrowを戻し、signed funding・dividend・cash interestを除いて価格損益を分離する。OPENからのasset returnへ事後weightを掛ける近似や、cost-zero条件で戦略を再実行した反実仮想とは扱わない。
 - partial fill後のpositionはrealized fill quantityで更新する。
 - `fill_ratio` と `unfilled_turnover` は注文の消化状態を表すため、requested側と同じsubmission reference priceでfilled quantityを評価する。adverse/favorableな実約定価格の変化だけで注文残量が消えたように見せない。`filled_turnover` は実際に売買した金額を表すためactual fill notional / starting equityを維持し、このcompletion指標とはprice basisを分ける。 真にrequested notionalが0のidentityケースだけ`fill_ratio=1.0`とし、0より大きい微小要求を固定toleranceで要求なしへ丸めない。未約定なら0、部分約定なら実際の消化率を返す。

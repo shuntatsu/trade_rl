@@ -120,29 +120,61 @@ def _execution_cost(
         trigger.segment is TriggerSegment.OPEN
         and order.intent.eligible_index == processing_index
     )
-    venue_fee = (
-        executor.cost.maker_fee_rate
-        + dataset.resolved_array("maker_fee_rate")[processing_index, symbol]
-        if maker
-        else executor.cost.taker_fee_rate
-        + dataset.resolved_array("taker_fee_rate")[processing_index, symbol]
-    )
     spread_multiplier = 0.5 if maker else 1.0
-    impact = executor.cost.impact_rate * math.sqrt(participation_rate)
-    slippage = float(executor._slippage_rates(1)[0])
-    unit_cost = executor.cost.multiplier * (
-        executor.cost.fee_rate
-        + dataset.resolved_array("fee_rate")[processing_index, symbol]
-        + venue_fee
-        + spread_multiplier
-        * (
+    impact_scale = math.sqrt(participation_rate)
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        venue_fee = (
+            executor.cost.maker_fee_rate
+            + dataset.resolved_array("maker_fee_rate")[processing_index, symbol]
+            if maker
+            else executor.cost.taker_fee_rate
+            + dataset.resolved_array("taker_fee_rate")[processing_index, symbol]
+        )
+        spread_base = (
             executor.cost.spread_rate
             + dataset.resolved_array("spread_rate")[processing_index, symbol]
         )
-        + impact
-        + slippage
-    )
-    return filled_notional * unit_cost
+        spread_component = spread_multiplier * spread_base
+        impact = executor.cost.impact_rate * impact_scale
+        base_cost = (
+            executor.cost.fee_rate
+            + dataset.resolved_array("fee_rate")[processing_index, symbol]
+            + venue_fee
+            + spread_component
+            + impact
+            + float(executor._slippage_rates(1)[0])
+        )
+        unit_cost = executor.cost.multiplier * base_cost
+        cost_amount = filled_notional * unit_cost
+    # Preserve the computed slippage draw, but do not charge a genuine zero-cost
+    # identity even if unused finite inputs overflow on the way to a unit cost.
+    chargeable = executor.cost.multiplier != 0.0 and filled_notional != 0.0
+    if not chargeable:
+        return 0.0
+    if not all(
+        math.isfinite(float(value))
+        for value in (spread_component, impact, base_cost, unit_cost, cost_amount)
+    ):
+        raise ValueError("execution cost became non-finite")
+    if (
+        chargeable
+        and spread_base != 0.0
+        and spread_multiplier != 0.0
+        and spread_component == 0.0
+    ):
+        raise ValueError("nonzero execution cost rate cannot be represented")
+    if (
+        chargeable
+        and executor.cost.impact_rate != 0.0
+        and impact_scale != 0.0
+        and impact == 0.0
+    ):
+        raise ValueError("nonzero execution cost rate cannot be represented")
+    if chargeable and base_cost != 0.0 and unit_cost == 0.0:
+        raise ValueError("nonzero execution cost rate cannot be represented")
+    if filled_notional != 0.0 and unit_cost != 0.0 and cost_amount == 0.0:
+        raise ValueError("nonzero execution cost cannot be represented")
+    return float(cost_amount)
 
 
 class StatefulSymbolFillProcessor:

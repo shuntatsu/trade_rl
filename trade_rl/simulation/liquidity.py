@@ -100,6 +100,21 @@ class LiquidityRequest:
                 "eligible_index must be a non-negative integer"
             )
 
+        # BookState books native binary64 scalar products. Preserve that
+        # authority even when callers supply np.float64 scalars under a
+        # strict NumPy error policy, so explicit zero/notional guards run.
+        for field_name in (
+            "remaining_quantity",
+            "execution_price",
+            "available_volume_fraction",
+            "minimum_notional",
+            "minimum_quantity",
+            "maximum_quantity",
+        ):
+            value = getattr(self, field_name)
+            if value is not None:
+                object.__setattr__(self, field_name, float(value))
+
     @property
     def priority_key(self) -> tuple[int, int, str]:
         return (int(self.priority), self.eligible_index, self.order_id)
@@ -272,6 +287,19 @@ def allocate_symbol_capacity(
         raise LiquidityAllocationError("lot_size must be non-negative")
     if minimum_notional < 0.0:
         raise LiquidityAllocationError("minimum_notional must be non-negative")
+
+    # Keep all capacity and notional arithmetic in native binary64, matching
+    # BookState and avoiding global NumPy error-policy dependent exceptions.
+    processing_volume = float(processing_volume)
+    price = float(price)
+    contract_multiplier = float(contract_multiplier)
+    participation_limit = float(participation_limit)
+    lot_size = float(lot_size)
+    minimum_notional = float(minimum_notional)
+    if processing_market_notional is not None:
+        processing_market_notional = float(processing_market_notional)
+    if processing_quantity_capacity is not None:
+        processing_quantity_capacity = float(processing_quantity_capacity)
 
     ordered = tuple(sorted(requests, key=lambda request: request.priority_key))
     if any(request.reduce_only for request in ordered) and not isinstance(
@@ -458,6 +486,20 @@ def allocate_symbol_capacity(
                     capacity_before=capacity_before,
                     accessible_capacity=accessible_capacity,
                     reason="below_minimum_notional",
+                )
+            )
+            continue
+        # BookState must not receive a nonzero fill whose left-associated
+        # quote notional has silently underflowed to zero. Do not consume
+        # shared capacity or inventory for such a rejected allocation.
+        if exact_notional == 0.0:
+            allocations.append(
+                _zero_allocation(
+                    request,
+                    requested_notional=requested_notional,
+                    capacity_before=capacity_before,
+                    accessible_capacity=accessible_capacity,
+                    reason="unrepresentable_notional",
                 )
             )
             continue

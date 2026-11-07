@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.liquidity import (
     LiquidityAllocationError,
     LiquidityPriority,
@@ -452,3 +454,106 @@ def test_extreme_finite_algebraic_notional_rejects_unbookable_full_fill(
             lot_size=0.0,
             minimum_notional=0.0,
         )
+
+
+@pytest.mark.parametrize("direction", [-1.0, 1.0])
+@pytest.mark.parametrize(
+    ("quantity", "execution_price", "multiplier", "quantity_capacity", "reject"),
+    [
+        (1.0, 1e-200, 1e-200, None, True),
+        # Request notional is representable, but the native quantity cap
+        # produces a nonzero filled quantity with a zero float notional.
+        (1e308, 1e-150, 1e-165, 1e-10, True),
+        (1.0, 1e-160, 5e-164, None, False),
+    ],
+)
+def test_liquidity_never_allocates_a_nonzero_zero_notional_fill(
+    direction: float,
+    quantity: float,
+    execution_price: float,
+    multiplier: float,
+    quantity_capacity: float | None,
+    reject: bool,
+) -> None:
+    allocations, evidence = allocate_symbol_capacity(
+        requests=(_request("a", direction * quantity, price=execution_price),),
+        processing_volume=1.0,
+        processing_market_notional=100.0,
+        processing_quantity_capacity=quantity_capacity,
+        price=execution_price,
+        contract_multiplier=multiplier,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+    assert len(allocations) == 1
+    item = allocations[0]
+    if reject:
+        # Both a zero requested notional and an underflow after a native
+        # quantity cap must fail closed, without consuming shared capacity.
+        if quantity_capacity is not None:
+            assert item.requested_notional > 0.0
+        unbookable = direction * min(quantity, quantity_capacity or quantity)
+        book = BookState.zero(
+            1,
+            1_000.0,
+            np.array([execution_price]),
+            np.array([multiplier]),
+        )
+        with pytest.raises(ValueError, match="nonzero execution leg notional"):
+            book.execute_fill(
+                symbol_index=0,
+                quantity=unbookable,
+                fill_prices=np.array([execution_price]),
+                cost_amount=0.0,
+                turnover=0.0,
+            )
+        assert book.quantities[0] == 0.0
+        assert book.cash == 1_000.0
+        assert item.filled_quantity == 0.0
+        assert item.filled_notional == 0.0
+        assert item.no_fill_reason == "unrepresentable_notional"
+        assert evidence.consumed_capacity_notional == 0.0
+        assert item.capacity_after == 100.0
+    else:
+        assert item.filled_quantity == direction
+        assert item.filled_notional == 5e-324
+        assert item.no_fill_reason is None
+
+
+@pytest.mark.parametrize("direction", [-1.0, 1.0])
+@pytest.mark.parametrize(
+    ("price", "multiplier", "reject"),
+    [(1e-200, 1e-200, True), (1e-160, 5e-164, False)],
+)
+def test_numpy_scalar_liquidity_underflow_remains_explicit_with_strict_errors(
+    direction: float, price: float, multiplier: float, reject: bool
+) -> None:
+    """NumPy input scalars must not turn zero/subnormal classification into FPE."""
+    request = _request(
+        "a",
+        np.float64(direction),
+        price=np.float64(price),
+        fraction=np.float64(1.0),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        allocations, evidence = allocate_symbol_capacity(
+            requests=(request,),
+            processing_volume=np.float64(100.0),
+            processing_market_notional=np.float64(100.0),
+            price=np.float64(price),
+            contract_multiplier=np.float64(multiplier),
+            participation_limit=np.float64(1.0),
+            lot_size=np.float64(0.0),
+            minimum_notional=np.float64(0.0),
+        )
+    assert len(allocations) == 1
+    item = allocations[0]
+    if reject:
+        assert item.filled_quantity == 0.0
+        assert item.no_fill_reason == "unrepresentable_notional"
+        assert evidence.consumed_capacity_notional == 0.0
+    else:
+        assert item.filled_quantity == direction
+        assert item.filled_notional == 5e-324
+        assert item.no_fill_reason is None

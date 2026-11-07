@@ -52,6 +52,7 @@ Dataset側で既に持っているコストをruntime側でももう一度控除
 - `BookState`更新
 
 partial fillなら、要求数量ではなくrealized fill quantityだけをpositionへ反映します。
+また、流動性上限で切り詰めた非ゼロ数量について約定金額が浮動小数点の限界でゼロになる場合は、約定扱いにせず理由付きのno-fillとして返します。容量や保有数量を消費しません。表現可能な微小金額を一律に禁止するものではありません。
 
 残数量が一致しても、注文種別・time-in-force（IOC/DAY/GTC）・明示有効期限・実行ポリシー等が変わった場合は古い未約定注文をcancel-and-replaceします。条件が同じ場合は既存注文のeligible時刻を維持し、毎回latencyをリセットしません。
 

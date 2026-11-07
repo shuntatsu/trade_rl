@@ -55,6 +55,32 @@ def test_only_main_ancestors_without_current_owners_are_eligible() -> None:
 
 
 @pytest.mark.parametrize(
+    "branch_name",
+    (
+        "fix/m1-target-sizing-representability-20261106",
+        "fix/m1-order-intent-notional-underflow-20261106",
+        "fix/m1-liquidity-zero-notional-20261106",
+        "fix/m1-bookstate-strict-underflow-atomicity-20261106",
+        "fix/m1-carry-cashflow-underflow-20261106",
+        "fix/windows-job-child-pid-marker-20261105",
+    ),
+)
+def test_m1_merged_source_refs_are_preserved(branch_name: str) -> None:
+    branch = BranchInfo(branch_name, B, False)
+    decisions = plan_merged_retirement(
+        (BranchInfo("main", A, False), branch),
+        default_branch="main",
+        open_pull_request_refs=(),
+        active_workflow_branches=frozenset(),
+        reachable_from_main=frozenset({A, B}),
+        merged_pr_sources=(MergedPullRequestSource(branch_name, B),),
+    )
+    result = next(item for item in decisions if item.branch.name == branch_name)
+    assert result.action == "keep"
+    assert result.reason == "m1-source-preservation"
+
+
+@pytest.mark.parametrize(
     "invalid",
     [
         (BranchInfo("main", A, False), BranchInfo("main", B, False)),
@@ -137,6 +163,17 @@ def test_exact_tip_and_post_delete_readback() -> None:
     assert _apply(api) == ("feature/done",)
     assert api.deleted == ["feature/done"]
     assert [entry.name for entry in api.current] == ["main"]
+
+
+def test_apply_preserves_m1_merged_ref_while_retiring_unrelated_source() -> None:
+    api = FakeApi()
+    m1_name = "fix/m1-carry-cashflow-underflow-20261106"
+    api.current.append(BranchInfo(m1_name, B, False))
+    api.merged.append(MergedPullRequestSource(m1_name, B))
+
+    assert _apply(api) == ("feature/done",)
+    assert api.deleted == ["feature/done"]
+    assert {entry.name for entry in api.current} == {"main", m1_name}
 
 
 @pytest.mark.parametrize(

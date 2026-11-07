@@ -570,9 +570,7 @@ def apply_cleanup(
 # exact final head is already reachable from main. This exception is scoped
 # to the M1 branch namespace plus its Windows test-only companion.
 M1_SOURCE_REF_PREFIX = "fix/m1-"
-M1_ADDITIONAL_SOURCE_REFS = frozenset(
-    {"fix/windows-job-child-pid-marker-20261105"}
-)
+M1_ADDITIONAL_SOURCE_REFS = frozenset({"fix/windows-job-child-pid-marker-20261105"})
 
 
 RETIRED_MERGED_PRESERVED_PREFIXES = (

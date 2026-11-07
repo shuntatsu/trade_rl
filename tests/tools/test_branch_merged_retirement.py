@@ -54,7 +54,6 @@ def test_only_main_ancestors_without_current_owners_are_eligible() -> None:
     assert by_name["infra/retained"].action == "keep"
 
 
-
 @pytest.mark.parametrize(
     "branch_name",
     (
@@ -66,9 +65,7 @@ def test_only_main_ancestors_without_current_owners_are_eligible() -> None:
         "fix/windows-job-child-pid-marker-20261105",
     ),
 )
-def test_m1_merged_source_ref_is_preserved_even_when_main_reachable(
-    branch_name: str,
-) -> None:
+def test_m1_merged_source_refs_are_preserved(branch_name: str) -> None:
     branch = BranchInfo(branch_name, B, False)
     decisions = plan_merged_retirement(
         (BranchInfo("main", A, False), branch),

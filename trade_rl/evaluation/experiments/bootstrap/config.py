@@ -160,23 +160,27 @@ def _int_value(value: object, *, field: str, positive: bool = False) -> int:
     return value
 
 
-def _canonical_ppo_seed_roster(seeds: tuple[int, ...]) -> tuple[int, ...]:
-    """Keep bootstrap preregistration consistent with StudyPlan seed authority."""
+def _canonical_ppo_seed_roster(
+    seeds: tuple[int, ...], *, require_ascending: bool = True
+) -> tuple[int, ...]:
+    """Preserve historical seed order, but enforce StudyPlan order for new runs."""
 
     if len(seeds) < 2:
         raise ValueError("ppo_seeds must contain at least two seeds")
     if len(set(seeds)) != len(seeds):
         raise ValueError("ppo_seeds must not contain duplicate values")
-    if seeds != tuple(sorted(seeds)):
+    if require_ascending and seeds != tuple(sorted(seeds)):
         raise ValueError("ppo_seeds must use canonical ascending order")
     return seeds
 
 
-def _seed_policy(value: object) -> tuple[int, ...]:
+def _seed_policy(value: object, *, schema_version: str) -> tuple[int, ...]:
     if not isinstance(value, list):
         raise ValueError("ppo_seeds must be an integer array")
     seeds = tuple(_int_value(item, field="ppo_seeds") for item in value)
-    return _canonical_ppo_seed_roster(seeds)
+    return _canonical_ppo_seed_roster(
+        seeds, require_ascending=schema_version == _SCHEMA_VERSION_V6
+    )
 
 
 def _normalize_source_datetime(value: object, *, field: str) -> datetime:
@@ -470,7 +474,8 @@ class CanonicalM2BootstrapConfig:
         if not isinstance(self.ppo_seeds, tuple):
             raise ValueError("ppo_seeds must be an integer tuple")
         ppo_seeds = _canonical_ppo_seed_roster(
-            tuple(_int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds)
+            tuple(_int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds),
+            require_ascending=self.schema_version == _SCHEMA_VERSION_V6,
         )
         if self.baseline.ppo_seed != ppo_seeds[0]:
             raise ValueError("baseline ppo_seed must equal first ppo_seeds value")
@@ -703,7 +708,7 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
         timeframes=timeframes,
     )
 
-    ppo_seeds = _seed_policy(raw.get("ppo_seeds"))
+    ppo_seeds = _seed_policy(raw.get("ppo_seeds"), schema_version=schema_version)
     baseline_raw = _require_mapping(raw.get("baseline"), field="baseline")
     baseline_fields = (
         _BASELINE_FIELDS_V5

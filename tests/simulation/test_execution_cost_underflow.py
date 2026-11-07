@@ -430,3 +430,35 @@ def test_stateful_strict_numpy_zero_multiplier_ignores_spread_sum_overflow() -> 
             participation_rate=1.0,
         )
     assert amount == 0.0
+
+
+def test_depth_finite_fee_avoids_avoidable_intermediate_overflow() -> None:
+    """A finite 5bp fee must not be classified as an infinite cost."""
+    notional = 1e308
+    fee_bps = 5.0
+    expected = notional * (fee_bps / 10_000)
+    assert np.isfinite(expected)
+    book = BookState.zero(1, notional, np.array([notional]), np.array([1.0]))
+    now = datetime(2026, 11, 6, tzinfo=UTC)
+
+    fill = execute_depth_order(
+        book=book,
+        symbol_index=0,
+        lot_count=1,
+        rules=DepthOrderRules(1.0, 0.0, 2.0, 0.0, None),
+        bids=((9e307, 10.0),),
+        asks=((notional, 10.0),),
+        decision_at=now,
+        quote_at=now + timedelta(seconds=1),
+        execution_at=now + timedelta(seconds=2),
+        fee_bps=fee_bps,
+        adverse_bps=0.0,
+        depth_fraction=1.0,
+    )
+    assert fill.filled_lots == 1
+    assert fill.unfilled_lots == 0
+    assert fill.fee == expected
+    assert book.quantities.tolist() == [1.0]
+    assert book.total_cost == expected
+    assert np.isfinite(book.cash)
+    assert np.isfinite(book.portfolio_value)

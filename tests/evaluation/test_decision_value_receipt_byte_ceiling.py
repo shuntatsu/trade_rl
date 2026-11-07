@@ -312,3 +312,11 @@ def test_deeply_nested_json_objects_are_rejected_before_decode() -> None:
     raw = b'{"child":' * 33 + b"0" + b"}" * 33
     with pytest.raises(ValueError, match="failure receipt JSON nesting"):
         study._decode_incomplete_receipt(raw)
+
+
+def test_escaped_unicode_control_cannot_corrupt_json_quote_state() -> None:
+    """Valid JSON escapes cannot alter the structural preflight quote state."""
+    noise = '[{"\\}]' * 3 + chr(14) + '"}{'
+    raw = study.canonical_json_bytes(noise)
+    with pytest.raises(ValueError, match="failure receipt must contain a JSON object"):
+        study._decode_incomplete_receipt(raw)

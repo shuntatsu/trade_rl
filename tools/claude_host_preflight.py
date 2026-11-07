@@ -60,14 +60,14 @@ def _known_repo(remote: str) -> bool:
     if remote.startswith("git@github.com:"):
         path = remote[len("git@github.com:") :]
     else:
-        parsed = urlparse(remote)
+        try:
+            parsed = urlparse(remote)
+            port = parsed.port
+        except ValueError:
+            return False
         if parsed.scheme not in {"https", "ssh"} or parsed.hostname != "github.com":
             return False
         if parsed.username not in {None, "git"} or parsed.password is not None:
-            return False
-        try:
-            port = parsed.port
-        except ValueError:
             return False
         if parsed.query or parsed.fragment or parsed.params or port is not None:
             return False

@@ -78,6 +78,8 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str
         ("file:///somewhere/shuntatsu/trade_rl", False),
         ("https://github.com/shuntatsu/trade_rl?x=1", False),
         ("https://github.com:invalid/shuntatsu/trade_rl", False),
+        ("https://[broken", False),
+        ("ssh://[broken", False),
     ],
 )
 def test_remote_identity_is_exact(remote: str, expected: bool) -> None:
@@ -138,6 +140,20 @@ def test_wrong_upstream_never_runs_hook(
     assert result["claude_cli_present"] is False
     assert result["hook_direct_exec_passed"] is False
     assert result["preflight_ok"] is False
+
+
+@pytest.mark.parametrize("remote", ["https://[broken", "ssh://[broken"])
+def test_malformed_origin_url_fails_closed_without_hook_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote: str
+) -> None:
+    root, sha = _fixture(tmp_path, monkeypatch)
+    _git(root, "remote", "set-url", "origin", remote)
+    result = probe.preflight(root, required_merge=sha)
+    assert result["repository_root"] is True
+    assert result["expected_upstream"] is False
+    assert result["hook_direct_exec_passed"] is False
+    assert result["preflight_ok"] is False
+    assert "broken" not in json.dumps(result)
 
 
 def test_wrong_merge_commit_never_runs_hook(

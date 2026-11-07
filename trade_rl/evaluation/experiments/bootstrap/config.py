@@ -471,6 +471,21 @@ class CanonicalM2BootstrapConfig:
         if self.baseline.ppo_seed != ppo_seeds[0]:
             raise ValueError("baseline ppo_seed must equal first ppo_seeds value")
 
+        # The bootstrap digest only commits to the projected baseline fields.
+        # Reject direct constructors whose omitted fields would change on reload.
+        baseline_json = self.baseline.to_json_payload()
+        baseline_fields = (
+            _BASELINE_FIELDS_V5
+            if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+            else _BASELINE_FIELDS
+        )
+        projected = {name: baseline_json[name] for name in baseline_fields}
+        reconstructed = parse_candidate_run_config(
+            {**projected, "ppo_seed": ppo_seeds[0]}
+        )
+        if reconstructed.to_json_payload() != baseline_json:
+            raise ValueError("baseline differs from canonical bootstrap projection")
+
         if not isinstance(self.allowed_factors, tuple) or not self.allowed_factors:
             raise ValueError("allowed_factors must be a non-empty tuple")
         if any(

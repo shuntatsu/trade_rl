@@ -347,7 +347,13 @@ class BookState:
 
     @property
     def portfolio_value(self) -> float:
-        return float(self.cash + self.position_values.sum())
+        # Public cash/position arrays remain mutable after the last validated
+        # transition; a poisoned read must not masquerade as zero risk.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            value = float(self.cash + self.position_values.sum())
+        if not math.isfinite(value):
+            raise ValueError("portfolio value became non-finite")
+        return value
 
     @property
     def effective_portfolio_value(self) -> float:

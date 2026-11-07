@@ -222,3 +222,56 @@ def test_borrow_subnormal_position_underflow_fails_closed_under_strict_numpy() -
         with pytest.raises(ValueError, match="borrow.*represented"):
             executor._charge_borrow(book, index=1, year_fraction=1.0)
     _assert_unchanged(book, before)
+
+
+@pytest.mark.parametrize("quantity", [-1.0, 1.0])
+def test_valid_subnormal_position_queries_work_under_strict_numpy(
+    quantity: float,
+) -> None:
+    book = _book(quantity=quantity, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        positions = book.position_values
+        portfolio = book.portfolio_value
+    assert positions[0] != 0.0
+    assert np.sign(positions[0]) == np.sign(quantity)
+    assert portfolio == 1_000.0
+
+
+@pytest.mark.parametrize("operation", ["dividend", "cash_interest"])
+def test_valid_subnormal_position_zero_carry_is_identity_under_strict_numpy(
+    operation: str,
+) -> None:
+    book = _book(quantity=1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    before = book.clone()
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        amount = (
+            book.apply_dividend(np.array([0.0]))
+            if operation == "dividend"
+            else book.apply_cash_interest(0.0, year_fraction=1.0)
+        )
+    assert amount == 0.0
+    _assert_unchanged(book, before)
+
+
+def test_valid_subnormal_position_nonzero_cash_interest_applies_atomically() -> None:
+    book = _book(quantity=1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        amount = book.apply_cash_interest(0.01, year_fraction=1.0)
+    assert amount == 10.0
+    assert book.cash == 1_010.0
+
+
+def test_valid_subnormal_position_nonzero_dividend_applies_atomically() -> None:
+    book = _book(quantity=1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        amount = book.apply_dividend(np.array([1e121]))
+    assert amount == pytest.approx(10.0)
+    assert book.cash == pytest.approx(1_010.0)
+
+
+def test_mutated_unrepresentable_position_query_fails_closed() -> None:
+    book = _book(quantity=1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    book.contract_multipliers[:] = 1e-200
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        with pytest.raises(ValueError, match="position value cannot be represented"):
+            _ = book.position_values

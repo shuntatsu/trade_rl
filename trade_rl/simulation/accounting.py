@@ -82,15 +82,15 @@ def _cash_interest_amount(
         raise ValueError("annual_rate must be finite")
     if not np.isfinite(year_fraction) or year_fraction < 0.0:
         raise ValueError("year_fraction must be finite and non-negative")
+    if not math.isfinite(cash_basis):
+        raise ValueError("cash basis must be finite")
+    # Identity transitions must not evaluate potentially overflowing active legs.
+    if cash_basis == 0.0 or annual_rate == 0.0 or year_fraction == 0.0:
+        return 0.0
     amount = float(cash_basis * annual_rate * year_fraction)
     if not math.isfinite(amount):
         raise ValueError("cash interest amount became non-finite")
-    if (
-        cash_basis != 0.0
-        and annual_rate != 0.0
-        and year_fraction != 0.0
-        and amount == 0.0
-    ):
+    if amount == 0.0:
         raise ValueError("nonzero cash interest amount cannot be represented")
     return amount
 

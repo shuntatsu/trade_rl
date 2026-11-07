@@ -145,6 +145,34 @@ def test_zero_rate_cash_interest_is_identity() -> None:
     _assert_unchanged(book, before)
 
 
+@pytest.mark.parametrize("annual_rate", [-1e308, 1e308])
+def test_zero_time_cash_interest_short_circuits_overflowing_finite_legs(
+    annual_rate: float,
+) -> None:
+    book = BookState.zero(1, 1e308, np.array([1.0]))
+    before = book.clone()
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert book.apply_cash_interest(annual_rate, year_fraction=0.0) == 0.0
+    _assert_unchanged(book, before)
+
+
+def test_nonzero_time_cash_interest_overflow_still_fails_atomically() -> None:
+    book = BookState.zero(1, 1e308, np.array([1.0]))
+    before = book.clone()
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        with pytest.raises(ValueError, match="cash interest amount became non-finite"):
+            book.apply_cash_interest(1e308, year_fraction=1.0)
+    _assert_unchanged(book, before)
+
+
+def test_zero_time_cash_interest_rejects_nonfinite_annual_rate() -> None:
+    book = BookState.zero(1, 1e308, np.array([1.0]))
+    before = book.clone()
+    with pytest.raises(ValueError, match="annual_rate must be finite"):
+        book.apply_cash_interest(float("inf"), year_fraction=0.0)
+    _assert_unchanged(book, before)
+
+
 def test_funding_cancellation_to_exact_zero_remains_valid() -> None:
     shape = (3, 2)
     prices = np.ones(shape)

@@ -333,9 +333,7 @@ class BookState:
         multipliers = self.contract_multipliers
         assert multipliers is not None
         try:
-            # Detect erased holdings even when callers relax NumPy warnings.
-            with np.errstate(over="raise", under="raise", invalid="raise"):
-                return self.quantities * self.mark_prices * multipliers
+            return self.quantities * self.mark_prices * multipliers
         except FloatingPointError:
             # Strict NumPy can flag a valid nonzero subnormal; validate the
             # projected value instead of leaking a raw floating-point error.

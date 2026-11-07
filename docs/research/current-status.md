@@ -1202,8 +1202,8 @@ sealed attempt-2 start exists (the owner has chosen `2026-11-07T00:00:00Z`, not 
 (digest `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`, status UNREVIEWED). It restates the existing frozen
 screen and lineage without changing any criterion. Sealing attempt 2 still requires an
 independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
-"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review is acceptable);
-those words alone did not authorize same-principal review. The owner explicitly
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review was named as acceptable);
+those words did not say that a same-account review suffices and alone did not authorize it. The owner explicitly
 made an exception for attempt 2 only in corrected comment 6680576996: a review by a
 model different from every implementation model, posted from the shuntatsu GitHub
 account, satisfies sealing condition (a). It is operator-enforced (sealing code does

@@ -605,9 +605,7 @@ def test_causality_probe_catches_future_available_at_lookahead(
         def __init__(self, dataset: MarketDataset) -> None:
             self.symbols = dataset.symbols
             self._available_ns = (
-                dataset.resolved_array("available_at")
-                .astype("datetime64[ns]")
-                .astype(np.int64)
+                dataset.resolved_array("available_at").astype("datetime64[ns]").astype(np.int64)
             )
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 

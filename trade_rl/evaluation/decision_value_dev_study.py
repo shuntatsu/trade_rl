@@ -2196,10 +2196,48 @@ def _validate_incomplete_pair_record(
     _require_canonical_round_trip(pair, field="pair record")
 
 
+def _preflight_receipt_json_depth(raw: bytes) -> None:
+    """Reject deep JSON before decoding; quoted and escaped delimiters are inert.
+
+    A backslash escapes only the immediately following byte, not the next
+    regex-matched delimiter (notably after a JSON Unicode escape). This is a
+    bounded-memory lexical scan; stdlib still validates syntax and the
+    existing schema/digests validate meaning.
+    """
+    depth = 0
+    in_string = False
+    escape_at: int | None = None
+    for token in re.finditer(rb'[\[\]{}"\\]', raw):
+        offset = token.start()
+        char = raw[offset]
+        if in_string:
+            if escape_at is not None and offset == escape_at + 1:
+                escape_at = None
+                continue
+            escape_at = None
+            if char == 0x5C:
+                escape_at = offset
+            elif char == 0x22:
+                in_string = False
+        elif char == 0x22:
+            in_string = True
+        elif char in (0x5B, 0x7B):
+            depth += 1
+            if depth > _MAX_RECEIPT_JSON_DEPTH + 16:
+                raise ValueError(
+                    "failure receipt JSON nesting exceeds configured limit"
+                )
+        elif char in (0x5D, 0x7D):
+            depth -= 1
+            if depth < 0:
+                raise ValueError("failure receipt JSON is malformed")
+
+
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
+    _preflight_receipt_json_depth(raw)
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:

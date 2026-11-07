@@ -7,6 +7,7 @@ pass, or any economic/live authorization, and any edit must change its digest.
 
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import re
@@ -14,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.paper.attempt2 import (
@@ -38,6 +41,11 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
+# Launch commit of the frozen attempt-2 checkout (C:\trade_rl_frozen\attempt2-d649fe05):
+# the sealed run executes, and its 90-day ``cli status`` / ``cli evaluate`` run, from
+# this commit, not from ``main``. Recorded in the Issue #810 operations comment
+# 6689860260.
+ATTEMPT2_LAUNCH_COMMIT = "d649fe053f72af1ad31660ecaadb7de95532e58b"
 PINNED_DIGEST = "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
@@ -55,9 +63,9 @@ G0_APPROVED_STATEMENT = (
     "predecessor の protocol digest・final tip・observation gap・先行未報告attemptの不在は "
     "not_established のままで承認する。」"
 )
-# The owner's verbatim words of 2026-11-05 (Issue #810 comment 6659653178). They say the
-# reviewing account does not matter and that an agy review is acceptable; they do not
-# name the same GitHub account.
+# The owner's verbatim words of 2026-11-05 (Issue #810 comment 6659653178). They name an
+# agy review as acceptable; they do not say that a same-GitHub-account review suffices
+# (only comment 6680576996 approves that, for attempt 2 and a different model).
 OWNER_REVIEW_WORDS = (
     "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"
 )
@@ -589,27 +597,154 @@ def _git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_heads_name_one_final_implementation_commit_with_no_later_code_change() -> None:
-    """The packet pins one implementation commit; trade_rl/ does not change after it."""
+def _pinned_python_files(head: str) -> set[str]:
+    listing = _git("ls-tree", "-r", "--name-only", head, "trade_rl")
+    assert listing.returncode == 0, listing.stderr
+    return {path for path in listing.stdout.split() if path.endswith(".py")}
+
+
+def _module_file(module: str, files: set[str]) -> str | None:
+    base = module.replace(".", "/")
+    for candidate in (f"{base}.py", f"{base}/__init__.py"):
+        if candidate in files:
+            return candidate
+    return None
+
+
+def _module_name(path: str) -> str:
+    name = path[: -len(".py")].replace("/", ".")
+    return name.removesuffix(".__init__")
+
+
+def _imported_modules(path: str, source: str) -> set[str]:
+    """Every ``trade_rl`` module a file may import, lazy imports included."""
+
+    is_package = path.endswith("/__init__.py")
+    package = (
+        _module_name(path) if is_package else _module_name(path).rpartition(".")[0]
+    )
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                parts = package.split(".")
+                parts = parts[: len(parts) - (node.level - 1)]
+                module = ".".join([*parts, *([node.module] if node.module else [])])
+            else:
+                module = node.module or ""
+            found.add(module)
+            # ``from pkg import name`` may import the submodule ``pkg.name``
+            found.update(f"{module}.{alias.name}" for alias in node.names)
+    return {name for name in found if name.split(".")[0] == "trade_rl"}
+
+
+def paper_code_dependency_paths(head: str) -> list[str]:
+    """The attempt-2 paper code plus every trade_rl module it imports, at ``head``.
+
+    This is the code the packet and the sealed run depend on: all of
+    ``trade_rl/evaluation/paper/`` and, transitively, each ``trade_rl`` module its files
+    import (module-level and lazy imports alike) and the ``__init__.py`` of every
+    ancestor package, which Python executes on import. It is a deliberate superset
+    (package ``__init__`` re-exports pull in whole subpackages) and is resolved from
+    the immutable pinned commit, never from the working tree. Unrelated packages such
+    as ``trade_rl/integrations/market_store`` are not in it unless the paper code
+    really imports them. Non-Python package data is not covered.
+    """
+
+    files = _pinned_python_files(head)
+    pending = [path for path in files if path.startswith("trade_rl/evaluation/paper/")]
+    seen: set[str] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        parts = _module_name(path).split(".")
+        for depth in range(1, len(parts)):
+            init = "/".join(parts[:depth]) + "/__init__.py"
+            if init in files:
+                pending.append(init)
+        source = _git("show", f"{head}:{path}")
+        assert source.returncode == 0, source.stderr
+        for module in _imported_modules(path, source.stdout):
+            target = _module_file(module, files)
+            if target is not None:
+                pending.append(target)
+    return sorted(seen)
+
+
+def test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store() -> (
+    None
+):
+    head = _packet()["identity"]["implementation_head"]
+    if _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
+        pytest.skip("implementation_head is not available in this checkout")
+    paths = paper_code_dependency_paths(head)
+    assert "trade_rl/evaluation/paper/predecessor.py" in paths
+    assert "trade_rl/evaluation/paper/attempt2.py" in paths
+    assert "trade_rl/__init__.py" in paths
+    assert "trade_rl/simulation/accounting.py" in paths  # transitive, outside paper/
+    assert not [path for path in paths if "market_store" in path]
+
+
+def test_launch_commit_runs_packet_bound_code() -> None:
+    """The frozen launch checkout runs exactly the code the packet is bound to.
+
+    Both commits are historical, so this binding is stable: ``main`` may evolve, but
+    the sealed run never executes it. Any difference in the packet-bound dependency
+    paths between ``implementation_head`` and the launch commit is a failure, not
+    something to relax.
+    """
+
+    head = _packet()["identity"]["implementation_head"]
+    for commit in (head, ATTEMPT2_LAUNCH_COMMIT):
+        if _git("cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
+            pytest.skip(f"{commit} is not available in this checkout (shallow clone)")
+    paths = paper_code_dependency_paths(head)
+    assert paths
+    changed = _git("diff", "--name-only", head, ATTEMPT2_LAUNCH_COMMIT, "--", *paths)
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.strip() == "", (
+        "the attempt-2 launch commit differs from the packet's implementation_head in "
+        "packet-bound code: " + changed.stdout
+    )
+
+
+def test_heads_pin_the_code_as_of_the_frozen_packet_revision() -> None:
+    """Bind the historical packet to the implementation at packet publication.
+
+    Later code changes require a new packet before new execution authorization;
+    they do not alter the original packet or invalidate its historical evidence.
+    """
+
     identity = _packet()["identity"]
     head = identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     assert identity["protocol_head"] == head
-    if (
-        _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
-        or _git("merge-base", "--is-ancestor", head, "HEAD").returncode != 0
-    ):
-        return  # shallow or squashed checkout: the commit is not reachable here
-    changed = _git("diff", "--name-only", head, "HEAD", "--", "trade_rl")
-    assert changed.returncode == 0, changed.stderr
-    assert changed.stdout.strip() == "", (
-        "trade_rl/ changed after the pinned implementation_head; re-pin the heads "
-        "and the digest: " + changed.stdout
-    )
-    # The authority docs may not embed full SHAs, so they cite the 12-character form.
     for relative in (DOCUMENTS[1], DOCUMENTS[2]):
         assert head[:12] in _raw(relative), relative
     assert head in _raw(DOCUMENTS[0])
+
+    published = _git("log", "-1", "--format=%H", "--", RELATIVE_PACKET)
+    packet_commit = published.stdout.strip()
+    if (
+        published.returncode != 0
+        or not re.fullmatch(r"[0-9a-f]{40}", packet_commit)
+        or _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
+        or _git("merge-base", "--is-ancestor", head, packet_commit).returncode != 0
+    ):
+        pytest.skip(
+            "packet source commit is unavailable in a shallow/exported checkout"
+        )
+    paths = paper_code_dependency_paths(head)
+    changed = _git("diff", "--name-only", head, packet_commit, "--", *paths)
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.strip() == "", (
+        "frozen packet source changed before its final publication; a new packet "
+        "and digest are required: " + changed.stdout
+    )
 
 
 def test_search_scope_is_the_same_precise_statement_everywhere() -> None:

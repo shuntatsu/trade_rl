@@ -1594,15 +1594,31 @@ empty); the packet is committed in a later descendant, because a packet in the t
 cannot name the commit that contains it. The PR head is therefore not the
 `implementation_head`, and `tools.research_assurance_github`, which requires the PR head
 and the review `commit_id` to equal `implementation_head`, cannot report PASS for an
-in-tree packet. A review must name this digest and these heads, and any later `trade_rl/`
-change (including a sync merge of `main`) needs a new `implementation_head`, digest and
-review. On 2026-11-05 the owner
-wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
-Antigravity/Gemini, is acceptable). The 2026-11-05 words alone did not authorize a
+in-tree packet. A review must name this digest and these heads. Authorizing a new execution on
+later code that the packet depends on (`trade_rl/evaluation/paper/` and transitive
+`trade_rl` imports) requires a **new packet**, `implementation_head`, digest and review;
+the frozen historical packet must not be silently re-pinned. The full-history
+head guard verifies dependency code from the pinned implementation commit through
+the **last commit that changed this packet**, not every later software HEAD.
+Later source edits do not retroactively rewrite historical evidence or authorize
+running the changed software using the old packet. Unrelated code, such as the
+market-data store, does not affect this historical binding. The attempt-2 observation and its
+90-day `cli status` / `cli evaluate` must run from the frozen checkout at launch commit
+`d649fe053f72`, not from `main`: `main` may evolve after
+launch, `test_launch_commit_runs_packet_bound_code` pins that the packet-bound code is
+identical between `implementation_head` and that commit, and a change to packet-bound code
+requires a new packet and a new seal before any new execution. On 2026-11-05 the owner
+wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review, that is
+Antigravity/Gemini, was named as acceptable to the owner). The 2026-11-05 words did not
+say that a review from the same GitHub account suffices and alone did not authorize a
 same-principal exception. In corrected Issue #810 comment 6680576996 the owner
-separately approved an attempt-2-only exception: a review by a model different from
-every implementation model (Claude Haiku 5.5), posted from the same GitHub account,
-satisfies sealing condition (a). It is operator-enforced (sealing code does not call the
+separately approved an attempt-2-only exception, and only this: a review posted from the
+same GitHub account is acceptable for attempt 2 when the reviewer model differs from
+every implementation model (Claude Haiku 5.5) and a valid receipt for the exact packet
+digest and heads exists; with that, it satisfies sealing condition (a). The packet's
+`next_authorized_action` text, which paraphrases the 2026-11-05 words as the reviewing
+account not mattering, is frozen provenance (its digest is pinned and it is not edited
+here) and is to be read with this narrower meaning. The exception is operator-enforced (sealing code does not call the
 research tool) and is **not** principal independence.
 `tools.research_assurance_github` still rejects same-principal reviews and does not
 report PASS for this route, so the packet stays UNREVIEWED and no PASS is claimed. Issue #810 records:

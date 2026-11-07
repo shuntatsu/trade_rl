@@ -249,3 +249,8 @@ guide/test-results/
 
 # Local market-data store credentials (Issue 810); only .env.example is committed
 deploy/market-store/.env
+
+# Local Claude Code preferences (shared .claude/settings.json stays tracked)
+/CLAUDE.local.md
+/.claude/CLAUDE.local.md
+/.claude/settings.local.json

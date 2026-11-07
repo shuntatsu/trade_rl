@@ -4,6 +4,14 @@
 
 読む順序: [docs/README.md](docs/README.md) → [docs/AGENTS.md](docs/AGENTS.md) → 対象に応じたarchitecture/research docs → 対象source・tests・CI。全docsや旧計画を一律に読まず、必要な正本を選ぶ。
 
+## Claude Code integration
+
+- The repository root `CLAUDE.md` imports this shared `AGENTS.md` instead of maintaining a second instruction authority. Claude Code and other agents must follow the same source/test/docs and research-gate contracts.
+- `.claude/settings.json` runs a read-only `SessionStart` hook implemented by `tools/claude_session_context.py`. Its branch/HEAD/worktree and cached origin/main output is orientation only: it does **not** refresh GitHub, establish PR ownership, validate independent review/CI, or authorize writing/merging/experiments.
+- Claude Code integration is advisory, not a hard authorization gate: the project hook must not execute economic tests or mutate Git index; on a trusted local Claude Code installation with Python on PATH, verify `/status`, `/hooks`, `/skills`, and `claude doctor` plus a real startup/fork before claiming activation. Synthetic/CI tests do not prove the actual Claude Code host loaded the hook or skill.
+- `.claude/skills/research-challenge/SKILL.md` packages the recurring result-blind adversarial challenge. It is author-side preparation and never an independent research review receipt.
+- Keep personal Claude memory, credentials, permissions and local settings out of tracked source. Never turn generic assistant prompts, memory, browser automation, or scheduled tasks into trading decisions, research approval, or unsupervised live execution.
+
 ## Development
 
 - 最初にObjective、Acceptance Criteria、Invariants、Failure Modes、Test Oracleを定める。変更は最小限とし、過去の説明を追記するより現行記述を置換する。

@@ -192,6 +192,10 @@ def execute_depth_order(
     quantity = project_quantity(signed_lots * step)
     executed_notional = abs(quantity) * price * multiplier
     fee = executed_notional * fee_bps / 10_000
+    if not math.isfinite(fee) and math.isfinite(executed_notional):
+        # Retain historical rounding for finite fees. A large intermediate
+        # product may overflow even when the final bps-scaled fee fits.
+        fee = executed_notional * (fee_bps / 10_000)
     if not math.isfinite(fee):
         raise ValueError("execution cost became non-finite")
     if executed_notional != 0.0 and fee_bps != 0.0 and fee == 0.0:

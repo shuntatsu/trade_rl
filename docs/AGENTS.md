@@ -9,8 +9,8 @@
 1. root `AGENTS.md`
 2. `main/current HEAD`、作業branch、open PRのhead/base、recent commitsを確認し、進行中の同目的の変更・後継実装・廃止予定の作業線を識別する
 3. `docs/README.md`
-4. `docs/architecture/lean-core.md`
-5. `docs/architecture/package-boundaries.md`
+4. data/strategy/risk/execution/accountingを変更する場合は `docs/architecture/lean-core.md`
+5. packageの責務・依存方向・public APIに影響する場合は `docs/architecture/package-boundaries.md`
 6. 研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを変更する作業なら `docs/architecture/research-assurance.md` を読み、G0-G2をresult-blindに定義・反証する
 7. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
 8. final/unused-data authorization、WINNER binding、one-shot publicationに関わる作業なら `docs/architecture/final-evaluation-authorization.md`
@@ -19,6 +19,23 @@
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
+## 必要時参照
+
+`docs/AGENTS.md` が詳細指示の唯一の正本であり、節の抽出は原文を省略表示するだけで契約を変更しない。作業に関係するsource・tests・正本は別途直接確認する。
+
+```bash
+python -m tools.agent_docs_context --topic core
+python -m tools.agent_docs_context --topic core guide
+python -m tools.agent_docs_context --topic core claude
+python -m tools.agent_docs_context --topic core tooling coordination
+python -m tools.agent_docs_context --topic core eval
+python -m tools.agent_docs_context --topic all
+python -m tools.agent_docs_context --check
+```
+
+`core` は共通の変更・Git/PR/研究認可・検証・保持規則を含む。`guide` はHuman Guide、`claude` はClaude Code host、`tooling` はRepository inspection、`coordination` は複数AgentのTask/Lease、`eval` はAgent UX評価の詳細である。複数topicを同時選択できる。未知/重複/欠落した第2レベル見出しはfail-closedで拒否し、原文を自動修正しない。
+
+CLIが利用できない場合は本文の対象節（必要なら全文）を直接読む。抽出結果やローカルHookからcurrent GitHub main、PR、review、CI、実験・sealed/unusedデータ、実売買の認可を推定しない。Agent指示を更新するときは `--check` と近傍testを実行し、見出しを追加したらtopic分類を明示的に更新する。
 ## Human Guide update contract
 
 Root `guide/` は人間向けの**非正本**説明層であり、技術仕様・研究状態のauthorityにはしない。画面ではMarkdown本文・静的flow・表を主役にし、実identifier・型・file pathは記事末尾の実装参照で副表示する。人間向け本文は `guide/content/pages/*.md`、machine metadata / source fingerprint / CodeReferenceは `guide/content/meta/*.json` に置き、UI componentへ研究固有の真実を直接埋め込まない。
@@ -234,6 +251,7 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 完了報告前に、変更内容に応じたtargeted testと全体quality gateを確認する。現在の標準gateは次である。
 
 ```bash
+uv run python -m tools.agent_docs_context --check
 uv run ruff check trade_rl tests tools
 uv run ruff format --check trade_rl tests tools
 uv run mypy trade_rl

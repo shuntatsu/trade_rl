@@ -679,6 +679,12 @@ def perturb_future(
     funding = dataset.funding_rate.copy()
     funding[after_index + 1 :] = rng.normal(0.0, 0.001, size=shape)
     changes["funding_rate"] = funding
+    tradable = dataset.tradable.copy()
+    active = dataset.resolved_array("asset_active")
+    tradable[after_index + 1 :] = (
+        active[after_index + 1 :] & ~tradable[after_index + 1 :]
+    )
+    changes["tradable"] = tradable
     # The dataset_id stays unchanged on purpose: same-bar order ids (and therefore
     # their admission order) are digests that include it, so a different id would
     # change pre-cut behaviour without any look-ahead.

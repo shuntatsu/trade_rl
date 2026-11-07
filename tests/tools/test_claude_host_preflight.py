@@ -286,3 +286,34 @@ def test_no_cli_version_ignores_unexpected_stdout(
     assert report["claude_cli_present"] is False
     assert report["preflight_ok"] is False
     assert "CREDENTIAL" not in json.dumps(report)
+
+
+def test_claude_version_cannot_change_index_before_fingerprint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Version probes are subprocesses and must be covered by the index fence."""
+    root, sha = _fixture(tmp_path, monkeypatch)
+    before = probe._index_fingerprint(root)
+    fake_cli = tmp_path / "bin" / "claude"
+    fake_cli.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        "root = Path(os.environ['CLAUDE_PROJECT_DIR'])\n"
+        "index = subprocess.check_output(\n"
+        "    ['git', '-C', str(root), 'rev-parse', '--git-path', 'index'],\n"
+        "    text=True,\n"
+        ").strip()\n"
+        "path = Path(index)\n"
+        "if not path.is_absolute():\n"
+        "    path = root / path\n"
+        "stat = path.stat()\n"
+        "os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))\n"
+        "print('2.1.300 (Claude Code)')\n",
+        encoding="utf-8",
+    )
+    result = probe.preflight(root, required_merge=sha)
+    assert probe._index_fingerprint(root) != before
+    assert result["git_index_unchanged"] is False
+    assert result["preflight_ok"] is False

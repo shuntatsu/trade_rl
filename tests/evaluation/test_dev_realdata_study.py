@@ -497,10 +497,8 @@ def test_perturb_future_only_changes_rows_after_the_cut(market: MarketDataset) -
     original_info = market.resolved_array("information_available")
     changed_info = other.resolved_array("information_available")
     assert np.array_equal(changed_info[: cut + 1], original_info[: cut + 1])
-    assert np.all(
-        ~changed_info[cut + 1 :]
-        | (changed_at[cut + 1 :] <= clock[cut + 1 :])
-    )
+    delayed = changed_at[cut + 1 :] > clock[cut + 1 :]
+    assert not np.any(changed_info[cut + 1 :] & delayed)
 
 
 def test_causality_probe_passes_for_the_real_pipeline(market: MarketDataset) -> None:

@@ -47,6 +47,9 @@ from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 # a trade record, so it holds no information beyond "no bar was published".
 KNOWN_PLACEHOLDER_MARKET: Final = StoreMarket.SPOT
 KNOWN_PLACEHOLDER_INTERVAL: Final = "1h"
+KNOWN_PLACEHOLDER_SYMBOLS: Final[frozenset[str]] = frozenset(
+    {"BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT"}
+)
 KNOWN_PLACEHOLDER_OPEN_MS: Final = ms_from_utc(datetime(2020, 12, 21, 14, tzinfo=UTC))
 
 
@@ -139,13 +142,15 @@ def is_known_exchange_placeholder(
     """True only for the exact, documented 2020-12-21 14:00 UTC spot ``1h`` placeholder.
 
     Every condition must hold, so a nonzero volume or trade count, a non-flat candle,
-    a different market, interval or bar, or a close_time that is not strictly before
-    the open (by less than one bar) is NOT a placeholder and fails validation as usual.
+    an unverified symbol, a different market, interval or bar, or a close_time that is
+    not strictly before the open (by less than one bar) is NOT a placeholder and fails
+    validation as usual.
     """
 
     return (
         spec.market is KNOWN_PLACEHOLDER_MARKET
         and spec.interval == KNOWN_PLACEHOLDER_INTERVAL
+        and spec.symbol in KNOWN_PLACEHOLDER_SYMBOLS
         and row.open_time_ms == KNOWN_PLACEHOLDER_OPEN_MS
         and row.open > 0
         and row.open == row.high == row.low == row.close

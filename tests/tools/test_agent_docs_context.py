@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _fixture() -> str:
-    headings = dict.fromkeys(name for group in SECTION_GROUPS.values() for name in group)
+    headings = dict.fromkeys(
+        name for group in SECTION_GROUPS.values() for name in group
+    )
     return "# Canonical instructions\n\n" + "".join(
         f"## {name}\nmarker for {name}\n\n" for name in headings
     )
@@ -35,7 +37,9 @@ def test_unknown_or_missing_section_fails_closed() -> None:
     with pytest.raises(ValueError, match="unmapped sections"):
         split_sections(original + "## New permanent rule\nDo not drop me.\n")
     with pytest.raises(ValueError, match="missing sections"):
-        split_sections(original.replace("## Agent Eval protocol\n", "### Agent Eval protocol\n"))
+        split_sections(
+            original.replace("## Agent Eval protocol\n", "### Agent Eval protocol\n")
+        )
     with pytest.raises(ValueError, match="duplicate section"):
         split_sections(original + "## 目的\nDuplicate.\n")
 

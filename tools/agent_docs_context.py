@@ -86,7 +86,9 @@ def render(source: str, topics: tuple[str, ...]) -> str:
     if set(topics) - SECTION_GROUPS.keys():
         raise ValueError("unknown topic")
     selected = {name for topic in topics for name in SECTION_GROUPS[topic]}
-    return preamble + "".join(body for name, body in sections.items() if name in selected)
+    return preamble + "".join(
+        body for name, body in sections.items() if name in selected
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

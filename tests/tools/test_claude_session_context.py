@@ -47,7 +47,7 @@ def test_session_context_refuses_non_repository(tmp_path: Path) -> None:
     assert "NOT been checked" in result
 
 
-def test_session_context_prints_local_snapshot_without_authorizing(tmp_path: Path) -> None:
+def test_session_context_clean_root_warns_before_writing(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     head = _git(repo, "rev-parse", "HEAD")
     result = session_context(repo)
@@ -61,10 +61,15 @@ def test_session_context_prints_local_snapshot_without_authorizing(tmp_path: Pat
     assert "never execute economic runs" in result
 
 
-def test_session_context_exposes_dirty_flag_but_not_filenames(tmp_path: Path) -> None:
+def test_session_context_dirty_names_are_private(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     (repo / ".env.local").write_text("SECRET\n", encoding="utf-8")
-    _git(repo, "update-ref", "refs/remotes/origin/main", _git(repo, "rev-parse", "HEAD"))
+    _git(
+        repo,
+        "update-ref",
+        "refs/remotes/origin/main",
+        _git(repo, "rev-parse", "HEAD"),
+    )
     result = session_context(repo)
     assert "changes present (preserve them)" in result
     assert "cached origin/main: " + _git(repo, "rev-parse", "HEAD") in result

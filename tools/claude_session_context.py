@@ -50,22 +50,29 @@ def session_context(root: Path) -> str:
         working_tree = "clean" if status == "" else "changes present (preserve them)"
 
     safe_branch = branch if branch is not None else "DETACHED"
-    main_warning = (
-        "On main: inspect only; use a dedicated branch/worktree for any change."
-        if safe_branch == "main"
-        else "Never modify main directly or override another worktree. "
-        "Check ownership before changes."
-    )
+    if safe_branch == "main":
+        main_warning = (
+            "On main: inspect only; use a dedicated branch/worktree "
+            "for any change."
+        )
+    else:
+        main_warning = (
+            "Never modify main directly or override another worktree. "
+            "Check ownership before changes."
+        )
+    local_head = head if head is not None else "unavailable"
+    cached = cached_main if cached_main is not None else "unavailable"
     return "\n".join(
         (
             "[trade_rl / Claude Code | local snapshot only]",
             f"branch: {safe_branch}",
-            f"HEAD: {head if head is not None else 'unavailable'}",
+            f"HEAD: {local_head}",
             f"working tree: {working_tree}",
-            f"cached origin/main: {cached_main if cached_main is not None else 'unavailable'}",
+            f"cached origin/main: {cached}",
             main_warning,
             "Cached refs may be stale. Check current GitHub main, open PRs, "
-            "research authority and exact-head CI/reviews separately before writes or merge.",
+            "research authority and exact-head CI/reviews separately "
+            "before writes or merge.",
             "Follow AGENTS.md and docs/AGENTS.md; never execute economic runs, "
             "read sealed data, or authorize live trading from this hook.",
         )
@@ -73,7 +80,8 @@ def session_context(root: Path) -> str:
 
 
 def main() -> None:
-    root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().parents[1])
+    project_root = os.environ.get("CLAUDE_PROJECT_DIR")
+    root = Path(project_root) if project_root else Path(__file__).resolve().parents[1]
     print(session_context(root))
 
 

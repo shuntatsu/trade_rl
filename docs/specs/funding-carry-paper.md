@@ -87,8 +87,15 @@ An offline forward-snapshot reader must revalidate every raw byte hash, response
 sidecar, official URL, response roster, timing bound and decoded market field.
 It must reproduce the published snapshot from raw responses; the summary alone
 is not authority. An optional expected snapshot digest binds a journal parent.
-Offline verification does not imply freshness now. Supplying an execution time
-additionally enforces every quote's five-second age and rejects future receipts.
+Offline verification does not imply freshness now. Two separate bounds apply.
+Every quote must be within five seconds old and one second ahead of the capture
+completion (`completed_at`), checked at capture and again by the reader; the
+capture itself may span up to ten seconds. Supplying a consumption time
+(`as_of`, the decision or execution time) additionally requires
+`0 <= as_of - completed_at <= 10 s` (`MAX_CONSUME_LATENCY_MS`, equal to the paper
+decision-to-execution window) and rejects earlier receipts; quotes are not
+re-aged against `as_of`. Consumption beyond the bound fails with
+"snapshot consumed too late after capture".
 
 Current BTCUSDT/ETHUSDT spot and USD-M exchange information is a separate,
 write-once public capture. Require trading status, market-order support, matching

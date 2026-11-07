@@ -171,8 +171,9 @@ not supply a limit, including historical REST and Vision/cache reads, retain
 their existing behavior. These body-byte limits are not endpoint size, peak
 memory or total-runtime guarantees.
 `forward_evidence.py` revalidates the immutable response graph and reconstructs
-market summaries from raw bytes; consumption-time freshness is separate from
-offline historical verification. `forward_rules.py` captures current public
+market summaries from raw bytes; consumption latency (`as_of` within
+`MAX_CONSUME_LATENCY_MS` of capture completion) is separate from offline
+historical verification and from the per-quote age bound at capture completion. `forward_rules.py` captures current public
 exchange metadata and derives supported market lot/notional/price bounds. It
 retains averaging semantics and unsupported account-rule limitations. Neither
 module consumes a trading account or authorizes an order.

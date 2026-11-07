@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.accounting import BookState, _require_finite_post_update_equity
 from trade_rl.simulation.orders.admission import OrderAdmissionPolicy
 from trade_rl.simulation.orders.model import OrderStatus, PendingOrder, TimeInForce
 from trade_rl.simulation.quantities import project_quantity
@@ -49,11 +49,12 @@ class _AdmissionBookProjection:
             .reshape(-1)
             .copy()
         )
-        equity = float(
-            book.cash + (quantities * resolved_prices * resolved_multipliers).sum()
+        equity = _require_finite_post_update_equity(
+            cash=book.cash,
+            quantities=quantities,
+            marks=resolved_prices,
+            multipliers=resolved_multipliers,
         )
-        if not np.isfinite(equity):
-            raise ValueError("portfolio value became non-finite")
         return cls(
             quantities=quantities,
             cash=book.cash,
@@ -64,9 +65,11 @@ class _AdmissionBookProjection:
 
     @property
     def portfolio_value(self) -> float:
-        return float(
-            self.cash
-            + (self.quantities * self.mark_prices * self.contract_multipliers).sum()
+        return _require_finite_post_update_equity(
+            cash=self.cash,
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=self.contract_multipliers,
         )
 
     def apply_admitted_order(
@@ -76,11 +79,22 @@ class _AdmissionBookProjection:
         quantity: float,
         price: float,
     ) -> None:
-        self.quantities[symbol_index] += quantity
-        self.cash -= quantity * price * float(self.contract_multipliers[symbol_index])
-        equity = self.portfolio_value
-        if not np.isfinite(equity):
-            raise ValueError("portfolio value became non-finite")
+        # Projection is a reservation, not a filled order. Validate the whole
+        # candidate book before committing any reserved inventory or cash.
+        proposed = self.quantities.copy()
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            proposed[symbol_index] += quantity
+        cash_after = self.cash - (
+            quantity * price * float(self.contract_multipliers[symbol_index])
+        )
+        equity = _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=proposed,
+            marks=self.mark_prices,
+            multipliers=self.contract_multipliers,
+        )
+        self.quantities = proposed
+        self.cash = cash_after
         if not self.insolvent and equity <= 0.0:
             self.insolvent = True
 
@@ -120,15 +134,19 @@ class StatefulOrderTransitionProcessor:
             mark_prices=context.open_prices,
         )
         processing_open_equity = projected_book.portfolio_value
-        processing_open_gross = float(
-            np.sum(
-                np.abs(
-                    projected_book.quantities
-                    * projected_book.mark_prices
-                    * projected_book.contract_multipliers
+        # The projector has already validated each marked position. Summing
+        # gross exposure must not depend on caller NumPy underflow settings,
+        # but an unrepresentable gross total cannot grant leverage headroom.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            processing_open_gross = float(
+                np.sum(
+                    np.abs(
+                        projected_book.quantities
+                        * projected_book.mark_prices
+                        * projected_book.contract_multipliers
+                    )
                 )
             )
-        )
         processing_open_over_cap = (
             not projected_book.insolvent
             and np.isfinite(processing_open_equity)

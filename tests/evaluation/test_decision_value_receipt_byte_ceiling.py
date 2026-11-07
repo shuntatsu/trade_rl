@@ -273,3 +273,21 @@ def test_json_canonicalization_recursion_fails_as_value_error(
         study.load_incomplete_pair_attempt(root)
 
     assert receipt.read_bytes() == raw
+
+
+def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only source-structural receipt nesting is admitted to the JSON decoder."""
+    raw = b"[" * 33 + b"0" + b"]" * 33
+    decoded: list[bool] = []
+    original_loads = study.json.loads
+
+    def recording_loads(*args: object, **kwargs: object) -> object:
+        decoded.append(True)
+        return original_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.json, "loads", recording_loads)
+    with pytest.raises(ValueError, match="failure receipt JSON nesting"):
+        study._decode_incomplete_receipt(raw)
+    assert not decoded, "an overdeep receipt reached the JSON decoder"

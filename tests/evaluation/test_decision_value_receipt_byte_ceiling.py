@@ -237,3 +237,39 @@ def test_root_enumeration_is_bounded_before_receipt_read(
     monkeypatch.setattr(study.os, "scandir", checked_scandir)
     with pytest.raises(ValueError, match="root contents are malformed"):
         study.load_incomplete_pair_attempt(root)
+
+
+def test_deeply_nested_untrusted_receipt_json_fails_as_value_error(
+    tmp_path: Path,
+) -> None:
+    """A very deep JSON tree must not leak a raw parser RecursionError."""
+    root = tmp_path / "attempt"
+    root.mkdir()
+    receipt = root / "incomplete-pairs.json"
+    raw = b"[" * 10_000 + b"0" + b"]" * 10_000
+    receipt.write_bytes(raw)
+
+    with pytest.raises(ValueError, match="failure receipt JSON"):
+        study.load_incomplete_pair_attempt(root)
+
+    assert receipt.read_bytes() == raw
+
+
+def test_json_canonicalization_recursion_fails_as_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recursion failure after parsing must use the same malformed-JSON contract."""
+    root = tmp_path / "attempt"
+    root.mkdir()
+    receipt = root / "incomplete-pairs.json"
+    raw = b'{"x":0}'
+    receipt.write_bytes(raw)
+
+    def recursive_canonical_json_bytes(_value: object) -> bytes:
+        raise RecursionError("synthetic canonicalization recursion")
+
+    monkeypatch.setattr(study, "canonical_json_bytes", recursive_canonical_json_bytes)
+    with pytest.raises(ValueError, match="failure receipt JSON"):
+        study.load_incomplete_pair_attempt(root)
+
+    assert receipt.read_bytes() == raw

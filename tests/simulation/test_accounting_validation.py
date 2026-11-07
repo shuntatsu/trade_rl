@@ -418,6 +418,64 @@ def test_from_weights_zero_weight_does_not_require_finite_product() -> None:
 
 
 @pytest.mark.parametrize("sign", (-1.0, 1.0))
+@pytest.mark.parametrize("operation", ("execute", "execute_fill"))
+def test_strict_numpy_underflow_accepts_representable_subnormal_fill_atomically(
+    sign: float, operation: str
+) -> None:
+    """A valid positive subnormal position value must not fail after mutation."""
+    price = 1e-160
+    multiplier = 5e-164
+    book = BookState.zero(
+        1, 1_000.0, np.array([price]), contract_multipliers=np.array([multiplier])
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        if operation == "execute":
+            book.execute(
+                fill_prices=np.array([price]),
+                target_quantities=np.array([sign]),
+                cost_amount=0.0,
+                turnover=0.0,
+            )
+        else:
+            book.execute_fill(
+                symbol_index=0,
+                quantity=sign,
+                fill_prices=np.array([price]),
+                cost_amount=0.0,
+                turnover=0.0,
+            )
+        assert book.position_values[0] == sign * 5e-324
+        assert book.portfolio_value == 1_000.0
+        assert book.clone().quantities.tolist() == [sign]
+        book.refresh_drawdown()
+    assert book.quantities.tolist() == [sign]
+    assert book.exact_quantities == (sign,)
+    assert book.cash == 1_000.0
+    assert book.fill_count == 1
+    assert book.rebalance_events == 1
+    assert book.turnover_total == 0.0
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_strict_numpy_underflow_constructs_representable_subnormal_holding(
+    sign: float,
+) -> None:
+    """Direct valid BookState snapshots are independent of caller NumPy policy."""
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        book = BookState(
+            quantities=np.array([sign]),
+            cash=1_000.0,
+            mark_prices=np.array([1e-160]),
+            peak_value=1_000.0,
+            contract_multipliers=np.array([5e-164]),
+        )
+        assert book.position_values[0] == sign * 5e-324
+        assert book.portfolio_value == 1_000.0
+    assert book.exact_quantities == (sign,)
+    assert book.fill_count == 0
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
 def test_execute_fill_rejects_underflowed_nonzero_leg_atomically(sign: float) -> None:
     """A nonzero fill must not change inventory while debiting zero cash."""
     book = BookState.zero(

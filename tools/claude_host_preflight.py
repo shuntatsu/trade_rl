@@ -190,7 +190,12 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
         version_match = _VERSION.search(version_output) if version_code == 0 else None
         report["claude_cli_version"] = version_match.group(0) if version_match else None
         report["claude_cli_present"] = version_match is not None
-        if before is not None:
+        # A version probe is an executable: verify it did not dirty this checkout.
+        cli_status_code, cli_dirty = _git(
+            root, "status", "--porcelain=v1", "--untracked-files=normal"
+        )
+        report["working_tree_clean"] = cli_status_code == 0 and cli_dirty == ""
+        if before is not None and report["working_tree_clean"] is True:
             hook_args = hook["args"]
             assert isinstance(hook_args, list)  # validated by _settings_hook
             script = str(hook_args[0]).replace("${CLAUDE_PROJECT_DIR}", str(root))
@@ -200,6 +205,11 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
                 timeout=15,
                 input_data='{"hook_event_name":"SessionStart","source":"startup"}',
             )
+            # The real hook is also a subprocess and must leave the tree clean.
+            hook_status_code, hook_dirty = _git(
+                root, "status", "--porcelain=v1", "--untracked-files=normal"
+            )
+            report["working_tree_clean"] = hook_status_code == 0 and hook_dirty == ""
             after = _index_fingerprint(root)
             report["git_index_unchanged"] = before == after
             lines = stdout.splitlines()
@@ -224,6 +234,7 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
                 }
                 and lines[6:] == expected_tail
                 and report["git_index_unchanged"] is True
+                and report["working_tree_clean"] is True
             )
     report["preflight_ok"] = all(
         report[name] is True

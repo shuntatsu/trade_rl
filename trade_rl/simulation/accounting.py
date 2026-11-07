@@ -82,22 +82,43 @@ def _cash_interest_amount(
         raise ValueError("annual_rate must be finite")
     if not np.isfinite(year_fraction) or year_fraction < 0.0:
         raise ValueError("year_fraction must be finite and non-negative")
-    return float(cash_basis * annual_rate * year_fraction)
+    amount = float(cash_basis * annual_rate * year_fraction)
+    if not math.isfinite(amount):
+        raise ValueError("cash interest amount became non-finite")
+    if (
+        cash_basis != 0.0
+        and annual_rate != 0.0
+        and year_fraction != 0.0
+        and amount == 0.0
+    ):
+        raise ValueError("nonzero cash interest amount cannot be represented")
+    return amount
+
+
+def _require_representable_position_values(
+    *, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
+) -> np.ndarray:
+    """Treat representable subnormals as values, but never silent zero positions."""
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        position_values = quantities * marks * multipliers
+    if not np.isfinite(position_values).all():
+        raise ValueError("proposed account state became non-finite")
+    if np.any((quantities != 0.0) & (position_values == 0.0)):
+        raise ValueError("nonzero position value cannot be represented")
+    return position_values
 
 
 def _require_finite_post_update_equity(
     *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
 ) -> float:
     """Reject an unrepresentable proposed account transition before mutation."""
+    position_values = _require_representable_position_values(
+        quantities=quantities, marks=marks, multipliers=multipliers
+    )
     with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
-        position_values = quantities * marks * multipliers
         equity = float(cash + position_values.sum())
-    if not np.isfinite(position_values).all() or not all(
-        math.isfinite(value) for value in (cash, equity)
-    ):
+    if not all(math.isfinite(value) for value in (cash, equity)):
         raise ValueError("proposed account state became non-finite")
-    if np.any((quantities != 0.0) & (position_values == 0.0)):
-        raise ValueError("nonzero position value cannot be represented")
     return equity
 
 
@@ -311,7 +332,18 @@ class BookState:
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        return self.quantities * self.mark_prices * multipliers
+        try:
+            # Detect erased holdings even when callers relax NumPy warnings.
+            with np.errstate(over="raise", under="raise", invalid="raise"):
+                return self.quantities * self.mark_prices * multipliers
+        except FloatingPointError:
+            # Strict NumPy can flag a valid nonzero subnormal; validate the
+            # projected value instead of leaking a raw floating-point error.
+            return _require_representable_position_values(
+                quantities=self.quantities,
+                marks=self.mark_prices,
+                multipliers=multipliers,
+            )
 
     @property
     def portfolio_value(self) -> float:
@@ -432,8 +464,15 @@ class BookState:
             raise ValueError("dividend_per_unit must match the book")
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        with np.errstate(over="ignore", invalid="ignore"):
-            amount = float(np.dot(self.quantities * multipliers, dividend))
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            dividend_basis = self.quantities * multipliers
+            dividend_contributions = dividend_basis * dividend
+            amount = float(np.dot(dividend_basis, dividend))
+        if not np.isfinite(dividend_contributions).all() or not math.isfinite(amount):
+            raise ValueError("dividend amount became non-finite")
+        active = (self.quantities != 0.0) & (dividend != 0.0)
+        if np.any(active & (dividend_contributions == 0.0)):
+            raise ValueError("nonzero dividend amount cannot be represented")
         cash_after = self.cash + amount
         _require_finite_post_update_equity(
             cash=cash_after,
@@ -578,18 +617,21 @@ class BookState:
         )
         if not np.isfinite(requirement) or requirement < 0.0:
             raise ValueError("maintenance_requirement must be finite and non-negative")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        # An explicit requirement must not bypass account validation and leave
+        # partially changed margin fields if public BookState data was corrupted.
+        value = _require_finite_post_update_equity(
+            cash=self.cash,
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
         self.margin_used = float(margin_used)
         self.maintenance_margin = float(maintenance_margin)
         self.maintenance_requirement = requirement
-        self.margin_deficit = max(
-            0.0,
-            requirement - max(self.portfolio_value, 0.0),
-        )
-        if (
-            self.portfolio_value > 0.0
-            and requirement > 0.0
-            and self.portfolio_value < requirement - _TOLERANCE
-        ):
+        self.margin_deficit = max(0.0, requirement - max(value, 0.0))
+        if value > 0.0 and requirement > 0.0 and value < requirement - _TOLERANCE:
             self.terminate(EconomicTerminationReason.MARGIN_CALL)
 
     def terminate(self, reason: EconomicTerminationReason | str) -> None:

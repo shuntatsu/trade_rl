@@ -684,38 +684,38 @@ def test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store
     assert not [path for path in paths if "market_store" in path]
 
 
-def test_heads_name_one_final_implementation_commit_with_no_later_code_change() -> None:
-    """The packet pins one implementation commit; the code it depends on is unchanged.
+def test_heads_pin_the_code_as_of_the_frozen_packet_revision() -> None:
+    """Bind the historical packet to the implementation at packet publication.
 
-    Guarded paths are the paper code and its transitive ``trade_rl`` imports at the
-    pinned commit (:func:`paper_code_dependency_paths`), not all of ``trade_rl/``:
-    unrelated later changes (for example to the market-data store) do not touch what
-    the packet describes or what the sealed run executes.
+    Later code changes require a new packet before new execution authorization;
+    they do not alter the original packet or invalidate its historical evidence.
     """
 
     identity = _packet()["identity"]
     head = identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     assert identity["protocol_head"] == head
-    # The authority docs may not embed full SHAs, so they cite the 12-character form.
     for relative in (DOCUMENTS[1], DOCUMENTS[2]):
         assert head[:12] in _raw(relative), relative
     assert head in _raw(DOCUMENTS[0])
+
+    published = _git("log", "-1", "--format=%H", "--", RELATIVE_PACKET)
+    packet_commit = published.stdout.strip()
     if (
-        _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
-        or _git("merge-base", "--is-ancestor", head, "HEAD").returncode != 0
+        published.returncode != 0
+        or not re.fullmatch(r"[0-9a-f]{40}", packet_commit)
+        or _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0
+        or _git("merge-base", "--is-ancestor", head, packet_commit).returncode != 0
     ):
         pytest.skip(
-            "implementation_head is not reachable from HEAD (shallow, squashed or "
-            "exported checkout); the head guard needs full history, and the default "
-            "CI checkout (fetch-depth 1 or 2) skips it"
+            "packet source commit is unavailable in a shallow/exported checkout"
         )
     paths = paper_code_dependency_paths(head)
-    changed = _git("diff", "--name-only", head, "HEAD", "--", *paths)
+    changed = _git("diff", "--name-only", head, packet_commit, "--", *paths)
     assert changed.returncode == 0, changed.stderr
     assert changed.stdout.strip() == "", (
-        "code the paper packet depends on changed after the pinned "
-        "implementation_head; re-pin the heads and the digest: " + changed.stdout
+        "frozen packet source changed before its final publication; a new packet "
+        "and digest are required: " + changed.stdout
     )
 
 

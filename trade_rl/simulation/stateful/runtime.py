@@ -125,8 +125,20 @@ class StatefulExecutionRuntime:
                 * order.intent.submission_reference_price
                 * float(multipliers[symbol])
             )
-            self.requested_notional += order_notional
-            self.requested_by_symbol[symbol] += order_notional
+            if order.remaining_quantity != 0.0 and (
+                not math.isfinite(order_notional) or order_notional == 0.0
+            ):
+                raise ValueError(
+                    "nonzero requested reference notional cannot be represented"
+                )
+            requested_total = self.requested_notional + order_notional
+            requested_symbol = self.requested_by_symbol[symbol] + order_notional
+            if not math.isfinite(requested_total) or not math.isfinite(
+                requested_symbol
+            ):
+                raise ValueError("requested reference notional total became non-finite")
+            self.requested_notional = requested_total
+            self.requested_by_symbol[symbol] = requested_symbol
 
     def record_funding_boundary(
         self,
@@ -348,7 +360,7 @@ class StatefulExecutionRuntime:
             ),
             "fill_ratio": (
                 1.0
-                if self.requested_notional <= _TOLERANCE
+                if self.requested_notional == 0.0
                 else min(
                     1.0,
                     self.filled_reference_notional / self.requested_notional,

@@ -333,3 +333,64 @@ def test_claude_version_cannot_change_index_before_fingerprint(
     assert probe._index_fingerprint(root) != before
     assert result["git_index_unchanged"] is False
     assert result["preflight_ok"] is False
+
+
+def test_cli_version_untracked_workspace_write_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A version subprocess cannot leave a dirty tree and still be approved."""
+    root, sha = _fixture(tmp_path, monkeypatch)
+    before = probe._index_fingerprint(root)
+    fake_cli = tmp_path / "bin" / "claude"
+    fake_cli.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "root = Path(os.environ['CLAUDE_PROJECT_DIR'])\n"
+        "(root / 'UNTRACKED_VERSION_OUTPUT').write_text('private-content')\n"
+        "print('2.1.300 (Claude Code)')\n",
+        encoding="utf-8",
+    )
+    result = probe.preflight(root, required_merge=sha)
+    assert probe._index_fingerprint(root) == before
+    assert (root / "UNTRACKED_VERSION_OUTPUT").exists()
+    assert result["working_tree_clean"] is False
+    assert result["hook_direct_exec_passed"] is False
+    assert result["preflight_ok"] is False
+    assert "UNTRACKED_VERSION_OUTPUT" not in json.dumps(result)
+
+
+def test_hook_untracked_workspace_write_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valid hook stdout cannot hide new files written by the hook process."""
+    root, _ = _fixture(tmp_path, monkeypatch)
+    hook = root / "tools/claude_session_context.py"
+    hook.write_text(
+        hook.read_text(encoding="utf-8")
+        + "\nfrom pathlib import Path\n"
+        + "Path(__file__).resolve().parents[1].joinpath("
+        + "'UNTRACKED_HOOK_OUTPUT').write_text('private-content')\n",
+        encoding="utf-8",
+    )
+    _git(root, "add", "tools/claude_session_context.py")
+    _git(
+        root,
+        "-c",
+        "user.name=Test Agent",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "fixture hook side effect",
+        "--quiet",
+    )
+    sha = _git(root, "rev-parse", "HEAD")
+    before = probe._index_fingerprint(root)
+    result = probe.preflight(root, required_merge=sha)
+    assert probe._index_fingerprint(root) == before
+    assert (root / "UNTRACKED_HOOK_OUTPUT").exists()
+    assert result["working_tree_clean"] is False
+    assert result["hook_direct_exec_passed"] is False
+    assert result["preflight_ok"] is False
+    assert "UNTRACKED_HOOK_OUTPUT" not in json.dumps(result)

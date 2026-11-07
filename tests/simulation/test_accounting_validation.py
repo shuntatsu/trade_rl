@@ -72,6 +72,47 @@ def test_book_factories_reject_invalid_inputs(factory: object) -> None:
         factory()  # type: ignore[operator]
 
 
+@pytest.mark.parametrize("poisoned_state", ["unrepresentable_position", "nan_cash"])
+@pytest.mark.parametrize("explicit_requirement", [False, True])
+def test_set_margin_rejects_invalid_book_before_mutating_margin_state(
+    poisoned_state: str, explicit_requirement: bool
+) -> None:
+    """An invalid existing account must not leave partial margin mutations."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-200]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-120]),
+    )
+    if poisoned_state == "unrepresentable_position":
+        book.contract_multipliers[:] = 1e-200
+    else:
+        book.cash = math.nan
+    before = (
+        book.margin_used,
+        book.maintenance_margin,
+        book.maintenance_requirement,
+        book.margin_deficit,
+        book.insolvent,
+        book.termination_reason,
+    )
+    kwargs = {"maintenance_requirement": 2.0} if explicit_requirement else {}
+    with pytest.raises(
+        ValueError, match="non-finite|position value cannot be represented"
+    ):
+        book.set_margin(margin_used=3.0, maintenance_margin=0.3, **kwargs)
+    after = (
+        book.margin_used,
+        book.maintenance_margin,
+        book.maintenance_requirement,
+        book.margin_deficit,
+        book.insolvent,
+        book.termination_reason,
+    )
+    assert after == before
+
+
 def test_accounting_operation_validation_and_edge_properties() -> None:
     book = _book()
     with pytest.raises(ValueError):

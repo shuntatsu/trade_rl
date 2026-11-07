@@ -269,9 +269,50 @@ def test_valid_subnormal_position_nonzero_dividend_applies_atomically() -> None:
     assert book.cash == pytest.approx(1_010.0)
 
 
-def test_mutated_unrepresentable_position_query_fails_closed() -> None:
-    book = _book(quantity=1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+@pytest.mark.parametrize("signed_quantity", [-1.0, 1.0])
+@pytest.mark.parametrize("strict_underflow", [False, True])
+def test_mutated_unrepresentable_position_query_fails_closed(
+    signed_quantity: float, strict_underflow: bool
+) -> None:
+    book = _book(quantity=signed_quantity, cash=1_000.0, mark=1e-200, multiplier=1e-120)
     book.contract_multipliers[:] = 1e-200
-    with np.errstate(over="raise", under="raise", invalid="raise"):
+    with np.errstate(
+        over="raise", under="raise" if strict_underflow else "ignore", invalid="raise"
+    ):
         with pytest.raises(ValueError, match="position value cannot be represented"):
             _ = book.position_values
+
+
+@pytest.mark.parametrize("strict_underflow", [False, True])
+def test_unrepresentable_leg_cannot_hide_behind_other_valid_position(
+    strict_underflow: bool,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, 1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0, 1e-200]),
+        peak_value=1_001.0,
+        contract_multipliers=np.array([1.0, 1e-120]),
+    )
+    book.contract_multipliers[1] = 1e-200
+    with np.errstate(
+        over="raise", under="raise" if strict_underflow else "ignore", invalid="raise"
+    ):
+        with pytest.raises(ValueError, match="position value cannot be represented"):
+            _ = book.portfolio_value
+
+
+def test_borrow_does_not_silently_erase_poisoned_nonzero_short() -> None:
+    dataset = _dataset(mark=1e-200, multiplier=1e-120, borrow_rate=1e-5)
+    executor = MarketExecutor(
+        dataset, replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0)
+    )
+    book = _book(quantity=-1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    book.contract_multipliers[:] = 1e-200
+    before_cash = book.cash
+    before_borrow_cost = book.borrow_cost
+    with np.errstate(over="raise", under="ignore", invalid="raise"):
+        with pytest.raises(ValueError, match="position value cannot be represented"):
+            executor._charge_borrow(book, index=1, year_fraction=1.0)
+    assert book.cash == before_cash
+    assert book.borrow_cost == before_borrow_cost

@@ -295,9 +295,8 @@ def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
 
 def test_preparse_nesting_ignores_delimiters_inside_escaped_json_strings() -> None:
     """Quoted brackets and escaped quotes must not consume the nesting budget."""
-    raw = study.canonical_json_bytes(
-        {"text": ('[{"\\}]' * 100) + ('"}{' * 100)}
-    )
+    noise = '[{"\\}]' * 100 + '"}{' * 100
+    raw = study.canonical_json_bytes({"text": noise})
     with pytest.raises(ValueError, match="failure receipt fields are malformed"):
         study._decode_incomplete_receipt(raw)
 

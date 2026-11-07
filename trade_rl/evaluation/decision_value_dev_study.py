@@ -2219,7 +2219,9 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
         elif char in (0x5B, 0x7B):
             depth += 1
             if depth > _MAX_RECEIPT_JSON_DEPTH + 16:
-                raise ValueError("failure receipt JSON nesting exceeds configured limit")
+                raise ValueError(
+                    "failure receipt JSON nesting exceeds configured limit"
+                )
         elif char in (0x5D, 0x7D):
             depth -= 1
             if depth < 0:

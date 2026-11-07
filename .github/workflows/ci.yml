@@ -45,10 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Temporary Ruff formatter diff diagnostic
-        if: github.event_name == 'push' && github.ref == 'refs/heads/test/issue1158-claude-host-preflight-20261107'
-        run: uv run ruff format --diff tools/claude_host_preflight.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

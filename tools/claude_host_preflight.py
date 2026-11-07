@@ -214,7 +214,8 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
                 and lines[2] == f"HEAD: {current_head}"
                 and lines[3] == "working tree: clean"
                 and lines[4].startswith("cached origin/main: ")
-                and lines[5] in {
+                and lines[5]
+                in {
                     "On main: inspect only; use a dedicated branch/worktree.",
                     "Never modify main directly; check worktree ownership first.",
                 }

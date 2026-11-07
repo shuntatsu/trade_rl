@@ -191,7 +191,9 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
         report["claude_cli_version"] = version_match.group(0) if version_match else None
         report["claude_cli_present"] = version_match is not None
         if before is not None:
-            script = str(hook["args"][0]).replace("${CLAUDE_PROJECT_DIR}", str(root))
+            hook_args = hook["args"]
+            assert isinstance(hook_args, list)  # validated by _settings_hook
+            script = str(hook_args[0]).replace("${CLAUDE_PROJECT_DIR}", str(root))
             result_code, stdout = _exec(
                 [str(hook["command"]), script],
                 cwd=root,

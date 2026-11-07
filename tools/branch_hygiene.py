@@ -566,6 +566,13 @@ def apply_cleanup(
 # because an exact ancestor of current main cannot contain unique code history.
 # Divergent sources, authoritative research refs and any currently used PR/run
 # stay outside this path. The older generic retention planner remains read-only.
+# M1 merge handoff requires durable source branch refs even when their
+# exact final head is already reachable from main. This exception is scoped
+# to the M1 branch namespace plus its Windows test-only companion.
+M1_SOURCE_REF_PREFIX = "fix/m1-"
+M1_ADDITIONAL_SOURCE_REFS = frozenset({"fix/windows-job-child-pid-marker-20261105"})
+
+
 RETIRED_MERGED_PRESERVED_PREFIXES = (
     "provenance/",
     "research/",
@@ -623,6 +630,11 @@ def plan_merged_retirement(
             reason = "open-pr-ref"
         elif branch.name in active_workflow_branches:
             reason = "active-workflow"
+        elif (
+            branch.name.startswith(M1_SOURCE_REF_PREFIX)
+            or branch.name in M1_ADDITIONAL_SOURCE_REFS
+        ):
+            reason = "m1-source-preservation"
         elif branch.name.startswith(RETIRED_MERGED_PRESERVED_PREFIXES):
             reason = "reserved-research-or-provenance"
         elif branch.sha not in reachable_from_main:

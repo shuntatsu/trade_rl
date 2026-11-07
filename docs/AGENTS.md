@@ -43,6 +43,12 @@ Guide source linkはfloating `main` ではなくbuildした**exact revision**へ
 
 Guide側の説明と正本が食い違う場合は、正本をGuideへ合わせず、現行source・contract test・正本docsから契約を再確認してGuideを修正する。
 
+## Claude Code host preflight (#1158)
+
+`python -m tools.claude_host_preflight` from a **clean trusted `shuntatsu/trade_rl` root** checks the literal `origin` repository identity, the merged Claude Code integration commit ancestry, `CLAUDE.md` / `AGENTS.md`, the `.claude/settings.json` SessionStart exec hook and the manually invoked `research-challenge` Skill. It then checks `claude --version` and invokes the *Python hook directly* using the configured executable and argument vector. It rechecks Git worktree cleanliness after each subprocess and compares `.git/index` SHA-256 bytes and modification time before/after; an unexpected untracked or modified file fails the preflight. It prints a bounded JSON record (booleans, current HEAD SHA, CLI version) and fails closed on a dirty/unrelated repository or unavailable executable. It does not print branch names, remote URLs, untracked filenames, personal file paths, Git stderr or hook stdout.
+
+**Scope limit:** `preflight_ok: true` is local Python/subprocess evidence **only**, not proof of Claude Code's actual session loading. On the operator's installed/trusted Claude Code host, independently check `/context`, `/hooks`, `/skills`, `claude doctor` and real startup/resume/fork execution as supported; attach only sanitized evidence to [Issue #1158](https://github.com/shuntatsu/trade_rl/issues/1158). The preflight never reads sealed data, runs economic simulations, sends orders, installs dependencies, grants review authority, or changes CI policy.
+
 ## Local repository tooling
 
 Repository-localなsource-derived inspectionには次を使ってよい。
@@ -134,6 +140,7 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Task/Issue/lease identityのrevision・Issue番号・epochはPython上でも**native positive integer**を要求し、`1.0 == 1`のようなinteger-shaped floatを受理しない。GitHub projectionやhandoffも同じ型境界を共有し、malformed inputを例外型の漏れや暗黙の同値比較で通さない。また、`HandoffPacket`のverified/pending/known_failures/do_not_repeat/evidence_idsはlist/tupleの**文字列要素のみ**を受理し、元listの変更が反映されないtupleに正規化する。整数・真偽値・null・unordered set・mapping・単体文字列を黙って`str()`に変換して証跡として受け入れない。
 - **統合済み作業branchの通常終了は自動**：`tools.branch_hygiene --retire-merged --apply`（`.github/workflows/retire-merged-pr-branches.yml` のmain push/定期/manual実行）は、最新mainのGit履歴に到達可能で、同じbranch名とexact source SHAを持つclosed/merged PRが確認できるrefだけを対象とする。**mainと同じSHAで新設された未着手のbranchは、マージ済みPRの対応記録がなければ削除しない。**GitHub branch一覧（exact SHA・保護状態）、closed/merged PRのexact head証跡、全open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）の現況を再照合し、保護ref・研究/封印/provenance系・未統合のrefを削除しない。GitHub tokenでのatomic pushと各refのexact-SHA leaseで同時更新を拒否し、各バッチのreadbackが一致しない場合は停止する。workflow statusページの件数変動だけは、先頭statusから全一覧を最大3回再取得して完全な最終snapshotを確認する。3回とも不一致・malformed/unknown/auth失敗ならfail-closedで削除しない。失敗/unknownは成功扱いしない。
 - この限定経路はmerged PRのfinal headがmain履歴に保存済みと確認できるため、旧式の`provenance/branch-retention`へのPR別追加parentや一律1時間待機を新たに要求しない。mainの履歴にないunique commitsや研究証跡を持つbranchには**適用しない**。分離した未統合作業はIssue/PRへ用途・残作業を記載して引き継ぎ、不要と確定した後に別途履歴保全を行う。Task/leaseの権威registryが未完成であることは依然事実であり、全Taskを列挙済み・`cleanup_authorized=true`とは主張しない。
+- **M1 source branchの例外**：M1監査PRの引継ぎ用 `fix/m1-*` とWindows試験用 `fix/windows-job-child-pid-marker-20261105` は、merged済み・main祖先のexact source tipであっても自動退役から除外し、plannerは `m1-source-preservation` の理由でkeepする。これは既存merged-branch自動削除方針の**限定的な例外**であり、他のsource ref、未統合ref、研究/provenance refの安全条件やatomic SHA leaseを緩和しない。経済評価/G0–G5・Coordinator/Task権限の成立も意味しない。
 - 古い一般の`tools.branch_hygiene --apply`（`--retire-merged`なし）と直接`apply_cleanup()`は拒否を維持し、main祖先か不明な全branchを一括削除する経路は作らない。旧`tools.verified_merged_branch_prune`と`.github/workflows/prune-merged-branch.yml`はcanonical retention recordを持つ場合の手動補助であり、定常の統合済みcleanupには不要。Repository/GITHUB_TOKENのcontents writeが使えなければジョブ失敗を報告し、権限を迂回して削除しない。
 - 旧read-only `plan_cleanup`・`retention_tip_observations`は過去記録の照合用。dry-runの`first-observation archival candidates`は「保全済み本数」を意味しない。統合済みbranchの監査・削除数は`--retire-merged`の結果を採用する。
 

@@ -1,11 +1,13 @@
 import hashlib
 import json
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
 from tests.integrations.test_binance_forward import MS, NOW, PublicFeed
 from trade_rl.artifacts import canonical_json_bytes
+from trade_rl.evaluation.paper import account
 from trade_rl.integrations.binance.forward import (
     MAX_CONSUME_LATENCY_MS,
     capture_forward_snapshot,
@@ -163,9 +165,18 @@ def test_consumption_cannot_precede_capture_completion(tmp_path):
 
 
 def test_consume_latency_matches_the_paper_decision_window():
-    # PaperAccount.execute and the supervisor reject executions more than 10 s
-    # after their decision; the snapshot consume bound is kept equal to it.
+    # The paper window is a literal inside trade_rl/evaluation/paper
+    # (PaperAccount.execute, supervisor._execute_pending). That sealed code is
+    # deliberately not refactored here, so this guard pins the literal in the
+    # source text on both sides instead of importing a shared constant.
     assert MAX_CONSUME_LATENCY_MS == 10_000
+    paper = Path(account.__file__).parent
+    assert "(at - decision_at).total_seconds() > 10:" in (
+        paper / "account.py"
+    ).read_text(encoding="utf-8")
+    assert "(at - decision_at).total_seconds() <= 10:" in (
+        paper / "supervisor.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_reader_still_rejects_quote_older_than_five_seconds_at_completion(tmp_path):

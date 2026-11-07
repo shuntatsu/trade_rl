@@ -97,6 +97,15 @@ decision-to-execution window) and rejects earlier receipts; quotes are not
 re-aged against `as_of`. Consumption beyond the bound fails with
 "snapshot consumed too late after capture".
 
+Resulting worst case: a quote may be `MAX_QUOTE_AGE_MS` (5 s) old at capture
+completion and consumption may follow by up to `MAX_CONSUME_LATENCY_MS` (10 s),
+so a quote can be up to 15 s old at decision or execution time. The observed
+consume latency over attempt 2's 60 completed cycles was about 0.25-0.65 s
+(timing only; no outcome data). These tolerances are protocol parameters: any new
+paper attempt (attempt 3) must pre-register them explicitly in its
+research-assurance packet and pass G0-G2 plus independent review before
+execution, and no execution under changed tolerances may reuse an earlier seal.
+
 Current BTCUSDT/ETHUSDT spot and USD-M exchange information is a separate,
 write-once public capture. Require trading status, market-order support, matching
 base/quote assets and USDT perpetual collateral; reject duplicate/missing symbols

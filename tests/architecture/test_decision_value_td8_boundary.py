@@ -106,6 +106,9 @@ def test_failure_receipt_contract_is_documented_and_exported() -> None:
     assert "Failure-receipt hardening" in status
     assert "decision_value_incomplete_pair_attempt_v3" in status
     assert "decision_value_incomplete_pair_attempt_v2" in status
+    assert "default 64 MiB byte budget" in status
+    assert "not guaranteed to reload" in status
+    assert "every persisted receipt reloads" not in status
     source = (EVALUATION / "decision_value_dev_study.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     exported: set[str] = set()

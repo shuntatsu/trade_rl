@@ -27,6 +27,7 @@ def test_direct_bootstrap_canonical_baseline_round_trips_identity(
     [
         ("supervised_forecast_horizon_hours", 48),
         ("forecast_switch_cost", 0.0007),
+        ("ppo_settle_terminal_position", True),
     ],
 )
 def test_direct_bootstrap_rejects_baseline_semantics_outside_digest_projection(

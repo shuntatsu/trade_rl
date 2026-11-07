@@ -50,7 +50,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "2a7a600b46586d634388e2b63bb0495bd1feea99dec70438643a444b099aa57b"
+      "sha256": "5c940b2b5e0047305c99b39c8ba9a723c753542c399c95c7f17d12760103c1f4"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -238,7 +238,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "2a62916fd6c876a0a3ae178973fcf031f9ce470e8ead6b5e4890f896a4886e0b",
+      "source_sha256": "3f99b7c44bbd6f7fea6071d13927c3b7e0aeea5a7f56438ee2ebfac3331502e6",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
@@ -549,9 +549,9 @@
       "id": "cost-aware-allocation-policy",
       "symbol": "trade_rl.strategies.allocation.cost_aware.CostAwareAllocationPolicy",
       "kind": "class",
-      "source_sha256": "c483b0271121eebd43be71caac1c3ecf2fb2f7122b692f60437beb4ff1bbc492",
+      "source_sha256": "c43ff9c3d9e00b116617860856865d1eeb89ced017eb276ad8a74b4d5f72fbd5",
       "label_ja": "費用控除後の多銘柄allocator",
-      "description_ja": "caller供給の期待単純収益、decision時刻以前のmarkだけから作るEWMA共分散、L1 costによるno-trade regionを使い、固定schedule（既定は毎日00:00 UTC）でだけtarget weightを提案します。schedule外・入力不備・solver失敗では全symbolをexact-quantity HOLDにします。任意のopt-in引数として、optimizerのL1 costだけをkappa倍する`cost_penalty_multiple`と、解いたtargetのex-ante年率ボラティリティが上限を超えたときmin-trade rule前に縮小する`vol_target_annual`を持ち（既定では従来のdecisionとbit-identical、非有限なボラティリティはHOLD）、実行costは変えません。口座もP&L ledgerも持たず、forecast sourceの中身は契約の外です。",
+      "description_ja": "caller供給の期待単純収益、decision時刻以前のmarkだけから作るEWMA共分散、L1 costによるno-trade regionを使い、固定schedule（既定は毎日00:00 UTC）でだけtarget weightを提案します。schedule外・入力不備・solver失敗に加え、有限なmark価格から導出した共分散のoverflowでも、全symbolをexact-quantity HOLDにします。forecast source自身の例外は伝播します。任意のopt-in引数として、optimizerのL1 costだけをkappa倍する`cost_penalty_multiple`と、解いたtargetのex-ante年率ボラティリティが上限を超えたときmin-trade rule前に縮小する`vol_target_annual`を持ち（既定では従来のdecisionとbit-identical、非有限なボラティリティはHOLD）、実行costは変えません。口座もP&L ledgerも持たず、forecast sourceの中身は契約の外です。",
       "variables": [],
       "tests": [
         "tests/strategies/test_cost_aware_allocator.py",

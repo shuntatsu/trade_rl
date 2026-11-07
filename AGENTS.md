@@ -2,7 +2,7 @@
 
 作業前に current `main` HEAD、現在branch/worktree、open PRのhead/base、recent commitsを確認し、同目的の作業を重複させない。仕様については現行source・public API・近傍testsを優先し、docsとの不一致は同じ変更で修正する。
 
-読む順序: [docs/README.md](docs/README.md) → [docs/AGENTS.md](docs/AGENTS.md) → 対象に応じたarchitecture/research docs → 対象source・tests・CI。全docsや旧計画を一律に読まず、必要な正本を選ぶ。
+読む順序: [docs/README.md](docs/README.md) → [docs/AGENTS.md](docs/AGENTS.md) の共通・対象節 → 関連architecture/research docs → 対象source・tests・CI。通常は `python -m tools.agent_docs_context --topic core` で原文の共通節を表示し、必要な専門節（`guide` / `claude` / `tooling` / `coordination` / `eval`）を追加する。CLIが使用できなければ正本を直接読む。全docsや旧計画を一律に読まず、必要な正本を選ぶ。
 
 ## Claude Code integration
 

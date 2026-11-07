@@ -15,7 +15,7 @@ Start from:
 - `docs/architecture/final-evaluation-authorization.md` — one-shot authorization boundary between frozen WINNER development evidence and sealed unused-future evaluation
 - `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
 
-Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes. Pull requests are gated by CI checks and an exact-HEAD Independent Research Review (audited by an external AI reviewer; findings trigger changes requested/BLOCKED, clean reviews allow automated squash-merge and close).
+Agents read root `AGENTS.md` and the applicable original sections of `docs/AGENTS.md` (via `python -m tools.agent_docs_context --topic core` plus relevant topics, or by reading the document directly) before modifying code. Pull requests require a final tested HEAD containing current `main`, exact-HEAD Full CI (including applicable review-event checks), and a valid source-review receipt. The generic `software_source_review_v2` is **publisher-attested software-only evidence**, not independently verified model/provider execution; separate research, unused/final-data, and live-trading gates remain mandatory. A clean review does **not** automatically merge a PR: integration is an explicit PR action, with a merge commit preserving the exact source HEAD in `main` history when branch-retirement ancestry is needed.
 
 ## Current status
 

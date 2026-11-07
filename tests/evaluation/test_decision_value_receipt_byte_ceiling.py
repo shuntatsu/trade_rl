@@ -320,3 +320,25 @@ def test_escaped_unicode_control_cannot_corrupt_json_quote_state() -> None:
     raw = study.canonical_json_bytes(noise)
     with pytest.raises(ValueError, match="failure receipt must contain a JSON object"):
         study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize("escaped", (b"\\n", b"\\t", b"\\u0022", b"\\/"))
+def test_escaped_ordinary_byte_cannot_hide_actual_json_nesting(
+    monkeypatch: pytest.MonkeyPatch, escaped: bytes
+) -> None:
+    """An escaped ordinary byte must not hide real 33-level JSON arrays."""
+    nested = b"[" * 33 + b"0" + b"]" * 33
+    raw = b'{"escape":"' + escaped + b'","nested":' + nested + b"}"
+    assert isinstance(study.json.loads(raw), dict), "test input must be valid JSON"
+
+    decoder_calls: list[bool] = []
+    original_loads = study.json.loads
+
+    def recording_loads(*args: object, **kwargs: object) -> object:
+        decoder_calls.append(True)
+        return original_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.json, "loads", recording_loads)
+    with pytest.raises(ValueError, match="failure receipt JSON nesting"):
+        study._decode_incomplete_receipt(raw)
+    assert decoder_calls == [], "actual nested arrays reached the JSON decoder"

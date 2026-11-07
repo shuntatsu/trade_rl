@@ -594,6 +594,60 @@ def test_causality_probe_catches_future_tradability_mask_lookahead(
     assert report["identical_pre_cut_trace"] is False
 
 
+def test_causality_probe_catches_future_available_at_lookahead(
+    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A future-only availability-clock peek must be visible to the perturbation oracle."""
+
+    class Leaky:
+        horizon_hours = 24
+
+        def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
+            self._available_ns = (
+                dataset.resolved_array("available_at")
+                .astype("datetime64[ns]")
+                .astype(np.int64)
+            )
+            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+
+        def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
+            row = int(
+                np.searchsorted(self._stamps, int(decision_time.astype(np.int64)))
+            )
+            future_row = min(row + 72, self._stamps.shape[0] - 1)
+            point = (
+                0.25
+                if self._available_ns[future_row, symbol_index]
+                == self._stamps[future_row]
+                else -0.25
+            )
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=point,
+                residual_variance=0.0,
+            )
+
+    monkeypatch.setattr(
+        runner,
+        "build_forecast_sources",
+        lambda dataset, protocol: {24: Leaky(dataset), 72: Leaky(dataset)},
+    )
+    protocol = small_protocol()
+    sources = runner.build_forecast_sources(market, protocol)
+    report = runner.causality_probe(
+        market,
+        protocol,
+        sources,
+        start_index=runner._row_of(market, protocol.evaluation_start),
+    )
+    assert report["passed"] is False
+    assert report["identical_pre_cut_trace"] is False
+
+
 def test_causality_probe_matrix_covers_every_arm_and_scenario(
     market: MarketDataset,
 ) -> None:

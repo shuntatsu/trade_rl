@@ -184,11 +184,12 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
     report["hook_direct_exec_passed"] = False
     report["git_index_unchanged"] = False
     if safe and hook is not None:
+        # Include the external version subprocess in the index mutation fence.
+        before = _index_fingerprint(root)
         version_code, version_output = _exec(["claude", "--version"], cwd=root)
         version_match = _VERSION.search(version_output) if version_code == 0 else None
         report["claude_cli_version"] = version_match.group(0) if version_match else None
         report["claude_cli_present"] = version_match is not None
-        before = _index_fingerprint(root)
         if before is not None:
             script = str(hook["args"][0]).replace("${CLAUDE_PROJECT_DIR}", str(root))
             result_code, stdout = _exec(

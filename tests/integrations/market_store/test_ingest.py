@@ -7,6 +7,8 @@ import pytest
 
 from tests.integrations.market_store.support import (
     NOW,
+    PLACEHOLDER_OPEN_MS,
+    REAL_BTC_PLACEHOLDER,
     FakeFetcher,
     MemoryStore,
     archive_bytes,
@@ -454,3 +456,57 @@ def test_funding_diff_compares_every_field() -> None:
     assert changed.conflicts == ((1, "funding_interval_hours", "8", "4"),)
     same = diff_rows(stored, [(1, FundingRow(1, Decimal("0.00010"), None, 8))])
     assert same.identical == 1 and not same.conflicts
+
+
+def test_the_documented_spot_placeholder_is_skipped_counted_and_never_stored() -> None:
+    universe = Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,))
+    plan = plan_ingestion(universe, start=day(2020, 12), end=day(2021, 1), now=NOW)
+    (spec,) = plan.specs
+    rows = kline_csv_rows(
+        "BTCUSDT", ms_from_utc(day(2020, 12)), ms_from_utc(day(2021, 1))
+    )
+    index = next(i for i, row in enumerate(rows) if int(row[0]) == PLACEHOLDER_OPEN_MS)
+    rows[index] = REAL_BTC_PLACEHOLDER
+    fetcher, store = FakeFetcher(), MemoryStore()
+    fetcher.add(spec.url, zip_csv(rows))
+
+    report = ingest(store, fetcher, plan)
+
+    assert report.status == "succeeded"
+    assert report.counts.rows_inserted == 31 * 24 - 1
+    assert report.counts.placeholder_rows_skipped == 1
+    assert report.counts.to_dict()["placeholder_rows_skipped"] == 1
+    (placeholder,) = report.skipped_placeholders
+    assert placeholder.url == spec.url
+    assert placeholder.open_time_ms == PLACEHOLDER_OPEN_MS
+    assert report.to_dict()["skipped_placeholders"] == [placeholder.to_dict()]
+    stored_times = {key[-1] for key in store.klines}
+    assert PLACEHOLDER_OPEN_MS not in stored_times and len(stored_times) == 31 * 24 - 1
+    # the source row records what was stored; the checksummed archive pins the rest
+    assert store.sources[spec.url]["row_count"] == 31 * 24 - 1
+
+    # re-ingest is still a no-op and reports no new skip
+    again = ingest(store, fetcher, plan)
+    assert again.counts.archives_skipped == 1
+    assert again.counts.placeholder_rows_skipped == 0
+
+
+def test_a_near_miss_placeholder_aborts_the_run_and_stores_nothing() -> None:
+    universe = Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,))
+    plan = plan_ingestion(universe, start=day(2020, 12), end=day(2021, 1), now=NOW)
+    (spec,) = plan.specs
+    rows = kline_csv_rows(
+        "BTCUSDT", ms_from_utc(day(2020, 12)), ms_from_utc(day(2021, 1))
+    )
+    index = next(i for i, row in enumerate(rows) if int(row[0]) == PLACEHOLDER_OPEN_MS)
+    rows[index] = [
+        *REAL_BTC_PLACEHOLDER[:8],
+        "3",
+        *REAL_BTC_PLACEHOLDER[9:],
+    ]  # 3 trades
+    fetcher, store = FakeFetcher(), MemoryStore()
+    fetcher.add(spec.url, zip_csv(rows))
+    with pytest.raises(ArchiveContentError, match="close_time not after open"):
+        ingest(store, fetcher, plan)
+    assert store.klines == {} and store.sources == {}
+    assert store.runs[1]["status"] == "failed"

@@ -186,6 +186,7 @@ def test_funding_cancellation_to_exact_zero_remains_valid() -> None:
     assert borrow == 0.0
     _assert_unchanged(book, before)
 
+
 @pytest.mark.parametrize(
     ("rate", "year_fraction", "multiplier"),
     [
@@ -204,7 +205,9 @@ def test_borrow_subnormal_position_zero_effect_remains_identity_under_strict_num
     book = _book(quantity=-1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
     before = book.clone()
     with np.errstate(over="raise", under="raise", invalid="raise"):
-        assert executor._charge_borrow(book, index=1, year_fraction=year_fraction) == 0.0
+        assert (
+            executor._charge_borrow(book, index=1, year_fraction=year_fraction) == 0.0
+        )
     _assert_unchanged(book, before)
 
 

@@ -2199,19 +2199,24 @@ def _validate_incomplete_pair_record(
 def _preflight_receipt_json_depth(raw: bytes) -> None:
     """Reject deep JSON before decoding; quoted and escaped delimiters are inert.
 
-    This bounded-memory lexical pass is not a JSON parser. The standard decoder
-    still validates syntax, while the existing schema/digests validate meaning.
+    A backslash escapes only the immediately following byte, not the next
+    regex-matched delimiter (notably after a JSON \uXXXX escape). This is a
+    bounded-memory lexical scan; stdlib still validates syntax and the
+    existing schema/digests validate meaning.
     """
     depth = 0
     in_string = False
-    escaped = False
+    escape_at: int | None = None
     for token in re.finditer(rb'[\[\]{}"\\]', raw):
-        char = raw[token.start()]
+        offset = token.start()
+        char = raw[offset]
         if in_string:
-            if escaped:
-                escaped = False
-            elif char == 0x5C:
-                escaped = True
+            if escape_at is not None and offset == escape_at + 1:
+                escape_at = None
+                continue
+            escape_at = None
+            if char == 0x5C:
+                escape_at = offset
             elif char == 0x22:
                 in_string = False
         elif char == 0x22:

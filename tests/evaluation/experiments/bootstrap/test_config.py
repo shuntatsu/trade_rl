@@ -79,6 +79,30 @@ def test_valid_config_injects_one_seed_authority_and_normalizes_identity(
     assert len(config.digest) == 64
 
 
+@pytest.mark.parametrize(
+    "seeds",
+    ((1, 0), (0, 2, 1)),
+    ids=("descending-pair", "late-inversion"),
+)
+def test_historical_v1_loader_preserves_nonascending_roster_and_identity(
+    tmp_path: Path,
+    seeds: tuple[int, ...],
+) -> None:
+    payload = _valid_payload()
+    payload["ppo_seeds"] = list(seeds)
+
+    loaded = load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+    assert loaded.ppo_seeds == seeds
+    assert loaded.baseline.ppo_seed == seeds[0]
+    assert loaded.to_payload()["ppo_seeds"] == list(seeds)
+    assert (
+        load_canonical_m2_bootstrap_config(
+            _write(tmp_path, loaded.to_payload())
+        ).digest
+        == loaded.digest
+    )
+
+
 def test_bootstrap_seed_roster_accepts_ascending_nonzero_first_seed(
     tmp_path: Path,
 ) -> None:
@@ -103,8 +127,14 @@ def test_bootstrap_rejects_out_of_order_seeds_before_source_acquisition(
     payload = _valid_payload()
     payload["ppo_seeds"] = list(seeds)
 
+    from trade_rl.evaluation.experiments.bootstrap.workflow import (
+        bootstrap_canonical_m2_study,
+    )
+
+    output = tmp_path / "new-bootstrap"
     with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
-        load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+        bootstrap_canonical_m2_study(_write(tmp_path, payload), output)
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(
@@ -112,15 +142,23 @@ def test_bootstrap_rejects_out_of_order_seeds_before_source_acquisition(
     ((1, 0), (0, 2, 1)),
     ids=("descending-pair", "late-inversion"),
 )
-def test_direct_bootstrap_constructor_rejects_out_of_order_seeds(
+def test_direct_legacy_v1_constructor_preserves_historical_seed_order(
     tmp_path: Path,
     seeds: tuple[int, ...],
 ) -> None:
     config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
     baseline = replace(config.baseline, ppo_seed=seeds[0])
 
-    with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
-        replace(config, baseline=baseline, ppo_seeds=seeds)
+    historical = replace(config, baseline=baseline, ppo_seeds=seeds)
+    assert historical.ppo_seeds == seeds
+    assert historical.baseline.ppo_seed == seeds[0]
+    assert historical.to_payload()["ppo_seeds"] == list(seeds)
+    assert (
+        load_canonical_m2_bootstrap_config(
+            _write(tmp_path, historical.to_payload())
+        ).digest
+        == historical.digest
+    )
 
 
 @pytest.mark.parametrize(

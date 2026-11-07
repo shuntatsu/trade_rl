@@ -1,5 +1,6 @@
 ---
 name: research-challenge
+disable-model-invocation: true
 description: "Adversarial, result-blind challenge of a trade_rl research hypothesis, protocol, or implementation claim before economic execution."
 ---
 

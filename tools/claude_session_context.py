@@ -14,7 +14,15 @@ from pathlib import Path
 def _git(root: Path, *args: str) -> str | None:
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), *args],
+            [
+                "git",
+                "--no-optional-locks",
+                "-c",
+                "core.fsmonitor=false",
+                "-C",
+                str(root),
+                *args,
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -31,7 +39,8 @@ def _git(root: Path, *args: str) -> str | None:
 
 def session_context(root: Path) -> str:
     """Return local branch, HEAD and dirty state without exposing filenames."""
-    prefix = _git(root, "rev-parse", "--show-prefix")
+    inside = _git(root, "rev-parse", "--is-inside-work-tree")
+    prefix = _git(root, "rev-parse", "--show-prefix") if inside == "true" else None
     if prefix is None or prefix != "":
         return (
             "[trade_rl / Claude Code] Repository root unavailable. "
@@ -66,7 +75,7 @@ def session_context(root: Path) -> str:
         main_warning,
         "Cached refs may be stale. Check current GitHub main, open PRs.",
         "Check research authority and exact-head CI/reviews separately.",
-        "Follow AGENTS.md and docs/AGENTS.md; never execute economic runs.",
+        "Follow AGENTS.md and docs/AGENTS.md; this hook cannot authorize economic runs.",
         "This hook does not authorize sealed-data access, live orders, or merges.",
     ]
     return "\n".join(lines)

@@ -392,7 +392,6 @@ def test_placeholder_scope_is_limited_to_verified_symbol_roster(symbol: str) -> 
     assert len(parsed.placeholders) == 1
 
 
-
 def test_file_backed_reader_currently_retains_the_store_skipped_placeholder() -> None:
     """Characterize the existing difference, without changing source data or readers."""
     raw_rows = dec_2020_rows()

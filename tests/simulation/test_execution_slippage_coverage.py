@@ -38,6 +38,41 @@ def _market(**overrides: object) -> MarketDataset:
     return MarketDataset(**values)
 
 
+@pytest.mark.parametrize("capacity_volume,expected_ratio", [(0.0, 0.0), (1.0, 1.0)])
+def test_tiny_nonzero_liquidation_request_has_real_fill_ratio(
+    capacity_volume: float, expected_ratio: float
+) -> None:
+    price = 0.1
+    prices = np.full((5, 1), price)
+    executor = MarketExecutor(
+        _market(
+            open=prices.copy(),
+            high=prices.copy(),
+            low=prices.copy(),
+            close=prices.copy(),
+            volume=np.full((5, 1), capacity_volume),
+        ),
+        ExecutionCostConfig.zero(),
+    )
+    book = BookState(
+        quantities=np.array([2e-12]),
+        cash=1_000.0,
+        mark_prices=np.array([price]),
+        peak_value=1_000.0,
+    )
+    result = executor.liquidate_at_close(book, index=1)
+    assert result.requested_turnover > 0.0
+    assert result.fill_ratio == expected_ratio
+    if expected_ratio == 0.0:
+        assert result.fill_count == 0
+        assert result.unfilled_turnover == result.requested_turnover
+        assert result.book.quantities.tolist() == [2e-12]
+    else:
+        assert result.fill_count == 1
+        assert result.unfilled_turnover == 0.0
+        assert result.book.quantities.tolist() == [0.0]
+
+
 def test_slippage_rounding_capacity_and_borrow_paths() -> None:
     executor = MarketExecutor(
         _market(

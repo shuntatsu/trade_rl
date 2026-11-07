@@ -51,32 +51,25 @@ def session_context(root: Path) -> str:
 
     safe_branch = branch if branch is not None else "DETACHED"
     if safe_branch == "main":
-        main_warning = (
-            "On main: inspect only; use a dedicated branch/worktree "
-            "for any change."
-        )
+        main_warning = "On main: inspect only; use a dedicated branch/worktree."
     else:
-        main_warning = (
-            "Never modify main directly or override another worktree. "
-            "Check ownership before changes."
-        )
+        main_warning = "Never modify main directly; check worktree ownership first."
+
     local_head = head if head is not None else "unavailable"
     cached = cached_main if cached_main is not None else "unavailable"
-    return "\n".join(
-        (
-            "[trade_rl / Claude Code | local snapshot only]",
-            f"branch: {safe_branch}",
-            f"HEAD: {local_head}",
-            f"working tree: {working_tree}",
-            f"cached origin/main: {cached}",
-            main_warning,
-            "Cached refs may be stale. Check current GitHub main, open PRs, "
-            "research authority and exact-head CI/reviews separately "
-            "before writes or merge.",
-            "Follow AGENTS.md and docs/AGENTS.md; never execute economic runs, "
-            "read sealed data, or authorize live trading from this hook.",
-        )
-    )
+    lines = [
+        "[trade_rl / Claude Code | local snapshot only]",
+        f"branch: {safe_branch}",
+        f"HEAD: {local_head}",
+        f"working tree: {working_tree}",
+        f"cached origin/main: {cached}",
+        main_warning,
+        "Cached refs may be stale. Check current GitHub main, open PRs.",
+        "Check research authority and exact-head CI/reviews separately.",
+        "Follow AGENTS.md and docs/AGENTS.md; never execute economic runs.",
+        "This hook does not authorize sealed-data access, live orders, or merges.",
+    ]
+    return "\n".join(lines)
 
 
 def main() -> None:

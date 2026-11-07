@@ -57,13 +57,20 @@ UNAVAILABLE_NOT_ESTABLISHED = (
     "absence_of_an_earlier_unreported_attempt",
 )
 UNAVAILABLE_REVIEW_RULE = (
-    "Attempt 1's evidence root is lost; its lineage rests on a prior recorded review "
-    "and was not re-verified against the root at seal time. The review that resolves "
-    "the preserved root cannot be performed. It is replaced, for this case only, by a "
-    "fresh result-blind review of the lineage documentation and the pull request that "
-    "introduced this rule. That replacement review cannot confirm the predecessor "
-    "protocol digest, final tip or observation gap, and it does not exclude an "
-    "earlier unreported attempt."
+    "Attempt 1's evidence root was not located by the recorded read-only search "
+    "of drive C: of the collection machine, excluding the top-level directories "
+    "Windows, Program Files, ProgramData, System Volume Information and Recovery "
+    "and directories named node_modules or site-packages at any depth (Program "
+    "Files (x86) was searched). 43 paths could not be read and 50 links or "
+    "junctions were not followed. Docker volumes, other machines, cloud or backup "
+    "storage and external media were not searched. The owner's statement does not "
+    "identify the root; its contents are not established. Its lineage rests on a "
+    "prior recorded review and was not re-verified against the root at seal time. "
+    "The fresh result-blind review of the lineage documentation and the "
+    "introducing pull request replaces the unperformed predecessor-root "
+    "verification for this one bounded G0 case. That review cannot confirm the "
+    "predecessor protocol digest, final tip or observation gap, and it does not "
+    "exclude an earlier unreported attempt."
 )
 # Module-private capability for sealing lineage v3; ``attempt2`` is its only user.
 _ATTEMPT2_SEAL_TOKEN = object()

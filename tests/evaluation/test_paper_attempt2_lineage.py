@@ -1,4 +1,4 @@
-"""Attempt-2 predecessor-root status: the lost-root rule and its refusals.
+"""Attempt-2 predecessor-root status: the not-located rule and its refusals.
 
 Offline only. The v1 journal reader is replaced by a fake except in one test that
 runs the real reader on a small synthetic root.
@@ -117,10 +117,17 @@ def test_unavailable_record_is_honest_and_quotes_the_user_verbatim():
         "predecessor_observation_gap",
         "absence_of_an_earlier_unreported_attempt",
     ]
-    assert "evidence root is lost" in rule
+    assert "evidence root was not located" in rule
+    assert "excluding the top-level directories" in rule
+    assert "at any depth (Program Files (x86) was searched)" in rule
+    assert "selected paths" not in rule
+    assert "43 paths could not be read and 50 links or junctions" in rule
+    assert "Docker volumes" in rule
+    assert "were not searched" in rule
+    assert "is lost" not in rule
     assert "prior recorded review" in rule
     assert "not re-verified" in rule
-    assert "lineage documentation and the pull request" in rule
+    assert "lineage documentation and the introducing pull request" in rule
     for lineage in (
         attempt2_lineage("available", "D:/old"),
         attempt2_lineage("unavailable"),

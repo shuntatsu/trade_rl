@@ -263,10 +263,13 @@ identities and elapsed gap, and check for an unreported earlier attempt. The
 schema does not authenticate external roots or prevent a caller from claiming a
 new attempt 1.
 
-Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) is lost:
-a search of the collection machine found no preserved root, and on 2026-10-30 the
-user said in chat that they do not know that data or where its results were saved and
-that new data may be collected. Attempt 2 therefore uses lineage
+Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) has not
+been located: on 2026-10-30 the user said in chat that they do not know that data or
+where its results were saved and that new data may be collected, and a documented
+read-only implementer search of drive C: (excluding the top-level directories Windows, Program Files, ProgramData, System Volume Information and Recovery and directories named node_modules or site-packages at any depth) on 2026-11-06 found no root
+with the attempt-1 protocol digest (scope and limits in the implementer search record
+of `docs/architecture/research-assurance.md`). The user's words do not say the root is
+lost or unreadable and do not mention G0. Attempt 2 uses lineage
 `carry_paper_attempt_lineage_v3`, which adds `predecessor_root.status` with value
 `available` or `unavailable` (v2 stays valid and unchanged). `plan` and `seal` require
 `--predecessor-root-status`:
@@ -289,7 +292,41 @@ that new data may be collected. Attempt 2 therefore uses lineage
   says it does not attest the predecessor lineage values or the absence of an
   earlier attempt. A `not_established` list names the predecessor protocol digest,
   final tip, observation gap, and the absence of an earlier unreported attempt.
-  The disposition stays `invalidated` with reason `observation_gap`.
+  The disposition stays `invalidated` with reason `observation_gap`. The code
+  accepts this status on attestation alone and does not check whether the root was
+  located or can be read. Using it skips G0 predecessor verification. The owner authorized that
+  skip, bounded to funding-carry attempt 2, on Issue #810 on 2026-11-06 (comment
+  6680576996, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996; the planner's
+  record of the owner's corrected chat answer 「この前提で承認する」, quoted verbatim in
+  `docs/architecture/research-assurance.md`). It is not a general exception, relaxes no
+  criterion, and the four `not_established` items stay `not_established`.
+
+**Search-scope correction (2026-11-06):** The original Issue #810 comment
+6673566542 and its question described a search across all of C:, which was
+inaccurate. The corrected [owner authorization](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996)
+records the fresh response 「この前提で承認する」 after the actual exclusions were
+disclosed. In a second read-only search, 143,061 directories were visited,
+43 paths were unreadable and 50 links/junctions were not followed. The
+search covered drive C: excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and
+directories named node_modules or site-packages at any depth, and **included**
+Program Files (x86). This corrected record (comment 6680576996), not the
+superseded 627-file record, is the search record the sealing conditions rely on. The **616 found** protocol.json files yielded no matching
+attempt-1 digest; the prior 627 count was an earlier scoped observation, not
+a machine-wide enumeration. Other machines, cloud/backup, Docker volumes,
+external media and excluded/unreadable locations were not searched. This
+does not establish absence of the root; the four predecessor facts remain
+not_established. The question put to the owner listed the exclusions and the
+not-searched locations but not the 43 unreadable paths, the 50 unfollowed
+junctions or that Program Files (x86) was searched; those details are in the
+search record of the same comment. The same owner record makes an
+attempt-2-only exception: a review by a model different from every
+implementation model (Claude Haiku 5.5), posted from the same GitHub account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not
+call the research tool), does not establish different-principal independence and
+does not change the existing tools.research_assurance_github same-principal
+refusal: the tool does not report PASS for it, the packet is UNREVIEWED and no
+PASS is claimed.
 
 Threat model. These gates prevent accidental or non-canonical attempt-2 records
 from being sealed or run through the supported entry points (`attempt2`,
@@ -336,7 +373,7 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
   record. `attempt2`'s own sealing preconditions (authorization URL shape, start
   notice, checkout identity, free space) are only enforced by `attempt2 seal`.
 * Every `attempt2 launch`, including a supervisor relaunch after the start,
-  re-reads an `available` root and refuses if it is lost, unreadable or differs. A
+  re-reads an `available` root and refuses if it cannot be read or differs. A
   gap event or heartbeat does not prove an earlier valid predecessor-root read.
 * The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
   before taking the lock and without writing a failure marker, any lineage the
@@ -348,16 +385,20 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
   example a corrupt or locked journal) stops the collection and the restart exits
   with the refusal code, rather than being inferred from the attempt's own journal.
   Because that is a permanent refusal, an `available` lineage requires the old root
-  to stay intact for the whole screen; the planned attempt 2 uses `unavailable`.
+  to stay intact for the whole screen; attempt 2 would use `unavailable` only if the
+  G0 exception is separately authorized by the owner.
 
-Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded
-review. The predecessor was not re-verified. For this case only, the runbook's
-"fresh review resolves the preserved root" requirement is replaced by a fresh
-result-blind review of the lineage documentation (this section and the
-current-status record) and the pull request that introduced the rule. That review
+Plainly: attempt 1's evidence root has not been located; if it is never found, its
+lineage rests on a prior recorded review and the predecessor is not re-verified. Because
+the owner authorized the G0 exception for attempt 2 on Issue #810 (2026-11-06, comment
+6673566542), the runbook's "fresh review resolves the preserved root" requirement is
+replaced by a fresh result-blind review of the lineage documentation (this section and
+the current-status record) and the pull request that introduced the rule. That review
 cannot confirm the predecessor digests, tip or gap against the root, and it does not
 establish that no earlier unreported attempt exists; the sealed record lists these
-as `not_established`.
+as `not_established`. If the attempt-1 root is found, the `available` path with the v1
+reader must be used instead; for any other family, attempt or predecessor G0
+predecessor verification applies unchanged.
 
 Require positive net profit after actual simulated exits, positive marked equity
 change in every block, and total net profit greater than recorded fees. The last
@@ -472,7 +513,7 @@ journal; measure it before relying on the margin.
 
 Attempt 2 is prepared offline but is neither sealed nor started. Attempt 1's root
 is never resumed, backfilled or edited (and, if it exists, is preserved evidence that
-is only ever opened read-only; see the lost-root rule above).
+is only ever opened read-only; see the unavailable-predecessor rule above).
 `python -m trade_rl.evaluation.paper.attempt2` has three commands (`plan`, `seal`,
 `launch`) and `storage_probe` one more; each of which refuses unless
 `--authorization` is an Issue #810 comment URL
@@ -485,11 +526,20 @@ first; nothing here proves the comment exists or says what it should say.
    * if the attempt-1 root is available: obtain a fresh result-blind review that
      resolves it with its v1 reader and confirms protocol, event chain, final tip,
      last observation and elapsed gap, and checks for an unreported earlier attempt;
-     the lineage values are assertions until that review exists. If it is lost
-     (`--predecessor-root-status unavailable`, the current case): obtain a fresh
-     result-blind review of the lineage documentation and the pull request that
-     introduced the lost-predecessor rule instead; it does not re-verify the
-     predecessor;
+     the lineage values are assertions until that review exists. If it cannot be
+     found (`--predecessor-root-status unavailable`, the current case): the separate explicit
+     owner authorization on Issue #810 that names the G0 predecessor-verification
+     exception exists (corrected comment 6680576996, 2026-11-06, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996;
+     the owner's 2026-10-30 words alone say only that they do not know where the data
+     is and that new data may be collected). Then obtain a fresh result-blind review of the lineage
+     documentation and the pull request that introduced the unavailable-predecessor rule
+     instead; it does not re-verify the predecessor, and the predecessor chain stays
+     `not_established` (the predecessor-root-unavailable section in
+     `docs/architecture/research-assurance.md` defines the conditions and what is
+     recorded; it applies to no other case);
+   * obtain an independent `research_assurance_v1` review of the attempt-2 author
+     packet (see the packet section below) from a different authenticated GitHub
+     principal; a missing review leaves the packet UNREVIEWED and attempt 2 unsealed;
    * create a dedicated detached worktree of the merged commit and a private locked
      environment; keep it unmodified until the screen ends (the sealed
      implementation and runtime digests are rechecked before every acquisition);
@@ -621,3 +671,69 @@ funding settlement; an unmatched hedge, drawdown at or above 10% or a stop; no
 funding receipt in a block; positions not flat at the end; any fill missing from
 the four instruments; and nonzero funding settled at or after close. Do not resume
 or repair a failed root; a further attempt needs a new lineage, review and seal.
+
+### Attempt 2 research-assurance author packet
+
+The Research Assurance Gate (Issue #687, `docs/architecture/research-assurance.md`)
+requires a versioned author packet before a new economic research protocol. The
+attempt-2 packet is
+[`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json). It
+describes the existing frozen `carry_paper_screen_v2` plan and the attempt-2
+lineage v3 (`predecessor_root` unavailable) exactly as implemented, changes no
+criterion, and records G0 (question, counter-hypothesis, cheapest falsifier, stop
+rule), the G1 chain from source to decision with all eight boundaries, the G2
+independent oracles by test path, the evidence stage and claim boundary, the
+attempt-1 `not_established` limits, the threat model and the storage-probe step.
+
+* Canonical digest: `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`
+  (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
+* Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
+  `economic_execution_authorized=false`. No review exists, so this is not a pass.
+* The packet binds protocol and implementation head `326188fc0c3cbcc4ff8bf453854e8515ed983abe`, the last commit that
+  changes `trade_rl/` in the pull request that adds the packet
+  (`git diff 326188fc0c3cbcc4ff8bf453854e8515ed983abe..<PR head> -- trade_rl/` is empty). A packet stored in the tree
+  cannot name the commit that contains it, so the packet is committed in a later
+  descendant and the PR head differs from the implementation head;
+  `tools.research_assurance_github` needs the PR head and the review `commit_id` to equal
+  `implementation_head`, so it cannot report PASS for an in-tree packet. A later change
+  to either head, or to `trade_rl/` (including a sync merge of `main`), changes the digest
+  and voids any review of the earlier digest.
+
+Sealing attempt 2 still needs all of the following, and this packet supplies none of
+them: (a) an independent `research_assurance_v1` review of the exact digest and
+heads (ordinarily verified through `tools.research_assurance_github`; for attempt 2 only,
+the owner-excepted review described under "Review route" below); (b) explicit user
+authorization on Issue #810 for the seal; and (c) either a verified attempt-1 root
+(the `available` path) or a separate explicit owner authorization on Issue #810 that
+names the G0 predecessor-verification exception (see
+`docs/architecture/research-assurance.md`). Evidence for (b) is the comment
+<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178>
+(2026-11-05, posted from the owner's account and recorded by the planner relaying the
+owner; the owner can edit or revoke it; it names no UTC start; code checks only the URL
+shape). It is authorization evidence and does not replace (a); it does not satisfy (c),
+because the owner's quoted words in it do not mention G0. Evidence for (c)
+with `unavailable` is the **corrected** comment
+<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996>,
+which records the owner's fresh 「この前提で承認する」 on the accurately bounded
+C: search premise and four `not_established` predecessor facts. The **original**
+comment 6673566542 separately records the selected screen start
+`2026-11-07T00:00:00Z` and the Windows Task Scheduler supervisor/watchdog
+authorization; its description of an all-C: search was inaccurate and is
+superseded only for that search premise. Neither comment authorizes FS1 scoring,
+unused or final-window reads, live trading, order routing, relaxed criteria,
+or use of an attempt-1 economic or status readout. Neither comment is itself the review that (a) requires; the corrected comment only defines which review route satisfies (a) for attempt 2.
+
+Review route. AGENTS.md (#687) ordinarily requires a review from a different
+authenticated GitHub principal. The owner's words of 2026-11-05 were
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"; those words alone
+did not establish principal independence or authorize a same-principal exception.
+The owner **explicitly** made an exception **for attempt 2 only** in corrected
+Issue #810 comment 6680576996: a review by a model different from every
+implementation model (Claude Haiku 5.5), posted from the shuntatsu account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not
+call the research tool) and is not principal independence:
+`tools.research_assurance_github` still rejects same-principal reviews and does not
+report PASS for that route. The packet stays UNREVIEWED, no PASS is claimed, and an
+actual exact-digest/HEAD result-blind review must still exist before any seal. Nothing is sealed, launched or collected under
+this packet, and the storage probe (the only networked step before launch)
+is not run under it.

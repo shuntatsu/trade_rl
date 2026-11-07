@@ -109,7 +109,7 @@ def test_the_collector_gate_reads_before_the_start_and_for_a_fresh_root(tmp_path
     assert problems(timedelta(minutes=-10), mismatch) == [
         "predecessor_root_not_reverifiable:predecessor_root_tip_differs"
     ]
-    # A recorded event is not proof that a lost predecessor was verified before
+    # A recorded event is not proof that an unlocated predecessor was verified before
     # that event: a public PaperEngine.gap can write it without root validation.
     journal = PaperJournal(sealed, expected_protocol_sha256=_digest(sealed))
     journal.append(

@@ -60,13 +60,14 @@ def spec(
     start: datetime = JAN,
     end: datetime = FEB,
     market: StoreMarket = StoreMarket.SPOT,
+    symbol: str = "BTCUSDT",
 ) -> ArchiveSpec:
-    name = "BTCUSDT-1h" if kind is ArchiveKind.KLINES else "BTCUSDT-fundingRate"
+    name = f"{symbol}-1h" if kind is ArchiveKind.KLINES else f"{symbol}-fundingRate"
     url = f"https://data.binance.vision/data/x/{name}-{start:%Y-%m}.zip"
     return ArchiveSpec(
         kind=kind,
         market=market,
-        symbol="BTCUSDT",
+        symbol=symbol,
         interval="1h" if kind is ArchiveKind.KLINES else None,
         period_kind=PeriodKind.MONTHLY,
         period_start=start,
@@ -486,6 +487,12 @@ def test_the_placeholder_is_only_recognised_in_the_spot_market() -> None:
     futures = spec(start=DEC_2020, end=JAN_2021, market=StoreMarket.USDS_M)
     with pytest.raises(ArchiveContentError, match="close_time not after open"):
         parse_kline_archive(zip_csv(dec_2020_rows()), futures, embargo=ENFORCED)
+
+
+def test_the_placeholder_is_only_recognised_for_verified_symbols() -> None:
+    unverified = spec(start=DEC_2020, end=JAN_2021, symbol="DOGEUSDT")
+    with pytest.raises(ArchiveContentError, match="close_time not after open"):
+        parse_kline_archive(zip_csv(dec_2020_rows()), unverified, embargo=ENFORCED)
 
 
 def test_a_zero_volume_row_with_a_valid_close_time_is_stored_not_skipped() -> None:

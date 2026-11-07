@@ -95,19 +95,30 @@ def _cash_interest_amount(
     return amount
 
 
+def _require_representable_position_values(
+    *, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
+) -> np.ndarray:
+    """Treat representable subnormals as values, but never silent zero positions."""
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        position_values = quantities * marks * multipliers
+    if not np.isfinite(position_values).all():
+        raise ValueError("proposed account state became non-finite")
+    if np.any((quantities != 0.0) & (position_values == 0.0)):
+        raise ValueError("nonzero position value cannot be represented")
+    return position_values
+
+
 def _require_finite_post_update_equity(
     *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
 ) -> float:
     """Reject an unrepresentable proposed account transition before mutation."""
+    position_values = _require_representable_position_values(
+        quantities=quantities, marks=marks, multipliers=multipliers
+    )
     with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
-        position_values = quantities * marks * multipliers
         equity = float(cash + position_values.sum())
-    if not np.isfinite(position_values).all() or not all(
-        math.isfinite(value) for value in (cash, equity)
-    ):
+    if not all(math.isfinite(value) for value in (cash, equity)):
         raise ValueError("proposed account state became non-finite")
-    if np.any((quantities != 0.0) & (position_values == 0.0)):
-        raise ValueError("nonzero position value cannot be represented")
     return equity
 
 
@@ -321,7 +332,16 @@ class BookState:
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        return self.quantities * self.mark_prices * multipliers
+        try:
+            return self.quantities * self.mark_prices * multipliers
+        except FloatingPointError:
+            # Strict NumPy can flag a valid nonzero subnormal; validate the
+            # projected value instead of leaking a raw floating-point error.
+            return _require_representable_position_values(
+                quantities=self.quantities,
+                marks=self.mark_prices,
+                multipliers=multipliers,
+            )
 
     @property
     def portfolio_value(self) -> float:

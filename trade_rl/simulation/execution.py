@@ -1000,8 +1000,7 @@ class MarketExecutor:
             raise ValueError("borrow year_fraction must be finite and non-negative")
         if year_fraction == 0.0 or self.cost.borrow_rate_multiplier == 0.0:
             return 0.0
-        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
-            short_values = np.maximum(-book.position_values, 0.0)
+        short_values = np.maximum(-book.position_values, 0.0)
         borrow_rates = self.dataset.resolved_array("borrow_rate")[index]
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             rate_products = short_values * borrow_rates

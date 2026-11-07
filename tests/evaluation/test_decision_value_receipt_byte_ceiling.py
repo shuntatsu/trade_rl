@@ -291,3 +291,25 @@ def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
     with pytest.raises(ValueError, match="failure receipt JSON nesting"):
         study._decode_incomplete_receipt(raw)
     assert not decoded, "an overdeep receipt reached the JSON decoder"
+
+
+def test_preparse_nesting_ignores_delimiters_inside_escaped_json_strings() -> None:
+    """Quoted brackets and escaped quotes must not consume the nesting budget."""
+    raw = study.canonical_json_bytes(
+        {"text": ('[{"\\}]' * 100) + ('"}{' * 100)}
+    )
+    with pytest.raises(ValueError, match="failure receipt fields are malformed"):
+        study._decode_incomplete_receipt(raw)
+
+
+def test_32_nested_arrays_reach_existing_non_object_rejection() -> None:
+    """The boundary itself does not alter the established JSON root validation."""
+    raw = b"[" * 32 + b"0" + b"]" * 32
+    with pytest.raises(ValueError, match="failure receipt must contain a JSON object"):
+        study._decode_incomplete_receipt(raw)
+
+
+def test_deeply_nested_json_objects_are_rejected_before_decode() -> None:
+    raw = b'{"child":' * 33 + b"0" + b"}" * 33
+    with pytest.raises(ValueError, match="failure receipt JSON nesting"):
+        study._decode_incomplete_receipt(raw)

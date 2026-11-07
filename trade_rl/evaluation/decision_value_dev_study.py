@@ -2196,10 +2196,41 @@ def _validate_incomplete_pair_record(
     _require_canonical_round_trip(pair, field="pair record")
 
 
+def _preflight_receipt_json_depth(raw: bytes) -> None:
+    """Reject deep JSON before decoding; quoted and escaped delimiters are inert.
+
+    This bounded-memory lexical pass is not a JSON parser. The standard decoder
+    still validates syntax, while the existing schema/digests validate meaning.
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    for token in re.finditer(rb'[\[\]{}"\\]', raw):
+        char = raw[token.start()]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == 0x5C:
+                escaped = True
+            elif char == 0x22:
+                in_string = False
+        elif char == 0x22:
+            in_string = True
+        elif char in (0x5B, 0x7B):
+            depth += 1
+            if depth > _MAX_RECEIPT_JSON_DEPTH + 16:
+                raise ValueError("failure receipt JSON nesting exceeds configured limit")
+        elif char in (0x5D, 0x7D):
+            depth -= 1
+            if depth < 0:
+                raise ValueError("failure receipt JSON is malformed")
+
+
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
+    _preflight_receipt_json_depth(raw)
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:

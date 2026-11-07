@@ -379,6 +379,20 @@ def test_the_documented_spot_placeholder_is_skipped_and_reported() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "symbol",
+    ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT"),
+)
+def test_placeholder_scope_is_limited_to_verified_symbol_roster(symbol: str) -> None:
+    parsed = parse_kline_archive(
+        zip_csv(dec_2020_rows()),
+        spec(start=DEC_2020, end=JAN_2021, symbol=symbol),
+        embargo=ENFORCED,
+    )
+    assert len(parsed.placeholders) == 1
+
+
+
 def test_file_backed_reader_currently_retains_the_store_skipped_placeholder() -> None:
     """Characterize the existing difference, without changing source data or readers."""
     raw_rows = dec_2020_rows()

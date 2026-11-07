@@ -488,6 +488,17 @@ def test_perturb_future_only_changes_rows_after_the_cut(market: MarketDataset) -
     post_cut_active = other.resolved_array("asset_active")[cut + 1 :]
     assert not np.array_equal(post_cut_tradable, market.tradable[cut + 1 :])
     assert np.all(~post_cut_tradable | post_cut_active)
+    original_at = market.resolved_array("available_at")
+    changed_at = other.resolved_array("available_at")
+    assert np.array_equal(changed_at[: cut + 1], original_at[: cut + 1])
+    assert not np.array_equal(changed_at[cut + 1 :], original_at[cut + 1 :])
+    clock = market.timestamps[:, None]
+    assert np.all(changed_at[cut + 1 :] >= clock[cut + 1 :])
+    original_info = market.resolved_array("information_available")
+    changed_info = other.resolved_array("information_available")
+    assert np.array_equal(changed_info[: cut + 1], original_info[: cut + 1])
+    delayed = changed_at[cut + 1 :] > clock[cut + 1 :]
+    assert not np.any(changed_info[cut + 1 :] & delayed)
 
 
 def test_causality_probe_passes_for_the_real_pipeline(market: MarketDataset) -> None:
@@ -568,6 +579,54 @@ def test_causality_probe_catches_future_tradability_mask_lookahead(
             )
             future_row = min(row + 72, self._tradable.shape[0] - 1)
             point = 0.25 if self._tradable[future_row, symbol_index] else -0.25
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=point,
+                residual_variance=0.0,
+            )
+
+    monkeypatch.setattr(
+        runner,
+        "build_forecast_sources",
+        lambda dataset, protocol: {24: Leaky(dataset), 72: Leaky(dataset)},
+    )
+    protocol = small_protocol()
+    sources = runner.build_forecast_sources(market, protocol)
+    report = runner.causality_probe(
+        market,
+        protocol,
+        sources,
+        start_index=runner._row_of(market, protocol.evaluation_start),
+    )
+    assert report["passed"] is False
+    assert report["identical_pre_cut_trace"] is False
+
+
+def test_causality_probe_catches_future_available_at_lookahead(
+    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A future availability-clock peek must be visible to the perturbation oracle."""
+
+    class Leaky:
+        horizon_hours = 24
+
+        def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
+            available_at = dataset.resolved_array("available_at")
+            self._available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+
+        def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
+            row = int(
+                np.searchsorted(self._stamps, int(decision_time.astype(np.int64)))
+            )
+            future_row = min(row + 72, self._stamps.shape[0] - 1)
+            future_available = self._available_ns[future_row, symbol_index]
+            future_timestamp = self._stamps[future_row]
+            point = 0.25 if future_available == future_timestamp else -0.25
             return _synthetic_packet(
                 symbol=self.symbols[symbol_index],
                 symbol_index=symbol_index,

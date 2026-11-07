@@ -122,9 +122,8 @@ def test_historical_v5_unsorted_seed_roster_keeps_reader_and_digest(
     payload = _ppo_holding_v5_payload()
     payload["ppo_seeds"] = [1, 0, 2, 3, 4]
 
-    historical = load_canonical_m2_bootstrap_config(
-        _write_config(tmp_path, payload)
-    )
+    historical_path = _write_config(tmp_path, payload)
+    historical = load_canonical_m2_bootstrap_config(historical_path)
     assert historical.ppo_seeds == (1, 0, 2, 3, 4)
     assert historical.baseline.ppo_seed == 1
     assert historical.to_payload() == payload
@@ -145,9 +144,8 @@ def test_v6_rejects_nonascending_rosters_in_parser_and_direct_constructor(
     with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
         load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
 
-    valid = load_canonical_m2_bootstrap_config(
-        _write_config(tmp_path, _ppo_shared_cash_v6_payload())
-    )
+    valid_path = _write_config(tmp_path, _ppo_shared_cash_v6_payload())
+    valid = load_canonical_m2_bootstrap_config(valid_path)
     with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
         replace(
             valid,

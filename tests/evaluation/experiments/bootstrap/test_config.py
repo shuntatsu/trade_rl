@@ -95,12 +95,9 @@ def test_historical_v1_loader_preserves_nonascending_roster_and_identity(
     assert loaded.ppo_seeds == seeds
     assert loaded.baseline.ppo_seed == seeds[0]
     assert loaded.to_payload()["ppo_seeds"] == list(seeds)
-    assert (
-        load_canonical_m2_bootstrap_config(
-            _write(tmp_path, loaded.to_payload())
-        ).digest
-        == loaded.digest
-    )
+    roundtrip_path = _write(tmp_path, loaded.to_payload())
+    roundtrip = load_canonical_m2_bootstrap_config(roundtrip_path)
+    assert roundtrip.digest == loaded.digest
 
 
 def test_bootstrap_seed_roster_accepts_ascending_nonzero_first_seed(
@@ -153,12 +150,9 @@ def test_direct_legacy_v1_constructor_preserves_historical_seed_order(
     assert historical.ppo_seeds == seeds
     assert historical.baseline.ppo_seed == seeds[0]
     assert historical.to_payload()["ppo_seeds"] == list(seeds)
-    assert (
-        load_canonical_m2_bootstrap_config(
-            _write(tmp_path, historical.to_payload())
-        ).digest
-        == historical.digest
-    )
+    roundtrip_path = _write(tmp_path, historical.to_payload())
+    roundtrip = load_canonical_m2_bootstrap_config(roundtrip_path)
+    assert roundtrip.digest == historical.digest
 
 
 @pytest.mark.parametrize(

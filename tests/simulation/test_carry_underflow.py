@@ -185,3 +185,37 @@ def test_funding_cancellation_to_exact_zero_remains_valid() -> None:
     assert funding == 0.0
     assert borrow == 0.0
     _assert_unchanged(book, before)
+
+@pytest.mark.parametrize(
+    ("rate", "year_fraction", "multiplier"),
+    [
+        (0.0, 1.0, 1.0),
+        (1e-5, 0.0, 1.0),
+        (1e-5, 1.0, 0.0),
+    ],
+)
+def test_borrow_subnormal_position_zero_effect_remains_identity_under_strict_numpy(
+    rate: float, year_fraction: float, multiplier: float
+) -> None:
+    dataset = _dataset(mark=1e-200, multiplier=1e-120, borrow_rate=rate)
+    executor = MarketExecutor(
+        dataset, replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=multiplier)
+    )
+    book = _book(quantity=-1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    before = book.clone()
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert executor._charge_borrow(book, index=1, year_fraction=year_fraction) == 0.0
+    _assert_unchanged(book, before)
+
+
+def test_borrow_subnormal_position_underflow_fails_closed_under_strict_numpy() -> None:
+    dataset = _dataset(mark=1e-200, multiplier=1e-120, borrow_rate=1e-5)
+    executor = MarketExecutor(
+        dataset, replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0)
+    )
+    book = _book(quantity=-1.0, cash=1_000.0, mark=1e-200, multiplier=1e-120)
+    before = book.clone()
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        with pytest.raises(ValueError, match="borrow.*represented"):
+            executor._charge_borrow(book, index=1, year_fraction=1.0)
+    _assert_unchanged(book, before)

@@ -81,6 +81,7 @@ def test_specialist_topic_always_includes_common_safety_rules() -> None:
     assert "## Git / PR integration safety" in specialist
     assert "## Research Assurance Gate (#687)" in specialist
 
+
 def test_indented_open_fence_hides_inside_atx_heading() -> None:
     source = _fixture().replace(
         "marker for 目的",

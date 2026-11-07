@@ -29,7 +29,8 @@ SECTION_GROUPS: dict[str, tuple[str, ...]] = {
     "eval": ("Agent Eval protocol",),
 }
 
-_FENCE = re.compile(r"^(`{3,}|~{3,})")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_ATX_HEADING = re.compile(r"^ {0,3}##[ \t]+(.+?)\s*$")
 
 
 def _heading_positions(source: str) -> list[tuple[str, int]]:
@@ -47,11 +48,13 @@ def _heading_positions(source: str) -> list[tuple[str, int]]:
             elif (
                 fence[0] == chars[0]
                 and len(chars) >= fence[1]
-                and not value[len(chars) :].strip()
+                and not value[marker.end() :].strip()
             ):
                 fence = None
-        elif fence is None and value.startswith("## "):
-            headings.append((value[3:], offset))
+        elif fence is None:
+            heading = _ATX_HEADING.match(value)
+            if heading is not None:
+                headings.append((heading.group(1).strip(), offset))
         offset += len(line)
     return headings
 

@@ -333,7 +333,9 @@ class BookState:
         multipliers = self.contract_multipliers
         assert multipliers is not None
         try:
-            return self.quantities * self.mark_prices * multipliers
+            # Detect erased holdings even when callers relax NumPy warnings.
+            with np.errstate(over="raise", under="raise", invalid="raise"):
+                return self.quantities * self.mark_prices * multipliers
         except FloatingPointError:
             # Strict NumPy can flag a valid nonzero subnormal; validate the
             # projected value instead of leaking a raw floating-point error.
@@ -615,18 +617,21 @@ class BookState:
         )
         if not np.isfinite(requirement) or requirement < 0.0:
             raise ValueError("maintenance_requirement must be finite and non-negative")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        # An explicit requirement must not bypass account validation and leave
+        # partially changed margin fields if public BookState data was corrupted.
+        value = _require_finite_post_update_equity(
+            cash=self.cash,
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
         self.margin_used = float(margin_used)
         self.maintenance_margin = float(maintenance_margin)
         self.maintenance_requirement = requirement
-        self.margin_deficit = max(
-            0.0,
-            requirement - max(self.portfolio_value, 0.0),
-        )
-        if (
-            self.portfolio_value > 0.0
-            and requirement > 0.0
-            and self.portfolio_value < requirement - _TOLERANCE
-        ):
+        self.margin_deficit = max(0.0, requirement - max(value, 0.0))
+        if value > 0.0 and requirement > 0.0 and value < requirement - _TOLERANCE:
             self.terminate(EconomicTerminationReason.MARGIN_CALL)
 
     def terminate(self, reason: EconomicTerminationReason | str) -> None:

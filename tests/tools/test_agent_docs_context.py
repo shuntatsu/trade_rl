@@ -80,3 +80,27 @@ def test_specialist_topic_always_includes_common_safety_rules() -> None:
     assert specialist == render(original, ("core", "guide"))
     assert "## Git / PR integration safety" in specialist
     assert "## Research Assurance Gate (#687)" in specialist
+
+def test_indented_open_fence_hides_inside_atx_heading() -> None:
+    source = _fixture().replace(
+        "marker for 目的",
+        "marker for 目的\n   ```markdown\n## Not a real section\n   ```",
+    )
+    assert "## Not a real section" in render(source, ("core",))
+
+
+def test_indented_close_fence_reveals_following_sections() -> None:
+    source = _fixture().replace(
+        "marker for 目的",
+        "marker for 目的\n```markdown\ntext\n   ```",
+    )
+    assert render(source, ("all",)) == source
+
+
+def test_indented_and_tabbed_atx_heading_are_valid() -> None:
+    source = (
+        _fixture()
+        .replace("## 目的\n", "  ##\t目的\n")
+        .replace("## 読む順序\n", "   ## 読む順序\n")
+    )
+    assert render(source, ("all",)) == source

@@ -72,3 +72,11 @@ def test_rejects_unclosed_fence_masquerading_as_sections() -> None:
     original = _fixture()
     with pytest.raises(ValueError, match="missing sections"):
         split_sections(original.replace("## 目的\n", "## 目的\n```\n"))
+
+
+def test_specialist_topic_always_includes_common_safety_rules() -> None:
+    original = _fixture()
+    specialist = render(original, ("guide",))
+    assert specialist == render(original, ("core", "guide"))
+    assert "## Git / PR integration safety" in specialist
+    assert "## Research Assurance Gate (#687)" in specialist

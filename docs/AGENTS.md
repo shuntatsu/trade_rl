@@ -33,9 +33,10 @@ python -m tools.agent_docs_context --topic all
 python -m tools.agent_docs_context --check
 ```
 
-`core` は共通の変更・Git/PR/研究認可・検証・保持規則を含む。`guide` はHuman Guide、`claude` はClaude Code host、`tooling` はRepository inspection、`coordination` は複数AgentのTask/Lease、`eval` はAgent UX評価の詳細である。複数topicを同時選択できる。未知/重複/欠落した第2レベル見出しはfail-closedで拒否し、原文を自動修正しない。
+`core` は共通の変更・Git/PR/研究認可・検証・保持規則を含む。`guide` はHuman Guide、`claude` はClaude Code host、`tooling` はRepository inspection、`coordination` は複数AgentのTask/Lease、`eval` はAgent UX評価の詳細である。複数topicを同時選択でき、専門topicだけの指定でも必ず`core`を含める。未知/重複/欠落した第2レベル見出しはfail-closedで拒否し、原文を自動修正しない。
 
 CLIが利用できない場合は本文の対象節（必要なら全文）を直接読む。抽出結果やローカルHookからcurrent GitHub main、PR、review、CI、実験・sealed/unusedデータ、実売買の認可を推定しない。Agent指示を更新するときは `--check` と近傍testを実行し、見出しを追加したらtopic分類を明示的に更新する。
+
 ## Human Guide update contract
 
 Root `guide/` は人間向けの**非正本**説明層であり、技術仕様・研究状態のauthorityにはしない。画面ではMarkdown本文・静的flow・表を主役にし、実identifier・型・file pathは記事末尾の実装参照で副表示する。人間向け本文は `guide/content/pages/*.md`、machine metadata / source fingerprint / CodeReferenceは `guide/content/meta/*.json` に置き、UI componentへ研究固有の真実を直接埋め込まない。

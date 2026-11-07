@@ -85,7 +85,7 @@ def render(source: str, topics: tuple[str, ...]) -> str:
         raise ValueError("select one or more topics, or 'all' alone")
     if set(topics) - SECTION_GROUPS.keys():
         raise ValueError("unknown topic")
-    selected = {name for topic in topics for name in SECTION_GROUPS[topic]}
+    selected = {name for topic in ("core", *topics) for name in SECTION_GROUPS[topic]}
     return preamble + "".join(
         body for name, body in sections.items() if name in selected
     )

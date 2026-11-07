@@ -2200,7 +2200,7 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
     """Reject deep JSON before decoding; quoted and escaped delimiters are inert.
 
     A backslash escapes only the immediately following byte, not the next
-    regex-matched delimiter (notably after a JSON \uXXXX escape). This is a
+    regex-matched delimiter (notably after a JSON Unicode escape). This is a
     bounded-memory lexical scan; stdlib still validates syntax and the
     existing schema/digests validate meaning.
     """

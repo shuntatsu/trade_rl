@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.evaluation.experiments.codec import _resolved_from_payload
 from trade_rl.evaluation.experiments.contracts.decision import (
     ExperimentDecision,
     ExperimentDecisionKind,
@@ -25,7 +26,10 @@ from trade_rl.evaluation.experiments.contracts.study import (
     StudyPlan,
     StudyProtocol,
 )
-from trade_rl.evaluation.experiments.errors import ContractViolationError
+from trade_rl.evaluation.experiments.errors import (
+    ArtifactIntegrityError,
+    ContractViolationError,
+)
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_FEATURE_NAMES,
@@ -83,6 +87,84 @@ def test_resolved_run_config_is_frozen_and_digest_stable() -> None:
     assert config.to_payload()["feature_names"] == ["signal", "volatility"]
     with pytest.raises(FrozenInstanceError):
         config.ppo_seed = 99  # type: ignore[misc]
+
+
+def test_resolved_run_config_accepts_full_gross_budget_boundary() -> None:
+    config = replace(resolved_config(), gross_budget=1.0)
+
+    assert config.gross_budget == 1.0
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        pytest.param(
+            "gross_budget",
+            0.0,
+            "gross_budget must be within \\(0, 1\\]",
+            id="zero-gross-budget",
+        ),
+        pytest.param(
+            "gross_budget",
+            -0.1,
+            "gross_budget must be within \\(0, 1\\]",
+            id="negative-gross-budget",
+        ),
+        pytest.param(
+            "gross_budget",
+            1.0000000000000002,
+            "gross_budget must be within \\(0, 1\\]",
+            id="gross-budget-above-one",
+        ),
+        pytest.param(
+            "initial_capital",
+            0.0,
+            "initial_capital must be finite and positive",
+            id="zero-initial-capital",
+        ),
+        pytest.param(
+            "initial_capital",
+            -1.0,
+            "initial_capital must be finite and positive",
+            id="negative-initial-capital",
+        ),
+    ),
+)
+def test_resolved_run_config_rejects_unexecutable_budget_contract(
+    field: str,
+    value: float,
+    message: str,
+) -> None:
+    with pytest.raises(ContractViolationError, match=message):
+        replace(resolved_config(), **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        pytest.param("gross_budget", 0.0, id="zero-gross-budget"),
+        pytest.param("gross_budget", -0.1, id="negative-gross-budget"),
+        pytest.param(
+            "gross_budget",
+            1.0000000000000002,
+            id="gross-budget-above-one",
+        ),
+        pytest.param("initial_capital", 0.0, id="zero-initial-capital"),
+        pytest.param("initial_capital", -1.0, id="negative-initial-capital"),
+    ),
+)
+def test_resolved_run_payload_reader_rejects_unexecutable_budget_contract(
+    field: str,
+    value: float,
+) -> None:
+    payload = resolved_config().to_payload()
+    payload[field] = value
+
+    with pytest.raises(
+        ArtifactIntegrityError,
+        match="violates resolved-run contract",
+    ):
+        _resolved_from_payload(payload, field="candidate_config")
 
 
 def test_study_plan_rejects_nondefault_supervised_forecast_horizon() -> None:

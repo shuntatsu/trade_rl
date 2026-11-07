@@ -229,7 +229,9 @@ class CandidateRunConfig:
             if self.pretrade_risk_config.drawdown_stop > 0.20:
                 raise ValueError("PPO drawdown stop must not exceed 20%")
         gross_budget = _require_finite(self.gross_budget, field="gross_budget")
-        initial_capital = _require_finite(
+        if not 0.0 < gross_budget <= 1.0:
+            raise ValueError("gross_budget must be within (0, 1]")
+        initial_capital = _require_positive_finite(
             self.initial_capital,
             field="initial_capital",
         )

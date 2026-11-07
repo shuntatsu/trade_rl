@@ -41,6 +41,11 @@ from trade_rl.evaluation.paper.predecessor import (
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt2-research-assurance-20261105.json"
 PACKET = ROOT / RELATIVE_PACKET
+# Launch commit of the frozen attempt-2 checkout (C:\trade_rl_frozen\attempt2-d649fe05):
+# the sealed run executes, and its 90-day ``cli status`` / ``cli evaluate`` run, from
+# this commit, not from ``main``. Recorded in the Issue #810 operations comment
+# 6689860260.
+ATTEMPT2_LAUNCH_COMMIT = "d649fe053f72af1ad31660ecaadb7de95532e58b"
 PINNED_DIGEST = "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
 AUTHORIZATION_URL = (
     "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178"
@@ -682,6 +687,29 @@ def test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store
     assert "trade_rl/__init__.py" in paths
     assert "trade_rl/simulation/accounting.py" in paths  # transitive, outside paper/
     assert not [path for path in paths if "market_store" in path]
+
+
+def test_launch_commit_runs_packet_bound_code() -> None:
+    """The frozen launch checkout runs exactly the code the packet is bound to.
+
+    Both commits are historical, so this binding is stable: ``main`` may evolve, but
+    the sealed run never executes it. Any difference in the packet-bound dependency
+    paths between ``implementation_head`` and the launch commit is a failure, not
+    something to relax.
+    """
+
+    head = _packet()["identity"]["implementation_head"]
+    for commit in (head, ATTEMPT2_LAUNCH_COMMIT):
+        if _git("cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
+            pytest.skip(f"{commit} is not available in this checkout (shallow clone)")
+    paths = paper_code_dependency_paths(head)
+    assert paths
+    changed = _git("diff", "--name-only", head, ATTEMPT2_LAUNCH_COMMIT, "--", *paths)
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.strip() == "", (
+        "the attempt-2 launch commit differs from the packet's implementation_head in "
+        "packet-bound code: " + changed.stdout
+    )
 
 
 def test_heads_pin_the_code_as_of_the_frozen_packet_revision() -> None:

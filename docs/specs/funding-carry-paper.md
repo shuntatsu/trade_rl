@@ -669,6 +669,11 @@ first; nothing here proves the comment exists or says what it should say.
    --expected-tip <TIP> --output <NEW_FILE>`. A pass retains
    `production_eligible=false`.
 
+The attempt-2 observation and its 90-day `cli status` / `cli evaluate` must run from the
+frozen checkout at launch commit `d649fe053f72`, not from
+`main`; `main` may evolve after launch, and a change to packet-bound code requires a new
+packet and a new seal before any new execution.
+
 The screen is invalidated by any `collection-failure.json`; an observation gap over
 180 seconds; a first observation more than 180 seconds after start; a last
 observation outside close plus 120 to 180 seconds; an unacknowledged cycle or
@@ -716,8 +721,11 @@ attempt-1 `not_established` limits, the threat model and the storage-probe step.
   `trade_rl/evaluation/paper/` plus every `trade_rl` module it imports transitively
   (lazy imports and ancestor `__init__.py` included), resolved at the pinned commit by
   the head-guard test
-  (`test_heads_name_one_final_implementation_commit_with_no_later_code_change`), which
-  asserts that none of those paths differ between the pinned commit and `HEAD`. Changes
+  (`test_heads_pin_the_code_as_of_the_frozen_packet_revision`), which asserts that none
+  of those paths differ between the pinned commit and the last commit that changed the
+  packet, and by `test_launch_commit_runs_packet_bound_code`, which asserts that they
+  are identical between the pinned commit and the frozen launch commit
+  `d649fe053f72`. Changes
   elsewhere in `trade_rl/`, for example `trade_rl/integrations/market_store/`, which the
   paper code does not import, do not touch it and need no re-pin. The test enforces this
   only on a checkout whose history contains the pinned commit; on a shallow clone,

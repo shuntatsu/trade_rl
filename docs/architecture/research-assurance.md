@@ -1602,7 +1602,12 @@ head guard verifies dependency code from the pinned implementation commit throug
 the **last commit that changed this packet**, not every later software HEAD.
 Later source edits do not retroactively rewrite historical evidence or authorize
 running the changed software using the old packet. Unrelated code, such as the
-market-data store, does not affect this historical binding. On 2026-11-05 the owner
+market-data store, does not affect this historical binding. The attempt-2 observation and its
+90-day `cli status` / `cli evaluate` must run from the frozen checkout at launch commit
+`d649fe053f72`, not from `main`: `main` may evolve after
+launch, `test_launch_commit_runs_packet_bound_code` pins that the packet-bound code is
+identical between `implementation_head` and that commit, and a change to packet-bound code
+requires a new packet and a new seal before any new execution. On 2026-11-05 the owner
 wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review, that is
 Antigravity/Gemini, was named as acceptable to the owner). The 2026-11-05 words did not
 say that a review from the same GitHub account suffices and alone did not authorize a

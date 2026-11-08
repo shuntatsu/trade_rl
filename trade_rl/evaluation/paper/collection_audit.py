@@ -233,12 +233,14 @@ def audit_registered_collection(
     if any(count > MAX_FAILED_CAPTURES_PER_SLOT for count in failed_per_slot.values()):
         reasons.append("retry_allowance_exceeded")
 
-    # Independent derivation of the skipped slots: a slot after the screen start that no
-    # command-bearing cycle covers never produced an observation, whether or not the
-    # collector registered it. A cycle that recorded the frozen gap is excluded.
-    last_slot = max(slot_of.values(), default=0)
-    required = set(range(1, last_slot + 1)) - command_slots
-    previous_slot = 0
+    # Independent derivation of the skipped slots: any slot from slot 0 up to the last
+    # cycle that no command-bearing cycle covers never produced an observation, whether
+    # or not the collector registered it (the engine anchors the last command at the
+    # screen start, so slot 0 is not exempt). A cycle that recorded the frozen gap is
+    # excluded: the gap is already a permanent quality failure. No cycle, no slot.
+    last_slot = max(slot_of.values(), default=-1)
+    required = set(range(0, last_slot + 1)) - command_slots
+    previous_slot = -1
     for cycle_id, slot in cycles:
         if cycle_id in gap_cycles:
             required -= set(range(previous_slot + 1, slot))

@@ -338,8 +338,9 @@ class PaperCollector:
             return
         previous = self._control.previous_cycle_start(self._cycle_id)
         # With no earlier cycle the engine anchors the last command at the screen
-        # start, so the slots between slot 0 and this one never ran either.
-        first = 1 if previous is None else self._slot_of(previous) + 1
+        # start, so every slot from slot 0 up to this one never ran (Issue #810
+        # comment 6717103371: slots before the first cycle count as skipped slots).
+        first = 0 if previous is None else self._slot_of(previous) + 1
         missed = list(range(first, self._slot))
         if missed:
             self._check_budgets(

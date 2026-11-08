@@ -13,6 +13,7 @@ from typing import Any, TypedDict
 
 from trade_rl._validation import require_aware_datetime
 from trade_rl.evaluation.paper.account import PaperAccount, PaperSettings, timestamp
+from trade_rl.evaluation.paper.collection_policy import CADENCE_SECONDS
 from trade_rl.evaluation.paper.predecessor import (
     _ATTEMPT2_SEAL_TOKEN,
     LINEAGE_V3_SCHEMA,
@@ -376,8 +377,9 @@ def collect_until_finished(
             return result
         beat("cycle_completed")
         now = read_clock()
-        slot = max(0, math.floor((now - collector.start_at).total_seconds() / 60) + 1)
-        due = min(end, collector.start_at + timedelta(seconds=slot * 60))
+        elapsed = (now - collector.start_at).total_seconds()
+        slot = max(0, math.floor(elapsed / CADENCE_SECONDS) + 1)
+        due = min(end, collector.start_at + timedelta(seconds=slot * CADENCE_SECONDS))
         while (remaining := (due - read_clock()).total_seconds()) > 0:
             sleep(min(60, heartbeat_interval_seconds, remaining))
             beat("sleeping")

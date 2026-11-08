@@ -289,6 +289,30 @@ def test_shallow_non_object_receipt_is_refused_before_json_decode(
         study._decode_incomplete_receipt(raw)
 
 
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        b'{"pairs":[' + b"0," * 100_000 + b"0]}",
+        b'{"pairs":[{"note":"quoted } ] { [ delimiters"},'
+        + b"0," * 100_000
+        + b"0]}",
+        b'{"pairs" : [[],0]}',
+    ),
+)
+def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes
+) -> None:
+    """A broad pairs array of non-records must not reach json.loads."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("non-object pair members reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pairs must contain JSON objects"):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

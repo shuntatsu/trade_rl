@@ -1,6 +1,6 @@
 # Trade RL Human Guide
 
-This guide is non-authoritative. Technical truth lives in `docs/architecture/*`, `docs/research/current-status.md`, current source, and contract tests.
+This guide is **non-authoritative**. Start with the [current documentation index](../docs/README.md); technical truth remains in [architecture](../docs/architecture/lean-core.md), [research status](../docs/research/current-status.md), current source, and contract tests. Guide changes must pass the source-fingerprint/content contract separately from the repository-wide Markdown link check.
 
 公開URL: <https://shuntatsu.github.io/trade_rl/>
 

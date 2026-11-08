@@ -133,9 +133,7 @@ def tracked_markdown(root: Path) -> tuple[Path, ...]:
         capture_output=True,
     )
     paths = [
-        Path(entry.decode("utf-8"))
-        for entry in result.stdout.split(b"\0")
-        if entry
+        Path(entry.decode("utf-8")) for entry in result.stdout.split(b"\0") if entry
     ]
     paths.sort()
     if not paths:

@@ -23,7 +23,7 @@ def test_inline_and_reference_links_resolve_without_network(tmp_path: Path) -> N
         tmp_path,
         "docs/start.md",
         "[Source](README.md#section) ![image](../guide/content/page.md)\n"
-        "[reference]: <README.md> \"description\"\n"
+        '[reference]: <README.md> "description"\n'
         "[Web](https://example.invalid/path) [Mail](mailto:x@example.invalid)\n",
     )
     checked, problems = check_links(tmp_path, (Path("docs/start.md"),))

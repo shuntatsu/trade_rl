@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -13,6 +13,8 @@ from trade_rl.integrations.binance.forward import (
     _FUTURES,
     _SPOT,
     _SYMBOLS,
+    MAX_CAPTURE_SPAN_SECONDS,
+    MAX_CONSUME_LATENCY_MS,
     _book,
     _epoch,
     _fresh,
@@ -114,14 +116,14 @@ def _responses(
             raise ValueError("response clock moved backwards")
         if (
             not 0 <= elapsed <= 5
-            or not 0 <= span <= 10
+            or not 0 <= span <= MAX_CAPTURE_SPAN_SECONDS
             or span + 1e-9 < previous_span + elapsed
         ):
             raise ValueError("response monotonic duration or capture span is invalid")
         if (
             abs((received - requested).total_seconds() - elapsed) > 1
             or abs((received - started).total_seconds() - span) > 1
-            or (received - started).total_seconds() > 10
+            or (received - started).total_seconds() > MAX_CAPTURE_SPAN_SECONDS
         ):
             raise ValueError("response wall and monotonic clocks disagree")
         result[label] = (_decode(raw), received)
@@ -140,10 +142,15 @@ def read_forward_snapshot(
     expected_sha256: str | None = None,
     as_of: datetime | None = None,
 ) -> dict[str, Any]:
-    """Reconstruct captured evidence; optionally require freshness at consumption.
+    """Reconstruct captured evidence; optionally bound the consumption delay.
 
-    Omitting as_of permits historical audit only. An expected digest binds the
-    manifest to a caller's journal, rather than merely verifying internal hashes.
+    Every quote must be fresh at capture completion (five seconds old, one second
+    ahead at most). as_of additionally requires 0 <= as_of - completed_at <=
+    MAX_CONSUME_LATENCY_MS: quotes are not re-aged against the later decision
+    time, so a capture that passed its own checks stays consumable for that
+    bounded delay. Omitting as_of permits historical audit only. An expected
+    digest binds the manifest to a caller's journal, rather than merely
+    verifying internal hashes.
     """
     destination = Path(root)
     snapshot = _manifest(
@@ -235,6 +242,6 @@ def read_forward_snapshot(
         consumed = _aware_utc(as_of, field="as_of")
         if consumed < completed:
             raise ValueError("snapshot has not been received at consumption time")
-        for timestamp in quote_times:
-            _fresh(timestamp, int(consumed.timestamp() * 1000))
+        if consumed - completed > timedelta(milliseconds=MAX_CONSUME_LATENCY_MS):
+            raise ValueError("snapshot consumed too late after capture")
     return snapshot

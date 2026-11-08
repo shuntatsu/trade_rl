@@ -956,8 +956,10 @@ collected.
   capture and again at decision time; a capture finished after the hour is registered
   as unused and never decided on) is skipped: it appends no command and is registered
   once in table `skips` with its reason. A slot that never ran, between two cycles or
-  between the screen start and the first cycle (the engine anchors the last command at
-  the screen start), is registered as a skipped slot too, except when the cycle records
+  between the screen start and the first cycle, slot 0 included (the engine anchors the
+  last command at the screen start; the seal-candidate pull request corrected the
+  collector, which had exempted slot 0 at this packet's head), is registered as a
+  skipped slot too, except when the cycle records
   the frozen observation gap, which is already a permanent quality failure. This is
   stricter than the registered text and consistent with the gap arithmetic; it is
   ratified in Issue #810 comment 6717103371 (the planner's record relaying the
@@ -1020,8 +1022,8 @@ sealed, launched, probed or collected, and the seal, start, authorization commen
 launch commit stay `PENDING_OWNER_AUTHORIZATION`. The seal-candidate research-assurance
 packet is
 [`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json)
-(digest `27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716`, status **UNREVIEWED**, `economic_execution_authorized=false`;
-`protocol_head` and `implementation_head` both `f54e7ec645f3dc77178e0f3519de8a9fa2fb2928`, the last commit that changes
+(digest `3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+`protocol_head` and `implementation_head` both `d0a76538f77a5a99825fc0c698a27153d8181933`, the last commit that changes
 `trade_rl/` in the pull request that adds it). The pre-registration and implementation
 packets stay frozen.
 `tests/evaluation/test_paper_attempt3_seal_candidate_packet.py` imports the constants
@@ -1047,14 +1049,16 @@ diverge. The packet is not a seal authorization: a seal still needs everything u
   captures; every cycle without a command owns a registered skip of its own slot; every
   skip has a registered reason (`missed_slot`, `rules_expired`, `rules_unavailable`,
   `snapshot_unavailable`, `execution_capture_failed`) and an existing owner cycle; the
-  skipped slots re-derived from the cycle roster (a slot after the start that no cycle
-  with a command covers is skipped whether or not it was registered, except the slots a
-  recorded observation gap already condemns) are all registered; and the union stays
+  skipped slots re-derived from the cycle roster (any slot from slot 0 up to the last
+  cycle that no cycle with a command covers is skipped whether or not it was registered,
+  so a collector that starts late leaves slot 0 counted; the slots a recorded
+  observation gap already condemns are excluded) are all registered; and the union stays
   inside the budgets (1 consecutive, 2 per 60 slots, 129 total). A permanent marker of any class
   (D, I or B) rejects. A root with no skipped slot audits exactly like screen v2 (tested
   over the v2 defects). The audit verifies registration, classes, budgets and the per-slot
-  bound; the retry delay and start window are enforced by the collector at run time and
-  are not audited.
+  bound. Registry rows carry no timestamps, so the retry delay and the retry start
+  window cannot be audited after the run: only the collector enforces them, at run
+  time. This limit belongs to the G3 claim boundary.
 * **Skip report.** The v3 assessment (`carry_paper_assessment_v3`) carries
   `collection_report` (`carry_paper_collection_report_v1`): the skip count, the slots,
   their reasons and the distribution of the skipped slot starts by distance to the nearest

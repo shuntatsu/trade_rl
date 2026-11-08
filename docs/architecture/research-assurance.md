@@ -1695,8 +1695,8 @@ does not extend to attempt 3.
 The pre-registration and implementation packets stay frozen. The three parts they list
 as missing are built by a third pull request, with a new packet
 `report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json` (digest
-`27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
-`implementation_head` are both `f54e7ec645f3`, the last commit that changes `trade_rl/` in
+`3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
+`implementation_head` are both `d0a76538f77a`, the last commit that changes `trade_rl/` in
 that pull request. (G1/G3) The only changed boundary is evidence: `carry_paper_screen_v3`
 keeps every economic field of `carry_paper_screen_v2` (one shared constructor, compared
 byte for byte by test) and reuses the unchanged measurement and `screen_reasons` code
@@ -1706,11 +1706,14 @@ a failed capture or skipped slot is accepted only when the collector registered 
 has a registered class, and 1 consecutive, 2 per 60 slots and 129 total hold. (G2) The
 evaluator audit (`paper/collection_audit.py`) is tested against the real collector, journal
 and control database with a fake venue and against hand-built registries: it re-derives
-the skipped slots from the cycle roster, so an unregistered skip or a slot that never ran
-cannot hide, it requires every failed or unused capture to be a registered row that
+the skipped slots from the cycle roster from slot 0 on (the collector, which had exempted
+slot 0, is corrected to register it as the ratified reading of Issue #810 comment
+6717103371 requires), so an unregistered skip or a slot that never ran cannot hide, it requires every failed or unused capture to be a registered row that
 matches its evidence and was not consumed, it bounds the failed captures of one slot, it
 rejects a permanent marker of any class, and it audits a root without skipped slots
-exactly like screen v2. Lineage v4 names attempt 2 as an INVALID predecessor (Issue #810
+exactly like screen v2. Registry rows carry no timestamps, so the retry delay and start
+window are enforced by the collector at run time only and are not audited (a G3 limit).
+Lineage v4 names attempt 2 as an INVALID predecessor (Issue #810
 comment 6711911740, a software defect; no economic field) and records that the attempt-2
 seal is not reused; its identity values are read from the preserved root by the v1 reader
 (read-only) and re-verified, with the existence of the failure marker, on every collector

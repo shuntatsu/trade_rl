@@ -47,7 +47,7 @@ RELATIVE_PACKET = (
     "report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json"
 )
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716"
+PINNED_DIGEST = "3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781"
 PREREG_PACKET = "report/issue810-carry-attempt3-research-assurance-20261108.json"
 PREREG_DIGEST = "29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10"
 IMPL_PACKET = (
@@ -549,3 +549,33 @@ def test_heads_bind_the_packet_to_the_built_screen_audit_and_lineage() -> None:
         "packet-bound code changed after implementation_head; a new packet and digest "
         "are required: " + changed.stdout
     )
+
+
+def test_slot_zero_and_the_unaudited_retry_timing_are_stated_everywhere() -> None:
+    packet = _packet()
+    limitations = " ".join(packet["thesis"]["limitations"].split())
+    decision = " ".join(packet["claims"]["decision_rule"].split())
+    spec = " ".join(_spec_section().split())
+    oracle = " ".join(
+        packet["mechanism"]["independent_oracles"]["evidence"][
+            "known_limitations"
+        ].split()
+    )
+    for name, text in (
+        ("limitations", limitations),
+        ("decision_rule", decision),
+        ("spec", spec),
+        ("oracle", oracle),
+    ):
+        assert "no timestamps" in text, name
+        assert "not audited" in text or "cannot be audited" in text, name
+    for name, text in (("limitations", limitations), ("spec", spec)):
+        assert "slot 0" in text, name
+    assert "6717103371" in limitations
+    # The collector and the audit agree on slot 0 (behaviour is tested elsewhere).
+    first = inspect.getsource(
+        __import__(
+            "trade_rl.evaluation.paper.supervisor", fromlist=["PaperCollector"]
+        ).PaperCollector._register_missed_slots
+    )
+    assert "first = 0 if previous is None" in first

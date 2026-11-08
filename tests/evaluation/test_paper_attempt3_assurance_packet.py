@@ -51,7 +51,7 @@ IMPLEMENTATION_PACKET_DIGEST = (
 )
 # The seal-candidate packet is named by the same documents as well.
 SEAL_CANDIDATE_PACKET_DIGEST = (
-    "27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716"
+    "3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781"
 )
 ATTEMPT1_PROTOCOL_DIGEST = (
     "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"

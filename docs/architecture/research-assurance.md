@@ -1594,15 +1594,31 @@ empty); the packet is committed in a later descendant, because a packet in the t
 cannot name the commit that contains it. The PR head is therefore not the
 `implementation_head`, and `tools.research_assurance_github`, which requires the PR head
 and the review `commit_id` to equal `implementation_head`, cannot report PASS for an
-in-tree packet. A review must name this digest and these heads, and any later `trade_rl/`
-change (including a sync merge of `main`) needs a new `implementation_head`, digest and
-review. On 2026-11-05 the owner
-wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review, that is
-Antigravity/Gemini, is acceptable). The 2026-11-05 words alone did not authorize a
+in-tree packet. A review must name this digest and these heads. Authorizing a new execution on
+later code that the packet depends on (`trade_rl/evaluation/paper/` and transitive
+`trade_rl` imports) requires a **new packet**, `implementation_head`, digest and review;
+the frozen historical packet must not be silently re-pinned. The full-history
+head guard verifies dependency code from the pinned implementation commit through
+the **last commit that changed this packet**, not every later software HEAD.
+Later source edits do not retroactively rewrite historical evidence or authorize
+running the changed software using the old packet. Unrelated code, such as the
+market-data store, does not affect this historical binding. The attempt-2 observation and its
+90-day `cli status` / `cli evaluate` must run from the frozen checkout at launch commit
+`d649fe053f72`, not from `main`: `main` may evolve after
+launch, `test_launch_commit_runs_packet_bound_code` pins that the packet-bound code is
+identical between `implementation_head` and that commit, and a change to packet-bound code
+requires a new packet and a new seal before any new execution. On 2026-11-05 the owner
+wrote "別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review, that is
+Antigravity/Gemini, was named as acceptable to the owner). The 2026-11-05 words did not
+say that a review from the same GitHub account suffices and alone did not authorize a
 same-principal exception. In corrected Issue #810 comment 6680576996 the owner
-separately approved an attempt-2-only exception: a review by a model different from
-every implementation model (Claude Haiku 5.5), posted from the same GitHub account,
-satisfies sealing condition (a). It is operator-enforced (sealing code does not call the
+separately approved an attempt-2-only exception, and only this: a review posted from the
+same GitHub account is acceptable for attempt 2 when the reviewer model differs from
+every implementation model (Claude Haiku 5.5) and a valid receipt for the exact packet
+digest and heads exists; with that, it satisfies sealing condition (a). The packet's
+`next_authorized_action` text, which paraphrases the 2026-11-05 words as the reviewing
+account not mattering, is frozen provenance (its digest is pinned and it is not edited
+here) and is to be read with this narrower meaning. The exception is operator-enforced (sealing code does not call the
 research tool) and is **not** principal independence.
 `tools.research_assurance_github` still rejects same-principal reviews and does not
 report PASS for this route, so the packet stays UNREVIEWED and no PASS is claimed. Issue #810 records:
@@ -1613,6 +1629,40 @@ G0 search premise, owner re-approval and same-account review exception), plus th
 original comment 6673566542 for the start time and Task Scheduler jobs; neither
 replaces the exact-packet research review. The packet authorizes neither a seal, a
 launch, the storage probe nor any economic run. See `docs/specs/funding-carry-paper.md`.
+
+#### Attempt 3 author packet (pre-implementation pre-registration)
+
+Attempt 2 ended INVALID on 2026-11-07 from a snapshot-reader timing defect (Issue #810
+comment 6711911740, since fixed on main); it is not resumed, repaired or evaluated. The attempt-3
+packet `report/issue810-carry-attempt3-research-assurance-20261108.json` (digest
+`29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status UNREVIEWED, no PASS claimed) pre-registers, result-blind and
+before any attempt-3 data: (G0) the counter-hypotheses that attempt 3 is a restart
+selected on an outcome, that staler accepted quotes flatter fills, that skipped slots
+select calm markets and that tolerances are fitted after the fact, with the cheapest
+falsifiers and stop rule; (G1) the mechanism chain with the timing tolerances
+(`MAX_QUOTE_AGE_MS`, `MAX_QUOTE_FUTURE_SKEW_MS`, `MAX_REQUEST_SECONDS`,
+`MAX_CAPTURE_SPAN_SECONDS`, `MAX_CONSUME_LATENCY_MS`, the paper decision window and the
+depth receipt age) bound to the source by test, and a collection-failure, retry
+and skipped-slot policy adopted under the owner's delegation (Issue #810 comment
+6715501420), including the classification of a slot whose held rules are older than one
+hour as a counted skipped slot; (G2) the independent oracles
+for the changed time, state and evidence boundaries, with the policy's state and
+evidence oracles listed as missing evidence because the policy is not implemented; (G3)
+claim level `software_validity`, `documentation_only`, no economic claim. Its
+`implementation_head` (`ec7acfd1f7ca`) holds no policy code, so this packet cannot
+support a seal. The owner delegated the open decisions on 2026-11-08 (Issue #810 comment
+6715501420, relayed by the planner): the collection policy is adopted as proposed, the
+same-account receipt route of comment 6680576996 (a fresh Claude Haiku 5.5 agent, a
+different model from the planner and implementer, posts a pull request review from the
+shuntatsu account) is extended to attempt 3 as an operator-enforced route that is not
+different-principal independence, the policy is implemented in a separate pull request
+with a second review, and the stale-held-rules and calm-period side effects are accepted
+in the G3 boundary: no claim beyond the retained slots, and every result reports the skip
+count with its funding-proximity distribution. The predecessor-root-unavailable G0
+exception (Issue #810 comment 6680576996) does not extend to attempt 3 and the attempt-2
+root is available, so ordinary G0 predecessor verification applies. The comment authorizes
+no seal or launch; the seal, start, authorization comment and launch commit are
+`PENDING_OWNER_AUTHORIZATION`. See `docs/specs/funding-carry-paper.md`.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 

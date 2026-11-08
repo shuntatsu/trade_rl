@@ -1308,7 +1308,7 @@ class MarketExecutor:
             rebalance_events=fill.rebalance_events,
             fill_ratio=(
                 1.0
-                if requested_notional <= _TOLERANCE
+                if requested_notional == 0.0
                 else min(1.0, fill.filled_notional / requested_notional)
             ),
             max_participation=fill.max_participation,

@@ -1202,8 +1202,8 @@ sealed attempt-2 start exists (the owner has chosen `2026-11-07T00:00:00Z`, not 
 (digest `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`, status UNREVIEWED). It restates the existing frozen
 screen and lineage without changing any criterion. Sealing attempt 2 still requires an
 independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
-"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (the reviewing account does not matter; an agy review is acceptable);
-those words alone did not authorize same-principal review. The owner explicitly
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review was named as acceptable);
+those words did not say that a same-account review suffices and alone did not authorize it. The owner explicitly
 made an exception for attempt 2 only in corrected comment 6680576996: a review by a
 model different from every implementation model, posted from the shuntatsu GitHub
 account, satisfies sealing condition (a). It is operator-enforced (sealing code does
@@ -1246,6 +1246,8 @@ the machine research_assurance_github checker still rejects same-principal
 reviews and does not report PASS. The research-assurance author packet remains
 UNREVIEWED and no PASS is claimed; no seal, collection, FS1/unused/final or live authority
 follows from this software/documentation state.
+
+2026-11-08: funding-carry attempt 2 (screen start `2026-11-07T00:00:00Z`) is **INVALID**: its collector halted at `00:59:07Z` (cycle 61) with `source timestamp is stale or in the future` because `read_forward_snapshot` re-applied the five-second per-quote age bound at consumption time to a capture that had passed it at completion (root cause on Issue #810, comment 6711911740; since fixed on main by separating the quote-age bound from the ten-second consume-latency bound). The run is not repaired, resumed or evaluated. Attempt 3 is **pre-registered only**: author packet [`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json) (digest `29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status UNREVIEWED, no PASS claimed) fixes the timing tolerances to the source constants (quote age 5000 ms, future skew 1000 ms, request 5 s, capture span 10 s, consume latency 10000 ms, worst-case mark age 15 s), adopts a bounded collection-failure, retry and skipped-slot policy under the owner's 2026-11-08 delegation (Issue #810 comment 6715501420; not implemented, the source still halts on the first failure; a slot with held rules older than one hour is a counted skipped slot and no decision uses such rules; accepted side effects: no claim beyond retained slots, results report the skip count with its funding-proximity distribution), and declares a new run identity (`C:\trade_rl_runs\attempt3\...`), a new seal and no reuse of the attempt-2 seal. The seal, start time, authorization comment and launch commit are `PENDING_OWNER_AUTHORIZATION`; no seal, storage probe, launch or network access exists, and the delegation authorizes none. The attempt-2 same-account receipt route is extended to attempt 3 (operator-enforced, no PASS claimed); the predecessor-root-unavailable G0 exception is not. No attempt-1 or attempt-2 outcome or timing metadata was read or is used, the economic screen is unchanged, and the packet cannot support a seal because its `implementation_head` holds no policy code. Details: `docs/specs/funding-carry-paper.md`.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

@@ -44,6 +44,22 @@ from trade_rl.integrations.market_store.ingest import (
 from trade_rl.integrations.market_store.plan import IngestionPlan
 
 HOUR_MS = 3_600_000
+PLACEHOLDER_OPEN_MS = 1_608_559_200_000  # 2020-12-21 14:00 UTC
+# the real BTCUSDT row from the public spot monthly archive BTCUSDT-1h-2020-12.zip
+REAL_BTC_PLACEHOLDER = [
+    "1608559200000",
+    "22646.53000000",
+    "22646.53000000",
+    "22646.53000000",
+    "22646.53000000",
+    "0.00000000",
+    "1608558440521",
+    "0.00000000",
+    "0",
+    "0.00000000",
+    "0.00000000",
+    "0",
+]
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 NOW = datetime(2026, 10, 30, 12, tzinfo=UTC)
 

@@ -2238,6 +2238,10 @@ def _decode_incomplete_receipt(
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
     _preflight_receipt_json_depth(raw)
+    # A canonical failure receipt is always a root object. Reject broad arrays
+    # and other non-objects before the JSON decoder can allocate their elements.
+    if not raw.startswith(b"{"):
+        raise ValueError("failure receipt must contain a JSON object")
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:

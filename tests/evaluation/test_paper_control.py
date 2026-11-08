@@ -97,3 +97,70 @@ def test_legacy_pending_rows_still_halt_open_and_remain_unacknowledged(tmp_path)
             )
         )
         assert "cycles_incomplete_idx" in plan
+
+
+def test_registry_tables_are_added_to_an_existing_database_and_survive_reopen(tmp_path):
+    root = tmp_path / "collection"
+    _create_legacy_control(root, completed_cycles=2)
+
+    control = CollectionControl(root, _DIGEST)
+    assert control.skipped_slots() == []
+    cycle = control.begin(datetime(2026, 1, 1, tzinfo=UTC))
+    ordinal = control.register_attempt(
+        cycle,
+        slot=7,
+        purpose="snapshot",
+        path="sources/2026-01-01/a",
+        outcome="failed",
+        error_type="TimeoutError",
+        error="x" * 900,
+    )
+    assert ordinal == 1
+    assert control.register_skips(cycle, [7], "snapshot_unavailable") == [7]
+    control.finish(cycle)
+    control.close()
+
+    reopened = CollectionControl(root, _DIGEST)
+    assert reopened.skipped_slots() == [7]
+    row = reopened.connection.execute("SELECT error, ordinal FROM attempts").fetchone()
+    assert len(row[0]) == 500 and row[1] == 1
+    reopened.close()
+
+
+def test_a_capture_directory_is_registered_once_and_the_first_skip_reason_wins(
+    tmp_path,
+):
+    root = tmp_path / "collection"
+    _create_legacy_control(root, completed_cycles=0)
+    control = CollectionControl(root, _DIGEST)
+    cycle = control.begin(datetime(2026, 1, 1, tzinfo=UTC))
+    kwargs = dict(slot=1, purpose="rules", outcome="failed", error_type="E", error="e")
+    assert control.register_attempt(cycle, path="sources/d/a", **kwargs) == 1
+    assert control.register_attempt(cycle, path="sources/d/b", **kwargs) == 2
+    with pytest.raises(sqlite3.IntegrityError):
+        control.register_attempt(cycle, path="sources/d/a", **kwargs)
+    with pytest.raises(ValueError, match="outcome"):
+        control.register_attempt(
+            cycle, path="sources/d/c", **{**kwargs, "outcome": "ok"}
+        )
+
+    assert control.register_skips(cycle, [3, 4], "missed_slot") == [3, 4]
+    assert control.register_skips(cycle, [4, 5], "snapshot_unavailable") == [3, 4, 5]
+    reasons = dict(
+        control.connection.execute("SELECT slot, reason FROM skips").fetchall()
+    )
+    assert reasons == {3: "missed_slot", 4: "missed_slot", 5: "snapshot_unavailable"}
+    control.close()
+
+
+def test_previous_cycle_start_is_the_prior_acknowledged_or_open_cycle(tmp_path):
+    root = tmp_path / "collection"
+    _create_legacy_control(root, completed_cycles=0)
+    control = CollectionControl(root, _DIGEST)
+    first_at = datetime(2026, 1, 1, tzinfo=UTC)
+    first = control.begin(first_at)
+    control.finish(first)
+    second = control.begin(first_at + timedelta(seconds=60))
+    assert control.previous_cycle_start(first) is None
+    assert control.previous_cycle_start(second) == first_at
+    control.close()

@@ -10,6 +10,9 @@ on:
       - tools/tier_d_nonrl/tier_d_process_containment.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
       - trade_rl/evaluation/experiments/**
+      - trade_rl/evaluation/dev_realdata_study/**
+      - trade_rl/data/market.py
+      - tools/tier_d_nonrl/tier_d_process_tree.py
       - pyproject.toml
       - uv.lock
   push:
@@ -21,6 +24,9 @@ on:
       - tools/tier_d_nonrl/tier_d_process_containment.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
       - trade_rl/evaluation/experiments/**
+      - trade_rl/evaluation/dev_realdata_study/**
+      - trade_rl/data/market.py
+      - tools/tier_d_nonrl/tier_d_process_tree.py
       - pyproject.toml
       - uv.lock
   workflow_dispatch:

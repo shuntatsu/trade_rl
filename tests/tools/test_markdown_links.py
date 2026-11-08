@@ -177,3 +177,31 @@ def test_type_seven_inline_html_not_block_if_interrupts_paragraph() -> None:
         (3, "present.md")
     ]
     assert destinations("<span>\n[not-link](missing.md)\n</span>\n") == []
+
+
+@pytest.mark.parametrize("marker", ["-", "*", "+", "1.", "12.", "1)"])
+def test_list_marker_indented_code_is_not_a_link(marker: str) -> None:
+    assert destinations(f"{marker}     [literal](missing.md)\n") == []
+    assert destinations(f"{marker}    [real](present.md)\n") == [(1, "present.md")]
+
+
+def test_blank_line_ends_paragraph_and_code_span() -> None:
+    # Unlike a single soft line break, the blank line ends the inline block.
+    assert destinations("`\n[real](present.md)\n\n`\n") == [(2, "present.md")]
+
+
+@pytest.mark.parametrize("marker", ["-", "1.", "12."])
+def test_tab_indented_list_code_respects_visual_columns(marker: str) -> None:
+    assert destinations(f"{marker}\t\t[literal](missing.md)\n") == []
+    assert destinations(f"{marker}\t[real](present.md)\n") == [(1, "present.md")]
+
+
+@pytest.mark.parametrize("marker", ["0.", "2.", "12.", "999."])
+def test_non_one_ordered_marker_cannot_interrupt_paragraph(marker: str) -> None:
+    assert destinations(f"Before\n{marker}     [real](present.md)\n") == [
+        (2, "present.md")
+    ]
+
+
+def test_one_ordered_marker_may_interrupt_paragraph_as_code() -> None:
+    assert destinations("Before\n001.     [literal](missing.md)\n") == []

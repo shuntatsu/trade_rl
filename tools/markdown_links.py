@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _QUOTE = re.compile(r"^ {0,3}(?:>[ \t]?)+")
+_LIST_INDENTED_CODE = re.compile(r"^ {0,3}(?:[-+*]|(?P<number>[0-9]{1,9})[.)]) {5,}\S")
 _HTML_START = re.compile(r"^ {0,3}</?([A-Za-z][A-Za-z0-9-]*)(?:[ \t]|/?>)")
 _HTML_STANDALONE = re.compile(
     r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?/?>[ \t]*$"
@@ -171,6 +172,16 @@ def _mask_block_code(markdown: str) -> str:
                 and re.search(rf"</{html_raw_tag}[ \t]*>", logical, re.IGNORECASE)
             )
             output.append(_blank(raw))
+            paragraph = False
+            continue
+        list_code = _LIST_INDENTED_CODE.match(logical.expandtabs(4))
+        if list_code is not None and (
+            not paragraph
+            or list_code.group("number") is None
+            or int(list_code.group("number")) == 1
+        ):
+            output.append(_blank(raw))
+            indented = True
             paragraph = False
             continue
         if (logical.startswith("    ") or logical.startswith("\t")) and (

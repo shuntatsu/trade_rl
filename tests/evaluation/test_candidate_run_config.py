@@ -814,3 +814,21 @@ def test_forecast_switch_cost_rejects_invalid_values(value: object) -> None:
     raw["forecast_switch_cost"] = value
     with pytest.raises(ValueError, match="forecast_switch_cost"):
         parse_candidate_run_config(raw)
+
+
+@pytest.mark.parametrize("field", ("gross_budget", "initial_capital"))
+@pytest.mark.parametrize("direct", (False, True), ids=("json-parser", "constructor"))
+def test_candidate_run_huge_integer_fails_with_contract_error(
+    field: str, direct: bool
+) -> None:
+    """Invalid 1,000-digit integers must not leak a raw OverflowError."""
+    huge = 10**1000
+    raw = raw_config()
+    if direct:
+        valid = parse_candidate_run_config(raw)
+        operation = lambda: replace(valid, **{field: huge})
+    else:
+        raw[field] = huge
+        operation = lambda: parse_candidate_run_config(raw)
+    with pytest.raises(ValueError, match=f"{field} must be a finite number"):
+        operation()

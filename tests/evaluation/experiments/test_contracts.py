@@ -529,3 +529,22 @@ def test_study_freeze_no_winner_forbids_selected_fields() -> None:
             frozen_by="researcher",
             frozen_at=datetime(2026, 9, 9, tzinfo=UTC),
         )
+
+
+@pytest.mark.parametrize("field", ("gross_budget", "initial_capital"))
+def test_resolved_run_huge_integer_fails_with_contract_error(field: str) -> None:
+    """The typed contract owns invalid conversion, not native float overflow."""
+    with pytest.raises(ContractViolationError, match=f"{field} must be finite"):
+        replace(resolved_config(), **{field: 10**1000})
+
+
+@pytest.mark.parametrize("field", ("gross_budget", "initial_capital"))
+def test_resolved_reader_rejects_huge_integer_as_integrity_error(
+    field: str,
+) -> None:
+    payload = resolved_config().to_payload()
+    payload[field] = 10**1000
+    with pytest.raises(
+        ArtifactIntegrityError, match="violates resolved-run contract"
+    ):
+        _resolved_from_payload(payload, field="candidate_config")

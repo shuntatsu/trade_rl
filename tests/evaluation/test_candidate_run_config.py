@@ -824,11 +824,9 @@ def test_candidate_run_huge_integer_fails_with_contract_error(
     """Invalid 1,000-digit integers must not leak a raw OverflowError."""
     huge = 10**1000
     raw = raw_config()
-    if direct:
-        valid = parse_candidate_run_config(raw)
-        operation = lambda: replace(valid, **{field: huge})
-    else:
-        raw[field] = huge
-        operation = lambda: parse_candidate_run_config(raw)
     with pytest.raises(ValueError, match=f"{field} must be a finite number"):
-        operation()
+        if direct:
+            replace(parse_candidate_run_config(raw), **{field: huge})
+        else:
+            raw[field] = huge
+            parse_candidate_run_config(raw)

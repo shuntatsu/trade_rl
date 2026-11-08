@@ -104,3 +104,21 @@ def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
         "tests/evaluation/test_paper_attempt2_assurance_packet.py",
     ):
         assert source.count("      - " + path + "\n") == 2
+
+def test_optional_jobs_require_exact_executed_case_counts() -> None:
+    """A green pytest exit is insufficient if selected tests are all skipped."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    for name, next_name, report in (
+        ("windows-job-object", "forecast-gbm", "m1-windows.xml"),
+        ("forecast-gbm", "history-provenance", "m1-lightgbm.xml"),
+    ):
+        job = _job(source, name, next_name)
+        assert "--junitxml=" in job
+        assert f"python -m tools.ci_exact_pytest_counts {report} 2" in job
+    # Guard changes must retrigger on PRs and on main, not just during the
+    # initial workflow introduction.
+    for path in (
+        "tools/ci_exact_pytest_counts.py",
+        "tests/tools/test_ci_exact_pytest_counts.py",
+    ):
+        assert source.count("      - " + path + "\n") == 2

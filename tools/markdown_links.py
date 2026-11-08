@@ -14,6 +14,61 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_QUOTE = re.compile(r"^ {0,3}(?:>[ \t]?)+")
+_HTML_START = re.compile(r"^ {0,3}</?([A-Za-z][A-Za-z0-9-]*)(?:[ \t]|/?>)")
+_HTML_STANDALONE = re.compile(
+    r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?/?>[ \t]*$"
+)
+_HTML_BLOCK_TAGS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "iframe",
+    "legend",
+    "li",
+    "main",
+    "menu",
+    "nav",
+    "ol",
+    "p",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+}
+_HTML_RAW_TAGS = {"pre", "script", "style", "textarea"}
 _REFERENCE = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>]+>|\S+)")
 _ALLOWED_SCHEMES = {"http", "https", "mailto", "tel"}
 
@@ -32,21 +87,59 @@ def _blank(text: str) -> str:
 
 
 def _mask_block_code(markdown: str) -> str:
-    """Mask fenced and indented code without hiding paragraph continuations."""
+    """Mask Markdown fenced/indented code and raw HTML block bodies.
+
+    Preserve original bytes on unmasked lines, and line separators everywhere.
+    Blockquote prefixes are inspected only to determine literal-block context.
+    """
     output: list[str] = []
     fence: str | None = None
     indented = False
     paragraph = False
+    html_block = False
+    html_comment = False
+    html_raw_tag: str | None = None
+    quote_level = 0
     for raw in markdown.splitlines(keepends=True):
         value = raw.rstrip("\r\n")
-        marker = _FENCE.match(value)
+        quote = _QUOTE.match(value)
+        current_quote_level = quote.group().count(">") if quote else 0
+        if current_quote_level != quote_level:
+            fence = None
+            indented = False
+            paragraph = False
+            html_block = False
+            html_comment = False
+            html_raw_tag = None
+            quote_level = current_quote_level
+        logical = value[quote.end() :] if quote else value
+        marker = _FENCE.match(logical)
+        if html_comment:
+            if "-->" in logical:
+                html_comment = False
+            output.append(_blank(raw))
+            paragraph = False
+            continue
         if fence is not None:
             if marker is not None and (
                 marker.group(1)[0] == fence[0]
                 and len(marker.group(1)) >= len(fence)
-                and not value[marker.end() :].strip()
+                and not logical[marker.end() :].strip()
             ):
                 fence = None
+            output.append(_blank(raw))
+            paragraph = False
+            continue
+        if html_block:
+            if html_raw_tag is not None:
+                if re.search(rf"</{html_raw_tag}[ \t]*>", logical, re.IGNORECASE):
+                    html_block = False
+                    html_raw_tag = None
+            elif not logical.strip():
+                html_block = False
+                output.append(raw)
+                paragraph = False
+                continue
             output.append(_blank(raw))
             paragraph = False
             continue
@@ -56,11 +149,31 @@ def _mask_block_code(markdown: str) -> str:
             indented = False
             paragraph = False
             continue
-        if not value.strip():
+        if not logical.strip():
             output.append(raw)
             paragraph = False
             continue
-        if (value.startswith("    ") or value.startswith("\t")) and (
+        if re.match(r"^ {0,3}<!--", logical):
+            html_comment = "-->" not in logical
+            output.append(_blank(raw))
+            paragraph = False
+            continue
+        html_start = _HTML_START.match(logical)
+        if html_start is not None and (
+            html_start.group(1).lower() in _HTML_BLOCK_TAGS
+            or html_start.group(1).lower() in _HTML_RAW_TAGS
+            or (not paragraph and _HTML_STANDALONE.match(logical) is not None)
+        ):
+            tag = html_start.group(1).lower()
+            html_raw_tag = tag if tag in _HTML_RAW_TAGS else None
+            html_block = not (
+                html_raw_tag is not None
+                and re.search(rf"</{html_raw_tag}[ \t]*>", logical, re.IGNORECASE)
+            )
+            output.append(_blank(raw))
+            paragraph = False
+            continue
+        if (logical.startswith("    ") or logical.startswith("\t")) and (
             indented or not paragraph
         ):
             output.append(_blank(raw))
@@ -69,7 +182,7 @@ def _mask_block_code(markdown: str) -> str:
             continue
         indented = False
         output.append(raw)
-        paragraph = re.match(r"^ {0,3}#{1,6}(?:[ \t]|$)", value) is None
+        paragraph = re.match(r"^ {0,3}#{1,6}(?:[ \t]|$)", logical) is None
     return "".join(output)
 
 

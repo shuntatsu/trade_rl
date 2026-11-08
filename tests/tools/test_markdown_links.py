@@ -48,7 +48,8 @@ def test_code_fences_inline_code_and_html_comments_are_not_links() -> None:
         "<!-- [inline comment](missing.md) --> [Second](next.md)\n"
         "~~~\n[fenced](missing.md)\n~~~\n"
     )
-    assert destinations(markdown) == [(1, "real.md"), (8, "next.md")]
+    # CommonMark treats the entire line beginning with <!-- as raw HTML.
+    assert destinations(markdown) == [(1, "real.md")]
 
 
 def test_nested_parentheses_and_escaped_parens_in_path(tmp_path: Path) -> None:
@@ -135,3 +136,48 @@ def test_data_url_is_not_whitelisted(tmp_path: Path) -> None:
 
 def test_plain_unclosed_link_is_not_considered_valid_markdown() -> None:
     assert destinations("[link](missing.md\n") == []
+
+
+def test_quoted_indented_code_and_quoted_fence_are_literal() -> None:
+    assert destinations(">     [literal](missing.md)\n") == []
+    assert destinations("> Example\n>     [real](present.md)\n") == [(2, "present.md")]
+    assert destinations("> ```md\n> [literal](missing.md)\n> ```\n") == []
+
+
+def test_raw_html_block_is_not_interpreted_as_markdown_links() -> None:
+    assert destinations("<div>\n[missing](missing.md)\n</div>\n") == []
+    html = "<div>\n[missing](missing.md)\n\n[real](present.md)\n"
+    assert destinations(html) == [(4, "present.md")]
+    assert destinations("<https://example.org> [real](present.md)\n") == [
+        (1, "present.md")
+    ]
+
+
+def test_blockquote_link_and_html_tag_following_blank_line() -> None:
+    assert destinations("> [real](present.md)\n") == [(1, "present.md")]
+    assert destinations(
+        "<pre>\n[missing](missing.md)\n</pre>\n[real](present.md)\n"
+    ) == [(4, "present.md")]
+
+
+def test_html_inline_tag_does_not_hide_following_link() -> None:
+    assert destinations("Use <b>text</b> [real](present.md)\n") == [
+        (1, "present.md")
+    ]
+
+
+def test_html_comment_at_block_start_swallows_same_line_markdown() -> None:
+    assert destinations("<!-- comment --> [not-link](missing.md)\n") == []
+    assert destinations("before <!-- comment --> [real](present.md)\n") == [
+        (1, "present.md")
+    ]
+    assert destinations("<!-- comment -->\n[real](present.md)\n") == [
+        (2, "present.md")
+    ]
+
+
+def test_type_seven_inline_html_not_block_if_interrupts_paragraph() -> None:
+    assert destinations("Before\n<span>\n[real](present.md)\n</span>\n") == [
+        (3, "present.md")
+    ]
+    assert destinations("<span>\n[not-link](missing.md)\n</span>\n") == []

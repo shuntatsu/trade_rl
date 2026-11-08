@@ -544,5 +544,7 @@ def test_resolved_reader_rejects_huge_integer_as_integrity_error(
 ) -> None:
     payload = resolved_config().to_payload()
     payload[field] = 10**1000
-    with pytest.raises(ArtifactIntegrityError, match="violates resolved-run contract"):
+    with pytest.raises(
+        ArtifactIntegrityError, match=rf"candidate_config\.{field} must be finite"
+    ):
         _resolved_from_payload(payload, field="candidate_config")

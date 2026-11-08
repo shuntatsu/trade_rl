@@ -422,7 +422,10 @@ def _normalized_datetime64(
 def _require_finite(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be a finite number")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be a finite number") from error
     if not math.isfinite(resolved):
         raise ValueError(f"{field} must be a finite number")
     return resolved

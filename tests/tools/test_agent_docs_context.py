@@ -116,3 +116,34 @@ def test_terminal_unclosed_fence_cannot_hide_new_section() -> None:
 def test_terminal_closed_fence_is_still_allowed() -> None:
     source = _fixture() + "\n```markdown\n## Not a section\n```\n"
     assert render(source, ("all",)) == source
+
+
+def test_html_comment_cannot_satisfy_required_section() -> None:
+    source = _fixture().replace(
+        "## Agent Eval protocol\n",
+        "<!--\n## Agent Eval protocol\n-->\n",
+    )
+    with pytest.raises(ValueError, match="missing sections"):
+        split_sections(source)
+
+
+def test_terminal_unclosed_comment_cannot_hide_new_policy() -> None:
+    source = _fixture() + "<!--\n## New mandatory rule\n"
+    with pytest.raises(ValueError, match="unclosed HTML comment"):
+        split_sections(source)
+
+
+def test_html_comment_inside_fence_does_not_change_routing() -> None:
+    source = _fixture().replace(
+        "marker for 目的",
+        "marker for 目的\n```markdown\n<!--\n## Not a heading\n```",
+    )
+    assert render(source, ("all",)) == source
+
+
+def test_single_line_comment_and_inline_marker_are_allowed() -> None:
+    source = _fixture().replace("## 目的\n", "<!-- a comment -->\n## 目的\n")
+    source = source.replace(
+        "marker for 目的", "`<!--` should stay inline\nmarker for 目的"
+    )
+    assert render(source, ("all",)) == source

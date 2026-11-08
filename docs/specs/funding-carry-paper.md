@@ -99,12 +99,14 @@ re-aged against `as_of`. Consumption beyond the bound fails with
 
 Resulting worst case: a quote may be `MAX_QUOTE_AGE_MS` (5 s) old at capture
 completion and consumption may follow by up to `MAX_CONSUME_LATENCY_MS` (10 s),
-so a quote can be up to 15 s old at decision or execution time. The observed
-consume latency over attempt 2's 60 completed cycles was about 0.25-0.65 s
-(timing only; no outcome data). These tolerances are protocol parameters: any new
-paper attempt (attempt 3) must pre-register them explicitly in its
-research-assurance packet and pass G0-G2 plus independent review before
-execution, and no execution under changed tolerances may reuse an earlier seal.
+so a venue-stamped mark can be up to 15 s old at valuation. Fills are tighter:
+the depth executor additionally requires the depth receipt to be at most 5 s old
+at execution, so futures depth used for a fill is at most 10 s old. These
+tolerances are protocol parameters, set from the source constants and venue and
+engineering reasoning only (no attempt-2 timing was used). Attempt 3 pre-registers
+them in its research-assurance packet (see "Attempt 3 pre-registration" below),
+which must pass G0-G2 plus independent review before execution; no execution
+under changed tolerances may reuse an earlier seal.
 
 Current BTCUSDT/ETHUSDT spot and USD-M exchange information is a separate,
 write-once public capture. Require trading status, market-order support, matching
@@ -529,7 +531,10 @@ journal; measure it before relying on the margin.
 
 ### Attempt 2 operator runbook
 
-Attempt 2 is prepared offline but is neither sealed nor started. Attempt 1's root
+Attempt 2 was sealed and launched from the frozen checkout described below and ended
+INVALID on 2026-11-07 (see "Attempt 3 pre-registration"). This runbook is retained as
+the procedure of that frozen attempt and the template for a successor, which needs its
+own lineage, packet, review and seal. Attempt 1's root
 is never resumed, backfilled or edited (and, if it exists, is preserved evidence that
 is only ever opened read-only; see the unavailable-predecessor rule above).
 `python -m trade_rl.evaluation.paper.attempt2` has three commands (`plan`, `seal`,
@@ -792,3 +797,113 @@ report PASS for that route. The packet stays UNREVIEWED, no PASS is claimed, and
 actual exact-digest/HEAD result-blind review must still exist before any seal. Nothing is sealed, launched or collected under
 this packet, and the storage probe (the only networked step before launch)
 is not run under it.
+
+### Attempt 3 pre-registration
+
+Attempt 3 is a pre-registration only: nothing is implemented beyond one
+behaviour-preserving constant, nothing is sealed, launched, probed or collected, and
+every authorization field below is `PENDING_OWNER_AUTHORIZATION`. Its research-assurance
+author packet is
+[`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json)
+(digest `59990524a1acc0ed4ba1cdcbceaf87e52c27a67a7f5d1d1b5c163562835ff1dc`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+`python -m tools.agent_repo assurance digest <packet>`). Its `protocol_head` and
+`implementation_head` are both `ec7acfd1f7ca51afa805edf2051e32eff764591b`, the last
+commit that changes `trade_rl/` in the pull request that adds it. That head holds no
+collection-policy code, so this packet can never support a seal; a later implementation
+packet needs a new head, digest and review.
+
+**Why a successor.** Attempt 2 ended INVALID: its collector halted at cycle 61
+(`2026-11-07T00:59:07Z`) and wrote `collection-failure.json` because the snapshot reader
+re-applied the five-second per-quote age bound at consumption time (root cause on Issue
+#810, comment 6711911740; fixed by PR #1164). That is a software defect read from the
+failure marker. No attempt-1 or attempt-2 price, equity, profit, drawdown, fill or
+funding figure and no attempt-2 timing metadata was read or is used; the attempt-2 root,
+its failure marker, frozen checkout and the `carry-a2-*` scheduled tasks stay untouched.
+The economic screen is unchanged: same universe (BTCUSDT, ETHUSDT; funding at 00, 08 and
+16 UTC), strategy, fees, depth fraction, stop and every economic acceptance criterion.
+
+**Timing tolerances (protocol parameters).** Each value equals a source constant or
+literal, and `tests/evaluation/test_paper_attempt3_assurance_packet.py` fails if the
+packet, this section and the source diverge. They are justified from venue and
+engineering mechanism only and may not change after a seal.
+
+Timing protocol parameters: quote_age_ms=5000; future_skew_ms=1000; request_seconds=5; capture_span_seconds=10; consume_latency_ms=10000; decision_window_seconds=10; depth_receipt_age_seconds=5; worst_case_mark_age_ms=15000.
+
+| Parameter | Source | Bounds |
+|---|---|---|
+| `quote_age_ms` | `MAX_QUOTE_AGE_MS` | venue-stamped quote age at its receipt and at capture completion |
+| `future_skew_ms` | `MAX_QUOTE_FUTURE_SKEW_MS` | quote ahead of local receipt (clock-offset tolerance) |
+| `request_seconds` | `MAX_REQUEST_SECONDS` | one request, monotonic; no response slower than the quote-age bound can carry a fresh quote |
+| `capture_span_seconds` | `MAX_CAPTURE_SPAN_SECONDS` | first request start to final receipt (cross-request skew) |
+| `consume_latency_ms` | `MAX_CONSUME_LATENCY_MS` | capture completion to decision or execution time; not a re-aging of quotes |
+| `decision_window_seconds` | `account.py`, `supervisor.py`, `depth.py` literals | decision to execution |
+| `depth_receipt_age_seconds` | `depth.py` literal | depth receipt to execution |
+| `worst_case_mark_age_ms` | `quote_age_ms + consume_latency_ms` | venue-stamped mark at valuation; futures depth in a fill is at most 10 s |
+
+The flat 5bp adverse buffer is a paper assumption and is not calibrated to these ages.
+
+**Collection-failure, retry and gap policy (owner decision point).** Attempt 2 halted on
+a single failure; over 129,604 slots a transient network error is likely, so that
+behaviour makes a ninety-day window a bet against transient faults. This bounded,
+result-blind proposal is derived from engineering and the frozen cadence only. It is
+**not implemented**: the source still halts permanently on the first collection failure
+and the assessor still rejects any failed capture. It also relaxes one attempt-2
+operational-quality clause (a failed capture rejects the screen) into a registered
+budget, pre-registered before any attempt-3 data and relaxing no economic criterion.
+The owner may adopt it, change the values (the packet is then re-issued with a new
+digest), or keep halt-on-first-failure.
+
+Collection policy parameters: retries_per_slot=2; retry_delay_seconds=2; retry_start_window_seconds=30; max_consecutive_skipped_slots=1; max_skipped_slots_per_hour=2; max_skipped_slots_total=129; cadence_seconds=60; frozen_gap_limit_seconds=180.
+
+* Class D (HTTP 401, 403, 418, 429, 451 or any authorization, rate-limit or geo denial)
+  and Class I (provenance, protocol digest, clock reversal, journal or lock error,
+  malformed or oversized response, crossed or unsorted book, any other exception) are
+  never retried and write the permanent failure marker.
+* Class T (timeout, connection or DNS error, HTTP 500, 502, 503, 504, and a freshness
+  rejection of one capture) may be retried only inside the same slot, no later than
+  `retry_start_window_seconds` after the slot start, `retry_delay_seconds` after the
+  failed attempt, at most `retries_per_slot` times, only before a capture has been
+  consumed, and never after a decision is committed: a failed execution capture lets the
+  pending decision expire and skips the slot. Every failed attempt keeps its failure
+  evidence and is registered; a consumed capture is never discarded for another.
+* A skipped slot appends no financial command, so holdings and marks stay as they were.
+  One skipped slot leaves a gap near 120 s; a second consecutive one reaches the frozen
+  180-second limit, which is not relaxed. More than `max_skipped_slots_per_hour` in any
+  60 consecutive slots marks a persistent fault; `max_skipped_slots_total` is
+  floor(129,604 / 1000), 0.1% of the slots. A breach of either, or any Class D or I
+  failure, ends the attempt INVALID.
+* No settlement-specific tolerance is added: the frozen rule that funding first received
+  more than 180 seconds after a settlement is a permanent quality failure still applies
+  and a skip cannot extend it. A failed rules refresh does not skip a slot while the held
+  rules are at most one hour old. A death inside a cycle is still never resumed.
+* Still to build and review before any seal: the collector and attempt registry, a
+  `carry_paper_screen_v3` plan whose economic fields equal `carry_paper_screen_v2`, an
+  evaluator audit that every failed capture is registered and within budget, an
+  attempt-lineage version naming attempt 2 (its root is available, so ordinary G0
+  predecessor verification applies; the attempt-2-only exception of Issue #810 comment
+  6680576996 does not extend to attempt 3), and fake-transport tests for each class and
+  budget. Skipped slots may coincide with fast markets, so the retained observations can
+  lean toward calm periods; the budgets bound this bias but do not remove it.
+
+**Run identity and seal procedure (nothing computed).** Run root
+`C:\trade_rl_runs\attempt3\root-<UTC seal date YYYYMMDD>` (new, outside every repository
+and not beneath the attempt-2 root); storage-probe scratch root
+`C:\trade_rl_runs\attempt3\storage-probe-<UTC date YYYYMMDD>`; frozen checkout
+`C:\trade_rl_frozen\attempt3-<first 8 hex of the launch commit>`; scheduled tasks
+`carry-a3-supervisor` and `carry-a3-check`. The attempt-2 seal and protocol digest are
+never reused and the attempt-3 protocol digest must differ from every earlier digest.
+Order: owner decision on the policy; implementation; implementation packet; independent
+review of that exact digest and heads (ordinary route, a different authenticated GitHub
+principal, unless the owner records another decision); fresh storage probe with its own
+authorization (not an attempt-2 byte rate); owner authorization comment on Issue #810
+naming the start; `plan`, then offline `seal` at least five minutes before the start;
+`launch` from the frozen checkout.
+
+| Field | Value |
+|---|---|
+| Collection policy decision | `PENDING_OWNER_AUTHORIZATION` |
+| Review route | `PENDING_OWNER_AUTHORIZATION` |
+| Authorization comment | `PENDING_OWNER_AUTHORIZATION` |
+| Screen start (UTC) | `PENDING_OWNER_AUTHORIZATION` |
+| Protocol digest (seal) | `PENDING_OWNER_AUTHORIZATION` |
+| Launch commit | `PENDING_OWNER_AUTHORIZATION` |

@@ -21,9 +21,11 @@ def _ecosystem_sections() -> dict[str, str]:
     names = [match.group(1) for match in matches]
     assert names == ["github-actions", "uv", "npm", "docker-compose"]
     return {
-        match.group(1): source[match.end() : matches[i + 1].start()]
-        if i + 1 < len(matches)
-        else source[match.end() :]
+        match.group(1): (
+            source[match.end() : matches[i + 1].start()]
+            if i + 1 < len(matches)
+            else source[match.end() :]
+        )
         for i, match in enumerate(matches)
     }
 

@@ -4,7 +4,7 @@
 
 ## 正本の入口
 
-- [AGENTS.md](AGENTS.md) — Agentの読み順序、更新matrix、検証・保持規則
+- [AGENTS.md](AGENTS.md) — Agentの読み順序、更新matrix、検証・保持規則。`tools.agent_docs_context` で必要節を抽出可能
 - [architecture/lean-core.md](architecture/lean-core.md) — causal data、strategy/risk、execution、会計、artifact不変条件
 - [architecture/package-boundaries.md](architecture/package-boundaries.md) — package責務、public API、依存方向
 - [architecture/controlled-experiment-loop.md](architecture/controlled-experiment-loop.md) — Study/Experiment/EvidenceSet、lineage、freeze
@@ -16,6 +16,23 @@
 - [research/current-status.md](research/current-status.md) — 現行の研究判断・証拠リンク・未完了gate
 - [research/ppo-rollout-boundary-protocol.md](research/ppo-rollout-boundary-protocol.md) — 固定48/72-step synthetic比較条件と受入基準
 - [research/ppo-rollout-boundary-results.md](research/ppo-rollout-boundary-results.md) — synthetic結果・不成立の判定・provenance・限界
+
+## 変更目的から選ぶ
+
+- **実装・公開API**：まず [package boundaries](architecture/package-boundaries.md) と [lean core](architecture/lean-core.md)、次に対象source・tests。
+- **研究仮説・結果の解釈**：[research assurance](architecture/research-assurance.md) と [current status](research/current-status.md)。研究済みの判定とunused-data境界は結果を見て書き換えない。
+- **Study / freeze / final評価**：[controlled experiment](architecture/controlled-experiment-loop.md) と [final authorization](architecture/final-evaluation-authorization.md)。
+- **Agent・CI・文書の変更**：[AGENTS.md](AGENTS.md) とroot [AGENTS.md](../AGENTS.md)。Human Guideは [非正本の閲覧・開発入口](../guide/README.md) を参照。
+
+## Markdown整合性
+
+すべての**Git追跡対象** `.md`（この`docs/`だけでなくGuide、root、Agent Skill、PR template、active spec/plan、ライセンス告知を含む）の相対リンクは、読み取り専用の次の検査で確認する。
+
+```bash
+python -m tools.markdown_links --check
+```
+
+検査は存在するlocal target、Git treeの外への参照、危険なURI scheme、コード例内の誤検知を扱う。外部URLの到達性、fragment/heading anchorの正しさ、文章・研究内容の正確性は保証しない。Guideのsource fingerprint、研究の承認・実験認可、ライセンス監査も別の検査で扱う。
 
 ## Active work（完了までは暫定）
 

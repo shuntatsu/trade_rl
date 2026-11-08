@@ -24,11 +24,13 @@ _MAX_RESPONSE_BYTES = 64 * 1024
 # Freshness bounds, each tied to one reference time:
 # - quote age/skew: every venue-stamped quote against the receipt (or, after the
 #   last response, the capture completion) it is checked against;
+# - request duration: one response's monotonic request-to-receipt time;
 # - capture span: first request start to final response receipt;
 # - consume latency: capture completion to the decision/execution time at which
 #   a reader consumes the snapshot (checked by read_forward_snapshot).
 MAX_QUOTE_AGE_MS = 5000
 MAX_QUOTE_FUTURE_SKEW_MS = 1000
+MAX_REQUEST_SECONDS = 5
 MAX_CAPTURE_SPAN_SECONDS = 10
 # Mirrors the paper engine's decision window: PaperAccount.execute rejects an
 # execution more than 10 s after its decision. integrations cannot import
@@ -187,7 +189,7 @@ def capture_forward_snapshot(
             responses.append(record)
             if received < requested or requested < last_receipt:
                 raise ValueError("local clock moved backwards")
-            if not math.isfinite(elapsed) or not 0 <= elapsed <= 5:
+            if not math.isfinite(elapsed) or not 0 <= elapsed <= MAX_REQUEST_SECONDS:
                 raise ValueError("request duration exceeded freshness limit")
             if not 0 <= span <= MAX_CAPTURE_SPAN_SECONDS:
                 raise ValueError("monotonic capture span exceeds ten seconds")

@@ -8,8 +8,10 @@ import pytest
 from tests.integrations.test_binance_forward import MS, NOW, PublicFeed
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.paper import account
+from trade_rl.integrations.binance import forward, forward_evidence
 from trade_rl.integrations.binance.forward import (
     MAX_CONSUME_LATENCY_MS,
+    MAX_REQUEST_SECONDS,
     capture_forward_snapshot,
 )
 from trade_rl.integrations.binance.forward_evidence import read_forward_snapshot
@@ -177,6 +179,16 @@ def test_consume_latency_matches_the_paper_decision_window():
     assert "(at - decision_at).total_seconds() <= 10:" in (
         paper / "supervisor.py"
     ).read_text(encoding="utf-8")
+
+
+def test_request_duration_bound_is_one_named_protocol_parameter():
+    # The per-request deadline was a literal in both the capture and the reader.
+    # A single constant lets a research packet bind the value to the source.
+    assert MAX_REQUEST_SECONDS == 5
+    for module in (forward, forward_evidence):
+        text = Path(module.__file__).read_text(encoding="utf-8")
+        assert "elapsed <= MAX_REQUEST_SECONDS" in text, module.__name__
+        assert "elapsed <= 5" not in text, module.__name__
 
 
 def test_reader_still_rejects_quote_older_than_five_seconds_at_completion(tmp_path):

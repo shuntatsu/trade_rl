@@ -7,6 +7,7 @@ repository's substantive update scope without adding a YAML runtime dependency.
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,7 +36,7 @@ def test_update_roster_and_weekly_review_limits() -> None:
     sections = _ecosystem_sections()
     expected = {
         "github-actions": ("/", 5),
-        "uv": ("/", 2),
+        "uv": ("/", 0),
         "npm": ("/guide", 2),
         "docker-compose": ("/deploy/market-store", 1),
     }
@@ -50,7 +51,15 @@ def test_update_roster_and_weekly_review_limits() -> None:
     assert (ROOT / "deploy" / "market-store" / "compose.yml").is_file()
 
 
-def test_python_updates_are_compatible_lockfile_only() -> None:
+def test_uv_version_updates_hold_for_pinned_incompatible_updater() -> None:
+    """Do not claim an operational Dependabot uv updater while it rejects 0.10.0."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["tool"]["uv"]["required-version"] == "==0.10.0"
+    uv = _ecosystem_sections()["uv"]
+    assert "open-pull-requests-limit: 0" in uv
+
+
+def test_python_lockfile_only_recipe_is_retained_for_reenable() -> None:
     uv = _ecosystem_sections()["uv"]
     assert 'versioning-strategy: "lockfile-only"' in uv
     assert 'applies-to: "version-updates"' in uv

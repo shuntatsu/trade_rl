@@ -31,17 +31,25 @@ SECTION_GROUPS: dict[str, tuple[str, ...]] = {
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _ATX_HEADING = re.compile(r"^ {0,3}##[ \t]+(.+?)\s*$")
+_HTML_COMMENT_START = re.compile(r"^ {0,3}<!--")
 
 
 def _heading_positions(source: str) -> list[tuple[str, int]]:
     """Find actual level-two headings, excluding fenced code examples."""
     headings: list[tuple[str, int]] = []
     fence: tuple[str, int] | None = None
+    html_comment = False
     offset = 0
     for line in source.splitlines(keepends=True):
         value = line.rstrip("\r\n")
-        marker = _FENCE.match(value)
-        if marker:
+        marker = _FENCE.match(value) if not html_comment else None
+        comment_start = _HTML_COMMENT_START.match(value) if fence is None else None
+        if html_comment:
+            if "-->" in value:
+                html_comment = False
+        elif comment_start is not None:
+            html_comment = "-->" not in value[comment_start.end() :]
+        elif marker:
             chars = marker.group(1)
             if fence is None:
                 fence = (chars[0], len(chars))
@@ -56,6 +64,8 @@ def _heading_positions(source: str) -> list[tuple[str, int]]:
             if heading is not None:
                 headings.append((heading.group(1).strip(), offset))
         offset += len(line)
+    if html_comment:
+        raise ValueError("unclosed HTML comment")
     if fence is not None:
         raise ValueError("unclosed Markdown code fence")
     return headings

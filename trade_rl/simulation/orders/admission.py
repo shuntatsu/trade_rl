@@ -298,14 +298,18 @@ class OrderAdmissionPolicy:
             sell_marketable = admitted_quantity < 0.0 and price >= limit_price
             if not (buy_marketable or sell_marketable):
                 notional_price = limit_price
-        with np.errstate(over="ignore", invalid="ignore"):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             admitted_notional = abs(admitted_quantity) * notional_price * multiplier
         if not math.isfinite(admitted_notional):
             return self._reject("pretrade_leverage_exceeded")
+        # BookState rejects a nonzero fill whose left-associated notional
+        # underflows to zero. Reject at admission rather than fail during fill.
+        if admitted_notional == 0.0:
+            return self._reject("unrepresentable_notional")
         if admitted_notional + _TOLERANCE < minimum_notional:
             return self._reject("below_minimum_notional")
 
-        with np.errstate(over="ignore", invalid="ignore"):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             projected = quantities.copy()
             projected[symbol] += admitted_quantity
             gross_notional = float(np.sum(np.abs(projected * prices * multipliers)))

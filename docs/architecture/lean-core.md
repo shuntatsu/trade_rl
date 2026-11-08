@@ -539,6 +539,9 @@ retain their explicit reference-price sizing contract.
 不変条件:
 
 - order submissionとfillを区別する。
+- 明示`OrderIntent`のadmissionは、量子化後の非ゼロ数量について`abs(quantity) * admission_reference_price * contract_multiplier`（指値の場合は従来のmarketabilityに応じた価格）をBookStateと同じ左結合の浮動小数点演算で評価し、非有限なら既存のpretrade leverage拒否、0へのunderflowなら`unrepresentable_notional`で明示拒否する。下限設定0でも0金額の非ゼロ注文は受け入れず、正のsubnormal金額は保持する。実約定価格での台帳検証も別途維持する。
+- stateful admissionの仮想BookStateは約定済みではない注文のrisk reservationであり、現在の処理開始価格で既存保有の非ゼロ評価額がfloat0へ潰れる状態を受理しない。予約数量・現金の更新候補もBookStateと同じ有限・非ゼロ評価額の契約で**更新前に**検査し、失敗時は仮想口座の状態を変更しない。表現可能な正のsubnormal額はNumPy呼出元のunderflowエラーモードに左右されず許可する。
+- target reconciliationで既存保有のdecision-reference grossを評価するときも、BookStateと同じbinary64表現契約を適用する。非ゼロpositionのreference valueが0/非有限へ潰れる場合は注文を作る前にfail closedとし、正のsubnormal reference valueは呼出元のNumPy underflow設定に左右されず保持する。
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
 - `interval_net_return` は実約定・全明示cash flow反映後の最終equityを正本とする。`interval_gross_return` は同じ実約定経路について、最終equityへexecution costとborrowを戻し、signed funding・dividend・cash interestを除いて価格損益を分離する。OPENからのasset returnへ事後weightを掛ける近似や、cost-zero条件で戦略を再実行した反実仮想とは扱わない。

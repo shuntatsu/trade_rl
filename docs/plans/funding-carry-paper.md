@@ -55,7 +55,18 @@ Status: Active
   supervisor that relaunches only a child that died between cycles inside the frozen
   gap limit. Prepare the unsealed attempt-2 draft/seal/launch gates, bound to the
   recorded attempt-1 lineage and current source/runtime identity, and the operator
-  runbook. Nothing is sealed, started or collected; human authorization is pending.
+  runbook. Attempt 2 was sealed and launched from a frozen checkout and ended INVALID
+  on 2026-11-07 from a snapshot-reader timing defect (fixed by PR #1164); it is not
+  resumed, repaired or evaluated.
+- [x] Pre-register attempt 3 result-blind: timing tolerances bound to the source
+  constants, a proposed collection-failure/retry/gap policy, new run identity and
+  UNREVIEWED packet `report/issue810-carry-attempt3-research-assurance-20261108.json`.
+- [x] Collection policy and attempt-3 review route decided under the owner's delegation
+  (Issue #810 comment 6715501420). Review and merge the pre-registration first.
+- [ ] Implement and test the policy (collector, attempt registry, screen v3 whose economic
+  fields equal v2, evaluator audit, lineage naming attempt 2), then issue an
+  implementation packet and obtain independent review.
+- [ ] Fresh storage probe, owner authorization, offline seal and launch of attempt 3.
 - [ ] Run prospective paper observation and report the complete declared gate.
 
 No successful probe, past development profit or partial paper record completes

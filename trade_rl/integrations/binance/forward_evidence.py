@@ -15,6 +15,7 @@ from trade_rl.integrations.binance.forward import (
     _SYMBOLS,
     MAX_CAPTURE_SPAN_SECONDS,
     MAX_CONSUME_LATENCY_MS,
+    MAX_REQUEST_SECONDS,
     _book,
     _epoch,
     _fresh,
@@ -115,7 +116,7 @@ def _responses(
         if not previous <= requested <= received:
             raise ValueError("response clock moved backwards")
         if (
-            not 0 <= elapsed <= 5
+            not 0 <= elapsed <= MAX_REQUEST_SECONDS
             or not 0 <= span <= MAX_CAPTURE_SPAN_SECONDS
             or span + 1e-9 < previous_span + elapsed
         ):

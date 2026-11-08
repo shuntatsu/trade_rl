@@ -45,6 +45,7 @@ def _concurrency_group(event_name: str, ref: str = "refs/pull/42/merge") -> str:
     assert "${{" not in group
     return group
 
+
 def _would_cancel(event: str, action: str | None, state: str | None) -> bool:
     fields = {
         "github.event_name": event,
@@ -92,6 +93,7 @@ def test_review_and_ordinary_pr_full_ci_use_independent_pending_groups() -> None
     assert _concurrency_group("pull_request", "refs/pull/43/merge") != _concurrency_group(
         "pull_request"
     )
+
 
 def test_review_triggers_and_required_gate_roster_are_preserved() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")

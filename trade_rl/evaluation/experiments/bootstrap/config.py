@@ -493,9 +493,9 @@ class CanonicalM2BootstrapConfig:
         reconstructed = parse_candidate_run_config(
             {**projected, "ppo_seed": ppo_seeds[0]}
         )
-        if canonical_json_bytes(reconstructed.to_json_payload()) != canonical_json_bytes(
-            baseline_json
-        ):
+        projected_bytes = canonical_json_bytes(reconstructed.to_json_payload())
+        baseline_bytes = canonical_json_bytes(baseline_json)
+        if projected_bytes != baseline_bytes:
             raise ValueError("baseline differs from canonical bootstrap projection")
 
         if not isinstance(self.allowed_factors, tuple) or not self.allowed_factors:

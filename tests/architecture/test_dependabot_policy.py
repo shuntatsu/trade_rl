@@ -57,7 +57,7 @@ def test_python_updates_are_compatible_lockfile_only() -> None:
     assert "compatible-lockfile:" in uv
     assert '          - "minor"\n          - "patch"' in uv
     assert 'dependency-name: "*"' in uv
-    assert 'version-update:semver-major' in uv
+    assert "version-update:semver-major" in uv
 
 
 def test_guide_runtime_and_build_updates_remain_separate() -> None:
@@ -69,13 +69,13 @@ def test_guide_runtime_and_build_updates_remain_separate() -> None:
     assert npm.count('dependency-type: "production"') == 1
     assert npm.count('dependency-type: "development"') == 1
     assert npm.count('          - "minor"\n          - "patch"') == 2
-    assert 'version-update:semver-major' in npm
+    assert "version-update:semver-major" in npm
 
 
 def test_market_store_updates_reject_major_without_automatic_deploy() -> None:
     compose = _ecosystem_sections()["docker-compose"]
     assert 'dependency-name: "*"' in compose
-    assert 'version-update:semver-major' in compose
+    assert "version-update:semver-major" in compose
     source = MANIFEST.read_text(encoding="utf-8")
     assert "auto-merge" not in source
     assert "insecure-external-code-execution" not in source

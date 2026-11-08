@@ -42,6 +42,12 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: Agent documentation routing
+        run: uv run python -m tools.agent_docs_context --check
+
+      - name: Repository Markdown links
+        run: uv run python -m tools.markdown_links --check
+
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
@@ -66,7 +72,9 @@ jobs:
             tests/tools/test_github_coordination_ref_cas.py \
             tests/tools/test_github_coordination_registry_cas_payload.py \
             tests/tools/test_github_coordination_disposable_e2e.py \
-            tests/tools/test_github_coordination_disposable_http.py
+            tests/tools/test_github_coordination_disposable_http.py \
+            tests/tools/test_agent_docs_context.py \
+            tests/tools/test_markdown_links.py
 
       - name: Install gated 4h smoke PPO runtime
         if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
@@ -122,6 +130,12 @@ jobs:
 
       - name: Install
         run: uv sync --extra dev
+
+      - name: Agent documentation routing
+        run: uv run python -m tools.agent_docs_context --check
+
+      - name: Repository Markdown links
+        run: uv run python -m tools.markdown_links --check
 
       - name: Ruff
         run: uv run ruff check trade_rl tests tools

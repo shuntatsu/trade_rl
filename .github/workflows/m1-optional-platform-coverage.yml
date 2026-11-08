@@ -9,6 +9,8 @@ on:
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
+      - tests/evaluation/test_paper_attempt2_assurance_packet.py
+      - tests/evaluation/test_forward_study_seal.py
       - trade_rl/evaluation/experiments/**
       - trade_rl/evaluation/dev_realdata_study/**
       - trade_rl/data/market.py
@@ -23,6 +25,8 @@ on:
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
+      - tests/evaluation/test_paper_attempt2_assurance_packet.py
+      - tests/evaluation/test_forward_study_seal.py
       - trade_rl/evaluation/experiments/**
       - trade_rl/evaluation/dev_realdata_study/**
       - trade_rl/data/market.py
@@ -88,3 +92,38 @@ jobs:
           uv run --no-sync python -m pytest -q -rs
           tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_signal_ignores_the_future
           tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_trial_fits_with_the_fixed_parameters
+
+
+  history-provenance:
+    name: Full History M1 Provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact full-history source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install locked dev dependencies
+        run: uv sync --locked --extra dev
+      - name: Assert full git checkout
+        shell: bash
+        run: |
+          test "$(git rev-parse --is-shallow-repository)" = false
+          test -n "$(git rev-list --max-parents=0 HEAD)"
+      - name: Execute all four historical provenance tests without skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -m pytest -q -rs --junitxml="$RUNNER_TEMP/m1-history.xml" \
+            tests/evaluation/test_forward_study_seal.py::test_the_real_checkout_identity_matches_git_when_history_is_available \
+            tests/evaluation/test_paper_attempt2_assurance_packet.py::test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store \
+            tests/evaluation/test_paper_attempt2_assurance_packet.py::test_launch_commit_runs_packet_bound_code \
+            tests/evaluation/test_paper_attempt2_assurance_packet.py::test_heads_pin_the_code_as_of_the_frozen_packet_revision
+          uv run --no-sync python -c 'import os, xml.etree.ElementTree as ET; t = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "m1-history.xml")); s = next(t.iter("testsuite")); assert int(s.attrib["tests"]) == 4 and int(s.attrib["skipped"]) == 0 and int(s.attrib["failures"]) == 0 and int(s.attrib["errors"]) == 0, s.attrib'

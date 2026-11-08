@@ -25,9 +25,9 @@ def test_optional_platform_workflow_is_read_only_and_narrowly_triggered() -> Non
     assert "persist-credentials: false" in source
     assert "continue-on-error:" not in source
     head_ref = chr(36) + "{{ github.event.pull_request.head.sha || github.sha }}"
-    assert source.count("ref: " + head_ref) == 2
-    assert len(re.findall(r"uses: actions/checkout@[0-9a-f]{40}", source)) == 2
-    assert len(re.findall(r"uses: astral-sh/setup-uv@[0-9a-f]{40}", source)) == 2
+    assert source.count("ref: " + head_ref) == 3
+    assert len(re.findall(r"uses: actions/checkout@[0-9a-f]{40}", source)) == 3
+    assert len(re.findall(r"uses: astral-sh/setup-uv@[0-9a-f]{40}", source)) == 3
     assert "secrets." not in source
 
 

@@ -43,3 +43,38 @@ def test_direct_bootstrap_rejects_baseline_semantics_outside_digest_projection(
 
     with pytest.raises(ValueError, match="baseline.*(projection|canonical)"):
         replace(config, baseline=changed_baseline)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("rule_exit_threshold", "forecast_exit_threshold"),
+)
+def test_direct_bootstrap_rejects_noncanonical_numeric_baseline_encoding(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
+    changed_baseline = replace(config.baseline, **{field: 0})
+    assert type(changed_baseline.to_json_payload()[field]) is int
+
+    # Python value equality treats 0 and 0.0 as identical, but canonical
+    # JSON bytes (and therefore the persisted digest) distinguish them.
+    with pytest.raises(ValueError, match="baseline.*(projection|canonical)"):
+        replace(config, baseline=changed_baseline)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("rule_exit_threshold", "forecast_exit_threshold"),
+)
+def test_direct_bootstrap_accepts_canonical_float_zero_round_trip(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
+    canonical = replace(config, baseline=replace(config.baseline, **{field: 0.0}))
+    reloaded = load_canonical_m2_bootstrap_config(
+        _write(tmp_path, canonical.to_payload())
+    )
+    assert canonical.to_payload() == reloaded.to_payload()
+    assert canonical.digest == reloaded.digest

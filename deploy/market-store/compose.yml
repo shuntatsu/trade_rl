@@ -5,7 +5,7 @@ name: trade-rl-market-store
 
 services:
   postgres:
-    image: postgres:16.14
+    image: postgres:16.15-bookworm
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${MARKET_STORE_USER:-market_store}

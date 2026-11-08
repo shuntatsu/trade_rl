@@ -148,7 +148,16 @@ def test_ci_runs_the_postgres_integration_tests_in_a_service_container() -> None
     job = workflow.split("  market-store:\n", 1)[1].split("  independent-review:\n", 1)[
         0
     ]
-    assert "image: postgres:16.4" in job
+    compose = (DEPLOY / "compose.yml").read_text(encoding="utf-8")
+    image_pattern = r"postgres:16\.\d+(?:-bookworm)?"
+    compose_images = re.findall(rf"(?m)^    image: ({image_pattern})$", compose)
+    ci_images = re.findall(rf"(?m)^        image: ({image_pattern})$", job)
+    assert compose_images == ["postgres:16.15-bookworm"]
+    assert ci_images == compose_images
+    docs = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    assert f"`{compose_images[0]}` service container" in docs
     assert "TRADE_RL_TEST_POSTGRES_URL" in job
     assert "--extra store" in job
     assert "tests/integrations/market_store" in job

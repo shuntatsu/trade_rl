@@ -186,7 +186,7 @@ Integration invariant: tested PR head contains current `main`. PRの成功証拠
 
 Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
 
-通常のCI workflowの`concurrency.group = ci-${{ github.workflow }}-${{ github.ref }}` は同じrefのrunをまとめる。`cancel-in-progress` は`pull_request_review`の`submitted`かつ`commented`のときだけfalseにし、すでに走っている同ref Full CIを不要なレビュー追記で中断しない。一方、新HEADの`pull_request/synchronize`、通常push、レビュー`edited`/`dismissed`、`changes_requested`/`approved`は従来どおりrunning runをcancelする。これは同一HEADのre-reviewに伴う無駄な**再起動の抑制**であり、レビューごとにpending Fullが発生すること、pending同士のキャンセルやGitHubの実スケジューラの順序は防げない。Full CIの全必須job SUCCESS、レビューreceiptの有効性とunresolved blocking 0、**最終PR HEADが最新mainを包含**する条件は一切緩めない。古いHEAD/取消run、Fast Push、一部job Greenはmerge証拠にならない。
+通常のCI workflowの`concurrency.group = ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` は、同じPR refでも通常`pull_request` Fullと`pull_request_review` Fullを異なる待機・実行グループに分離し、通常PRの再実行がレビューFullのpending枠を置換することを防ぐ。`cancel-in-progress`のtruth tableは各イベント群内で維持する：レビュー`submitted`かつ`commented`はfalse、レビュー`edited`/`dismissed`や`changes_requested`/`approved`はtrue、新HEADの`pull_request/synchronize`やpushもそれぞれの群内でtrue。異なるイベント群は並行実行可能になる一方、新HEADのPR同期は旧HEADのレビューイベントFullを途中cancelせず、不要なrunner時間が生じ得る。GitHub既定の単一pending枠は**同じレビューイベント群内**には残り、重複コメント間のpending置換までは解決しない。GitHubの実スケジューラでの全挙動は静的testだけでは保証できない。両Fullの**exact final HEAD**での全job SUCCESS、review receipt有効性、unresolved blocking 0、最新main祖先関係を必須とし、旧HEAD・取消run・Fast Push・一部job Greenではマージしない。
 
 ### Independent Research Review / PR lifecycle
 

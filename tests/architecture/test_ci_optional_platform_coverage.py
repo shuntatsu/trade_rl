@@ -75,6 +75,20 @@ def test_optional_jobs_retrigger_when_dependency_implementation_changes() -> Non
         assert source.count("      - " + implementation_path + "\n") == 2
 
 
+
+def test_full_history_dependencies_retrigger_on_source_or_packet_changes() -> None:
+    """History provenance cannot go green once and then silently miss source-only changes."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    for dependency in (
+        "trade_rl/evaluation/forward_study/**",
+        "trade_rl/evaluation/paper/**",
+        "tools/agent_repo/research_assurance.py",
+        "report/issue810-carry-attempt2-research-assurance-20261105.json",
+    ):
+        # Require each dependency in both pull_request.paths and push.paths.
+        assert source.count("      - " + dependency + "\n") == 2
+
+
 def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
     """Shallow CI must not silently skip the provenance/audit obligations."""
     source = WORKFLOW.read_text(encoding="utf-8")

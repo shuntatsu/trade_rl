@@ -13,6 +13,10 @@ on:
       - tests/evaluation/test_forward_study_seal.py
       - trade_rl/evaluation/experiments/**
       - trade_rl/evaluation/dev_realdata_study/**
+      - trade_rl/evaluation/forward_study/**
+      - trade_rl/evaluation/paper/**
+      - tools/agent_repo/research_assurance.py
+      - report/issue810-carry-attempt2-research-assurance-20261105.json
       - trade_rl/data/market.py
       - tools/tier_d_nonrl/tier_d_process_tree.py
       - tools/ci_exact_pytest_counts.py
@@ -31,6 +35,10 @@ on:
       - tests/evaluation/test_forward_study_seal.py
       - trade_rl/evaluation/experiments/**
       - trade_rl/evaluation/dev_realdata_study/**
+      - trade_rl/evaluation/forward_study/**
+      - trade_rl/evaluation/paper/**
+      - tools/agent_repo/research_assurance.py
+      - report/issue810-carry-attempt2-research-assurance-20261105.json
       - trade_rl/data/market.py
       - tools/tier_d_nonrl/tier_d_process_tree.py
       - tools/ci_exact_pytest_counts.py

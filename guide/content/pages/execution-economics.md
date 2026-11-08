@@ -70,6 +70,8 @@ LIMITのcost分類も注文名だけでは決めません。そのbarで初め�
 
 実約定があり、全体のcost multiplierも非ゼロの場合、fee・spread・impact・slippageから求める実行コストの非ゼロ成分や最終金額がfloatで0または非有限に潰れた約定を、帳簿更新前に拒否します。一方、約定がない場合やcost multiplierを明示的に0とした場合は、コスト0の正当な状態として維持します。recorded-depthの非ゼロfeeも同様にチェックします。
 
+確率的slippageでは抽選された標準正規値と乱数順序を保ち、計算の途中で0へ丸められてもtail倍率込みの金額を表現できる場合は救済します。抽選値は非ゼロなのに最終コスト率を表現できない実約定だけを拒否し、本当に0が抽選された場合は0のまま扱います。
+
 区間収益は役割を分けます。`interval_net_return` は実際のfill・cost・funding・borrow・dividend・cash interestをすべて反映した最終equityの収益です。`interval_gross_return` は**同じ実約定経路**から明示cash flowを取り除いて価格損益を分離した診断値で、実際のfill priceを使います。OPENから期末までのasset returnへ事後position weightを掛ける近似や、costを0にして戦略を再実行した反実仮想ではありません。
 
 現行の標準破産評価は`floor_zero`で、負債が出ても強制終了時の

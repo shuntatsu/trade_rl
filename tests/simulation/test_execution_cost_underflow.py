@@ -528,3 +528,208 @@ def test_legacy_strict_numpy_slippage_overflow_is_rejected_before_book_mutation(
     assert book.quantities.tolist() == [0.0]
     assert book.cash == 1_000.0
     assert book.total_cost == 0.0
+
+
+@pytest.mark.parametrize("style", ["legacy", "stateful"])
+def test_nonzero_sampled_slippage_underflow_is_rejected_before_accounting(
+    style: str,
+) -> None:
+    """A nonzero standard-normal draw cannot become a free fill at the float floor."""
+    tiny = float(np.nextafter(0.0, 1.0))
+    assert np.random.default_rng(0).standard_normal(1)[0] > 0.0
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(ExecutionCostConfig.zero(), slippage_std=tiny, random_seed=0),
+    )
+    if style == "stateful":
+        runtime = SimpleNamespace(executor=executor)
+        order = SimpleNamespace(
+            intent=SimpleNamespace(
+                symbol_index=0, order_type=OrderType.LIMIT, eligible_index=0
+            )
+        )
+        trigger = SimpleNamespace(segment=TriggerSegment.FIRST_EXTREME)
+        with pytest.raises(ValueError, match="nonzero execution cost rate"):
+            _execution_cost(
+                runtime,
+                order,
+                trigger=trigger,
+                processing_index=1,
+                filled_notional=1.0,
+                participation_rate=1.0,
+            )
+        return
+
+    book = BookState.zero(1, 1_000.0, np.array([1.0]))
+    with pytest.raises(ValueError, match="nonzero execution cost rate"):
+        executor._fill_toward_quantities(
+            book,
+            np.ones(1),
+            prices=np.ones(1),
+            capacity_volume=np.ones(1),
+            tradable=np.ones(1, dtype=np.bool_),
+            turnover_denominator=1_000.0,
+            market_index=1,
+        )
+    assert book.quantities.tolist() == [0.0]
+    assert book.cash == 1_000.0
+    assert book.total_cost == 0.0
+
+
+@pytest.mark.parametrize("quantity,multiplier", [(0.0, 1.0), (1.0, 0.0)])
+def test_sampled_slippage_underflow_preserves_true_nonchargeable_identity(
+    quantity: float,
+    multiplier: float,
+) -> None:
+    tiny = float(np.nextafter(0.0, 1.0))
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=tiny,
+            multiplier=multiplier,
+            random_seed=0,
+        ),
+    )
+    book = BookState.zero(1, 1_000.0, np.array([1.0]))
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        result = executor._fill_toward_quantities(
+            book,
+            np.array([quantity]),
+            prices=np.ones(1),
+            capacity_volume=np.ones(1),
+            tradable=np.ones(1, dtype=np.bool_),
+            turnover_denominator=1_000.0,
+            market_index=1,
+        )
+    assert result.fill_count == int(quantity != 0.0)
+    assert result.cost_amount == 0.0
+    assert book.quantities.tolist() == [quantity]
+
+
+@pytest.mark.parametrize("std", [1e-200, 0.001, 1.0, 1e200])
+def test_slippage_sampler_preserves_normal_draw_bits_and_rng_stream(std: float) -> None:
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=std,
+            tail_slippage_probability=0.4,
+            tail_slippage_multiplier=3.0,
+            random_seed=7,
+        ),
+    )
+    expected_rng = np.random.default_rng(7)
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        expected = np.abs(expected_rng.normal(0.0, std, size=8))
+        tail = expected_rng.random(8) < 0.4
+        expected[tail] *= 3.0
+        actual = executor._slippage_rates(8)
+    assert np.array_equal(actual.view(np.uint64), expected.view(np.uint64))
+    assert executor._rng.bit_generator.state == expected_rng.bit_generator.state
+
+
+def test_tail_slippage_recovers_finite_cost_from_unrepresentable_intermediate() -> None:
+    """Large permitted tail scaling can make a tiny sampled rate representable."""
+    tiny = float(np.nextafter(0.0, 1.0))
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=tiny,
+            tail_slippage_probability=1.0,
+            tail_slippage_multiplier=1e308,
+            random_seed=0,
+        ),
+    )
+    book = BookState.zero(1, 1_000.0, np.array([1.0]))
+    result = executor._fill_toward_quantities(
+        book,
+        np.ones(1),
+        prices=np.ones(1),
+        capacity_volume=np.ones(1),
+        tradable=np.ones(1, dtype=np.bool_),
+        turnover_denominator=1_000.0,
+        market_index=1,
+    )
+    expected = abs(np.random.default_rng(0).standard_normal(1)[0]) * (tiny * 1e308)
+    assert expected > 0.0
+    assert result.fill_count == 1
+    assert result.cost_amount == pytest.approx(expected, rel=1e-12, abs=0.0)
+    assert book.total_cost == pytest.approx(expected, rel=1e-12, abs=0.0)
+
+
+def test_true_zero_standard_normal_draw_remains_valid_for_charged_fill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(ExecutionCostConfig.zero(), slippage_std=0.005),
+    )
+    monkeypatch.setattr(
+        executor, "_rng", SimpleNamespace(standard_normal=lambda size: np.zeros(size))
+    )
+    actual = executor._slippage_rates(1, chargeable_mask=np.ones(1, dtype=np.bool_))
+    assert actual.tolist() == [0.0]
+
+
+@pytest.mark.parametrize("filled_notional,multiplier", [(0.0, 1.0), (1.0, 0.0)])
+def test_stateful_sampled_slippage_underflow_preserves_nonchargeable_identity(
+    filled_notional: float,
+    multiplier: float,
+) -> None:
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=float(np.nextafter(0.0, 1.0)),
+            multiplier=multiplier,
+            random_seed=0,
+        ),
+    )
+    runtime = SimpleNamespace(executor=executor)
+    order = SimpleNamespace(
+        intent=SimpleNamespace(
+            symbol_index=0, order_type=OrderType.LIMIT, eligible_index=0
+        )
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        amount = _execution_cost(
+            runtime,
+            order,
+            trigger=SimpleNamespace(segment=TriggerSegment.FIRST_EXTREME),
+            processing_index=1,
+            filled_notional=filled_notional,
+            participation_rate=1.0,
+        )
+    assert amount == 0.0
+
+
+def test_stateful_tail_slippage_recovers_finite_cost_after_intermediate_zero() -> None:
+    tiny = float(np.nextafter(0.0, 1.0))
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=tiny,
+            tail_slippage_probability=1.0,
+            tail_slippage_multiplier=1e308,
+            random_seed=0,
+        ),
+    )
+    runtime = SimpleNamespace(executor=executor)
+    order = SimpleNamespace(
+        intent=SimpleNamespace(
+            symbol_index=0, order_type=OrderType.LIMIT, eligible_index=0
+        )
+    )
+    actual = _execution_cost(
+        runtime,
+        order,
+        trigger=SimpleNamespace(segment=TriggerSegment.FIRST_EXTREME),
+        processing_index=1,
+        filled_notional=1.0,
+        participation_rate=1.0,
+    )
+    expected = abs(np.random.default_rng(0).standard_normal(1)[0]) * (tiny * 1e308)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=0.0)

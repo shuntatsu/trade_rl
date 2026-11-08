@@ -616,13 +616,32 @@ class MarketExecutor:
         self._rng = np.random.default_rng(resolved)
         self._reset_compatibility_chain()
 
-    def _slippage_rates(self, size: int) -> np.ndarray:
+    def _slippage_rates(
+        self, size: int, *, chargeable_mask: np.ndarray | None = None
+    ) -> np.ndarray:
+        if chargeable_mask is not None and chargeable_mask.shape != (size,):
+            raise ValueError("slippage chargeable mask must match symbols")
         if self.cost.slippage_std == 0.0 or size == 0:
             return np.zeros(size, dtype=np.float64)
-        rates = np.abs(self._rng.normal(0.0, self.cost.slippage_std, size=size))
-        if self.cost.tail_slippage_probability > 0.0:
-            tails = self._rng.random(size) < self.cost.tail_slippage_probability
-            rates[tails] *= self.cost.tail_slippage_multiplier
+        # Generator.normal(0, scale) consumes these same standard-normal draws.
+        # Retain the unscaled draw so a nonzero rate rounded to zero is visible.
+        normal = self._rng.standard_normal(size)
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            rates = np.abs(normal * self.cost.slippage_std)
+            if self.cost.tail_slippage_probability > 0.0:
+                tails = self._rng.random(size) < self.cost.tail_slippage_probability
+                recoverable = tails & (normal != 0.0) & (rates == 0.0)
+                rates[tails] *= self.cost.tail_slippage_multiplier
+                if np.any(recoverable):
+                    # Regroup only the zero intermediate: tail-adjusted cost
+                    # may fit even if unadjusted slippage underflowed.
+                    rates[recoverable] = np.abs(normal[recoverable]) * (
+                        self.cost.slippage_std * self.cost.tail_slippage_multiplier
+                    )
+        if chargeable_mask is not None and np.any(
+            chargeable_mask & (normal != 0.0) & (rates == 0.0)
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
         return rates
 
     def _round_prices(
@@ -928,18 +947,15 @@ class MarketExecutor:
             / capacity_notional[positive_capacity]
         )
         impact_scale = np.sqrt(participation)
-        # The draw is preserved even for no-fill/zero-cost identities. Under
-        # strict NumPy, overflowing tail rates must reach the charged-fill
-        # validation below rather than aborting before the identity check.
-        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
-            slippage = self._slippage_rates(len(price_vector))
+        chargeable = (filled_notional_vector != 0.0) & (self.cost.multiplier != 0.0)
+        # Draw for every symbol, including genuine zero-cost/no-fill identities.
+        slippage = self._slippage_rates(len(price_vector), chargeable_mask=chargeable)
         # Forced close bypasses limit resting/price rules and therefore takes
         # liquidity even when the configured ordinary order type is LIMIT.
         takes_liquidity = force_market or self.cost.order_type != "limit"
         spread_multiplier = 1.0 if takes_liquidity else 0.5
         # A zero multiplier or zero fill is a genuine identity even if unused
         # intermediate rates exceed float range. Validate charged symbols only.
-        chargeable = (filled_notional_vector != 0.0) & (self.cost.multiplier != 0.0)
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             venue_fee = (
                 self.cost.taker_fee_rate

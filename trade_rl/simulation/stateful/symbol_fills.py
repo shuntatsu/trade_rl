@@ -122,6 +122,7 @@ def _execution_cost(
     )
     spread_multiplier = 0.5 if maker else 1.0
     impact_scale = math.sqrt(participation_rate)
+    chargeable = executor.cost.multiplier != 0.0 and filled_notional != 0.0
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         venue_fee = (
             executor.cost.maker_fee_rate
@@ -142,13 +143,16 @@ def _execution_cost(
             + venue_fee
             + spread_component
             + impact
-            + float(executor._slippage_rates(1)[0])
+            + float(
+                executor._slippage_rates(
+                    1, chargeable_mask=np.array([chargeable], dtype=np.bool_)
+                )[0]
+            )
         )
         unit_cost = executor.cost.multiplier * base_cost
         cost_amount = filled_notional * unit_cost
     # Preserve the computed slippage draw, but do not charge a genuine zero-cost
     # identity even if unused finite inputs overflow on the way to a unit cost.
-    chargeable = executor.cost.multiplier != 0.0 and filled_notional != 0.0
     if not chargeable:
         return 0.0
     if not all(

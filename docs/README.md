@@ -17,6 +17,23 @@
 - [research/ppo-rollout-boundary-protocol.md](research/ppo-rollout-boundary-protocol.md) — 固定48/72-step synthetic比較条件と受入基準
 - [research/ppo-rollout-boundary-results.md](research/ppo-rollout-boundary-results.md) — synthetic結果・不成立の判定・provenance・限界
 
+## 変更目的から選ぶ
+
+- **実装・公開API**：まず [package boundaries](architecture/package-boundaries.md) と [lean core](architecture/lean-core.md)、次に対象source・tests。
+- **研究仮説・結果の解釈**：[research assurance](architecture/research-assurance.md) と [current status](research/current-status.md)。研究済みの判定とunused-data境界は結果を見て書き換えない。
+- **Study / freeze / final評価**：[controlled experiment](architecture/controlled-experiment-loop.md) と [final authorization](architecture/final-evaluation-authorization.md)。
+- **Agent・CI・文書の変更**：[AGENTS.md](AGENTS.md) とroot [AGENTS.md](../AGENTS.md)。Human Guideは [非正本の閲覧・開発入口](../guide/README.md) を参照。
+
+## Markdown整合性
+
+すべての**Git追跡対象** `.md`（この`docs/`だけでなくGuide、root、Agent Skill、PR template、active spec/plan、ライセンス告知を含む）の相対リンクは、読み取り専用の次の検査で確認する。
+
+```bash
+python -m tools.markdown_links --check
+```
+
+検査は存在するlocal target、Git treeの外への参照、危険なURI scheme、コード例内の誤検知を扱う。外部URLの到達性、fragment/heading anchorの正しさ、文章・研究内容の正確性は保証しない。Guideのsource fingerprint、研究の承認・実験認可、ライセンス監査も別の検査で扱う。
+
 ## Active work（完了までは暫定）
 
 - [Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) — 非LLM売買研究の親計画。進捗・依存はIssue/PR、現行判断はresearch/current-status.mdを正本とする。

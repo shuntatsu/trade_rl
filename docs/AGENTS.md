@@ -217,6 +217,7 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 | Guideがbindする正本section / Python symbol | 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json`, `--refresh` / `--refresh-code`, `guide/tools/content_contract.py --check` |
 | Guide Pages deployment / public URL | `.github/workflows/deploy-guide.yml`, `guide/README.md`, Pages state read-back |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |
+| Markdownの相対リンク・導線 | `python -m tools.markdown_links --check`（全追跡Markdown、外部URL/fragmentは対象外）、各文書の正本・Guide content contract |
 | license/provenance/third party | `LICENSE`, `LICENSES/`, package metadata。通常cleanupとは分離する |
 
 ## フォルダと保持ルール
@@ -253,6 +254,7 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 
 ```bash
 uv run python -m tools.agent_docs_context --check
+uv run python -m tools.markdown_links --check
 uv run ruff check trade_rl tests tools
 uv run ruff format --check trade_rl tests tools
 uv run mypy trade_rl

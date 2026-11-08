@@ -161,9 +161,7 @@ def test_blockquote_link_and_html_tag_following_blank_line() -> None:
 
 
 def test_html_inline_tag_does_not_hide_following_link() -> None:
-    assert destinations("Use <b>text</b> [real](present.md)\n") == [
-        (1, "present.md")
-    ]
+    assert destinations("Use <b>text</b> [real](present.md)\n") == [(1, "present.md")]
 
 
 def test_html_comment_at_block_start_swallows_same_line_markdown() -> None:
@@ -171,9 +169,7 @@ def test_html_comment_at_block_start_swallows_same_line_markdown() -> None:
     assert destinations("before <!-- comment --> [real](present.md)\n") == [
         (1, "present.md")
     ]
-    assert destinations("<!-- comment -->\n[real](present.md)\n") == [
-        (2, "present.md")
-    ]
+    assert destinations("<!-- comment -->\n[real](present.md)\n") == [(2, "present.md")]
 
 
 def test_type_seven_inline_html_not_block_if_interrupts_paragraph() -> None:

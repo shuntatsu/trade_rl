@@ -116,3 +116,22 @@ def test_terminal_unclosed_fence_cannot_hide_new_section() -> None:
 def test_terminal_closed_fence_is_still_allowed() -> None:
     source = _fixture() + "\n```markdown\n## Not a section\n```\n"
     assert render(source, ("all",)) == source
+
+@pytest.mark.parametrize(
+    ("source", "error"),
+    [
+        (_fixture() + "## UNMAPPED mandatory rule\nnew policy\n", "unmapped sections"),
+        (_fixture() + "\n```python\n## UNMAPPED\n", "unclosed"),
+        (
+            _fixture().replace(
+                "## Agent Eval protocol\n",
+                "### Agent Eval protocol\n",
+            ),
+            "missing sections",
+        ),
+    ],
+)
+def test_all_route_fails_closed_for_bad_sections(source: str, error: str) -> None:
+    """The full-text mode must not bypass canonical section validation."""
+    with pytest.raises(ValueError, match=error):
+        render(source, ("all",))

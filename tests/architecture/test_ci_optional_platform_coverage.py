@@ -73,3 +73,34 @@ def test_optional_jobs_retrigger_when_dependency_implementation_changes() -> Non
         "tools/tier_d_nonrl/tier_d_process_tree.py",
     ):
         assert source.count("      - " + implementation_path + "\n") == 2
+
+
+def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
+    """Shallow CI must not silently skip the provenance/audit obligations."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    job = _job(source, "history-provenance")
+    assert "runs-on: ubuntu-latest" in job
+    assert "fetch-depth: 0" in job
+    assert "git rev-parse --is-shallow-repository" in job
+    assert "uv sync --locked --extra dev" in job
+    assert (
+        "test_forward_study_seal.py::test_the_real_checkout_identity_matches_git_when_history_is_available"
+        in job
+    )
+    for name in (
+        "test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store",
+        "test_launch_commit_runs_packet_bound_code",
+        "test_heads_pin_the_code_as_of_the_frozen_packet_revision",
+    ):
+        assert (
+            "tests/evaluation/test_paper_attempt2_assurance_packet.py::" + name in job
+        )
+    assert "--junitxml=" in job
+    assert "skipped" in job
+    assert "tests" in job
+    assert "== 4" in job
+    for path in (
+        "tests/evaluation/test_forward_study_seal.py",
+        "tests/evaluation/test_paper_attempt2_assurance_packet.py",
+    ):
+        assert source.count("      - " + path + "\n") == 2

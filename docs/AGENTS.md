@@ -33,7 +33,7 @@ python -m tools.agent_docs_context --topic all
 python -m tools.agent_docs_context --check
 ```
 
-`core` は共通の変更・Git/PR/研究認可・検証・保持規則を含む。`guide` はHuman Guide、`claude` はClaude Code host、`tooling` はRepository inspection、`coordination` は複数AgentのTask/Lease、`eval` はAgent UX評価の詳細である。複数topicを同時選択でき、専門topicだけの指定でも必ず`core`を含める。未知/重複/欠落した第2レベル見出しと未閉鎖コードフェンスはfail-closedで拒否し、原文を自動修正しない。これはこの文書のATX `##` 見出しを対象とする節抽出であり、汎用Markdownレンダラーではない。
+`core` は共通の変更・Git/PR/研究認可・検証・保持規則を含む。`guide` はHuman Guide、`claude` はClaude Code host、`tooling` はRepository inspection、`coordination` は複数AgentのTask/Lease、`eval` はAgent UX評価の詳細である。複数topicを同時選択でき、専門topicだけの指定でも必ず`core`を含める。未知/重複/欠落した第2レベル見出し、未閉鎖コードフェンス、未閉鎖HTMLコメントはfail-closedで拒否し、HTMLコメント内の見出しは節の登録数に含めない。原文を自動修正しない。これはこの文書のATX `##` 見出しを対象とする節抽出であり、汎用Markdownレンダラーではない。
 
 CLIが利用できない場合は本文の対象節（必要なら全文）を直接読む。抽出結果やローカルHookからcurrent GitHub main、PR、review、CI、実験・sealed/unusedデータ、実売買の認可を推定しない。Agent指示を更新するときは `--check` と近傍testを実行し、見出しを追加したらtopic分類を明示的に更新する。
 

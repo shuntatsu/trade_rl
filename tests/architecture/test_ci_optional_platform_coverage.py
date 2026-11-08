@@ -61,3 +61,15 @@ def test_forecast_extra_checks_pin_lightgbm_and_execute_both_skipped_cases() -> 
         "tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_trial_fits_with_the_fixed_parameters"
         in job
     )
+
+
+def test_optional_jobs_retrigger_when_dependency_implementation_changes() -> None:
+    """Changing the implementation, not just its tests, must rerun native checks."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    # Both the PR and main-push path filters must cover these actual imports.
+    for implementation_path in (
+        "trade_rl/evaluation/dev_realdata_study/**",
+        "trade_rl/data/market.py",
+        "tools/tier_d_nonrl/tier_d_process_tree.py",
+    ):
+        assert source.count("      - " + implementation_path + "\n") == 2

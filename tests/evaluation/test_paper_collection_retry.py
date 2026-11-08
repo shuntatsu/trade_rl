@@ -654,3 +654,68 @@ def test_rules_that_expire_while_a_held_refresh_fails_skip_before_any_capture(
         (59, "rules_expired")
     ]
     assert journal_kinds(root, digest) == ["decision", "execution", "gap"]
+
+
+def test_slots_that_never_ran_before_the_first_cycle_are_registered(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed, sleeper = build(tmp_path, monkeypatch)
+    with collector(root, digest, clock, feed, sleeper) as active:
+        clock.value = at(2)  # 121 s after the screen start: inside the 180 s gap limit
+        active.cycle()
+    assert skipped(root) == [1]
+    assert rows(root, "skips")[0]["reason"] == "missed_slot"
+    status = PaperEngine(root, expected_protocol_sha256=digest).status()
+    assert "observation_gap" not in status["quality_failures"]
+
+
+def test_a_first_cycle_in_slot_zero_or_one_registers_no_missed_slot(
+    tmp_path, monkeypatch
+):
+    for slot in (0, 1):
+        root, digest, clock, feed, sleeper = build(tmp_path / f"s{slot}", monkeypatch)
+        with collector(root, digest, clock, feed, sleeper) as active:
+            clock.value = at(slot)
+            active.cycle()
+        assert skipped(root) == [], slot
+
+
+def test_two_slots_missing_before_the_first_cycle_breach_the_consecutive_budget(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed, sleeper = build(tmp_path, monkeypatch)
+    with collector(root, digest, clock, feed, sleeper) as active:
+        # A real first cycle in slot 3 starts after 180 s and so records the frozen
+        # observation gap instead; the registration itself is exercised directly.
+        clock.value = at(3, 0)
+        active._cycle_id = active._control.begin(clock.value)
+        active._slot = 3
+        with pytest.raises(SkipBudgetExceeded) as breach:
+            active._register_missed_slots(False)
+    assert breach.value.budget == "consecutive" and breach.value.slot == 2
+    assert skipped(root) == [1, 2]
+
+
+def test_a_recorded_gap_on_the_first_cycle_does_not_also_register_slots(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed, sleeper = build(tmp_path, monkeypatch)
+    with collector(root, digest, clock, feed, sleeper) as active:
+        clock.value = at(5)
+        active.cycle()
+    assert skipped(root) == []
+
+
+def test_first_cycle_missed_slots_are_not_registered_twice_across_a_restart(
+    tmp_path, monkeypatch
+):
+    root, digest, clock, feed, sleeper = build(tmp_path, monkeypatch)
+    with collector(root, digest, clock, feed, sleeper) as active:
+        clock.value = at(2)
+        active.cycle()
+    assert skipped(root) == [1]
+    with collector(root, digest, clock, feed, sleeper) as reopened:
+        clock.value = at(3)
+        reopened.cycle()  # the previous cycle (slot 2) now anchors the check
+    assert skipped(root) == [1]
+    assert rows(root, "skips")[0]["cycle_id"] == 1

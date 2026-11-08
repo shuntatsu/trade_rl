@@ -328,16 +328,19 @@ class PaperCollector:
         return "skipped"
 
     def _register_missed_slots(self, recorded_gap: bool) -> None:
-        """Slots that never ran between two cycles are skipped slots too.
+        """Slots that never ran, before the first cycle or between two, are skipped.
 
         A cycle that records the frozen observation gap is already a permanent quality
         failure, so its missed slots are not counted a second time.
         """
         assert self._control is not None and self._cycle_id is not None
-        previous = self._control.previous_cycle_start(self._cycle_id)
-        if previous is None or recorded_gap:
+        if recorded_gap:
             return
-        missed = list(range(self._slot_of(previous) + 1, self._slot))
+        previous = self._control.previous_cycle_start(self._cycle_id)
+        # With no earlier cycle the engine anchors the last command at the screen
+        # start, so the slots between slot 0 and this one never ran either.
+        first = 1 if previous is None else self._slot_of(previous) + 1
+        missed = list(range(first, self._slot))
         if missed:
             self._check_budgets(
                 self._control.register_skips(self._cycle_id, missed, "missed_slot")

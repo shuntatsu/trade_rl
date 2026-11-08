@@ -1635,15 +1635,17 @@ launch, the storage probe nor any economic run. See `docs/specs/funding-carry-pa
 Attempt 2 ended INVALID on 2026-11-07 from a snapshot-reader timing defect (Issue #810
 comment 6711911740, since fixed on main); it is not resumed, repaired or evaluated. The attempt-3
 packet `report/issue810-carry-attempt3-research-assurance-20261108.json` (digest
-`28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca`, status UNREVIEWED, no PASS claimed) pre-registers, result-blind and
+`29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status UNREVIEWED, no PASS claimed) pre-registers, result-blind and
 before any attempt-3 data: (G0) the counter-hypotheses that attempt 3 is a restart
 selected on an outcome, that staler accepted quotes flatter fills, that skipped slots
 select calm markets and that tolerances are fitted after the fact, with the cheapest
 falsifiers and stop rule; (G1) the mechanism chain with the timing tolerances
 (`MAX_QUOTE_AGE_MS`, `MAX_QUOTE_FUTURE_SKEW_MS`, `MAX_REQUEST_SECONDS`,
 `MAX_CAPTURE_SPAN_SECONDS`, `MAX_CONSUME_LATENCY_MS`, the paper decision window and the
-depth receipt age) bound to the source by test, and a proposed collection-failure, retry
-and skipped-slot policy marked as an owner decision point; (G2) the independent oracles
+depth receipt age) bound to the source by test, and a collection-failure, retry
+and skipped-slot policy adopted under the owner's delegation (Issue #810 comment
+6715501420), including the classification of a slot whose held rules are older than one
+hour as a counted skipped slot; (G2) the independent oracles
 for the changed time, state and evidence boundaries, with the policy's state and
 evidence oracles listed as missing evidence because the policy is not implemented; (G3)
 claim level `software_validity`, `documentation_only`, no economic claim. Its

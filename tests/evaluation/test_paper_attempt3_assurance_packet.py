@@ -38,8 +38,8 @@ from trade_rl.simulation import depth as depth_module
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt3-research-assurance-20261108.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca"
-ATTEMPT2_28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca = (
+PINNED_DIGEST = "29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10"
+ATTEMPT2_PACKET_DIGEST = (
     "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
 )
 ATTEMPT1_PROTOCOL_DIGEST = (
@@ -158,10 +158,7 @@ def test_packet_is_unreviewed_valid_and_pins_its_digest() -> None:
     assert result.errors == ()
     assert result.economic_execution_authorized is False
     assert result.record_digest == assurance_digest(packet) == PINNED_DIGEST
-    assert (
-        PINNED_DIGEST
-        != ATTEMPT2_28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca
-    )
+    assert PINNED_DIGEST != ATTEMPT2_PACKET_DIGEST
     assert b"\r" not in PACKET.read_bytes()
 
 
@@ -450,7 +447,7 @@ def test_seal_start_authorization_and_launch_fields_are_pending_and_nothing_is_s
     assert PENDING in arch and PENDING in status
     allowed = {
         PINNED_DIGEST,
-        ATTEMPT2_28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca,
+        ATTEMPT2_PACKET_DIGEST,
     }
     for name, text in (("packet", packet_text), ("spec", spec), ("status", status)):
         digests = set(re.findall(r"\b[0-9a-f]{64}\b", text))
@@ -562,6 +559,70 @@ def test_g3_boundary_states_the_accepted_side_effects() -> None:
     )
     assert "stale-held-rules" in claims["decision_rule"]
     assert "held rules up to one hour old" in _spec_section()
+
+
+def test_stale_held_rules_are_a_classified_counted_skipped_slot() -> None:
+    """Every failure state is classified in advance, including rules held too long."""
+    packet = _packet()
+    claims, thesis = packet["claims"], packet["thesis"]
+    policy = _parameters(_text(packet), POLICY_PREFIX)
+    evidence = packet["mechanism"]["authorities"]["evidence"]
+    texts = {
+        "decision_rule": claims["decision_rule"],
+        "limitations": thesis["limitations"],
+        "evidence": evidence,
+        "spec": _spec_section(),
+    }
+    for name, text in texts.items():
+        flat = " ".join(text.split())
+        assert "older than one hour at decision time is a skipped slot" in flat, name
+        assert "appends no command" in flat, name
+        assert "no decision is ever made on rules older than one hour" in flat, name
+        match = re.search(
+            r"\(?(\d+) consecutive, (\d+) per 60(?: slots)?, (\d+) total\)?", flat
+        )
+        assert match is not None, name
+        assert tuple(map(int, match.groups())) == (
+            policy["max_consecutive_skipped_slots"],
+            policy["max_skipped_slots_per_hour"],
+            policy["max_skipped_slots_total"],
+        ), name
+    assert "older than one hour" in _arch_section()
+    assert "older than one hour" in _status_paragraph()
+    assert "stale-held-rules" in claims["decision_rule"]
+    # The one-hour hold and the refresh margin are the source's own numbers.
+    rules = Path(account.__file__).parents[2] / "integrations" / "binance"
+    assert "0 <= age <= 3600" in (rules / "forward_rules.py").read_text(
+        encoding="utf-8"
+    )
+    assert ">= 3300" in Path(supervisor.__file__).read_text(encoding="utf-8")
+    # A breach of any of the three budgets ends the attempt.
+    assert "A breach of any of the three budgets" in _spec_section()
+    assert "A breach of either" not in _raw(SPEC)
+
+
+def test_depth_age_wording_separates_the_local_receipt_bound_from_venue_age() -> None:
+    spec = _flat(SPEC)
+    assert "(a local-clock bound, not a venue timestamp)" in spec
+    assert "its venue-stamped age at execution is at most 10 s" in spec
+    assert "spot depth has no venue timestamp" in spec
+    assert "futures depth used for a fill is at most 10 s old" not in spec
+    limitations = " ".join(_packet()["thesis"]["limitations"].split())
+    assert "a local-clock quantity, not a venue timestamp" in limitations
+    assert "venue-stamped age at execution is at most 10 s" in limitations
+
+
+def test_no_attempt2_incident_timing_figures_and_no_stale_decision_point_wording() -> (
+    None
+):
+    text = _text(_packet())
+    for figure in ("5.62", "4.48", "0.6 s", "5.07"):
+        assert figure not in text, figure
+    for relative in (STATUS, BOUNDARIES):
+        assert "5.62" not in _raw(relative), relative
+    assert "no tolerance value derives from them" in text
+    assert "owner decision point" not in _raw(ARCHITECTURE).replace(chr(10), " ")
+    assert "owner decision point" not in _raw(SPEC)
 
 
 def test_heads_bind_the_packet_to_the_constant_refactor_and_unimplemented_policy() -> (

@@ -100,8 +100,11 @@ re-aged against `as_of`. Consumption beyond the bound fails with
 Resulting worst case: a quote may be `MAX_QUOTE_AGE_MS` (5 s) old at capture
 completion and consumption may follow by up to `MAX_CONSUME_LATENCY_MS` (10 s),
 so a venue-stamped mark can be up to 15 s old at valuation. Fills are tighter:
-the depth executor additionally requires the depth receipt to be at most 5 s old
-at execution, so futures depth used for a fill is at most 10 s old. These
+the depth executor requires the depth response's local receipt to be at most 5 s
+before execution (a local-clock bound, not a venue timestamp). Because venue-stamped
+futures depth is at most 5 s old at its own receipt, its venue-stamped age at
+execution is at most 10 s; spot depth has no venue timestamp and is bounded only by
+its receipt age. These
 tolerances are protocol parameters, set from the source constants and venue and
 engineering reasoning only (no attempt-2 timing was used). Attempt 3 pre-registers
 them in its research-assurance packet (see "Attempt 3 pre-registration" below),
@@ -806,7 +809,7 @@ the seal, start, authorization comment and launch commit below are
 `PENDING_OWNER_AUTHORIZATION`. Its research-assurance
 author packet is
 [`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json)
-(digest `28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+(digest `29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status **UNREVIEWED**, `economic_execution_authorized=false`;
 `python -m tools.agent_repo assurance digest <packet>`). Its `protocol_head` and
 `implementation_head` are both `ec7acfd1f7ca51afa805edf2051e32eff764591b`, the last
 commit that changes `trade_rl/` in the pull request that adds it. That head holds no
@@ -838,8 +841,8 @@ Timing protocol parameters: quote_age_ms=5000; future_skew_ms=1000; request_seco
 | `capture_span_seconds` | `MAX_CAPTURE_SPAN_SECONDS` | first request start to final receipt (cross-request skew) |
 | `consume_latency_ms` | `MAX_CONSUME_LATENCY_MS` | capture completion to decision or execution time; not a re-aging of quotes |
 | `decision_window_seconds` | `account.py`, `supervisor.py`, `depth.py` literals | decision to execution |
-| `depth_receipt_age_seconds` | `depth.py` literal | depth receipt to execution |
-| `worst_case_mark_age_ms` | `quote_age_ms + consume_latency_ms` | venue-stamped mark at valuation; futures depth in a fill is at most 10 s |
+| `depth_receipt_age_seconds` | `depth.py` literal | local receipt of the depth response to execution (local clock, not a venue timestamp) |
+| `worst_case_mark_age_ms` | `quote_age_ms + consume_latency_ms` | venue-stamped mark at valuation; venue-stamped futures depth in a fill is at most 5 s + 5 s = 10 s old |
 
 The flat 5bp adverse buffer is a paper assumption and is not calibrated to these ages.
 
@@ -872,12 +875,17 @@ Collection policy parameters: retries_per_slot=2; retry_delay_seconds=2; retry_s
   One skipped slot leaves a gap near 120 s; a second consecutive one reaches the frozen
   180-second limit, which is not relaxed. More than `max_skipped_slots_per_hour` in any
   60 consecutive slots marks a persistent fault; `max_skipped_slots_total` is
-  floor(129,604 / 1000), 0.1% of the slots. A breach of either, or any Class D or I
-  failure, ends the attempt INVALID.
+  floor(129,604 / 1000), 0.1% of the slots. A breach of any of the three budgets
+  (consecutive, per 60 slots, total), or any Class D or I failure, ends the attempt
+  INVALID.
 * No settlement-specific tolerance is added: the frozen rule that funding first received
   more than 180 seconds after a settlement is a permanent quality failure still applies
   and a skip cannot extend it. A failed rules refresh does not skip a slot while the held
-  rules are at most one hour old. A death inside a cycle is still never resumed.
+  rules are at most one hour old. A slot whose held rules are older than one hour at
+  decision time is a skipped slot: it appends no command and counts toward the three skip
+  budgets (1 consecutive, 2 per 60, 129 total), a breach ends the attempt INVALID, and no
+  decision is ever made on rules older than one hour. A death inside a cycle is still
+  never resumed.
 * Still to build and review before any seal: the collector and attempt registry, a
   `carry_paper_screen_v3` plan whose economic fields equal `carry_paper_screen_v2`, an
   evaluator audit that every failed capture is registered and within budget, an

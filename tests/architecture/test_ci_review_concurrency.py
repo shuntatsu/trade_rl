@@ -13,7 +13,7 @@ def _policy_terms() -> tuple[str, ...]:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert text.count("\nconcurrency:\n") == 1
     section = text.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
-    assert "group: ci-${{ github.workflow }}-${{ github.ref }}" in section
+    assert "group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}" in section
     lines = [
         line.strip().removeprefix("cancel-in-progress: ")
         for line in section.splitlines()
@@ -23,6 +23,27 @@ def _policy_terms() -> tuple[str, ...]:
     assert lines[0].startswith("${{ ") and lines[0].endswith(" }}")
     return tuple(lines[0][4:-3].split(" || "))
 
+
+def _concurrency_group(event_name: str, ref: str = "refs/pull/42/merge") -> str:
+    """Interpolate the checked-in group fields, not GitHub scheduler behavior."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert text.count("\nconcurrency:\n") == 1
+    section = text.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
+    groups = [
+        line.strip().removeprefix("group: ")
+        for line in section.splitlines()
+        if line.strip().startswith("group: ")
+    ]
+    assert len(groups) == 1
+    group = groups[0]
+    for field, value in (
+        ("github.workflow", "CI"),
+        ("github.ref", ref),
+        ("github.event_name", event_name),
+    ):
+        group = group.replace("${{ " + field + " }}", value)
+    assert "${{" not in group
+    return group
 
 def _would_cancel(event: str, action: str | None, state: str | None) -> bool:
     fields = {
@@ -63,6 +84,14 @@ def test_only_submitted_comment_preserves_running_full(
 ) -> None:
     assert _would_cancel(event, action, review_state) is must_cancel
 
+
+def test_review_and_ordinary_pr_full_ci_use_independent_pending_groups() -> None:
+    """Avoid review pending runs being evicted by ordinary PR reruns."""
+    assert _concurrency_group("pull_request") != _concurrency_group("pull_request_review")
+    assert _concurrency_group("pull_request_review") == _concurrency_group("pull_request_review")
+    assert _concurrency_group("pull_request", "refs/pull/43/merge") != _concurrency_group(
+        "pull_request"
+    )
 
 def test_review_triggers_and_required_gate_roster_are_preserved() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")

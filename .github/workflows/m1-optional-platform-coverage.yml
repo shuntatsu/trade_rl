@@ -1,0 +1,84 @@
+name: M1 Optional Platform Coverage
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/m1-optional-platform-coverage.yml
+      - tests/architecture/test_ci_optional_platform_coverage.py
+      - tests/tools/tier_d_nonrl/test_process_containment.py
+      - tools/tier_d_nonrl/tier_d_process_containment.py
+      - tests/evaluation/test_dev_realdata_phase2_trials.py
+      - trade_rl/evaluation/experiments/**
+      - pyproject.toml
+      - uv.lock
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/m1-optional-platform-coverage.yml
+      - tests/architecture/test_ci_optional_platform_coverage.py
+      - tests/tools/tier_d_nonrl/test_process_containment.py
+      - tools/tier_d_nonrl/tier_d_process_containment.py
+      - tests/evaluation/test_dev_realdata_phase2_trials.py
+      - trade_rl/evaluation/experiments/**
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m1-optional-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-job-object:
+    name: Windows Native Job Object
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install locked dev dependencies
+        run: uv sync --locked --extra dev
+      - name: Verify native Windows host
+        run: uv run --no-sync python -c "import os; assert os.name == 'nt'"
+      - name: Execute native Windows Job Object tests
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          tests/tools/tier_d_nonrl/test_process_containment.py::test_assignment_failure_terminates_and_reaps_suspended_process
+          tests/tools/tier_d_nonrl/test_process_containment.py::test_job_contains_live_child_after_root_exits_and_cleanup_kills_it
+
+  forecast-gbm:
+    name: LightGBM Forecast Optional Extra
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install locked optional forecast dependencies
+        run: uv sync --locked --extra dev --extra forecast-gbm
+      - name: Verify LightGBM runtime
+        run: uv run --no-sync python -c "import lightgbm; assert lightgbm.__version__ == '4.7.0'"
+      - name: Execute optional forecast tests
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_signal_ignores_the_future
+          tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_trial_fits_with_the_fixed_parameters

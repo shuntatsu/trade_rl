@@ -75,7 +75,6 @@ def test_optional_jobs_retrigger_when_dependency_implementation_changes() -> Non
         assert source.count("      - " + implementation_path + "\n") == 2
 
 
-
 def test_full_history_dependencies_retrigger_on_source_or_packet_changes() -> None:
     """History provenance cannot go green once and then silently miss source-only changes."""
     source = WORKFLOW.read_text(encoding="utf-8")

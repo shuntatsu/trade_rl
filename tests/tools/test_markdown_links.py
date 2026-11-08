@@ -232,8 +232,7 @@ def test_escaped_ascii_punctuation_targets_literal_filenames(tmp_path: Path) -> 
     _write(
         tmp_path,
         "docs/README.md",
-        "[A](foo\\#bar.md) [B](foo\\?bar.md) "
-        "[C](foo\\%20.md) [D](foo\\!.md)\n",
+        "[A](foo\\#bar.md) [B](foo\\?bar.md) [C](foo\\%20.md) [D](foo\\!.md)\n",
     )
     count, errors = check_links(tmp_path, (Path("docs/README.md"),))
     assert count == 4
@@ -241,9 +240,7 @@ def test_escaped_ascii_punctuation_targets_literal_filenames(tmp_path: Path) -> 
 
 
 def test_image_alt_does_not_activate_nested_link() -> None:
-    assert destinations("![alt [inner](missing.md)](image.png)") == [
-        (1, "image.png")
-    ]
+    assert destinations("![alt [inner](missing.md)](image.png)") == [(1, "image.png")]
 
 
 def test_local_link_diagnostics_preserve_source_order() -> None:

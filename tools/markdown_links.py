@@ -328,8 +328,8 @@ def destinations(markdown: str) -> list[tuple[int, str]]:
     stack: list[tuple[bool, bool]] = []  # is_image, contains_nested_link
     for index, char in enumerate(text):
         if char == "[" and not _escaped(text, index):
-            is_image = index > 0 and text[index - 1] == "!" and not _escaped(
-                text, index - 1
+            is_image = (
+                index > 0 and text[index - 1] == "!" and not _escaped(text, index - 1)
             )
             stack.append((is_image, False))
         elif char == "]" and stack and not _escaped(text, index):

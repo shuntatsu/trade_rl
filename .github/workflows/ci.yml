@@ -51,9 +51,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Temporary Ruff diff (remove before merge)
-        run: uv run ruff format --diff tools/markdown_links.py tests/tools/test_markdown_links.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

@@ -275,6 +275,20 @@ def test_json_canonicalization_recursion_fails_as_value_error(
     assert receipt.read_bytes() == raw
 
 
+def test_shallow_non_object_receipt_is_refused_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broad root array must not allocate decoded objects before type rejection."""
+    raw = b"[" + b"0," * 100_000 + b"0]"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("non-object receipt reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt must contain a JSON object"):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1669,8 +1669,8 @@ no seal or launch; the seal, start, authorization comment and launch commit are
 The pre-registration packet stays frozen and is not re-pinned. The policy it registers is
 implemented in the collector by a separate pull request, with a new packet
 `report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` (digest
-`ccac8a182be79af0e01bde2f621ce938605e387a4a08f3597bc49d9912415c8c`, status UNREVIEWED, no
-PASS claimed) whose `protocol_head` and `implementation_head` are both `f063ecdb5c5a`,
+`eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45`, status UNREVIEWED, no
+PASS claimed) whose `protocol_head` and `implementation_head` are both `0dacfb147bc9`,
 the last commit that changes `trade_rl/` in that pull request. (G2) The state oracle is no
 longer missing evidence for the collector: the durable attempt and skip registry, the
 retry start window, the per-slot retry allowance, the three budgets (including the 129th
@@ -1683,7 +1683,7 @@ exist at that head, so the packet cannot support a seal; the unchanged assessor 
 rejects any failed capture or skipped slot. The rules-refresh classification the first
 review left open is resolved conservatively and flagged for review: a transient refresh
 failure inside the one-hour hold is not retried and consumes no budget, a Class D or Class
-I refresh failure ends the attempt. The `tests/evaluation/test_paper_attempt3_implementation_packet.py`
+I refresh failure ends the attempt (the note of review 5816161116 on the pre-registration pull request). Two further readings are ratified in Issue #810 comment 6717103371 (the planner's record relaying the delegation in comment 6715501420; no criterion is relaxed and no seal or launch is authorized): slots that never ran, including those before the first cycle, count as skipped slots, and rules crossing the one-hour hold inside a pending decision's execution window are Class I, terminal and fail-closed. The `tests/evaluation/test_paper_attempt3_implementation_packet.py`
 tests import the policy constants from the source. The owner's delegation, the extended
 same-account receipt route (operator-enforced, different-principal independence is not
 established) and the `PENDING_OWNER_AUTHORIZATION` seal, start, authorization comment and

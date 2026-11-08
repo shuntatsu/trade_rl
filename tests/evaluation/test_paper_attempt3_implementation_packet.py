@@ -42,7 +42,7 @@ RELATIVE_PACKET = (
     "report/issue810-carry-attempt3-implementation-research-assurance-20261108.json"
 )
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "ccac8a182be79af0e01bde2f621ce938605e387a4a08f3597bc49d9912415c8c"
+PINNED_DIGEST = "eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45"
 PREREG_PACKET = "report/issue810-carry-attempt3-research-assurance-20261108.json"
 PREREG_DIGEST = "29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10"
 PREREG_HEAD = "ec7acfd1f7ca51afa805edf2051e32eff764591b"
@@ -423,6 +423,23 @@ def test_documents_point_to_the_packet_digest_and_unreviewed_status() -> None:
     assert "no PASS claimed" in _arch_section()
     assert "different-principal" in _arch_section()
     assert "does not extend to attempt 3" in _arch_section()
+
+
+def test_the_ratified_readings_cite_the_planner_comment_everywhere() -> None:
+    comment = "6717103371"
+    packet = _packet()
+    limitations = " ".join(packet["thesis"]["limitations"].split())
+    assert comment in limitations and "5816161116" in limitations
+    for relative in (SPEC, ARCHITECTURE):
+        assert comment in _raw(relative), relative
+    assert "5816161116" in _spec_section() and comment in _spec_section()
+    assert (
+        "before the first cycle" in _arch_section() or "first cycle" in _arch_section()
+    )
+    # The ratification relaxes nothing and authorizes nothing.
+    assert "neither reading relaxes any criterion" in limitations
+    assert "authorizes no seal or launch" in limitations
+    assert "Class I, terminal and fail-closed" in " ".join(_arch_section().split())
 
 
 def test_the_documents_name_what_is_still_to_be_built() -> None:

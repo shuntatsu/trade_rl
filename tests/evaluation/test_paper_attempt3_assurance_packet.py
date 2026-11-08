@@ -47,7 +47,7 @@ ATTEMPT2_PACKET_DIGEST = (
 # The implementation packet (test_paper_attempt3_implementation_packet.py) is named in
 # the same documents; this frozen packet's tests only allow its digest to appear.
 IMPLEMENTATION_PACKET_DIGEST = (
-    "ccac8a182be79af0e01bde2f621ce938605e387a4a08f3597bc49d9912415c8c"
+    "eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45"
 )
 ATTEMPT1_PROTOCOL_DIGEST = (
     "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"

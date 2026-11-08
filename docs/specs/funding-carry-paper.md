@@ -914,9 +914,9 @@ The collector applies the policy above exactly as registered; no value was tuned
 classification and the budget scan, `paper/control.py` the durable registry and
 `paper/supervisor.py` the application. Its implementation research-assurance packet is
 [`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-implementation-research-assurance-20261108.json)
-(digest `ccac8a182be79af0e01bde2f621ce938605e387a4a08f3597bc49d9912415c8c`, status
+(digest `eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45`, status
 **UNREVIEWED**, `economic_execution_authorized=false`; `protocol_head` and
-`implementation_head` both `f063ecdb5c5a9dde6546ea2ce4645274ead2e820`, the last commit
+`implementation_head` both `0dacfb147bc975b3d0049d671615c282e8c1181c`, the last commit
 that changes `trade_rl/` in the pull request that adds it). The pre-registration packet
 stays frozen. `tests/evaluation/test_paper_attempt3_implementation_packet.py` imports the
 constants and fails if the packet, this section and the code diverge. This packet cannot
@@ -948,22 +948,29 @@ collected.
   unobtainable, or whose held rules are older than one hour (checked before the snapshot
   capture and again at decision time; a capture finished after the hour is registered
   as unused and never decided on) is skipped: it appends no command and is registered
-  once in table `skips` with its reason. A slot that never ran between two cycles is
-  registered as a skipped slot too, except when the cycle records the frozen observation
-  gap, which is already a permanent quality failure. The three budgets are checked after
+  once in table `skips` with its reason. A slot that never ran, between two cycles or
+  between the screen start and the first cycle (the engine anchors the last command at
+  the screen start), is registered as a skipped slot too, except when the cycle records
+  the frozen observation gap, which is already a permanent quality failure. This is
+  stricter than the registered text and consistent with the gap arithmetic; it is
+  ratified in Issue #810 comment 6717103371 (the planner's record relaying the
+  delegation in comment 6715501420; it relaxes no criterion and authorizes no seal or
+  launch). The three budgets are checked after
   every registration, and the first breach in slot order ends the attempt.
 * **Rules-refresh resolution.** The registered text left open whether a transient
   rules-refresh failure inside the one-hour hold is a Class T retry or consumes a
   budget. The conservative reading is implemented: it is not retried, proceeds on the
   held rules and consumes neither a retry nor a skip budget (the refresh is due again in
   the next slot, from 3,300 s of age); a Class D or Class I refresh failure ends the
-  attempt in every case. This reading is flagged for review.
+  attempt in every case. This reading is flagged for review; it follows the
+  non-blocking note of review 5816161116 on the pre-registration pull request.
 * **Unchanged.** The 180 s observation-gap limit, every timing tolerance, the economic
   screen and the assessor are unchanged. The assessor still rejects any root with a
   failed capture or a skipped slot until the v3 plan and evaluator audit exist, so
   attempt 3 cannot yet be evaluated as qualifying. An execution that falls on rules
-  crossing one hour inside its ten-second window is not covered by the policy and halts
-  as before.
+  crossing one hour inside its ten-second window is not a new case: it falls under the
+  registered rule that any exception outside Class T is Class I, so it is terminal and
+  fail-closed and the policy is unchanged (ratified in Issue #810 comment 6717103371).
 
 **Run identity and seal procedure (nothing computed).** Run root
 `C:\trade_rl_runs\attempt3\root-<UTC seal date YYYYMMDD>` (new, outside every repository

@@ -88,11 +88,14 @@ def test_only_submitted_comment_preserves_running_full(
 
 def test_review_and_ordinary_pr_full_ci_use_independent_pending_groups() -> None:
     """Avoid review pending runs being evicted by ordinary PR reruns."""
-    assert _concurrency_group("pull_request") != _concurrency_group("pull_request_review")
-    assert _concurrency_group("pull_request_review") == _concurrency_group("pull_request_review")
-    assert _concurrency_group("pull_request", "refs/pull/43/merge") != _concurrency_group(
-        "pull_request"
-    )
+    ordinary = _concurrency_group("pull_request")
+    review = _concurrency_group("pull_request_review")
+    assert ordinary == "ci-CI-refs/pull/42/merge-pull_request"
+    assert review == "ci-CI-refs/pull/42/merge-pull_request_review"
+    assert ordinary != review
+    assert review == _concurrency_group("pull_request_review")
+    assert ordinary != _concurrency_group("pull_request", "refs/pull/43/merge")
+    assert ordinary != _concurrency_group("push")
 
 
 def test_review_triggers_and_required_gate_roster_are_preserved() -> None:

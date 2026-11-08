@@ -28,6 +28,7 @@ from trade_rl.evaluation.experiments.bootstrap.binance import (
 )
 from trade_rl.evaluation.experiments.bootstrap.config import (
     CanonicalM2BootstrapConfig,
+    _canonical_ppo_seed_roster,
     load_canonical_m2_bootstrap_config,
 )
 from trade_rl.evaluation.experiments.contracts import StudyProtocol
@@ -601,6 +602,7 @@ def bootstrap_canonical_m2_study(
     """Freeze source, publish dataset and StudyPlan, then atomically publish the root."""
 
     config = load_canonical_m2_bootstrap_config(config_path)
+    _canonical_ppo_seed_roster(config.ppo_seeds)
     output = Path(output_root)
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"bootstrap output already exists: {output}")

@@ -116,6 +116,63 @@ def test_v5_config_round_trips_protocol_and_complete_ppo_baseline(
     assert config.to_payload() == payload
 
 
+def test_historical_v5_unsorted_seed_roster_keeps_reader_and_digest(
+    tmp_path: Path,
+) -> None:
+    payload = _ppo_holding_v5_payload()
+    payload["ppo_seeds"] = [1, 0, 2, 3, 4]
+
+    historical_path = _write_config(tmp_path, payload)
+    historical = load_canonical_m2_bootstrap_config(historical_path)
+    assert historical.ppo_seeds == (1, 0, 2, 3, 4)
+    assert historical.baseline.ppo_seed == 1
+    assert historical.to_payload() == payload
+    direct = replace(
+        historical,
+        baseline=replace(historical.baseline, ppo_seed=1),
+        ppo_seeds=(1, 0, 2, 3, 4),
+    )
+    assert direct.to_payload() == payload
+    assert direct.digest == historical.digest
+
+
+def test_v6_rejects_nonascending_rosters_in_parser_and_direct_constructor(
+    tmp_path: Path,
+) -> None:
+    payload = _ppo_shared_cash_v6_payload()
+    payload["ppo_seeds"] = [1, 0, 2, 3, 4]
+    with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
+        load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+    valid_path = _write_config(tmp_path, _ppo_shared_cash_v6_payload())
+    valid = load_canonical_m2_bootstrap_config(valid_path)
+    with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
+        replace(
+            valid,
+            baseline=replace(valid.baseline, ppo_seed=1),
+            ppo_seeds=(1, 0, 2, 3, 4),
+        )
+
+
+def test_v5_new_bootstrap_rejects_nonascending_seeds_before_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _ppo_holding_v5_payload()
+    payload["ppo_seeds"] = [1, 0, 2, 3, 4]
+    input_path = _write_config(tmp_path, payload)
+    output = tmp_path / "new-legacy-study"
+
+    def no_side_effect(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("noncanonical new bootstrap reached side effects")
+
+    monkeypatch.setattr(bootstrap_workflow, "_freeze_binance_source", no_side_effect)
+    monkeypatch.setattr(bootstrap_workflow.tempfile, "mkdtemp", no_side_effect)
+    with pytest.raises(ValueError, match="ppo_seeds.*ascending"):
+        bootstrap_canonical_m2_study(input_path, output)
+    assert not output.exists()
+
+
 def test_v6_config_round_trips_shared_cash_protocol_and_complete_ppo_baseline(
     tmp_path: Path,
 ) -> None:

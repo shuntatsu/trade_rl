@@ -93,6 +93,7 @@ export function SearchPalette({
         ref={triggerRef}
         type="button"
         className="search-trigger"
+        aria-label="ガイドを検索 ⌘K"
         onClick={() => setOpen(true)}
       >
         <Search size={17} aria-hidden="true" />

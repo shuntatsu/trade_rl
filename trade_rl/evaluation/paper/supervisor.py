@@ -52,17 +52,17 @@ def seal_collection(
     *,
     settings: PaperSettings,
     research_plan: dict[str, Any],
-    attempt2_seal_token: object | None = None,
+    lineage_seal_token: object | None = None,
     clock: Callable[[], datetime] = _now,
 ) -> str:
     """Freeze collection identity; the caller owns the separate economic plan.
 
-    A research plan carrying an attempt lineage v3 is refused unless the module-private
-    ``attempt2`` token is given, and any lineage the shared classifier rejects is
-    refused. This guards against accidental or non-canonical records through the
+    A research plan carrying an attempt lineage v3 (v4) is refused unless the
+    module-private ``attempt2`` (``attempt3``) token is given, and any lineage the
+    shared classifier rejects is refused. This guards against accidental or non-canonical records through the
     supported entry points; it is not authentication against a local operator.
     """
-    require_seal_token(research_plan, attempt2_seal_token)
+    require_seal_token(research_plan, lineage_seal_token)
     created = require_aware_datetime(clock(), field="collection seal")
     if created >= settings.start_at:
         raise ValueError("collection must be sealed before its future start")
@@ -71,7 +71,7 @@ def seal_collection(
     return PaperEngine.initialize(
         root,
         settings=settings,
-        attempt2_seal_token=attempt2_seal_token,
+        lineage_seal_token=lineage_seal_token,
         study=dict(
             schema=_SCHEMA,
             created_at=created.isoformat(),

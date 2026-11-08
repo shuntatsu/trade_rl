@@ -1,8 +1,9 @@
 """Attempt 1's recorded identity and the re-verification of a recorded predecessor root.
 
-Import-light on purpose: both ``attempt2`` (plan, seal, launch) and the generic
-collector (``PaperCollector``, ``cli run``/``supervise``) use it, so a lineage v3
-``available`` record is re-read the same way on every path that starts collection.
+Import-light on purpose: ``attempt2`` and ``attempt3`` (plan, seal, launch) and the
+generic collector (``PaperCollector``, ``cli run``/``supervise``) use it, so a lineage
+v3 or v4 ``available`` record is re-read the same way on every path that starts
+collection.
 It reads a preserved root only through the existing v1 journal reader, opened
 read-only (no hot-journal recovery), and never writes.
 """
@@ -10,7 +11,9 @@ read-only (no hot-journal recovery), and never writes.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,8 @@ ATTEMPT_ONE_FINAL_TIP_SHA256 = (
 ATTEMPT_ONE_LAST_OBSERVED_AT = "2026-09-17T23:11:01.134389+00:00"
 ATTEMPT_ONE_EVENT_COUNT = 188
 LINEAGE_V3_SCHEMA = "carry_paper_attempt_lineage_v3"
+LINEAGE_V4_SCHEMA = "carry_paper_attempt_lineage_v4"
+SCREEN_V3_SCHEMA = "carry_paper_screen_v3"
 LINEAGE_V2_SCHEMA = "carry_paper_attempt_lineage_v2"
 ROOT_READER = "paper_journal_protocol_v1"
 PREDECESSOR_ROOT_STATUSES = ("available", "unavailable")
@@ -72,8 +77,44 @@ UNAVAILABLE_REVIEW_RULE = (
     "predecessor protocol digest, final tip or observation gap, and it does not "
     "exclude an earlier unreported attempt."
 )
-# Module-private capability for sealing lineage v3; ``attempt2`` is its only user.
+# Attempt 3's lineage v4 names attempt 2 as an INVALID predecessor. Attempt 2 ended
+# from a software defect read from its failure marker (Issue #810 comment 6711911740,
+# fixed by pull request #1164); no economic outcome of it is part of any record.
+ATTEMPT_TWO_INVALIDATION_RECORD = (
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6711911740"
+)
+ATTEMPT_TWO_FIX_PULL_REQUEST = "https://github.com/shuntatsu/trade_rl/pull/1164"
+ATTEMPT_TWO_INVALIDATION_CAUSE = (
+    "The snapshot reader re-applied the five-second per-quote age bound at consumption "
+    "time to a capture that had passed it at completion, so the collector halted and "
+    "wrote its permanent failure marker. A software defect; the run is not repaired, "
+    "resumed or evaluated."
+)
+# Module-private capabilities for sealing lineage v3 and v4; ``attempt2`` and
+# ``attempt3`` are their only users. A caller contract, not authentication.
 _ATTEMPT2_SEAL_TOKEN = object()
+_ATTEMPT3_SEAL_TOKEN = object()
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+@dataclass(frozen=True)
+class PredecessorIdentity:
+    """What a successful v1 read of a predecessor root must show."""
+
+    protocol_sha256: str
+    final_tip_sha256: str
+    last_observed_at: str
+    event_count: int
+
+
+def attempt_one_identity() -> PredecessorIdentity:
+    """Attempt 1's recorded identity, read from the module constants at call time."""
+    return PredecessorIdentity(
+        protocol_sha256=ATTEMPT_ONE_PROTOCOL_SHA256,
+        final_tip_sha256=ATTEMPT_ONE_FINAL_TIP_SHA256,
+        last_observed_at=ATTEMPT_ONE_LAST_OBSERVED_AT,
+        event_count=ATTEMPT_ONE_EVENT_COUNT,
+    )
 
 
 def predecessor_verification() -> dict[str, Any]:
@@ -135,6 +176,103 @@ def canonical_lineage(status: str, root_path: str | None = None) -> dict[str, An
     }
 
 
+def _identity_problem(identity: PredecessorIdentity, root_path: object) -> str | None:
+    """Why a lineage v4 predecessor identity cannot be canonical (type- and form-strict)."""
+    for digest in (identity.protocol_sha256, identity.final_tip_sha256):
+        if type(digest) is not str or _SHA256_HEX.fullmatch(digest) is None:
+            return "predecessor_digest_invalid"
+    if identity.protocol_sha256 == ATTEMPT_ONE_PROTOCOL_SHA256:
+        return "predecessor_digest_is_attempt_one"
+    if type(identity.event_count) is not int or identity.event_count < 1:
+        return "predecessor_event_count_invalid"
+    observed = identity.last_observed_at
+    try:
+        if type(observed) is not str or timestamp(observed).isoformat() != observed:
+            return "predecessor_last_observation_invalid"
+    except (TypeError, ValueError):
+        return "predecessor_last_observation_invalid"
+    if type(root_path) is not str or not root_path:
+        return "predecessor_root_path_not_recorded"
+    return None
+
+
+def canonical_lineage_v4(
+    *,
+    protocol_sha256: str,
+    final_tip_sha256: str,
+    last_observed_at: str,
+    event_count: int,
+    root_path: str,
+) -> dict[str, Any]:
+    """The attempt-3 lineage v4: attempt 2 as an INVALID predecessor, root available.
+
+    The identity values are read from the preserved attempt-2 root by the v1 journal
+    reader at seal time (``attempt3``); this record can encode no economic outcome. The
+    text fields are fixed, so any other wording is refused as non-canonical.
+    """
+    problem = _identity_problem(
+        PredecessorIdentity(
+            protocol_sha256, final_tip_sha256, last_observed_at, event_count
+        ),
+        root_path,
+    )
+    if problem is not None:
+        raise ValueError(problem)
+    return {
+        "schema": LINEAGE_V4_SCHEMA,
+        "attempt_number": 3,
+        "predecessor": {
+            "attempt_number": 2,
+            "protocol_sha256": protocol_sha256,
+            "final_tip_sha256": final_tip_sha256,
+            "disposition": "invalidated",
+            "reason_codes": ["collector_failure"],
+            "last_observed_at": last_observed_at,
+        },
+        "predecessor_root": {
+            "status": "available",
+            "verification": {
+                "reader": ROOT_READER,
+                "event_count": event_count,
+                "protocol_sha256": protocol_sha256,
+                "final_tip_sha256": final_tip_sha256,
+                "last_observed_at": last_observed_at,
+                "root_path": root_path,
+            },
+        },
+        "predecessor_invalidation": {
+            "kind": "software_defect",
+            "cause_record": ATTEMPT_TWO_INVALIDATION_RECORD,
+            "cause": ATTEMPT_TWO_INVALIDATION_CAUSE,
+            "fixed_by": ATTEMPT_TWO_FIX_PULL_REQUEST,
+            "economic_outcome_used": False,
+            "evaluated": False,
+        },
+        "predecessor_seal": {"reused": False, "successor_digest_must_differ": True},
+    }
+
+
+def v4_identity(lineage: object) -> tuple[PredecessorIdentity, str] | None:
+    """The predecessor identity and root path a v4-shaped record claims, if well typed."""
+    if type(lineage) is not dict:
+        return None
+    root = lineage.get("predecessor_root")
+    proof = root.get("verification") if type(root) is dict else None
+    if type(proof) is not dict:
+        return None
+    path = proof.get("root_path")
+    identity = PredecessorIdentity(
+        proof.get("protocol_sha256"),  # type: ignore[arg-type]
+        proof.get("final_tip_sha256"),  # type: ignore[arg-type]
+        proof.get("last_observed_at"),  # type: ignore[arg-type]
+        proof.get("event_count"),  # type: ignore[arg-type]
+    )
+    if _identity_problem(identity, path) is not None:
+        return None
+    assert type(path) is str
+    return identity, path
+
+
 def plain_json_key_problems(value: object) -> list[str]:
     """Inspect all in-memory JSON-object keys before lookup or serialization.
 
@@ -181,13 +319,19 @@ def require_seal_token(research_plan: object, token: object) -> None:
     lineage = research_plan.get("attempt_lineage")
     if lineage is None:
         return
+    schema = lineage.get("schema") if type(lineage) is dict else None
     if (
-        type(lineage) is dict
-        and type(lineage.get("schema")) is str
-        and lineage.get("schema") == LINEAGE_V3_SCHEMA
+        type(schema) is str
+        and schema == LINEAGE_V3_SCHEMA
         and token is not _ATTEMPT2_SEAL_TOKEN
     ):
         raise ValueError("attempt lineage v3 can only be sealed through attempt2")
+    if (
+        type(schema) is str
+        and schema == LINEAGE_V4_SCHEMA
+        and token is not _ATTEMPT3_SEAL_TOKEN
+    ):
+        raise ValueError("attempt lineage v4 can only be sealed through attempt3")
     problems = lineage_structure_problems(lineage)
     if problems:
         raise ValueError(
@@ -255,19 +399,26 @@ def verify_predecessor_root(
     root: str | Path,
     *,
     read: Callable[..., dict[str, Any]] = read_predecessor_status,
+    identity: PredecessorIdentity | None = None,
+    require_failure_marker: bool = False,
 ) -> list[str]:
-    """Read attempt 1's root with the v1 journal reader; return failed reasons.
+    """Read a predecessor's root with the v1 journal reader; return failed reasons.
 
     The database is opened read-only (no hot-journal recovery), so a preserved root is
-    never mutated; a root with a hot journal fails verification instead.
+    never mutated; a root with a hot journal fails verification instead. The default
+    identity is attempt 1's. The reader sees only the event count, the final tip and the last observation time. With
+    ``require_failure_marker`` (an INVALID predecessor) the permanent failure marker
+    must also exist as a regular file; its existence is checked, its content is never
+    read.
     """
+    identity = attempt_one_identity() if identity is None else identity
     path = Path(root).absolute()
     if path.is_symlink() or not path.is_dir():
         return ["predecessor_root_not_a_directory"]
     try:
         report = read(
             path,
-            expected_protocol_sha256=ATTEMPT_ONE_PROTOCOL_SHA256,
+            expected_protocol_sha256=identity.protocol_sha256,
             read_only=True,
         )
         observed = report["status"]["observed_at"]
@@ -276,12 +427,16 @@ def verify_predecessor_root(
     except Exception as error:
         return [f"predecessor_root_unreadable:{type(error).__name__}"]
     reasons = []
-    if events != ATTEMPT_ONE_EVENT_COUNT:
+    if events != identity.event_count:
         reasons.append("predecessor_root_event_count_differs")
-    if tip != ATTEMPT_ONE_FINAL_TIP_SHA256:
+    if tip != identity.final_tip_sha256:
         reasons.append("predecessor_root_tip_differs")
-    if observed_at != timestamp(ATTEMPT_ONE_LAST_OBSERVED_AT):
+    if observed_at != timestamp(identity.last_observed_at):
         reasons.append("predecessor_root_last_observation_differs")
+    if require_failure_marker:
+        marker = path / "collection-failure.json"
+        if marker.is_symlink() or not marker.is_file():
+            reasons.append("predecessor_root_failure_marker_missing")
     return reasons
 
 
@@ -296,6 +451,20 @@ def available_root_problems(
     so a post-start restart is not grounds to skip this check. Missing roots fail
     closed even after the attempt has begun.
     """
+    if type(lineage) is dict and lineage.get("schema") == LINEAGE_V4_SCHEMA:
+        claimed = v4_identity(lineage)
+        if claimed is None:
+            return ["predecessor_root_path_not_recorded"]
+        identity, recorded_path = claimed
+        return [
+            f"predecessor_root_not_reverifiable:{problem}"
+            for problem in verify_predecessor_root(
+                recorded_path,
+                read=read,
+                identity=identity,
+                require_failure_marker=True,
+            )
+        ]
     if type(lineage) is not dict or lineage.get("schema") != LINEAGE_V3_SCHEMA:
         return []
     record = lineage.get("predecessor_root")
@@ -366,6 +535,21 @@ def lineage_structure_problems(lineage: object) -> list[str]:
         if lineage.get("predecessor") is not None:
             return ["lineage_v2_first_attempt_has_predecessor"]
         return []
+    if type(schema) is str and schema == LINEAGE_V4_SCHEMA:
+        claimed = v4_identity(lineage)
+        if claimed is None:
+            return ["lineage_v4_not_canonical"]
+        identity, v4_path = claimed
+        expected_v4 = canonical_lineage_v4(
+            protocol_sha256=identity.protocol_sha256,
+            final_tip_sha256=identity.final_tip_sha256,
+            last_observed_at=identity.last_observed_at,
+            event_count=identity.event_count,
+            root_path=v4_path,
+        )
+        if same_canonical_record(lineage, expected_v4):
+            return []
+        return ["lineage_v4_not_canonical"]
     if type(schema) is not str or schema != LINEAGE_V3_SCHEMA:
         return ["lineage_schema_unsupported"]
     record = lineage.get("predecessor_root")
@@ -421,4 +605,14 @@ def collection_lineage_problems(
     key_problems = plain_json_key_problems(research_plan)
     if key_problems:
         return key_problems
-    return lineage_problems(research_plan.get("attempt_lineage"), read=read)
+    lineage = research_plan.get("attempt_lineage")
+    problems = lineage_problems(lineage, read=read)
+    # A screen v3 plan carries lineage v4 and nothing else does: refuse a mixed pair
+    # before any data is collected.
+    plan_schema = research_plan.get("schema")
+    lineage_schema = lineage.get("schema") if type(lineage) is dict else None
+    if (type(plan_schema) is str and plan_schema == SCREEN_V3_SCHEMA) != (
+        type(lineage_schema) is str and lineage_schema == LINEAGE_V4_SCHEMA
+    ):
+        problems.append("screen_lineage_mismatch")
+    return problems

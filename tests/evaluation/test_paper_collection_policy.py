@@ -148,3 +148,41 @@ def test_skip_budget_error_carries_its_budget_and_slot() -> None:
     error = policy.SkipBudgetExceeded("per_hour", 9)
     assert error.budget == "per_hour" and error.slot == 9
     assert "per_hour" in str(error) and "9" in str(error)
+
+
+def test_registered_skip_reasons_and_purposes_equal_what_the_collector_registers() -> (
+    None
+):
+    """The evaluator accepts only the classes the collector can register.
+
+    The literals in ``supervisor`` are read from the source so a new reason cannot be
+    registered without the audit (and therefore the sealed screen) naming it.
+    """
+    import ast
+    from pathlib import Path
+
+    import trade_rl.evaluation.paper.supervisor as supervisor_module
+
+    tree = ast.parse(Path(supervisor_module.__file__).read_text(encoding="utf-8"))
+    reasons: set[str] = set()
+    purposes: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None)
+        if name == "_skip" and node.args and isinstance(node.args[0], ast.Constant):
+            reasons.add(str(node.args[0].value))
+        if name == "register_skips" and isinstance(node.args[-1], ast.Constant):
+            reasons.add(str(node.args[-1].value))
+        for keyword in node.keywords:
+            if keyword.arg == "purpose" and isinstance(keyword.value, ast.Constant):
+                purposes.add(str(keyword.value.value))
+    assert reasons == set(policy.SKIP_REASONS)
+    assert purposes == set(policy.ATTEMPT_PURPOSES)
+    assert policy.SKIP_REASONS == tuple(sorted(policy.SKIP_REASONS))
+
+
+def test_the_failed_capture_bound_per_slot_follows_the_retry_allowance() -> None:
+    """Each retried failure uses the shared allowance; at most two acquisitions end a
+    slot with a failure (a held rules refresh and a snapshot or execution capture)."""
+    assert policy.MAX_FAILED_CAPTURES_PER_SLOT == policy.RETRIES_PER_SLOT + 2

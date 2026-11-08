@@ -685,8 +685,10 @@ def test_two_slots_missing_before_the_first_cycle_breach_the_consecutive_budget(
 ):
     root, digest, clock, feed, sleeper = build(tmp_path, monkeypatch)
     with collector(root, digest, clock, feed, sleeper) as active:
-        # A real first cycle in slot 3 starts after 180 s and so records the frozen
-        # observation gap instead; the registration itself is exercised directly.
+        # at(3, 0) is exactly 180 s after the screen start and the frozen gap limit is
+        # strictly greater than 180 s, so no gap is recorded at this instant; any later
+        # first cycle in slot 3 (offset > 0) would record the gap instead. The
+        # registration is exercised directly so the collector stays open for the check.
         clock.value = at(3, 0)
         active._cycle_id = active._control.begin(clock.value)
         active._slot = 3

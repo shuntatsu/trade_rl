@@ -28,6 +28,9 @@
 ## Tests / verification
 <!-- Commands and observed results on the current final HEAD. -->
 
+## Markdown and documentation consistency
+<!-- If .md files changed, list the authoritative source checked, affected Guide fingerprints, and the observed result of `python -m tools.markdown_links --check` plus applicable content/architecture tests. The link checker covers tracked local paths only; remote links, heading fragments, and economic claims require separate evidence. For unrelated changes, write "Not applicable". -->
+
 ## Falsification
 <!-- Wrong implementations/adversarial cases checked, when material. -->
 

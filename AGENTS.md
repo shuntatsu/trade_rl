@@ -19,6 +19,7 @@
 - 実装は専用branch/worktreeで行う。原則1 write Taskにつきdurable remote branchを1本とし、RED・format・smoke用のremote branchを増やさない。
 - Bugfixでは再現→RED→修正→GREENを基本とする。新function/classは可能ならproduction投入前に小さなfake/mockで主要な入出力・失敗を確認する。fakeだけで統合/E2Eを代替しない。
 - local-firstのtargeted tests・Ruff・format・mypy、影響に応じたintegrationを確認し、final diff/status/HEADを点検してpushする。詳細の実行コマンドはdocs/AGENTS.mdとCIを正本とする。
+- `.md`を変更したときは `python -m tools.markdown_links --check` で全追跡Markdownの相対リンクを検証し、authority・Guide fingerprint・研究根拠は各専用検査で別途確認する。リンクが通ることは仕様や研究の正当性を意味しない。
 
 ## PR / integration safety
 

@@ -4,22 +4,22 @@ Trade RL is a lean research system for testing one symbol-agnostic long/short st
 
 ## Documentation
 
-Start from:
+Use the [documentation index](docs/README.md) to find the authoritative contract for each task. Start with:
 
-- [Interactive Guide](https://shuntatsu.github.io/trade_rl/) — published human-facing Guide (non-authoritative; technical/research truth remains under `docs/`)
-- `guide/README.md` — Interactive Guide development and deployment maintenance
-- `docs/README.md` — current documentation index
-- `docs/architecture/lean-core.md` — causal data, strategy/risk, execution/accounting, artifact invariants
-- `docs/architecture/package-boundaries.md` — current package ownership and dependency direction
-- `docs/architecture/controlled-experiment-loop.md` — append-only Study/Experiment/EvidenceSet lifecycle and freeze contract
-- `docs/architecture/final-evaluation-authorization.md` — one-shot authorization boundary between frozen WINNER development evidence and sealed unused-future evaluation
-- `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
+- [Lean core architecture](docs/architecture/lean-core.md) — causal data, risk, execution and common accounting.
+- [Package boundaries](docs/architecture/package-boundaries.md) — source ownership and public API.
+- [Current research decisions](docs/research/current-status.md) — recorded evidence, limitations and next gates.
+- [Final-data authorization](docs/architecture/final-evaluation-authorization.md) — sealed/unused evaluation boundary.
+- [Human Guide](https://shuntatsu.github.io/trade_rl/) ([maintenance](guide/README.md)) — readable but **non-authoritative**.
+- [Agent entry](AGENTS.md) and [canonical agent contract](docs/AGENTS.md) — change/review instructions.
 
-Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes. Pull requests are gated by CI checks and an exact-HEAD Independent Research Review (audited by an external AI reviewer; findings trigger changes requested/BLOCKED, clean reviews allow automated squash-merge and close).
+For Markdown changes, run `python -m tools.markdown_links --check` (local paths in **all tracked** `.md` files) and the applicable source/Guide/architecture checks. It does not validate remote URLs or heading fragments.
+
+Agents must confirm current source, tests, `main`, open PRs, and the applicable canonical instructions before changing code. Integration needs a final PR HEAD containing current `main`, exact-HEAD Full CI, and the required review evidence. A `software_source_review_v2` receipt is publisher-attested **software-only** evidence; neither that receipt nor a passing CI authorizes economic experiments, unused/final-data access, live orders, or automatic merging.
 
 ## Current status
 
-- M1 lean core: **complete**
+- M1 lean core: **implemented; end-to-end defect audit remains open**
 - M2 universal comparison + Controlled Experiment Loop infrastructure: **complete**
 - M2 canonical real-data baseline and Portable Controlled Experiment 0001: **verified; KEEP_BASELINE**
 - M3 unused-future authorization boundary: **implemented; no final data is opened by it**
@@ -90,45 +90,11 @@ See `docs/research/current-status.md` for the accepted config keys, fit/evaluati
 
 ## Prospective carry paper operation
 
-The separate BTC/ETH spot-long/perpetual-short candidate has a public-data paper
-runner. It does not place live orders. Its economic screen is ninety UTC days,
-with three thirty-day blocks, fixed costs and a 10% observed drawdown stop.
-Past development returns and short software probes do not qualify this screen.
-See `docs/research/current-status.md` for the evidence and limitations.
+The separate BTC/ETH spot-long/perpetual-short candidate uses a public-data **paper-only** collector; it never places live orders. The frozen economic screen is 90 UTC days in three 30-day blocks, with declared costs and a 10% observed drawdown stop. Short software probes and earlier development returns do not qualify as a passed screen.
 
-Use a dedicated checkout and unchanged Python environment for the entire study.
-Choose an aware ISO start at least five minutes in the future. Sealing reserves
-a new directory and prints a protocol digest; preserve that digest outside the
-study directory before starting collection. Prepare a UTF-8 JSON lineage file
-from a result-blind review of earlier attempts, following
-`docs/specs/funding-carry-paper.md`. For the currently documented series, the
-next attempt is number 2 and must cite attempt 1 using the identifiers recorded
-in `docs/research/current-status.md`. Do not seal a successor until an
-independent result-blind review has resolved the remaining attempt-uniqueness
-and source-to-ledger checks; no successor is currently authorized.
+For the **current** attempt number, reviewed lineage, source/runtime binding, time tolerances, stop/failure rules, operator commands and authorization status, use the [active carry specification](docs/specs/funding-carry-paper.md), [implementation plan](docs/plans/funding-carry-paper.md), and [current research status](docs/research/current-status.md). These are versioned and may change between attempts; a copied command, historical start time, README example or passing CI is **not** permission to seal, collect, replay or evaluate. Keep previous failure receipts and study roots immutable.
 
-```bash
-python -m trade_rl.evaluation.paper.cli seal \
-  --root <new-study-dir> \
-  --start-at <future-UTC-ISO-time> \
-  --attempt-lineage-json <reviewed-lineage.json>
-python -m trade_rl.evaluation.paper.cli run --root <study-dir> --protocol-sha256 <sealed-digest>
-python -m trade_rl.evaluation.paper.cli status --root <study-dir> --protocol-sha256 <sealed-digest>
-```
-
-`run` collects once per minute through the fixed close and 180-second grace.
-Keep its terminal or service running. A failure is permanent for that study;
-restarting does not erase a gap or an unfinished capture. `status` checks the
-journal chain and exposes positions, costs and last observation, but is not a
-financial audit. After the deadline and collector exit, preserve the final tip
-externally and run the complete offline replay:
-
-```bash
-python -m trade_rl.evaluation.paper.cli evaluate --root <study-dir> --protocol-sha256 <sealed-digest> --expected-tip <pinned-final-tip> --output <new-assessment.json>
-```
-
-The assessment output is write-once. A passed paper screen still requires live
-execution review and never enables production routing automatically.
+Even a passed paper screen requires an independent live-execution review and never enables production routing automatically.
 
 ## Optional perfect-information bound
 

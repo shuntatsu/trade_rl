@@ -220,7 +220,7 @@ def test_stale_capture_failed_append_and_reused_capacity_do_not_change_book(tmp_
     with pytest.raises(ValueError, match="after|stale"):
         engine.execute("bad", market=ref, at=NOW + timedelta(seconds=1))
     assert engine.status() == unchanged
-    with pytest.raises(ValueError, match="stale"):
+    with pytest.raises(ValueError, match="consumed too late"):
         engine.execute(
             "late", market=market(root, "m2", 1), at=NOW + timedelta(seconds=20)
         )

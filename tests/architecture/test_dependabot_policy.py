@@ -20,14 +20,15 @@ def _ecosystem_sections() -> dict[str, str]:
     matches = list(ECOSYSTEM_PATTERN.finditer(source))
     names = [match.group(1) for match in matches]
     assert names == ["github-actions", "uv", "npm", "docker-compose"]
-    return {
-        match.group(1): (
-            source[match.end() : matches[i + 1].start()]
-            if i + 1 < len(matches)
-            else source[match.end() :]
-        )
-        for i, match in enumerate(matches)
-    }
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        start = match.end()
+        if index + 1 < len(matches):
+            end = matches[index + 1].start()
+        else:
+            end = len(source)
+        sections[match.group(1)] = source[start:end]
+    return sections
 
 
 def test_update_roster_and_weekly_review_limits() -> None:

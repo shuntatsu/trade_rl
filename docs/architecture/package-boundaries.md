@@ -115,7 +115,7 @@ trade_rl/
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
     ├── paper/
-    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py}
+    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,collection_policy.py}
     │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
     │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
@@ -180,7 +180,8 @@ The worst-case venue-stamped mark age at valuation is `MAX_QUOTE_AGE_MS` +
 `MAX_CONSUME_LATENCY_MS` are protocol parameters set from the source and engineering
 reasoning, not from observed timing: a new paper attempt must pre-register them in its
 research-assurance packet (attempt 3: `report/issue810-carry-attempt3-research-assurance-20261108.json`,
-bound to these constants by test), pass G0-G2 and independent review, and never reuse an
+bound to these constants by test; its collection policy is implemented under
+`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`), pass G0-G2 and independent review, and never reuse an
 earlier seal under changed tolerances.
 `forward_rules.py` captures current public
 exchange metadata and derives supported market lot/notional/price bounds. It
@@ -207,9 +208,21 @@ source references to saved commands, commits isolated account transitions, and
 replays every result on restart. `paper/supervisor.py` binds public collection
 to frozen source/runtime/protocol identity and owns the single-collector lock,
 rule refresh, pending-decision resumption, terminal window and durable failure.
+`paper/collection_policy.py` is the pure, I/O-free home of the pre-registered
+attempt-3 collection-failure policy (retry, skip and rules-hold constants, the
+Class D/I/T classification of an acquisition failure from exception types and the
+three skipped-slot budgets); `supervisor` applies it and `control` stores its
+registry. It imports only `integrations.binance.forward` for the freshness error
+type, and the watchdog never loads it. A transient failure is retried only inside
+its slot before a capture is consumed; an unobtainable slot is skipped without a
+command; a Class D/I failure or a budget breach writes the permanent marker.
 `paper/control.py` records cycle start before acquisition and completion only
-after account commits, preventing restart from hiding failed or unused captures.
-These control records assign no financial meaning. `paper/operations.py` freezes
+after account commits, preventing restart from hiding failed or unused captures,
+and holds the tables `attempts` (one row per failed or unused capture directory)
+and `skips` (one row per skipped slot) beside the cycle table. The transport
+chains its final error to the HTTP or socket cause and a capture's freshness
+rejection is `ForwardFreshnessError`, so the classification reads types, not
+messages. These control records assign no financial meaning. `paper/operations.py` freezes
 the ninety-day economic screen, runs sixty-second slots and exposes explicitly
 chain-only operational status. `paper/assessment.py` excludes a running collector,
 replays the pinned event tip and all financial inputs, audits control/source

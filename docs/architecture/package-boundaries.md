@@ -181,7 +181,9 @@ The worst-case venue-stamped mark age at valuation is `MAX_QUOTE_AGE_MS` +
 reasoning, not from observed timing: a new paper attempt must pre-register them in its
 research-assurance packet (attempt 3: `report/issue810-carry-attempt3-research-assurance-20261108.json`,
 bound to these constants by test; its collection policy is implemented under
-`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`), pass G0-G2 and independent review, and never reuse an
+`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` and its
+screen v3, evaluator audit and lineage v4 under
+`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`), pass G0-G2 and independent review, and never reuse an
 earlier seal under changed tolerances.
 `forward_rules.py` captures current public
 exchange metadata and derives supported market lot/notional/price bounds. It
@@ -224,9 +226,17 @@ chains its final error to the HTTP or socket cause and a capture's freshness
 rejection is `ForwardFreshnessError`, so the classification reads types, not
 messages. These control records assign no financial meaning. `paper/operations.py` freezes
 the ninety-day economic screen, runs sixty-second slots and exposes explicitly
-chain-only operational status. `paper/assessment.py` excludes a running collector,
-replays the pinned event tip and all financial inputs, audits control/source
-rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
+chain-only operational status; `screen_plan` (v2) and `screen_plan_v3` share one
+constructor of the economic fields, and v3 adds only the `operational_quality` clause
+that restates the collection-policy constants. `paper/assessment.py` excludes a running
+collector, replays the pinned event tip and all financial inputs, audits control/source
+rosters, then measures and applies the fixed screen; the sealed plan's schema selects the
+v2 audit (any failed capture or skipped slot rejects) or the v3 audit. `paper/collection_audit.py`
+is the pure v3 audit: it reads the `attempts` and `skips` registry through a read-only
+connection the caller passes, re-derives the skipped slots from the cycle roster, applies
+the three budgets and the per-slot failed-capture bound, and builds the skip report (count
+and distribution relative to the 00:00, 08:00 and 16:00 UTC settlements); it imports only
+`collection_policy`. `paper/cli.py` exposes seal,
 run, status, check, supervise and write-once evaluation commands. The account/engine
 expose due announced funding for previously held exact quantities, including after
 exits. `paper/failure.py` is the single exclusive-create failure-marker writer and
@@ -247,14 +257,18 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+`paper/attempt3.py` is the same plan/seal/launch composition for the successor: it reads
+the preserved attempt-2 root's identity with the v1 reader (read-only), builds lineage
+v4 and the `screen_plan_v3`, and has the same offline/no-collector import boundary.
 `paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
-records, the single lineage classifier (`lineage_structure_problems`) and the
+and v4 records, the single lineage classifier (`lineage_structure_problems`) and the
 read-only re-verification of a recorded predecessor root. `seal_collection`,
 `seal_paper_study`, `cli seal`, `PaperEngine.initialize` and `PaperEngine(root)`
-(on open), `validate_attempt_lineage`, `attempt2`, `PaperCollector`, `cli run` and
-`cli supervise` all use it; v3 also needs a module-private token held by `attempt2`
-at the seal functions (a caller contract), and the collector re-reads an `available`
-root on every entry. This guards against accidental or non-canonical records through
+(on open), `validate_attempt_lineage`, `attempt2`, `attempt3`, `PaperCollector`,
+`cli run` and `cli supervise` all use it; v3 also needs a module-private token held by
+`attempt2` and v4 one held by `attempt3` at the seal functions (a caller contract), and
+the collector re-reads an `available` root (v4: with its failure marker) on every entry.
+A screen v3 plan is accepted only with lineage v4 and the reverse. This guards against accidental or non-canonical records through
 the supported entry points; it is not authentication against a malicious local
 operator. Among paper modules it imports only `account` at load time. These
 operations contain no production routing.

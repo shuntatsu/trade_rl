@@ -802,10 +802,11 @@ is not run under it.
 
 Attempt 3 is a pre-registration only: nothing is implemented beyond one
 behaviour-preserving constant, nothing is sealed, launched, probed or collected, and
-every authorization field below is `PENDING_OWNER_AUTHORIZATION`. Its research-assurance
+the seal, start, authorization comment and launch commit below are
+`PENDING_OWNER_AUTHORIZATION`. Its research-assurance
 author packet is
 [`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json)
-(digest `59990524a1acc0ed4ba1cdcbceaf87e52c27a67a7f5d1d1b5c163562835ff1dc`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+(digest `28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca`, status **UNREVIEWED**, `economic_execution_authorized=false`;
 `python -m tools.agent_repo assurance digest <packet>`). Its `protocol_head` and
 `implementation_head` are both `ec7acfd1f7ca51afa805edf2051e32eff764591b`, the last
 commit that changes `trade_rl/` in the pull request that adds it. That head holds no
@@ -842,16 +843,17 @@ Timing protocol parameters: quote_age_ms=5000; future_skew_ms=1000; request_seco
 
 The flat 5bp adverse buffer is a paper assumption and is not calibrated to these ages.
 
-**Collection-failure, retry and gap policy (owner decision point).** Attempt 2 halted on
-a single failure; over 129,604 slots a transient network error is likely, so that
-behaviour makes a ninety-day window a bet against transient faults. This bounded,
-result-blind proposal is derived from engineering and the frozen cadence only. It is
+**Collection-failure, retry and gap policy (adopted under the owner's delegation).**
+Attempt 2 halted on a single failure; over 129,604 slots a transient network error is
+likely, so that behaviour makes a ninety-day window a bet against transient faults. This
+bounded, result-blind policy is derived from engineering and the frozen cadence only.
+The owner delegated the four open decisions on 2026-11-08 (「全部お任せで。一番成果が得られるもので」,
+relayed by the planner on Issue #810, comment 6715501420; the resolutions are the
+planner's, not the owner's drafting) and the policy was adopted as proposed. It is
 **not implemented**: the source still halts permanently on the first collection failure
 and the assessor still rejects any failed capture. It also relaxes one attempt-2
 operational-quality clause (a failed capture rejects the screen) into a registered
 budget, pre-registered before any attempt-3 data and relaxing no economic criterion.
-The owner may adopt it, change the values (the packet is then re-issued with a new
-digest), or keep halt-on-first-failure.
 
 Collection policy parameters: retries_per_slot=2; retry_delay_seconds=2; retry_start_window_seconds=30; max_consecutive_skipped_slots=1; max_skipped_slots_per_hour=2; max_skipped_slots_total=129; cadence_seconds=60; frozen_gap_limit_seconds=180.
 
@@ -880,10 +882,14 @@ Collection policy parameters: retries_per_slot=2; retry_delay_seconds=2; retry_s
   `carry_paper_screen_v3` plan whose economic fields equal `carry_paper_screen_v2`, an
   evaluator audit that every failed capture is registered and within budget, an
   attempt-lineage version naming attempt 2 (its root is available, so ordinary G0
-  predecessor verification applies; the attempt-2-only exception of Issue #810 comment
-  6680576996 does not extend to attempt 3), and fake-transport tests for each class and
-  budget. Skipped slots may coincide with fast markets, so the retained observations can
-  lean toward calm periods; the budgets bound this bias but do not remove it.
+  predecessor verification applies; the predecessor-root-unavailable G0 exception of Issue
+  #810 comment 6680576996 does not extend to attempt 3), and fake-transport tests for each class and
+  budget.
+* Accepted side effects and G3 claim boundary: a failed rules refresh proceeds on held
+  rules up to one hour old, and skipped slots may coincide with fast markets, so the
+  retained observations can lean toward calm periods; the budgets bound this bias but do
+  not remove it. No claim may extend beyond the retained slots, and every result must
+  report the skip count with its funding-proximity distribution.
 
 **Run identity and seal procedure (nothing computed).** Run root
 `C:\trade_rl_runs\attempt3\root-<UTC seal date YYYYMMDD>` (new, outside every repository
@@ -892,17 +898,23 @@ and not beneath the attempt-2 root); storage-probe scratch root
 `C:\trade_rl_frozen\attempt3-<first 8 hex of the launch commit>`; scheduled tasks
 `carry-a3-supervisor` and `carry-a3-check`. The attempt-2 seal and protocol digest are
 never reused and the attempt-3 protocol digest must differ from every earlier digest.
-Order: owner decision on the policy; implementation; implementation packet; independent
-review of that exact digest and heads (ordinary route, a different authenticated GitHub
-principal, unless the owner records another decision); fresh storage probe with its own
+Order: review and merge this pre-registration; then, in a separate pull request,
+implementation; implementation packet re-pinned to that head with a second review; independent
+review of that exact digest and heads (the attempt-2 same-account receipt route of Issue
+#810 comment 6680576996, extended to attempt 3 by comment 6715501420: a fresh Claude Haiku
+5.5 agent, a different model from the Opus planner and the Sonnet implementer, posts a
+pull request review from the shuntatsu account; operator-enforced, not different-principal
+independence, and `tools.research_assurance_github` still rejects it, so the packet stays
+UNREVIEWED with no PASS claimed; the predecessor-root-unavailable G0 exception is not
+extended); fresh storage probe with its own
 authorization (not an attempt-2 byte rate); owner authorization comment on Issue #810
 naming the start; `plan`, then offline `seal` at least five minutes before the start;
 `launch` from the frozen checkout.
 
 | Field | Value |
 |---|---|
-| Collection policy decision | `PENDING_OWNER_AUTHORIZATION` |
-| Review route | `PENDING_OWNER_AUTHORIZATION` |
+| Collection policy decision | Issue #810 comment 6715501420 (owner delegation, adopted) |
+| Review route | Issue #810 comment 6715501420 (extends the receipt route of comment 6680576996) |
 | Authorization comment | `PENDING_OWNER_AUTHORIZATION` |
 | Screen start (UTC) | `PENDING_OWNER_AUTHORIZATION` |
 | Protocol digest (seal) | `PENDING_OWNER_AUTHORIZATION` |

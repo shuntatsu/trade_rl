@@ -38,8 +38,8 @@ from trade_rl.simulation import depth as depth_module
 ROOT = Path(__file__).resolve().parents[2]
 RELATIVE_PACKET = "report/issue810-carry-attempt3-research-assurance-20261108.json"
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "59990524a1acc0ed4ba1cdcbceaf87e52c27a67a7f5d1d1b5c163562835ff1dc"
-ATTEMPT2_59990524a1acc0ed4ba1cdcbceaf87e52c27a67a7f5d1d1b5c163562835ff1dc = (
+PINNED_DIGEST = "28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca"
+ATTEMPT2_28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca = (
     "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
 )
 ATTEMPT1_PROTOCOL_DIGEST = (
@@ -56,6 +56,8 @@ DOCUMENTS = (SPEC, ARCHITECTURE, STATUS)
 TIMING_PREFIX = "Timing protocol parameters:"
 POLICY_PREFIX = "Collection policy parameters:"
 PENDING = "PENDING_OWNER_AUTHORIZATION"
+DELEGATION_ID = "6715501420"
+OWNER_WORDS = "「全部お任せで。一番成果が得られるもので」"
 
 
 def _packet() -> Any:
@@ -158,7 +160,7 @@ def test_packet_is_unreviewed_valid_and_pins_its_digest() -> None:
     assert result.record_digest == assurance_digest(packet) == PINNED_DIGEST
     assert (
         PINNED_DIGEST
-        != ATTEMPT2_59990524a1acc0ed4ba1cdcbceaf87e52c27a67a7f5d1d1b5c163562835ff1dc
+        != ATTEMPT2_28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca
     )
     assert b"\r" not in PACKET.read_bytes()
 
@@ -220,19 +222,24 @@ def test_packet_grants_no_authorization_and_claims_no_review_or_implementation()
     assert packet["evidence"]["evidence_level"] == "software_validity"
     assert thesis["stage"] == "prospective_paper"
     assert "No PASS is claimed" in limitations
-    assert "owner decision point" in limitations
+    assert DELEGATION_ID in limitations
+    assert OWNER_WORDS in limitations
+    assert "not the owner's drafting" in limitations
     assert "is NOT implemented" in limitations
     assert "can never support a seal" in thesis["stop_rule"]
     assert G0_EXCEPTION_URL in thesis["stop_rule"]
     assert "does not extend to attempt 3" in thesis["stop_rule"]
-    assert "ordinary route" in limitations
+    assert "Claude Haiku 5.5" in limitations
+    assert "not different-principal independence" in limitations
     forbidden = " ".join(claims["forbidden"])
     for required in (
         "sealing, launching or collecting attempt 3",
         "reusing the attempt-2 seal",
         "attempt-2 timing metadata",
         "predecessor-root-unavailable G0 exception",
-        "treating the proposed collection policy as implemented",
+        "treating the adopted collection policy as implemented or reviewed",
+        "the owner's delegation as authorization to seal or launch",
+        "funding-proximity distribution",
     ):
         assert required in forbidden, required
     mechanism = packet["mechanism"]
@@ -313,7 +320,9 @@ def test_the_specification_states_the_same_parameters_as_the_packet() -> None:
         assert name in spec, name
         assert name in _flat(BOUNDARIES), name
         assert name in _arch_section(), name
-    assert "owner decision point" in spec
+    assert "adopted under the owner's delegation" in spec
+    assert OWNER_WORDS in spec
+    assert DELEGATION_ID in spec
     assert "not implemented" in spec
 
 
@@ -369,7 +378,7 @@ def test_policy_text_forbids_the_unsafe_retries_and_claims_no_implementation() -
     assert "a consumed capture is never discarded" in spec
     assert "a skip cannot extend it" in spec
     assert "A death inside a cycle is still never resumed" in spec
-    assert "keep halt-on-first-failure" in spec
+    assert "adopted as proposed" in spec
     assert "relaxes one attempt-2 operational-quality clause" in spec
     assert "relaxing no economic criterion" in spec
     assert "does not extend to attempt 3" in spec
@@ -426,10 +435,12 @@ def test_seal_start_authorization_and_launch_fields_are_pending_and_nothing_is_s
     status = _status_paragraph()
 
     assert packet_text.count(PENDING) >= 1
-    assert spec.count(PENDING) >= 6
+    assert spec.count(PENDING) >= 4
+    for label in ("Collection policy decision", "Review route"):
+        assert re.search(
+            re.escape(label) + r" \| Issue #810 comment " + DELEGATION_ID, spec
+        )
     for label in (
-        "Collection policy decision",
-        "Review route",
         "Authorization comment",
         "Screen start (UTC)",
         "Protocol digest (seal)",
@@ -439,7 +450,7 @@ def test_seal_start_authorization_and_launch_fields_are_pending_and_nothing_is_s
     assert PENDING in arch and PENDING in status
     allowed = {
         PINNED_DIGEST,
-        ATTEMPT2_59990524a1acc0ed4ba1cdcbceaf87e52c27a67a7f5d1d1b5c163562835ff1dc,
+        ATTEMPT2_28d3dc0fead12c6cb0ccb7bcf073191547bf1c9fb88fb8b9665bea4e6fb9a8ca,
     }
     for name, text in (("packet", packet_text), ("spec", spec), ("status", status)):
         digests = set(re.findall(r"\b[0-9a-f]{64}\b", text))
@@ -507,19 +518,50 @@ def test_documents_point_to_the_packet_digest_and_unreviewed_status() -> None:
     assert "no PASS claimed" in _arch_section()
 
 
-def test_attempt2_review_exception_is_not_extended_to_attempt3() -> None:
+def test_review_route_extension_is_narrow_and_the_g0_exception_is_not_extended() -> (
+    None
+):
     packet = _packet()
+    limitations = " ".join(packet["thesis"]["limitations"].split())
     for text in (
         packet["thesis"]["stop_rule"],
         " ".join(_spec_section().split()),
         _arch_section(),
     ):
         assert G0_EXCEPTION_URL.rsplit("-", 1)[-1] in text
+        assert DELEGATION_ID in text
         assert "does not extend to attempt 3" in text
-    assert "different authenticated GitHub principal" in _spec_section()
+    assert "not different-principal independence" in _spec_section()
     assert "different-principal" in _arch_section()
-    limitations = " ".join(packet["thesis"]["limitations"].split())
-    assert "same-account exception does not apply" in limitations
+    assert "extended to attempt 3" in limitations
+    assert "exception is not extended" in limitations
+    assert "authorizes no seal, launch, probe or economic run" in limitations
+    assert "No PASS is claimed" in limitations
+    assert evaluate_assurance(packet).status == "UNREVIEWED"
+
+
+def test_g3_boundary_states_the_accepted_side_effects() -> None:
+    packet = _packet()
+    claims = packet["claims"]
+    boundary = (
+        " ".join(packet["thesis"]["limitations"].split()),
+        " ".join(claims["decision_rule"].split()),
+        " ".join(claims["permitted"]),
+        " ".join(claims["forbidden"]),
+        _spec_section(),
+        _arch_section(),
+        _status_paragraph(),
+    )
+    for text in boundary[:-1]:
+        assert "funding-proximity distribution" in text
+    for text in boundary[:2] + boundary[4:6]:
+        assert "retained slots" in text
+        assert "calm" in text
+    assert "no claim may extend beyond the retained slots" in " ".join(
+        packet["thesis"]["limitations"].split()
+    )
+    assert "stale-held-rules" in claims["decision_rule"]
+    assert "held rules up to one hour old" in _spec_section()
 
 
 def test_heads_bind_the_packet_to_the_constant_refactor_and_unimplemented_policy() -> (

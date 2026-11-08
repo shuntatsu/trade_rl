@@ -61,7 +61,8 @@ Status: Active
 - [x] Pre-register attempt 3 result-blind: timing tolerances bound to the source
   constants, a proposed collection-failure/retry/gap policy, new run identity and
   UNREVIEWED packet `report/issue810-carry-attempt3-research-assurance-20261108.json`.
-- [ ] Owner decision on the collection policy and the attempt-3 review route.
+- [x] Collection policy and attempt-3 review route decided under the owner's delegation
+  (Issue #810 comment 6715501420). Review and merge the pre-registration first.
 - [ ] Implement and test the policy (collector, attempt registry, screen v3 whose economic
   fields equal v2, evaluator audit, lineage naming attempt 2), then issue an
   implementation packet and obtain independent review.

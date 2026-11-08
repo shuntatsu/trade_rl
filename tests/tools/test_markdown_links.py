@@ -205,3 +205,10 @@ def test_non_one_ordered_marker_cannot_interrupt_paragraph(marker: str) -> None:
 
 def test_one_ordered_marker_may_interrupt_paragraph_as_code() -> None:
     assert destinations("Before\n001.     [literal](missing.md)\n") == []
+
+
+@pytest.mark.parametrize(
+    "tag", ["base", "head", "title", "colgroup", "link", "search", "track"]
+)
+def test_commonmark_type_six_html_tags_interrupt_paragraph(tag: str) -> None:
+    assert destinations(f"Before\n<{tag}>\n[literal](missing.md)\n\n") == []

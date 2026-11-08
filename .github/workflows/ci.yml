@@ -20,6 +20,7 @@ permissions:
 # downloading a standalone distribution from an intermittently failing endpoint.
 env:
   UV_PYTHON_PREFERENCE: only-system
+  UV_PYTHON_DOWNLOADS: never
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

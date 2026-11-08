@@ -14,7 +14,11 @@ SETUP_UV = "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2"
 
 def test_all_ci_uv_jobs_preinstall_python_from_runner_toolcache() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
-    assert "env:\n  UV_PYTHON_PREFERENCE: only-system\n" in source
+    assert (
+        "env:\n"
+        "  UV_PYTHON_PREFERENCE: only-system\n"
+        "  UV_PYTHON_DOWNLOADS: never\n" in source
+    )
 
     setup_pattern = re.compile(
         r"      - name: Set up runner Python 3\.12\n"
@@ -33,6 +37,7 @@ def test_all_ci_uv_jobs_preinstall_python_from_runner_toolcache() -> None:
     assert source.count(f"uses: {SETUP_UV}") == 6
     assert source.count('python-version: "3.12"') == 6
     assert "UV_PYTHON_DOWNLOADS: automatic" not in source
+    assert "UV_PYTHON_DOWNLOADS: never" in source
 
 
 def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:

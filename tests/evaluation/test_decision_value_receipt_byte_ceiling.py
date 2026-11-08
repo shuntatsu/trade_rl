@@ -289,7 +289,6 @@ def test_shallow_non_object_receipt_is_refused_before_json_decode(
         study._decode_incomplete_receipt(raw)
 
 
-
 @pytest.mark.parametrize(
     "raw",
     (

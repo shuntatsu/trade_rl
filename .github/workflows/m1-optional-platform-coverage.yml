@@ -138,4 +138,4 @@ jobs:
             tests/evaluation/test_paper_attempt2_assurance_packet.py::test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store \
             tests/evaluation/test_paper_attempt2_assurance_packet.py::test_launch_commit_runs_packet_bound_code \
             tests/evaluation/test_paper_attempt2_assurance_packet.py::test_heads_pin_the_code_as_of_the_frozen_packet_revision
-          uv run --no-sync python -c 'import os, xml.etree.ElementTree as ET; t = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "m1-history.xml")); s = next(t.iter("testsuite")); assert int(s.attrib["tests"]) == 4 and int(s.attrib["skipped"]) == 0 and int(s.attrib["failures"]) == 0 and int(s.attrib["errors"]) == 0, s.attrib'
+          uv run --no-sync python -m tools.ci_exact_pytest_counts m1-history.xml 4

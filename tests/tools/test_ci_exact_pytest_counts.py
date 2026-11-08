@@ -90,3 +90,14 @@ def test_missing_and_malformed_reports_are_rejected(tmp_path: Path) -> None:
 def test_invalid_expected_count_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         require_exact_junit_tests(_report(tmp_path), expected_tests=0)
+
+
+def test_full_history_count_accepts_four_real_cases(tmp_path: Path) -> None:
+    require_exact_junit_tests(_report(tmp_path, tests=4, cases=4), expected_tests=4)
+
+
+def test_full_history_count_rejects_declaration_without_cases(tmp_path: Path) -> None:
+    # A four-count suite with zero testcase records fooled the former inline
+    # check; the shared validator requires actual executed testcase elements.
+    with pytest.raises(ValueError, match="testcase count"):
+        require_exact_junit_tests(_report(tmp_path, tests=4, cases=0), expected_tests=4)

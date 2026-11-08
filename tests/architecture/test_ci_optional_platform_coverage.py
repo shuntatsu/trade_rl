@@ -96,9 +96,11 @@ def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
             "tests/evaluation/test_paper_attempt2_assurance_packet.py::" + name in job
         )
     assert "--junitxml=" in job
-    assert "skipped" in job
-    assert "tests" in job
-    assert "== 4" in job
+    validator = "uv run --no-sync python -m tools.ci_exact_pytest_counts"
+    assert f"{validator} m1-history.xml 4" in job
+    # Reject a weaker inline suite-counter check that can falsely pass with
+    # declared tests=4 but zero actual testcase elements.
+    assert 'next(t.iter("testsuite"))' not in job
     for path in (
         "tests/evaluation/test_forward_study_seal.py",
         "tests/evaluation/test_paper_attempt2_assurance_packet.py",

@@ -1630,6 +1630,40 @@ original comment 6673566542 for the start time and Task Scheduler jobs; neither
 replaces the exact-packet research review. The packet authorizes neither a seal, a
 launch, the storage probe nor any economic run. See `docs/specs/funding-carry-paper.md`.
 
+#### Attempt 3 author packet (pre-implementation pre-registration)
+
+Attempt 2 ended INVALID on 2026-11-07 from a snapshot-reader timing defect (Issue #810
+comment 6711911740, since fixed on main); it is not resumed, repaired or evaluated. The attempt-3
+packet `report/issue810-carry-attempt3-research-assurance-20261108.json` (digest
+`29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status UNREVIEWED, no PASS claimed) pre-registers, result-blind and
+before any attempt-3 data: (G0) the counter-hypotheses that attempt 3 is a restart
+selected on an outcome, that staler accepted quotes flatter fills, that skipped slots
+select calm markets and that tolerances are fitted after the fact, with the cheapest
+falsifiers and stop rule; (G1) the mechanism chain with the timing tolerances
+(`MAX_QUOTE_AGE_MS`, `MAX_QUOTE_FUTURE_SKEW_MS`, `MAX_REQUEST_SECONDS`,
+`MAX_CAPTURE_SPAN_SECONDS`, `MAX_CONSUME_LATENCY_MS`, the paper decision window and the
+depth receipt age) bound to the source by test, and a collection-failure, retry
+and skipped-slot policy adopted under the owner's delegation (Issue #810 comment
+6715501420), including the classification of a slot whose held rules are older than one
+hour as a counted skipped slot; (G2) the independent oracles
+for the changed time, state and evidence boundaries, with the policy's state and
+evidence oracles listed as missing evidence because the policy is not implemented; (G3)
+claim level `software_validity`, `documentation_only`, no economic claim. Its
+`implementation_head` (`ec7acfd1f7ca`) holds no policy code, so this packet cannot
+support a seal. The owner delegated the open decisions on 2026-11-08 (Issue #810 comment
+6715501420, relayed by the planner): the collection policy is adopted as proposed, the
+same-account receipt route of comment 6680576996 (a fresh Claude Haiku 5.5 agent, a
+different model from the planner and implementer, posts a pull request review from the
+shuntatsu account) is extended to attempt 3 as an operator-enforced route that is not
+different-principal independence, the policy is implemented in a separate pull request
+with a second review, and the stale-held-rules and calm-period side effects are accepted
+in the G3 boundary: no claim beyond the retained slots, and every result reports the skip
+count with its funding-proximity distribution. The predecessor-root-unavailable G0
+exception (Issue #810 comment 6680576996) does not extend to attempt 3 and the attempt-2
+root is available, so ordinary G0 predecessor verification applies. The comment authorizes
+no seal or launch; the seal, start, authorization comment and launch commit are
+`PENDING_OWNER_AUTHORIZATION`. See `docs/specs/funding-carry-paper.md`.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
 ## Research-specific contract: PPO versus A2C update families

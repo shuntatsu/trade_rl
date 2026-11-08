@@ -25,9 +25,9 @@
     "check": "npm run source-check && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
-    "lucide-react": "1.45.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "lucide-react": "1.69.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1"
   },

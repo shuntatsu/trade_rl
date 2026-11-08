@@ -23,7 +23,7 @@ env:
   UV_PYTHON_DOWNLOADS: never
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name != 'pull_request_review' || github.event.action != 'submitted' || github.event.review.state != 'commented' }}
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up runner Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           check-latest: false
@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up runner Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           check-latest: false
@@ -255,7 +255,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up runner Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           check-latest: false
@@ -363,7 +363,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up runner Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           check-latest: false
@@ -427,7 +427,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up runner Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           check-latest: false
@@ -513,7 +513,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up runner Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           check-latest: false

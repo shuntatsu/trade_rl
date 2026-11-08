@@ -229,7 +229,9 @@ class CandidateRunConfig:
             if self.pretrade_risk_config.drawdown_stop > 0.20:
                 raise ValueError("PPO drawdown stop must not exceed 20%")
         gross_budget = _require_finite(self.gross_budget, field="gross_budget")
-        initial_capital = _require_finite(
+        if not 0.0 < gross_budget <= 1.0:
+            raise ValueError("gross_budget must be within (0, 1]")
+        initial_capital = _require_positive_finite(
             self.initial_capital,
             field="initial_capital",
         )
@@ -420,7 +422,10 @@ def _normalized_datetime64(
 def _require_finite(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be a finite number")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be a finite number") from error
     if not math.isfinite(resolved):
         raise ValueError(f"{field} must be a finite number")
     return resolved

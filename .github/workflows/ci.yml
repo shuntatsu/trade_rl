@@ -51,6 +51,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Diagnostic only - show exact Dependabot contract formatter patch
+        run: uv run ruff format --diff tests/architecture/test_dependabot_policy.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

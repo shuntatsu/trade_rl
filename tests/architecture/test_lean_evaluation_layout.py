@@ -120,6 +120,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "paper/account.py",
         "paper/engine.py",
         "paper/control.py",
+        "paper/collection_policy.py",
         "paper/supervisor.py",
         "paper/operations.py",
         "paper/failure.py",

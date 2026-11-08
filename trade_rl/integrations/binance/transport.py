@@ -248,7 +248,9 @@ class BinancePublicTransport:
             if attempt + 1 < self.max_attempts and self.retry_backoff_seconds > 0.0:
                 time.sleep(self.retry_backoff_seconds * (2**attempt))
         detail = "unknown transport error" if last_error is None else str(last_error)
-        raise BinanceTransportError(f"Binance request failed for {url}: {detail}")
+        raise BinanceTransportError(
+            f"Binance request failed for {url}: {detail}"
+        ) from last_error
 
     def _request_json(self, url: str) -> object:
         payload = self._request_bytes(url)

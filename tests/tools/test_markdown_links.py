@@ -119,9 +119,7 @@ def test_multiline_inline_code_does_not_create_links() -> None:
 
 def test_indented_code_is_excluded_but_paragraph_continuation_is_not() -> None:
     assert destinations("    [literal](missing.md)\n") == []
-    assert destinations("Paragraph\n    [real](present.md)\n") == [
-        (2, "present.md")
-    ]
+    assert destinations("Paragraph\n    [real](present.md)\n") == [(2, "present.md")]
 
 
 def test_nested_bracket_labels_detect_the_outer_link() -> None:

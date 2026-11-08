@@ -105,6 +105,7 @@ def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
     ):
         assert source.count("      - " + path + "\n") == 2
 
+
 def test_optional_jobs_require_exact_executed_case_counts() -> None:
     """A green pytest exit is insufficient if selected tests are all skipped."""
     source = WORKFLOW.read_text(encoding="utf-8")

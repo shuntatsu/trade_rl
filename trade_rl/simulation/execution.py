@@ -928,7 +928,11 @@ class MarketExecutor:
             / capacity_notional[positive_capacity]
         )
         impact_scale = np.sqrt(participation)
-        slippage = self._slippage_rates(len(price_vector))
+        # The draw is preserved even for no-fill/zero-cost identities. Under
+        # strict NumPy, overflowing tail rates must reach the charged-fill
+        # validation below rather than aborting before the identity check.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            slippage = self._slippage_rates(len(price_vector))
         # Forced close bypasses limit resting/price rules and therefore takes
         # liquidity even when the configured ordinary order type is LIMIT.
         takes_liquidity = force_market or self.cost.order_type != "limit"

@@ -462,3 +462,69 @@ def test_depth_finite_fee_avoids_avoidable_intermediate_overflow() -> None:
     assert book.total_cost == expected
     assert np.isfinite(book.cash)
     assert np.isfinite(book.portfolio_value)
+
+
+@pytest.mark.parametrize(
+    ("desired_quantity", "cost_multiplier"),
+    [(0.0, 1.0), (1.0, 0.0)],
+)
+def test_legacy_strict_numpy_slippage_overflow_preserves_nonchargeable_identity(
+    desired_quantity: float, cost_multiplier: float
+) -> None:
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=1e308,
+            tail_slippage_probability=1.0,
+            tail_slippage_multiplier=1e308,
+            random_seed=0,
+            multiplier=cost_multiplier,
+        ),
+    )
+    book = BookState.zero(1, 1_000.0, np.array([1.0]))
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        result = executor._fill_toward_quantities(
+            book,
+            np.array([desired_quantity]),
+            prices=np.ones(1),
+            capacity_volume=np.ones(1),
+            tradable=np.ones(1, dtype=np.bool_),
+            turnover_denominator=1_000.0,
+            market_index=1,
+        )
+    assert result.fill_count == int(desired_quantity != 0.0)
+    assert result.cost_amount == 0.0
+    assert book.total_cost == 0.0
+    assert book.quantities.tolist() == [desired_quantity]
+
+
+def test_legacy_strict_numpy_slippage_overflow_is_rejected_before_book_mutation() -> (
+    None
+):
+    executor = MarketExecutor(
+        _dataset(price=1.0, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            slippage_std=1e308,
+            tail_slippage_probability=1.0,
+            tail_slippage_multiplier=1e308,
+            random_seed=0,
+            multiplier=1.0,
+        ),
+    )
+    book = BookState.zero(1, 1_000.0, np.array([1.0]))
+    with pytest.raises(ValueError, match="execution cost became non-finite"):
+        with np.errstate(over="raise", under="raise", invalid="raise"):
+            executor._fill_toward_quantities(
+                book,
+                np.ones(1),
+                prices=np.ones(1),
+                capacity_volume=np.ones(1),
+                tradable=np.ones(1, dtype=np.bool_),
+                turnover_denominator=1_000.0,
+                market_index=1,
+            )
+    assert book.quantities.tolist() == [0.0]
+    assert book.cash == 1_000.0
+    assert book.total_cost == 0.0

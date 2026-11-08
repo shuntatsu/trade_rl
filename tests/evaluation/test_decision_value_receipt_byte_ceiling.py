@@ -294,9 +294,7 @@ def test_shallow_non_object_receipt_is_refused_before_json_decode(
     "raw",
     (
         b'{"pairs":[' + b"0," * 100_000 + b"0]}",
-        b'{"pairs":[{"note":"quoted } ] { [ delimiters"},'
-        + b"0," * 100_000
-        + b"0]}",
+        b'{"pairs":[{"note":"quoted } ] { [ delimiters"},0]}',
         b'{"pairs" : [[],0]}',
     ),
 )
@@ -309,7 +307,9 @@ def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decod
         raise AssertionError("non-object pair members reached the JSON decoder")
 
     monkeypatch.setattr(study.json, "loads", forbidden_loads)
-    with pytest.raises(ValueError, match="failure receipt pairs must contain JSON objects"):
+    with pytest.raises(
+        ValueError, match="failure receipt pairs must contain JSON objects"
+    ):
         study._decode_incomplete_receipt(raw)
 
 

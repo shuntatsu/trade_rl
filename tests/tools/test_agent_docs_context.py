@@ -117,6 +117,7 @@ def test_terminal_closed_fence_is_still_allowed() -> None:
     source = _fixture() + "\n```markdown\n## Not a section\n```\n"
     assert render(source, ("all",)) == source
 
+
 @pytest.mark.parametrize(
     ("source", "error"),
     [

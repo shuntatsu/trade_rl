@@ -14,9 +14,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_INLINE_LINK = re.compile(r"!?\[[^\]\n]+\]\(")
 _REFERENCE = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>]+>|\S+)")
-_ALLOWED_SCHEMES = {"http", "https", "mailto", "tel", "data"}
+_ALLOWED_SCHEMES = {"http", "https", "mailto", "tel"}
 
 
 @dataclass(frozen=True)
@@ -27,101 +26,179 @@ class LinkProblem:
     reason: str
 
 
-def _mask_inline_code(line: str) -> str:
-    """Blank matched backtick spans without changing line offsets."""
-    chars = list(line)
+def _blank(text: str) -> str:
+    """Mask literal content but keep line separators for source locations."""
+    return "".join(char if char in "\r\n" else " " for char in text)
+
+
+def _mask_block_code(markdown: str) -> str:
+    """Mask fenced and indented code without hiding paragraph continuations."""
+    output: list[str] = []
+    fence: str | None = None
+    indented = False
+    paragraph = False
+    for raw in markdown.splitlines(keepends=True):
+        value = raw.rstrip("\r\n")
+        marker = _FENCE.match(value)
+        if fence is not None:
+            if marker is not None and (
+                marker.group(1)[0] == fence[0]
+                and len(marker.group(1)) >= len(fence)
+                and not value[marker.end() :].strip()
+            ):
+                fence = None
+            output.append(_blank(raw))
+            paragraph = False
+            continue
+        if marker is not None:
+            fence = marker.group(1)
+            output.append(_blank(raw))
+            indented = False
+            paragraph = False
+            continue
+        if not value.strip():
+            output.append(raw)
+            paragraph = False
+            continue
+        if (value.startswith("    ") or value.startswith("\t")) and (
+            indented or not paragraph
+        ):
+            output.append(_blank(raw))
+            indented = True
+            paragraph = False
+            continue
+        indented = False
+        output.append(raw)
+        paragraph = re.match(r"^ {0,3}#{1,6}(?:[ \t]|$)", value) is None
+    return "".join(output)
+
+
+def _escaped(source: str, index: int) -> bool:
+    count = 0
+    index -= 1
+    while index >= 0 and source[index] == "\\":
+        count += 1
+        index -= 1
+    return count % 2 == 1
+
+
+def _mask_inline_code(source: str) -> str:
+    """Mask paired CommonMark backtick spans, including multiline spans."""
+    chars = list(source)
     index = 0
-    while index < len(line):
-        if line[index] != "`":
+    while index < len(source):
+        if source[index] != "`" or _escaped(source, index):
             index += 1
             continue
         end = index
-        while end < len(line) and line[end] == "`":
+        while end < len(source) and source[end] == "`":
             end += 1
-        marker = line[index:end]
-        close = line.find(marker, end)
-        if close < 0:
-            index = end
-            continue
-        stop = close + len(marker)
-        chars[index:stop] = " " * (stop - index)
-        index = stop
+        marker = source[index:end]
+        search = end
+        while True:
+            close = source.find(marker, search)
+            if close < 0 or re.search(r"\n[ \t]*\n", source[end:close]):
+                index = end
+                break
+            stop = close + len(marker)
+            if (close > 0 and source[close - 1] == "`") or (
+                stop < len(source) and source[stop] == "`"
+            ):
+                search = close + 1
+                continue
+            for char_index in range(index, stop):
+                if chars[char_index] not in "\r\n":
+                    chars[char_index] = " "
+            index = stop
+            break
     return "".join(chars)
 
 
-def _destination(line: str, start: int) -> str | None:
-    """Read a Markdown inline-link destination with escaped/balanced parens."""
-    index = start
-    while index < len(line) and line[index] in " \t":
-        index += 1
-    if index == len(line):
-        return None
-    if line[index] == "<":
-        close = line.find(">", index + 1)
-        return line[index + 1 : close] if close >= 0 else None
-    begin = index
-    depth = 0
-    while index < len(line):
-        char = line[index]
-        if char == "\\" and index + 1 < len(line):
-            index += 2
-            continue
-        if char == "(":
-            depth += 1
-        elif char == ")":
-            if depth == 0:
-                break
-            depth -= 1
-        elif char in " \t" and depth == 0:
+def _mask_comments(source: str) -> str:
+    """Ignore links embedded in HTML comments outside code spans."""
+    chars = list(source)
+    start = 0
+    while True:
+        begin = source.find("<!--", start)
+        if begin < 0:
             break
+        end = source.find("-->", begin + 4)
+        stop = len(source) if end < 0 else end + 3
+        for index in range(begin, stop):
+            if chars[index] not in "\r\n":
+                chars[index] = " "
+        start = stop
+    return "".join(chars)
+
+
+def _destination(source: str, start: int) -> str | None:
+    """Parse one valid inline destination, including nested/escaped parens."""
+    index = start
+    while index < len(source) and source[index] in " \t\r\n":
         index += 1
-    return line[begin:index]
+    if index == len(source):
+        return None
+    if source[index] == "<":
+        close = source.find(">", index + 1)
+        if close < 0:
+            return None
+        target = source[index + 1 : close]
+        index = close + 1
+    else:
+        begin = index
+        depth = 0
+        while index < len(source):
+            char = source[index]
+            if char == "\\" and index + 1 < len(source):
+                index += 2
+                continue
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif char in " \t\r\n" and depth == 0:
+                break
+            index += 1
+        target = source[begin:index]
+        if depth != 0:
+            return None
+    while index < len(source) and source[index] in " \t\r\n":
+        index += 1
+    if index < len(source) and source[index] in ('"', "'"):
+        quote = source[index]
+        index += 1
+        end = source.find(quote, index)
+        if end < 0:
+            return None
+        index = end + 1
+        while index < len(source) and source[index] in " \t\r\n":
+            index += 1
+    if index >= len(source) or source[index] != ")":
+        return None
+    return target
 
 
 def destinations(markdown: str) -> list[tuple[int, str]]:
-    """Locate inline, image and reference-definition links outside literal text."""
+    """Find local-link candidates outside literal code and HTML comments."""
+    text = _mask_comments(_mask_inline_code(_mask_block_code(markdown)))
     targets: list[tuple[int, str]] = []
-    fence: str | None = None
-    comment = False
-    for number, raw_line in enumerate(markdown.splitlines(), start=1):
-        line = _mask_inline_code(raw_line)
-        if comment:
-            end = line.find("-->")
-            if end < 0:
-                continue
-            line = " " * (end + 3) + line[end + 3 :]
-            comment = False
-        fence_marker = _FENCE.match(line)
-        if fence_marker:
-            marker = fence_marker.group(1)
-            if fence is None:
-                fence = marker
-            elif (
-                marker[0] == fence[0]
-                and len(marker) >= len(fence)
-                and not line[fence_marker.end() :].strip()
-            ):
-                fence = None
-            continue
-        if fence is not None:
-            continue
-        while "<!--" in line:
-            begin = line.index("<!--")
-            end = line.find("-->", begin + 4)
-            if end < 0:
-                line = line[:begin]
-                comment = True
-                break
-            line = line[:begin] + " " * (end + 3 - begin) + line[end + 3 :]
-        for match in _INLINE_LINK.finditer(line):
-            target = _destination(line, match.end())
-            if target is not None:
-                targets.append((number, target))
+    stack: list[int] = []
+    for index, char in enumerate(text):
+        if char == "[" and not _escaped(text, index):
+            stack.append(index)
+        elif char == "]" and stack and not _escaped(text, index):
+            stack.pop()
+            if index + 1 < len(text) and text[index + 1] == "(":
+                target = _destination(text, index + 2)
+                if target is not None:
+                    targets.append((text.count("\n", 0, index) + 1, target))
+    for number, line in enumerate(text.splitlines(), start=1):
         reference = _REFERENCE.match(line)
         if reference is not None:
-            value = reference.group(1).strip("<>")
-            targets.append((number, value))
-    return targets
+            targets.append((number, reference.group(1).strip("<>")))
+    return sorted(targets)
 
 
 def tracked_markdown(root: Path) -> tuple[Path, ...]:

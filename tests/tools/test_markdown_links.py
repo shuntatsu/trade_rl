@@ -111,3 +111,29 @@ def test_empty_repo_does_not_claim_success(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     with pytest.raises(ValueError, match="no tracked Markdown"):
         tracked_markdown(tmp_path)
+
+
+def test_multiline_inline_code_does_not_create_links() -> None:
+    assert destinations("`literal\n[Missing](missing.md)\n`\n") == []
+
+
+def test_indented_code_is_excluded_but_paragraph_continuation_is_not() -> None:
+    assert destinations("    [literal](missing.md)\n") == []
+    assert destinations("Paragraph\n    [real](present.md)\n") == [
+        (2, "present.md")
+    ]
+
+
+def test_nested_bracket_labels_detect_the_outer_link() -> None:
+    assert destinations("[outer [inner]](missing.md)\n") == [(1, "missing.md")]
+
+
+def test_data_url_is_not_whitelisted(tmp_path: Path) -> None:
+    _write(tmp_path, "README.md", "[payload](data:text/plain,hello)\n")
+    count, problems = check_links(tmp_path, (Path("README.md"),))
+    assert count == 0
+    assert [problem.reason for problem in problems] == ["unsupported URI scheme"]
+
+
+def test_plain_unclosed_link_is_not_considered_valid_markdown() -> None:
+    assert destinations("[link](missing.md\n") == []

@@ -63,9 +63,14 @@ Status: Active
   UNREVIEWED packet `report/issue810-carry-attempt3-research-assurance-20261108.json`.
 - [x] Collection policy and attempt-3 review route decided under the owner's delegation
   (Issue #810 comment 6715501420). Review and merge the pre-registration first.
-- [ ] Implement and test the policy (collector, attempt registry, screen v3 whose economic
-  fields equal v2, evaluator audit, lineage naming attempt 2), then issue an
-  implementation packet and obtain independent review.
+- [x] Implement and test the collector policy (retry, skipped slots, three budgets,
+  terminal classes, durable attempt and skip registry) with fake-venue tests, and issue
+  the implementation packet
+  `report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`
+  (UNREVIEWED).
+- [ ] Obtain independent review of the implementation packet, then build the remaining
+  parts (screen v3 whose economic fields equal v2, evaluator audit of registered failures
+  and skipped slots, lineage naming attempt 2), issue a further packet and review it.
 - [ ] Fresh storage probe, owner authorization, offline seal and launch of attempt 3.
 - [ ] Run prospective paper observation and report the complete declared gate.
 

@@ -38,6 +38,14 @@ MAX_CAPTURE_SPAN_SECONDS = 10
 MAX_CONSUME_LATENCY_MS = 10_000
 
 
+class ForwardFreshnessError(ValueError):
+    """One capture failed a freshness bound (stale or future quote, slow request).
+
+    A distinct type so a collector can classify a freshness rejection of a single
+    capture as transient without parsing messages. It is still a ``ValueError``.
+    """
+
+
 def _number(value: object, *, positive: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         raise ValueError("market numeric field has an invalid type")
@@ -56,7 +64,7 @@ def _epoch(value: object) -> int:
 def _fresh(value: object, received_ms: int) -> int:
     timestamp = _epoch(value)
     if not -MAX_QUOTE_FUTURE_SKEW_MS <= received_ms - timestamp <= MAX_QUOTE_AGE_MS:
-        raise ValueError("source timestamp is stale or in the future")
+        raise ForwardFreshnessError("source timestamp is stale or in the future")
     return timestamp
 
 
@@ -190,15 +198,19 @@ def capture_forward_snapshot(
             if received < requested or requested < last_receipt:
                 raise ValueError("local clock moved backwards")
             if not math.isfinite(elapsed) or not 0 <= elapsed <= MAX_REQUEST_SECONDS:
-                raise ValueError("request duration exceeded freshness limit")
+                raise ForwardFreshnessError("request duration exceeded freshness limit")
             if not 0 <= span <= MAX_CAPTURE_SPAN_SECONDS:
-                raise ValueError("monotonic capture span exceeds ten seconds")
+                raise ForwardFreshnessError(
+                    "monotonic capture span exceeds ten seconds"
+                )
             if abs((received - requested).total_seconds() - elapsed) > 1:
                 raise ValueError("local clock diverges from monotonic duration")
             if abs((received - started).total_seconds() - span) > 1:
                 raise ValueError("capture clock diverges from monotonic span")
             if (received - started).total_seconds() > MAX_CAPTURE_SPAN_SECONDS:
-                raise ValueError("cross-request capture span exceeds ten seconds")
+                raise ForwardFreshnessError(
+                    "cross-request capture span exceeds ten seconds"
+                )
             last_receipt = received
             return json.loads(raw), int(received.timestamp() * 1000)
 

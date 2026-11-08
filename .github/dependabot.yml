@@ -16,7 +16,9 @@ updates:
       time: "03:30"
       timezone: "Asia/Tokyo"
     versioning-strategy: "lockfile-only"
-    open-pull-requests-limit: 2
+    # HOLD (#1175): initial hosted uv updater refused required-version ==0.10.0.
+    # Suspend version-update PRs until a separately verified toolchain migration.
+    open-pull-requests-limit: 0
     groups:
       compatible-lockfile:
         applies-to: "version-updates"

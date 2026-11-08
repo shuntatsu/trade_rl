@@ -1,7 +1,9 @@
 """The attempt-3 pre-registration packet stays UNREVIEWED and bound to the source.
 
-Attempt 3 is a pre-registration: it states the timing tolerances and a proposed
-collection-failure policy before any attempt-3 data exists. These tests keep the packet,
+Attempt 3 was pre-registered first: this packet states the timing tolerances and the
+collection-failure policy before any attempt-3 data exists, at an implementation_head
+that holds no policy code. It stays frozen; the policy is implemented under a separate
+packet (``test_paper_attempt3_implementation_packet.py``). These tests keep this packet,
 the specification and the code in step, and keep the packet from claiming a review, a
 seal, an implementation or any economic result.
 """
@@ -23,7 +25,7 @@ from tests.evaluation.test_paper_attempt2_assurance_packet import (
     paper_code_dependency_paths,
 )
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
-from trade_rl.evaluation.paper import account, supervisor
+from trade_rl.evaluation.paper import account, collection_policy, supervisor
 from trade_rl.evaluation.paper.account import PaperSettings
 from trade_rl.evaluation.paper.attempt2 import SCREEN_SLOTS
 from trade_rl.integrations.binance.forward import (
@@ -41,6 +43,11 @@ PACKET = ROOT / RELATIVE_PACKET
 PINNED_DIGEST = "29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10"
 ATTEMPT2_PACKET_DIGEST = (
     "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
+)
+# The implementation packet (test_paper_attempt3_implementation_packet.py) is named in
+# the same documents; this frozen packet's tests only allow its digest to appear.
+IMPLEMENTATION_PACKET_DIGEST = (
+    "eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45"
 )
 ATTEMPT1_PROTOCOL_DIGEST = (
     "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"
@@ -320,7 +327,7 @@ def test_the_specification_states_the_same_parameters_as_the_packet() -> None:
     assert "adopted under the owner's delegation" in spec
     assert OWNER_WORDS in spec
     assert DELEGATION_ID in spec
-    assert "not implemented" in spec
+    assert "its collection-failure policy is now implemented" in spec
 
 
 def test_collection_policy_is_derived_from_the_frozen_cadence_and_slot_count() -> None:
@@ -332,10 +339,10 @@ def test_collection_policy_is_derived_from_the_frozen_cadence_and_slot_count() -
     # Frozen values the policy must not move.
     default_gap = PaperSettings.__dataclass_fields__["maximum_gap_seconds"].default
     assert gap_limit == default_gap == 180
-    assert "interval_seconds=60" in Path(supervisor.__file__).read_text(
+    assert "interval_seconds=CADENCE_SECONDS" in Path(supervisor.__file__).read_text(
         encoding="utf-8"
     )
-    assert cadence == 60
+    assert collection_policy.CADENCE_SECONDS == cadence == 60
     assert SCREEN_SLOTS == 129_604
 
     # One skipped slot is tolerated, two consecutive ones reach the frozen limit.
@@ -361,7 +368,9 @@ def test_collection_policy_is_derived_from_the_frozen_cadence_and_slot_count() -
     assert policy["max_skipped_slots_total"] < SCREEN_SLOTS
 
 
-def test_policy_text_forbids_the_unsafe_retries_and_claims_no_implementation() -> None:
+def test_policy_text_forbids_the_unsafe_retries_in_the_frozen_pre_registration() -> (
+    None
+):
     packet = _packet()
     evidence = " ".join(packet["mechanism"]["authorities"]["evidence"].split())
     spec = _spec_section()
@@ -381,7 +390,7 @@ def test_policy_text_forbids_the_unsafe_retries_and_claims_no_implementation() -
     assert "does not extend to attempt 3" in spec
 
     supervisor_source = Path(supervisor.__file__).read_text(encoding="utf-8")
-    # The policy is pre-registered, not built: the collector still halts on any error.
+    # The collector still halts permanently on any error the policy does not absorb.
     assert (
         "except BaseException as error:\n            self._halt(error)\n            raise"
         in (supervisor_source)
@@ -448,6 +457,7 @@ def test_seal_start_authorization_and_launch_fields_are_pending_and_nothing_is_s
     allowed = {
         PINNED_DIGEST,
         ATTEMPT2_PACKET_DIGEST,
+        IMPLEMENTATION_PACKET_DIGEST,
     }
     for name, text in (("packet", packet_text), ("spec", spec), ("status", status)):
         digests = set(re.findall(r"\b[0-9a-f]{64}\b", text))
@@ -595,7 +605,12 @@ def test_stale_held_rules_are_a_classified_counted_skipped_slot() -> None:
     assert "0 <= age <= 3600" in (rules / "forward_rules.py").read_text(
         encoding="utf-8"
     )
-    assert ">= 3300" in Path(supervisor.__file__).read_text(encoding="utf-8")
+    assert collection_policy.RULES_REFRESH_SECONDS == 3300
+    assert collection_policy.RULES_HOLD_SECONDS == 3600
+    # The refresh margin is applied as ``age < RULES_REFRESH_SECONDS`` (no refresh).
+    assert "age < RULES_REFRESH_SECONDS" in Path(supervisor.__file__).read_text(
+        encoding="utf-8"
+    )
     # A breach of any of the three budgets ends the attempt.
     assert "A breach of any of the three budgets" in _spec_section()
     assert "A breach of either" not in _raw(SPEC)

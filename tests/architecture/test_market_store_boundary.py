@@ -116,7 +116,7 @@ def test_pyproject_pins_psycopg_for_the_store_extra_and_ships_migrations() -> No
 
 def test_compose_binds_loopback_pins_the_image_and_keeps_secrets_out() -> None:
     compose = (DEPLOY / "compose.yml").read_text(encoding="utf-8")
-    assert re.search(r"image: postgres:\d+\.\d+\s", compose)
+    assert re.search(r"(?m)^    image: postgres:16\.15-bookworm$", compose)
     assert "latest" not in compose
     assert '"127.0.0.1:${MARKET_STORE_PORT' in compose
     assert "healthcheck:" in compose and "pg_isready" in compose

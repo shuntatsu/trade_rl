@@ -803,18 +803,19 @@ is not run under it.
 
 ### Attempt 3 pre-registration
 
-Attempt 3 is a pre-registration only: nothing is implemented beyond one
-behaviour-preserving constant, nothing is sealed, launched, probed or collected, and
+Attempt 3 was pre-registered first and its collection-failure policy is now
+implemented (see "Attempt 3 collection-policy implementation" below); nothing is
+sealed, launched, probed or collected, and
 the seal, start, authorization comment and launch commit below are
-`PENDING_OWNER_AUTHORIZATION`. Its research-assurance
+`PENDING_OWNER_AUTHORIZATION`. Its pre-registration research-assurance
 author packet is
 [`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json)
 (digest `29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status **UNREVIEWED**, `economic_execution_authorized=false`;
 `python -m tools.agent_repo assurance digest <packet>`). Its `protocol_head` and
 `implementation_head` are both `ec7acfd1f7ca51afa805edf2051e32eff764591b`, the last
 commit that changes `trade_rl/` in the pull request that adds it. That head holds no
-collection-policy code, so this packet can never support a seal; a later implementation
-packet needs a new head, digest and review.
+collection-policy code, so this packet can never support a seal; it stays frozen and is
+not re-pinned. The implementation packet below has its own head, digest and review.
 
 **Why a successor.** Attempt 2 ended INVALID: its collector halted at cycle 61
 (`2026-11-07T00:59:07Z`) and wrote `collection-failure.json` because the snapshot reader
@@ -853,8 +854,9 @@ bounded, result-blind policy is derived from engineering and the frozen cadence 
 The owner delegated the four open decisions on 2026-11-08 (「全部お任せで。一番成果が得られるもので」,
 relayed by the planner on Issue #810, comment 6715501420; the resolutions are the
 planner's, not the owner's drafting) and the policy was adopted as proposed. It is
-**not implemented**: the source still halts permanently on the first collection failure
-and the assessor still rejects any failed capture. It also relaxes one attempt-2
+implemented in the collector (see "Attempt 3 collection-policy implementation"); the
+assessor is unchanged and still rejects any failed capture or skipped slot. It also
+relaxes one attempt-2
 operational-quality clause (a failed capture rejects the screen) into a registered
 budget, pre-registered before any attempt-3 data and relaxing no economic criterion.
 
@@ -881,23 +883,87 @@ Collection policy parameters: retries_per_slot=2; retry_delay_seconds=2; retry_s
 * No settlement-specific tolerance is added: the frozen rule that funding first received
   more than 180 seconds after a settlement is a permanent quality failure still applies
   and a skip cannot extend it. A failed rules refresh does not skip a slot while the held
-  rules are at most one hour old. A slot whose held rules are older than one hour at
+  rules are at most one hour old: a transient (Class T) refresh failure inside that hold
+  is not retried, proceeds on the held rules and consumes no retry and no skip budget,
+  and the next slot tries again, while a Class D or Class I refresh failure ends the
+  attempt whether or not rules are held. With no held rules, or rules older than one
+  hour, the refresh is required: it may use the slot's retries and, if it still fails,
+  the slot is skipped and counted. A slot whose held rules are older than one hour at
   decision time is a skipped slot: it appends no command and counts toward the three skip
   budgets (1 consecutive, 2 per 60, 129 total), a breach ends the attempt INVALID, and no
   decision is ever made on rules older than one hour. A death inside a cycle is still
   never resumed.
-* Still to build and review before any seal: the collector and attempt registry, a
+* Built in the implementation pull request: the collector, the durable attempt and skip
+  registry and fake-transport tests for each class and budget. Still to build and review
+  before any seal: a
   `carry_paper_screen_v3` plan whose economic fields equal `carry_paper_screen_v2`, an
-  evaluator audit that every failed capture is registered and within budget, an
+  evaluator audit that every failed capture is registered and within budget, and an
   attempt-lineage version naming attempt 2 (its root is available, so ordinary G0
   predecessor verification applies; the predecessor-root-unavailable G0 exception of Issue
-  #810 comment 6680576996 does not extend to attempt 3), and fake-transport tests for each class and
-  budget.
+  #810 comment 6680576996 does not extend to attempt 3).
 * Accepted side effects and G3 claim boundary: a failed rules refresh proceeds on held
   rules up to one hour old, and skipped slots may coincide with fast markets, so the
   retained observations can lean toward calm periods; the budgets bound this bias but do
   not remove it. No claim may extend beyond the retained slots, and every result must
   report the skip count with its funding-proximity distribution.
+
+#### Attempt 3 collection-policy implementation
+
+The collector applies the policy above exactly as registered; no value was tuned.
+`trade_rl/evaluation/paper/collection_policy.py` holds the constants, the failure
+classification and the budget scan, `paper/control.py` the durable registry and
+`paper/supervisor.py` the application. Its implementation research-assurance packet is
+[`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-implementation-research-assurance-20261108.json)
+(digest `ccac8a182be79af0e01bde2f621ce938605e387a4a08f3597bc49d9912415c8c`, status
+**UNREVIEWED**, `economic_execution_authorized=false`; `protocol_head` and
+`implementation_head` both `f063ecdb5c5a9dde6546ea2ce4645274ead2e820`, the last commit
+that changes `trade_rl/` in the pull request that adds it). The pre-registration packet
+stays frozen. `tests/evaluation/test_paper_attempt3_implementation_packet.py` imports the
+constants and fails if the packet, this section and the code diverge. This packet cannot
+support a seal either: the `carry_paper_screen_v3` plan, the evaluator audit and the
+attempt-lineage version do not exist at its head. Nothing is sealed, launched, probed or
+collected.
+
+* **Slot and classification.** A slot is `floor((cycle start - screen start) / 60 s)`.
+  The transport chains its final error to the HTTP status or socket cause and a
+  capture's freshness rejection (stale or future quote, request or capture-span
+  overrun) is a distinct `ValueError` subtype, so classification reads types, never
+  messages. HTTP 401, 403, 418, 429, 451 is Class D; HTTP 500, 502, 503, 504, a
+  timeout, a connection or DNS error and a freshness rejection are Class T; every other
+  status or exception (including a consume-latency rejection, a crossed book, a clock
+  reversal, a journal or lock error and a termination signal) is Class I. A status in
+  the cause chain decides before any transient type. The permanent marker records
+  `failure_class` `D`, `I` or `B` (budget breach, with the budget and slot).
+* **Retries.** Only an acquisition that has not produced a capture is retried, at most
+  `retries_per_slot` times in total for the slot (rules and snapshot share the
+  allowance), `retry_delay_seconds` after the failure and only if the retry can start by
+  `retry_start_window_seconds` after the slot start. Each failed attempt is registered
+  durably (table `attempts`, one row per capture directory) before the delay, so an
+  unregistered failure cannot pass as a skip, and a death inside a cycle leaves it
+  unacknowledged and is never resumed. A capture that has been made is never replaced
+  by another one. The execution capture of a committed decision is never retried: the
+  slot is skipped, the decision expires and the next slot cancels it with the existing
+  permanent expired-decision gap, so the skip budget does not rescue that case.
+* **Skipped slots.** A slot with no obtainable snapshot, with rules that are required but
+  unobtainable, or whose held rules are older than one hour (checked before the snapshot
+  capture and again at decision time; a capture finished after the hour is registered
+  as unused and never decided on) is skipped: it appends no command and is registered
+  once in table `skips` with its reason. A slot that never ran between two cycles is
+  registered as a skipped slot too, except when the cycle records the frozen observation
+  gap, which is already a permanent quality failure. The three budgets are checked after
+  every registration, and the first breach in slot order ends the attempt.
+* **Rules-refresh resolution.** The registered text left open whether a transient
+  rules-refresh failure inside the one-hour hold is a Class T retry or consumes a
+  budget. The conservative reading is implemented: it is not retried, proceeds on the
+  held rules and consumes neither a retry nor a skip budget (the refresh is due again in
+  the next slot, from 3,300 s of age); a Class D or Class I refresh failure ends the
+  attempt in every case. This reading is flagged for review.
+* **Unchanged.** The 180 s observation-gap limit, every timing tolerance, the economic
+  screen and the assessor are unchanged. The assessor still rejects any root with a
+  failed capture or a skipped slot until the v3 plan and evaluator audit exist, so
+  attempt 3 cannot yet be evaluated as qualifying. An execution that falls on rules
+  crossing one hour inside its ten-second window is not covered by the policy and halts
+  as before.
 
 **Run identity and seal procedure (nothing computed).** Run root
 `C:\trade_rl_runs\attempt3\root-<UTC seal date YYYYMMDD>` (new, outside every repository
@@ -922,6 +988,7 @@ naming the start; `plan`, then offline `seal` at least five minutes before the s
 | Field | Value |
 |---|---|
 | Collection policy decision | Issue #810 comment 6715501420 (owner delegation, adopted) |
+| Implementation packet | `report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` (UNREVIEWED) |
 | Review route | Issue #810 comment 6715501420 (extends the receipt route of comment 6680576996) |
 | Authorization comment | `PENDING_OWNER_AUTHORIZATION` |
 | Screen start (UTC) | `PENDING_OWNER_AUTHORIZATION` |

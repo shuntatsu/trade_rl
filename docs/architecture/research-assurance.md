@@ -1664,6 +1664,32 @@ root is available, so ordinary G0 predecessor verification applies. The comment 
 no seal or launch; the seal, start, authorization comment and launch commit are
 `PENDING_OWNER_AUTHORIZATION`. See `docs/specs/funding-carry-paper.md`.
 
+#### Attempt 3 implementation packet (collection policy implemented)
+
+The pre-registration packet stays frozen and is not re-pinned. The policy it registers is
+implemented in the collector by a separate pull request, with a new packet
+`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` (digest
+`ccac8a182be79af0e01bde2f621ce938605e387a4a08f3597bc49d9912415c8c`, status UNREVIEWED, no
+PASS claimed) whose `protocol_head` and `implementation_head` are both `f063ecdb5c5a`,
+the last commit that changes `trade_rl/` in that pull request. (G2) The state oracle is no
+longer missing evidence for the collector: the durable attempt and skip registry, the
+retry start window, the per-slot retry allowance, the three budgets (including the 129th
+and 130th total skip), budget state across a restart, held rules older than one hour
+before and during a capture, no retry after a committed decision or a consumed capture,
+and a process death between a failed attempt and its retry are tested against the real
+collector, journal and control database with a fake venue. The registry has no evaluator
+audit, and `carry_paper_screen_v3` and the attempt-lineage version naming attempt 2 do not
+exist at that head, so the packet cannot support a seal; the unchanged assessor still
+rejects any failed capture or skipped slot. The rules-refresh classification the first
+review left open is resolved conservatively and flagged for review: a transient refresh
+failure inside the one-hour hold is not retried and consumes no budget, a Class D or Class
+I refresh failure ends the attempt. The `tests/evaluation/test_paper_attempt3_implementation_packet.py`
+tests import the policy constants from the source. The owner's delegation, the extended
+same-account receipt route (operator-enforced, different-principal independence is not
+established) and the `PENDING_OWNER_AUTHORIZATION` seal, start, authorization comment and
+launch commit are unchanged, and the attempt-2 predecessor-root-unavailable G0 exception
+does not extend to attempt 3.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
 ## Research-specific contract: PPO versus A2C update families

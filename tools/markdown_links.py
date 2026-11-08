@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import string
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -324,21 +325,31 @@ def destinations(markdown: str) -> list[tuple[int, str]]:
     """Find local-link candidates outside literal code and HTML comments."""
     text = _mask_comments(_mask_inline_code(_mask_block_code(markdown)))
     targets: list[tuple[int, str]] = []
-    stack: list[int] = []
+    stack: list[tuple[bool, bool]] = []  # is_image, contains_nested_link
     for index, char in enumerate(text):
         if char == "[" and not _escaped(text, index):
-            stack.append(index)
+            is_image = index > 0 and text[index - 1] == "!" and not _escaped(
+                text, index - 1
+            )
+            stack.append((is_image, False))
         elif char == "]" and stack and not _escaped(text, index):
-            stack.pop()
+            is_image, nested_link = stack.pop()
             if index + 1 < len(text) and text[index + 1] == "(":
                 target = _destination(text, index + 2)
-                if target is not None:
+                if (
+                    target is not None
+                    and not any(image for image, _ in stack)
+                    and (is_image or not nested_link)
+                ):
                     targets.append((text.count("\n", 0, index) + 1, target))
+                    if not is_image:
+                        # CommonMark forbids a link nested inside another link.
+                        stack = [(image, True) for image, _ in stack]
     for number, line in enumerate(text.splitlines(), start=1):
         reference = _REFERENCE.match(line)
         if reference is not None:
             targets.append((number, reference.group(1).strip("<>")))
-    return sorted(targets)
+    return sorted(targets, key=lambda item: item[0])
 
 
 def tracked_markdown(root: Path) -> tuple[Path, ...]:
@@ -356,6 +367,28 @@ def tracked_markdown(root: Path) -> tuple[Path, ...]:
     if not paths:
         raise ValueError("no tracked Markdown files")
     return tuple(paths)
+
+
+def _markdown_unescape_url(destination: str) -> str:
+    """Unescape CommonMark ASCII punctuation without losing literal #, ? or %."""
+    characters: list[str] = []
+    index = 0
+    while index < len(destination):
+        char = destination[index]
+        if (
+            char == "\\"
+            and index + 1 < len(destination)
+            and destination[index + 1] in string.punctuation
+        ):
+            escaped = destination[index + 1]
+            # Percent-encode reserved punctuation before urlsplit; unquote
+            # later restores literal filesystem names without re-parsing them.
+            characters.append(f"%{ord(escaped):02X}" if escaped in "#?%" else escaped)
+            index += 2
+        else:
+            characters.append(char)
+            index += 1
+    return "".join(characters)
 
 
 def check_links(
@@ -379,7 +412,7 @@ def check_links(
             problems.append(LinkProblem(label, 0, "", "unreadable Markdown"))
             continue
         for line, original in destinations(text):
-            target = original.replace(r"\(", "(").replace(r"\)", ")")
+            target = _markdown_unescape_url(original)
             if not target or target.startswith("#"):
                 continue
             if target.startswith("//"):

@@ -212,3 +212,42 @@ def test_one_ordered_marker_may_interrupt_paragraph_as_code() -> None:
 )
 def test_commonmark_type_six_html_tags_interrupt_paragraph(tag: str) -> None:
     assert destinations(f"Before\n<{tag}>\n[literal](missing.md)\n\n") == []
+
+
+def test_nested_link_does_not_create_spurious_outer_destination() -> None:
+    source = "[outer [inner](https://example.invalid)](missing.md) [ok](good.md)"
+    assert destinations(source) == [(1, "https://example.invalid"), (1, "good.md")]
+
+
+def test_image_inside_link_is_not_an_invalid_nested_link() -> None:
+    assert destinations("[outer ![image](img.png)](page.md)") == [
+        (1, "img.png"),
+        (1, "page.md"),
+    ]
+
+
+def test_escaped_ascii_punctuation_targets_literal_filenames(tmp_path: Path) -> None:
+    for name in ("foo#bar.md", "foo?bar.md", "foo%20.md", "foo!.md"):
+        _write(tmp_path, f"docs/{name}", "# File\n")
+    _write(
+        tmp_path,
+        "docs/README.md",
+        "[A](foo\\#bar.md) [B](foo\\?bar.md) "
+        "[C](foo\\%20.md) [D](foo\\!.md)\n",
+    )
+    count, errors = check_links(tmp_path, (Path("docs/README.md"),))
+    assert count == 4
+    assert errors == []
+
+
+def test_image_alt_does_not_activate_nested_link() -> None:
+    assert destinations("![alt [inner](missing.md)](image.png)") == [
+        (1, "image.png")
+    ]
+
+
+def test_local_link_diagnostics_preserve_source_order() -> None:
+    assert destinations("[z](z.md) [a](a.md)") == [
+        (1, "z.md"),
+        (1, "a.md"),
+    ]

@@ -47,7 +47,7 @@ RELATIVE_PACKET = (
     "report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json"
 )
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "4481ec5e42324f605978c8456f77dcd7a7f1e66c0b61b6378ccd9cc819fd8829"
+PINNED_DIGEST = "27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716"
 PREREG_PACKET = "report/issue810-carry-attempt3-research-assurance-20261108.json"
 PREREG_DIGEST = "29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10"
 IMPL_PACKET = (
@@ -148,7 +148,10 @@ def test_cli_check_inspect_and_digest_agree_and_report_unreviewed() -> None:
 
 
 def test_the_earlier_packets_are_untouched_and_not_re_pinned() -> None:
-    for relative, digest in ((PREREG_PACKET, PREREG_DIGEST), (IMPL_PACKET, IMPL_DIGEST)):
+    for relative, digest in (
+        (PREREG_PACKET, PREREG_DIGEST),
+        (IMPL_PACKET, IMPL_DIGEST),
+    ):
         frozen = json.loads((ROOT / relative).read_text(encoding="utf-8"))
         assert assurance_digest(frozen) == digest, relative
     impl = json.loads((ROOT / IMPL_PACKET).read_text(encoding="utf-8"))
@@ -189,7 +192,15 @@ def test_packet_grants_no_authorization_and_claims_no_review_or_seal() -> None:
         assert required in forbidden, required
     assert "none of it is reviewed" in " ".join(claims["permitted"])
     assert packet["mechanism"]["changed_boundaries"] == ["evidence"]
-    for boundary in ("unit", "time", "state", "sign", "risk", "execution", "accounting"):
+    for boundary in (
+        "unit",
+        "time",
+        "state",
+        "sign",
+        "risk",
+        "execution",
+        "accounting",
+    ):
         assert "Unchanged" in packet["mechanism"]["authorities"][boundary], boundary
     cited = set(re.findall(r"tests/[\w/]+\.py", _text(packet)))
     assert cited
@@ -285,9 +296,12 @@ def test_the_screen_and_lineage_versions_and_schemas_equal_the_source() -> None:
     for name in (versions["screen"], versions["lineage"]):
         assert name in packet_text, name
     # The screen v2 label is not what a v3 plan carries, and v2 is still produced.
-    assert operations.screen_plan(
-        attempt_lineage=pred.canonical_lineage("unavailable")
-    )["schema"] == "carry_paper_screen_v2"
+    assert (
+        operations.screen_plan(attempt_lineage=pred.canonical_lineage("unavailable"))[
+            "schema"
+        ]
+        == "carry_paper_screen_v2"
+    )
     assert plan["operational_quality"]["max_skipped_slots_total"] == (
         policy.MAX_SKIPPED_SLOTS_TOTAL
     )
@@ -486,9 +500,10 @@ def test_review_route_and_g0_exception_are_stated_narrowly() -> None:
     assert "predecessor-root-unavailable G0 exception is not extended" in limitations
     spec = _spec_section()
     assert "does not extend to attempt 3" in spec
-    assert "lineage v4 admits only" in " ".join(
-        packet["thesis"]["stop_rule"].split()
-    ) or "Only an available root is admitted" in spec
+    assert (
+        "lineage v4 admits only" in " ".join(packet["thesis"]["stop_rule"].split())
+        or "Only an available root is admitted" in spec
+    )
 
 
 def test_the_packet_names_what_the_audit_does_not_verify() -> None:

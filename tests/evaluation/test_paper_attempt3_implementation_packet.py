@@ -366,7 +366,7 @@ def test_seal_start_authorization_and_launch_fields_stay_pending() -> None:
     assert "no seal was computed" in packet_text
     assert "nothing is sealed, launched, probed or collected" in spec.replace("\n", " ")
     assert "Nothing is sealed, launched, probed or collected" in _spec_section()
-    seal_candidate = "4481ec5e42324f605978c8456f77dcd7a7f1e66c0b61b6378ccd9cc819fd8829"
+    seal_candidate = "27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716"
     allowed = {PINNED_DIGEST, PREREG_DIGEST, seal_candidate}
     attempt2 = "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
     attempt1 = "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"

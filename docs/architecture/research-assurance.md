@@ -1695,7 +1695,7 @@ does not extend to attempt 3.
 The pre-registration and implementation packets stay frozen. The three parts they list
 as missing are built by a third pull request, with a new packet
 `report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json` (digest
-`4481ec5e42324f605978c8456f77dcd7a7f1e66c0b61b6378ccd9cc819fd8829`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
+`27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
 `implementation_head` are both `f54e7ec645f3`, the last commit that changes `trade_rl/` in
 that pull request. (G1/G3) The only changed boundary is evidence: `carry_paper_screen_v3`
 keeps every economic field of `carry_paper_screen_v2` (one shared constructor, compared

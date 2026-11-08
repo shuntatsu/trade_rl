@@ -288,7 +288,9 @@ def test_plan_collects_every_reason_at_once(tmp_path, predecessor):
     } <= set(reasons)
 
 
-def test_plan_output_is_write_once(tmp_path, predecessor, capsys):
+def test_cli_plan_refuses_an_unreadable_predecessor_and_writes_nothing(
+    tmp_path, predecessor, capsys
+):
     start = (datetime.now(UTC) + timedelta(days=1)).isoformat()
     output = tmp_path / "draft.json"
     args = [

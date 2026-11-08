@@ -1020,7 +1020,7 @@ sealed, launched, probed or collected, and the seal, start, authorization commen
 launch commit stay `PENDING_OWNER_AUTHORIZATION`. The seal-candidate research-assurance
 packet is
 [`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json)
-(digest `4481ec5e42324f605978c8456f77dcd7a7f1e66c0b61b6378ccd9cc819fd8829`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+(digest `27de381172cb8ca7d8b2ae38a1c83e30c960ae4ce5832b373840940afa0c8716`, status **UNREVIEWED**, `economic_execution_authorized=false`;
 `protocol_head` and `implementation_head` both `f54e7ec645f3dc77178e0f3519de8a9fa2fb2928`, the last commit that changes
 `trade_rl/` in the pull request that adds it). The pre-registration and implementation
 packets stay frozen.

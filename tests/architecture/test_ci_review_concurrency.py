@@ -13,7 +13,11 @@ def _policy_terms() -> tuple[str, ...]:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert text.count("\nconcurrency:\n") == 1
     section = text.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
-    assert "group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}" in section
+    expected_group = (
+        "group: ci-${{ github.workflow }}-${{ github.ref }}"
+        "-${{ github.event_name }}"
+    )
+    assert expected_group in section
     lines = [
         line.strip().removeprefix("cancel-in-progress: ")
         for line in section.splitlines()

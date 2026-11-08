@@ -2233,6 +2233,56 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
                 raise ValueError("failure receipt JSON is malformed")
 
 
+def _preflight_receipt_pair_objects(raw: bytes) -> None:
+    """Reject non-object entries in a pairs array before broad JSON allocation.
+
+    The v2/v3 writer uses a canonical "pairs":[ key, but whitespace is
+    accepted here for fail-closed handling of malformed noncanonical input.
+    This bounded-state lexical scan is not a JSON parser or a pair-count cap.
+    """
+    match = re.search(rb'"pairs"\s*:\s*\[', raw)
+    if match is None:
+        return
+    cursor = match.end()
+    while cursor < len(raw):
+        while cursor < len(raw) and raw[cursor] in b" \t\r\n":
+            cursor += 1
+        if cursor == len(raw) or raw[cursor] == 0x5D:  # ]
+            return
+        if raw[cursor] != 0x7B:  # {
+            raise ValueError("failure receipt pairs must contain JSON objects")
+        depth = 0
+        in_string = False
+        escaped = False
+        while cursor < len(raw):
+            char = raw[cursor]
+            cursor += 1
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == 0x5C:
+                    escaped = True
+                elif char == 0x22:
+                    in_string = False
+            elif char == 0x22:
+                in_string = True
+            elif char in (0x7B, 0x5B):
+                depth += 1
+            elif char in (0x7D, 0x5D):
+                depth -= 1
+                if depth == 0:
+                    break
+        if depth != 0:
+            return  # Truncated structure belongs to the strict JSON parser.
+        while cursor < len(raw) and raw[cursor] in b" \t\r\n":
+            cursor += 1
+        if cursor == len(raw) or raw[cursor] == 0x5D:
+            return
+        if raw[cursor] != 0x2C:
+            return  # Invalid separator belongs to the strict JSON parser.
+        cursor += 1
+
+
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:
@@ -2242,6 +2292,7 @@ def _decode_incomplete_receipt(
     # and other non-objects before the JSON decoder can allocate their elements.
     if not raw.startswith(b"{"):
         raise ValueError("failure receipt must contain a JSON object")
+    _preflight_receipt_pair_objects(raw)
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:

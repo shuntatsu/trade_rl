@@ -394,7 +394,6 @@ def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     study._preflight_receipt_pair_objects(raw)
 
 
-
 @pytest.mark.parametrize(
     "raw",
     (

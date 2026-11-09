@@ -2236,10 +2236,10 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
 def _preflight_receipt_pair_objects(raw: bytes) -> None:
     """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
 
-The canonical v2/v3 writer emits only the fixed ASCII root field names. Refuse
-    unknown or escaped root member names before JSON decoding, including Unicode
-    aliases for pairs. Direct pair-object field names also belong to a fixed ASCII schema;
-    refuse aliases and unknown names before allocating broad nested values.
+    The canonical v2/v3 writer emits only fixed ASCII root field names. Refuse
+    unknown or escaped root member names (including Unicode aliases for pairs)
+    before JSON decoding. Direct pair-object field names use a fixed ASCII
+    schema; refuse aliases and unknown names before broad allocations.
     This bounded-depth lexical scan is not a JSON parser or pair cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """

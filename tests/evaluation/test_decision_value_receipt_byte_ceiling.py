@@ -321,7 +321,9 @@ def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decod
             id="duplicate-top-level-pairs",
         ),
         pytest.param(
-            b'{"observed_view_digest":{"pairs":[]},"pairs":[' + b"0," * 100_000 + b"0]}",
+            b'{"observed_view_digest":{"pairs":[]},"pairs":['
+            + b"0," * 100_000
+            + b"0]}",
             "failure receipt pairs must contain JSON objects",
             id="nested-decoy",
         ),

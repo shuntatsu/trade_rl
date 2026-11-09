@@ -449,7 +449,9 @@ def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
             assert kwargs["end_ms"] == end_ms
             return raw_rows, "synthetic-neighbours-real-placeholder"
 
-        def load_funding_rates(self, **kwargs: object) -> tuple[list[tuple[int, float]], str]:
+        def load_funding_rates(
+            self, **kwargs: object
+        ) -> tuple[list[tuple[int, float]], str]:
             assert kwargs["symbol"] == "BTCUSDT"
             return [], "no-funding-spot-fixture"
 

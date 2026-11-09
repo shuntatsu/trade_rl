@@ -283,6 +283,19 @@ def test_gap_policy_rejects_unknown_values_and_duplicate_rows() -> None:
         source.load(SYMBOLS[0])
 
 
+def test_shared_missing_interior_hour_keeps_non_tradable_clock_row() -> None:
+    """An interior hole in every symbol still has a shared clock position."""
+    missing = {symbol: {100} for symbol in SYMBOLS}
+    result = _build(BaseIntervalAggregatingTransport(HourlyTransport(missing)))
+    dataset = result.dataset
+    assert dataset.n_bars == 20 * 24
+    assert not bool(dataset.tradable[100, :].any())
+    assert bool(dataset.tradable[99, :].all())
+    assert bool(dataset.tradable[101, :].all())
+    for symbol in SYMBOLS:
+        assert result.gap_report[f"{symbol}:1h"]["missing_bars"] == 1
+
+
 def test_shared_missing_final_bar_cannot_shorten_requested_dataset() -> None:
     """No symbol can supply the final clock: refuse rather than omit it."""
     last_hour = 20 * 24 - 1

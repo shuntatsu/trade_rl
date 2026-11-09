@@ -54,10 +54,11 @@ class BinanceGapPolicy(StrEnum):
     alternative by default, while direct Binance callers must opt in:
 
     * a missing bar on the base clock is absent from that symbol's raw
-      series. The builder materializes it as a ``row_present=False``,
-      non-tradable row only when another symbol supplies that clock instant.
-      A shared missing final bar cannot define a complete common clock,
-      so the Binance builder refuses the truncated requested range;
+      series. Within the shared observed first-to-last range, the builder
+      materializes a ``row_present=False``, non-tradable row with a carried
+      numeric mark even when every symbol misses an interior bar. At the
+      requested final boundary at least one symbol must have a published
+      bar or the Binance builder refuses the truncated range;
     * a missing bar on a higher native clock keeps the regular native grid with
       a price-carried zero-volume placeholder whose ``available_at`` is the end
       of the requested range, so every recursive/rolling feature that touches

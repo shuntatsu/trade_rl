@@ -56,7 +56,10 @@ def contract_positive_int(
 def contract_finite(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ContractViolationError(f"{field} must be finite")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ContractViolationError(f"{field} must be finite") from error
     if not math.isfinite(resolved):
         raise ContractViolationError(f"{field} must be finite")
     return resolved

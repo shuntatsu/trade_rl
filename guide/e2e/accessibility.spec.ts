@@ -52,7 +52,7 @@ test("keyboard alone can open implementation details and reach the exact source 
 
 test("search dialog traps focus and restores the trigger on close", async ({ page }) => {
   await page.goto("/#overview");
-  const trigger = page.getByRole("button", { name: "ガイドを検索" });
+  const trigger = page.getByRole("button", { name: "ガイドを検索 ⌘K" });
   const textbox = page.getByRole("textbox", { name: "ガイドを検索" });
 
   await trigger.focus();

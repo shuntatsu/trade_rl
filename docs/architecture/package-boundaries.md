@@ -115,7 +115,7 @@ trade_rl/
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
     ├── paper/
-    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py}
+    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,collection_policy.py}
     │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
     │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
@@ -180,7 +180,10 @@ The worst-case venue-stamped mark age at valuation is `MAX_QUOTE_AGE_MS` +
 `MAX_CONSUME_LATENCY_MS` are protocol parameters set from the source and engineering
 reasoning, not from observed timing: a new paper attempt must pre-register them in its
 research-assurance packet (attempt 3: `report/issue810-carry-attempt3-research-assurance-20261108.json`,
-bound to these constants by test), pass G0-G2 and independent review, and never reuse an
+bound to these constants by test; its collection policy is implemented under
+`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` and its
+screen v3, evaluator audit and lineage v4 under
+`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`), pass G0-G2 and independent review, and never reuse an
 earlier seal under changed tolerances.
 `forward_rules.py` captures current public
 exchange metadata and derives supported market lot/notional/price bounds. It
@@ -207,13 +210,33 @@ source references to saved commands, commits isolated account transitions, and
 replays every result on restart. `paper/supervisor.py` binds public collection
 to frozen source/runtime/protocol identity and owns the single-collector lock,
 rule refresh, pending-decision resumption, terminal window and durable failure.
+`paper/collection_policy.py` is the pure, I/O-free home of the pre-registered
+attempt-3 collection-failure policy (retry, skip and rules-hold constants, the
+Class D/I/T classification of an acquisition failure from exception types and the
+three skipped-slot budgets); `supervisor` applies it and `control` stores its
+registry. It imports only `integrations.binance.forward` for the freshness error
+type, and the watchdog never loads it. A transient failure is retried only inside
+its slot before a capture is consumed; an unobtainable slot is skipped without a
+command; a Class D/I failure or a budget breach writes the permanent marker.
 `paper/control.py` records cycle start before acquisition and completion only
-after account commits, preventing restart from hiding failed or unused captures.
-These control records assign no financial meaning. `paper/operations.py` freezes
+after account commits, preventing restart from hiding failed or unused captures,
+and holds the tables `attempts` (one row per failed or unused capture directory)
+and `skips` (one row per skipped slot) beside the cycle table. The transport
+chains its final error to the HTTP or socket cause and a capture's freshness
+rejection is `ForwardFreshnessError`, so the classification reads types, not
+messages. These control records assign no financial meaning. `paper/operations.py` freezes
 the ninety-day economic screen, runs sixty-second slots and exposes explicitly
-chain-only operational status. `paper/assessment.py` excludes a running collector,
-replays the pinned event tip and all financial inputs, audits control/source
-rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
+chain-only operational status; `screen_plan` (v2) and `screen_plan_v3` share one
+constructor of the economic fields, and v3 adds only the `operational_quality` clause
+that restates the collection-policy constants. `paper/assessment.py` excludes a running
+collector, replays the pinned event tip and all financial inputs, audits control/source
+rosters, then measures and applies the fixed screen; the sealed plan's schema selects the
+v2 audit (any failed capture or skipped slot rejects) or the v3 audit. `paper/collection_audit.py`
+is the pure v3 audit: it reads the `attempts` and `skips` registry through a read-only
+connection the caller passes, re-derives the skipped slots from the cycle roster, applies
+the three budgets and the per-slot failed-capture bound, and builds the skip report (count
+and distribution relative to the 00:00, 08:00 and 16:00 UTC settlements); it imports only
+`collection_policy`. `paper/cli.py` exposes seal,
 run, status, check, supervise and write-once evaluation commands. The account/engine
 expose due announced funding for previously held exact quantities, including after
 exits. `paper/failure.py` is the single exclusive-create failure-marker writer and
@@ -234,14 +257,18 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+`paper/attempt3.py` is the same plan/seal/launch composition for the successor: it reads
+the preserved attempt-2 root's identity with the v1 reader (read-only), builds lineage
+v4 and the `screen_plan_v3`, and has the same offline/no-collector import boundary.
 `paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
-records, the single lineage classifier (`lineage_structure_problems`) and the
+and v4 records, the single lineage classifier (`lineage_structure_problems`) and the
 read-only re-verification of a recorded predecessor root. `seal_collection`,
 `seal_paper_study`, `cli seal`, `PaperEngine.initialize` and `PaperEngine(root)`
-(on open), `validate_attempt_lineage`, `attempt2`, `PaperCollector`, `cli run` and
-`cli supervise` all use it; v3 also needs a module-private token held by `attempt2`
-at the seal functions (a caller contract), and the collector re-reads an `available`
-root on every entry. This guards against accidental or non-canonical records through
+(on open), `validate_attempt_lineage`, `attempt2`, `attempt3`, `PaperCollector`,
+`cli run` and `cli supervise` all use it; v3 also needs a module-private token held by
+`attempt2` and v4 one held by `attempt3` at the seal functions (a caller contract), and
+the collector re-reads an `available` root (v4: with its failure marker) on every entry.
+A screen v3 plan is accepted only with lineage v4 and the reverse. This guards against accidental or non-canonical records through
 the supported entry points; it is not authentication against a malicious local
 operator. Among paper modules it imports only `account` at load time. These
 operations contain no production routing.
@@ -524,7 +551,7 @@ Gym/SB3 imports are local to the callable path.
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`は4つのthresholdでbuilt-in `bool`を拒否し、typed `fit_cutoff`もshared data helperでexact integer normalizationを行う。PPO・risk・execution設定はforecast horizonに依存しない。
-- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` はshared data helperでexact integer normalizationを行う。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`gross_budget`は有限な`(0, 1]`、`initial_capital`は有限な正値として結果生成前にfail-closedする。`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` はshared data helperでexact integer normalizationを行う。既にwrapされた `datetime64[ns]` から元時刻は復元できない。永続化する`ResolvedRunConfig`も同じbudget/capital境界を再検証し、Study/Experiment readerが実行不能な有限値をsemantic identityとして受け入れない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持てるresult schemaとしてv7/v9/v10を許可する。新規Runは正のforecast horizonと明示的な`forecast_switch_cost`（`null`または有限な非負値）を`lean_candidate_result_v10`へbindし、per-symbolとoptional shared-cashの両方を同じcurrent schemaで表現する。v10はrisk config・完全なevaluation-period coverage・training/replay suppression evidenceを保持し、shared-cash時はsettlement / ledger evidenceも必須とする。loaderはreturn / maximum drawdownをraw seriesから再計算する。historical v8/v9を含む旧result schemasは不変のまま読み込み、新fieldのbackfillを拒否する。
@@ -799,7 +826,9 @@ uv run python -m trade_rl.integrations.market_store status
 uv run python -m trade_rl.integrations.market_store export --market usds_m --start 2021-01-01 --end 2026-08-01 --output-dir C:/data/exports/usds_m_2021_2026
 ```
 
-The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.4` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
+The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.15-bookworm` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
+
+The pinned Compose image and the CI service use `postgres:16.15-bookworm` (PostgreSQL 16 minor release with an explicit Bookworm base). A green fresh-container CI run does **not** validate changing the existing `trade_rl_market_store_data` volume. Before updating a populated local deployment, follow the [16.15 migration notes](https://www.postgresql.org/docs/16/release-16-15.html), including the 16.10 notes applicable when upgrading from 16.4; make and verify a backup, rehearse the upgrade and recovery on a copy, check applicable configuration/reindex guidance, and verify migration-twice/status, row counts and checksums. This source change performs no service restart or existing-volume migration.
 
 ## Repository integration boundary
 

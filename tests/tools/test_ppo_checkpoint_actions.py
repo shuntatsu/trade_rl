@@ -283,7 +283,7 @@ def test_checkpoint_commands_are_one_prepare_or_one_complete_arm() -> None:
     assert all("--seed" in command and "3" in command for command in arm)
 
 
-def test_prior_receipt_binds_checkout_and_workflow_identity() -> None:
+def test_prior_receipt_binds_checkout_and_workflow_identity(tmp_path: Path) -> None:
     reference = transport.ArtifactReference(90, 34, "d" * 64)
     metadata = {
         "id": 90,
@@ -321,6 +321,35 @@ def test_prior_receipt_binds_checkout_and_workflow_identity() -> None:
             identity,
             protocol_digest="c" * 64,
         )
+
+    # A different Python patch/build is not a compatible checkpoint lineage.
+    # This pure validation must not rewrite either prior receipt or artifact.
+    frozen = tmp_path / "prior-checkpoint.bin"
+    frozen.write_bytes(b"immutable completed checkpoint")
+    original_bytes = transport.canonical_json_bytes(receipt)
+    recorded_version = receipt["python_version"]
+    assert isinstance(recorded_version, str)
+    assert isinstance(receipt["uv_version"], str)
+    version_prefix, separator, build = recorded_version.partition(" ")
+    components = version_prefix.split(".")
+    assert len(components) == 3
+    assert components[:2] == ["3", "12"]
+    changed_version = f"3.12.{int(components[2]) + 1}{separator}{build}"
+    assert changed_version != recorded_version
+    with pytest.raises(ValueError, match="checkpoint receipt Python runtime differs"):
+        transport.validate_prior_receipt(
+            receipt,
+            reference,
+            metadata,
+            identity,
+            protocol_digest="c" * 64,
+            runtime={
+                "python_version": changed_version,
+                "uv_version": receipt["uv_version"],
+            },
+        )
+    assert transport.canonical_json_bytes(receipt) == original_bytes
+    assert frozen.read_bytes() == b"immutable completed checkpoint"
 
 
 def test_artifact_api_digest_is_required() -> None:

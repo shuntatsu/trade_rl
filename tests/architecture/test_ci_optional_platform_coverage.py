@@ -138,3 +138,34 @@ def test_optional_jobs_require_exact_executed_case_counts() -> None:
         "tests/tools/test_ci_exact_pytest_counts.py",
     ):
         assert source.count("      - " + path + "\n") == 2
+
+
+def test_linux_optional_jobs_use_runner_toolcache_without_uv_python_download() -> None:
+    """Avoid the unavailable pinned standalone Python distribution on Ubuntu."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    for name, next_name in (
+        ("forecast-gbm", "history-provenance"),
+        ("history-provenance", None),
+    ):
+        job = _job(source, name, next_name)
+        assert "runs-on: ubuntu-latest" in job
+        assert "UV_PYTHON_PREFERENCE: only-system" in job
+        assert "UV_PYTHON_DOWNLOADS: never" in job
+        assert (
+            "uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
+            in job
+        )
+        assert 'python-version: "3.12"' in job
+        assert "check-latest: false" in job
+        assert job.index("name: Set up runner Python 3.12") < job.index(
+            "name: Set up uv"
+        )
+        assert "name: Set up uv\n" in job
+        assert "uses: astral-sh/setup-uv@" in job
+        assert "          enable-cache: true" in job
+    windows = _job(source, "windows-job-object", "forecast-gbm")
+    assert "runs-on: windows-latest" in windows
+    assert "name: Set up uv and Python" in windows
+    assert "actions/setup-python@" not in windows
+    assert source.count("UV_PYTHON_DOWNLOADS: never") == 2
+    assert source.count("UV_PYTHON_PREFERENCE: only-system") == 2

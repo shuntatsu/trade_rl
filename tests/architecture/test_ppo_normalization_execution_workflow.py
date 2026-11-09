@@ -10,7 +10,6 @@ def _text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-
 # The economic one-shot has a separate, exact 3.12.12 interpreter contract.
 # Unlike generic CI, stages must not silently select an updated toolcache patch.
 _PINNED_UV_SETUP = (

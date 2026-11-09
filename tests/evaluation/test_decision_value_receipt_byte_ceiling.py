@@ -262,7 +262,7 @@ def test_json_canonicalization_recursion_fails_as_value_error(
     root = tmp_path / "attempt"
     root.mkdir()
     receipt = root / "incomplete-pairs.json"
-    raw = b'{"x":0}'
+    raw = b'{"fit_admitted":false}'
     receipt.write_bytes(raw)
 
     def recursive_canonical_json_bytes(_value: object) -> bytes:
@@ -321,7 +321,7 @@ def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decod
             id="duplicate-top-level-pairs",
         ),
         pytest.param(
-            b'{"nested":{"pairs":[]},"pairs":[' + b"0," * 100_000 + b"0]}",
+            b'{"observed_view_digest":{"pairs":[]},"pairs":[' + b"0," * 100_000 + b"0]}",
             "failure receipt pairs must contain JSON objects",
             id="nested-decoy",
         ),
@@ -392,6 +392,27 @@ def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
         b'"unvalidated_source_record":{"text":"{ nested ]"}}]}'
     )
     study._preflight_receipt_pair_objects(raw)
+
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        b'{"unexpected":[' + b"0," * 100_000 + b"0]}",
+        b'{"pairs":[],"alien":[' + b"0," * 100_000 + b"0]}",
+    ),
+)
+def test_unknown_root_member_rejected_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes
+) -> None:
+    """Unknown direct root names must not allocate broad decoded values."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("unknown root member reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt fields are malformed"):
+        study._decode_incomplete_receipt(raw)
 
 
 def test_large_root_member_key_rejected_before_decode(

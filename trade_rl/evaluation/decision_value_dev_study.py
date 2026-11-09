@@ -2250,6 +2250,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
         for name in (*_PAIR_KEYS, "reference_vintage", _QUARANTINE_FIELD)
     )
     max_pair_key_bytes = max(map(len, allowed_pair_keys))
+    required_pair_keys = frozenset(name.encode("ascii") for name in _PAIR_KEYS)
     stack = [0x7B]  # The caller has already checked the root opening brace.
     in_string = False
     escaped = False
@@ -2263,6 +2264,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     pairs_depth: int | None = None
     want_pair = False
     want_pair_key = False
+    direct_pair_fields: set[bytes] = set()
 
     for offset in range(1, len(raw)):
         char = raw[offset]
@@ -2306,6 +2308,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         for name in allowed_pair_keys
                     ):
                         raise ValueError("failure receipt pair field is not recognised")
+                    direct_pair_fields.add(raw[pair_key_start:offset])
                     pair_key_start = None
                     want_pair_key = False
             continue
@@ -2332,6 +2335,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
             if want_pair and char not in (0x7B, 0x5D):  # { or ]
                 raise ValueError("failure receipt pairs must contain JSON objects")
             if char == 0x7B:
+                direct_pair_fields.clear()
                 want_pair = False
                 want_pair_key = True
             elif char == 0x2C:
@@ -2349,6 +2353,16 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
         elif char in (0x7B, 0x5B):
             stack.append(char)
         elif char in (0x7D, 0x5D):
+            # Only a direct pair object closing here is checked. Nested
+            # endpoint/quarantine/reference_vintage keys are not pair keys.
+            if (
+                char == 0x7D
+                and pairs_depth is not None
+                and len(stack) == pairs_depth + 1
+                and stack[-1] == 0x7B
+                and not required_pair_keys.issubset(direct_pair_fields)
+            ):
+                raise ValueError("failure receipt pair fields are malformed")
             if stack:
                 stack.pop()
             if pairs_depth is not None and len(stack) < pairs_depth:

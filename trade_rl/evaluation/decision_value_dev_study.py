@@ -2234,54 +2234,81 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
 
 
 def _preflight_receipt_pair_objects(raw: bytes) -> None:
-    """Reject non-object entries in a pairs array before broad JSON allocation.
+    """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
 
-    The v2/v3 writer uses a canonical "pairs":[ key, but whitespace is
-    accepted here for fail-closed handling of malformed noncanonical input.
-    This bounded-state lexical scan is not a JSON parser or a pair-count cap.
+    The canonical v2/v3 writer emits plain ASCII root field names. Refuse
+    escaped member names before JSON decoding, including Unicode aliases for
+    pairs. This bounded-depth lexical scan is not a JSON parser or pair cap:
+    the existing parser, canonicalizer, and validators remain authoritative.
     """
-    match = re.search(rb'"pairs"\s*:\s*\[', raw)
-    if match is None:
-        return
-    cursor = match.end()
-    while cursor < len(raw):
-        while cursor < len(raw) and raw[cursor] in b" \t\r\n":
-            cursor += 1
-        if cursor == len(raw) or raw[cursor] == 0x5D:  # ]
-            return
-        if raw[cursor] != 0x7B:  # {
-            raise ValueError("failure receipt pairs must contain JSON objects")
-        depth = 0
-        in_string = False
-        escaped = False
-        while cursor < len(raw):
-            char = raw[cursor]
-            cursor += 1
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == 0x5C:
-                    escaped = True
-                elif char == 0x22:
-                    in_string = False
-            elif char == 0x22:
-                in_string = True
-            elif char in (0x7B, 0x5B):
-                depth += 1
-            elif char in (0x7D, 0x5D):
-                depth -= 1
-                if depth == 0:
-                    break
-        if depth != 0:
-            return  # Truncated structure belongs to the strict JSON parser.
-        while cursor < len(raw) and raw[cursor] in b" \t\r\n":
-            cursor += 1
-        if cursor == len(raw) or raw[cursor] == 0x5D:
-            return
-        if raw[cursor] != 0x2C:
-            return  # Invalid separator belongs to the strict JSON parser.
-        cursor += 1
+    stack = [0x7B]  # The caller has already checked the root opening brace.
+    in_string = False
+    escaped = False
+    root_key_start: int | None = None
+    root_key: bytes | None = None
+    want_root_key = True
+    want_colon = False
+    want_value = False
+    seen_pairs = False
+    pairs_depth: int | None = None
+    want_pair = False
 
+    for offset in range(1, len(raw)):
+        char = raw[offset]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == 0x5C:
+                escaped = True
+            elif char == 0x22:
+                in_string = False
+                if root_key_start is not None:
+                    root_key = raw[root_key_start:offset]
+                    if b"\\" in root_key:
+                        raise ValueError("failure receipt root keys must be unescaped")
+                    root_key_start = None
+                    want_root_key = False
+                    want_colon = True
+            continue
+        if char in b" \t\r\n":
+            continue
+        if len(stack) == 1:
+            if want_colon:
+                if char != 0x3A:  # Invalid syntax belongs to the JSON parser.
+                    return
+                want_colon = False
+                want_value = True
+                continue
+            if want_value:
+                want_value = False
+                if root_key == b"pairs":
+                    if seen_pairs:
+                        raise ValueError("failure receipt pairs key is duplicated")
+                    seen_pairs = True
+                    if char == 0x5B:  # [
+                        pairs_depth = len(stack) + 1
+                        want_pair = True
+                root_key = None
+        if pairs_depth is not None and len(stack) == pairs_depth:
+            if want_pair and char not in (0x7B, 0x5D):  # { or ]
+                raise ValueError("failure receipt pairs must contain JSON objects")
+            if char == 0x7B:
+                want_pair = False
+            elif char == 0x2C:
+                want_pair = True
+        if char == 0x22:
+            if len(stack) == 1 and want_root_key:
+                root_key_start = offset + 1
+            in_string = True
+        elif char in (0x7B, 0x5B):
+            stack.append(char)
+        elif char in (0x7D, 0x5D):
+            if stack:
+                stack.pop()
+            if pairs_depth is not None and len(stack) < pairs_depth:
+                pairs_depth = None
+        elif char == 0x2C and len(stack) == 1:
+            want_root_key = True
 
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None

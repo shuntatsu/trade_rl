@@ -95,7 +95,10 @@ def _as_int(value: object, *, field: str) -> int:
 def _as_float(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ArtifactIntegrityError(f"{field} must be numeric")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ArtifactIntegrityError(f"{field} must be finite") from error
     if not np.isfinite(resolved):
         raise ArtifactIntegrityError(f"{field} must be finite")
     return resolved

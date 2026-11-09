@@ -275,6 +275,103 @@ def test_json_canonicalization_recursion_fails_as_value_error(
     assert receipt.read_bytes() == raw
 
 
+def test_shallow_non_object_receipt_is_refused_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broad root array must not allocate decoded objects before type rejection."""
+    raw = b"[" + b"0," * 100_000 + b"0]"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("non-object receipt reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt must contain a JSON object"):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        b'{"pairs":[' + b"0," * 100_000 + b"0]}",
+        b'{"pairs":[{"note":"quoted } ] { [ delimiters"},0]}',
+        b'{"pairs" : [[],0]}',
+    ),
+)
+def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes
+) -> None:
+    """A broad pairs array of non-records must not reach json.loads."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("non-object pair members reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(
+        ValueError, match="failure receipt pairs must contain JSON objects"
+    ):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_message"),
+    (
+        pytest.param(
+            b'{"pairs":[],"pairs":[' + b"0," * 100_000 + b"0]}",
+            "failure receipt pairs key is duplicated",
+            id="duplicate-top-level-pairs",
+        ),
+        pytest.param(
+            b'{"nested":{"pairs":[]},"pairs":[' + b"0," * 100_000 + b"0]}",
+            "failure receipt pairs must contain JSON objects",
+            id="nested-decoy",
+        ),
+        pytest.param(
+            b'{"pa\\u0069rs":[' + b"0," * 100_000 + b"0]}",
+            "failure receipt root keys must be unescaped",
+            id="escaped-top-level-key-i",
+        ),
+        pytest.param(
+            b'{"pair\\u0073":[' + b"0," * 100_000 + b"0]}",
+            "failure receipt root keys must be unescaped",
+            id="escaped-top-level-key-s",
+        ),
+    ),
+)
+def test_pairs_key_spoofing_is_rejected_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes, expected_message: str
+) -> None:
+    """Duplicate, decoy and escaped root keys must not allocate broad arrays."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("ambiguous pairs key reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match=expected_message):
+        study._decode_incomplete_receipt(raw)
+
+
+def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
+    """Nested arrays and quoted delimiters inside genuine pair objects are inert."""
+    raw = b'{"pairs":[{"note":"quoted } ] { [","nested":{"pairs":[0]}},{"more":[1,2]}]}'
+    study._preflight_receipt_pair_objects(raw)
+
+
+def test_large_root_member_key_rejected_before_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Root keys cannot allocate a second unbounded copy before JSON parsing."""
+    raw = b'{"' + b"x" * 100_000 + b'":0}'
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("oversized root key reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(
+        ValueError, match="failure receipt root key exceeds schema length"
+    ):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

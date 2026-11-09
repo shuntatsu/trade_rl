@@ -152,8 +152,7 @@ def test_linux_optional_jobs_use_runner_toolcache_without_uv_python_download() -
         assert "UV_PYTHON_PREFERENCE: only-system" in job
         assert "UV_PYTHON_DOWNLOADS: never" in job
         assert (
-            "uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
-            in job
+            "uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0" in job
         )
         assert 'python-version: "3.12"' in job
         assert "check-latest: false" in job

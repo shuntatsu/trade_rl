@@ -39,6 +39,21 @@ SKIP_WINDOW_SLOTS = 3600 // CADENCE_SECONDS
 # equals the forward-rules reader's own one-hour bound.
 RULES_REFRESH_SECONDS = 3300
 RULES_HOLD_SECONDS = 3600
+# The registered classes the collector writes into the skip and attempt registry; the
+# evaluator audit (``collection_audit``) accepts nothing else. A test binds both
+# tuples to the literals in ``supervisor``.
+SKIP_REASONS = (
+    "execution_capture_failed",
+    "missed_slot",
+    "rules_expired",
+    "rules_unavailable",
+    "snapshot_unavailable",
+)
+ATTEMPT_PURPOSES = ("execution", "rules", "snapshot")
+# Most failed captures one slot can register: every retry is drawn from the shared
+# per-slot allowance and at most two acquisitions end a slot with a failure (a held
+# rules refresh that proceeds, and the snapshot or execution capture).
+MAX_FAILED_CAPTURES_PER_SLOT = RETRIES_PER_SLOT + 2
 
 DENIAL_STATUS_CODES = frozenset({401, 403, 418, 429, 451})
 TRANSIENT_STATUS_CODES = frozenset({500, 502, 503, 504})
@@ -119,9 +134,11 @@ def first_budget_breach(skipped_slots: Iterable[int]) -> tuple[int, str] | None:
 
 
 __all__ = [
+    "ATTEMPT_PURPOSES",
     "CADENCE_SECONDS",
     "DENIAL_STATUS_CODES",
     "MAX_CONSECUTIVE_SKIPPED_SLOTS",
+    "MAX_FAILED_CAPTURES_PER_SLOT",
     "MAX_SKIPPED_SLOTS_PER_HOUR",
     "MAX_SKIPPED_SLOTS_TOTAL",
     "RETRIES_PER_SLOT",
@@ -129,6 +146,7 @@ __all__ = [
     "RETRY_START_WINDOW_SECONDS",
     "RULES_HOLD_SECONDS",
     "RULES_REFRESH_SECONDS",
+    "SKIP_REASONS",
     "SKIP_WINDOW_SLOTS",
     "TRANSIENT_STATUS_CODES",
     "FailureClass",

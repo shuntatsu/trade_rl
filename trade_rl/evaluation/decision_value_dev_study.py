@@ -2240,7 +2240,9 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     unknown or escaped root member names (including Unicode aliases for pairs)
     before JSON decoding. Direct pair-object field names use a fixed ASCII
     schema; refuse aliases and unknown names before broad allocations.
-    This bounded-depth lexical scan is not a JSON parser or pair cap:
+    Require every direct pair object to name its mandatory fields before
+    decoding; names in nested content do not satisfy that requirement.
+    This bounded-depth lexical scan is not a JSON parser or pair-count cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """
     allowed_root_keys = tuple(name.encode("ascii") for name in _INCOMPLETE_RECEIPT_KEYS)

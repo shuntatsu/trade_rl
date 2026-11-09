@@ -435,6 +435,23 @@ def test_missing_direct_fields_cannot_borrow_from_other_pairs_or_nested_objects(
         study._decode_incomplete_receipt(raw)
 
 
+@pytest.mark.parametrize("repeated_key", ("candidate_action", "reason_codes"))
+def test_duplicate_direct_pair_keys_rejected_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, repeated_key: str
+) -> None:
+    """Even a structurally complete pair cannot conceal a broad duplicate value."""
+    complete = study.canonical_json_bytes(dict.fromkeys(study._PAIR_KEYS))
+    duplicate = b',"' + repeated_key.encode("ascii") + b'":['
+    raw = b'{"pairs":[' + complete[:-1] + duplicate + b"0," * 16_384 + b"0]}]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("duplicate direct pair key reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair key is duplicated"):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     """Nested arrays and quoted delimiters cannot forge direct pair fields."""
     required = dict.fromkeys(study._PAIR_KEYS)

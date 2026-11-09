@@ -79,6 +79,36 @@ def test_valid_config_injects_one_seed_authority_and_normalizes_identity(
     assert len(config.digest) == 64
 
 
+def test_bootstrap_accepts_study_experiment_budget_upper_boundary(
+    tmp_path: Path,
+) -> None:
+    payload = _valid_payload()
+    payload["max_experiments"] = 9_999
+
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+    assert config.max_experiments == 9_999
+
+
+def test_bootstrap_rejects_unexecutable_study_experiment_budget_before_source(
+    tmp_path: Path,
+) -> None:
+    payload = _valid_payload()
+    payload["max_experiments"] = 10_000
+
+    with pytest.raises(ValueError, match="max_experiments.*9999"):
+        load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+
+def test_direct_bootstrap_constructor_rejects_unexecutable_study_budget(
+    tmp_path: Path,
+) -> None:
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
+
+    with pytest.raises(ValueError, match="max_experiments.*9999"):
+        replace(config, max_experiments=10_000)
+
+
 @pytest.mark.parametrize(
     "seeds",
     ((1, 0), (0, 2, 1)),

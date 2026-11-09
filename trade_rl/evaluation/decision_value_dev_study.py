@@ -2263,6 +2263,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     want_colon = False
     want_value = False
     seen_pairs = False
+    seen_root_keys: set[bytes] = set()
     pairs_depth: int | None = None
     want_pair = False
     want_pair_key = False
@@ -2296,9 +2297,13 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         for name in allowed_root_keys
                     ):
                         raise ValueError("failure receipt fields are malformed")
-                    root_key_is_pairs = key_bytes == 5 and raw.startswith(
-                        b"pairs", root_key_start, offset
-                    )
+                    direct_root_key = raw[root_key_start:offset]
+                    if direct_root_key in seen_root_keys:
+                        if direct_root_key == b"pairs":
+                            raise ValueError("failure receipt pairs key is duplicated")
+                        raise ValueError("failure receipt root key is duplicated")
+                    seen_root_keys.add(direct_root_key)
+                    root_key_is_pairs = direct_root_key == b"pairs"
                     root_key_start = None
                     want_root_key = False
                     want_colon = True

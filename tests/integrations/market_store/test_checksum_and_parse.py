@@ -498,6 +498,7 @@ def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
     assert stored.placeholders[0].open_time_ms == PLACEHOLDER_OPEN_MS
     assert PLACEHOLDER_OPEN_MS not in {row.open_time_ms for row in stored.rows}
 
+
 def test_an_ordinary_archive_has_no_placeholders() -> None:
     assert (
         parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED).placeholders

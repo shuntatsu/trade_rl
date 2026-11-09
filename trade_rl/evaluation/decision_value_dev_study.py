@@ -2238,14 +2238,22 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
 
     The canonical v2/v3 writer emits plain ASCII root field names. Refuse
     escaped member names before JSON decoding, including Unicode aliases for
-    pairs. This bounded-depth lexical scan is not a JSON parser or pair cap:
+    pairs. Direct pair-object field names also belong to a fixed ASCII schema;
+    refuse aliases and unknown names before allocating broad nested values.
+    This bounded-depth lexical scan is not a JSON parser or pair cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """
     max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
+    allowed_pair_keys = tuple(
+        name.encode("ascii")
+        for name in (*_PAIR_KEYS, "reference_vintage", _QUARANTINE_FIELD)
+    )
+    max_pair_key_bytes = max(map(len, allowed_pair_keys))
     stack = [0x7B]  # The caller has already checked the root opening brace.
     in_string = False
     escaped = False
     root_key_start: int | None = None
+    pair_key_start: int | None = None
     root_key_is_pairs = False
     want_root_key = True
     want_colon = False
@@ -2253,12 +2261,20 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     seen_pairs = False
     pairs_depth: int | None = None
     want_pair = False
+    want_pair_key = False
 
     for offset in range(1, len(raw)):
         char = raw[offset]
         if in_string:
             if root_key_start is not None and char == 0x5C:
                 raise ValueError("failure receipt root keys must be unescaped")
+            if pair_key_start is not None:
+                if char == 0x5C:
+                    raise ValueError("failure receipt pair keys must be unescaped")
+                if offset - pair_key_start > max_pair_key_bytes:
+                    raise ValueError(
+                        "failure receipt pair key exceeds schema length"
+                    )
             if escaped:
                 escaped = False
             elif char == 0x5C:
@@ -2277,6 +2293,18 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                     root_key_start = None
                     want_root_key = False
                     want_colon = True
+                if pair_key_start is not None:
+                    key_bytes = offset - pair_key_start
+                    if not any(
+                        key_bytes == len(name)
+                        and raw.startswith(name, pair_key_start, offset)
+                        for name in allowed_pair_keys
+                    ):
+                        raise ValueError(
+                            "failure receipt pair field is not recognised"
+                        )
+                    pair_key_start = None
+                    want_pair_key = False
             continue
         if char in b" \t\r\n":
             continue
@@ -2302,11 +2330,18 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 raise ValueError("failure receipt pairs must contain JSON objects")
             if char == 0x7B:
                 want_pair = False
+                want_pair_key = True
             elif char == 0x2C:
                 want_pair = True
         if char == 0x22:
             if len(stack) == 1 and want_root_key:
                 root_key_start = offset + 1
+            elif (
+                pairs_depth is not None
+                and len(stack) == pairs_depth + 1
+                and want_pair_key
+            ):
+                pair_key_start = offset + 1
             in_string = True
         elif char in (0x7B, 0x5B):
             stack.append(char)
@@ -2315,8 +2350,11 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 stack.pop()
             if pairs_depth is not None and len(stack) < pairs_depth:
                 pairs_depth = None
-        elif char == 0x2C and len(stack) == 1:
-            want_root_key = True
+        elif char == 0x2C:
+            if len(stack) == 1:
+                want_root_key = True
+            elif pairs_depth is not None and len(stack) == pairs_depth + 1:
+                want_pair_key = True
 
 
 def _decode_incomplete_receipt(

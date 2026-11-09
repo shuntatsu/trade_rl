@@ -352,10 +352,7 @@ def test_pairs_key_spoofing_is_rejected_before_json_decode(
 
 def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     """Nested arrays and quoted delimiters inside genuine pair objects are inert."""
-    raw = (
-        b'{"pairs":[{"note":"quoted } ] { [",'
-        b'"nested":{"pairs":[0]}},{"more":[1,2]}]}'
-    )
+    raw = b'{"pairs":[{"note":"quoted } ] { [","nested":{"pairs":[0]}},{"more":[1,2]}]}'
     study._preflight_receipt_pair_objects(raw)
 
 

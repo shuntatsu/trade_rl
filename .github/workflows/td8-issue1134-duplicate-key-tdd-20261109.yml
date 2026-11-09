@@ -30,4 +30,4 @@ jobs:
       - name: Install locked dev dependencies
         run: uv sync --locked --extra dev
       - name: Execute duplicate-key TDD oracle
-        run: uv run --no-sync python -m pytest -q tests/evaluation/test_decision_value_receipt_byte_ceiling.py::test_duplicate_direct_pair_keys_rejected_before_json_decode
+        run: uv run --no-sync python -m pytest -q tests/evaluation/test_decision_value_receipt_byte_ceiling.py

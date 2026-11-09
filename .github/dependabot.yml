@@ -5,3 +5,77 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+
+  # Library reproducibility: keep pyproject constraints unchanged and review
+  # only compatible, lockfile-resolved Python dependency updates.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:30"
+      timezone: "Asia/Tokyo"
+    versioning-strategy: "lockfile-only"
+    # HOLD (#1175): initial hosted uv updater refused required-version ==0.10.0.
+    # Suspend version-update PRs until a separately verified toolchain migration.
+    open-pull-requests-limit: 0
+    groups:
+      compatible-lockfile:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  # Human Guide: split application and test/build tooling PRs so the impact
+  # can be reviewed separately. Actual Pages deployment remains main-only.
+  - package-ecosystem: "npm"
+    directory: "/guide"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:30"
+      timezone: "Asia/Tokyo"
+    versioning-strategy: "increase-if-necessary"
+    open-pull-requests-limit: 2
+    groups:
+      guide-runtime-minor-patch:
+        applies-to: "version-updates"
+        dependency-type: "production"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      guide-dev-minor-patch:
+        applies-to: "version-updates"
+        dependency-type: "development"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  # Local, loopback-only market-data PostgreSQL; updates are proposals only.
+  # Never run 'docker compose pull/up' from a Dependabot update PR.
+  - package-ecosystem: "docker-compose"
+    directory: "/deploy/market-store"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "03:30"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 1
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"

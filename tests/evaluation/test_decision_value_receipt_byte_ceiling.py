@@ -638,3 +638,27 @@ def test_matching_receipt_pair_count_remains_reloadable(tmp_path: Path) -> None:
     )
     assert receipt["ineligible_pairs"] == 2
     assert len(receipt["pairs"]) == 2
+
+
+def test_broad_consistent_pair_count_reaches_existing_json_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The count preflight is not an artificial cap on valid-width arrays."""
+    pair = (
+        b'{"admissible_for_fit":false,"baseline":{},"candidate":{},'
+        b'"candidate_action":[0,0],"intervention_index":0,'
+        b'"prefix_start_index":0,"reason_codes":["blocked"],'
+        b'"schema":"decision_value_ineligible_pair_v1","terminal_index":1}'
+    )
+    raw = b'{"ineligible_pairs":1024,"pairs":['
+    raw += b",".join((pair,) * 1_024) + b"]}"
+
+    class DecoderReached(Exception):
+        pass
+
+    def stop_at_decoder(*_args: object, **_kwargs: object) -> object:
+        raise DecoderReached()
+
+    monkeypatch.setattr(study.json, "loads", stop_at_decoder)
+    with pytest.raises(DecoderReached):
+        study._decode_incomplete_receipt(raw)

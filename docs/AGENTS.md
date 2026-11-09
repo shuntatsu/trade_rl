@@ -9,8 +9,8 @@
 1. root `AGENTS.md`
 2. `main/current HEAD`、作業branch、open PRのhead/base、recent commitsを確認し、進行中の同目的の変更・後継実装・廃止予定の作業線を識別する
 3. `docs/README.md`
-4. `docs/architecture/lean-core.md`
-5. `docs/architecture/package-boundaries.md`
+4. data/strategy/risk/execution/accountingを変更する場合は `docs/architecture/lean-core.md`
+5. packageの責務・依存方向・public APIに影響する場合は `docs/architecture/package-boundaries.md`
 6. 研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを変更する作業なら `docs/architecture/research-assurance.md` を読み、G0-G2をresult-blindに定義・反証する
 7. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
 8. final/unused-data authorization、WINNER binding、one-shot publicationに関わる作業なら `docs/architecture/final-evaluation-authorization.md`
@@ -18,6 +18,24 @@
 10. 対象source、public facade、nearest tests、CIを照合する
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
+
+## 必要時参照
+
+`docs/AGENTS.md` が詳細指示の唯一の正本であり、節の抽出は原文を省略表示するだけで契約を変更しない。作業に関係するsource・tests・正本は別途直接確認する。
+
+```bash
+python -m tools.agent_docs_context --topic core
+python -m tools.agent_docs_context --topic core guide
+python -m tools.agent_docs_context --topic core claude
+python -m tools.agent_docs_context --topic core tooling coordination
+python -m tools.agent_docs_context --topic core eval
+python -m tools.agent_docs_context --topic all
+python -m tools.agent_docs_context --check
+```
+
+`core` は共通の変更・Git/PR/研究認可・検証・保持規則を含む。`guide` はHuman Guide、`claude` はClaude Code host、`tooling` はRepository inspection、`coordination` は複数AgentのTask/Lease、`eval` はAgent UX評価の詳細である。複数topicを同時選択でき、専門topicだけの指定でも必ず`core`を含める。未知/重複/欠落した第2レベル見出し、未閉鎖コードフェンス、未閉鎖HTMLコメントはfail-closedで拒否し、HTMLコメント内の見出しは節の登録数に含めない。原文を自動修正しない。これはこの文書のATX `##` 見出しを対象とする節抽出であり、汎用Markdownレンダラーではない。
+
+CLIが利用できない場合は本文の対象節（必要なら全文）を直接読む。抽出結果やローカルHookからcurrent GitHub main、PR、review、CI、実験・sealed/unusedデータ、実売買の認可を推定しない。Agent指示を更新するときは `--check` と近傍testを実行し、見出しを追加したらtopic分類を明示的に更新する。
 
 ## Human Guide update contract
 
@@ -43,6 +61,12 @@ Guide source linkはfloating `main` ではなくbuildした**exact revision**へ
 
 Guide側の説明と正本が食い違う場合は、正本をGuideへ合わせず、現行source・contract test・正本docsから契約を再確認してGuideを修正する。
 
+## Claude Code host preflight (#1158)
+
+`python -m tools.claude_host_preflight` from a **clean trusted `shuntatsu/trade_rl` root** checks the literal `origin` repository identity, the merged Claude Code integration commit ancestry, `CLAUDE.md` / `AGENTS.md`, the `.claude/settings.json` SessionStart exec hook and the manually invoked `research-challenge` Skill. It then checks `claude --version` and invokes the *Python hook directly* using the configured executable and argument vector. It rechecks Git worktree cleanliness after each subprocess and compares `.git/index` SHA-256 bytes and modification time before/after; an unexpected untracked or modified file fails the preflight. It prints a bounded JSON record (booleans, current HEAD SHA, CLI version) and fails closed on a dirty/unrelated repository or unavailable executable. It does not print branch names, remote URLs, untracked filenames, personal file paths, Git stderr or hook stdout.
+
+**Scope limit:** `preflight_ok: true` is local Python/subprocess evidence **only**, not proof of Claude Code's actual session loading. On the operator's installed/trusted Claude Code host, independently check `/context`, `/hooks`, `/skills`, `claude doctor` and real startup/resume/fork execution as supported; attach only sanitized evidence to [Issue #1158](https://github.com/shuntatsu/trade_rl/issues/1158). The preflight never reads sealed data, runs economic simulations, sends orders, installs dependencies, grants review authority, or changes CI policy.
+
 ## Local repository tooling
 
 Repository-localなsource-derived inspectionには次を使ってよい。
@@ -67,13 +91,23 @@ uv run python -m tools.agent_repo source-packet --base BASE_COMMIT_SHA --head HE
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
 
-GitHub上のIssue/PR/branchを読取照合するときは `python -m tools.github_work_inventory --repository shuntatsu/trade_rl` を使う。この外部adapterは `tools.agent_repo` の外に置き、read-onlyの非正本snapshotを返す。open IssueコメントのTask projectionは発行者の真正性が未確認であり、未登録作業やclosed Issueも網羅しないため、結果をbranch削除・Issue close・研究認可の根拠にしない。 監査中にPR/Issue rosterまたはbranch SHA/protectionが変化した場合はsnapshot生成を拒否し、GitHub Repository名の大文字小文字を区別せず同一Repositoryを照合し、PR head SHAは現在のbranch tipと照合する。一方、PR base.shaは過去の参照時点であり、現在のmain tipとの一致を要求しない。forkやhead repository不明のPRはローカルbranch tipとの照合ができず、`--compare-prs`でも`nonlocal_head_uncompared`と記録して祖先関係を推測しない。これも原子的な状態証明や削除許可ではない。
+GitHub上のIssue/PR/branchを読取照合するときは `python -m tools.github_work_inventory --repository shuntatsu/trade_rl` を使う。この外部adapterは `tools.agent_repo` の外に置き、read-onlyの非正本snapshotを返す。open IssueコメントのTask projectionは発行者の真正性が未確認であり、未登録作業やclosed Issueも網羅しないため、結果をbranch削除・Issue close・研究認可の根拠にしない。Issue一覧のID・node_id・repository URL・状態・comment件数・updated_atを3回読み、各open Issueの全commentのID・投稿者ID・body・updated_atを2回照合する。コメント取得は1Issueあたり最大1000件・GET最大11ページまでで、件数不一致・重複/不正ID・コメント変更・Issue更新をfail-closedで拒否する。 監査中にPR/Issue rosterまたはbranch SHA/protectionが変化した場合はsnapshot生成を拒否し、GitHub Repository名の大文字小文字を区別せず同一Repositoryを照合し、PR head SHAは現在のbranch tipと照合する。一方、PR base.shaは過去の参照時点であり、現在のmain tipとの一致を要求しない。forkやhead repository不明のPRはローカルbranch tipとの照合ができず、`--compare-prs`でも`nonlocal_head_uncompared`と記録して祖先関係を推測しない。これも原子的な状態証明や削除許可ではない。
+
+`uv run python -m tools.github_work_inventory --repository shuntatsu/trade_rl --include-workflow-refs` は任意のread-only補助監査として、既存`GitHubApi.active_workflow_branch_names()`で`requested/waiting/pending/queued/in_progress`の全paginationを列挙し、未完了workflowが参照するbranch名を二度確認する。対象branchがGitHub branch一覧に存在しない、両観測が変化した、APIが欠落・失敗した場合はsnapshotを拒否する。参照されたbranchは`unfinished_workflow_ref`として保全対象に表示するが、open PRや保護branch等の優先区分は変更しない。既定のinventory JSONは不変とし、opt-inでも`workflow_activity_checked=false`、`task_registry_complete=false`、`cleanup_authorized=false`を維持する。これはbranch名のみの時点観測であり、run attempt/job/artifactの完全列挙、Task/leaseの認証、registry writer、branch削除の許可ではない。
 
 GitHub Actionsの単一runをread-onlyで追加確認する場合は `uv run python -m tools.github_workflow_attempts --repository shuntatsu/trade_rl --run-id <ID>` を使う。この外部adapterは実runの `run_attempt` に対応する `/attempts/{n}/jobs` を全page取得し、run/attempt/head/branch/job identityと重複・ページ件数・前後のrun readbackを検証する。通常の `/runs/{id}/jobs` が空でも作業不在とは判定しない。取得が欠落・変化・矛盾した場合はfail-closedで拒否する。出力の `workflow_activity_checked=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持し、単一runの観測を全Task・全workflowの証明やbranch削除許可へ昇格させない。
 
-`tools.github_coordination_ref_cas` は、将来の**使い捨てGitHub integration test専用**のGraphQL `updateRefs` CAS primitiveである。`beforeOid` / `afterOid`・authenticated viewer・repository identity・独立readbackを検証し、`refs/heads/coordination/*` 以外、ref削除、no-opを拒否する。通常呼出しではmutationをhard-refuseし、明示的なtest-only opt-inがある場合だけ `force=false` の1-ref updateを構成する。**production repository `shuntatsu/trade_rl` 自体はopt-inの有無にかかわらずmutation targetとして拒否し、さらにrepository名が `-coordination-disposable` で終わる明示的な使い捨てintegration repositoryだけを対象にする。** 成功しても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。これはprotected registry、single Coordinator、完全なroster、実GitHub並行競合E2Eの代替ではなく、production repository上のTask登録CLIとして使わない。
+`uv run python -m tools.github_workflow_artifacts --repository shuntatsu/trade_rl --run-id <ID>` は、単一runの現存artifactメタデータをGET-onlyで二度全ページ取得し、run・head SHA/branch・repository/head-repository ID・artifact ID/サイズ/期限状態/digest形式・前後runとrepositoryの同一性を照合する。曖昧・部分的・変動した一覧は拒否するが、GitHub RESTのartifacts一覧はrun単位であり、過去attemptへの所属や削除/期限切れで失われた履歴、artifact bytesの真正性は証明しない。`artifact_count=0`も過去の成果物不存在の証拠ではない。`run_attempt_observed`は現行runのattempt番号にすぎず、`artifact_attempt_binding_verified=false`、`artifact_bytes_verified=false`、`artifact_history_complete=false`、`workflow_activity_checked=false`、`task_registry_complete=false`、`lease_reassignment_authorized=false`、`cleanup_authorized=false`を維持する。Task/lease再割当・branch削除・研究/実運用の許可には転用しない。
+
+`tools.github_lease_reconciliation.inspect_expired_lease_evidence` は、期限切れwrite LeaseRecord、read-only RegistryRefSnapshot、workflow-ref opt-in `github_work_inventory_v1`、単一run attempt/job観測とrun-scoped artifact観測を**渡された範囲だけ**照合するnetwork-freeの保留判定である。exact `main`/lease base、registry digest・Task/owner/epoch/branch SHA、inventory上のregistry ref名とOID、open PR refと`open_pr_count`の件数一致、未完了runが参照するbranchのworkflow一覧への登録、run/attempt/artifact間のID・head一致と重複・部分欠落を検査し、矛盾・型不正・状態変化は拒否する。Native文字列のみを受理するworkflow branch一覧は型検査後に比較し、Fast PushとFull CIの`Repository tooling types`で`tools/github_lease_reconciliation.py`のmypy検証を必須とする。成功でも`decision=HOLD`、`trusted_roster_complete=false`、`authoritative_registry_established=false`、`lease_reassignment_authorized=false`、`cleanup_authorized=false`を固定し、`LeaseReconciliation`や書込み権限を発行しない。入力の真正性・全closed Issue/Task/PR/workflow/削除済みartifactの網羅・原子的freshnessは証明できず、空の観測やIssue IDも非正本である。`main`がlease baseから進んだ場合も保守的に拒否する。これは完全な本番Coordinator/CASまたは使い捨てGitHub並行競合・中断E2Eではなく、一般branch cleanupの根拠にはならない。
+
+`tools.github_coordination_ref_cas` は、将来の**使い捨てGitHub integration test専用**のGraphQL `updateRefs` CAS primitiveである。`beforeOid` / `afterOid`・authenticated viewer・repository identity・独立readbackを検証する。GraphQL の repository lookup は `followRenames: false` で旧名からの転送を禁止し、`refs/heads/coordination/*` 以外、ref削除、no-opを拒否する。通常呼出しではmutationをhard-refuseし、明示的なtest-only opt-inがある場合だけ `force=false` の1-ref updateを構成する。**production repository `shuntatsu/trade_rl` 自体はopt-inの有無にかかわらずmutation targetとして拒否し、さらにrepository名が `-coordination-disposable` で終わる明示的な使い捨てintegration repositoryだけを対象にする。** 成功しても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。これはprotected registry、single Coordinator、完全なroster、実GitHub並行競合E2Eの代替ではなく、production repository上のTask登録CLIとして使わない。
 
 `tools.github_coordination_ref_cas.compare_and_swap_registry_plan` は同じdisposable/test-only mutation gateに従う追加検証である。既存pure `RegistryTransitionPlan` をexact before/after commit OIDに結び付け、caller-supplied object readerから取得したcanonical registry bytesをstrict parseし、before/after digest・1-Task transition・CAS後payload再readbackを照合する。読み出し元の認証・Git object identityをこのfakeable Protocol自体が証明するわけではなく、post-mutation readback失敗時はref変更済みの可能性があるため成功やrollbackを主張しない。`shuntatsu/trade_rl`でのmutation禁止・既定hard-refuse・authority/roster-complete/cleanup=falseは不変で、実GitHub disposable E2Eと保護されたproduction writerの代替ではない。
+
+`tools.github_coordination_disposable_e2e` は、既存の `compare_and_swap_registry_plan` を**明示的な使い捨てrepositoryで実行するためだけ**の実GitHub HTTPS transport/CLIであり、本番Coordinatorではない。固定 `https://api.github.com/graphql` へのtoken認証POSTは、transport自身もdisposable repository・coordination ref・expected actor・before/after OIDへ束縛する。GraphQL documentは既存のexact `CoordinationRefState` queryと `UpdateCoordinationRef` mutationのみ許可し、read queryのowner/name/refとmutationのrepository ID・single ref・OID・`force=false`を送信予定JSON bytesの独立snapshotでHTTP前に照合し、可変caller入力とのTOCTOUを拒否する。mutationは既定で無効、認証済みactor/repository/refの事前readback後に限り1回だけ許可し、応答が不明でも同一transportから再送しない。固定 `https://api.github.com/repos/` を使う使い捨てrepository専用・GET限定のredirect拒否REST transportを介して既存 `GitHubRegistryObjectReader` のGET commit→tree→blobを行う。一般の `GitHubApi` はRESTのredirect先へAuthorizationを転送する可能性があるため、このtest-only実行器では直接使用しない。最初に既存のtest-only target guardで `shuntatsu/trade_rl`、suffix不一致、非coordination ref、不正40-hex SHA、no-op、mutation opt-inなしを**通信前に拒否**する。CLIは `--allow-disposable-mutation` か `--inspect-interrupted-mutation` を排他的に明示し、`GH_TOKEN`/`GITHUB_TOKEN`、`--repository OWNER/NAME-coordination-disposable`、`--ref-name refs/heads/coordination/task-registry`、`--registry-path coordination/registry.json`、`--expected-oid <exact40OID>`、`--after-oid <exact40OID>`、`--expected-coordinator-login <GitHub login>` を要求する。実行者が準備した変更前・後の**不変Git commit**上のcanonical registry payloadから削除なしの厳密な1-Task遷移だけを再構成し、GraphQL `updateRefs(beforeOid/afterOid, force=false)` のreadbackとpost-CAS canonical bytesを検証する。ゼロOIDは初回ref不在の前提条件としてのみ使用でき、after_oidの削除は許さない。token/response bodyはエラー表示しない・HTTP redirect/retryは拒否する。失敗後はremote mutationが済んだ可能性があり、**自動再試行もrollbackも行わない**。`--inspect-interrupted-mutation` はrefとactor/repositoryの二重readbackを行うだけで、`AFTER_OBSERVED_UNATTRIBUTED` / `BEFORE_OBSERVED_NOT_PROOF_UNAPPLIED` / `CONFLICTING_OID_OBSERVED` のいずれも自分の書込みや安全なretryの証明としない。すべての観測は `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` 等の非権威契約を維持する。実際のdisposable repositoryの準備・外部protected ref・production single writer・全roster・並行/中断GitHub E2Eは本実装だけでは未成立であり、test fakeの成功をE2E実行済みと誤記しない。branch削除は行わない。
+
+Fast Pushの`Coordination disposable CAS smoke`では `uv run pytest -q` により `tests/tools/test_github_coordination_ref_cas.py`、`tests/tools/test_github_coordination_registry_cas_payload.py`、`tests/tools/test_github_coordination_disposable_e2e.py`、`tests/tools/test_github_coordination_disposable_http.py` のfake/no-network回帰テストを実行する。これは従来のRuff/Format/Mypyに**追加**する短い早期失敗検知であり、pull_request/review-eventの全Core/PPO/Guide/PostgreSQL/Generic Full CIや実disposable GitHub並行CAS・中断E2Eに代わるものではない。Fast成功だけでPR統合、Coordinator権限、roster完全性、cleanupや研究・取引権限を認めない。
 
 `tools.github_coordination_registry_reader.GitHubRegistryObjectReader` は将来のdisposable test統合のための **read-only Git object adapter** で、明示されたrepositoryとexact commit SHAからGitHub RESTの GET commit → GET recursive tree → GET blob を辿る。配置pathはcallerが指定し、nontruncated tree内に普通の `100644` blobが一意であること、commit/tree/blobの返却OIDが要求値と一致すること、blob sizeとstrict Base64 decode後bytesのGit SHA-1一致、canonical registry parseとrepository一致をfail-closedで確認する。APIに対してはGET以外を呼ばない。API object自体の認証済みrepository binding・commit/treeのraw-object暗号学的証明はこのadapter単独では成立せず、許可信頼できるCoordinator・protected ref・remote CAS・GitHub実E2E・complete roster・cleanup authorityの代替ではない。canonical payloadへの実readbackに使用できても `authoritative_registry_established=false`、`task_registry_complete=false`、`cleanup_authorized=false` を維持する。
 
@@ -109,20 +143,24 @@ uv run python -m tools.agent_repo task dashboard dashboard.json
 - Task状態は単一statusではなく `phase + condition` で表す。`review / stale` や `executing / blocked` を区別する。
 - `execution_mode=read_only` はimmutable snapshotを共有してよく、writable lease/branchを持たない。`write` Taskはactive ownerを1つに限定し、isolated writable worktree/branchを使う。
 - write ownershipはCoordinator-issued **lease epoch** をfencing tokenとして扱う。reassignment時はepochを増加し、new epoch専用branch/worktreeを作る。expired leaseはbranch/PR/CI/artifact side effectをreconcileするまで即reassignしない。
+- `LeaseReconciliation` の `pr_ids`・`ci_ids`・`artifact_ids` は順序付きlist/tuple内の**native文字列**のみを受理し、list入力は不変tupleへコピーする。null、数値、真偽値、map/set/generator、単体文字列を証跡IDとして黙って文字列化しない。これらは外部Coordinatorによるreconciliation・Task/lease完全列挙の証明ではなく、read-onlyのHOLD観測を再割当/削除権限へ昇格させない。
+- `WriteScope.allow/deny` と `TaskPacket.non_goals/resource_keys/acceptance_criteria/test_oracle` は直接Python生成でもnative文字列のlist/tupleだけを受理する。暗黙の`str()`変換、単体文字列・unordered set・map・generatorを拒否し、caller-owned listを検証前にtupleへ固定する。旧来の正常なcanonical digestや公開JSON schemaは変えない。
 - `LeaseRecord` は正の有限TTLと最終heartbeatからの厳密なexpiry算出を要求する。`lease_is_current` は最終heartbeat以降、expiryより前の時刻だけを有効とする。時刻の逆行や延長された見かけのexpiryをTask登録・再割当権限へ昇格させない。
 - file overlapだけでなく `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` Resource Keyでsemantic collisionを判定する。hard conflictは同時実行しない。
 - CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。 projectionのJSON parseでは重複fieldをfail-closedで拒否する（最後の値を採用しない）。
 - Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
 - Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
 - `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
-- `tools.agent_repo.coordination.enrollment` は既存の `TaskPacket`・`LeaseRecord`・`TaskStatusRecord` とIssue identity / main・branch SHAの整合性を検証する、**非正本・read-only preflight** である。引数に渡されたIssue open状態、Task roster、registry OID、readbackは認証済み・網羅済みの証拠ではない。外部Coordinator認証、GitHub上のatomic CAS、実際の読み戻しと競合E2Eが揃うまでは、preflight成功をTask登録、`task_registry_complete=true`、cleanup/delete許可として扱わない。同一leaseのままTask revisionを増やす更新や、`complete`後の状態変更もこのpreflightでは拒否する。実際のrevision更新には新lease・外部reconciliation・transaction検証が必要である。
+- `tools.agent_repo.coordination.enrollment` は既存の `TaskPacket`・`LeaseRecord`・`TaskStatusRecord` とIssue identity / main・branch SHAの整合性を検証する、**非正本・read-only preflight** である。引数に渡されたIssue open状態、Task roster、registry OID、readbackは認証済み・網羅済みの証拠ではない。外部Coordinator認証、GitHub上のatomic CAS、実際の読み戻しと競合E2Eが揃うまでは、preflight成功をTask登録、`task_registry_complete=true`、cleanup/delete許可として扱わない。Task rosterとして渡された `enumerated_task_ids` は1回だけimmutable tupleへ固定し、その同一snapshotで型・重複・membershipを判定する。caller-owned mutable/stateful Sequenceを複数回再観測して登録可否を変えない。同一leaseのままTask revisionを増やす更新や、`complete`後の状態変更もこのpreflightでは拒否する。実際のrevision更新には新lease・外部reconciliation・transaction検証が必要である。
+- `tools.github_coordination_issue_projection.observe_issue_projection` は、既存のEnrollmentProjectionとcaller指定のGitHub投稿者IDを使い、Issue識別子・open状態・最大1000件のコメントページを二度GETで照合する**read-only projection観測**。Taskコメントはcanonicalな1件のみ許容し、異なる作者・コメント内容・コメント数・Issue更新・ページ欠落を拒否する。これはatomic snapshotでも認証済みCoordinator single-writerやclosed/unregistered Taskの完全列挙でもなく、返却する`authoritative_registry_established`・`task_registry_complete`・`cleanup_authorized`は常にfalse。GitHub Issueの状態コメントだけで登録・lease再割当・削除を許可しない。
 - `tools.agent_repo.coordination.registry` は将来の専用Coordinator refへ保存する**off-tree canonical payload schema**だけを定義する。既存 `EnrollmentProjection` をTask entryとして再利用し、同一repository・Task ID一意性・Task ID順のdeterministic JSON・canonical UTF-8 bytes / SHA-256 digest・strict parseを保証する。重複JSON key、未知/欠落field、schema不一致、cross-repository entry、malformed nested status、non-canonical bytesをfail-closedで拒否する。empty registryを表現できても完全列挙の証拠ではなく、checked-in mutable ledger、Coordinator認証、CAS成功、`task_registry_complete=true`、cleanup/delete許可にはしない。
 - registryの更新候補は `plan_registry_transition` でpureに計画する。plannerはregistry自身からTask roster/previous entryを導出し、既存enrollment transition ruleを再利用し、callerが指定したexact before payload SHA-256とdeterministic after registry/digestをbindする。stale digest、no-op、cross-repository、illegal phase、revision/lease/head driftを拒否するが、これはremote OID CAS・GitHub認証・完全列挙・branch ancestry verificationの代替ではない。返却planのauthority/registry-complete/cleanup flagは常にfalseである。
-- Task/Issue/lease identityのrevision・Issue番号・epochはPython上でも**native positive integer**を要求し、`1.0 == 1`のようなinteger-shaped floatを受理しない。GitHub projectionやhandoffも同じ型境界を共有し、malformed inputを例外型の漏れや暗黙の同値比較で通さない。
-- 現行のbranch-hygieneはTask leaseを削除判定へ結び付けていないため、GitHub Actionsではdry-runのみを実行し、CLIの`--apply`もfail-closedで拒否する。GitHub Actionsの検索結果が1000件上限に達する、総件数が不明・ページ間で変化する、run IDが重複・欠落する、取得statusが不一致、head_branchが欠落・空文字・空白のみ、またはページが不完全な場合もfail-closedとする。Taskの保護情報が完全に取得・検証できない間、汎用/一括削除は再開しない。例外はすでにmainに統合済みで復元可能なclosed/merged PR exact source branchを明示して1本ずつ整理する独立した手動経路に限る。
-- 個別pruneでは、対象となるclosed/merged PRの番号・現在のsource branch名・exact final HEAD SHAと、該当tipを追加parentに持つretention record SHAを、その都度GitHubの実データから取得して照合する。具体的なPR番号やSHAをこの現行規範文書へ固定しない。正本repositoryのHTTPS `origin`と認証済みtokenが必要で、日付や名称の古さだけから候補を自動決定しない。初回は`--apply`なしでpreviewし、すべての条件が成立する場合に限り同じ引数へ`--apply`を追加する。実際に検証した個別SHAと結果はIssue #1057の監査記録へ残す。
-- GitHub UIから実行する場合は `.github/workflows/prune-merged-branch.yml` の **Run workflow（手動`workflow_dispatch`のみ）** を利用する。入力は `branch`、`expected_sha`、`merged_pr_number`、`retention_record_sha` と明示的な `confirm=true`。Workflowはdefault branchのコードだけをcheckoutし、読取preflightと適用直前の再検証を独立に実行する。既存 `.github/workflows/branch-hygiene.yml` はread-onlyのままで自動削除を再開しない。WorkflowsのUIからの実行権限と`GITHUB_TOKEN`のcontents write設定が必要で、拒否された場合にGitHub保護設定を迂回して削除してはならない。
-- dry-run summaryの`first-observation archival candidates`は候補数でありarchive済みの件数ではない。`durable anchors kept`はdefault/protected/open PR/active workflow/provenanceの理由だけを数え、grace中やretentionに未到達の一時branchは含めない。CLI helpに`--apply`が残っても破壊的cleanupの再開許可ではない。
+- Task/Issue/lease identityのrevision・Issue番号・epochはPython上でも**native positive integer**を要求し、`1.0 == 1`のようなinteger-shaped floatを受理しない。GitHub projectionやhandoffも同じ型境界を共有し、malformed inputを例外型の漏れや暗黙の同値比較で通さない。また、`HandoffPacket`のverified/pending/known_failures/do_not_repeat/evidence_idsはlist/tupleの**文字列要素のみ**を受理し、元listの変更が反映されないtupleに正規化する。整数・真偽値・null・unordered set・mapping・単体文字列を黙って`str()`に変換して証跡として受け入れない。
+- **統合済み作業branchの通常終了は自動**：`tools.branch_hygiene --retire-merged --apply`（`.github/workflows/retire-merged-pr-branches.yml` のmain push/定期/manual実行）は、最新mainのGit履歴に到達可能で、同じbranch名とexact source SHAを持つclosed/merged PRが確認できるrefだけを対象とする。**mainと同じSHAで新設された未着手のbranchは、マージ済みPRの対応記録がなければ削除しない。**GitHub branch一覧（exact SHA・保護状態）、closed/merged PRのexact head証跡、全open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）の現況を再照合し、保護ref・研究/封印/provenance系・未統合のrefを削除しない。GitHub tokenでのatomic pushと各refのexact-SHA leaseで同時更新を拒否し、各バッチのreadbackが一致しない場合は停止する。workflow statusページの件数変動だけは、先頭statusから全一覧を最大3回再取得して完全な最終snapshotを確認する。3回とも不一致・malformed/unknown/auth失敗ならfail-closedで削除しない。失敗/unknownは成功扱いしない。
+- この限定経路はmerged PRのfinal headがmain履歴に保存済みと確認できるため、旧式の`provenance/branch-retention`へのPR別追加parentや一律1時間待機を新たに要求しない。mainの履歴にないunique commitsや研究証跡を持つbranchには**適用しない**。分離した未統合作業はIssue/PRへ用途・残作業を記載して引き継ぎ、不要と確定した後に別途履歴保全を行う。Task/leaseの権威registryが未完成であることは依然事実であり、全Taskを列挙済み・`cleanup_authorized=true`とは主張しない。
+- **M1 source branchの例外**：M1監査PRの引継ぎ用 `fix/m1-*` とWindows試験用 `fix/windows-job-child-pid-marker-20261105` は、merged済み・main祖先のexact source tipであっても自動退役から除外し、plannerは `m1-source-preservation` の理由でkeepする。これは既存merged-branch自動削除方針の**限定的な例外**であり、他のsource ref、未統合ref、研究/provenance refの安全条件やatomic SHA leaseを緩和しない。経済評価/G0–G5・Coordinator/Task権限の成立も意味しない。
+- 古い一般の`tools.branch_hygiene --apply`（`--retire-merged`なし）と直接`apply_cleanup()`は拒否を維持し、main祖先か不明な全branchを一括削除する経路は作らない。旧`tools.verified_merged_branch_prune`と`.github/workflows/prune-merged-branch.yml`はcanonical retention recordを持つ場合の手動補助であり、定常の統合済みcleanupには不要。Repository/GITHUB_TOKENのcontents writeが使えなければジョブ失敗を報告し、権限を迂回して削除しない。
+- 旧read-only `plan_cleanup`・`retention_tip_observations`は過去記録の照合用。dry-runの`first-observation archival candidates`は「保全済み本数」を意味しない。統合済みbranchの監査・削除数は`--retire-merged`の結果を採用する。
 
 ## Agent Eval protocol
 
@@ -147,6 +185,8 @@ Agent実装は専用branchまたはworktreeで行い、PRを通常の統合経�
 Integration invariant: tested PR head contains current `main`. PRの成功証拠は**現在のfinal HEAD**に束縛し、merge直前のcurrent `main` SHAをそのtested PR headがancestorとして包含していることも確認する。PR headが動いた後の古いCIだけでなく、`main` が進んだ後の古いPR-head Greenも現在の統合証拠として扱わない。`main` が進んだ場合は、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作り、その新HEADでpermanent CIを再実行する。将来merge queueを採用する場合は、current target branchを含むmerge-group SHAのrequired checkを同等のoracleとしてよい。
 
 Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
+
+通常のCI workflowの`concurrency.group = ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` は、同じPR refでも通常`pull_request` Fullと`pull_request_review` Fullを異なる待機・実行グループに分離し、通常PRの再実行がレビューFullのpending枠を置換することを防ぐ。`cancel-in-progress`のtruth tableは各イベント群内で維持する：レビュー`submitted`かつ`commented`はfalse、レビュー`edited`/`dismissed`や`changes_requested`/`approved`はtrue、新HEADの`pull_request/synchronize`やpushもそれぞれの群内でtrue。異なるイベント群は並行実行可能になる一方、新HEADのPR同期は旧HEADのレビューイベントFullを途中cancelせず、不要なrunner時間が生じ得る。GitHub既定の単一pending枠は**同じレビューイベント群内**には残り、重複コメント間のpending置換までは解決しない。GitHubの実スケジューラでの全挙動は静的testだけでは保証できない。両Fullの**exact final HEAD**での全job SUCCESS、review receipt有効性、unresolved blocking 0、最新main祖先関係を必須とし、旧HEAD・取消run・Fast Push・一部job Greenではマージしない。
 
 ### Independent Research Review / PR lifecycle
 
@@ -177,6 +217,7 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 | Guideがbindする正本section / Python symbol | 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json`, `--refresh` / `--refresh-code`, `guide/tools/content_contract.py --check` |
 | Guide Pages deployment / public URL | `.github/workflows/deploy-guide.yml`, `guide/README.md`, Pages state read-back |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |
+| Markdownの相対リンク・導線 | `python -m tools.markdown_links --check`（全追跡Markdown、外部URL/fragmentは対象外）、各文書の正本・Guide content contract |
 | license/provenance/third party | `LICENSE`, `LICENSES/`, package metadata。通常cleanupとは分離する |
 
 ## フォルダと保持ルール
@@ -212,6 +253,8 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 完了報告前に、変更内容に応じたtargeted testと全体quality gateを確認する。現在の標準gateは次である。
 
 ```bash
+uv run python -m tools.agent_docs_context --check
+uv run python -m tools.markdown_links --check
 uv run ruff check trade_rl tests tools
 uv run ruff format --check trade_rl tests tools
 uv run mypy trade_rl
@@ -228,6 +271,6 @@ Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを�
 
 ## 作業線の終了と変更の証拠
 
-不要な作業線のうち、**closed/merged PRのexact final HEADと一致するローカルsource branch** だけは、mainと`provenance/branch-retention`へのcommit到達性、retentionのexact branch名/SHA記録と追加parent、1時間以上のgrace、open PR head/base・未完了workflow非参照、最新SHAの前後一致をすべて満たせば、`tools.verified_merged_branch_prune` の明示的な1本指定を使って削除できる。コマンドは初回previewのみ、`--apply`を指定した場合だけ正しいGitHub originのcheckoutから`git push --atomic --force-with-lease`で条件付き削除し、削除後もref不存在とmain/retention保持を読み戻す。fail/unknownでは削除しない。研究/封印/provenance/未統合/曖昧なsource、active Task関連は保全する。一般の`tools.branch_hygiene --apply`、直接`apply_cleanup()`、Actionによる自動/一括削除は拒否を維持する。これはCoordinator authority/Task完全登録/`cleanup_authorized=true`の根拠ではない。
+マージ済みPRのexact final headに一致し、main履歴に含まれる不要な作業branchは、`tools.branch_hygiene --retire-merged`のpreviewと、`--apply`の再照合・exact-SHA lease・削除後readbackで定期的に整理する。open PR head/base・未完了workflow・保護ref・研究/封印/provenance・未統合historyは保存する。旧式の個別retention記録を毎回追加する必要はない。GitHub API/認証が不完全な場合は停止する。通常`--apply`と直接`apply_cleanup()`の一括汎用cleanupは禁止のまま。ブランチ整理はCoordinator authority/Task完全登録や研究・live認可を示さない。
 
 ソース移動やPython docstring変更でも、Runのimplementation manifestは相対パスとraw bytesにbindするため実装digestが変化する。同じStudyの比較途中へ移行を混ぜず、元のsource/runtimeを保持する。計算の意味保存と、期待されるprovenance変化は別々に検証する。

@@ -195,9 +195,20 @@ class HandoffPacket:
             "do_not_repeat",
             "evidence_ids",
         ):
-            values = tuple(str(value) for value in getattr(self, field_name))
-            if any(not value.strip() for value in values):
-                raise ValueError(f"handoff {field_name} entries must be non-empty")
+            raw = getattr(self, field_name)
+            # An unordered or non-string payload must never be normalized into
+            # apparently valid evidence. Only ordered text entries are allowed.
+            if type(raw) not in (tuple, list):
+                raise ValueError(
+                    f"handoff {field_name} must be an ordered text sequence"
+                )
+            # Freeze the caller's mutable evidence before checking it, so
+            # concurrent list changes cannot bypass the element type guard.
+            values = tuple(raw)
+            if any(type(value) is not str or not value.strip() for value in values):
+                raise ValueError(
+                    f"handoff {field_name} entries must be non-empty strings"
+                )
             if len(set(values)) != len(values):
                 raise ValueError(f"handoff {field_name} contains duplicates")
             object.__setattr__(self, field_name, values)

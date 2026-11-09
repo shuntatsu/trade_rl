@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -250,3 +252,121 @@ def test_handoff_rejects_integer_shaped_floats(
     kwargs[field] = value
     with pytest.raises(ValueError, match=message):
         HandoffPacket(**kwargs)
+
+
+_HANDOFF_TEXT_FIELDS = (
+    "verified",
+    "pending",
+    "known_failures",
+    "do_not_repeat",
+    "evidence_ids",
+)
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param((123,), id="integer-entry"),
+        pytest.param((None,), id="null-entry"),
+        pytest.param((True,), id="boolean-entry"),
+        pytest.param(("valid", 123), id="mixed-entry"),
+        pytest.param("already-a-string", id="string-instead-of-entries"),
+        pytest.param({"one": "two"}, id="mapping-instead-of-entries"),
+        pytest.param({"one", "two"}, id="unordered-set"),
+    ],
+)
+def test_handoff_rejects_implicit_stringification_and_nonordered_evidence(
+    field: str, bad: object
+) -> None:
+    packet = _packet()
+    lease = _lease()
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: bad,
+    }
+    with pytest.raises(ValueError, match=f"handoff {field}"):
+        HandoffPacket(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+def test_handoff_normalizes_only_ordered_exact_strings_without_mutable_alias(
+    field: str,
+) -> None:
+    packet = _packet()
+    lease = _lease()
+    observations = ["source:sha", "ci:123456"]
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: observations,
+    }
+    handoff = HandoffPacket(**values)  # type: ignore[arg-type]
+    assert getattr(handoff, field) == ("source:sha", "ci:123456")
+    assert type(getattr(handoff, field)) is tuple
+    observations.append("unverified")
+    assert getattr(handoff, field) == ("source:sha", "ci:123456")
+    validate_handoff(handoff, packet, lease)
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+def test_handoff_refuses_lazy_generator_instead_of_fixed_evidence(field: str) -> None:
+    packet = _packet()
+    lease = _lease()
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: (name for name in ("ci:1", "ci:2")),
+    }
+    with pytest.raises(ValueError, match=f"handoff {field}"):
+        HandoffPacket(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", _HANDOFF_TEXT_FIELDS)
+def test_handoff_validates_snapshot_before_mutable_caller_change(
+    field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the validated snapshot may become durable handoff evidence."""
+    packet = _packet()
+    lease = _lease()
+    source: list[object] = ["original-id"]
+    mutated = False
+
+    def mutate_after_type_check(values: Iterable[object]) -> bool:
+        nonlocal mutated
+        checked = tuple(values)
+        if not mutated and checked == (False,):
+            source[:] = [123]
+            mutated = True
+        return builtins.any(checked)
+
+    # Interleave after checking the selected field, never on empty prior
+    # fields. The old validate-then-copy path persisted the injected integer.
+    monkeypatch.setattr(
+        "tools.agent_repo.coordination.github_state.any",
+        mutate_after_type_check,
+        raising=False,
+    )
+    values: dict[str, object] = {
+        "task_id": packet.task_id,
+        "task_revision": packet.task_revision,
+        "task_contract_digest": packet.contract_digest(),
+        "lease_epoch": lease.epoch,
+        "last_good_head": HEAD_SHA,
+        field: source,
+    }
+    handoff = HandoffPacket(**values)  # type: ignore[arg-type]
+    assert mutated
+    assert source == [123]
+    assert getattr(handoff, field) == ("original-id",)
+    validate_handoff(handoff, packet, lease)

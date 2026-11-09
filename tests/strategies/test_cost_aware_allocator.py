@@ -339,6 +339,70 @@ def test_long_only_never_proposes_a_short() -> None:
     assert result.book.weights[0] == pytest.approx(0.0, abs=1e-12)
 
 
+def test_long_only_closes_held_long_when_signal_turns_negative_with_shorts_disabled() -> (
+    None
+):
+    switch_index = 15 * 24
+
+    def signal(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        if snapshot.index < switch_index:
+            return (0.05, -0.05, -0.05)
+        return (-0.05, -0.05, -0.05)
+
+    policy = _policy(
+        _CallableSource(signal),
+        long_only=True,
+        min_history_periods=5,
+        min_trade_fraction=0.0,
+        cost=0.0,
+    )
+    dataset = _dataset(_noise(seed=19))
+    result = run_shared_portfolio_replay(
+        dataset,
+        policy,
+        start_index=0,
+        stop_index=17 * 24,
+        initial_capital=CAPITAL,
+        execution_cost=ExecutionCostConfig(
+            allow_short=False,
+            fee_rate=0.001,
+            spread_rate=0.0,
+            impact_rate=0.0,
+        ),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+    )
+
+    before = next(
+        decision for decision in result.decisions if decision.index == 14 * 24
+    )
+    close = next(
+        decision for decision in result.decisions if decision.index == switch_index
+    )
+    assert before.proposal_weights[0] > 0.0
+    assert min(before.proposal_weights) >= -1e-12
+    assert close.proposal_weights == pytest.approx((0.0, 0.0, 0.0))
+    assert close.target_weights == pytest.approx((0.0, 0.0, 0.0))
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    close_interval = next(
+        interval
+        for interval in ledger.intervals.intervals
+        if interval.start_index == switch_index
+    )
+    assert close_interval.exact_quantities_before[0] != "0"
+    assert close_interval.exact_quantities_after == ("0", "0", "0")
+    assert any(
+        event.event_type == "filled" and event.filled_quantity < 0.0
+        for event in close_interval.order_events
+    )
+    assert all(
+        event.reason != "shorting_disabled" for event in close_interval.order_events
+    )
+    assert all(quantity == 0 for quantity in result.book.exact_quantities)
+
+
 def test_retargets_only_on_the_decision_schedule() -> None:
     dataset = _dataset(_noise())
     policy = _policy(_ConstantSource((0.003, 0.002, 0.004)), cost=0.0002)
@@ -487,6 +551,84 @@ def test_ewma_covariance_weights_recent_returns_and_shrinks() -> None:
         np.zeros((5, 2)), halflife_periods=3.0, shrinkage=0.2, variance_floor=1e-8
     )
     assert np.all(np.linalg.eigvalsh(constant) > 0.0)
+
+
+def test_ewma_covariance_rejects_finite_input_with_overflowed_second_moment() -> None:
+    # Every raw return is finite, but its weighted square is not.
+    returns = np.array([[1e155, 0.0], [0.0, 0.0]])
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="covariance"):
+            ewma_covariance(
+                returns,
+                halflife_periods=5.0,
+                shrinkage=0.2,
+                variance_floor=1e-8,
+            )
+
+    # A large-but-representable second moment must remain admissible.
+    finite = ewma_covariance(
+        np.array([[1e150, 0.0], [0.0, 0.0]]),
+        halflife_periods=5.0,
+        shrinkage=0.2,
+        variance_floor=1e-8,
+    )
+    assert np.isfinite(finite).all()
+
+
+@pytest.mark.parametrize(
+    ("old_mark", "new_mark"),
+    [(1e-300, 1e300), (1.0, 1e155)],
+)
+def test_valid_finite_marks_with_overflowed_return_or_covariance_hold(
+    old_mark: float, new_mark: float
+) -> None:
+    # Capture a valid, scheduled public snapshot from the native replay path.
+    seen: list[PortfolioDecisionSnapshot] = []
+
+    def capture(snapshot: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        seen.append(snapshot)
+        return (0.0, 0.0, 0.0)
+
+    source = _CallableSource(capture)
+    _replay(
+        _dataset(_noise(seed=41)),
+        _policy(source, min_history_periods=2),
+        stop_day=5,
+    )
+    assert seen
+    snapshot = seen[0]
+    day_ns = 24 * 3_600 * 1_000_000_000
+    policy_calls: list[PortfolioDecisionSnapshot] = []
+
+    def predicted(current: PortfolioDecisionSnapshot) -> tuple[float, ...]:
+        policy_calls.append(current)
+        return (0.01, 0.01, 0.01)
+
+    policy = _policy(
+        _CallableSource(predicted),
+        min_history_periods=2,
+        warmup_timestamps_ns=(
+            snapshot.timestamp_ns - 2 * day_ns,
+            snapshot.timestamp_ns - day_ns,
+        ),
+        warmup_mark_prices=(
+            (old_mark, 1.0, 1.0),
+            (old_mark, 1.0, 1.0),
+        ),
+    )
+    extreme = replace(
+        snapshot,
+        account=replace(snapshot.account, mark_prices=(new_mark, 1.0, 1.0)),
+    )
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        proposal = policy.decide_portfolio(extreme)
+
+    assert proposal.target_weights == extreme.account.weights
+    assert proposal.hold_current_quantity_symbols == (0, 1, 2)
+    assert policy_calls == []
+    assert len(policy.records) == 1
+    assert policy.records[0].outcome == "fail_closed"
+    assert policy.records[0].reason == "invalid_covariance"
 
 
 @pytest.mark.parametrize(

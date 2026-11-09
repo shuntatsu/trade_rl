@@ -30,7 +30,7 @@ _LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$")
 _READ_REF_QUERY = """
 query CoordinationRefState($owner: String!, $name: String!, $ref: String!) {
   viewer { login }
-  repository(owner: $owner, name: $name) {
+  repository(owner: $owner, name: $name, followRenames: false) {
     id
     ref(qualifiedName: $ref) { target { oid } }
   }

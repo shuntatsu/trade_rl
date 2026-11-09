@@ -55,6 +55,17 @@ class EmergencyRiskAssessment:
         object.__setattr__(self, "flatten_mask", mask)
 
 
+def _require_available_risk_prices(
+    dataset: MarketDataset, *, index: int, start_index: int
+) -> None:
+    """Reject a historical price that arrived after the current decision."""
+    available_at = dataset.available_at
+    if available_at is None or np.any(
+        available_at[start_index : index + 1] > dataset.timestamps[index]
+    ):
+        raise ValueError("emergency risk prices not available at decision time")
+
+
 class CausalEmergencyRiskMonitor:
     """Assess only completed observations at or before ``index``."""
 
@@ -77,9 +88,8 @@ class CausalEmergencyRiskMonitor:
         reasons: list[str] = []
 
         if self.config.flatten_untradable:
-            unavailable = ~dataset.tradable[index]
-            if dataset.asset_active is not None:
-                unavailable |= ~dataset.asset_active[index]
+            # A tradable flag from a late bar is not decision-time knowledge.
+            unavailable = ~dataset.observable_tradable(index)
             for symbol_index in np.flatnonzero(unavailable):
                 mask[symbol_index] = True
                 reasons.append(f"untradable:{dataset.symbols[symbol_index]}")
@@ -87,6 +97,9 @@ class CausalEmergencyRiskMonitor:
         if self.config.stop_loss_return > 0.0:
             window = max(1, dataset.bars_for_hours(self.config.stop_loss_hours))
             if index >= window:
+                _require_available_risk_prices(
+                    dataset, index=index, start_index=index - window
+                )
                 horizon_return = (
                     dataset.close[index] / dataset.close[index - window] - 1.0
                 )
@@ -99,6 +112,7 @@ class CausalEmergencyRiskMonitor:
                     reasons.append(f"stop_loss:{dataset.symbols[symbol_index]}")
 
         if self.config.gap_return > 0.0 and index > 0:
+            _require_available_risk_prices(dataset, index=index, start_index=index - 1)
             gap = dataset.open[index] / dataset.close[index - 1] - 1.0
             triggered = np.abs(gap) >= self.config.gap_return
             for symbol_index in np.flatnonzero(triggered):
@@ -111,6 +125,9 @@ class CausalEmergencyRiskMonitor:
                 short + 1, dataset.bars_for_hours(self.config.volatility_long_hours)
             )
             if index >= long:
+                _require_available_risk_prices(
+                    dataset, index=index, start_index=index - long
+                )
                 log_prices = np.log(dataset.close[index - long : index + 1])
                 returns = np.diff(log_prices, axis=0)
                 short_vol = np.std(returns[-short:], axis=0)

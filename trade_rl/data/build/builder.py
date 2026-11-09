@@ -10,9 +10,12 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.build.economics import ExecutionEconomicsProfile
 from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
     InstrumentContract,
     MarketBuildConfig,
     MarketCalendarKind,
+    timeframe_hours,
 )
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
@@ -410,6 +413,13 @@ class MarketDatasetBuilder:
             if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
                 continue
             native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
+            # Invalid reference authority must fail before any additional
+            # sub-base source is loaded (possibly over a remote provider).
+            reference_symbol = self.config.cross_asset_reference_symbol
+            if reference_symbol is None:
+                raise ValueError(
+                    "cross-asset features require cross_asset_reference_symbol"
+                )
             return_candidates = [
                 index
                 for index, candidate in enumerate(self.config.features)
@@ -418,22 +428,62 @@ class MarketDatasetBuilder:
                 and candidate.resolved_timeframe(self.config.base_timeframe)
                 == native_timeframe
             ]
-            if len(return_candidates) != 1:
+            if len(return_candidates) == 1:
+                return_index = return_candidates[0]
+                aligned_returns = features[:, :, return_index]
+                aligned_available = feature_available[:, :, return_index]
+                aligned_ages = feature_age_hours[:, :, return_index]
+            elif (
+                not return_candidates
+                and timeframe_hours(native_timeframe) < self.config.bar_hours
+            ):
+                # A sub-base cross-asset feature can use a private 1-bar return
+                # channel, but it must still load and validate each raw native
+                # series via the same point-in-time alignment as public features.
+                if not isinstance(source, MultiTimeframeMarketDataSource):
+                    raise ValueError(
+                        "native multi-timeframe features require a "
+                        "MultiTimeframeMarketDataSource"
+                    )
+                source_spec = FeatureSpec(
+                    name="implicit_native_one_bar_log_return",
+                    kind=FeatureKind.LOG_RETURN,
+                    lookback=1,
+                    timeframe=native_timeframe,
+                    max_staleness_hours=spec.max_staleness_hours,
+                )
+                aligned_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
+                aligned_available = np.zeros((n_bars, n_symbols), dtype=np.bool_)
+                aligned_ages = np.zeros((n_bars, n_symbols), dtype=np.float64)
+                for symbol_index, contract in enumerate(instruments):
+                    key = (contract.symbol, native_timeframe)
+                    native = native_cache.get(key)
+                    if native is None:
+                        native = source.load_timeframe(
+                            contract.symbol, native_timeframe
+                        )
+                        native_cache[key] = native
+                    values, available, age_hours, _ = align_native_feature(
+                        source_spec,
+                        native,
+                        contract,
+                        timestamps,
+                        symbol_active[:, symbol_index],
+                        timeframe=native_timeframe,
+                    )
+                    aligned_returns[:, symbol_index] = values
+                    aligned_available[:, symbol_index] = available
+                    aligned_ages[:, symbol_index] = age_hours
+            else:
                 raise ValueError(
                     f"cross-asset {native_timeframe} features require exactly one "
                     "one-bar log return channel"
                 )
-            return_index = return_candidates[0]
-            reference_symbol = self.config.cross_asset_reference_symbol
-            if reference_symbol is None:
-                raise ValueError(
-                    "cross-asset features require cross_asset_reference_symbol"
-                )
             events = calculate_cross_asset_feature_events(
                 spec,
-                aligned_returns=features[:, :, return_index],
-                return_available=feature_available[:, :, return_index],
-                return_age_hours=feature_age_hours[:, :, return_index],
+                aligned_returns=aligned_returns,
+                return_available=aligned_available,
+                return_age_hours=aligned_ages,
                 symbols=symbols,
                 reference_symbol=reference_symbol,
             )
@@ -477,7 +527,9 @@ class MarketDatasetBuilder:
                 global_features[index, 3] = portable_std(sample)
             else:
                 global_feature_available[index, 2:4] = False
-                global_feature_staleness[index, 2:4] = 1.0
+                # A missing same-bar return sample has no elapsed age. Keep
+                # the numeric placeholder at zero; the availability and
+                # missing-reason arrays carry the actual absence semantics.
                 global_feature_missing_reason[index, 2:4] = 1
 
         features = features.astype(np.float32)

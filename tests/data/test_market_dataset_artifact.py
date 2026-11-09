@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -163,6 +164,40 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
             getattr(restored, field_name),
             getattr(original, field_name),
         )
+
+
+def test_published_legacy_global_missing_age_stays_byte_and_identity_bound(
+    tmp_path: Path,
+) -> None:
+    base = _dataset()
+    available = base.global_feature_available.copy()
+    available[0, 0] = False
+    missing = base.global_feature_missing_reason.copy()
+    missing[0, 0] = 1
+    legacy_age = base.global_feature_staleness_hours.copy()
+    legacy_age[0, 0] = 1.0
+    legacy = replace(
+        base,
+        dataset_id="a" * 64,
+        identity_payload_json=None,
+        global_feature_available=available,
+        global_feature_missing_reason=missing,
+        global_feature_staleness_hours=legacy_age,
+    ).with_content_identity()
+    canonical = replace(
+        legacy,
+        dataset_id="a" * 64,
+        identity_payload_json=None,
+        global_feature_staleness_hours=np.zeros_like(legacy_age),
+    ).with_content_identity()
+    assert canonical.dataset_id != legacy.dataset_id
+
+    write_market_dataset_files(tmp_path, legacy)
+    loaded = load_market_dataset_artifact(tmp_path)
+    assert loaded.dataset_id == legacy.dataset_id
+    assert loaded.global_feature_available[0, 0] == np.bool_(False)
+    assert loaded.global_feature_missing_reason[0, 0] == 1
+    assert loaded.global_feature_staleness_hours[0, 0] == 1.0
 
 
 def test_market_dataset_artifact_rejects_tampered_npz(tmp_path: Path) -> None:

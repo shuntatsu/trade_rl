@@ -54,6 +54,10 @@ PPOを含む候補群を学習する前に、学習対象の銘柄について�
 
 fit cutoffとは別に、single-symbol/shared-cash replayとPPO環境は、次に処理する各bar行の `available_at` がその行のtimestampより後なら、帳簿・risk・strategy・executionへ渡す前に停止します。直接`MarketExecutor.execute_interval`のtarget admissionでも、有効なtargetが非zero、または帳簿にnonzeroのexact holdingがある銘柄のtarget rowが遅着なら、valuation・reconciliation前に停止します。同時刻のavailabilityは通し、`information_available=False`だけでは拒否しません。flat accountのzero targetによるpending order cancelは許し、未選択flat銘柄や未処理tailは調べません。これはDatasetの宣言時刻に対する範囲限定runtime guardです。明示`mark_price`・外部帳簿markの独立時刻、明示`OrderIntent`実行、直接close liquidation、過去のvenue arrivalまでは保証しません。cutoff preflightが通っても、実行行のavailability contractを代替するものではありません。
 
+globalのmarket return平均・標準偏差は、そのバーで利用できる銘柄の1-bar returnだけから計算し、古い集計値を繰り越しません。利用可能な行の`global_feature_staleness_hours`は0時間です。returnが1件もなく欠損する行でも数値placeholderは0.0ですが、`global_feature_available=False`と`global_feature_missing_reason=1`によって「経過時間不明の欠損」を表します。0.0だけで有効と判断してはいけません。古いDataset artifactに保存済みの欠損時1.0は、元のidentityのまま読み込み、書き換えません。
+
+1時間足を基準に15分足などのcross-asset特徴量だけを選ぶ場合、不要なlog-return公開列は要求しません。内部では既存のnative raw sourceから1-bar returnを計算し、native clockの連続性、銘柄の有効期間、sourceの`available_at`をすべて確認したうえで基準足へ対応付けます。遅延して未利用のデータを過去の値として使ったり、基準足の価格でnative値を合成したりしません。基準足とそれ以上のnative timeframeでは、従来の明示1-bar source条件を維持します。
+
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。
 
 ## 4. 同じ入力から同じDataset identityを作る

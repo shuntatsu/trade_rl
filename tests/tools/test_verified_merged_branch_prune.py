@@ -22,6 +22,9 @@ MAIN = "c" * 40
 RETENTION = "d" * 40
 RECORD = "e" * 40
 MERGE = "f" * 40
+PREVIOUS_RETENTION = "b" * 40
+INTERMEDIATE_RETENTION = "6" * 40
+TREE = "7" * 40
 NOW = datetime(2026, 11, 2, tzinfo=timezone.utc)
 
 
@@ -49,8 +52,9 @@ class FakeGitHub:
         }
         self.retention_record: dict[str, object] = {
             "sha": RECORD,
+            "tree": {"sha": TREE},
             "message": (
-                "Observe non-anchor branch tips before cleanup grace period\n\n"
+                "Retain merged PR #1076 exact source after verified normal integration\n\n"
                 + NAME
                 + "\t"
                 + TIP
@@ -60,6 +64,26 @@ class FakeGitHub:
                 {"sha": "b" * 40},
                 {"sha": TIP},
             ],
+        }
+        self.retention_tip: dict[str, object] = {
+            "sha": RETENTION,
+            "tree": {"sha": TREE},
+            "parents": [{"sha": RECORD}, {"sha": TIP}],
+        }
+        self.intermediate_retention: dict[str, object] = {
+            "sha": INTERMEDIATE_RETENTION,
+            "tree": {"sha": TREE},
+            "parents": [{"sha": RECORD}, {"sha": TIP}],
+        }
+        self.prior_retention: dict[str, object] = {
+            "sha": PREVIOUS_RETENTION,
+            "tree": {"sha": TREE},
+            "parents": [],
+        }
+        self.source_commit: dict[str, object] = {
+            "sha": TIP,
+            "tree": {"sha": TREE},
+            "parents": [],
         }
         self.branch_reads = 0
         self.second_tip: str | None = None
@@ -97,6 +121,14 @@ class FakeGitHub:
             return self.pr
         if suffix == "git/commits/" + RECORD:
             return self.retention_record
+        if suffix == "git/commits/" + RETENTION:
+            return self.retention_tip
+        if suffix == "git/commits/" + INTERMEDIATE_RETENTION:
+            return self.intermediate_retention
+        if suffix == "git/commits/" + PREVIOUS_RETENTION:
+            return self.prior_retention
+        if suffix == "git/commits/" + TIP:
+            return self.source_commit
         if suffix.startswith("compare/"):
             base, _, _ = suffix.removeprefix("compare/").partition("...")
             return {
@@ -229,7 +261,7 @@ def test_unmerged_commit_does_not_pass_main_ancestry() -> None:
 def test_retention_must_include_exact_observation_and_tip() -> None:
     api = FakeGitHub()
     api.retention_record["message"] = (
-        "Observe non-anchor branch tips before cleanup grace period"
+        "Retain merged PR #1076 exact source after verified normal integration"
     )
     with pytest.raises(ValueError, match="retention record"):
         _prune(api)
@@ -241,6 +273,161 @@ def test_retention_must_include_exact_observation_and_tip() -> None:
     api.compare_invalid = "compare/" + TIP + "..." + RETENTION
     with pytest.raises(ValueError, match="retention"):
         _prune(api)
+
+
+def test_exact_merged_pr_retention_title_is_accepted() -> None:
+    api = FakeGitHub()
+    result = _prune(api)
+    assert result.deleted is False
+    assert result.merged_pr_number == 1076
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
+    "extra_mapping",
+    [
+        f"\nother/merged\t{'9' * 40}",
+        f"\n{NAME}\t{TIP}",
+        "\nnot-a-branch\tmalformed-sha",
+    ],
+)
+def test_retention_record_with_extra_mapping_line_is_rejected(
+    extra_mapping: str,
+) -> None:
+    api = FakeGitHub()
+    api.retention_record["message"] += extra_mapping
+    with pytest.raises(ValueError, match="retention record"):
+        _prune(api)
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
+    "parents",
+    [
+        [{"sha": "b" * 40}, {"sha": TIP}, {"sha": "9" * 40}],
+        [{"sha": "b" * 40}, {"sha": "9" * 40}, {"sha": TIP}],
+    ],
+)
+def test_retention_record_must_have_exactly_one_source_parent(
+    parents: list[dict[str, str]],
+) -> None:
+    api = FakeGitHub()
+    api.retention_record["parents"] = parents
+    with pytest.raises(ValueError, match="retention record"):
+        _prune(api)
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Observe non-anchor branch tips before cleanup grace period",
+        "Archive unique non-anchor branch tips before ref cleanup",
+        "Observe merged PR #1076 source before cleanup grace period",
+        "Retain merged PR #1077 exact source after verified normal integration",
+        "Retain merged PR #1076 exact source after verified normal integration extra",
+        "Retain merged PR #01076 exact source after verified normal integration",
+    ],
+)
+def test_obsolete_or_ambiguous_retention_titles_fail_closed(title: str) -> None:
+    api = FakeGitHub()
+    api.retention_record["message"] = f"{title}\n\n{NAME}\t{TIP}"
+    with pytest.raises(ValueError, match="retention record"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_record_tree_must_equal_first_retention_parent_tree() -> None:
+    api = FakeGitHub()
+    api.prior_retention["tree"] = {"sha": "8" * 40}
+    with pytest.raises(ValueError, match="retention tree"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_retention_tip_must_preserve_first_parent_tree() -> None:
+    api = FakeGitHub()
+    api.retention_tip["tree"] = {"sha": "8" * 40}
+    with pytest.raises(ValueError, match="retention tree"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_retention_record_must_be_in_first_parent_history() -> None:
+    api = FakeGitHub()
+    # Ordinary graph reachability still succeeds through the second parent.
+    api.retention_tip["parents"] = [{"sha": TIP}, {"sha": RECORD}]
+    with pytest.raises(ValueError, match="first-parent"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_missing_first_parent_ref_is_not_proof_of_retention() -> None:
+    api = FakeGitHub()
+    api.retention_tip["parents"] = []
+    with pytest.raises(ValueError, match="first-parent"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_retention_first_parent_cycle_is_rejected() -> None:
+    api = FakeGitHub()
+    api.retention_tip["parents"] = [{"sha": RETENTION}, {"sha": RECORD}]
+    with pytest.raises(ValueError, match="first-parent"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_retention_first_parent_walk_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = FakeGitHub()
+    monkeypatch.setattr(
+        "tools.verified_merged_branch_prune._MAX_RETENTION_FIRST_PARENT_HOPS", 1
+    )
+    with pytest.raises(ValueError, match="first-parent"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_retention_record_missing_tree_fails_closed() -> None:
+    api = FakeGitHub()
+    api.retention_record.pop("tree")
+    with pytest.raises(ValueError, match="retention tree"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_record_at_current_retention_tip_is_valid() -> None:
+    api = FakeGitHub()
+    api.records[1] = BranchInfo("provenance/branch-retention", RECORD, False)
+    result = _prune(api)
+    assert result.retention_sha == RECORD
+    assert result.deleted is False
+
+
+def test_retention_lineage_accepts_multiple_unchanged_first_parent_edges() -> None:
+    api = FakeGitHub()
+    api.retention_tip["parents"] = [{"sha": INTERMEDIATE_RETENTION}, {"sha": TIP}]
+    assert _prune(api).deleted is False
+    assert f"git/commits/{INTERMEDIATE_RETENTION}" in api.requests
+
+
+def test_intermediate_retention_tree_drift_is_rejected() -> None:
+    api = FakeGitHub()
+    api.retention_tip["parents"] = [{"sha": INTERMEDIATE_RETENTION}, {"sha": TIP}]
+    api.intermediate_retention["tree"] = {"sha": "8" * 40}
+    with pytest.raises(ValueError, match="retention tree"):
+        _prune(api)
+    assert api.deleted == []
+
+
+def test_retention_first_parent_readback_identity_must_match_sha() -> None:
+    api = FakeGitHub()
+    api.prior_retention["sha"] = "8" * 40
+    with pytest.raises(ValueError, match="first-parent"):
+        _prune(api)
+    assert api.deleted == []
 
 
 def test_retention_grace_is_mandatory() -> None:

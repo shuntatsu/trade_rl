@@ -19,12 +19,12 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "611c6df36683bad20fd7e1f5819dff7b731be6d72d663df808fb94d7cac99592"
+      "sha256": "412d7d149578f3afa6576cfac743b9a60b91cd585036b6c2c4960f6302f0d3f5"
     },
     {
       "path": "docs/architecture/controlled-experiment-loop.md",
       "heading": "Canonical M2 bootstrap preparation",
-      "sha256": "cc5bf4afd5047e717687de977cadf5928f2a19e494cc70396d02e6704d9bf907"
+      "sha256": "898012d7c9f272488607f6aeeff27631b8ca24c49f2301c02f3afc2319d2a40a"
     },
     {
       "path": "docs/architecture/controlled-experiment-loop.md",

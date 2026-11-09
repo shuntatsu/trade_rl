@@ -42,12 +42,35 @@ class FakeWorkApi:
         return self.pull_rows
 
     def open_issues(self) -> list[dict[str, object]]:
-        return self.issue_rows
+        return [
+            {
+                "id": 100000 + int(row.get("number", 0)),
+                "node_id": f"I_TEST_{row.get('number')}",
+                "repository_url": f"https://api.github.com/repos/{self.repository}",
+                "state": "open",
+                "updated_at": "2026-11-04T00:00:00Z",
+                "comments": len(
+                    self.issue_comments_by_id.get(int(row.get("number", 0)), [])
+                ),
+                **row,
+            }
+            for row in self.issue_rows
+        ]
 
     def issue_comments(self, issue_number: int) -> list[dict[str, object]]:
         if self.fail_comments:
             raise RuntimeError("GitHub API unreachable")
-        return self.issue_comments_by_id.get(issue_number, [])
+        return [
+            {
+                "id": 1000000 * issue_number + index + 1,
+                "user": {"id": 148511409},
+                "updated_at": "2026-11-04T00:00:00Z",
+                **comment,
+            }
+            for index, comment in enumerate(
+                self.issue_comments_by_id.get(issue_number, [])
+            )
+        ]
 
     def compare_head_to_main(self, head_sha: str, main_sha: str) -> str:
         assert main_sha == "a" * 40
@@ -405,4 +428,361 @@ def test_partial_github_failure_does_not_produce_snapshot() -> None:
     api = FakeWorkApi()
     api.fail_comments = True
     with pytest.raises(RuntimeError, match="GitHub API unreachable"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_work_inventory_opt_in_marks_unfinished_workflow_branches() -> None:
+    api = FakeWorkApi()
+    calls = 0
+
+    def active() -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return frozenset({"feature/unregistered", "main"})
+
+    setattr(api, "unfinished_workflow_branch_names", active)
+    report = build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+    reasons = {row["name"]: row["reason"] for row in report["branches"]}
+    assert reasons["feature/unregistered"] == "unfinished_workflow_ref"
+    assert report["unfinished_workflow_branches"] == ["feature/unregistered", "main"]
+    assert report["unfinished_workflow_branch_names_checked"] is True
+    assert report["workflow_activity_checked"] is False
+    assert report["task_registry_complete"] is False
+    assert report["cleanup_authorized"] is False
+    assert "feature/unregistered" not in report["unclassified_branches"]
+    assert calls == 2
+
+
+def test_work_inventory_legacy_default_does_not_scan_workflows() -> None:
+    api = FakeWorkApi()
+
+    def forbidden_scan() -> frozenset[str]:
+        raise AssertionError("default inventory must not start a new API scan")
+
+    setattr(api, "unfinished_workflow_branch_names", forbidden_scan)
+    report = build_inventory(api)  # type: ignore[arg-type]
+    assert "unfinished_workflow_branches" not in report
+    assert "unfinished_workflow_branch_names_checked" not in report
+    assert report["workflow_activity_checked"] is False
+    assert report["unclassified_branches"] == ["feature/unregistered"]
+
+
+def test_work_inventory_workflow_branch_drift_is_not_silent() -> None:
+    api = FakeWorkApi()
+    calls = 0
+
+    def drift() -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return frozenset({"main"}) if calls == 1 else frozenset()
+
+    setattr(api, "unfinished_workflow_branch_names", drift)
+    with pytest.raises(RuntimeError, match="unfinished workflow refs changed"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_work_inventory_missing_workflow_branch_is_unknown_not_safe() -> None:
+    api = FakeWorkApi()
+    setattr(
+        api,
+        "unfinished_workflow_branch_names",
+        lambda: frozenset({"deleted-while-pending"}),
+    )
+    with pytest.raises(RuntimeError, match="missing local branches"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_work_inventory_workflow_api_failure_rejects_snapshot() -> None:
+    api = FakeWorkApi()
+
+    def transport_failure() -> frozenset[str]:
+        raise RuntimeError("GitHub workflow pagination failed")
+
+    setattr(api, "unfinished_workflow_branch_names", transport_failure)
+    with pytest.raises(RuntimeError, match="pagination failed"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_work_inventory_rechecks_branch_tips_after_workflow_scan() -> None:
+    api = FakeWorkApi()
+    setattr(api, "unfinished_workflow_branch_names", lambda: frozenset({"main"}))
+    first = api.branch_rows
+    calls = 0
+
+    def moving_branches() -> tuple[BranchInfo, ...]:
+        nonlocal calls
+        calls += 1
+        if calls <= 2:
+            return first
+        return (
+            first[0],
+            BranchInfo("feature/unregistered", "e" * 40, False),
+            first[2],
+        )
+
+    api.branches = moving_branches  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="changed during workflow scan"):
+        build_inventory(api, include_workflow_refs=True)  # type: ignore[arg-type]
+
+
+def test_live_work_inventory_workflow_scan_reuses_branch_hygiene_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+    calls = 0
+
+    def active_workflows() -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return frozenset({"main"})
+
+    monkeypatch.setattr(api._reader, "active_workflow_branch_names", active_workflows)
+    assert api.unfinished_workflow_branch_names() == frozenset({"main"})
+    assert calls == 1
+
+
+def _complete_issue_row(
+    *, number: int = 810, comments: int = 1, updated_at: str = "2026-11-04T00:00:00Z"
+) -> dict[str, object]:
+    return {
+        "number": number,
+        "id": number + 100000,
+        "node_id": f"I_ISSUE_{number}",
+        "state": "open",
+        "updated_at": updated_at,
+        "comments": comments,
+    }
+
+
+def _ordinary_comment(
+    *, comment_id: int = 901, body: str = "Ordinary discussion", author_id: int = 77
+) -> dict[str, object]:
+    return {
+        "id": comment_id,
+        "user": {"id": author_id},
+        "body": body,
+        "updated_at": "2026-11-04T00:01:00Z",
+    }
+
+
+def test_issue_comment_snapshot_is_read_twice_without_promoting_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row()]
+    api.issue_comments_by_id[810] = [_ordinary_comment()]
+    reads: list[int] = []
+    original = api.issue_comments
+
+    def tracked_comments(issue_number: int) -> list[dict[str, object]]:
+        reads.append(issue_number)
+        return original(issue_number)
+
+    monkeypatch.setattr(api, "issue_comments", tracked_comments)
+    report = build_inventory(api)  # type: ignore[arg-type]
+    assert reads == [810, 810]
+    assert report["task_registry_complete"] is False
+    assert report["cleanup_authorized"] is False
+
+
+def test_edited_comment_body_or_author_between_passes_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for field, replacement in (("body", "edited"), ("user", {"id": 78})):
+        api = FakeWorkApi()
+        api.issue_rows = [_complete_issue_row()]
+        comment = _ordinary_comment()
+        calls = 0
+
+        def changing_comments(issue_number: int) -> list[dict[str, object]]:
+            nonlocal calls
+            calls += 1
+            row = dict(comment)
+            if calls == 2:
+                row[field] = replacement
+            return [row]
+
+        monkeypatch.setattr(api, "issue_comments", changing_comments)
+        with pytest.raises((ValueError, RuntimeError), match="comment"):
+            build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_issue_updated_at_drift_with_same_issue_number_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row()]
+    api.issue_comments_by_id[810] = [_ordinary_comment()]
+    calls = 0
+
+    def moving_issues() -> list[dict[str, object]]:
+        nonlocal calls
+        calls += 1
+        return [
+            _complete_issue_row(
+                updated_at="2026-11-04T00:01:00Z"
+                if calls == 2
+                else "2026-11-04T00:00:00Z"
+            )
+        ]
+
+    monkeypatch.setattr(api, "open_issues", moving_issues)
+    with pytest.raises((ValueError, RuntimeError), match="Issue"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_incomplete_comment_count_does_not_produce_work_inventory() -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row(comments=2)]
+    api.issue_comments_by_id[810] = [_ordinary_comment()]
+    with pytest.raises((ValueError, RuntimeError), match="comment"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_duplicate_comment_ids_are_rejected_even_without_task_marker() -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row(comments=2)]
+    api.issue_comments_by_id[810] = [
+        _ordinary_comment(),
+        _ordinary_comment(body="other"),
+    ]
+    with pytest.raises((ValueError, RuntimeError), match="comment"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_new_task_marker_after_first_issue_comment_observation_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row(comments=1)]
+    calls = 0
+    old = _ordinary_comment()
+
+    def changing_comments(issue_number: int) -> list[dict[str, object]]:
+        nonlocal calls
+        calls += 1
+        return (
+            [old]
+            if calls == 1
+            else [_ordinary_comment(body="<!-- agent-coordination:T810-NEW -->")]
+        )
+
+    monkeypatch.setattr(api, "issue_comments", changing_comments)
+    with pytest.raises((ValueError, RuntimeError), match="comment"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"id": True},
+        {"id": 0},
+        {"user": {"id": True}},
+        {"user": None},
+        {"updated_at": ""},
+    ],
+)
+def test_malformed_comment_identity_does_not_produce_work_inventory(
+    invalid: dict[str, object],
+) -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row()]
+    api.issue_comments_by_id[810] = [{**_ordinary_comment(), **invalid}]
+    with pytest.raises((ValueError, RuntimeError), match="comment"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_issue_identity_collisions_across_distinct_numbers_are_rejected() -> None:
+    for collision in ("id", "node_id"):
+        api = FakeWorkApi()
+        first = _complete_issue_row(number=810, comments=0)
+        second = _complete_issue_row(number=811, comments=0)
+        second[collision] = first[collision]
+        api.issue_rows = [first, second]
+        with pytest.raises((ValueError, RuntimeError), match="Issue identity"):
+            build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_comment_id_reused_across_open_issues_is_rejected() -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [
+        _complete_issue_row(number=810, comments=1),
+        _complete_issue_row(number=811, comments=1),
+    ]
+    api.issue_comments_by_id[810] = [_ordinary_comment(comment_id=100)]
+    api.issue_comments_by_id[811] = [_ordinary_comment(comment_id=100)]
+    with pytest.raises((ValueError, RuntimeError), match="comment ID"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_issue_comment_mutation_during_second_pass_rejected_without_task_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [_complete_issue_row(comments=1)]
+    original = _ordinary_comment()
+    count = 0
+
+    def drop_comments(issue_number: int) -> list[dict[str, object]]:
+        nonlocal count
+        count += 1
+        return [original] if count == 1 else []
+
+    monkeypatch.setattr(api, "issue_comments", drop_comments)
+    with pytest.raises((ValueError, RuntimeError), match="comment"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_live_comment_adapter_refuses_more_than_bounded_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="shuntatsu/trade_rl", token="fake")
+    called_pages: list[int] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> list[dict[str, object]]:
+        assert method == "GET"
+        assert suffix == "issues/810/comments"
+        assert query is not None and query["per_page"] == "100"
+        page = int(query["page"])
+        called_pages.append(page)
+        assert page <= 11
+        return [{"body": "comment"}] * (100 if page <= 10 else 1)
+
+    monkeypatch.setattr(api._reader, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="comment.*limit|comment.*bound"):
+        api.issue_comments(810)
+    assert called_pages == list(range(1, 12))
+
+
+def test_live_comment_adapter_accepts_exact_limit_with_empty_terminal_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="shuntatsu/trade_rl", token="fake")
+    called_pages: list[int] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> list[dict[str, object]]:
+        assert method == "GET" and suffix == "issues/810/comments"
+        assert query is not None
+        page = int(query["page"])
+        called_pages.append(page)
+        return [{"body": "comment"}] * (100 if page <= 10 else 0)
+
+    monkeypatch.setattr(api._reader, "_request_json", fake_request)
+    assert len(api.issue_comments(810)) == 1000
+    assert called_pages == list(range(1, 12))
+
+
+def test_issue_list_bound_to_selected_repository_and_refuses_foreign_issue() -> None:
+    api = FakeWorkApi()
+    api.issue_rows = [
+        {
+            **_complete_issue_row(comments=0),
+            "repository_url": "https://api.github.com/repos/another/project",
+        }
+    ]
+    with pytest.raises((ValueError, RuntimeError), match="open Issue repository"):
         build_inventory(api)  # type: ignore[arg-type]

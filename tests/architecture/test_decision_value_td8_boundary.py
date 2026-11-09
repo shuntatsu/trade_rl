@@ -87,3 +87,118 @@ def test_current_docs_record_the_corrected_design_and_the_withdrawn_calibration(
         "clip rule was chosen after the diagnosis",
     ):
         assert term in status, term
+
+
+def test_failure_receipt_contract_is_documented_and_exported() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
+    for term in (
+        "decision_value_incomplete_pair_attempt_v3",
+        "decision_value_incomplete_pair_attempt_v2",
+        "load_incomplete_pair_attempt",
+        "write_once_no_restart",
+        "receipt_digest",
+        "fit_admitted=false",
+        "causality_probe",
+        "observed_view_digest",
+    ):
+        assert term in lean_core, term
+    status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    assert "Failure-receipt hardening" in status
+    assert "decision_value_incomplete_pair_attempt_v3" in status
+    assert "decision_value_incomplete_pair_attempt_v2" in status
+    assert "default 64 MiB byte budget" in status
+    assert "not guaranteed to reload" in status
+    assert "every persisted receipt reloads" not in status
+    source = (EVALUATION / "decision_value_dev_study.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    exported: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            assert isinstance(node.value, ast.List)
+            exported = {
+                element.value
+                for element in node.value.elts
+                if isinstance(element, ast.Constant)
+            }
+    assert "load_incomplete_pair_attempt" in exported
+    # The receipt reuses the shared canonical/digest/verified-file helpers rather
+    # than a parallel artifact system.
+    imports = _imported_modules(EVALUATION / "decision_value_dev_study.py")
+    assert {
+        "trade_rl.artifacts.canonical",
+        "trade_rl.artifacts.hashing",
+        "trade_rl.artifacts.verified_file",
+    } <= imports
+
+
+def _function_calls(path: Path, function: str) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == function:
+            return {
+                child.func.id
+                for child in ast.walk(node)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+            }
+    raise AssertionError(f"{function} not found")
+
+
+def test_failure_receipt_writer_and_reader_share_one_validator() -> None:
+    """The writer must not duplicate the reader's rules (#1025 receipt Low 1)."""
+    source = EVALUATION / "decision_value_dev_study.py"
+    # Reader and writer both go through the same decode/validate functions.
+    assert "_decode_incomplete_receipt" in _function_calls(
+        source, "load_incomplete_pair_attempt"
+    )
+    assert "_decode_incomplete_receipt" in _function_calls(
+        source, "_encode_incomplete_receipt"
+    )
+    assert "_validate_incomplete_pair_record" in _function_calls(
+        source, "_decode_incomplete_receipt"
+    )
+    assert "_validate_incomplete_pair_record" in _function_calls(
+        source, "_receipt_pair"
+    )
+    # The claim happens only after the receipt is encoded and self-checked.
+    persist = ast.parse(source.read_text(encoding="utf-8"))
+    body = next(
+        node
+        for node in ast.walk(persist)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_persist_incomplete_pair_attempt"
+    )
+    order = [
+        child.func.id if isinstance(child.func, ast.Name) else child.func.attr
+        for child in ast.walk(body)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, (ast.Name, ast.Attribute))
+    ]
+    assert order.index("_encode_incomplete_receipt") < order.index("mkdir")
+
+
+def test_failure_receipt_numeric_bounds_and_versions_are_documented() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
+    status = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    for term in (
+        "nonfinite:",
+        "unvalidated_source_record",
+        "16,384",
+        "4,000",
+        "4,096",
+        "v2",
+        "timestamps",
+        "tradable",
+        "feature_available",
+        "global_features",
+    ):
+        assert term in lean_core, term
+    assert "nonfinite:" in status
+    for text in (lean_core, status):
+        # Digests are content digests of package source / runtime manifest, not
+        # an unqualified "checkout-independent" guarantee.
+        assert "checkout-independent" not in text.split("TD8の比較不能pair")[-1][:6000]
+        assert "checkout非依存" not in text
+        assert "genuinely insolvent" not in text

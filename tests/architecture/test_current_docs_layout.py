@@ -178,6 +178,7 @@ def test_only_permanent_workflows_remain() -> None:
     files = {path.name for path in workflows.iterdir() if path.is_file()}
     assert files == {
         "branch-hygiene.yml",
+        "retire-merged-pr-branches.yml",
         "ci.yml",
         "deploy-guide.yml",
         "ppo-4h-gemini-review.yml",
@@ -282,23 +283,23 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         assert required in research
 
 
-def test_short_agent_entry_preserves_branch_cleanup_fail_closed_rule() -> None:
+def test_short_agent_entry_preserves_main_ancestor_retirement_safety() -> None:
     entry = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    policy = (DOCS / "AGENTS.md").read_text(encoding="utf-8")
     for required in (
-        "tools.branch_hygiene --apply",
-        "fail-closed",
-        "read-only dry-run",
+        "tools.branch_hygiene --retire-merged --apply",
+        "mainに未統合",
+        "exact-SHA lease",
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
-        "merged-PR sourceの個別整理",
+        "closed/merged PR",
         "tools.verified_merged_branch_prune",
-        "直接`apply_cleanup()`",
-        "workflow_dispatch",
-        "SHA祖先関係",
-        "conditional delete",
         "tested PR head contains current `main`",
     ):
         assert required in entry
+    assert "cleanup_authorized=true" in policy
+    assert "未統合" in policy
+    assert "retire-merged" in policy
 
 
 def test_research_status_preserves_newer_main_market_store_and_carry_evidence() -> None:

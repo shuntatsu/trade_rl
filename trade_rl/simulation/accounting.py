@@ -38,6 +38,41 @@ def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
     return vector
 
 
+def target_quantity_from_weight(
+    target_weight: float,
+    *,
+    equity: float,
+    price: float,
+    contract_multiplier: float,
+) -> float:
+    """Convert one finite target weight without silently losing active exposure."""
+    values = (target_weight, equity, price, contract_multiplier)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("target sizing inputs must be finite")
+    if equity <= 0.0 or price <= 0.0 or contract_multiplier <= 0.0:
+        raise ValueError("target sizing equity, price and multiplier must be positive")
+    if target_weight == 0.0:
+        return 0.0
+
+    target_value = target_weight * equity
+    unit_notional = price * contract_multiplier
+    if (
+        not math.isfinite(target_value)
+        or target_value == 0.0
+        or not math.isfinite(unit_notional)
+        or unit_notional <= 0.0
+    ):
+        raise ValueError("nonzero target quantity cannot be represented")
+
+    quantity = target_value / unit_notional
+    if not math.isfinite(quantity) or quantity == 0.0:
+        raise ValueError("nonzero target quantity cannot be represented")
+    position_value = quantity * price * contract_multiplier
+    if not math.isfinite(position_value) or position_value == 0.0:
+        raise ValueError("nonzero target quantity cannot be represented")
+    return float(quantity)
+
+
 def _cash_interest_amount(
     cash_basis: float, annual_rate: float, year_fraction: float
 ) -> float:
@@ -48,6 +83,22 @@ def _cash_interest_amount(
     if not np.isfinite(year_fraction) or year_fraction < 0.0:
         raise ValueError("year_fraction must be finite and non-negative")
     return float(cash_basis * annual_rate * year_fraction)
+
+
+def _require_finite_post_update_equity(
+    *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
+) -> float:
+    """Reject an unrepresentable proposed account transition before mutation."""
+    with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
+        position_values = quantities * marks * multipliers
+        equity = float(cash + position_values.sum())
+    if not np.isfinite(position_values).all() or not all(
+        math.isfinite(value) for value in (cash, equity)
+    ):
+        raise ValueError("proposed account state became non-finite")
+    if np.any((quantities != 0.0) & (position_values == 0.0)):
+        raise ValueError("nonzero position value cannot be represented")
+    return equity
 
 
 @dataclass(slots=True)
@@ -126,6 +177,12 @@ class BookState:
             raise ValueError("maintenance_margin must be within [0, 1]")
         if not isinstance(self.insolvent, bool):
             raise ValueError("insolvent must be a boolean")
+        _require_finite_post_update_equity(
+            cash=float(self.cash),
+            quantities=quantities,
+            marks=marks,
+            multipliers=multipliers,
+        )
         reason = self.termination_reason
         if reason is not None:
             try:
@@ -220,8 +277,25 @@ class BookState:
         gross = float(np.abs(weight_vector).sum())
         if gross > max_gross + _TOLERANCE:
             raise ValueError("initial gross exposure exceeds max_gross")
-        quantities = weight_vector * capital / (price_vector * multiplier_vector)
-        cash = capital - float(np.sum(quantities * price_vector * multiplier_vector))
+        quantities = np.zeros_like(weight_vector)
+        try:
+            for symbol_index, weight in enumerate(weight_vector):
+                quantities[symbol_index] = target_quantity_from_weight(
+                    float(weight),
+                    equity=float(capital),
+                    price=float(price_vector[symbol_index]),
+                    contract_multiplier=float(multiplier_vector[symbol_index]),
+                )
+        except ValueError as error:
+            raise ValueError(
+                "nonzero weighted position cannot be represented"
+            ) from error
+        active = weight_vector != 0.0
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            position_values = quantities * price_vector * multiplier_vector
+        if np.any(active & (~np.isfinite(position_values) | (position_values == 0.0))):
+            raise ValueError("nonzero weighted position cannot be represented")
+        cash = capital - float(np.sum(position_values))
         resolved_peak = capital if peak_value is None else float(peak_value)
         if resolved_peak < capital:
             raise ValueError("peak_value cannot be below capital")
@@ -331,15 +405,25 @@ class BookState:
         factors = _finite_vector(split_factor, field_name="split_factor")
         if factors.shape != self.quantities.shape or np.any(factors <= 0.0):
             raise ValueError("split_factor must match the book and be positive")
-        self._set_quantity_values(
-            tuple(
-                quantity * exact_quantity(float(factor))
-                for quantity, factor in zip(
-                    self._quantity_values(), factors, strict=True
-                )
-            )
+        exact_after = tuple(
+            quantity * exact_quantity(float(factor))
+            for quantity, factor in zip(self._quantity_values(), factors, strict=True)
         )
-        self.mark_prices /= factors
+        projected = np.array([project_quantity(value) for value in exact_after])
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            marks_after = self.mark_prices / factors
+        if not np.isfinite(marks_after).all() or np.any(marks_after <= 0.0):
+            raise ValueError("split produced non-finite mark prices")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        _require_finite_post_update_equity(
+            cash=self.cash,
+            quantities=projected,
+            marks=marks_after,
+            multipliers=multipliers,
+        )
+        self._set_quantity_values(exact_after)
+        self.mark_prices[:] = marks_after
         self._refresh_economic_state()
 
     def apply_dividend(self, dividend_per_unit: np.ndarray) -> float:
@@ -348,8 +432,16 @@ class BookState:
             raise ValueError("dividend_per_unit must match the book")
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        amount = float(np.dot(self.quantities * multipliers, dividend))
-        self.cash += amount
+        with np.errstate(over="ignore", invalid="ignore"):
+            amount = float(np.dot(self.quantities * multipliers, dividend))
+        cash_after = self.cash + amount
+        _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
+        self.cash = cash_after
         self._refresh_economic_state()
         return amount
 
@@ -371,7 +463,16 @@ class BookState:
                 raise ValueError("year_fraction must be finite and non-negative")
             resolved_fraction = float(year_fraction)
         amount = _cash_interest_amount(self.cash, annual_rate, resolved_fraction)
-        self.cash += amount
+        cash_after = self.cash + amount
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
+        self.cash = cash_after
         self._refresh_economic_state()
         return amount
 
@@ -399,30 +500,61 @@ class BookState:
         multipliers = self.contract_multipliers
         assert multipliers is not None
         quantities = self._quantity_values()
-        proceeds = math.fsum(
-            float(
+        signed_legs: list[float] = []
+        for quantity, price, multiplier, recovered, settle in zip(
+            quantities,
+            price_vector,
+            multipliers,
+            recovery_vector,
+            settle_mask,
+            strict=True,
+        ):
+            if not settle:
+                continue
+            if quantity == 0 or recovered == 0.0:
+                signed_legs.append(0.0)
+                continue
+            float_order_leg = (
+                project_quantity(quantity)
+                * float(price)
+                * float(multiplier)
+                * float(recovered)
+            )
+            if not math.isfinite(float_order_leg) or float_order_leg == 0.0:
+                raise ValueError("nonzero settlement proceeds cannot be represented")
+            exact_proceeds = (
                 quantity
                 * exact_quantity(float(price))
                 * exact_quantity(float(multiplier))
                 * exact_quantity(float(recovered))
             )
-            for quantity, price, multiplier, recovered, settle in zip(
-                quantities,
-                price_vector,
-                multipliers,
-                recovery_vector,
-                settle_mask,
-                strict=True,
-            )
-            if settle
+            try:
+                leg = float(exact_proceeds)
+            except OverflowError as error:
+                raise ValueError("settlement proceeds cannot be represented") from error
+            if not math.isfinite(leg) or leg == 0.0:
+                raise ValueError("nonzero settlement proceeds cannot be represented")
+            signed_legs.append(leg)
+        try:
+            proceeds = math.fsum(signed_legs)
+        except (OverflowError, ValueError) as error:
+            raise ValueError("settlement proceeds sum must be finite") from error
+        if not math.isfinite(proceeds):
+            raise ValueError("settlement proceeds sum must be finite")
+        exact_after = tuple(
+            Fraction(0) if settle else value
+            for value, settle in zip(quantities, settle_mask, strict=True)
         )
-        self.cash += proceeds
-        self._set_quantity_values(
-            tuple(
-                Fraction(0) if settle else value
-                for value, settle in zip(quantities, settle_mask, strict=True)
-            )
+        projected = np.array([project_quantity(value) for value in exact_after])
+        cash_after = self.cash + proceeds
+        _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=projected,
+            marks=price_vector,
+            multipliers=multipliers,
         )
+        self.cash = cash_after
+        self._set_quantity_values(exact_after)
         self.mark_prices = price_vector.copy()
         self._refresh_economic_state()
         self._update_drawdown()
@@ -469,6 +601,14 @@ class BookState:
         marks = _finite_vector(mark_prices, field_name="mark_prices")
         if marks.shape != self.quantities.shape or np.any(marks <= 0.0):
             raise ValueError("mark_prices must match the book and be positive")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        _require_finite_post_update_equity(
+            cash=self.cash,
+            quantities=self.quantities,
+            marks=marks,
+            multipliers=multipliers,
+        )
         self.mark_prices = marks
         self._refresh_economic_state()
 
@@ -579,21 +719,35 @@ class BookState:
         value_before = self.portfolio_value
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        signed_notional = math.fsum(
+        signed_legs = tuple(
             project_quantity(quantity) * float(price) * float(multiplier)
             for quantity, price, multiplier in zip(
                 delta, prices, multipliers, strict=True
             )
         )
+        # Check each nonzero leg before netting buys against sells: a net zero
+        # is valid, but a non-finite or zero leg cannot change inventory safely.
+        if any(
+            quantity != 0 and (not math.isfinite(leg) or leg == 0.0)
+            for quantity, leg in zip(delta, signed_legs, strict=True)
+        ):
+            raise ValueError("nonzero execution leg notional cannot be represented")
+        try:
+            signed_notional = math.fsum(signed_legs)
+        except (OverflowError, ValueError) as error:
+            raise ValueError("execution leg notional sum must be finite") from error
+        if not math.isfinite(signed_notional):
+            raise ValueError("execution leg notional sum must be finite")
         cash_after = self.cash - (signed_notional + float(cost_amount))
         turnover_after = self.turnover_total + float(turnover)
         cost_after = self.total_cost + float(cost_amount)
-        with np.errstate(over="ignore", invalid="ignore"):
-            equity_after = float(cash_after + (targets * marks * multipliers).sum())
-        if not all(
-            math.isfinite(value)
-            for value in (cash_after, turnover_after, cost_after, equity_after)
-        ):
+        _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=targets,
+            marks=marks,
+            multipliers=multipliers,
+        )
+        if not all(math.isfinite(value) for value in (turnover_after, cost_after)):
             raise ValueError("proposed execution must preserve finite account values")
         self.cash = cash_after
         self.quantities = targets
@@ -613,8 +767,20 @@ class BookState:
     def charge_borrow(self, amount: float) -> None:
         if not np.isfinite(amount) or amount < 0.0:
             raise ValueError("borrow amount must be finite and non-negative")
-        self.cash -= float(amount)
-        self.borrow_cost += float(amount)
+        cash_after = self.cash - float(amount)
+        borrow_after = self.borrow_cost + float(amount)
+        if not math.isfinite(borrow_after):
+            raise ValueError("proposed borrow cost became non-finite")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        _require_finite_post_update_equity(
+            cash=cash_after,
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
+        self.cash = cash_after
+        self.borrow_cost = borrow_after
         self._refresh_economic_state()
 
     def mark_to_market(
@@ -637,16 +803,44 @@ class BookState:
         if not np.isfinite(starting_value) or starting_value <= 0.0:
             raise ValueError("period_start_value must be finite and positive")
 
-        self.cash += float(funding_amount)
-        self.revalue(mark_prices)
-        value = self.portfolio_value
-        if not np.isfinite(value):
-            raise ValueError("base-bar portfolio value became non-finite")
-        net_return = value / starting_value - 1.0
+        # Validate the complete proposed mark/funding transition before writing
+        # either cash or marks. Revalue() alone can fail after changing the book.
+        marks = _finite_vector(mark_prices, field_name="mark_prices")
+        if marks.shape != self.quantities.shape or np.any(marks <= 0.0):
+            raise ValueError("mark_prices must match the book and be positive")
+        proposed_cash = self.cash + float(funding_amount)
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        proposed_value = _require_finite_post_update_equity(
+            cash=proposed_cash,
+            quantities=self.quantities,
+            marks=marks,
+            multipliers=multipliers,
+        )
+        proposed_funding_pnl = self.funding_pnl + float(funding_amount)
+        if not math.isfinite(proposed_funding_pnl):
+            raise ValueError("base-bar portfolio value or funding became non-finite")
+
+        net_return = proposed_value / starting_value - 1.0
+        if not math.isfinite(net_return):
+            raise ValueError("base-bar net return became non-finite")
         if not unbounded_loss_metrics:
             net_return = max(net_return, -1.0 + 1e-12)
+        drawdown_value = (
+            proposed_value if unbounded_loss_metrics else max(proposed_value, 0.0)
+        )
+        projected_peak = max(self.peak_value, drawdown_value)
+        projected_drawdown = max(
+            self.max_drawdown,
+            1.0 - drawdown_value / max(projected_peak, _MIN_EQUITY),
+        )
+        if not math.isfinite(projected_drawdown):
+            raise ValueError("base-bar drawdown became non-finite")
+
+        self.cash = proposed_cash
+        self.revalue(marks)
         self._update_drawdown(unbounded_loss=unbounded_loss_metrics)
-        self.funding_pnl += float(funding_amount)
+        self.funding_pnl = proposed_funding_pnl
         self.returns_history.append(float(net_return))
         return float(net_return)
 

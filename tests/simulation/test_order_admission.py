@@ -489,3 +489,45 @@ def test_invalid_reference_shape_and_policy_configuration_raise_domain_error() -
             minimum_notional=0.0,
             reference_prices=np.array([100.0, 101.0]),
         )
+
+
+def test_nonfinite_admitted_notional_is_rejected_before_order_execution() -> None:
+    book = BookState.zero(1, 1e308, np.array([1e308]))
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity="overflowed-notional",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=2.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=1e308,
+        decision_equity=1e308,
+    )
+    policy = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=2.0,
+    )
+    decision = policy.evaluate(
+        intent,
+        book=book,
+        processing_index=1,
+        asset_active=True,
+        tradable=True,
+        buy_allowed=True,
+        sell_allowed=True,
+        borrow_available=True,
+        tick_size=0.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+        reference_prices=np.array([1e308]),
+    )
+    assert not decision.accepted
+    assert decision.reason == "pretrade_leverage_exceeded"

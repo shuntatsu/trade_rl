@@ -109,7 +109,7 @@ def test_the_collector_gate_reads_before_the_start_and_for_a_fresh_root(tmp_path
     assert problems(timedelta(minutes=-10), mismatch) == [
         "predecessor_root_not_reverifiable:predecessor_root_tip_differs"
     ]
-    # A recorded event is not proof that a lost predecessor was verified before
+    # A recorded event is not proof that an unlocated predecessor was verified before
     # that event: a public PaperEngine.gap can write it without root validation.
     journal = PaperJournal(sealed, expected_protocol_sha256=_digest(sealed))
     journal.append(
@@ -190,7 +190,7 @@ def test_the_seal_token_is_private_and_a_truthy_flag_does_not_unlock_v3(tmp_path
                 tmp_path / "b",
                 start_at=START,
                 attempt_lineage=lineage,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
                 clock=clock,
             )
     assert not (tmp_path / "a").exists() and not (tmp_path / "b").exists()
@@ -275,7 +275,7 @@ def test_seal_collection_refuses_a_v3_lineage_without_the_private_token(
                 tmp_path / "wrong",
                 settings=settings,
                 research_plan=plan,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
                 clock=clock,
             )
     assert not (tmp_path / "plain").exists() and not (tmp_path / "wrong").exists()
@@ -576,7 +576,7 @@ def test_a_v2_label_cannot_carry_v3_fields_through_any_gate(tmp_path, capsys, na
                 tmp_path / "sealed",
                 settings=settings,
                 research_plan=plan,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
                 clock=clock,
             )
     assert not (tmp_path / "sealed").exists()
@@ -652,7 +652,7 @@ def test_public_engine_refuses_to_initialize_or_open_a_noncanonical_v3_root(tmp_
                 tmp_path / "e",
                 settings=settings,
                 study=study,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
             )
     # ... and a canonical v3 is refused without the token, accepted with it.
     canonical = dict(
@@ -665,7 +665,7 @@ def test_public_engine_refuses_to_initialize_or_open_a_noncanonical_v3_root(tmp_
         tmp_path / "e",
         settings=settings,
         study=canonical,
-        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+        lineage_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
     )
     engine = PaperEngine(tmp_path / "e", expected_protocol_sha256=digest)
     assert engine.status()["events"] == 0
@@ -838,7 +838,7 @@ def test_v2_label_is_for_attempt_one_only_at_every_gate(tmp_path, capsys, number
                 tmp_path / "sealed",
                 settings=_settings(),
                 research_plan=plan,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
                 clock=clock,
             )
     # cli seal

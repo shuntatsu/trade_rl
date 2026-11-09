@@ -203,6 +203,29 @@ def test_synthetic_td8_never_trusts_supplied_artifact_digest_without_loading(
             )
 
 
+def _endpoint_record(equity: str = "1000", **overrides):
+    """Complete reader-valid endpoint (the writer now applies the reader's rules)."""
+    record = {
+        "terminal_marked_equity": equity,
+        "observed_equity_change": "0.0",
+        "initial_capital": equity,
+        "requested_stop_index": 7,
+        "observed_stop_index": 7,
+        "terminal_cash": equity,
+        "terminal_exact_quantities": ["0", "0"],
+        "total_cost": "0.0",
+        "funding_pnl": "0.0",
+        "insolvent": False,
+        "termination_reason": None,
+        "observed_intervals": 7,
+        "expected_intervals": 7,
+        "pending_order_remainders": [],
+        "settled_label_eligible": False,
+    }
+    record.update(overrides)
+    return record
+
+
 def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
     tmp_path,
 ) -> None:
@@ -212,13 +235,13 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
         IneligiblePairOutcome,
     )
 
-    arm = {
-        "terminal_marked_equity": "893.0",
-        "terminal_cash": "10.0",
-        "termination_reason": "risk_termination",
-        "terminal_exact_quantities": ["4", "0"],
-        "pending_order_remainders": [["a" * 64, 4.0]],
-    }
+    arm = _endpoint_record(
+        "893.0",
+        terminal_cash="10.0",
+        termination_reason="risk_termination",
+        terminal_exact_quantities=["4", "0"],
+        pending_order_remainders=[["a" * 64, 4.0]],
+    )
     row = IneligiblePairOutcome(
         intervention_index=1,
         prefix_start_index=0,
@@ -235,6 +258,11 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
         failure,
         dataset_id="1" * 64,
         protocol_digest="f" * 64,
+        actual_artifact_digest="2" * 64,
+        implementation_digest="3" * 64,
+        runtime_environment_digest="4" * 64,
+        phase="training",
+        observed_view_digest=None,
     )
     recorded = json.loads((output / "incomplete-pairs.json").read_text())
     assert recorded["verdict"] == "INVALID / BLOCKED"
@@ -247,6 +275,11 @@ def test_incomplete_pair_attempt_is_write_once_and_preserves_both_outcomes(
             failure,
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
+            actual_artifact_digest="2" * 64,
+            implementation_digest="3" * 64,
+            runtime_environment_digest="4" * 64,
+            phase="training",
+            observed_view_digest=None,
         )
     assert len(tuple(output.iterdir())) == 1
 
@@ -286,14 +319,7 @@ def test_software_runner_persists_incomplete_receipt_before_any_fit(
             real_scope_authorization_digest=None,
         ),
     )
-    arm = {
-        "terminal_marked_equity": "90000.0",
-        "terminal_cash": "90000.0",
-        "termination_reason": "insolvency",
-        "terminal_exact_quantities": ["0", "0"],
-        "pending_order_remainders": [],
-        "insolvent": True,
-    }
+    arm = _endpoint_record("90000.0", termination_reason="insolvency", insolvent=True)
     row = IneligiblePairOutcome(
         intervention_index=50,
         prefix_start_index=20,
@@ -359,6 +385,11 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
             error,
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
+            actual_artifact_digest="2" * 64,
+            implementation_digest="3" * 64,
+            runtime_environment_digest="4" * 64,
+            phase="training",
+            observed_view_digest=None,
         )
     assert destination.is_dir()
     assert tuple(destination.iterdir()) == ()
@@ -400,6 +431,11 @@ def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
             error,
             dataset_id="1" * 64,
             protocol_digest="f" * 64,
+            actual_artifact_digest="2" * 64,
+            implementation_digest="3" * 64,
+            runtime_environment_digest="4" * 64,
+            phase="training",
+            observed_view_digest=None,
         )
     assert (destination / "incomplete-pairs.json").read_text() == "other-writer"
 

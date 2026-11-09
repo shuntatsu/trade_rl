@@ -346,6 +346,21 @@ class StatefulSymbolFillProcessor:
                         )
                     continue
 
+                multipliers = runtime.book.contract_multipliers
+                if multipliers is None:
+                    raise RuntimeError("filled book is missing contract multipliers")
+                filled_reference_notional = (
+                    abs(allocation.filled_quantity)
+                    * order.intent.submission_reference_price
+                    * float(multipliers[symbol])
+                )
+                if allocation.filled_quantity != 0.0 and (
+                    not math.isfinite(filled_reference_notional)
+                    or filled_reference_notional == 0.0
+                ):
+                    raise ValueError(
+                        "nonzero filled reference notional cannot be represented"
+                    )
                 cost_amount = _execution_cost(
                     runtime,
                     order,
@@ -402,14 +417,11 @@ class StatefulSymbolFillProcessor:
                 )
                 runtime.total_cost += cost_amount
                 runtime.filled_notional += allocation.filled_notional
-                multipliers = runtime.book.contract_multipliers
-                if multipliers is None:
-                    raise RuntimeError("filled book is missing contract multipliers")
-                runtime.filled_reference_notional += (
-                    abs(allocation.filled_quantity)
-                    * order.intent.submission_reference_price
-                    * float(multipliers[symbol])
-                )
+                runtime.filled_reference_notional += filled_reference_notional
+                if not math.isfinite(runtime.filled_reference_notional):
+                    raise ValueError(
+                        "filled reference notional total became non-finite"
+                    )
                 runtime.filled_by_symbol[symbol] += allocation.filled_notional
                 runtime.participation_by_symbol[symbol] = max(
                     runtime.participation_by_symbol[symbol],

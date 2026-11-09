@@ -101,6 +101,22 @@ def test_only_explicit_disposable_repository_is_a_mutation_target(
     assert api.calls == []
 
 
+def test_repository_lookup_never_follows_renamed_aliases() -> None:
+    api = _api()
+    receipt = _cas(api)
+    assert receipt["readback_verified"] is True
+    reads = [
+        document
+        for document, _ in api.calls
+        if "query CoordinationRefState" in document
+    ]
+    assert len(reads) == 2
+    assert all(
+        "repository(owner: $owner, name: $name, followRenames: false)" in document
+        for document in reads
+    )
+
+
 def test_mutation_is_disabled_by_default() -> None:
     api = _api()
     with pytest.raises(ValueError, match="test-only mutation is disabled"):

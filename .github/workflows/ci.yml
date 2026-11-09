@@ -16,9 +16,15 @@ permissions:
   issues: read
   pull-requests: read
 
+# Reuse the runner toolcache; fail if Python 3.12 is missing instead of
+# downloading a standalone distribution from an intermittently failing endpoint.
+env:
+  UV_PYTHON_PREFERENCE: only-system
+  UV_PYTHON_DOWNLOADS: never
+
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request_review' || github.event.action != 'submitted' || github.event.review.state != 'commented' }}
 
 jobs:
   fast:
@@ -33,14 +39,25 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
+          check-latest: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
           enable-cache: true
 
       - name: Install
         run: uv sync --extra dev
+
+      - name: Agent documentation routing
+        run: uv run python -m tools.agent_docs_context --check
+
+      - name: Repository Markdown links
+        run: uv run python -m tools.markdown_links --check
 
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
@@ -52,13 +69,23 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
 
       - name: Conditional PPO diagnostic types
         run: uv run mypy tools/ppo_conditional_diagnostic.py tools/issue810_portfolio_probability_probe.py
+
+      - name: Coordination disposable CAS smoke
+        run: |
+          uv run pytest -q \
+            tests/tools/test_github_coordination_ref_cas.py \
+            tests/tools/test_github_coordination_registry_cas_payload.py \
+            tests/tools/test_github_coordination_disposable_e2e.py \
+            tests/tools/test_github_coordination_disposable_http.py \
+            tests/tools/test_agent_docs_context.py \
+            tests/tools/test_markdown_links.py
 
       - name: Install gated 4h smoke PPO runtime
         if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke-execution' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
@@ -106,14 +133,25 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
+          check-latest: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
           enable-cache: true
 
       - name: Install
         run: uv sync --extra dev
+
+      - name: Agent documentation routing
+        run: uv run python -m tools.agent_docs_context --check
+
+      - name: Repository Markdown links
+        run: uv run python -m tools.markdown_links --check
 
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
@@ -125,7 +163,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
@@ -216,10 +254,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
+          check-latest: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
           enable-cache: true
 
       - name: Install PPO runtime
@@ -297,7 +340,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16.4
+        image: postgres:16.15-bookworm
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-only-throwaway-service-container
@@ -319,10 +362,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
+          check-latest: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
           enable-cache: true
 
       - name: Install store runtime
@@ -378,10 +426,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
+          check-latest: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
 
       - name: Fetch pull request review evidence
         env:
@@ -460,10 +512,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
+          check-latest: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
           enable-cache: true
 
       - name: Install review-status runtime

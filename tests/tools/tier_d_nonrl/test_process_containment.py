@@ -284,7 +284,10 @@ def test_job_contains_live_child_after_root_exits_and_cleanup_kills_it(
         "import os,pathlib,sys,time; "
         "data=bytearray(64*1024*1024); "
         "[data.__setitem__(i,1) for i in range(0,len(data),4096)]; "
-        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()),encoding='ascii'); "
+        "marker=pathlib.Path(sys.argv[1]); "
+        "staged=marker.with_suffix('.tmp'); "
+        "staged.write_text(str(os.getpid()),encoding='ascii'); "
+        "staged.replace(marker); "
         "time.sleep(30)"
     )
     root_code = """

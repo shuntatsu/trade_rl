@@ -38,6 +38,7 @@ from trade_rl.evaluation.dev_realdata_study.protocol import (
     DevStudyProtocol,
     protocol_digest,
 )
+from trade_rl.strategies.forecasts.prequential import ForecastPacket
 from trade_rl.strategies.portfolio import PortfolioDecisionSnapshot
 
 HOUR = np.timedelta64(1, "h")
@@ -274,10 +275,55 @@ def test_the_rule_can_never_return_a_winner_label() -> None:
 class FakeSource:
     def __init__(self, horizon_hours: int, packets: dict[int, object]) -> None:
         self.horizon_hours = horizon_hours
+        self.symbols = ("S0", "S1", "S2")
         self._packets = packets
+        self.lookups: list[int] = []
 
     def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
-        return self._packets.get(symbol_index)
+        self.lookups.append(symbol_index)
+        item = self._packets.get(symbol_index)
+        if isinstance(item, SimpleNamespace):
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=item.point_forecast,
+                residual_variance=item.residual_variance,
+            )
+        return item
+
+
+def _synthetic_packet(
+    *,
+    symbol: str,
+    symbol_index: int,
+    horizon_hours: int,
+    decision_time: np.datetime64,
+    point_forecast: float,
+    residual_variance: float,
+) -> ForecastPacket:
+    """Synthetic provenance for adapter and future-leak tests; not market proof."""
+    fit = decision_time - np.timedelta64(1, "h")
+    return ForecastPacket(
+        symbol=symbol,
+        symbol_index=symbol_index,
+        horizon_hours=horizon_hours,
+        decision_time=decision_time,
+        forecast_available_at=decision_time,
+        return_unit="log",
+        point_forecast=point_forecast,
+        residual_variance=residual_variance,
+        vintage_id="0" * 64,
+        fit_time=fit,
+        fit_cutoff=fit,
+        max_training_label_available_at=fit - np.timedelta64(1, "h"),
+        n_training_samples=1,
+        fitter_identity="synthetic-leak-test",
+        training_digest="1" * 64,
+        model_digest="2" * 64,
+        feature_digest="3" * 64,
+    )
 
 
 def snapshot_stub(n: int = 3, timestamp: str = "2022-03-01T00:00:00") -> object:
@@ -306,6 +352,41 @@ def test_adapter_rejects_a_horizon_that_is_not_a_multiple_of_the_interval() -> N
             FakeSource(36, {}),
             decision_interval_hours=24,  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.parametrize(
+    "bad_roster",
+    [
+        ("S1", "S0", "S2"),
+        ("S0", "S1"),
+        ("S0", "S1", "S2", "S3"),
+        ("S0", "S1", "OTHER"),
+    ],
+)
+def test_prequential_adapter_rejects_symbol_roster_drift_before_scoring(
+    bad_roster: tuple[str, ...],
+) -> None:
+    packet = SimpleNamespace(point_forecast=0.4, residual_variance=0.0)
+    fake = FakeSource(24, {0: packet})
+    adapter = runner.PrequentialSimpleReturnSource(fake, decision_interval_hours=24)  # type: ignore[arg-type]
+    snapshot = SimpleNamespace(
+        symbols=bad_roster,
+        timestamp_ns=int(START.astype(np.int64)),
+    )
+    with pytest.raises(ValueError, match="symbol roster"):
+        adapter.expected_simple_returns(snapshot)  # type: ignore[arg-type]
+    assert fake.lookups == []
+    assert adapter.calls == 0
+    assert adapter.null_packets == 0
+    assert adapter.history == []
+
+
+def test_prequential_adapter_uses_same_order_as_real_dataset(
+    market: MarketDataset,
+) -> None:
+    sources = runner.build_forecast_sources(market, small_protocol())
+    assert sources[24].symbols == market.symbols
+    assert sources[72].symbols == market.symbols
 
 
 def test_feature_roster_rule_excludes_funding_and_other_timeframes(
@@ -397,10 +478,27 @@ def test_reconciliation_detects_tampered_ledger_cash(market: MarketDataset) -> N
 def test_perturb_future_only_changes_rows_after_the_cut(market: MarketDataset) -> None:
     cut = 500
     other = runner.perturb_future(market, after_index=cut)
+    assert other.dataset_id == market.dataset_id
     assert np.array_equal(other.close[: cut + 1], market.close[: cut + 1])
     assert np.array_equal(other.features[: cut + 1], market.features[: cut + 1])
+    assert np.array_equal(other.tradable[: cut + 1], market.tradable[: cut + 1])
     assert not np.array_equal(other.close[cut + 1 :], market.close[cut + 1 :])
     assert not np.array_equal(other.features[cut + 1 :], market.features[cut + 1 :])
+    post_cut_tradable = other.tradable[cut + 1 :]
+    post_cut_active = other.resolved_array("asset_active")[cut + 1 :]
+    assert not np.array_equal(post_cut_tradable, market.tradable[cut + 1 :])
+    assert np.all(~post_cut_tradable | post_cut_active)
+    original_at = market.resolved_array("available_at")
+    changed_at = other.resolved_array("available_at")
+    assert np.array_equal(changed_at[: cut + 1], original_at[: cut + 1])
+    assert not np.array_equal(changed_at[cut + 1 :], original_at[cut + 1 :])
+    clock = market.timestamps[:, None]
+    assert np.all(changed_at[cut + 1 :] >= clock[cut + 1 :])
+    original_info = market.resolved_array("information_available")
+    changed_info = other.resolved_array("information_available")
+    assert np.array_equal(changed_info[: cut + 1], original_info[: cut + 1])
+    delayed = changed_at[cut + 1 :] > clock[cut + 1 :]
+    assert not np.any(changed_info[cut + 1 :] & delayed)
 
 
 def test_causality_probe_passes_for_the_real_pipeline(market: MarketDataset) -> None:
@@ -423,6 +521,7 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
         horizon_hours = 24
 
         def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
             self._close = dataset.close
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 
@@ -435,7 +534,107 @@ def test_causality_probe_catches_a_forecast_that_peeks_at_the_future(
                     self._close[row + 72, symbol_index] / self._close[row, symbol_index]
                 )
             )
-            return SimpleNamespace(point_forecast=future, residual_variance=0.0)
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=future,
+                residual_variance=0.0,
+            )
+
+    monkeypatch.setattr(
+        runner,
+        "build_forecast_sources",
+        lambda dataset, protocol: {24: Leaky(dataset), 72: Leaky(dataset)},
+    )
+    protocol = small_protocol()
+    sources = runner.build_forecast_sources(market, protocol)
+    report = runner.causality_probe(
+        market,
+        protocol,
+        sources,
+        start_index=runner._row_of(market, protocol.evaluation_start),
+    )
+    assert report["passed"] is False
+    assert report["identical_pre_cut_trace"] is False
+
+
+def test_causality_probe_catches_future_tradability_mask_lookahead(
+    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A future-only tradability peek must be visible to the perturbation oracle."""
+
+    class Leaky:
+        horizon_hours = 24
+
+        def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
+            self._tradable = dataset.tradable
+            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+
+        def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
+            row = int(
+                np.searchsorted(self._stamps, int(decision_time.astype(np.int64)))
+            )
+            future_row = min(row + 72, self._tradable.shape[0] - 1)
+            point = 0.25 if self._tradable[future_row, symbol_index] else -0.25
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=point,
+                residual_variance=0.0,
+            )
+
+    monkeypatch.setattr(
+        runner,
+        "build_forecast_sources",
+        lambda dataset, protocol: {24: Leaky(dataset), 72: Leaky(dataset)},
+    )
+    protocol = small_protocol()
+    sources = runner.build_forecast_sources(market, protocol)
+    report = runner.causality_probe(
+        market,
+        protocol,
+        sources,
+        start_index=runner._row_of(market, protocol.evaluation_start),
+    )
+    assert report["passed"] is False
+    assert report["identical_pre_cut_trace"] is False
+
+
+def test_causality_probe_catches_future_available_at_lookahead(
+    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A future availability-clock peek must be visible to the perturbation oracle."""
+
+    class Leaky:
+        horizon_hours = 24
+
+        def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
+            available_at = dataset.resolved_array("available_at")
+            self._available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+            self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+
+        def packet(self, symbol_index: int, decision_time: np.datetime64) -> object:
+            row = int(
+                np.searchsorted(self._stamps, int(decision_time.astype(np.int64)))
+            )
+            future_row = min(row + 72, self._stamps.shape[0] - 1)
+            future_available = self._available_ns[future_row, symbol_index]
+            future_timestamp = self._stamps[future_row]
+            point = 0.25 if future_available == future_timestamp else -0.25
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=point,
+                residual_variance=0.0,
+            )
 
     monkeypatch.setattr(
         runner,
@@ -486,6 +685,7 @@ def test_causality_probe_matrix_catches_a_leak_in_a_non_default_arm(
         horizon_hours = 72
 
         def __init__(self, dataset: MarketDataset) -> None:
+            self.symbols = dataset.symbols
             self._close = dataset.close
             self._stamps = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
 
@@ -498,7 +698,14 @@ def test_causality_probe_matrix_catches_a_leak_in_a_non_default_arm(
                     self._close[row + 72, symbol_index] / self._close[row, symbol_index]
                 )
             )
-            return SimpleNamespace(point_forecast=future, residual_variance=0.0)
+            return _synthetic_packet(
+                symbol=self.symbols[symbol_index],
+                symbol_index=symbol_index,
+                horizon_hours=self.horizon_hours,
+                decision_time=decision_time,
+                point_forecast=future,
+                residual_variance=0.0,
+            )
 
     protocol = small_protocol()
     clean = runner.build_forecast_sources(market, protocol)

@@ -21,6 +21,7 @@ from tools.branch_hygiene import (
     RETENTION_BRANCH,
     BranchInfo,
     GitHubApi,
+    merged_pr_retention_title,
     open_pull_request_branch_names,
 )
 
@@ -39,11 +40,8 @@ _PRESERVED = (
     "release/",
     "artifact/",
 )
-_RETENTION_PREFIXES = (
-    "Observe non-anchor branch tips before cleanup grace period",
-    "Archive unique non-anchor branch tips before ref cleanup",
-)
 _GRACE = timedelta(hours=1)
+_MAX_RETENTION_FIRST_PARENT_HOPS = 256
 
 
 @dataclass(frozen=True)
@@ -157,12 +155,64 @@ def _require_merged_pr(api: GitHubApi, branch: str, sha: str, number: int) -> No
         )
 
 
+def _require_retention_first_parent_lineage(
+    api: GitHubApi, *, tip_sha: str, record_sha: str
+) -> None:
+    """Verify a bounded unchanged-tree path along the live retention first parents."""
+
+    current_sha = tip_sha
+    current: dict[str, Any] | None = None
+    seen: set[str] = set()
+    for _ in range(_MAX_RETENTION_FIRST_PARENT_HOPS):
+        if current_sha in seen:
+            raise ValueError("retention first-parent history contains a cycle")
+        seen.add(current_sha)
+        if current is None:
+            current = _mapping(
+                api._request_json("GET", f"git/commits/{current_sha}"),
+                "retention first-parent commit",
+            )
+        if current.get("sha") != current_sha:
+            raise ValueError("retention first-parent commit identity mismatch")
+        current_tree = _mapping(current.get("tree"), "retention tree")
+        if current_tree is None:
+            raise ValueError("retention tree is missing")
+        current_tree_sha = _sha(current_tree.get("sha"), "retention tree SHA")
+
+        parents = current.get("parents")
+        if (
+            not isinstance(parents, list)
+            or not parents
+            or not isinstance(parents[0], dict)
+        ):
+            raise ValueError("retention first-parent history is incomplete")
+        parent_sha = _sha(parents[0].get("sha"), "retention first-parent SHA")
+        parent = _mapping(
+            api._request_json("GET", f"git/commits/{parent_sha}"),
+            "retention first-parent commit",
+        )
+        if parent.get("sha") != parent_sha:
+            raise ValueError("retention first-parent commit identity mismatch")
+        parent_tree = _mapping(parent.get("tree"), "retention tree")
+        if (
+            parent_tree is None
+            or _sha(parent_tree.get("sha"), "retention tree SHA") != current_tree_sha
+        ):
+            raise ValueError("retention tree must equal its first-parent tree")
+        if current_sha == record_sha:
+            return
+        current_sha, current = parent_sha, parent
+    raise ValueError("retention first-parent history exceeds the bounded scan")
+
+
 def _require_retention_record(
     api: GitHubApi,
     *,
     record_sha: str,
     branch: str,
     sha: str,
+    merged_pr_number: int,
+    retention_tip_sha: str,
     now: datetime,
 ) -> None:
     record = _mapping(
@@ -171,16 +221,21 @@ def _require_retention_record(
     )
     message = record.get("message")
     parents = record.get("parents")
+    mapping_lines = (
+        [line for line in message.splitlines() if "\t" in line]
+        if isinstance(message, str)
+        else []
+    )
     committer = _mapping(record.get("committer"), "retention committer")
     if (
         record.get("sha") != record_sha
         or not isinstance(message, str)
-        or not message.startswith(_RETENTION_PREFIXES)
-        or f"{branch}\t{sha}" not in message.splitlines()
+        or message.split("\n", 1)[0] != merged_pr_retention_title(merged_pr_number)
+        or mapping_lines != [f"{branch}\t{sha}"]
         or not isinstance(parents, list)
-        or len(parents) < 2
+        or len(parents) != 2
         or not all(isinstance(p, dict) for p in parents)
-        or sha not in [p.get("sha") for p in parents[1:]]
+        or parents[1].get("sha") != sha
     ):
         raise ValueError("retention record must bind the exact branch tip as a parent")
     when_text = committer.get("date")
@@ -192,6 +247,9 @@ def _require_retention_record(
         raise ValueError("retention record timestamp is invalid") from error
     if observed.tzinfo is None or now - observed < _GRACE:
         raise ValueError("retention observation grace period not elapsed")
+    _require_retention_first_parent_lineage(
+        api, tip_sha=retention_tip_sha, record_sha=record_sha
+    )
 
 
 def _observe(
@@ -227,6 +285,8 @@ def _observe(
         record_sha=retention_record_sha,
         branch=branch,
         sha=expected_sha,
+        merged_pr_number=merged_pr_number,
+        retention_tip_sha=retention.sha,
         now=now,
     )
     return VerifiedMergedPrune(

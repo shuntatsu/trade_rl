@@ -20,6 +20,7 @@ from typing import Any, cast
 
 import numpy as np
 
+from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study.metrics import (
     bootstrap_excess,
@@ -50,6 +51,7 @@ from trade_rl.strategies.allocation.buy_and_hold import BuyAndHoldPortfolioPolic
 from trade_rl.strategies.allocation.cost_aware import CostAwareAllocationPolicy
 from trade_rl.strategies.allocation.costs import one_way_cost_rates
 from trade_rl.strategies.forecasts.prequential import (
+    ForecastPacket,
     PrequentialForecastSource,
     PrequentialSchedule,
     RidgeForecastFitter,
@@ -100,15 +102,28 @@ class PrequentialSimpleReturnSource:
     ``mu_simple = expm1(mu_log + 0.5 * residual_variance) / (horizon_hours / interval)``.
     A symbol without a usable packet (unavailable features, e.g. an exchange gap)
     contributes ``0.0``. Only the packet for ``snapshot.timestamp_ns`` is read.
+    The snapshot symbol tuple must exactly equal the forecast dataset's symbol
+    order before any scoring; mismatches fail without changing diagnostics.
+    Each non-null ForecastPacket must bind the exact asset, horizon and decision
+    timestamp. Rejected packets must not advance decision diagnostics.
     """
 
     def __init__(
         self, source: PrequentialForecastSource, *, decision_interval_hours: int
     ) -> None:
+        if (
+            isinstance(decision_interval_hours, bool)
+            or not isinstance(decision_interval_hours, int)
+            or decision_interval_hours <= 0
+        ):
+            raise ValueError("decision interval must be a positive integer of hours")
         horizon = source.horizon_hours
+        if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon <= 0:
+            raise ValueError("forecast horizon must be a positive integer of hours")
         if horizon % decision_interval_hours != 0:
             raise ValueError("horizon must be a multiple of the decision interval")
         self._source = source
+        self._horizon_hours = horizon
         self._divisor = float(horizon // decision_interval_hours)
         self.calls = 0
         self.null_packets = 0
@@ -117,19 +132,38 @@ class PrequentialSimpleReturnSource:
     def expected_simple_returns(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> tuple[float, ...]:
+        if snapshot.symbols != self._source.symbols:
+            raise ValueError("prequential forecast symbol roster must match snapshot")
         when = np.datetime64(snapshot.timestamp_ns, "ns")
         values: list[float] = []
-        for symbol_index in range(len(snapshot.symbols)):
+        null_packets = 0
+        for symbol_index, symbol in enumerate(snapshot.symbols):
             packet = self._source.packet(symbol_index, when)
             if packet is None:
-                self.null_packets += 1
+                null_packets += 1
                 values.append(0.0)
                 continue
-            simple = math.expm1(packet.point_forecast + 0.5 * packet.residual_variance)
+            if not isinstance(packet, ForecastPacket):
+                raise TypeError("invalid prequential packet type")
+            if (
+                packet.symbol != symbol
+                or packet.symbol_index != symbol_index
+                or packet.horizon_hours != self._horizon_hours
+                or packet.decision_time != when
+            ):
+                raise ValueError("prequential packet identity mismatch")
+            log_mean = packet.point_forecast + 0.5 * packet.residual_variance
+            try:
+                simple = math.expm1(log_mean)
+            except OverflowError as exc:
+                raise ValueError("forecast conversion overflow") from exc
+            if not math.isfinite(simple):
+                raise ValueError("non-finite forecast conversion")
             values.append(simple / self._divisor)
-        self.calls += 1
         result = tuple(values)
         self.history.append(result)
+        self.calls += 1
+        self.null_packets += null_packets
         return result
 
 
@@ -645,6 +679,26 @@ def perturb_future(
     funding = dataset.funding_rate.copy()
     funding[after_index + 1 :] = rng.normal(0.0, 0.001, size=shape)
     changes["funding_rate"] = funding
+    tradable = dataset.tradable.copy()
+    active = dataset.resolved_array("asset_active")
+    tradable[after_index + 1 :] = (
+        active[after_index + 1 :] & ~tradable[after_index + 1 :]
+    )
+    changes["tradable"] = tradable
+    # Future availability-clock peeks must be visible to the same oracle.
+    # Toggle on-time vs delayed after the cut; keep information masks valid.
+    future = slice(after_index + 1, None)
+    clock = dataset.timestamps[:, None]
+    available_at = dataset.resolved_array("available_at").copy()
+    available_at[future] = np.where(
+        available_at[future] == clock[future],
+        clock[future] + np.timedelta64(1, "ns"),
+        clock[future],
+    )
+    information_available = dataset.resolved_array("information_available").copy()
+    information_available[future] &= available_at[future] <= clock[future]
+    changes["available_at"] = available_at
+    changes["information_available"] = information_available
     # The dataset_id stays unchanged on purpose: same-bar order ids (and therefore
     # their admission order) are digests that include it, so a different id would
     # change pre-cut behaviour without any look-ahead.
@@ -652,6 +706,13 @@ def perturb_future(
 
 
 def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
+    """Compare complete canonical native evidence, not only cash and positions.
+
+    Preserve the initial interval and decision fields for the existing trace
+    partition and quantity diagnostics. The appended canonical JSON bytes include
+    submitted/cancelled order events, funding/capacity flows and risk decisions.
+    """
+
     ledger = result.ledger_evidence
     assert ledger is not None
     return [
@@ -660,9 +721,18 @@ def _trace(result: SharedCashPortfolioReplayResult) -> list[tuple[object, ...]]:
             interval.exact_quantities_after,
             interval.cash_after,
             interval.portfolio_value_after,
+            canonical_json_bytes(interval.to_mapping()),
         )
         for interval in ledger.intervals.intervals
-    ] + [(d.index, d.proposal_weights, d.target_weights) for d in result.decisions]
+    ] + [
+        (
+            decision.index,
+            decision.proposal_weights,
+            decision.target_weights,
+            canonical_json_bytes(decision.to_mapping()),
+        )
+        for decision in result.decisions
+    ]
 
 
 def _pre_cut_has_trades(result: SharedCashPortfolioReplayResult) -> bool:
@@ -705,8 +775,9 @@ def causality_probe(
 ) -> dict[str, object]:
     """Replay one arm to the cut on real and future-perturbed data.
 
-    Every decision, quantity, cash and equity value up to the cut must be
-    bit-identical: nothing after the cut may influence what happened before it.
+    Every native interval/decision observer payload up to the cut must be
+    canonical-byte-identical, including order events and economic flows:
+    nothing after the cut may influence what happened before it.
     The defaults (allocator-24h, base scenario, ``protocol.causality_cut``) are the
     probe embedded in :func:`run_study`; the other parameters serve
     :func:`causality_probe_matrix`. ``arm_builder`` / ``sources_builder`` let another

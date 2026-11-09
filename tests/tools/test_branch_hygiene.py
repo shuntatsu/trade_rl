@@ -157,10 +157,8 @@ class FakeCleanupApi:
     ) -> None:
         self._branches = {branch.name: branch for branch in branches}
         self._open_refs = open_refs
-        self._commit_index = 0
         self.deleted: list[str] = []
         self.events: list[str] = []
-        self.messages: list[str] = []
 
     def branches(self) -> tuple[BranchInfo, ...]:
         return tuple(self._branches.values())
@@ -170,33 +168,6 @@ class FakeCleanupApi:
 
     def active_workflow_branch_names(self) -> frozenset[str]:
         return frozenset()
-
-    def git_commit_tree_sha(self, commit_sha: str) -> str:
-        self.events.append(f"tree:{commit_sha}")
-        return "f" * 40
-
-    def create_retention_commit(
-        self,
-        *,
-        tree_sha: str,
-        parent_shas: tuple[str, ...],
-        message: str,
-    ) -> str:
-        assert tree_sha == "f" * 40
-        assert parent_shas
-        self._commit_index += 1
-        sha = f"{self._commit_index:040x}"
-        self.events.append(f"commit:{sha}")
-        self.messages.append(message)
-        return sha
-
-    def create_branch_ref(self, name: str, sha: str) -> None:
-        self.events.append(f"create-ref:{name}:{sha}")
-        self._branches[name] = BranchInfo(name, sha, False)
-
-    def update_branch_ref(self, name: str, sha: str) -> None:
-        self.events.append(f"update-ref:{name}:{sha}")
-        self._branches[name] = BranchInfo(name, sha, False)
 
     def delete_branches_with_leases(self, branches: tuple[BranchInfo, ...]) -> None:
         names = ",".join(branch.name for branch in branches)
@@ -327,9 +298,9 @@ def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     assert "schedule:" in workflow
     assert "workflow_dispatch:" in workflow
     assert "pull_request_target:" not in workflow
-    assert "contents: read" in workflow
-    assert "contents: write" not in workflow
-    assert "--apply" not in workflow
+    assert "contents: write" in workflow
+    assert "--retire-merged --apply --max-deletes 100" in workflow
+    assert "if: github.repository == 'shuntatsu/trade_rl'" in workflow
     assert "APPLY_REQUESTED" not in workflow
     assert "pull-requests: read" in workflow
     assert "actions: read" in workflow
@@ -545,6 +516,121 @@ def test_unfinished_workflow_scan_rejects_inconsistent_pagination(
         api.active_workflow_branch_names()
 
 
+def test_transient_workflow_count_mismatch_restarts_the_complete_roster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo", token="token", api_url="https://api.github.test"
+    )
+    requested_count = 0
+    seen: list[str] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        nonlocal requested_count
+        assert method == "GET" and suffix == "actions/runs" and query is not None
+        status = query["status"]
+        seen.append(status)
+        if status == "requested":
+            requested_count += 1
+            return {
+                "total_count": 1,
+                "workflow_runs": [
+                    {
+                        "id": requested_count,
+                        "status": status,
+                        "head_branch": (
+                            "feature/stale" if requested_count == 1 else "feature/fresh"
+                        ),
+                    }
+                ],
+            }
+        if status == "waiting" and requested_count == 1:
+            # GitHub can return inconsistent count and items while jobs transition.
+            return {
+                "total_count": 2,
+                "workflow_runs": [
+                    {"id": 10, "status": status, "head_branch": "feature/partial"}
+                ],
+            }
+        return {"total_count": 0, "workflow_runs": []}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
+    assert api.active_workflow_branch_names() == frozenset({"feature/fresh"})
+    assert seen == [
+        "requested",
+        "waiting",
+        "requested",
+        "waiting",
+        "pending",
+        "queued",
+        "in_progress",
+    ]
+
+
+def test_persistent_workflow_count_mismatch_still_refuses_all_refs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo", token="token", api_url="https://api.github.test"
+    )
+    calls = 0
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        assert method == "GET" and suffix == "actions/runs" and query is not None
+        assert query["status"] == "requested"
+        return {
+            "total_count": 2,
+            "workflow_runs": [
+                {"id": 1, "status": "requested", "head_branch": "feature/survives"}
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
+    with pytest.raises(RuntimeError, match="pagination is incomplete"):
+        api.active_workflow_branch_names()
+    assert calls == 3
+
+
+def test_malformed_workflow_entry_is_not_hidden_by_snapshot_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo", token="token", api_url="https://api.github.test"
+    )
+    calls = 0
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {
+            "total_count": 1,
+            "workflow_runs": [
+                {"status": "requested", "head_branch": "feature/missing-id"}
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    with pytest.raises(RuntimeError, match="workflow run id"):
+        api.active_workflow_branch_names()
+    assert calls == 1
+
+
 def test_unfinished_workflow_overfull_final_page_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -754,18 +840,46 @@ def test_cleanup_requires_observation_and_grace_before_delete() -> None:
     assert by_name[unreachable.name].reason == "retained-tip-not-reachable"
 
 
-def test_retention_log_parser_uses_earliest_observation() -> None:
+def test_retention_log_parser_accepts_canonical_only_and_earliest_observation() -> None:
     branch = "automation/recent"
     sha = "a" * 40
-    old_message = (
-        f"Archive unique non-anchor branch tips before ref cleanup\n\n{branch}\t{sha}\n"
-    )
-    new_message = (
+    title = "Retain merged PR #1096 exact source after verified normal integration"
+    canonical_late = f"{title}\n\n{branch}\t{sha}\n"
+    canonical_early = f"{title}\n\n{branch}\t{sha}\n"
+    legacy = (
         "Observe non-anchor branch tips before cleanup grace period\n\n"
         f"{branch}\t{sha}\n"
     )
-    payload = (
-        f"200\x1f{new_message}\x1e100\x1f{old_message}\x1e50\x1funrelated commit\x1e"
+    other_old = (
+        "Observe merged PR #1096 source before cleanup grace period\n\n"
+        f"{branch}\t{sha}\n"
     )
+    payload = (
+        f"200\x1f{canonical_late}\x1e150\x1f{canonical_early}\x1e"
+        f"100\x1f{legacy}\x1e50\x1f{other_old}\x1e"
+    )
+    assert parse_retention_log(payload) == {(branch, sha): 150}
 
-    assert parse_retention_log(payload) == {(branch, sha): 100}
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Archive unique non-anchor branch tips before ref cleanup",
+        "Observe non-anchor branch tips before cleanup grace period",
+        "Observe merged PR #1096 source before cleanup grace period",
+        "Retain merged PR #001096 exact source after verified normal integration",
+        "Retain merged PR #1096 exact source after verified normal integration extra",
+    ],
+)
+def test_retention_log_parser_rejects_obsolete_or_ambiguous_titles(
+    message: str,
+) -> None:
+    branch = "automation/recent"
+    sha = "a" * 40
+    assert parse_retention_log(f"100\x1f{message}\n\n{branch}\t{sha}\x1e") == {}
+
+
+def test_retention_log_parser_rejects_multi_branch_record() -> None:
+    title = "Retain merged PR #1096 exact source after verified normal integration"
+    payload = f"100\x1f{title}\n\nbranch/a\t{'a' * 40}\nbranch/b\t{'b' * 40}\x1e"
+    assert parse_retention_log(payload) == {}

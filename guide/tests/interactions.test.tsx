@@ -100,7 +100,9 @@ describe("Markdown-first guide workflow", () => {
       <SearchPalette topics={[searchableImplementationTopic()]} onNavigate={onNavigate} />,
     );
 
-    await user.click(screen.getByRole("button", { name: "ガイドを検索" }));
+    const trigger = screen.getByRole("button", { name: "ガイドを検索 ⌘K" });
+    expect(trigger).toHaveAccessibleName("ガイドを検索 ⌘K");
+    await user.click(trigger);
     const input = await screen.findByRole("textbox", { name: "ガイドを検索" });
     await user.type(input, "希望保有数量");
     await user.click(screen.getByRole("button", { name: /希望保有数量/ }));

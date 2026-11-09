@@ -350,3 +350,108 @@ def test_evidence_identity_rejects_integer_shaped_float_and_non_string_id() -> N
 def test_task_status_reason_requires_text() -> None:
     with pytest.raises(ValueError, match="status reason"):
         TaskStatus(phase=TaskPhase.REVIEW, reason=123)
+
+
+class _TextLookalike:
+    """Legacy str() coercion accepted this unrelated caller object."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def __str__(self) -> str:
+        return self._text
+
+
+def _invalid_text_collection(kind: str, *, resource: bool = False) -> object:
+    if kind == "integer":
+        return (123,)
+    if kind == "lookalike":
+        return (_TextLookalike("identity:spoof" if resource else "not-typed"),)
+    if kind == "null":
+        return (None,)
+    if kind == "boolean":
+        return (True,)
+    if kind == "mixed":
+        return (
+            ("identity:valid" if resource else "valid"),
+            _TextLookalike("identity:spoof" if resource else "invalid"),
+        )
+    if kind == "bare_string":
+        return "abc"
+    if kind == "mapping":
+        return {"abc": 1}
+    if kind == "unordered_set":
+        return {"alpha", "beta"}
+    if kind == "generator":
+        return (name for name in ("alpha", "beta"))
+    raise AssertionError(kind)
+
+
+@pytest.mark.parametrize("field", ("allow", "deny"))
+@pytest.mark.parametrize(
+    "kind",
+    (
+        "integer",
+        "lookalike",
+        "null",
+        "boolean",
+        "mixed",
+        "bare_string",
+        "mapping",
+        "unordered_set",
+        "generator",
+    ),
+)
+def test_write_scope_rejects_untyped_direct_text_collections(
+    field: str, kind: str
+) -> None:
+    with pytest.raises(ValueError, match="ordered native string"):
+        WriteScope(**{field: _invalid_text_collection(kind)})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "field", ("non_goals", "resource_keys", "acceptance_criteria", "test_oracle")
+)
+@pytest.mark.parametrize(
+    "kind",
+    (
+        "integer",
+        "lookalike",
+        "null",
+        "boolean",
+        "mixed",
+        "bare_string",
+        "mapping",
+        "unordered_set",
+        "generator",
+    ),
+)
+def test_task_packet_rejects_untyped_direct_text_collections(
+    field: str, kind: str
+) -> None:
+    original = _packet()
+    kwargs = {name: getattr(original, name) for name in TaskPacket.__dataclass_fields__}
+    kwargs[field] = _invalid_text_collection(kind, resource=field == "resource_keys")
+    with pytest.raises(ValueError, match="ordered native string"):
+        TaskPacket(**kwargs)  # type: ignore[arg-type]
+
+
+def test_direct_text_lists_are_frozen_without_changing_canonical_identity() -> None:
+    original = _packet()
+    allow = ["tools/**"]
+    scope = WriteScope(allow=allow)
+    packet_lists = {
+        name: list(getattr(original, name))
+        for name in ("non_goals", "resource_keys", "acceptance_criteria", "test_oracle")
+    }
+    kwargs = {name: getattr(original, name) for name in TaskPacket.__dataclass_fields__}
+    kwargs.update(packet_lists)
+    packet = TaskPacket(**kwargs)
+    assert packet.canonical_payload() == original.canonical_payload()
+    assert packet.contract_digest() == original.contract_digest()
+    assert scope.allow == ("tools/**",)
+    allow.append("later")
+    for source in packet_lists.values():
+        source.append("later")
+    assert scope.allow == ("tools/**",)
+    assert packet.contract_digest() == original.contract_digest()

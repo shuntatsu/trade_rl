@@ -55,7 +55,28 @@ Status: Active
   supervisor that relaunches only a child that died between cycles inside the frozen
   gap limit. Prepare the unsealed attempt-2 draft/seal/launch gates, bound to the
   recorded attempt-1 lineage and current source/runtime identity, and the operator
-  runbook. Nothing is sealed, started or collected; human authorization is pending.
+  runbook. Attempt 2 was sealed and launched from a frozen checkout and ended INVALID
+  on 2026-11-07 from a snapshot-reader timing defect (fixed by PR #1164); it is not
+  resumed, repaired or evaluated.
+- [x] Pre-register attempt 3 result-blind: timing tolerances bound to the source
+  constants, a proposed collection-failure/retry/gap policy, new run identity and
+  UNREVIEWED packet `report/issue810-carry-attempt3-research-assurance-20261108.json`.
+- [x] Collection policy and attempt-3 review route decided under the owner's delegation
+  (Issue #810 comment 6715501420). Review and merge the pre-registration first.
+- [x] Implement and test the collector policy (retry, skipped slots, three budgets,
+  terminal classes, durable attempt and skip registry) with fake-venue tests, and issue
+  the implementation packet
+  `report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`
+  (UNREVIEWED).
+- [x] Build the remaining parts (screen v3 whose economic fields equal v2, evaluator
+  audit of registered failures and skipped slots with a skip report, lineage v4 naming
+  attempt 2, the `attempt3` plan/seal/launch gates) and issue the seal-candidate packet
+  `report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`
+  (UNREVIEWED).
+- [ ] Obtain the extended same-account receipt review of the seal-candidate packet's
+  exact digest and heads, the result-blind G0 resolution of the preserved attempt-2 root,
+  a fresh storage probe and the owner's authorization comment.
+- [ ] Offline seal and launch of attempt 3 (exact procedure in the specification).
 - [ ] Run prospective paper observation and report the complete declared gate.
 
 No successful probe, past development profit or partial paper record completes

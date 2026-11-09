@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -302,3 +304,105 @@ def test_lease_identity_requires_exact_integer_types() -> None:
             observed_head_sha=lease.head_sha,
             decision=ReconciliationDecision.REASSIGN,
         )
+
+
+_RECONCILIATION_ID_FIELDS = ("pr_ids", "ci_ids", "artifact_ids")
+
+
+@pytest.mark.parametrize("field", _RECONCILIATION_ID_FIELDS)
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param((123,), id="integer-entry"),
+        pytest.param((None,), id="null-entry"),
+        pytest.param((True,), id="boolean-entry"),
+        pytest.param(("correct", 9), id="mixed-entry"),
+        pytest.param("a-b-c", id="bare-string"),
+        pytest.param({"a": 9}, id="mapping"),
+        pytest.param({"a", "b"}, id="unordered-set"),
+    ],
+)
+def test_reconciliation_rejects_untyped_or_unordered_observation_ids(
+    field: str, bad: object
+) -> None:
+    kwargs: dict[str, object] = {
+        "task_id": "T500-03",
+        "expired_epoch": 1,
+        "observed_branch": lease_branch_name("T500-03", 1, "agent-a"),
+        "observed_head_sha": HEAD_SHA,
+        "decision": ReconciliationDecision.REASSIGN,
+        field: bad,
+    }
+    with pytest.raises(ValueError, match=f"reconciliation {field}"):
+        LeaseReconciliation(**kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", _RECONCILIATION_ID_FIELDS)
+def test_reconciliation_refuses_generator_instead_of_fixed_ids(field: str) -> None:
+    values: dict[str, object] = {
+        "task_id": "T500-03",
+        "expired_epoch": 1,
+        "observed_branch": lease_branch_name("T500-03", 1, "agent-a"),
+        "observed_head_sha": HEAD_SHA,
+        "decision": ReconciliationDecision.REASSIGN,
+        field: (name for name in ("ci:1", "ci:2")),
+    }
+    with pytest.raises(ValueError, match=f"reconciliation {field}"):
+        LeaseReconciliation(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", _RECONCILIATION_ID_FIELDS)
+def test_reconciliation_freezes_valid_list_of_string_ids(field: str) -> None:
+    source = ["pr:17", "ci:200"]
+    kwargs: dict[str, object] = {
+        "task_id": "T500-03",
+        "expired_epoch": 1,
+        "observed_branch": lease_branch_name("T500-03", 1, "agent-a"),
+        "observed_head_sha": HEAD_SHA,
+        "decision": ReconciliationDecision.REASSIGN,
+        field: source,
+    }
+    record = LeaseReconciliation(**kwargs)  # type: ignore[arg-type]
+    assert getattr(record, field) == ("pr:17", "ci:200")
+    assert type(getattr(record, field)) is tuple
+    source.append("not-verified")
+    assert getattr(record, field) == ("pr:17", "ci:200")
+
+
+@pytest.mark.parametrize("field", _RECONCILIATION_ID_FIELDS)
+def test_reconciliation_validates_frozen_snapshot_before_list_mutation(
+    field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller's concurrent mutation cannot enter a previously validated record."""
+    source: list[object] = ["original-id"]
+    branch = lease_branch_name("T500-03", 1, "agent-a")
+    mutated = False
+
+    def mutate_after_check(values: Iterable[object]) -> bool:
+        nonlocal mutated
+        checked = tuple(values)
+        if not mutated and checked == (False,):
+            # Empty earlier fields must not consume the one-shot mutation.
+            source[:] = [123]
+            mutated = True
+        return builtins.any(checked)
+
+    # Deterministically interleave a caller mutation at the validation
+    # boundary. The former implementation validated raw and copied it later.
+    monkeypatch.setattr(
+        "tools.agent_repo.coordination.leases.any",
+        mutate_after_check,
+        raising=False,
+    )
+    kwargs: dict[str, object] = {
+        "task_id": "T500-03",
+        "expired_epoch": 1,
+        "observed_branch": branch,
+        "observed_head_sha": HEAD_SHA,
+        "decision": ReconciliationDecision.REASSIGN,
+        field: source,
+    }
+    record = LeaseReconciliation(**kwargs)  # type: ignore[arg-type]
+    assert mutated
+    assert source == [123]
+    assert getattr(record, field) == ("original-id",)

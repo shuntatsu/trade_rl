@@ -283,6 +283,31 @@ def test_gap_policy_rejects_unknown_values_and_duplicate_rows() -> None:
         source.load(SYMBOLS[0])
 
 
+def test_shared_missing_final_bar_cannot_shorten_requested_dataset() -> None:
+    """No symbol can supply the final clock: refuse rather than omit it."""
+    last_hour = 20 * 24 - 1
+    missing = {symbol: {last_hour} for symbol in SYMBOLS}
+    with pytest.raises(ValueError, match="does not cover requested boundaries"):
+        _build(BaseIntervalAggregatingTransport(HourlyTransport(missing)))
+
+
+def test_single_symbol_missing_final_bar_keeps_complete_common_clock() -> None:
+    """The other symbol's final mark keeps the missing slot non-tradable."""
+    last_hour = 20 * 24 - 1
+    result = _build(
+        BaseIntervalAggregatingTransport(HourlyTransport({SYMBOLS[0]: {last_hour}}))
+    )
+    dataset = result.dataset
+    assert dataset.n_bars == 20 * 24
+    assert dataset.timestamps[-1] == np.datetime64(
+        (START + timedelta(days=20)).replace(tzinfo=None), "ns"
+    )
+    assert not bool(dataset.tradable[-1, 0])
+    assert bool(dataset.tradable[-1, 1])
+    assert result.gap_report[f"{SYMBOLS[0]}:1h"]["missing_bars"] == 1
+    assert result.gap_report[f"{SYMBOLS[1]}:1h"]["missing_bars"] == 0
+
+
 def test_built_dataset_marks_gap_rows_non_tradable_and_masks_recursive_features() -> (
     None
 ):

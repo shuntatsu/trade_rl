@@ -804,6 +804,18 @@ FS1 data-protection boundaries. The FS1 forward study controls two spans (consta
 
 Export. The direct `BinanceMarketDataSource` and `build_binance_market_dataset` interfaces default to `STRICT` (including both requested time boundaries), whereas `export_market_dataset` and the market-store `export` CLI deliberately default to `NON_TRADABLE_ROWS`. Callers comparing the two paths must specify a matching policy; even then the documented 2020 spot placeholder remains a source-clock interpretation difference. `export_market_dataset` serves stored rows through the same transport interface as the Vision file path (Vision column layout from exact values, funding events with the Vision inclusive range, one stored raw `exchangeInfo` applied statically) so the unchanged builder, gap policy, 4h/1d aggregation and identity produce the `MarketDataset`. Digests of every row read, the exchange snapshot and an `fs1_warmup` record (whether any exported bar lies in the warm-up span, the last bar time and the authorizing run ids and Issue #810 URLs) enter the identity as `metadata_evidence` and the export receipt; the same store content and parameters give the same `dataset_id` (pin the rules snapshot with `--rules-snapshot-sha256`), and an existing test establishes a store-backed/file-backed match for its particular fixture with identical admitted archive rows. This is not a blanket same-archive parity guarantee: the documented Dec-2020 spot placeholder yields different admitted rows between these paths. Any stronger equivalence claim requires matching parsed rows and explicit gap-policy semantics.
 
+The non-tradable base-bar policy has an additional common-clock boundary: the
+generic `MarketDatasetBuilder` infers its regular clock from the earliest and
+latest **observed** source bars. If every configured symbol is missing the
+final requested interval, that clock would otherwise end early and silently
+omit the unobserved last row. The Binance Dataset builder therefore refuses
+any result whose first/last closed timestamps do not match the full requested
+range; it does **not** invent a final price or extend historical Dataset IDs.
+When only some symbols lack the last bar, the remaining symbol's close defines
+the full clock and the missing slots stay non-tradable with the existing
+causal feature masks. This fail-closed boundary does not resolve the separate
+2020 spot source-close-time mismatch or authorize old Dataset reinterpretation.
+
 Operating it (Windows, PowerShell; install Docker Desktop first, then `uv sync --extra store`):
 
 ```powershell

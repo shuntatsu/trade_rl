@@ -49,6 +49,10 @@ ATTEMPT2_PACKET_DIGEST = (
 IMPLEMENTATION_PACKET_DIGEST = (
     "eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45"
 )
+# The seal-candidate packet is named by the same documents as well.
+SEAL_CANDIDATE_PACKET_DIGEST = (
+    "3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781"
+)
 ATTEMPT1_PROTOCOL_DIGEST = (
     "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"
 )
@@ -458,6 +462,7 @@ def test_seal_start_authorization_and_launch_fields_are_pending_and_nothing_is_s
         PINNED_DIGEST,
         ATTEMPT2_PACKET_DIGEST,
         IMPLEMENTATION_PACKET_DIGEST,
+        SEAL_CANDIDATE_PACKET_DIGEST,
     }
     for name, text in (("packet", packet_text), ("spec", spec), ("status", status)):
         digests = set(re.findall(r"\b[0-9a-f]{64}\b", text))

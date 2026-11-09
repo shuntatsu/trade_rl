@@ -430,20 +430,28 @@ def test_file_backed_reader_currently_retains_the_store_skipped_placeholder() ->
 
 
 @pytest.mark.parametrize(
+    "symbol",
+    ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT"),
+)
+@pytest.mark.parametrize(
     "policy",
     (BinanceGapPolicy.STRICT, BinanceGapPolicy.NON_TRADABLE_ROWS),
 )
 def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
-    policy: BinanceGapPolicy,
+    policy: BinanceGapPolicy, symbol: str
 ) -> None:
-    """Pin existing source-clock divergence without relabeling historical Datasets."""
+    """Pin legacy gap behaviour for every verified symbol without changing data.
+
+    The genuine BTC placeholder and synthetic BTC neighbours are relabelled
+    only for this policy test; the other symbols' archive bytes are not proved.
+    """
     raw_rows = dec_2020_rows()
     start_ms = ms_from_utc(DEC_2020)
     end_ms = ms_from_utc(JAN_2021)
 
     class OfflineTransport:
         def load_klines(self, **kwargs: object) -> tuple[list[list[str]], str]:
-            assert kwargs["symbol"] == "BTCUSDT"
+            assert kwargs["symbol"] == symbol
             assert kwargs["interval"] == "1h"
             assert kwargs["start_ms"] == start_ms
             assert kwargs["end_ms"] == end_ms
@@ -452,7 +460,7 @@ def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
         def load_funding_rates(
             self, **kwargs: object
         ) -> tuple[list[tuple[int, float]], str]:
-            assert kwargs["symbol"] == "BTCUSDT"
+            assert kwargs["symbol"] == symbol
             return [], "no-funding-spot-fixture"
 
     source = BinanceMarketDataSource(
@@ -464,7 +472,7 @@ def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
         transport=OfflineTransport(),
         gap_policy=policy,
     )
-    series = source.load("BTCUSDT")
+    series = source.load(symbol)
     index = (PLACEHOLDER_OPEN_MS - start_ms) // HOUR_MS
     expected_close = np.datetime64(PLACEHOLDER_OPEN_MS + HOUR_MS, "ms")
 
@@ -476,7 +484,7 @@ def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
     assert series.funding_rate[index] == 0.0
     if policy is BinanceGapPolicy.NON_TRADABLE_ROWS:
         assert source.gap_report == {
-            "BTCUSDT:1h": {
+            f"{symbol}:1h": {
                 "expected_bars": 31 * 24,
                 "present_bars": 31 * 24,
                 "missing_bars": 0,
@@ -490,7 +498,7 @@ def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
     # checksum-backed anomalous candle) through the separate store parser.
     stored = parse_kline_archive(
         zip_csv(raw_rows),
-        spec(start=DEC_2020, end=JAN_2021),
+        spec(start=DEC_2020, end=JAN_2021, symbol=symbol),
         embargo=ENFORCED,
     )
     assert len(stored.rows) == len(series.timestamps) - 1

@@ -293,7 +293,7 @@ def test_shallow_non_object_receipt_is_refused_before_json_decode(
     "raw",
     (
         b'{"pairs":[' + b"0," * 100_000 + b"0]}",
-        b'{"pairs":[{"note":"quoted } ] { [ delimiters"},0]}',
+        b'{"pairs":[{"reason_codes":["quoted } ] { [ delimiters"]},0]}',
         b'{"pairs" : [[],0]}',
     ),
 )
@@ -350,9 +350,47 @@ def test_pairs_key_spoofing_is_rejected_before_json_decode(
         study._decode_incomplete_receipt(raw)
 
 
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    (
+        pytest.param(
+            b'{"pairs":[{"intruder":[' + b"0," * 100_000 + b"0]}]}",
+            "failure receipt pair field is not recognised",
+            id="unrecognised-pair-key-before-broad-array",
+        ),
+        pytest.param(
+            b'{"pairs":[{"reason\\u005fcodes":[' + b"0," * 100_000 + b"0]}]}",
+            "failure receipt pair keys must be unescaped",
+            id="escaped-pair-key-before-broad-array",
+        ),
+        pytest.param(
+            b'{"pairs":[{"' + b"x" * 100_000 + b'":0}]}',
+            "failure receipt pair key exceeds schema length",
+            id="oversized-pair-key",
+        ),
+    ),
+)
+def test_invalid_pair_member_names_fail_before_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes, message: str
+) -> None:
+    """Refuse invalid direct pair keys before decoding their broad values."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("invalid pair member reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match=message):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     """Nested arrays and quoted delimiters inside genuine pair objects are inert."""
-    raw = b'{"pairs":[{"note":"quoted } ] { [","nested":{"pairs":[0]}},{"more":[1,2]}]}'
+    raw = (
+        b'{"pairs":[{"reason_codes":["quoted } ] { ["],'
+        b'"reference_vintage":{"pairs":[0]}},'
+        b'{"candidate_action":[1,2],'
+        b'"unvalidated_source_record":{"text":"{ nested ]"}}]}'
+    )
     study._preflight_receipt_pair_objects(raw)
 
 

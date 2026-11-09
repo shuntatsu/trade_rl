@@ -385,6 +385,28 @@ def test_invalid_pair_member_names_fail_before_decode(
         study._decode_incomplete_receipt(raw)
 
 
+@pytest.mark.parametrize(
+    "pair",
+    (
+        b"{}",
+        b'{"schema":"decision_value_ineligible_pair_v1"}',
+        b'{"candidate_action":[1,0],"reason_codes":["blocked"]}',
+    ),
+)
+def test_wide_incomplete_pair_objects_rejected_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, pair: bytes
+) -> None:
+    """Thousands of shallow but schema-incomplete pair objects must not allocate."""
+    raw = b'{"pairs":[' + b",".join((pair,) * 16_384) + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("incomplete pair records reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair fields are malformed"):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     """Nested arrays and quoted delimiters inside genuine pair objects are inert."""
     raw = (

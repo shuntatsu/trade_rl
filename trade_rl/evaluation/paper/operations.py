@@ -13,16 +13,33 @@ from typing import Any, TypedDict
 
 from trade_rl._validation import require_aware_datetime
 from trade_rl.evaluation.paper.account import PaperAccount, PaperSettings, timestamp
-from trade_rl.evaluation.paper.collection_policy import CADENCE_SECONDS
+from trade_rl.evaluation.paper.collection_policy import (
+    ATTEMPT_PURPOSES,
+    CADENCE_SECONDS,
+    MAX_CONSECUTIVE_SKIPPED_SLOTS,
+    MAX_FAILED_CAPTURES_PER_SLOT,
+    MAX_SKIPPED_SLOTS_PER_HOUR,
+    MAX_SKIPPED_SLOTS_TOTAL,
+    RETRIES_PER_SLOT,
+    RETRY_DELAY_SECONDS,
+    RETRY_START_WINDOW_SECONDS,
+    RULES_HOLD_SECONDS,
+    SKIP_REASONS,
+    SKIP_WINDOW_SLOTS,
+)
 from trade_rl.evaluation.paper.predecessor import (
     _ATTEMPT2_SEAL_TOKEN,
+    _ATTEMPT3_SEAL_TOKEN,
     LINEAGE_V3_SCHEMA,
+    LINEAGE_V4_SCHEMA,
     PREDECESSOR_ROOT_STATUSES,
     ROOT_READER,
+    SCREEN_V3_SCHEMA,
     canonical_root_record,
     lineage_structure_problems,
     plain_json_key_problems,
     same_canonical_record,
+    v4_identity,
 )
 from trade_rl.evaluation.paper.store import PaperJournal
 from trade_rl.evaluation.paper.supervisor import PaperCollector, seal_collection
@@ -30,6 +47,8 @@ from trade_rl.evaluation.paper.supervisor import PaperCollector, seal_collection
 _ATTEMPT_LINEAGE_SCHEMA = "carry_paper_attempt_lineage_v2"
 _ATTEMPT_LINEAGE_SCHEMA_V3 = LINEAGE_V3_SCHEMA
 STORAGE_PROBE_PLAN_SCHEMA = "carry_paper_storage_probe_v1"
+# The frozen observation-gap limit; a test binds it to ``PaperSettings.maximum_gap_seconds``.
+FROZEN_GAP_LIMIT_SECONDS = 180
 _ATTEMPT_DISPOSITIONS = {
     "invalidated",
     "incomplete",
@@ -273,12 +292,46 @@ def validate_attempt_lineage(
     return deepcopy(value)
 
 
-def screen_plan(*, attempt_lineage: dict[str, Any]) -> dict[str, Any]:
-    """Return the fixed economic screen with its immutable attempt lineage."""
-    lineage = validate_attempt_lineage(attempt_lineage)
+def validate_attempt_lineage_v4(
+    value: object,
+    *,
+    sealed_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate the attempt-3 lineage v4 (attempt 2 as an INVALID predecessor).
+
+    The shared classifier decides the canonical form; this adds the seal-time ordering
+    rules. The record's identity values are read from the attempt-2 root by
+    ``attempt3`` before sealing and re-read on every collector entry; the fields stay
+    caller assertions in the sense of the other lineage versions.
+    """
+    key_problems = plain_json_key_problems(value)
+    if key_problems:
+        raise ValueError(
+            "attempt lineage keys are not plain JSON strings: "
+            + "; ".join(key_problems)
+        )
+    if (
+        type(value) is not dict
+        or type(value.get("schema")) is not str
+        or value["schema"] != LINEAGE_V4_SCHEMA
+    ):
+        raise ValueError("attempt lineage v4 schema is required")
+    problems = lineage_structure_problems(value)
+    if problems:
+        raise ValueError("attempt lineage is not canonical: " + "; ".join(problems))
+    claimed = v4_identity(value)
+    assert claimed is not None
+    identity = claimed[0]
+    if sealed_at is not None:
+        seal = require_aware_datetime(sealed_at, field="paper seal").astimezone(UTC)
+        if timestamp(identity.last_observed_at) > seal:
+            raise ValueError("attempt lineage predecessor is newer than the seal")
+    return deepcopy(value)
+
+
+def _economic_screen_fields() -> dict[str, Any]:
+    """Every economic acceptance field, shared by screens v2 and v3 byte for byte."""
     return dict(
-        schema="carry_paper_screen_v2",
-        attempt_lineage=lineage,
         required_fill_coverage=[dict(row) for row in REQUIRED_FILL_COVERAGE],
         duration_days=90,
         block_days=30,
@@ -295,15 +348,70 @@ def screen_plan(*, attempt_lineage: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def screen_plan(*, attempt_lineage: dict[str, Any]) -> dict[str, Any]:
+    """Return the fixed economic screen with its immutable attempt lineage."""
+    lineage = validate_attempt_lineage(attempt_lineage)
+    return dict(
+        schema="carry_paper_screen_v2",
+        attempt_lineage=lineage,
+        **_economic_screen_fields(),
+    )
+
+
+def operational_quality_clause() -> dict[str, Any]:
+    """The only clause screen v3 changes: registered collection failures are allowed.
+
+    Screen v2 rejected any failed capture or skipped slot. Screen v3 accepts a failed
+    capture or a skipped slot only when the collector registered it, it has a registered
+    class, and the three skip budgets and the per-slot retry allowance hold; every
+    terminal marker (Class D, Class I, budget breach B) still rejects. All values are
+    the pre-registered collection-policy constants.
+    """
+    return dict(
+        failed_capture_rejects_screen=False,
+        unregistered_failed_capture_rejects_screen=True,
+        terminal_failure_classes=["B", "D", "I"],
+        retries_per_slot=RETRIES_PER_SLOT,
+        retry_delay_seconds=RETRY_DELAY_SECONDS,
+        retry_start_window_seconds=RETRY_START_WINDOW_SECONDS,
+        max_failed_captures_per_slot=MAX_FAILED_CAPTURES_PER_SLOT,
+        max_consecutive_skipped_slots=MAX_CONSECUTIVE_SKIPPED_SLOTS,
+        max_skipped_slots_per_hour=MAX_SKIPPED_SLOTS_PER_HOUR,
+        max_skipped_slots_total=MAX_SKIPPED_SLOTS_TOTAL,
+        skip_window_slots=SKIP_WINDOW_SLOTS,
+        cadence_seconds=CADENCE_SECONDS,
+        frozen_gap_limit_seconds=FROZEN_GAP_LIMIT_SECONDS,
+        rules_hold_seconds=RULES_HOLD_SECONDS,
+        skip_reasons=list(SKIP_REASONS),
+        attempt_purposes=list(ATTEMPT_PURPOSES),
+        report_skip_count_and_funding_proximity=True,
+        claim_boundary="retained_slots_only",
+    )
+
+
+def screen_plan_v3(*, attempt_lineage: dict[str, Any]) -> dict[str, Any]:
+    """Screen v3: the v2 economic screen plus the registered collection-quality clause."""
+    lineage = validate_attempt_lineage_v4(attempt_lineage)
+    return dict(
+        schema=SCREEN_V3_SCHEMA,
+        attempt_lineage=lineage,
+        **_economic_screen_fields(),
+        operational_quality=operational_quality_clause(),
+    )
+
+
 def seal_paper_study(
     root: str | Path,
     *,
     start_at: datetime,
     attempt_lineage: dict[str, Any],
-    attempt2_seal_token: object | None = None,
+    lineage_seal_token: object | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> str:
-    """Seal a screen. Lineage v3 is accepted only from ``attempt2``.
+    """Seal a screen. Lineage v3 is accepted only from ``attempt2``, v4 from ``attempt3``.
+
+    A v4 lineage seals ``carry_paper_screen_v3``; every other lineage seals
+    ``carry_paper_screen_v2``.
 
     A v3 ``predecessor_root`` record asserts a root read (``available``) or a recorded
     statement (``unavailable``) that only ``attempt2`` produces after its own checks,
@@ -316,17 +424,33 @@ def seal_paper_study(
     now = require_aware_datetime(clock(), field="paper seal").astimezone(UTC)
     if start < now + timedelta(minutes=5):
         raise ValueError("paper study requires at least five minutes before start")
+    if (
+        not plain_json_key_problems(attempt_lineage)
+        and type(attempt_lineage) is dict
+        and type(attempt_lineage.get("schema")) is str
+        and attempt_lineage["schema"] == LINEAGE_V4_SCHEMA
+    ):
+        if lineage_seal_token is not _ATTEMPT3_SEAL_TOKEN:
+            raise ValueError("attempt lineage v4 can only be sealed through attempt3")
+        lineage_v4 = validate_attempt_lineage_v4(attempt_lineage, sealed_at=now)
+        return seal_collection(
+            root,
+            settings=PaperSettings(start_at=start, close_at=start + timedelta(days=90)),
+            research_plan=screen_plan_v3(attempt_lineage=lineage_v4),
+            lineage_seal_token=lineage_seal_token,
+            clock=lambda: now,
+        )
     lineage = validate_attempt_lineage(attempt_lineage, sealed_at=now)
     if (
         lineage["schema"] == _ATTEMPT_LINEAGE_SCHEMA_V3
-        and attempt2_seal_token is not _ATTEMPT2_SEAL_TOKEN
+        and lineage_seal_token is not _ATTEMPT2_SEAL_TOKEN
     ):
         raise ValueError("attempt lineage v3 can only be sealed through attempt2")
     return seal_collection(
         root,
         settings=PaperSettings(start_at=start, close_at=start + timedelta(days=90)),
         research_plan=screen_plan(attempt_lineage=lineage),
-        attempt2_seal_token=attempt2_seal_token,
+        lineage_seal_token=lineage_seal_token,
         clock=lambda: now,
     )
 

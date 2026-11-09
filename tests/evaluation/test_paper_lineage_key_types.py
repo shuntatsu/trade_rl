@@ -77,7 +77,7 @@ def test_recursive_lineage_key_type_is_rejected_even_if_text_matches(tmp_path):
             tmp_path / "seal",
             settings=_settings(),
             research_plan={"attempt_lineage": lineage},
-            attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+            lineage_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
             clock=clock,
         )
     assert not (tmp_path / "seal").exists()
@@ -119,14 +119,14 @@ def test_blind_lineage_key_is_refused_at_initialize_and_seal_with_no_root(tmp_pa
                 tmp_path / "engine",
                 settings=_settings(),
                 study=study,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
             )
         with pytest.raises(ValueError, match="key|plain"):
             seal_collection(
                 tmp_path / "seal",
                 settings=_settings(),
                 research_plan=plan,
-                attempt2_seal_token=token,
+                lineage_seal_token=token,
                 clock=clock,
             )
     assert not (tmp_path / "engine").exists() and not (tmp_path / "seal").exists()
@@ -152,7 +152,7 @@ def test_lookalike_key_text_that_equals_status_is_refused_not_sealed(tmp_path):
             tmp_path / "seal",
             settings=_settings(),
             research_plan={"attempt_lineage": lineage},
-            attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+            lineage_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
             clock=clock,
         )
     assert not (tmp_path / "seal").exists()

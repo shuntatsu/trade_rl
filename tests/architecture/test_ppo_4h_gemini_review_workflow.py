@@ -126,3 +126,44 @@ def test_gemini_review_workflow_binds_request_runtime_and_uploads_attestation() 
     action_refs = re.findall(r"(?m)^\s+uses:\s+([^\s]+)$", text)
     assert action_refs
     assert all(re.search(r"@[0-9a-f]{40}$", action) for action in action_refs)
+
+SETUP_PYTHON = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
+SETUP_UV = "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2"
+
+
+def test_gemini_review_verification_uses_runner_python_without_downloads() -> None:
+    """Trusted source-verification jobs must avoid managed Python downloads."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert (
+        "env:\n"
+        "  UV_PYTHON_PREFERENCE: only-system\n"
+        "  UV_PYTHON_DOWNLOADS: never\n"
+    ) in text
+
+    expected_setup = (
+        "      - name: Set up runner Python 3.12\n"
+        f"        uses: {SETUP_PYTHON}\n"
+        "        with:\n"
+        '          python-version: "3.12"\n'
+        "          check-latest: false\n"
+        "\n"
+        "      - name: Set up uv\n"
+        f"        uses: {SETUP_UV}\n"
+        "        with:\n"
+        "          enable-cache: true\n"
+        "          working-directory: target\n"
+    )
+
+    core = _job(text, "core", "ppo-runtime")
+    ppo = _job(text, "ppo-runtime", "guide")
+    for job in (core, ppo):
+        assert job.count(expected_setup) == 1
+        assert job.count(SETUP_PYTHON) == 1
+        assert job.count(SETUP_UV) == 1
+
+    assert text.count(f"uses: {SETUP_PYTHON}") == 2
+    assert text.count(f"uses: {SETUP_UV}") == 2
+    # The credentialed reviewer never executes code from the target checkout.
+    review = _job(text, "review", None)
+    assert SETUP_PYTHON not in review
+    assert SETUP_UV not in review

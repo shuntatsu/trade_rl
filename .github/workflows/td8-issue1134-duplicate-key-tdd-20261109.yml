@@ -1,0 +1,33 @@
+# Temporary branch-only TDD oracle; must be removed before final PR gate.
+name: TD8 Duplicate Pair Key TDD
+on:
+  push:
+    branches:
+      - fix/td8-required-pair-fields-predecode-20261109
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON_PREFERENCE: only-system
+      UV_PYTHON_DOWNLOADS: never
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          check-latest: false
+      - name: Setup pinned uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          version: "0.10.0"
+      - name: Install locked dev dependencies
+        run: uv sync --locked --extra dev
+      - name: Execute duplicate-key TDD oracle
+        run: uv run --no-sync python -m pytest -q tests/evaluation/test_decision_value_receipt_byte_ceiling.py::test_duplicate_direct_pair_keys_rejected_before_json_decode

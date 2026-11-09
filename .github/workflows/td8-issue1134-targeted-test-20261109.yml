@@ -30,4 +30,4 @@ jobs:
       - name: Install locked dev deps
         run: uv sync --locked --extra dev
       - name: Execute only new RED or GREEN tests
-        run: uv run --no-sync python -m pytest -q tests/evaluation/test_decision_value_receipt_byte_ceiling.py::test_wide_incomplete_pair_objects_rejected_before_json_decode
+        run: uv run --no-sync python -m pytest -q tests/evaluation/test_decision_value_receipt_byte_ceiling.py

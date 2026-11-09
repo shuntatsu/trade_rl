@@ -408,12 +408,23 @@ def test_wide_incomplete_pair_objects_rejected_before_json_decode(
 
 
 def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
-    """Nested arrays and quoted delimiters inside genuine pair objects are inert."""
-    raw = (
-        b'{"pairs":[{"reason_codes":["quoted } ] { ["],'
-        b'"reference_vintage":{"pairs":[0]}},'
-        b'{"candidate_action":[1,2],'
-        b'"unvalidated_source_record":{"text":"{ nested ]"}}]}'
+    """Nested arrays and quoted delimiters cannot forge direct pair fields."""
+    required = dict.fromkeys(study._PAIR_KEYS)
+    raw = study.canonical_json_bytes(
+        {
+            "pairs": [
+                {
+                    **required,
+                    "reason_codes": ["quoted } ] { ["],
+                    "reference_vintage": {"pairs": [0]},
+                },
+                {
+                    **required,
+                    "candidate_action": [1, 2],
+                    "unvalidated_source_record": {"text": "{ nested ]"},
+                },
+            ]
+        }
     )
     study._preflight_receipt_pair_objects(raw)
 

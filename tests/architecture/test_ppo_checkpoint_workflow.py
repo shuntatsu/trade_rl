@@ -64,3 +64,41 @@ def test_checkpoint_workflow_requires_review_record_digest_and_comment_read_acce
         "Operator-supplied review reference; not independently authenticated"
         not in workflow
     )
+
+
+def test_checkpoint_workflow_uses_runner_python_without_managed_downloads() -> None:
+    """Manual checkpoint must not fetch the unavailable standalone Python."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert (
+        "  checkpoint:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    timeout-minutes: 340\n"
+        "    env:\n"
+        "      UV_PYTHON_PREFERENCE: only-system\n"
+        "      UV_PYTHON_DOWNLOADS: never\n"
+        in text
+    )
+
+    checkout = text.index("name: Checkout immutable code SHA")
+    runner = text.index("name: Set up trusted runner Python 3.12")
+    uv = text.index("name: Install pinned uv")
+    sync = text.index("name: Install frozen PPO runtime")
+    assert checkout < runner < uv < sync
+
+    runner_step = text[runner:uv]
+    assert (
+        "uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
+        in runner_step
+    )
+    assert 'python-version: "3.12"' in runner_step
+    assert "check-latest: false" in runner_step
+
+    uv_step = text[uv:sync]
+    assert (
+        "uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2"
+        in uv_step
+    )
+    assert 'version: "0.10.0"' in uv_step
+    assert "enable-cache: false" in uv_step
+    assert "python-version:" not in uv_step

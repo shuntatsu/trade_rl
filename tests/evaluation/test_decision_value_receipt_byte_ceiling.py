@@ -293,7 +293,7 @@ def test_shallow_non_object_receipt_is_refused_before_json_decode(
     "raw",
     (
         b'{"pairs":[' + b"0," * 100_000 + b"0]}",
-        b'{"pairs":[{"note":"quoted } ] { [ delimiters"},0]}',
+        b'{"pairs":[{"reason_codes":["quoted } ] { [ delimiters"]},0]}',
         b'{"pairs" : [[],0]}',
     ),
 )

@@ -293,7 +293,14 @@ def test_shallow_non_object_receipt_is_refused_before_json_decode(
     "raw",
     (
         b'{"pairs":[' + b"0," * 100_000 + b"0]}",
-        b'{"pairs":[{"reason_codes":["quoted } ] { [ delimiters"]},0]}',
+        # A complete first pair must not mask the invalid second member.
+        (
+            b'{"pairs":[{"admissible_for_fit":false,"baseline":{},'
+            b'"candidate":{},"candidate_action":[],"intervention_index":0,'
+            b'"prefix_start_index":0,"terminal_index":0,'
+            b'"schema":"decision_value_ineligible_pair_v1",'
+            b'"reason_codes":["quoted } ] { [ delimiters"]},0]}'
+        ),
         b'{"pairs" : [[],0]}',
     ),
 )

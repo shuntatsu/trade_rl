@@ -358,6 +358,7 @@ def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     )
     study._preflight_receipt_pair_objects(raw)
 
+
 def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

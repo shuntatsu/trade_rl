@@ -2310,6 +2310,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
         elif char == 0x2C and len(stack) == 1:
             want_root_key = True
 
+
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:

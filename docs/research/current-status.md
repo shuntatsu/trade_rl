@@ -1729,8 +1729,11 @@ until exact-head software verification and a fresh result-blind G0-G2 review are
 to the fixed contract. The review is now process-bound rather than GitHub-principal-
 bound: the same authenticated GitHub account may transport the formal review, but a
 same-principal body/tag assertion cannot authorize anything unless it references
-immutable evidence from the frozen trusted Google Gemini reviewer authority identified by
-`seal/ppo-4h-gemini-review-authority-20261101-v6`.
+immutable evidence from the frozen trusted Google Gemini reviewer authority.
+The v6 seal is historical; the v7 candidate
+`seal/ppo-4h-gemini-review-authority-20261109-v7` is **not yet published
+or independently authorized**. No new review request is authorized until
+that remote annotated seal passes identity readback.
 
 The active execution lifecycle remains on the dedicated **open draft execution PR**
 `research/ppo-4h-indicator-smoke-execution -> main`. Draft state is required through
@@ -1753,14 +1756,20 @@ fields plus the exact formal-review URL/body SHA-256.
 The execution gate independently re-fetches the trusted reviewer authority rather than
 trusting those source-review fields. It requires GitHub Actions run
 `PPO 4h Gemini Review` to be a completed/success `issue_comment` run on `main`.
-The bootstrap-reviewed authority anchor is the commit targeted by
-`seal/ppo-4h-gemini-review-authority-20261101-v6`. A later `main` head is acceptable
-only when GitHub proves it is a descendant of that anchor with `behind_by=0` and the
-execution gate independently refetches the workflow/runner bytes at that exact run head.
-Their frozen SHA-256 identities are
-`8a6606890fe11cc07eb1ddbf60efa6b46c3e620012f830d23552a20f85f44528`
+The v7 authority **candidate** anchor is the merged `setup-uv` v10.3.3
+upgrade commit `3e2bf90d…`. Its planned
+annotated remote seal is
+`seal/ppo-4h-gemini-review-authority-20261109-v7`.
+A later `main` head is acceptable only when GitHub proves it is a descendant
+of that anchor with `behind_by=0`; the execution gate must also refetch the
+published annotated seal ref/object twice, validate its exact commit target
+and pin metadata, and hash workflow/runner bytes at the trusted run's exact head.
+The candidate SHA-256 identities are
+`fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0`
 and
 `e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7`.
+A candidate pin is not bootstrap-review approval; without a verified remote
+seal and a fresh independent review, all economics remain blocked.
 The gate refetches the same-run trusted Core / PPO Runtime / Human Guide and Gemini
 semantic-review jobs, downloads the named reviewer artifact, binds GitHub metadata and
 raw ZIP digest, safely extracts the exact artifact roster, hashes canonical
@@ -1842,10 +1851,22 @@ attestation schema `ppo_4h_gemini_reviewer_run_v2`, and review protocol
 artifacts for the selected workflow run, rejects any other terminal attempt, and binds
 the selected result artifact id before accepting its attestation.
 
+The later merged `setup-uv` dependency upgrade #1086 changed the default
+trusted-review workflow bytes from v6's
+`8a6606890fe11cc07eb1ddbf60efa6b46c3e620012f830d23552a20f85f44528`
+to `fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0`
+without changing the trusted runner bytes. The prior v6 annotated tag was never
+published remotely. The #767 consumer now pins the reviewed upgrade merge as
+the v7 *candidate*, adds a current-source digest regression, and checks the
+remote annotated v7 seal's commit, bytes and stable identity. This does **not**
+create a tag, authenticate independent bootstrap review, authorize any trusted
+Gemini request, or permit economic execution.
+
 Because current `main`, the frozen authority, and the consumer contract changed, the
 old #767 v1-v6 reviewed SHAs/tags/transport-failed requests are not reused. The execution
-branch must contain current `main`, pin authority v6, complete fresh exact-head
-software verification, and only then create the next unused annotated review tag and one
+branch must contain current `main`, use the separately reviewed and
+**published** v7 authority seal (not the unsealed candidate), complete fresh
+exact-head software verification, and only then create the next unused annotated review tag and one
 fresh canonical trusted-review request. A successful trusted attestation must pass the
 v4 source-review / v3 trigger consumer before the evidence-only trigger commit can be
 created. Any terminal BLOCKED semantic review requires a new reviewed source HEAD before

@@ -526,12 +526,21 @@ Authorization evidence is transported by a formal GitHub PR review on that execu
 and the review's `commit_id` must equal the exact reviewed code HEAD. The posting
 GitHub principal is only an authenticated transport and may be the same account as the
 execution PR author. Same-principal posting is never sufficient by itself: the canonical
-source-review payload must reference immutable evidence produced by the frozen trusted
-Google Gemini reviewer authority frozen by
-`seal/ppo-4h-gemini-review-authority-20261101-v6`. The consumer pins that seal's bootstrap-reviewed authority commit together with workflow SHA-256
-`8a6606890fe11cc07eb1ddbf60efa6b46c3e620012f830d23552a20f85f44528`,
+source-review payload must reference immutable evidence produced by a published, independently reviewed, frozen
+Google Gemini reviewer authority. After the 2026-11-05 `setup-uv` v10.3.3
+upgrade, the **v7 seal candidate** is
+`seal/ppo-4h-gemini-review-authority-20261109-v7`, targeting the merged
+dependency-upgrade commit `3e2bf90d…`
+with workflow SHA-256
+`fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0`
 and runner SHA-256
 `e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7`.
+**This is a candidate, not a published seal or independent reviewer receipt.**
+The consumer requires the remote annotated v7 seal's exact tag object,
+commit target and workflow/runner pin metadata, checks that its ref did not
+change during verification, then rehashes the workflow and runner at the
+trusted run's exact SHA. The remote seal must be published only after
+separate bootstrap-source review; until then reviewer authorization fails closed.
 A review body, tag, or `reviewer_independence=ESTABLISHED` assertion that is not backed
 by a matching trusted reviewer run/artifact/attestation therefore fails closed.
 

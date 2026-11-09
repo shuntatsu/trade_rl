@@ -186,10 +186,10 @@ def _jobs(**updates: object) -> list[dict[str, object]]:
 
 def test_trusted_reviewer_authority_is_frozen_to_merged_main_identity() -> None:
     assert actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT == (
-        "01d583c844ef271a8399858ec637717b42e08d19"
+        "3e2bf90d5b3282b960aee9061e160240041af2e2"
     )
     assert actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 == (
-        "8a6606890fe11cc07eb1ddbf60efa6b46c3e620012f830d23552a20f85f44528"
+        "fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0"
     )
     assert actions.TRUSTED_REVIEWER_RUNNER_SHA256 == (
         "e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7"
@@ -200,6 +200,24 @@ def test_trusted_reviewer_authority_is_frozen_to_merged_main_identity() -> None:
         actions.TRUSTED_REVIEWER_ATTESTATION_SCHEMA == "ppo_4h_gemini_reviewer_run_v2"
     )
     assert actions.TRUSTED_REVIEW_PROTOCOL == "ppo_4h_gemini_semantic_review_v2"
+
+
+def test_checked_out_trusted_reviewer_bytes_match_frozen_authority() -> None:
+    # A main synchronization can silently update a trusted workflow action pin.
+    # Such a change must fail locally until a separately reviewed new seal is pinned.
+    root = Path(__file__).resolve().parents[2]
+    for relative, expected in (
+        (
+            ".github/workflows/ppo-4h-gemini-review.yml",
+            actions.TRUSTED_REVIEWER_WORKFLOW_SHA256,
+        ),
+        (
+            "tools/ppo_4h_gemini_review.py",
+            actions.TRUSTED_REVIEWER_RUNNER_SHA256,
+        ),
+    ):
+        actual = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        assert actual == expected, f"trusted reviewer authority drift: {relative}"
 
 
 def test_trusted_attestation_accepts_verified_authority_descendant() -> None:
@@ -224,6 +242,100 @@ def _content_record(raw: bytes) -> dict[str, object]:
     }
 
 
+SEAL_OBJECT_SHA = "7" * 40
+
+
+def _seal_ref(
+    *, ref_sha: str = SEAL_OBJECT_SHA, kind: str = "tag"
+) -> dict[str, object]:
+    return {
+        "ref": f"refs/tags/{actions.TRUSTED_REVIEWER_AUTHORITY_SEAL}",
+        "object": {"type": kind, "sha": ref_sha},
+    }
+
+
+def _seal_object(
+    *,
+    target: str | None = None,
+    workflow_digest: str | None = None,
+) -> dict[str, object]:
+    anchor = actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT
+    return {
+        "tag": actions.TRUSTED_REVIEWER_AUTHORITY_SEAL,
+        "sha": SEAL_OBJECT_SHA,
+        "object": {"type": "commit", "sha": anchor if target is None else target},
+        "message": (
+            f"authority_commit={anchor}\n"
+            f"workflow_sha256={actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 if workflow_digest is None else workflow_digest}\n"
+            f"runner_sha256={actions.TRUSTED_REVIEWER_RUNNER_SHA256}\n"
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("seal_ref", "seal_object", "expected_error"),
+    [
+        (None, None, "seal"),
+        (_seal_ref(kind="commit"), _seal_object(), "annotated"),
+        (_seal_ref(), _seal_object(target="0" * 40), "target"),
+        (_seal_ref(), _seal_object(workflow_digest="0" * 64), "workflow"),
+    ],
+)
+def test_frozen_reviewer_seal_fail_closed_on_missing_lightweight_or_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    seal_ref: dict[str, object] | None,
+    seal_object: dict[str, object] | None,
+    expected_error: str,
+) -> None:
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/compare/" in url:
+            return {"status": "ahead", "behind_by": 0}
+        if "/git/ref/tags/" in url:
+            if seal_ref is None:
+                raise ValueError("trusted authority seal missing")
+            return seal_ref
+        if "/git/tags/" in url:
+            assert seal_object is not None
+            return seal_object
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match=expected_error):
+        actions._require_frozen_reviewer_authority(
+            repository="shuntatsu/trade_rl",
+            run_head_sha=DESCENDANT_AUTHORITY_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_frozen_authority_rejects_seal_ref_mutation_during_readback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reads = 0
+
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        nonlocal reads
+        if "/compare/" in url:
+            return {"status": "ahead", "behind_by": 0}
+        if "/git/ref/tags/" in url:
+            reads += 1
+            return _seal_ref(ref_sha=SEAL_OBJECT_SHA if reads == 1 else "8" * 40)
+        if "/git/tags/" in url:
+            return _seal_object()
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match="changed during verification"):
+        actions._require_frozen_reviewer_authority(
+            repository="shuntatsu/trade_rl",
+            run_head_sha=DESCENDANT_AUTHORITY_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+    assert reads == 2
+
+
 def test_frozen_authority_accepts_descendant_with_independently_verified_bytes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -243,6 +355,10 @@ def test_frozen_authority_accepts_descendant_with_independently_verified_bytes(
     def api(url: str, **_kwargs: object) -> dict[str, object]:
         if "/compare/" in url:
             return {"status": "ahead", "behind_by": 0}
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object()
         if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
             return _content_record(workflow)
         if "/contents/tools/ppo_4h_gemini_review.py?" in url:
@@ -292,6 +408,10 @@ def test_frozen_authority_rejects_non_descendant_or_changed_bytes(
     def changed_runner(url: str, **_kwargs: object) -> dict[str, object]:
         if "/compare/" in url:
             return {"status": "ahead", "behind_by": 0}
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object()
         if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
             return _content_record(workflow)
         if "/contents/tools/ppo_4h_gemini_review.py?" in url:
@@ -474,6 +594,10 @@ def _fake_trusted_evidence_transport(
             if run_value.get("head_sha") == actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT:
                 return {"status": "identical", "behind_by": 0}
             return {"status": "diverged", "behind_by": 1}
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object()
         if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
             return _content_record(workflow)
         if "/contents/tools/ppo_4h_gemini_review.py?" in url:

@@ -31,11 +31,12 @@ SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v4"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v4 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v3"
 TRUSTED_REPOSITORY_ID = 1_103_009_698
-TRUSTED_REVIEWER_AUTHORITY_COMMIT = "01d583c844ef271a8399858ec637717b42e08d19"
+TRUSTED_REVIEWER_AUTHORITY_COMMIT = "3e2bf90d5b3282b960aee9061e160240041af2e2"
+TRUSTED_REVIEWER_AUTHORITY_SEAL = "seal/ppo-4h-gemini-review-authority-20261109-v7"
 TRUSTED_REVIEWER_WORKFLOW_PATH = ".github/workflows/ppo-4h-gemini-review.yml"
 TRUSTED_REVIEWER_WORKFLOW_NAME = "PPO 4h Gemini Review"
 TRUSTED_REVIEWER_WORKFLOW_SHA256 = (
-    "8a6606890fe11cc07eb1ddbf60efa6b46c3e620012f830d23552a20f85f44528"
+    "fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0"
 )
 TRUSTED_REVIEWER_RUNNER_SHA256 = (
     "e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7"
@@ -163,6 +164,71 @@ def _github_file_bytes(record: object, *, field: str) -> bytes:
         raise ValueError(f"{field} GitHub content is invalid base64") from None
 
 
+def _require_frozen_reviewer_authority_seal(
+    *,
+    repo_path: str,
+    token: str,
+    deadline: float,
+) -> None:
+    # The workflow hashes alone cannot establish who authorized their use.
+    # Require the published annotated authority seal, not just local metadata.
+    tag_name = TRUSTED_REVIEWER_AUTHORITY_SEAL
+    ref_url = (
+        f"https://api.github.com/repos/{repo_path}/git/ref/tags/"
+        f"{urllib.parse.quote(tag_name, safe='/')}"
+    )
+
+    def require_tag_object_sha(record: object) -> str:
+        if (
+            not isinstance(record, dict)
+            or record.get("ref") != f"refs/tags/{tag_name}"
+            or not isinstance(record.get("object"), dict)
+            or record["object"].get("type") != "tag"
+        ):
+            raise ValueError("trusted reviewer authority seal is not an annotated tag")
+        return transport._require_commit_sha(
+            record["object"].get("sha"), field="trusted reviewer authority seal SHA"
+        )
+
+    tag_object_sha = require_tag_object_sha(
+        transport._api_json(ref_url, token=token, deadline=deadline)
+    )
+    tag = transport._api_json(
+        f"https://api.github.com/repos/{repo_path}/git/tags/{tag_object_sha}",
+        token=token,
+        deadline=deadline,
+    )
+    target = tag.get("object") if isinstance(tag, dict) else None
+    if (
+        not isinstance(tag, dict)
+        or tag.get("tag") != tag_name
+        or tag.get("sha") != tag_object_sha
+        or not isinstance(target, dict)
+        or target.get("type") != "commit"
+        or target.get("sha") != TRUSTED_REVIEWER_AUTHORITY_COMMIT
+    ):
+        raise ValueError("trusted reviewer authority seal target differs")
+    message = tag.get("message")
+    if not isinstance(message, str):
+        raise ValueError("trusted reviewer authority seal message is missing")
+    for expected in (
+        f"authority_commit={TRUSTED_REVIEWER_AUTHORITY_COMMIT}",
+        f"workflow_sha256={TRUSTED_REVIEWER_WORKFLOW_SHA256}",
+        f"runner_sha256={TRUSTED_REVIEWER_RUNNER_SHA256}",
+    ):
+        if message.splitlines().count(expected) != 1:
+            raise ValueError(
+                "trusted reviewer authority seal workflow/runner pin differs"
+            )
+    if (
+        require_tag_object_sha(
+            transport._api_json(ref_url, token=token, deadline=deadline)
+        )
+        != tag_object_sha
+    ):
+        raise ValueError("trusted reviewer authority seal changed during verification")
+
+
 def _require_frozen_reviewer_authority(
     *,
     repository: str,
@@ -186,6 +252,12 @@ def _require_frozen_reviewer_authority(
         or comparison.get("behind_by") != 0
     ):
         raise ValueError("trusted reviewer run is not a descendant of frozen authority")
+
+    _require_frozen_reviewer_authority_seal(
+        repo_path=repo_path,
+        token=token,
+        deadline=deadline,
+    )
 
     for relative, expected_sha, label in (
         (

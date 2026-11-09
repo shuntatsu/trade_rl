@@ -53,9 +53,12 @@ class BinanceGapPolicy(StrEnum):
     ``export_market_dataset`` and the market-store export CLI select this
     alternative by default, while direct Binance callers must opt in:
 
-    * a missing bar on the base clock is simply absent from that symbol's raw
-      series, so the builder materializes it as a ``row_present=False``,
-      non-tradable row with forward-filled marks;
+    * a missing bar on the base clock is absent from that symbol's raw
+      series. Within the shared observed first-to-last range, the builder
+      materializes a ``row_present=False``, non-tradable row with a carried
+      numeric mark even when every symbol misses an interior bar. At the
+      requested final boundary at least one symbol must have a published
+      bar or the Binance builder refuses the truncated range;
     * a missing bar on a higher native clock keeps the regular native grid with
       a price-carried zero-volume placeholder whose ``available_at`` is the end
       of the requested range, so every recursive/rolling feature that touches
@@ -843,6 +846,18 @@ def build_binance_market_dataset(
         identity_provenance=metadata_evidence,
         execution_economics=execution_economics,
     )
+    # The generic builder resolves its clock from observed symbol rows. With
+    # NON_TRADABLE_ROWS, a missing final bar for every symbol would otherwise
+    # silently shorten the requested Dataset instead of preserving a gap.
+    expected_first = np.datetime64(
+        _epoch_ms(source.start_time) + source.interval_ms, "ms"
+    )
+    expected_last = np.datetime64(_epoch_ms(source.end_time), "ms")
+    if (
+        dataset.timestamps[0] != expected_first
+        or dataset.timestamps[-1] != expected_last
+    ):
+        raise ValueError("Binance dataset does not cover requested boundaries")
     sources = set(source.sources_used)
     if metadata_source is not None:
         sources.add(metadata_source)

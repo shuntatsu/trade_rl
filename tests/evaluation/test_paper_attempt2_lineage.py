@@ -448,7 +448,7 @@ def test_the_validator_refuses_to_seal_a_tampered_unavailable_record(tmp_path):
             tmp_path / "attempt2",
             start_at=START,
             attempt_lineage=lineage,
-            attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+            lineage_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
             clock=clock,
         )
     assert not (tmp_path / "attempt2").exists()
@@ -490,7 +490,7 @@ def forged_available(tmp_path, root_path):
         tmp_path / "attempt2",
         start_at=START,
         attempt_lineage=attempt2_lineage("available", root_path),
-        attempt2_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
+        lineage_seal_token=operations._ATTEMPT2_SEAL_TOKEN,
         clock=clock,
     )
     return digest

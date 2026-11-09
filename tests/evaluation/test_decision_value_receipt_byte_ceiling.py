@@ -356,6 +356,22 @@ def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     study._preflight_receipt_pair_objects(raw)
 
 
+def test_large_root_member_key_rejected_before_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Root keys cannot allocate a second unbounded copy before JSON parsing."""
+    raw = b'{"' + b"x" * 100_000 + b'":0}'
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("oversized root key reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(
+        ValueError, match="failure receipt root key exceeds schema length"
+    ):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_overdeep_json_is_refused_before_decoder_allocates_nested_objects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -2241,11 +2241,12 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     pairs. This bounded-depth lexical scan is not a JSON parser or pair cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """
+    max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
     stack = [0x7B]  # The caller has already checked the root opening brace.
     in_string = False
     escaped = False
     root_key_start: int | None = None
-    root_key: bytes | None = None
+    root_key_is_pairs = False
     want_root_key = True
     want_colon = False
     want_value = False
@@ -2256,6 +2257,8 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     for offset in range(1, len(raw)):
         char = raw[offset]
         if in_string:
+            if root_key_start is not None and char == 0x5C:
+                raise ValueError("failure receipt root keys must be unescaped")
             if escaped:
                 escaped = False
             elif char == 0x5C:
@@ -2263,9 +2266,12 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
             elif char == 0x22:
                 in_string = False
                 if root_key_start is not None:
-                    root_key = raw[root_key_start:offset]
-                    if b"\\" in root_key:
-                        raise ValueError("failure receipt root keys must be unescaped")
+                    key_bytes = offset - root_key_start
+                    if key_bytes > max_root_key_bytes:
+                        raise ValueError("failure receipt root key exceeds schema length")
+                    root_key_is_pairs = key_bytes == 5 and raw.startswith(
+                        b"pairs", root_key_start, offset
+                    )
                     root_key_start = None
                     want_root_key = False
                     want_colon = True
@@ -2281,14 +2287,14 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 continue
             if want_value:
                 want_value = False
-                if root_key == b"pairs":
+                if root_key_is_pairs:
                     if seen_pairs:
                         raise ValueError("failure receipt pairs key is duplicated")
                     seen_pairs = True
                     if char == 0x5B:  # [
                         pairs_depth = len(stack) + 1
                         want_pair = True
-                root_key = None
+                root_key_is_pairs = False
         if pairs_depth is not None and len(stack) == pairs_depth:
             if want_pair and char not in (0x7B, 0x5D):  # { or ]
                 raise ValueError("failure receipt pairs must contain JSON objects")

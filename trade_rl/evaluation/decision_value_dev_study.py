@@ -2236,13 +2236,14 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
 def _preflight_receipt_pair_objects(raw: bytes) -> None:
     """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
 
-    The canonical v2/v3 writer emits plain ASCII root field names. Refuse
-    escaped member names before JSON decoding, including Unicode aliases for
-    pairs. Direct pair-object field names also belong to a fixed ASCII schema;
-    refuse aliases and unknown names before allocating broad nested values.
+    The canonical v2/v3 writer emits only fixed ASCII root field names. Refuse
+    unknown or escaped root member names (including Unicode aliases for pairs)
+    before JSON decoding. Direct pair-object field names use a fixed ASCII
+    schema; refuse aliases and unknown names before broad allocations.
     This bounded-depth lexical scan is not a JSON parser or pair cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """
+    allowed_root_keys = tuple(name.encode("ascii") for name in _INCOMPLETE_RECEIPT_KEYS)
     max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
     allowed_pair_keys = tuple(
         name.encode("ascii")
@@ -2285,6 +2286,12 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         raise ValueError(
                             "failure receipt root key exceeds schema length"
                         )
+                    if not any(
+                        key_bytes == len(name)
+                        and raw.startswith(name, root_key_start, offset)
+                        for name in allowed_root_keys
+                    ):
+                        raise ValueError("failure receipt fields are malformed")
                     root_key_is_pairs = key_bytes == 5 and raw.startswith(
                         b"pairs", root_key_start, offset
                     )

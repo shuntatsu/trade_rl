@@ -31,12 +31,12 @@ SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v4"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v4 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v3"
 TRUSTED_REPOSITORY_ID = 1_103_009_698
-TRUSTED_REVIEWER_AUTHORITY_COMMIT = "3e2bf90d5b3282b960aee9061e160240041af2e2"
+TRUSTED_REVIEWER_AUTHORITY_COMMIT = "f47d2bf99fdfd027a4f20ab43acdfacb598eff23"
 TRUSTED_REVIEWER_AUTHORITY_SEAL = "seal/ppo-4h-gemini-review-authority-20261109-v7"
 TRUSTED_REVIEWER_WORKFLOW_PATH = ".github/workflows/ppo-4h-gemini-review.yml"
 TRUSTED_REVIEWER_WORKFLOW_NAME = "PPO 4h Gemini Review"
 TRUSTED_REVIEWER_WORKFLOW_SHA256 = (
-    "fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0"
+    "3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8"
 )
 TRUSTED_REVIEWER_RUNNER_SHA256 = (
     "e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7"
@@ -164,6 +164,111 @@ def _github_file_bytes(record: object, *, field: str) -> bytes:
         raise ValueError(f"{field} GitHub content is invalid base64") from None
 
 
+def _require_bootstrap_authority_provenance(
+    *, repo_path: str, lines: list[str], token: str, deadline: float
+) -> None:
+    # GitHub tag authorship alone does not establish external review. Correlate
+    # mandatory bootstrap references; provider independence remains separate.
+    def field(name: str) -> str:
+        vals = [x[len(name) + 1 :] for x in lines if x.startswith(f"{name}=")]
+        if len(vals) != 1 or not vals[0]:
+            raise ValueError(
+                f"trusted authority seal bootstrap {name} missing/duplicate"
+            )
+        return vals[0]
+
+    def positive(name: str) -> int:
+        value = field(name)
+        if re.fullmatch(r"[1-9][0-9]*", value) is None:
+            raise ValueError(f"trusted authority seal bootstrap {name} malformed")
+        return int(value)
+
+    pr_number = positive("bootstrap_review_pr")
+    review_head = transport._require_commit_sha(
+        field("bootstrap_review_head"), field="trusted bootstrap review head"
+    )
+    ci_id = positive("bootstrap_full_ci_run")
+    comment_id = positive("seal_review_comment")
+    note_digest = field("seal_review_comment_sha256")
+    if re.fullmatch(r"[0-9a-f]{64}", note_digest) is None:
+        raise ValueError(
+            "trusted authority seal bootstrap review-note digest malformed"
+        )
+    for name, expected in (
+        ("review_protocol", TRUSTED_REVIEW_PROTOCOL),
+        ("attestation_schema", TRUSTED_REVIEWER_ATTESTATION_SCHEMA),
+    ):
+        if field(name) != expected:
+            raise ValueError(f"trusted authority seal bootstrap {name} differs")
+
+    def get(path: str) -> dict[str, Any]:
+        return transport._api_json(
+            f"https://api.github.com/repos/{repo_path}/{path}",
+            token=token,
+            deadline=deadline,
+        )
+
+    pr = get(f"pulls/{pr_number}")
+    head, base = pr.get("head"), pr.get("base")
+    head_repo = head.get("repo") if isinstance(head, dict) else None
+    base_repo = base.get("repo") if isinstance(base, dict) else None
+    if (
+        pr.get("number") != pr_number
+        or not pr.get("merged_at")
+        or not isinstance(head, dict)
+        or head.get("sha") != review_head
+        or not isinstance(head_repo, dict)
+        or head_repo.get("id") != TRUSTED_REPOSITORY_ID
+        or not isinstance(base, dict)
+        or base.get("ref") != "main"
+        or not isinstance(base_repo, dict)
+        or base_repo.get("id") != TRUSTED_REPOSITORY_ID
+    ):
+        raise ValueError("trusted authority seal bootstrap PR identity differs")
+    history = get(f"compare/{review_head}...{TRUSTED_REVIEWER_AUTHORITY_COMMIT}")
+    if (
+        history.get("status") not in {"ahead", "identical"}
+        or history.get("behind_by") != 0
+    ):
+        raise ValueError("trusted authority seal bootstrap PR is not in anchor history")
+
+    ci = get(f"actions/runs/{ci_id}")
+    repository = ci.get("repository")
+    if (
+        ci.get("id") != ci_id
+        or ci.get("head_sha") != review_head
+        or ci.get("status") != "completed"
+        or ci.get("conclusion") != "success"
+        or ci.get("event") not in {"pull_request", "pull_request_review"}
+        or ci.get("name") != "CI"
+        or ci.get("path") != ".github/workflows/ci.yml"
+        or not isinstance(repository, dict)
+        or repository.get("id") != TRUSTED_REPOSITORY_ID
+    ):
+        raise ValueError("trusted authority seal bootstrap Full CI identity differs")
+
+    comment = get(f"issues/comments/{comment_id}")
+    body = comment.get("body")
+    if (
+        comment.get("id") != comment_id
+        or comment.get("issue_url")
+        != f"https://api.github.com/repos/{repo_path}/issues/{pr_number}"
+        or not isinstance(body, str)
+        or "Disposition: **APPROVED for authority sealing only**" not in body
+        or hashlib.sha256(body.encode("utf-8")).hexdigest() != note_digest
+        or any(
+            value not in body
+            for value in (
+                review_head,
+                TRUSTED_REVIEWER_AUTHORITY_COMMIT,
+                TRUSTED_REVIEWER_WORKFLOW_SHA256,
+                TRUSTED_REVIEWER_RUNNER_SHA256,
+            )
+        )
+    ):
+        raise ValueError("trusted authority seal bootstrap review note differs")
+
+
 def _require_frozen_reviewer_authority_seal(
     *,
     repo_path: str,
@@ -227,6 +332,12 @@ def _require_frozen_reviewer_authority_seal(
         != tag_object_sha
     ):
         raise ValueError("trusted reviewer authority seal changed during verification")
+    _require_bootstrap_authority_provenance(
+        repo_path=repo_path,
+        lines=message.splitlines(),
+        token=token,
+        deadline=deadline,
+    )
 
 
 def _require_frozen_reviewer_authority(

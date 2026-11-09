@@ -527,12 +527,13 @@ and the review's `commit_id` must equal the exact reviewed code HEAD. The postin
 GitHub principal is only an authenticated transport and may be the same account as the
 execution PR author. Same-principal posting is never sufficient by itself: the canonical
 source-review payload must reference immutable evidence produced by a published, independently reviewed, frozen
-Google Gemini reviewer authority. After the 2026-11-05 `setup-uv` v10.3.3
-upgrade, the **v7 seal candidate** is
-`seal/ppo-4h-gemini-review-authority-20261109-v7`, targeting the merged
-dependency-upgrade commit `3e2bf90d…`
+Google Gemini reviewer authority. The 2026-11-09 merged trusted-reviewer
+toolcache repair superseded the earlier `setup-uv` pin candidate. The
+**v7 seal candidate** is
+`seal/ppo-4h-gemini-review-authority-20261109-v7`, targeting the
+merged reviewer-workflow repair `f47d2bf9…`
 with workflow SHA-256
-`fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0`
+`3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8`
 and runner SHA-256
 `e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7`.
 **This is a candidate, not a published seal or independent reviewer receipt.**
@@ -541,6 +542,13 @@ commit target and workflow/runner pin metadata, checks that its ref did not
 change during verification, then rehashes the workflow and runner at the
 trusted run's exact SHA. The remote seal must be published only after
 separate bootstrap-source review; until then reviewer authorization fails closed.
+The seal records a bootstrap PR/head, exact-head Full CI run, approval
+comment and v2 protocol identities. The consumer refetches those GitHub
+records and rejects mismatched source history, CI and review-note identity,
+including the original SHA-256 of the approval comment; later comment edits
+make the sealed reference invalid.
+This binds the references but cannot by itself authenticate the external
+reviewer/provider asserted in a comment.
 A review body, tag, or `reviewer_independence=ESTABLISHED` assertion that is not backed
 by a matching trusted reviewer run/artifact/attestation therefore fails closed.
 

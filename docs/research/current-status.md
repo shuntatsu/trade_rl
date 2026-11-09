@@ -1756,8 +1756,9 @@ fields plus the exact formal-review URL/body SHA-256.
 The execution gate independently re-fetches the trusted reviewer authority rather than
 trusting those source-review fields. It requires GitHub Actions run
 `PPO 4h Gemini Review` to be a completed/success `issue_comment` run on `main`.
-The v7 authority **candidate** anchor is the merged `setup-uv` v10.3.3
-upgrade commit `3e2bf90d…`. Its planned
+The v7 authority **candidate** anchor is the merged trusted-reviewer
+toolcache repair `f47d2bf9…` (Core/PPO verification uses runner Python
+3.12 with managed downloads disabled). Its planned
 annotated remote seal is
 `seal/ppo-4h-gemini-review-authority-20261109-v7`.
 A later `main` head is acceptable only when GitHub proves it is a descendant
@@ -1765,7 +1766,7 @@ of that anchor with `behind_by=0`; the execution gate must also refetch the
 published annotated seal ref/object twice, validate its exact commit target
 and pin metadata, and hash workflow/runner bytes at the trusted run's exact head.
 The candidate SHA-256 identities are
-`fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0`
+`3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8`
 and
 `e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7`.
 A candidate pin is not bootstrap-review approval; without a verified remote
@@ -1857,8 +1858,15 @@ trusted-review workflow bytes from v6's
 to `fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0`
 without changing the trusted runner bytes. The prior v6 annotated tag was never
 published remotely. The #767 consumer now pins the reviewed upgrade merge as
-the v7 *candidate*, adds a current-source digest regression, and checks the
-remote annotated v7 seal's commit, bytes and stable identity. This does **not**
+a preliminary v7 candidate, adds a current-source digest regression, and
+checks the remote annotated v7 seal's commit, bytes and stable identity.
+The subsequent merged reviewer toolcache repair changed the trusted workflow
+bytes again; the still-unpublished v7 candidate was repinned to `f47d2bf9…`
+and digest `3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8`,
+with the runner digest unchanged. The strengthened consumer additionally
+refetches the seal's bootstrap PR/head, Full CI run and sealing comment;
+reference consistency alone does not prove genuine external-model execution.
+This does **not**
 create a tag, authenticate independent bootstrap review, authorize any trusted
 Gemini request, or permit economic execution.
 

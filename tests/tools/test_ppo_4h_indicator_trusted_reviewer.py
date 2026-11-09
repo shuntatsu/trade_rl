@@ -186,10 +186,10 @@ def _jobs(**updates: object) -> list[dict[str, object]]:
 
 def test_trusted_reviewer_authority_is_frozen_to_merged_main_identity() -> None:
     assert actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT == (
-        "3e2bf90d5b3282b960aee9061e160240041af2e2"
+        "f47d2bf99fdfd027a4f20ab43acdfacb598eff23"
     )
     assert actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 == (
-        "fff0aaa6eb7d70c251eeea71afa431e0fa813bdc71bbe2e7dbbf5916a66503b0"
+        "3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8"
     )
     assert actions.TRUSTED_REVIEWER_RUNNER_SHA256 == (
         "e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7"
@@ -243,6 +243,20 @@ def _content_record(raw: bytes) -> dict[str, object]:
 
 
 SEAL_OBJECT_SHA = "7" * 40
+BOOTSTRAP_REVIEW_HEAD = "4" * 40
+BOOTSTRAP_FULL_CI_RUN = 4747
+BOOTSTRAP_REVIEW_PR = 1185
+SEAL_REVIEW_COMMENT_ID = 5757
+
+
+def _bootstrap_note_body() -> str:
+    return (
+        "Disposition: **APPROVED for authority sealing only**\n"
+        f"{BOOTSTRAP_REVIEW_HEAD} "
+        f"{actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT} "
+        f"{actions.TRUSTED_REVIEWER_WORKFLOW_SHA256} "
+        f"{actions.TRUSTED_REVIEWER_RUNNER_SHA256}"
+    )
 
 
 def _seal_ref(
@@ -258,6 +272,7 @@ def _seal_object(
     *,
     target: str | None = None,
     workflow_digest: str | None = None,
+    bootstrap_note: str | None = None,
 ) -> dict[str, object]:
     anchor = actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT
     return {
@@ -268,8 +283,55 @@ def _seal_object(
             f"authority_commit={anchor}\n"
             f"workflow_sha256={actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 if workflow_digest is None else workflow_digest}\n"
             f"runner_sha256={actions.TRUSTED_REVIEWER_RUNNER_SHA256}\n"
+            + (
+                f"bootstrap_review_pr={BOOTSTRAP_REVIEW_PR}\n"
+                f"bootstrap_review_head={BOOTSTRAP_REVIEW_HEAD}\n"
+                f"bootstrap_full_ci_run={BOOTSTRAP_FULL_CI_RUN}\n"
+                f"seal_review_comment={SEAL_REVIEW_COMMENT_ID}\n"
+                f"seal_review_comment_sha256={hashlib.sha256(_bootstrap_note_body().encode('utf-8')).hexdigest()}\n"
+                f"review_protocol={actions.TRUSTED_REVIEW_PROTOCOL}\n"
+                f"attestation_schema={actions.TRUSTED_REVIEWER_ATTESTATION_SCHEMA}\n"
+                if bootstrap_note is None
+                else bootstrap_note
+            )
         ),
     }
+
+
+def _seal_bootstrap_response(url: str) -> dict[str, object]:
+    if url.endswith(f"/pulls/{BOOTSTRAP_REVIEW_PR}"):
+        return {
+            "number": BOOTSTRAP_REVIEW_PR,
+            "merged_at": "2026-11-09T00:00:00Z",
+            "head": {
+                "sha": BOOTSTRAP_REVIEW_HEAD,
+                "repo": {"id": actions.TRUSTED_REPOSITORY_ID},
+            },
+            "base": {"ref": "main", "repo": {"id": actions.TRUSTED_REPOSITORY_ID}},
+        }
+    if url.endswith(f"/actions/runs/{BOOTSTRAP_FULL_CI_RUN}"):
+        return {
+            "id": BOOTSTRAP_FULL_CI_RUN,
+            "head_sha": BOOTSTRAP_REVIEW_HEAD,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "pull_request",
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "repository": {"id": actions.TRUSTED_REPOSITORY_ID},
+        }
+    if url.endswith(f"/issues/comments/{SEAL_REVIEW_COMMENT_ID}"):
+        return {
+            "id": SEAL_REVIEW_COMMENT_ID,
+            "issue_url": f"https://api.github.com/repos/shuntatsu/trade_rl/issues/{BOOTSTRAP_REVIEW_PR}",
+            "body": _bootstrap_note_body(),
+        }
+    if url.endswith(
+        f"/compare/{BOOTSTRAP_REVIEW_HEAD}..."
+        f"{actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT}"
+    ):
+        return {"status": "ahead", "behind_by": 0}
+    raise AssertionError(url)
 
 
 @pytest.mark.parametrize(
@@ -304,6 +366,82 @@ def test_frozen_reviewer_seal_fail_closed_on_missing_lightweight_or_drift(
         actions._require_frozen_reviewer_authority(
             repository="shuntatsu/trade_rl",
             run_head_sha=DESCENDANT_AUTHORITY_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_frozen_authority_rejects_unlinked_bootstrap_review_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/compare/" in url:
+            return {"status": "ahead", "behind_by": 0}
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object(bootstrap_note="")
+        return _seal_bootstrap_response(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match="bootstrap"):
+        actions._require_frozen_reviewer_authority_seal(
+            repo_path="shuntatsu/trade_rl",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "failure"),
+    [
+        ("wrong_pr_head", "PR identity"),
+        ("wrong_pr_repo", "PR identity"),
+        ("unmerged_pr", "PR identity"),
+        ("unrelated_review_head", "anchor history"),
+        ("wrong_ci_head", "Full CI"),
+        ("failed_ci", "Full CI"),
+        ("wrong_ci_repo", "Full CI"),
+        ("wrong_note", "review note"),
+        ("edited_note", "review note"),
+        ("wrong_note_issue", "review note"),
+    ],
+)
+def test_frozen_authority_rejects_unbound_bootstrap_reference(
+    monkeypatch: pytest.MonkeyPatch, case: str, failure: str
+) -> None:
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object()
+        value = _seal_bootstrap_response(url)
+        if case == "wrong_pr_head" and "/pulls/" in url:
+            value["head"]["sha"] = "0" * 40
+        if case == "wrong_pr_repo" and "/pulls/" in url:
+            value["head"]["repo"]["id"] = 123
+        if case == "unmerged_pr" and "/pulls/" in url:
+            value["merged_at"] = None
+        if case == "unrelated_review_head" and "/compare/" in url:
+            value["behind_by"] = 1
+        if case == "wrong_ci_head" and "/actions/runs/" in url:
+            value["head_sha"] = "0" * 40
+        if case == "failed_ci" and "/actions/runs/" in url:
+            value["conclusion"] = "failure"
+        if case == "wrong_ci_repo" and "/actions/runs/" in url:
+            value["repository"]["id"] = 123
+        if case == "wrong_note" and "/issues/comments/" in url:
+            value["body"] = "APPROVED for authority sealing only"
+        if case == "edited_note" and "/issues/comments/" in url:
+            value["body"] = _bootstrap_note_body() + " (edited)"
+        if case == "wrong_note_issue" and "/issues/comments/" in url:
+            value["issue_url"] = "https://api.github.com/repos/owner/repo/issues/1"
+        return value
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match=failure):
+        actions._require_frozen_reviewer_authority_seal(
+            repo_path="shuntatsu/trade_rl",
             token="token",
             deadline=999999999.0,
         )
@@ -363,7 +501,7 @@ def test_frozen_authority_accepts_descendant_with_independently_verified_bytes(
             return _content_record(workflow)
         if "/contents/tools/ppo_4h_gemini_review.py?" in url:
             return _content_record(runner)
-        raise AssertionError(url)
+        return _seal_bootstrap_response(url)
 
     monkeypatch.setattr(actions.transport, "_api_json", api)
 
@@ -416,7 +554,7 @@ def test_frozen_authority_rejects_non_descendant_or_changed_bytes(
             return _content_record(workflow)
         if "/contents/tools/ppo_4h_gemini_review.py?" in url:
             return _content_record(b"changed runner\n")
-        raise AssertionError(url)
+        return _seal_bootstrap_response(url)
 
     monkeypatch.setattr(actions.transport, "_api_json", changed_runner)
     with pytest.raises(ValueError, match="runner"):
@@ -622,7 +760,7 @@ def _fake_trusted_evidence_transport(
                     else lineage_artifacts
                 )
             }
-        raise AssertionError(url)
+        return _seal_bootstrap_response(url)
 
     def download(
         repository: str,

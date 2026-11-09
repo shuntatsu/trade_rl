@@ -1690,6 +1690,44 @@ established) and the `PENDING_OWNER_AUTHORIZATION` seal, start, authorization co
 launch commit are unchanged, and the attempt-2 predecessor-root-unavailable G0 exception
 does not extend to attempt 3.
 
+#### Attempt 3 seal-candidate packet (screen v3, evaluator audit, lineage v4)
+
+The pre-registration and implementation packets stay frozen. The three parts they list
+as missing are built by a third pull request, with a new packet
+`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json` (digest
+`3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
+`implementation_head` are both `d0a76538f77a`, the last commit that changes `trade_rl/` in
+that pull request. (G1/G3) The only changed boundary is evidence: `carry_paper_screen_v3`
+keeps every economic field of `carry_paper_screen_v2` (one shared constructor, compared
+byte for byte by test) and reuses the unchanged measurement and `screen_reasons` code
+(source digests pinned by test); it replaces one operational-quality clause, that a
+failed capture or skipped slot rejects the screen, by the registered policy constants:
+a failed capture or skipped slot is accepted only when the collector registered it, it
+has a registered class, and 1 consecutive, 2 per 60 slots and 129 total hold. (G2) The
+evaluator audit (`paper/collection_audit.py`) is tested against the real collector, journal
+and control database with a fake venue and against hand-built registries: it re-derives
+the skipped slots from the cycle roster from slot 0 on (the collector, which had exempted
+slot 0, is corrected to register it as the ratified reading of Issue #810 comment
+6717103371 requires), so an unregistered skip or a slot that never ran cannot hide, it requires every failed or unused capture to be a registered row that
+matches its evidence and was not consumed, it bounds the failed captures of one slot, it
+rejects a permanent marker of any class, and it audits a root without skipped slots
+exactly like screen v2. Registry rows carry no timestamps, so the retry delay and start
+window are enforced by the collector at run time only and are not audited (a G3 limit).
+Lineage v4 names attempt 2 as an INVALID predecessor (Issue #810
+comment 6711911740, a software defect; no economic field) and records that the attempt-2
+seal is not reused; its identity values are read from the preserved root by the v1 reader
+(read-only) and re-verified, with the existence of the failure marker, on every collector
+entry. They stay caller assertions until a result-blind reviewer resolves that root; the
+predecessor-root-unavailable G0 exception does not extend to attempt 3 and v4 admits only
+an available root. (G3) Claim level `software_validity`, `documentation_only`: no claim
+beyond the retained slots, and every result carries the skip count with its
+funding-proximity distribution. The packet is not a seal authorization and the packet,
+the exact digest and heads still need the extended same-account receipt review (operator-
+enforced, different-principal independence not established, `tools.research_assurance_github`
+does not report PASS); the seal, start, authorization comment and launch commit stay
+`PENDING_OWNER_AUTHORIZATION`. See `docs/specs/funding-carry-paper.md`, which holds the
+exact seal and launch procedure and what is still missing.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
 ## Research-specific contract: PPO versus A2C update families

@@ -32,8 +32,5 @@ jobs:
           version: "0.10.0"
       - name: Install locked development dependencies
         run: uv sync --locked --extra dev
-      - name: Run targeted duplicate-root RED/GREEN regression
-        run: >-
-          uv run --no-sync python -m pytest -q
-          tests/evaluation/test_decision_value_receipt_byte_ceiling.py::test_duplicate_known_root_fields_fail_before_json_decode
-          tests/evaluation/test_decision_value_receipt_byte_ceiling.py::test_root_duplicate_guard_ignores_nested_key_lookalikes
+      - name: Run complete TD8 receipt byte-ceiling module
+        run: uv run --no-sync python -m pytest -q tests/evaluation/test_decision_value_receipt_byte_ceiling.py

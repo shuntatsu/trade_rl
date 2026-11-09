@@ -2240,8 +2240,8 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     unknown or escaped root member names (including Unicode aliases for pairs)
     before JSON decoding. Direct pair-object field names use a fixed ASCII
     schema; refuse aliases and unknown names before broad allocations.
-    Require every direct pair object to name its mandatory fields before
-    decoding; names in nested content do not satisfy that requirement.
+    Require every direct pair object to name each mandatory field exactly once
+    before decoding; names in nested content do not satisfy that requirement.
     This bounded-depth lexical scan is not a JSON parser or pair-count cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """
@@ -2310,7 +2310,10 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         for name in allowed_pair_keys
                     ):
                         raise ValueError("failure receipt pair field is not recognised")
-                    direct_pair_fields.add(raw[pair_key_start:offset])
+                    direct_key = raw[pair_key_start:offset]
+                    if direct_key in direct_pair_fields:
+                        raise ValueError("failure receipt pair key is duplicated")
+                    direct_pair_fields.add(direct_key)
                     pair_key_start = None
                     want_pair_key = False
             continue

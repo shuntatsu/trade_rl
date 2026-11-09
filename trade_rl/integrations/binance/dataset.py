@@ -46,9 +46,12 @@ from trade_rl.integrations.binance.vision import (
 class BinanceGapPolicy(StrEnum):
     """How a kline range with missing bars is admitted.
 
-    ``STRICT`` (the default everywhere) rejects any missing or irregular bar.
-    ``NON_TRADABLE_ROWS`` is an explicit, opt-in policy for development data
-    with known archive holes:
+    ``STRICT`` is the default for direct ``BinanceMarketDataSource`` and
+    ``build_binance_market_dataset`` calls. It rejects missing bars anywhere
+    in the requested range, including its first and last closed intervals.
+    ``NON_TRADABLE_ROWS`` is the alternative for known archive holes;
+    ``export_market_dataset`` and the market-store export CLI select this
+    alternative by default, while direct Binance callers must opt in:
 
     * a missing bar on the base clock is simply absent from that symbol's raw
       series, so the builder materializes it as a ``row_present=False``,
@@ -103,6 +106,8 @@ def _parse_kline_rows(
         raise ValueError("Binance kline timestamps must be strictly increasing")
     if np.any(np.diff(timestamps) != interval_ms):
         raise ValueError("Binance kline range must be complete and exactly regular")
+    if timestamps[0] != start_ms + interval_ms or timestamps[-1] != end_ms:
+        raise ValueError("Binance kline range does not cover requested boundaries")
     return (
         timestamps.astype("datetime64[ms]").astype("datetime64[ns]"),
         np.asarray([item[1] for item in parsed], dtype=np.float64),

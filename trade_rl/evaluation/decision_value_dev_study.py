@@ -2272,9 +2272,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 if char == 0x5C:
                     raise ValueError("failure receipt pair keys must be unescaped")
                 if offset - pair_key_start > max_pair_key_bytes:
-                    raise ValueError(
-                        "failure receipt pair key exceeds schema length"
-                    )
+                    raise ValueError("failure receipt pair key exceeds schema length")
             if escaped:
                 escaped = False
             elif char == 0x5C:
@@ -2300,9 +2298,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         and raw.startswith(name, pair_key_start, offset)
                         for name in allowed_pair_keys
                     ):
-                        raise ValueError(
-                            "failure receipt pair field is not recognised"
-                        )
+                        raise ValueError("failure receipt pair field is not recognised")
                     pair_key_start = None
                     want_pair_key = False
             continue

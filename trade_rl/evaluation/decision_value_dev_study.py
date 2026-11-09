@@ -2233,6 +2233,92 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
                 raise ValueError("failure receipt JSON is malformed")
 
 
+def _preflight_receipt_pair_objects(raw: bytes) -> None:
+    """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
+
+    The canonical v2/v3 writer emits plain ASCII root field names. Refuse
+    escaped member names before JSON decoding, including Unicode aliases for
+    pairs. This bounded-depth lexical scan is not a JSON parser or pair cap:
+    the existing parser, canonicalizer, and validators remain authoritative.
+    """
+    max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
+    stack = [0x7B]  # The caller has already checked the root opening brace.
+    in_string = False
+    escaped = False
+    root_key_start: int | None = None
+    root_key_is_pairs = False
+    want_root_key = True
+    want_colon = False
+    want_value = False
+    seen_pairs = False
+    pairs_depth: int | None = None
+    want_pair = False
+
+    for offset in range(1, len(raw)):
+        char = raw[offset]
+        if in_string:
+            if root_key_start is not None and char == 0x5C:
+                raise ValueError("failure receipt root keys must be unescaped")
+            if escaped:
+                escaped = False
+            elif char == 0x5C:
+                escaped = True
+            elif char == 0x22:
+                in_string = False
+                if root_key_start is not None:
+                    key_bytes = offset - root_key_start
+                    if key_bytes > max_root_key_bytes:
+                        raise ValueError(
+                            "failure receipt root key exceeds schema length"
+                        )
+                    root_key_is_pairs = key_bytes == 5 and raw.startswith(
+                        b"pairs", root_key_start, offset
+                    )
+                    root_key_start = None
+                    want_root_key = False
+                    want_colon = True
+            continue
+        if char in b" \t\r\n":
+            continue
+        if len(stack) == 1:
+            if want_colon:
+                if char != 0x3A:  # Invalid syntax belongs to the JSON parser.
+                    return
+                want_colon = False
+                want_value = True
+                continue
+            if want_value:
+                want_value = False
+                if root_key_is_pairs:
+                    if seen_pairs:
+                        raise ValueError("failure receipt pairs key is duplicated")
+                    seen_pairs = True
+                    if char == 0x5B:  # [
+                        pairs_depth = len(stack) + 1
+                        want_pair = True
+                root_key_is_pairs = False
+        if pairs_depth is not None and len(stack) == pairs_depth:
+            if want_pair and char not in (0x7B, 0x5D):  # { or ]
+                raise ValueError("failure receipt pairs must contain JSON objects")
+            if char == 0x7B:
+                want_pair = False
+            elif char == 0x2C:
+                want_pair = True
+        if char == 0x22:
+            if len(stack) == 1 and want_root_key:
+                root_key_start = offset + 1
+            in_string = True
+        elif char in (0x7B, 0x5B):
+            stack.append(char)
+        elif char in (0x7D, 0x5D):
+            if stack:
+                stack.pop()
+            if pairs_depth is not None and len(stack) < pairs_depth:
+                pairs_depth = None
+        elif char == 0x2C and len(stack) == 1:
+            want_root_key = True
+
+
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:
@@ -2242,6 +2328,7 @@ def _decode_incomplete_receipt(
     # and other non-objects before the JSON decoder can allocate their elements.
     if not raw.startswith(b"{"):
         raise ValueError("failure receipt must contain a JSON object")
+    _preflight_receipt_pair_objects(raw)
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:

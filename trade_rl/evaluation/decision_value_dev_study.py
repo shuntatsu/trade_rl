@@ -2242,6 +2242,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     schema; refuse aliases and unknown names before broad allocations.
     Require every direct pair object to name each mandatory field exactly once
     before decoding; names in nested content do not satisfy that requirement.
+    Also compare the root-declared count to direct pair objects before decoding.
     This bounded-depth lexical scan is not a JSON parser or pair-count cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """

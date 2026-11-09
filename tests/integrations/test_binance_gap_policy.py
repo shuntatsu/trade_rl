@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from inspect import signature
 from typing import Any
 
 import numpy as np
@@ -17,6 +18,8 @@ from trade_rl.integrations.binance.derived_klines import (
     BaseIntervalAggregatingTransport,
     aggregate_klines,
 )
+from trade_rl.integrations.market_store.cli import build_parser
+from trade_rl.integrations.market_store.export import export_market_dataset
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 HOUR_MS = 3_600_000
@@ -134,6 +137,51 @@ def test_strict_is_the_default_and_rejects_a_missing_bar() -> None:
     with pytest.raises(ValueError, match="complete and exactly regular"):
         source.load(SYMBOLS[1])
     assert source.gap_report == {}
+
+
+@pytest.mark.parametrize(
+    "missing_indices",
+    ((0,), (47,), (0, 47)),
+    ids=("missing-first", "missing-last", "missing-both"),
+)
+def test_strict_rejects_missing_requested_boundary_bars(
+    missing_indices: tuple[int, ...],
+) -> None:
+    """A gap at either endpoint must not silently shorten a requested range."""
+    source = _source(HourlyTransport({SYMBOLS[0]: set(missing_indices)}))
+    with pytest.raises(ValueError, match="does not cover requested boundaries"):
+        source.load(SYMBOLS[0])
+    assert source.gap_report == {}
+
+
+def test_direct_and_market_store_gap_policy_defaults_are_distinct() -> None:
+    """The different defaults are deliberate; do not claim STRICT everywhere."""
+    assert (
+        signature(BinanceMarketDataSource).parameters["gap_policy"].default
+        is BinanceGapPolicy.STRICT
+    )
+    assert (
+        signature(build_binance_market_dataset).parameters["gap_policy"].default
+        is BinanceGapPolicy.STRICT
+    )
+    assert (
+        signature(export_market_dataset).parameters["gap_policy"].default
+        is BinanceGapPolicy.NON_TRADABLE_ROWS
+    )
+    args = build_parser().parse_args(
+        [
+            "export",
+            "--market",
+            "spot",
+            "--start",
+            "2020-12-01",
+            "--end",
+            "2021-01-01",
+            "--output-dir",
+            "unused-output",
+        ]
+    )
+    assert args.gap_policy == BinanceGapPolicy.NON_TRADABLE_ROWS.value
 
 
 def test_strict_builder_default_rejects_a_missing_bar() -> None:

@@ -407,6 +407,27 @@ def test_wide_incomplete_pair_objects_rejected_before_json_decode(
         study._decode_incomplete_receipt(raw)
 
 
+@pytest.mark.parametrize("decoy", (False, True))
+def test_missing_direct_fields_cannot_borrow_from_other_pairs_or_nested_objects(
+    monkeypatch: pytest.MonkeyPatch, decoy: bool
+) -> None:
+    """Each direct pair must carry its own required fields, not nested lookalikes."""
+    complete = dict.fromkeys(study._PAIR_KEYS)
+    incomplete = (
+        {"reference_vintage": dict.fromkeys(study._PAIR_KEYS)}
+        if decoy
+        else {"schema": "decision_value_ineligible_pair_v1"}
+    )
+    raw = study.canonical_json_bytes({"pairs": [complete, incomplete]})
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("incomplete direct pair reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair fields are malformed"):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_pairs_preflight_preserves_nested_and_quoted_delimiters() -> None:
     """Nested arrays and quoted delimiters cannot forge direct pair fields."""
     required = dict.fromkeys(study._PAIR_KEYS)

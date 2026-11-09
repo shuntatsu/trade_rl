@@ -38,7 +38,7 @@ class PaperEngine:
         *,
         settings: PaperSettings,
         study: dict[str, Any],
-        attempt2_seal_token: object | None = None,
+        lineage_seal_token: object | None = None,
     ) -> str:
         if type(study) is not dict:
             raise ValueError("paper study must be a plain dict")
@@ -51,7 +51,7 @@ class PaperEngine:
         plan = study.get("research_plan")
         if plan is not None:
             # The same plain-dict, classifier and token rules as ``seal_collection``.
-            require_seal_token(plan, attempt2_seal_token)
+            require_seal_token(plan, lineage_seal_token)
         return PaperJournal.initialize(
             root, dict(engine=_SCHEMA, settings=settings.to_dict(), study=study)
         )

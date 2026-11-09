@@ -15,14 +15,27 @@ from typing import Any
 
 from trade_rl._validation import require_aware_datetime
 from trade_rl.evaluation.paper.account import PaperSettings, timestamp
+from trade_rl.evaluation.paper.collection_audit import (
+    Registry,
+    allowed_empty_cycles,
+    audit_registered_collection,
+    cycle_slot,
+    read_registry,
+)
 from trade_rl.evaluation.paper.engine import PaperEngine
 from trade_rl.evaluation.paper.operations import (
     REQUIRED_FILL_SYMBOL_INDICES,
     STORAGE_PROBE_PLAN_SCHEMA,
     screen_plan,
+    screen_plan_v3,
     validate_attempt_lineage,
+    validate_attempt_lineage_v4,
 )
-from trade_rl.evaluation.paper.predecessor import same_canonical_record
+from trade_rl.evaluation.paper.predecessor import (
+    ATTEMPT_ONE_PROTOCOL_SHA256,
+    SCREEN_V3_SCHEMA,
+    same_canonical_record,
+)
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 
 
@@ -171,11 +184,17 @@ def measure_observations(
 
 
 def _collection_context(
-    root: Path, digest: str, *, start: datetime, end: datetime
+    root: Path,
+    digest: str,
+    *,
+    start: datetime,
+    end: datetime,
+    registered: bool = False,
 ) -> tuple[
     list[str],
     list[tuple[int, str, int]] | None,
     list[datetime] | None,
+    Registry | None,
 ]:
     reasons = []
     if (root / "collection-failure.json").exists() or (
@@ -184,13 +203,16 @@ def _collection_context(
         reasons.append("collection_failure")
     path = root / "collection-control.sqlite"
     if not path.is_file() or path.is_symlink():
-        return [*reasons, "missing_collection_control"], None, None
+        return [*reasons, "missing_collection_control"], None, None, None
+    registry = None
     with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as connection:
         if connection.execute("SELECT digest FROM identity").fetchall() != [(digest,)]:
             raise ValueError("collection control protocol mismatch")
         cycles = connection.execute(
             "SELECT id,started_at,complete FROM cycles ORDER BY id"
         ).fetchall()
+        if registered:
+            registry = read_registry(connection)
     if not cycles or [row[0] for row in cycles] != list(range(1, len(cycles) + 1)):
         reasons.append("invalid_cycle_sequence")
     if any(row[2] != 1 for row in cycles):
@@ -200,7 +222,7 @@ def _collection_context(
         left >= right for left, right in zip(starts, starts[1:])
     ):
         reasons.append("invalid_cycle_times")
-    return reasons, cycles, starts
+    return reasons, cycles, starts, registry
 
 
 def _finish_collection_evidence(
@@ -208,8 +230,23 @@ def _finish_collection_evidence(
     reasons: list[str],
     grouped: list[list[str]],
     references: set[str],
+    *,
+    allowed_empty: frozenset[int] = frozenset(),
+    registered_paths: frozenset[str] = frozenset(),
+    disk: dict[str, bool] | None = None,
 ) -> list[str]:
-    if any(kinds not in (["decision"], ["decision", "execution"]) for kinds in grouped):
+    """The screen v2 audit; the keyword arguments carry what screen v3 accepts.
+
+    ``allowed_empty`` are positions in ``grouped`` that may hold no command and
+    ``registered_paths`` the capture directories the registry accounts for. With both
+    empty this is exactly the v2 audit. ``disk`` collects every capture directory and
+    whether it holds ``failure.json``.
+    """
+    if any(
+        kinds not in (["decision"], ["decision", "execution"])
+        and not (not kinds and index in allowed_empty)
+        for index, kinds in enumerate(grouped)
+    ):
         reasons.append("cycle_command_mismatch")
     source_root = root / "sources"
     sources: set[str] = set()
@@ -223,10 +260,14 @@ def _finish_collection_evidence(
             for capture in day.iterdir():
                 if not capture.is_dir() or capture.is_symlink():
                     reasons.append("invalid_source_roster")
-                sources.add(capture.relative_to(root).as_posix())
-                if (capture / "failure.json").exists():
+                relative = capture.relative_to(root).as_posix()
+                sources.add(relative)
+                failed = (capture / "failure.json").exists()
+                if disk is not None:
+                    disk[relative] = failed
+                if failed and relative not in registered_paths:
                     reasons.append("source_capture_failure")
-    if sources != references:
+    if sources - registered_paths != references:
         reasons.append("unconsumed_or_missing_sources")
     return list(dict.fromkeys(reasons))
 
@@ -265,9 +306,60 @@ def _collection_evidence_reasons_from_compact_events(
     start: datetime,
     end: datetime,
 ) -> list[str]:
-    reasons, cycles, starts = _collection_context(root, digest, start=start, end=end)
+    return _audit_compact_events(
+        root, digest, events, start=start, end=end, registered=False
+    )[0]
+
+
+def registered_collection_evidence(
+    root: Path,
+    digest: str,
+    records: list[dict[str, Any]],
+    *,
+    start: datetime,
+    end: datetime,
+) -> tuple[list[str], dict[str, Any] | None]:
+    """The screen v3 collection audit: registered failures inside the budgets pass.
+
+    Returns the rejection reasons and the skip report (``None`` when the control record
+    or the registry is missing). Everything screen v2 rejected is still rejected unless
+    the collector registered it as a failed capture or a skipped slot of a registered
+    class inside the pre-registered budgets (``collection_audit``).
+    """
+    return _registered_collection_evidence_from_compact_events(
+        root, digest, _iter_compact_audit_events(records), start=start, end=end
+    )
+
+
+def _registered_collection_evidence_from_compact_events(
+    root: Path,
+    digest: str,
+    events: Iterable[tuple[str, dict[str, Any]]],
+    *,
+    start: datetime,
+    end: datetime,
+) -> tuple[list[str], dict[str, Any] | None]:
+    return _audit_compact_events(
+        root, digest, events, start=start, end=end, registered=True
+    )
+
+
+def _audit_compact_events(
+    root: Path,
+    digest: str,
+    events: Iterable[tuple[str, dict[str, Any]]],
+    *,
+    start: datetime,
+    end: datetime,
+    registered: bool,
+) -> tuple[list[str], dict[str, Any] | None]:
+    reasons, cycles, starts, registry = _collection_context(
+        root, digest, start=start, end=end, registered=registered
+    )
     if cycles is None or starts is None:
-        return reasons
+        return reasons, None
+    if registered and registry is None:
+        return [*reasons, "missing_collection_registry"], None
     grouped: list[list[str]] = [[] for _ in cycles]
     references: set[str] = set()
     for kind, request in events:
@@ -280,7 +372,47 @@ def _collection_evidence_reasons_from_compact_events(
         references.update(
             request[key]["path"] for key in ("market", "rules") if key in request
         )
-    return _finish_collection_evidence(root, reasons, grouped, references)
+    if registry is None:
+        return _finish_collection_evidence(root, reasons, grouped, references), None
+    identifiers = [row[0] for row in cycles]
+    empty = allowed_empty_cycles(registry, identifiers)
+    disk: dict[str, bool] = {}
+    reasons = _finish_collection_evidence(
+        root,
+        reasons,
+        grouped,
+        references,
+        allowed_empty=frozenset(
+            index for index, cycle in enumerate(identifiers) if cycle in empty
+        ),
+        registered_paths=frozenset(row.path for row in registry.attempts),
+        disk=disk,
+    )
+    audit_reasons, report = audit_registered_collection(
+        registry,
+        cycles=[
+            (cycle, cycle_slot(at, start))
+            for cycle, at in zip(identifiers, starts, strict=True)
+        ],
+        command_cycles={
+            cycle for cycle, kinds in zip(identifiers, grouped, strict=True) if kinds
+        },
+        gap_cycles={
+            cycle
+            for cycle, kinds in zip(identifiers, grouped, strict=True)
+            if "gap" in kinds
+        },
+        consumed=references,
+        disk=disk,
+        start_at=start,
+    )
+    return list(dict.fromkeys([*reasons, *audit_reasons])), report
+
+
+def reused_seal_reasons(protocol_sha256: str, lineage: dict[str, Any]) -> list[str]:
+    """A successor screen never reuses the protocol digest of an earlier attempt."""
+    earlier = {ATTEMPT_ONE_PROTOCOL_SHA256, lineage["predecessor"]["protocol_sha256"]}
+    return ["predecessor_seal_reused"] if protocol_sha256 in earlier else []
 
 
 def evaluate_paper_study(
@@ -310,14 +442,25 @@ def evaluate_paper_study(
     if protocol["settings"] != PaperSettings(start_at=start, close_at=close).to_dict():
         raise ValueError("paper study differs from fixed prospective settings")
     research_plan = study.get("research_plan")
+    registered_screen = (
+        isinstance(research_plan, dict)
+        and research_plan.get("schema") == SCREEN_V3_SCHEMA
+    )
     try:
         if not isinstance(research_plan, dict):
             raise ValueError("paper research plan must be an object")
-        lineage = validate_attempt_lineage(
-            research_plan.get("attempt_lineage"),
-            sealed_at=timestamp(study["created_at"]),
-        )
-        expected_plan = screen_plan(attempt_lineage=lineage)
+        if registered_screen:
+            lineage = validate_attempt_lineage_v4(
+                research_plan.get("attempt_lineage"),
+                sealed_at=timestamp(study["created_at"]),
+            )
+            expected_plan = screen_plan_v3(attempt_lineage=lineage)
+        else:
+            lineage = validate_attempt_lineage(
+                research_plan.get("attempt_lineage"),
+                sealed_at=timestamp(study["created_at"]),
+            )
+            expected_plan = screen_plan(attempt_lineage=lineage)
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("paper attempt lineage is invalid") from error
     if (
@@ -360,13 +503,26 @@ def evaluate_paper_study(
             event = record["event"]
             audit_events.append((event["kind"], event["payload"]["request"]))
         measured = observations.finish(state, engine.unsettled_funding())
-        reasons = _collection_evidence_reasons_from_compact_events(
-            destination,
-            expected_protocol_sha256,
-            audit_events,
-            start=start,
-            end=end,
-        )
+        collection_report: dict[str, Any] | None = None
+        if registered_screen:
+            reasons, collection_report = (
+                _registered_collection_evidence_from_compact_events(
+                    destination,
+                    expected_protocol_sha256,
+                    audit_events,
+                    start=start,
+                    end=end,
+                )
+            )
+            reasons.extend(reused_seal_reasons(expected_protocol_sha256, lineage))
+        else:
+            reasons = _collection_evidence_reasons_from_compact_events(
+                destination,
+                expected_protocol_sha256,
+                audit_events,
+                start=start,
+                end=end,
+            )
         reasons.extend(screen_reasons(measured))
         if (
             path.is_symlink()
@@ -377,6 +533,24 @@ def evaluate_paper_study(
         if build_candidate_run_provenance() != study["provenance"]:
             raise ValueError(
                 "paper study source/runtime provenance changed during assessment"
+            )
+        if registered_screen:
+            return dict(
+                schema="carry_paper_assessment_v3",
+                screen_schema=SCREEN_V3_SCHEMA,
+                protocol_sha256=expected_protocol_sha256,
+                attempt_lineage=lineage,
+                final_tip=expected_tip,
+                assessed_at=now.isoformat(),
+                decision="PAPER_SCREEN_PASSED"
+                if not reasons
+                else "PAPER_SCREEN_REJECTED",
+                reasons=reasons,
+                measurements=asdict(measured),
+                collection_report=collection_report,
+                status=state,
+                production_eligible=False,
+                fee_headroom_is_dynamic_stress_replay=False,
             )
         return dict(
             schema="carry_paper_assessment_v2",

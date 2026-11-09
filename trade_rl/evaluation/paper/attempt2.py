@@ -451,7 +451,7 @@ def seal_attempt2(
         root_path,
         start_at=start_at.astimezone(UTC),
         attempt_lineage=lineage,
-        attempt2_seal_token=_ATTEMPT2_SEAL_TOKEN,
+        lineage_seal_token=_ATTEMPT2_SEAL_TOKEN,
         clock=clock,
     )
     return dict(

@@ -1,10 +1,78 @@
+import re
 from pathlib import Path
+
+import pytest
 
 WORKFLOW = Path(".github/workflows/ppo-normalization-execution.yml")
 
 
 def _text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
+
+
+
+# The economic one-shot has a separate, exact 3.12.12 interpreter contract.
+# Unlike generic CI, stages must not silently select an updated toolcache patch.
+_PINNED_UV_SETUP = (
+    "      - name: Set up uv\n"
+    "        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2\n"
+    "        with:\n"
+    '          python-version: "3.12.12"\n'
+    "          enable-cache: true\n"
+    "          working-directory: target\n"
+)
+_PINNED_INSTALL = (
+    "      - name: Install exact PPO runtime\n"
+    "        working-directory: target\n"
+    "        run: uv sync --extra dev --extra train-sb3\n"
+)
+_ECONOMIC_STAGES = ("execution", "verify", "finalize")
+
+
+def _economic_job(text: str, stage: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(stage)}:\n(.*?)(?=^  (?:request|execution|verify|finalize):\n|\Z)",
+        text,
+    )
+    assert match is not None
+    return match.group(1)
+
+
+def _require_pinned_one_shot_runtime(job: str) -> None:
+    assert job.count(_PINNED_UV_SETUP) == 1
+    assert job.count(_PINNED_INSTALL) == 1
+    assert job.index(_PINNED_UV_SETUP) < job.index(_PINNED_INSTALL)
+    assert job.count('python-version: "3.12.12"') == 1
+    assert job.count("target/.venv/bin/python") == 1
+    assert "ref: ${{ needs.request.outputs.execution_source_sha }}" in job
+    assert "ref: ${{ github.workflow_sha }}" in job
+    assert "actions/setup-python@" not in job
+    assert "UV_PYTHON_PREFERENCE" not in job
+    assert "UV_PYTHON_DOWNLOADS" not in job
+
+
+def test_one_shot_economic_stages_keep_exact_runtime_across_jobs() -> None:
+    """All three independently hosted stages retain identical pinned Python."""
+    text = _text()
+    for stage in _ECONOMIC_STAGES:
+        _require_pinned_one_shot_runtime(_economic_job(text, stage))
+
+
+@pytest.mark.parametrize("stage", _ECONOMIC_STAGES)
+@pytest.mark.parametrize("alternative", ("3.12", "3.12.16"))
+def test_one_shot_runtime_contract_refuses_minor_only_or_new_patch(
+    stage: str, alternative: str
+) -> None:
+    """A future stage-specific interpreter drift must fail its source oracle."""
+    job = _economic_job(_text(), stage)
+    mutant = job.replace(
+        'python-version: "3.12.12"',
+        f'python-version: "{alternative}"',
+        1,
+    )
+    assert mutant != job
+    with pytest.raises(AssertionError):
+        _require_pinned_one_shot_runtime(mutant)
 
 
 def test_normalization_execution_workflow_is_comment_triggered_and_globally_serialized() -> (

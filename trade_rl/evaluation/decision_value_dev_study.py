@@ -2268,7 +2268,9 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 if root_key_start is not None:
                     key_bytes = offset - root_key_start
                     if key_bytes > max_root_key_bytes:
-                        raise ValueError("failure receipt root key exceeds schema length")
+                        raise ValueError(
+                            "failure receipt root key exceeds schema length"
+                        )
                     root_key_is_pairs = key_bytes == 5 and raw.startswith(
                         b"pairs", root_key_start, offset
                     )

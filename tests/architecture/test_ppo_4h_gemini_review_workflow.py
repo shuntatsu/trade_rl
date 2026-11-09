@@ -134,9 +134,7 @@ def test_gemini_review_verification_uses_runner_python_without_downloads() -> No
     """Trusted source-verification jobs must avoid managed Python downloads."""
     text = WORKFLOW.read_text(encoding="utf-8")
     assert (
-        "env:\n"
-        "  UV_PYTHON_PREFERENCE: only-system\n"
-        "  UV_PYTHON_DOWNLOADS: never\n"
+        "env:\n  UV_PYTHON_PREFERENCE: only-system\n  UV_PYTHON_DOWNLOADS: never\n"
     ) in text
 
     expected_setup = (

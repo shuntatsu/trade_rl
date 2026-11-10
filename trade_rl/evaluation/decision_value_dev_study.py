@@ -2242,6 +2242,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     schema; refuse aliases and unknown names before broad allocations.
     Require every direct pair object to name each mandatory field exactly once
     before decoding; names in nested content do not satisfy that requirement.
+    Also compare the root-declared count to direct pair objects before decoding.
     This bounded-depth lexical scan is not a JSON parser or pair-count cap:
     the existing parser, canonicalizer, and validators remain authoritative.
     """
@@ -2259,6 +2260,10 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     root_key_start: int | None = None
     pair_key_start: int | None = None
     root_key_is_pairs = False
+    root_key_is_count = False
+    count_start: int | None = None
+    count_span: tuple[int, int] | None = None
+    actual_pair_count = 0
     want_root_key = True
     want_colon = False
     want_value = False
@@ -2304,6 +2309,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         raise ValueError("failure receipt root key is duplicated")
                     seen_root_keys.add(direct_root_key)
                     root_key_is_pairs = direct_root_key == b"pairs"
+                    root_key_is_count = direct_root_key == b"ineligible_pairs"
                     root_key_start = None
                     want_root_key = False
                     want_colon = True
@@ -2324,6 +2330,10 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
             continue
         if char in b" \t\r\n":
             continue
+        # Remember the root count token without copying potentially huge bytes.
+        if len(stack) == 1 and count_start is not None and char in (0x2C, 0x7D):
+            count_span = (count_start, offset)
+            count_start = None
         if len(stack) == 1:
             if want_colon:
                 if char != 0x3A:  # Invalid syntax belongs to the JSON parser.
@@ -2333,6 +2343,8 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 continue
             if want_value:
                 want_value = False
+                if root_key_is_count:
+                    count_start = offset
                 if root_key_is_pairs:
                     if seen_pairs:
                         raise ValueError("failure receipt pairs key is duplicated")
@@ -2341,10 +2353,12 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         pairs_depth = len(stack) + 1
                         want_pair = True
                 root_key_is_pairs = False
+                root_key_is_count = False
         if pairs_depth is not None and len(stack) == pairs_depth:
             if want_pair and char not in (0x7B, 0x5D):  # { or ]
                 raise ValueError("failure receipt pairs must contain JSON objects")
             if char == 0x7B:
+                actual_pair_count += 1
                 direct_pair_fields.clear()
                 want_pair = False
                 want_pair_key = True
@@ -2382,6 +2396,19 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 want_root_key = True
             elif pairs_depth is not None and len(stack) == pairs_depth + 1:
                 want_pair_key = True
+
+    # Detect a forged count before json.loads expands a wide pair array.
+    # This is a consistency check, not an arbitrary cap on historical v2/v3
+    # receipts; the strict decoder still validates the full record and digest.
+    if count_span is not None and seen_pairs:
+        start, end = count_span
+        while start < end and raw[start] in b" \t\r\n":
+            start += 1
+        while end > start and raw[end - 1] in b" \t\r\n":
+            end -= 1
+        expected = str(actual_pair_count).encode("ascii")
+        if end - start != len(expected) or not raw.startswith(expected, start):
+            raise ValueError("failure receipt pair count mismatch")
 
 
 def _decode_incomplete_receipt(

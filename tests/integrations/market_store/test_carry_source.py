@@ -441,6 +441,50 @@ def test_cache_rejects_symlink_in_parent_of_configured_root(
     assert list(outside.rglob("*")) == []
 
 
+def test_cache_rejects_parent_of_cache_root_swapped_after_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A late parent symlink must not make the stage escape the selected cache."""
+    spec = january_plan().specs[0]
+    linked_parent = tmp_path / "cache-parent"
+    linked_parent.mkdir()
+    root = linked_parent / "cache"
+    outside = tmp_path / "external"
+    outside.mkdir()
+    target = ArchiveDirFetcher(root)._path(spec.url)
+    foreign_target = outside.joinpath(*target.relative_to(linked_parent).parts)
+    foreign_target.parent.mkdir(parents=True)
+    parked = tmp_path / "original-cache-parent"
+
+    original_mkdir = Path.mkdir
+    swapped = False
+
+    def swap_after_parent_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal swapped
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path == target.parent and not swapped:
+            linked_parent.rename(parked)
+            try:
+                linked_parent.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pytest.skip("directory symlinks unavailable on this filesystem")
+            swapped = True
+
+    class SyntheticFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            return FetchResult(status=200, body=b"synthetic downloaded bytes")
+
+    monkeypatch.setattr(Path, "mkdir", swap_after_parent_mkdir)
+    with pytest.raises(CarryOperationalHalt, match="cache directory") as caught:
+        ArchiveDirFetcher(root, SyntheticFetcher()).fetch(spec.url)
+    assert swapped
+    assert linked_parent.is_symlink()
+    assert caught.value.evidence["kind"] == "cache_directory_link"
+    assert not foreign_target.exists()
+    assert not list(outside.rglob("*.part-*"))
+
+
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     plan = january_plan()
     inner = fetcher_for(plan)

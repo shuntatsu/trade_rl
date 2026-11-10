@@ -29,7 +29,10 @@ def test_ppo_selection_reader_rejects_huge_integer_as_integrity_error(
 ) -> None:
     with pytest.raises(
         ArtifactIntegrityError,
-        match="PPO holding-duration selection metric median_candidate_total_return is non-finite",
+        match=(
+            "PPO holding-duration selection metric "
+            "median_candidate_total_return is non-finite"
+        ),
     ):
         _selection_number(
             {"median_candidate_total_return": value},

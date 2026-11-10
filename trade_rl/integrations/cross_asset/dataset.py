@@ -23,7 +23,7 @@ from trade_rl.integrations.cross_asset.normalization import FeatureNormalizer
 
 GLOBAL_PREFIX = "xa_"
 MISSING_REASON_CROSS_ASSET = 2
-OVERLAY_SCHEMA = "cross_asset_global_overlay_v2"
+OVERLAY_SCHEMA = "cross_asset_global_overlay_v3"
 VINTAGE_BASIS = "latest_vintage_at_capture_not_first_release"
 
 
@@ -67,19 +67,21 @@ def with_cross_asset_global_features(
     """Return ``dataset`` with ``xa_<name>`` columns appended to global features.
 
     Fail-closed fences: every selected column must carry source provenance;
-    a column fed by a series whose revision risk is not ``low`` is refused unless
-    that series was opted in on the frame, and even then only with
-    ``accept_revision_hindsight=True`` because values are the newest vintage, not
-    first releases. The flag, the opt-in set and the hindsight series are recorded
-    in the dataset identity.
+    a non-``low`` revision-risk series must also be opted in on the frame.
+    All latest-at-capture values, including ``low`` revision-risk series, are
+    retrospective rather than proven first-release data, so the overlay requires
+    an explicit ``accept_revision_hindsight=True`` acknowledgement. This
+    acknowledgement permits exploratory use, not strict historical point-in-time
+    or economic research eligibility. Identity records the risk, selected sources
+    and the unverified first-release status.
 
     ``frame`` must have been built on exactly ``dataset.timestamps``. Unavailable
     entries are stored as 0.0 with ``global_feature_available=False`` so the
     policy sees an explicit mask rather than a fabricated value.
     """
 
-    # Research eligibility requires an explicit Boolean opt-in. In particular,
-    # the config string "false" must not be truthy consent to hindsight.
+    # Retrospective-value acknowledgement must be an exact Boolean; in
+    # particular a config string "false" must not act as consent.
     if type(accept_revision_hindsight) is not bool:
         raise ValueError("accept_revision_hindsight must be a bool")
     names = tuple(feature_names)
@@ -93,12 +95,18 @@ def with_cross_asset_global_features(
     source = frame if normalizer is None else normalizer.transform(frame)
     chosen = source.select(names)
     hindsight = _hindsight_series(chosen, frame.opt_in_series)
-    if hindsight and not accept_revision_hindsight:
+    # The ``low`` risk tag is an empirical revision-frequency observation, not
+    # a proof that the latest captured value existed at each historical decision.
+    # Keep opt-in mandatory for *every* latest-vintage overlay, even low-risk ones.
+    if not accept_revision_hindsight:
         raise ValueError(
-            "features use series with revision hindsight "
-            f"{sorted(hindsight)}; pass accept_revision_hindsight=True to accept "
-            "that they carry newest-vintage values"
+            "cross-asset history uses latest-vintage values, not first releases; "
+            "pass accept_revision_hindsight=True to acknowledge retrospective "
+            "value risk (not strict point-in-time research eligibility)"
         )
+    latest_vintage_series = sorted(
+        {key for sources in chosen.column_sources for key in sources}
+    )
     added_names = tuple(f"{GLOBAL_PREFIX}{name}" for name in names)
     collisions = set(added_names) & set(dataset.global_feature_names)
     if collisions:
@@ -124,7 +132,9 @@ def with_cross_asset_global_features(
         "series_present": list(frame.series_present),
         "opt_in_series": list(frame.opt_in_series),
         "vintage_basis": VINTAGE_BASIS,
-        "accept_revision_hindsight": bool(accept_revision_hindsight),
+        "strict_point_in_time_verified": False,
+        "latest_vintage_series": latest_vintage_series,
+        "accept_revision_hindsight": accept_revision_hindsight,
         "revision_hindsight_series": sorted(hindsight),
     }
     combined = replace(

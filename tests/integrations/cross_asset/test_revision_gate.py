@@ -153,16 +153,22 @@ def test_opted_in_revised_series_need_an_explicit_hindsight_acceptance(
     assert accepted.identity_verified
 
 
-def test_low_risk_features_need_no_acceptance_and_are_recorded_as_such(
+def test_low_risk_features_need_retrospective_acceptance_and_are_recorded_as_such(
     tmp_path: Path,
 ) -> None:
     store = seed_store(tmp_path)
     frame = load_cross_asset_features(store.root, GRID)
+    names = ("dollar_strength", "DEXJPUS__ret5")
+    with pytest.raises(ValueError, match="accept_revision_hindsight"):
+        with_cross_asset_global_features(_dataset(), frame, feature_names=names)
     combined = with_cross_asset_global_features(
-        _dataset(), frame, feature_names=("dollar_strength", "DEXJPUS__ret5")
+        _dataset(), frame, feature_names=names, accept_revision_hindsight=True
     )
     payload = json.loads(combined.identity_payload_json or "{}")["cross_asset_overlay"]
-    assert payload["accept_revision_hindsight"] is False
+    assert payload["schema"] == "cross_asset_global_overlay_v3"
+    assert payload["accept_revision_hindsight"] is True
+    assert payload["strict_point_in_time_verified"] is False
+    assert "DEXJPUS" in payload["latest_vintage_series"]
     assert payload["revision_hindsight_series"] == []
     assert payload["vintage_basis"] == "latest_vintage_at_capture_not_first_release"
 
@@ -174,7 +180,7 @@ def test_a_later_revision_of_a_non_low_series_cannot_reach_a_default_dataset(
     names = ("dollar_strength", "curve_slope", "VIXCLS__ret1")
     before = load_cross_asset_features(store.root, GRID)
     dataset_before = with_cross_asset_global_features(
-        _dataset(), before, feature_names=names
+        _dataset(), before, feature_names=names, accept_revision_hindsight=True
     )
     days = weekdays(420)
     revised = random_walk(420, seed=0)
@@ -190,7 +196,7 @@ def test_a_later_revision_of_a_non_low_series_cannot_reach_a_default_dataset(
     assert before.names == after.names
     assert np.array_equal(before.values, after.values, equal_nan=True)
     dataset_after = with_cross_asset_global_features(
-        _dataset(), after, feature_names=names
+        _dataset(), after, feature_names=names, accept_revision_hindsight=True
     )
     assert dataset_after.dataset_id != dataset_before.dataset_id  # input digest moved
     assert np.array_equal(dataset_after.global_features, dataset_before.global_features)

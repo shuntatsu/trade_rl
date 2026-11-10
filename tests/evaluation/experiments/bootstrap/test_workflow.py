@@ -229,6 +229,41 @@ def test_bootstrap_never_replaces_competing_empty_root_after_validation(
     assert not tuple(tmp_path.glob(".canonical-m2.staging-*"))
 
 
+def test_bootstrap_publication_rejects_race_inside_exclusive_rename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The filesystem rename itself must reject a late competing empty root."""
+    _install_fakes(monkeypatch)
+    from trade_rl.artifacts import atomic_write
+
+    output = tmp_path / "canonical-m2"
+    original_rename = atomic_write._rename_directory_no_replace
+    raced = False
+
+    def rename_after_competitor_appears(staging: Path, target: Path) -> None:
+        nonlocal raced
+        if target == output:
+            assert not raced
+            assert not output.exists()
+            assert staging.is_dir()
+            output.mkdir()
+            raced = True
+        original_rename(staging, target)
+
+    # The rival appears *after* atomic_rename_directory's initial target
+    # existence check, at the exclusive OS rename boundary.
+    monkeypatch.setattr(
+        atomic_write, "_rename_directory_no_replace", rename_after_competitor_appears
+    )
+    with pytest.raises(FileExistsError):
+        bootstrap_canonical_m2_study(_config_path(tmp_path), output)
+
+    assert raced, "bootstrap did not reach its exclusive rename boundary"
+    assert output.is_dir() and not tuple(output.iterdir())
+    assert not tuple(tmp_path.glob(".canonical-m2.staging-*"))
+
+
 def test_mid_bootstrap_failure_leaves_no_final_or_staging_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

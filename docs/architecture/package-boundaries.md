@@ -182,7 +182,13 @@ test that forbids any import of that package from outside it still holds. The st
 package therefore owns the data side, `integrations/market_store/carry_source.py`
 (`VisionArchiveSource`, `ArchiveDirFetcher`, `CarryScreenData`): checksum-verified
 Vision archives without a database or Docker, or a populated store through the same
-`CarryRowSource` protocol. The wiring of the two sides is the repository-only command
+`CarryRowSource` protocol. `ArchiveDirFetcher` uses a distinct private staging file
+per producer and a same-filesystem exclusive hard link when publishing cached
+archive/checksum bytes; a raced existing cache file wins and is returned for
+normal downstream checksum verification without overwriting. Filesystems without
+hard-link support fail closed as operational halts; there is no ordinary rename,
+copy-overwrite or shared `.part` fallback. These are cache publication and source
+integrity properties, not economic evaluation or market-data authorization. The wiring of the two sides is the repository-only command
 `tools/carry_multisymbol_screen.py` (`plan`, `screen`), which sits outside the
 production wheel; it requires a G4 authorization comment URL, the registered window and
 a clean checkout, and reads nothing at or after 2026-08-01.

@@ -24,6 +24,7 @@ unordered or malformed row raise :class:`CarryIntegrityHalt`. Halts never exclud
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -116,9 +117,42 @@ class ArchiveDirFetcher:
         result = self._inner.fetch(url)
         if result.status == 200 and result.body:
             path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_name(path.name + ".part")
-            temporary.write_bytes(result.body)
-            os.replace(temporary, path)
+            # Every publisher owns a private staging file. A hard-link claim is
+            # exclusive even when a rival arrives after the initial cache miss;
+            # os.replace would silently overwrite that rival on POSIX.
+            temporary: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=path.parent, prefix=f".{path.name}.part-", delete=False
+                ) as handle:
+                    temporary = Path(handle.name)
+                    handle.write(result.body)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.link(temporary, path)
+            except FileExistsError as error:
+                # Only the already-published cache winner can be returned.
+                # VisionArchiveSource separately validates its official checksum.
+                if not path.is_file() or path.is_symlink():
+                    raise CarryOperationalHalt(
+                        f"archive cache publication conflict: {url}",
+                        {"kind": "cache_publication_conflict", "url": url},
+                    ) from error
+                try:
+                    return FetchResult(status=200, body=path.read_bytes())
+                except OSError as read_error:
+                    raise CarryOperationalHalt(
+                        f"archive cache winner cannot be read: {url}",
+                        {"kind": "cache_publication_conflict", "url": url},
+                    ) from read_error
+            except OSError as error:
+                raise CarryOperationalHalt(
+                    f"archive cache publication failed: {url}",
+                    {"kind": "cache_publication_failed", "url": url},
+                ) from error
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
         return result
 
 

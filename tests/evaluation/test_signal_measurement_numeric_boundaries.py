@@ -112,6 +112,9 @@ def test_subnormal_boundary_selects_the_intended_log_path(
 ) -> None:
     ratio = final / initial
     assert bool(ratio >= np.finfo(np.float64).tiny) is ratio_is_normal
+    if not ratio_is_normal:
+        # A wrong-branch mutant must not pass because two oracles accidentally agree.
+        assert math.log(ratio) != math.log(final) - math.log(initial)
     result = forward_log_returns(np.array([[initial], [final]]), 1)
     expected = (
         math.log(ratio) if ratio_is_normal else math.log(final) - math.log(initial)

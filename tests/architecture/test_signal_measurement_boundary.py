@@ -11,17 +11,29 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl"
 MEASURE = PACKAGE / "evaluation" / "signal_measurement"
 DOCS = ROOT / "docs"
-MODULES = ("__init__.py", "ic.py", "multitest.py", "profile.py", "targets.py")
+MODULES = (
+    "__init__.py",
+    "ic.py",
+    "leakage.py",
+    "multitest.py",
+    "payoff.py",
+    "profile.py",
+    "targets.py",
+)
 
 _IC = "trade_rl.evaluation.signal_measurement.ic"
 ALLOWED_TRADE_RL_IMPORTS = {
     "__init__.py": {
         _IC,
+        "trade_rl.evaluation.signal_measurement.leakage",
         "trade_rl.evaluation.signal_measurement.multitest",
+        "trade_rl.evaluation.signal_measurement.payoff",
         "trade_rl.evaluation.signal_measurement.profile",
         "trade_rl.evaluation.signal_measurement.targets",
     },
     "ic.py": set(),
+    "leakage.py": {_IC},
+    "payoff.py": {_IC},
     "multitest.py": {"trade_rl.evaluation.comparison.bootstrap", _IC},
     "profile.py": {_IC},
     "targets.py": {_IC},
@@ -58,7 +70,7 @@ def _imports(path: Path) -> set[str]:
     return names
 
 
-def test_package_layout_is_the_five_pure_modules_only() -> None:
+def test_package_layout_is_the_seven_pure_modules_only() -> None:
     assert {path.name for path in MEASURE.glob("*.py")} == set(MODULES)
     assert not [
         path
@@ -114,7 +126,7 @@ def test_current_docs_record_the_package_and_that_it_is_synthetic_only() -> None
     )
 
     assert (
-        "signal_measurement/{__init__.py,ic.py,multitest.py,profile.py,targets.py}"
+        "signal_measurement/{__init__.py,ic.py,leakage.py,multitest.py,payoff.py,profile.py,targets.py}"
         in boundaries
     )
     section = boundaries[boundaries.index("## Signal measurement boundary") :]

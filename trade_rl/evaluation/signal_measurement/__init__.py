@@ -2,7 +2,8 @@
 
 Rank and linear IC, cross-sectional demeaning and a causal beta residual, Holm and
 Benjamini-Hochberg corrections, a block-bootstrap interval and a feature
-non-stationarity profile. The package reads no dataset or file, fits no model and
+non-stationarity profile, the signed after-cost and drift-excess payoffs and a
+future-perturbation leakage probe. The package reads no dataset or file, fits no model and
 owns no runner; it is verified on seeded synthetic markets only and says nothing
 about real data.
 """
@@ -17,6 +18,11 @@ from trade_rl.evaluation.signal_measurement.ic import (
     rank_ic,
     utc_day_ids,
 )
+from trade_rl.evaluation.signal_measurement.leakage import (
+    LeakageProbeResult,
+    affine_label_copy,
+    future_perturbation_probe,
+)
 from trade_rl.evaluation.signal_measurement.multitest import (
     BlockMeanResult,
     bh_adjusted,
@@ -24,6 +30,13 @@ from trade_rl.evaluation.signal_measurement.multitest import (
     block_mean_interval,
     holm_adjusted,
     holm_rejections,
+)
+from trade_rl.evaluation.signal_measurement.payoff import (
+    DailyMean,
+    after_cost_payoff,
+    daily_mean,
+    drift_excess_payoff,
+    drift_sign_payoff,
 )
 from trade_rl.evaluation.signal_measurement.profile import (
     NonstationarityProfile,
@@ -41,10 +54,14 @@ from trade_rl.evaluation.signal_measurement.targets import (
 __all__ = [
     "BlockMeanResult",
     "DailyIc",
+    "DailyMean",
+    "LeakageProbeResult",
     "NonstationarityProfile",
     "PeriodProfile",
     "SignalMeasurementError",
     "SkippedProfile",
+    "affine_label_copy",
+    "after_cost_payoff",
     "average_ranks",
     "bh_adjusted",
     "bh_rejections",
@@ -52,8 +69,12 @@ __all__ = [
     "causal_beta_residual",
     "cross_sectional_demean",
     "daily_ic",
+    "daily_mean",
     "daily_rank_ic_increment",
+    "drift_excess_payoff",
+    "drift_sign_payoff",
     "forward_log_returns",
+    "future_perturbation_probe",
     "holm_adjusted",
     "holm_rejections",
     "linear_ic",

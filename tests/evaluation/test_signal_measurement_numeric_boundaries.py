@@ -86,3 +86,52 @@ def test_nonrepresentable_round_trip_input_identifies_its_field() -> None:
             round_trip_cost=10**400,  # type: ignore[arg-type]
             cost_multiplier=1,
         )
+
+
+def test_near_unity_return_preserves_direct_ratio_precision() -> None:
+    # Subtracting two ~230-sized logs loses this one-ULP movement entirely.
+    initial = 1e100
+    final = float(np.nextafter(initial, np.inf))
+    expected = math.log(final / initial)
+    assert expected > 0.0
+    assert math.log(final) - math.log(initial) == 0.0
+    actual = forward_log_returns(np.array([[initial], [final]]), 1)
+    assert actual[0, 0] == expected
+    assert np.isnan(actual[1, 0])
+
+
+@pytest.mark.parametrize(
+    ("initial", "final", "ratio_is_normal"),
+    [
+        (1e10, 2.0e-298, False),  # ratio just below the normal boundary
+        (1e10, 2.5e-298, True),  # ratio just above the normal boundary
+    ],
+)
+def test_subnormal_boundary_selects_the_intended_log_path(
+    initial: float, final: float, ratio_is_normal: bool
+) -> None:
+    ratio = final / initial
+    assert bool(ratio >= np.finfo(np.float64).tiny) is ratio_is_normal
+    result = forward_log_returns(np.array([[initial], [final]]), 1)
+    expected = (
+        math.log(ratio) if ratio_is_normal else math.log(final) - math.log(initial)
+    )
+    assert result[0, 0] == expected
+    assert np.isnan(result[1, 0])
+
+
+@pytest.mark.parametrize(
+    ("k", "multiplier"),
+    [(10**400, 1), (1, 10**400)],
+)
+def test_oversized_derived_parameters_are_typed_errors(k: int, multiplier: int) -> None:
+    with pytest.raises(
+        SignalMeasurementError, match="derived cost and threshold must be finite"
+    ):
+        after_cost_payoff(
+            np.array([0.1]),
+            np.array([0.02]),
+            k=k,
+            round_trip_cost=0.0014,
+            cost_multiplier=multiplier,
+        )

@@ -56,13 +56,21 @@ class CountingTransport:
         *,
         symbol: str,
         interval: str,
+        start_ms: int,
+        end_ms: int,
         **_: object,
     ) -> tuple[list[list[Any]], tuple[str, ...]]:
         self.kline_calls.append((symbol, interval))
         delta = _interval_delta(interval)
+        step_ms = int(delta.total_seconds() * 1000)
+        assert (end_ms - start_ms) % step_ms == 0
         rows = [
-            _kline(self.start + index * delta, interval, 100.0 + index)
-            for index in range(2)
+            _kline(
+                datetime.fromtimestamp(start_ms / 1000, tz=UTC) + index * delta,
+                interval,
+                100.0 + index,
+            )
+            for index in range((end_ms - start_ms) // step_ms)
         ]
         return rows, (f"fixture:{symbol}:{interval}",)
 
@@ -138,9 +146,11 @@ def test_source_caches_each_symbol_timeframe_and_shared_funding() -> None:
 
     first = source.load_timeframe("BTCUSDT", "4h")
     second = source.load_timeframe("BTCUSDT", "4h")
-    source.load_timeframe("BTCUSDT", "1h")
+    hourly = source.load_timeframe("BTCUSDT", "1h")
 
     assert first is second
+    assert len(first.timestamps) == 2
+    assert len(hourly.timestamps) == 8
     assert transport.kline_calls == [("BTCUSDT", "4h"), ("BTCUSDT", "1h")]
     assert transport.funding_calls == 1
     assert source.sources_used == (

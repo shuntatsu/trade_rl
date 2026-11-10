@@ -4,6 +4,7 @@ import hashlib
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import numpy as np
 import pytest
 
 from tests.integrations.market_store.support import (
@@ -14,7 +15,11 @@ from tests.integrations.market_store.support import (
     kline_csv_rows,
     zip_csv,
 )
-from trade_rl.integrations.binance.dataset import _parse_kline_rows
+from trade_rl.integrations.binance.dataset import (
+    BinanceGapPolicy,
+    BinanceMarketDataSource,
+    _parse_kline_rows,
+)
 from trade_rl.integrations.market_store.checksum import (
     ChecksumError,
     parse_checksum,
@@ -422,6 +427,84 @@ def test_file_backed_reader_currently_retains_the_store_skipped_placeholder() ->
     assert len(store.rows) == len(timestamps) - 1
     assert PLACEHOLDER_OPEN_MS not in {row.open_time_ms for row in store.rows}
     assert len(store.placeholders) == 1
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT"),
+)
+@pytest.mark.parametrize(
+    "policy",
+    (BinanceGapPolicy.STRICT, BinanceGapPolicy.NON_TRADABLE_ROWS),
+)
+def test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder(
+    policy: BinanceGapPolicy, symbol: str
+) -> None:
+    """Pin legacy gap behaviour for every verified symbol without changing data.
+
+    The genuine BTC placeholder and synthetic BTC neighbours are relabelled
+    only for this policy test; the other symbols' archive bytes are not proved.
+    """
+    raw_rows = dec_2020_rows()
+    start_ms = ms_from_utc(DEC_2020)
+    end_ms = ms_from_utc(JAN_2021)
+
+    class OfflineTransport:
+        def load_klines(self, **kwargs: object) -> tuple[list[list[str]], str]:
+            assert kwargs["symbol"] == symbol
+            assert kwargs["interval"] == "1h"
+            assert kwargs["start_ms"] == start_ms
+            assert kwargs["end_ms"] == end_ms
+            return raw_rows, "synthetic-neighbours-real-placeholder"
+
+        def load_funding_rates(
+            self, **kwargs: object
+        ) -> tuple[list[tuple[int, float]], str]:
+            assert kwargs["symbol"] == symbol
+            return [], "no-funding-spot-fixture"
+
+    source = BinanceMarketDataSource(
+        market="spot",
+        interval="1h",
+        start_time=DEC_2020,
+        end_time=JAN_2021,
+        transport_mode="vision",
+        transport=OfflineTransport(),
+        gap_policy=policy,
+    )
+    series = source.load(symbol)
+    index = (PLACEHOLDER_OPEN_MS - start_ms) // HOUR_MS
+    expected_close = np.datetime64(PLACEHOLDER_OPEN_MS + HOUR_MS, "ms")
+
+    assert len(series.timestamps) == 31 * 24
+    assert series.timestamps[index] == expected_close
+    assert series.available_at[index] == expected_close
+    assert bool(series.tradable[index])
+    assert series.volume[index] == 0.0
+    assert series.funding_rate[index] == 0.0
+    if policy is BinanceGapPolicy.NON_TRADABLE_ROWS:
+        assert source.gap_report == {
+            f"{symbol}:1h": {
+                "expected_bars": 31 * 24,
+                "present_bars": 31 * 24,
+                "missing_bars": 0,
+                "funding_events_in_missing_bars": 0,
+            }
+        }
+    else:
+        assert source.gap_report == {}
+
+    # Reuse the exact same constructed rows (including the authentic
+    # checksum-backed anomalous candle) through the separate store parser.
+    stored = parse_kline_archive(
+        zip_csv(raw_rows),
+        spec(start=DEC_2020, end=JAN_2021, symbol=symbol),
+        embargo=ENFORCED,
+    )
+    assert len(stored.rows) == len(series.timestamps) - 1
+    assert len(stored.placeholders) == 1
+    assert stored.placeholders[0].open_time_ms == PLACEHOLDER_OPEN_MS
+    assert PLACEHOLDER_OPEN_MS not in {row.open_time_ms for row in stored.rows}
 
 
 def test_an_ordinary_archive_has_no_placeholders() -> None:

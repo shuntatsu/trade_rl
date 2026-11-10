@@ -310,9 +310,8 @@ def test_cache_rejects_existing_directory_symlink_before_writing(
         link = root
     else:
         root.mkdir()
-        link = root / spec.url.removeprefix(
-            "https://data.binance.vision/data/"
-        ).split("/", 1)[0]
+        relative = spec.url.removeprefix("https://data.binance.vision/data/")
+        link = root / relative.split("/", 1)[0]
     try:
         link.symlink_to(outside, target_is_directory=True)
     except (OSError, NotImplementedError):

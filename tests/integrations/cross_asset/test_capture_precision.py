@@ -189,3 +189,57 @@ def test_legacy_recheck_uses_first_capture_when_same_raw_file_has_multiple_ok_ro
         ]
         == second["fetched_at"]
     )
+
+
+def test_existing_explicit_capture_time_beats_later_fetched_at(
+    tmp_path: Path,
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    original_capture = "2025-07-10T12:00:00.250000Z"
+    modern = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-11T12:00:00.250000Z",
+        "captured_at": original_capture,
+        "path": "raw/fred/DGS10/retained.csv",
+        "sha256": "a" * 64,
+    }
+    legacy_recheck = {
+        **modern,
+        "status": "unchanged",
+        "fetched_at": "2025-07-12T12:00:00Z",
+    }
+    del legacy_recheck["captured_at"]
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(
+            json.dumps(record, sort_keys=True) + "\n"
+            for record in (modern, legacy_recheck)
+        ),
+        encoding="utf-8",
+    )
+    found = store.read_manifest()
+    assert found[0]["captured_at"] == original_capture
+    assert found[1]["captured_at"] == original_capture
+
+
+@pytest.mark.parametrize("missing_field", ["path", "sha256"])
+def test_usable_manifest_record_without_raw_identity_fails_closed(
+    tmp_path: Path, missing_field: str
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    invalid = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/raw.csv",
+        "sha256": "a" * 64,
+    }
+    del invalid[missing_field]
+    (tmp_path / "manifest.jsonl").write_text(
+        json.dumps(invalid, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="raw provenance"):
+        store.read_manifest()

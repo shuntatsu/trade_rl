@@ -145,32 +145,52 @@ class CrossAssetStore:
         return hashlib.sha256(payload).hexdigest() == record.get("sha256")
 
 
+def _raw_identity(record: Mapping[str, object], number: int) -> tuple[str, str]:
+    """Only usable manifest records with complete raw provenance may be indexed."""
+
+    path = record.get("path")
+    digest = record.get("sha256")
+    if (
+        not isinstance(path, str)
+        or not path
+        or not isinstance(digest, str)
+        or not digest
+    ):
+        raise ValueError(f"manifest record {number} has incomplete raw provenance")
+    return path, digest
+
+
 def _resolve_legacy_capture_times(
     records: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     """Give pre-``captured_at`` rows a capture time or fail closed.
 
-    An ``ok`` row captured its own bytes when it was fetched. A legacy
-    ``unchanged`` row was restamped by the re-check and is resolved to the ``ok``
-    row that holds the same raw file; with no such row the capture time is
-    unknown (a still-open session bar could be admitted) and the manifest is
-    refused until the series is refetched.
+    New records with explicit ``captured_at`` preserve it; legacy ``ok``
+    records sharing a raw path and digest use the earliest supported capture.
+    Legacy ``unchanged`` records inherit that origin, not their later recheck.
+    Without a complete raw path/digest or any originating ``ok`` record, the
+    historical capture time is unknown and the record is refused.
     """
 
     origins: dict[tuple[object, object], str] = {}
-    for record in records:
+    for number, record in enumerate(records, start=1):
         if record.get("status") != "ok":
             continue
-        key = (record.get("path"), record.get("sha256"))
-        stamp = str(record["fetched_at"])
+        key = _raw_identity(record, number)
+        # Prefer an already-recorded first capture over the time of a later
+        # refetch of those same bytes in a mixed legacy/modern manifest.
+        stamp = str(record.get("captured_at") or record["fetched_at"])
         # A legacy raw file can be referenced by more than one "ok" entry.
         # The capture authority is the earliest occurrence, not the last one.
         if key not in origins or parse_utc(stamp) < parse_utc(origins[key]):
             origins[key] = stamp
     for number, record in enumerate(records, start=1):
-        if record.get("status") not in USABLE_STATUSES or record.get("captured_at"):
+        if record.get("status") not in USABLE_STATUSES:
             continue
-        origin = origins.get((record.get("path"), record.get("sha256")))
+        key = _raw_identity(record, number)
+        if record.get("captured_at"):
+            continue
+        origin = origins.get(key)
         if record["status"] == "ok":
             # Repeated legacy "ok" rows can reference the same immutable raw
             # file. The first recorded capture is the authority for its bytes.

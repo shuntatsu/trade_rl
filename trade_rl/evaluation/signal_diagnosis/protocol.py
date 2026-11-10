@@ -21,6 +21,12 @@ A version freezes every value. :func:`protocol_from_payload` rebuilds the object
 from a payload, validates each part and finally requires equality with the frozen
 reference of the declared version, so an altered grid, threshold or window is
 rejected until a new schema version (and a new reference) exists.
+
+``signal_diagnosis_protocol_v2`` replaces the never-merged, review-blocked v1. v1 is
+not loadable: it counted 2021 (first fit April 2021) as a full stability year, called
+a cross-sectional demeaning "beta removal", left the D4 "alpha" undefined and left the
+drift and beta baselines without an estimation rule. v2 fixes each of these before any
+result exists; the cross-references below make the first defect unrepresentable.
 """
 
 from __future__ import annotations
@@ -32,13 +38,13 @@ import re
 import types
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Union, get_args, get_origin, get_type_hints
 
 from trade_rl.artifacts.canonical import canonical_json_bytes, to_json_value
 from trade_rl.evaluation.forward_study.registry import Fs1Registry
 
-PROTOCOL_SCHEMA: Final = "signal_diagnosis_protocol_v1"
+PROTOCOL_SCHEMA: Final = "signal_diagnosis_protocol_v2"
 
 SCOPE_SYNTHETIC: Final = "synthetic_only"
 SCOPE_REAL: Final = "real_development"
@@ -58,7 +64,10 @@ VERDICT_LABELS: Final = (
 EXECUTION_STATUS: Final = "planned_not_executed"
 CLAIM_CEILING: Final = "known_used_exploratory_screening_only"
 EVIDENCE_SCOPE: Final = "known_used_post_hoc_exploratory"
-FULL_YEARS: Final = (2021, 2022, 2023, 2024, 2025)
+# The first usable fit is 2021-04-01, so 2021 is a partial (start-up) year; 2026 is
+# partial because the window ends in August. Both are reported, never decisive.
+FULL_YEARS: Final = (2022, 2023, 2024, 2025)
+PARTIAL_YEARS: Final = (2021, 2026)
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _CLAIM_WORDS = re.compile(
@@ -552,6 +561,10 @@ class StabilitySpec:
     extreme_day_definition: str
     reported_slices: tuple[str, ...]
     decisive_slices: tuple[str, ...]
+    year_sign_statistic: str
+    min_covered_months_per_full_year: int
+    covered_month_min_valid_days: int
+    coverage_rule: str
 
     def __post_init__(self) -> None:
         years = _unique_ints(self.full_years, "full_years", minimum=1)
@@ -579,6 +592,20 @@ class StabilitySpec:
                 "the per-tail trim fraction must lie strictly between 0 and 0.5"
             )
         _text(self.extreme_day_definition, "extreme_day_definition")
+        _text(self.year_sign_statistic, "year_sign_statistic")
+        months = _exact_int(
+            self.min_covered_months_per_full_year,
+            "min_covered_months_per_full_year",
+            minimum=1,
+        )
+        if months > 12:
+            raise _fail("min_covered_months_per_full_year cannot exceed 12")
+        days = _exact_int(
+            self.covered_month_min_valid_days, "covered_month_min_valid_days", minimum=1
+        )
+        if days > 28:
+            raise _fail("covered_month_min_valid_days cannot exceed 28")
+        _text(self.coverage_rule, "coverage_rule")
 
 
 @dataclass(frozen=True, slots=True)
@@ -602,6 +629,24 @@ class MeasurementSpec:
             "increment_definition",
         ):
             _text(getattr(self, name), name)
+
+
+BASELINE_ROLES: Final = ("decisive_comparator", "reported_context")
+
+
+@dataclass(frozen=True, slots=True)
+class BaselineSpec:
+    """One baseline with its causal estimation rule and whether it can decide."""
+
+    baseline_id: str
+    role: str
+    definition: str
+
+    def __post_init__(self) -> None:
+        _text(self.baseline_id, "baseline_id")
+        if self.role not in BASELINE_ROLES:
+            raise _fail(f"baseline role must be one of {BASELINE_ROLES}")
+        _text(self.definition, f"baseline {self.baseline_id} definition")
 
 
 @dataclass(frozen=True, slots=True)
@@ -716,7 +761,7 @@ class SignalDiagnosisProtocol:
     costs: CostSpec
     bootstrap: BootstrapSpec
     multiple_testing: MultipleTestingSpec
-    baselines: tuple[str, ...]
+    baselines: tuple[BaselineSpec, ...]
     stability: StabilitySpec
     decision_rules: DecisionRules
     verdict_labels: tuple[str, ...]
@@ -741,7 +786,6 @@ class SignalDiagnosisProtocol:
         self._validate_families()
         _tuple(self.targets, "targets")
         _tuple(self.transforms, "transforms")
-        _unique_texts(self.baselines, "baselines")
         _unique_texts(self.verdict_labels, "verdict_labels")
         self._validate_cross_references()
         self._require_frozen_reference()
@@ -768,6 +812,7 @@ class SignalDiagnosisProtocol:
             ("families", FeatureFamily),
             ("targets", TargetSpec),
             ("transforms", TransformSpec),
+            ("baselines", BaselineSpec),
         ):
             items = _tuple(getattr(self, name), name)
             if any(not isinstance(item, element) for item in items):
@@ -819,10 +864,59 @@ class SignalDiagnosisProtocol:
                 raise _fail(f"decision_rules.{name} is not a declared cost multiplier")
         if rules.min_full_years_same_sign > len(self.stability.full_years):
             raise _fail("the year threshold exceeds the number of full years")
+        baseline_ids = [baseline.baseline_id for baseline in self.baselines]
+        if len(set(baseline_ids)) != len(baseline_ids):
+            raise _fail("baseline ids must be unique")
+        self._validate_stability_years()
         if self.budget.native_replay_verification_cap != self.budget.max_candidates:
             raise _fail("the replay cap must equal the candidate cap")
         if tuple(self.verdict_labels) != VERDICT_LABELS:
             raise _fail("verdict_labels must be the four preregistered labels")
+
+    def _validate_stability_years(self) -> None:
+        """A full year must be fully out of sample; the years must tile the OOS span.
+
+        Model decisions exist only from ``first_fit_time`` (the shared
+        ``PrequentialSchedule`` rejects earlier ones), so a calendar year that starts
+        before it cannot be a *full* stability year however its aggregate sign count
+        looks. The full and partial years together must be exactly the calendar years
+        the out-of-sample span touches.
+        """
+
+        stability = self.stability
+        first_fit = _parse_z(self.prequential.first_fit_time, "first_fit_time")
+        window_start = _parse_z(self.data.evaluation_start, "evaluation_start")
+        window_end = _parse_z(self.data.evaluation_end, "evaluation_end")
+        oos_start = max(first_fit, window_start)
+        if not window_start <= first_fit < window_end:
+            raise _fail("first_fit_time must lie inside the evaluation window")
+        for year in stability.full_years:
+            try:
+                begin = datetime(year, 1, 1, tzinfo=UTC)
+                finish = datetime(year + 1, 1, 1, tzinfo=UTC)
+            except ValueError as error:
+                raise _fail(f"full year {year} is not a calendar year") from error
+            if begin < oos_start:
+                raise _fail(
+                    f"full year {year} starts before the first usable fit "
+                    f"{_iso_z(oos_start)}; it can only be a partial year"
+                )
+            if finish > window_end:
+                raise _fail(
+                    f"full year {year} ends after the evaluation window "
+                    f"{_iso_z(window_end)}; it can only be a partial year"
+                )
+        touched = set(
+            range(oos_start.year, (window_end - timedelta(microseconds=1)).year + 1)
+        )
+        declared = set(stability.full_years) | set(
+            stability.partial_years_reported_only
+        )
+        if declared != touched:
+            raise _fail(
+                "full and partial years must partition the out-of-sample calendar "
+                f"years {sorted(touched)}, got {sorted(declared)}"
+            )
 
     def _require_frozen_reference(self) -> None:
         reference = _FROZEN_REFERENCES.get(self.schema_version)
@@ -1094,7 +1188,8 @@ _HYPOTHESES: Final = (
     (
         "H1",
         "At least one feature family has out-of-sample predictive power above the "
-        "drift baseline that survives removal of market beta.",
+        "drift baseline that remains after the same-time cross-sectional mean return "
+        "(the common level) is removed; heterogeneous market beta is not removed.",
     ),
     (
         "H0a",
@@ -1103,9 +1198,9 @@ _HYPOTHESES: Final = (
     ),
     (
         "H0b",
-        "Apparent predictive power is explained by market direction, a few extreme "
-        "days, concentration in particular years or symbols, or feature "
-        "non-stationarity such as a funding_bps drift.",
+        "Apparent predictive power is explained by the common cross-sectional level "
+        "or market direction, a few extreme days, concentration in particular years "
+        "or symbols, or feature non-stationarity such as a funding_bps drift.",
     ),
     (
         "H0c",
@@ -1122,6 +1217,8 @@ _CLAIM_FORBIDDEN: Final = (
     "final_evaluation",
     "live_trading",
     "production_eligibility",
+    "beta_robust_signal",
+    "beta_adjusted_alpha",
 )
 
 _LAYERS: Final = (
@@ -1142,9 +1239,11 @@ _TARGETS: Final = (
         "strategies/forecasts/supervised.py).",
     ),
     (
-        "beta_removed_cross_sectional_mean_residual",
+        "cross_sectionally_demeaned_forward_log_return",
         "r(i,t,h) minus the mean of r(j,t,h) over the symbols j that have a matured "
-        "label at t; no regression coefficient is estimated.",
+        "label at t; no regression coefficient is estimated. This removes only the "
+        "same-time cross-sectional mean (the common level); it does not remove "
+        "heterogeneous market beta, so no result on it is called beta-adjusted.",
     ),
     (
         "cost_adjusted_sign_payoff",
@@ -1152,6 +1251,52 @@ _TARGETS: Final = (
         "s * r(i,t,h) - |s| * round_trip_cost. D2 uses s = sign of the standardised "
         "feature; D3/D4 use s = sign of the forecast, taken only when |forecast| > "
         "k * round_trip_cost. Cost multipliers 1 and 2 are both computed.",
+    ),
+    (
+        "drift_excess_payoff",
+        "For a decision row and a cost multiplier m, the cost_adjusted_sign_payoff of "
+        "the signal policy minus the payoff of the drift_sign_policy_zero_cost "
+        "comparator on the same row at the same cost multiplier. It is averaged over "
+        "the rows of each UTC day and the 20-day moving-block bootstrap interval is "
+        "taken on that daily series. It is a payoff relative to a drift-following "
+        "policy, not a beta-adjusted alpha.",
+    ),
+)
+
+_BASELINES: Final = (
+    (
+        "zero_forecast",
+        "reported_context",
+        "The forecast is exactly 0 for every row; used for the MSE-skill context "
+        "only and never as a decisive comparator.",
+    ),
+    (
+        "drift_expanding_mean_monthly",
+        "decisive_comparator",
+        "Per symbol, the mean of all h-bar forward log returns whose label maturity "
+        "time is at or before the refit instant, over the same expanding window as "
+        "the model. It is recomputed at each refit instant (every refit_interval_days "
+        "from first_fit_time) and held constant until the next one; a row whose label "
+        "has not yet matured at the refit instant is not used and no label of a row "
+        "at or after the refit instant enters.",
+    ),
+    (
+        "drift_sign_policy_zero_cost",
+        "decisive_comparator",
+        "Position s = sign of the symbol's drift_expanding_mean_monthly forecast "
+        "(0 if it is exactly 0), taken on every eligible decision row and charged no "
+        "cost: a deliberately favourable comparator that approximates holding the "
+        "symbol. It is used only to define drift_excess_payoff.",
+    ),
+    (
+        "beta_regression_on_market_mean",
+        "reported_context",
+        "Context only; it never enters the verdict. Per symbol, the least-squares "
+        "slope (with intercept) of matured h-bar log returns on the matured "
+        "cross-sectional mean h-bar log return, over the same expanding window and "
+        "refit instants as the drift baseline, using only rows whose label matured "
+        "at or before the refit instant; a symbol with fewer than 720 matured rows "
+        "has no estimate and is reported as missing.",
     ),
 )
 
@@ -1174,7 +1319,7 @@ _TRANSFORMS: Final = (
 
 
 def _reference_payload() -> dict[str, object]:
-    """The frozen v1 payload, built from literals and the FS1 registry instants."""
+    """The frozen v2 payload, built from literals and the FS1 registry instants."""
 
     warmup_start = _iso_z(_WARMUP_START)
     expected_spans = _expected_spans()
@@ -1236,7 +1381,10 @@ def _reference_payload() -> dict[str, object]:
             "day_boundary": "00:00 UTC of the decision-time timestamp",
             "row_inclusion": "hourly rows of all five symbols whose features are "
             "available at the decision time and whose label has matured inside the "
-            "evaluation window; nothing is imputed",
+            "evaluation window, on the bar-close-time basis: for decision close time "
+            "t a row is eligible when evaluation_start < t and t + h bars <= "
+            "evaluation_end (a label closing exactly at evaluation_end is inside, a "
+            "later one is dropped); nothing is imputed",
             "skipped_days": "a day with fewer than two eligible rows or a constant "
             "score or target has no IC; such days are skipped and counted in the "
             "report, never filled",
@@ -1316,13 +1464,12 @@ def _reference_payload() -> dict[str, object]:
             "reported_test_families": ["decision_cells", "d2_feature_cells"],
         },
         "baselines": [
-            "zero_forecast",
-            "drift_expanding_mean_monthly",
-            "beta_regression_on_market_mean",
+            {"baseline_id": baseline_id, "role": role, "definition": text}
+            for baseline_id, role, text in _BASELINES
         ],
         "stability": {
             "full_years": list(FULL_YEARS),
-            "partial_years_reported_only": [2026],
+            "partial_years_reported_only": list(PARTIAL_YEARS),
             "year_basis": "calendar_year_utc_of_decision_time",
             "regime_lookback_days": 30,
             "regime_definition": "sign of the causal trailing 30-day cross-sectional "
@@ -1334,24 +1481,42 @@ def _reference_payload() -> dict[str, object]:
             "1% of days are excluded and the rank IC is recomputed",
             "reported_slices": ["year", "symbol", "regime", "extreme_day_exclusion"],
             "decisive_slices": ["year"],
+            "year_sign_statistic": "for a decision cell and a full year, the pooled "
+            "out-of-sample rank-IC increment over the drift baseline on the "
+            "persistence target (decision_rules.persistence_target_id) over the "
+            "decision rows whose UTC calendar year is that year; the year has the "
+            "required sign only if that increment is strictly greater than zero",
+            "min_covered_months_per_full_year": 12,
+            "covered_month_min_valid_days": 15,
+            "coverage_rule": "a UTC calendar month is covered for a decision cell "
+            "when it holds at least covered_month_min_valid_days days with a valid "
+            "daily rank-IC increment (a day skipped under measurement.skipped_days "
+            "is not valid); a full year is eligible only if at least "
+            "min_covered_months_per_full_year of its months are covered, and an "
+            "ineligible year does not count toward min_full_years_same_sign whatever "
+            "its sign; a year with fewer than that many covered months is reported "
+            "with its coverage, never filled, reweighted or replaced by a partial year",
         },
         "decision_rules": {
             "cell_unit": "family_x_model",
             "primary_horizon_bars": 24,
             "primary_transform_id": "train_window_standardise_clip3",
             "signal_target_id": "raw_forward_log_return",
-            "persistence_target_id": "beta_removed_cross_sectional_mean_residual",
-            "tradability_target_id": "cost_adjusted_sign_payoff",
+            "persistence_target_id": "cross_sectionally_demeaned_forward_log_return",
+            "tradability_target_id": "drift_excess_payoff",
             "primary_k": 1,
             "min_full_years_same_sign": 4,
             "candidate_ci_lower_floor": 0.0,
             "candidate_stress_point_floor": 0.0,
             "tradability_cost_multiplier": 1,
             "stress_cost_multiplier": 2,
-            "candidate_ranking": "alpha_ci_lower_cost_x1_desc_then_cell_id_asc",
+            "candidate_ranking": "drift_excess_ci_lower_cost_x1_desc_then_cell_id_asc",
             "unassigned_corner_resolutions": [
-                "significant and beta-robust but positive in fewer than four full "
-                "years is NO_SIGNAL (H0b: concentration in a few years)",
+                "significant on the raw and the cross-sectionally demeaned target but "
+                "positive in fewer than four eligible full years is NO_SIGNAL (H0b: "
+                "concentration in a few years)",
+                "a full year below the coverage floor is ineligible, so a cell with "
+                "fewer than four eligible positive full years is NO_SIGNAL",
                 "an interval that excludes zero at cost x1 but a non-positive point "
                 "at cost x2 is SIGNAL_NOT_TRADABLE",
                 "an interval wholly below zero at cost x1 is SIGNAL_NOT_TRADABLE",
@@ -1446,7 +1611,7 @@ def protocol_from_payload(payload: Mapping[str, object]) -> SignalDiagnosisProto
 
 
 def default_signal_diagnosis_protocol() -> SignalDiagnosisProtocol:
-    """The frozen ``signal_diagnosis_protocol_v1`` object."""
+    """The frozen ``signal_diagnosis_protocol_v2`` object."""
 
     return protocol_from_payload(_reference_payload())
 
@@ -1576,6 +1741,7 @@ __all__ = [
     "EXECUTION_STATUS",
     "FEATURE_CONFIG_DIGEST",
     "FULL_YEARS",
+    "PARTIAL_YEARS",
     "PROTOCOL_SCHEMA",
     "SCOPE_REAL",
     "SCOPE_SYNTHETIC",
@@ -1584,6 +1750,7 @@ __all__ = [
     "VERDICT_LABELS",
     "VERDICT_NOT_TRADABLE",
     "VERDICT_NO_SIGNAL",
+    "BaselineSpec",
     "BootstrapSpec",
     "BudgetSpec",
     "CostSpec",

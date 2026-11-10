@@ -9,12 +9,18 @@ primary horizon and transform. A cell has a signal only when all of these hold:
 
 * the out-of-sample rank IC increment over the drift baseline is positive and its
   Benjamini-Hochberg adjusted p-value is at most ``q`` (equality counts);
-* the same holds for the beta-removed target;
-* the sign of the pooled estimate agrees in at least four of the five full years.
+* the same holds for the cross-sectionally demeaned target (the same-time mean
+  return is removed; heterogeneous market beta is **not**);
+* the rank-IC increment on the demeaned target is positive in every eligible full
+  year (``min_full_years_same_sign`` of the protocol's full years). A full year is
+  eligible only if it has the protocol's minimum covered months; the start-up year
+  of the first fit and the truncated last year are partial, reported only, and are
+  refused as decisive evidence.
 
 Among signal cells, a cell is a *candidate* when the 95% interval of the after-cost
-alpha at cost x1 lies strictly above zero and the point estimate at cost x2 is
-strictly positive. At most ``max_candidates`` candidates are kept, ranked by the
+payoff relative to the zero-cost drift-sign policy at cost x1 lies strictly above
+zero and the point estimate at cost x2 is strictly positive. This is not a
+beta-adjusted alpha. At most ``max_candidates`` candidates are kept, ranked by the
 interval's lower bound (descending) and then by cell id. Even the best label is a
 known-used, post hoc screening label; it is never an edge, G4, G5 or live claim.
 """
@@ -26,7 +32,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from trade_rl.evaluation.signal_diagnosis.protocol import (
-    FULL_YEARS,
     VERDICT_CANDIDATE,
     VERDICT_INVALID,
     VERDICT_NO_SIGNAL,
@@ -58,6 +63,29 @@ def _probability(value: object, field: str) -> float:
 
 def _optional_real(value: object, field: str) -> float | None:
     return None if value is None else _real(value, field)
+
+
+@dataclass(frozen=True, slots=True)
+class YearStabilityEvidence:
+    """Saved D5 evidence of one decisive calendar year for one decision cell.
+
+    ``covered_months`` counts the UTC calendar months of the year in which the cell
+    has enough valid daily rank-IC increments (the protocol's coverage rule).
+    ``increment_positive`` is true only if the year's pooled rank-IC increment over
+    the drift baseline on the persistence target is strictly greater than zero.
+    """
+
+    year: int
+    covered_months: int
+    increment_positive: bool
+
+    def __post_init__(self) -> None:
+        if type(self.year) is not int or self.year < 1:
+            raise _fail("year must be a positive integer")
+        if type(self.covered_months) is not int or not 0 <= self.covered_months <= 12:
+            raise _fail("covered_months must be an integer in [0, 12]")
+        if type(self.increment_positive) is not bool:
+            raise _fail("increment_positive must be a boolean")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,23 +128,25 @@ class DecisionCellEvidence:
     """Saved evidence of one decision cell (family x model) at the primary settings.
 
     ``rank_ic_*`` are the out-of-sample rank IC increment over the drift baseline and
-    its BH-adjusted p-value on the raw target; ``beta_removed_*`` repeat them on the
-    beta-removed target. ``years_same_sign`` counts the full years whose sign agrees
-    with the pooled estimate. The three ``alpha_*`` values are the D4 after-cost
-    alpha (95% interval at cost x1, point at cost x2). They are required for a cell
-    that has a signal and may be absent for a cell that stopped at an upper layer.
+    its BH-adjusted p-value on the raw target; ``demeaned_*`` repeat them on the
+    cross-sectionally demeaned target. ``year_evidence`` is the complete D5 roster of
+    the protocol's full years; it may be empty only for a cell that does not clear
+    both significance tests. The three ``drift_excess_*`` values are the D4 after-cost
+    payoff relative to the zero-cost drift-sign policy (95% interval at cost x1,
+    point at cost x2). They are required for a cell that has a signal and may be
+    absent for a cell that stopped at an upper layer.
     """
 
     family_id: str
     model_id: str
     rank_ic_vs_drift: float
     rank_ic_bh_adjusted_p: float
-    beta_removed_rank_ic: float
-    beta_removed_bh_adjusted_p: float
-    years_same_sign: int
-    alpha_ci_lower_cost_x1: float | None
-    alpha_ci_upper_cost_x1: float | None
-    alpha_point_cost_x2: float | None
+    demeaned_rank_ic: float
+    demeaned_bh_adjusted_p: float
+    year_evidence: tuple[YearStabilityEvidence, ...]
+    drift_excess_ci_lower_cost_x1: float | None
+    drift_excess_ci_upper_cost_x1: float | None
+    drift_excess_point_cost_x2: float | None
 
     def __post_init__(self) -> None:
         for name in ("family_id", "model_id"):
@@ -125,14 +155,25 @@ class DecisionCellEvidence:
                 raise _fail(f"{name} must be non-empty text without ':'")
         _real(self.rank_ic_vs_drift, "rank_ic_vs_drift")
         _probability(self.rank_ic_bh_adjusted_p, "rank_ic_bh_adjusted_p")
-        _real(self.beta_removed_rank_ic, "beta_removed_rank_ic")
-        _probability(self.beta_removed_bh_adjusted_p, "beta_removed_bh_adjusted_p")
-        years = self.years_same_sign
-        if type(years) is not int or not 0 <= years <= len(FULL_YEARS):
-            raise _fail(f"years_same_sign must be an integer in [0, {len(FULL_YEARS)}]")
-        lower = _optional_real(self.alpha_ci_lower_cost_x1, "alpha_ci_lower_cost_x1")
-        upper = _optional_real(self.alpha_ci_upper_cost_x1, "alpha_ci_upper_cost_x1")
-        point = _optional_real(self.alpha_point_cost_x2, "alpha_point_cost_x2")
+        _real(self.demeaned_rank_ic, "demeaned_rank_ic")
+        _probability(self.demeaned_bh_adjusted_p, "demeaned_bh_adjusted_p")
+        evidence = self.year_evidence
+        if type(evidence) is not tuple or any(
+            not isinstance(item, YearStabilityEvidence) for item in evidence
+        ):
+            raise _fail("year_evidence must be a tuple of YearStabilityEvidence")
+        years = [item.year for item in evidence]
+        if len(set(years)) != len(years):
+            raise _fail("year_evidence must not repeat a year")
+        lower = _optional_real(
+            self.drift_excess_ci_lower_cost_x1, "drift_excess_ci_lower_cost_x1"
+        )
+        upper = _optional_real(
+            self.drift_excess_ci_upper_cost_x1, "drift_excess_ci_upper_cost_x1"
+        )
+        point = _optional_real(
+            self.drift_excess_point_cost_x2, "drift_excess_point_cost_x2"
+        )
         present = [value is not None for value in (lower, upper, point)]
         if any(present) and not all(present):
             raise _fail("D4 evidence must be fully present or fully absent")
@@ -145,7 +186,7 @@ class DecisionCellEvidence:
 
     @property
     def has_d4(self) -> bool:
-        return self.alpha_ci_lower_cost_x1 is not None
+        return self.drift_excess_ci_lower_cost_x1 is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,14 +208,64 @@ def decision_cell_ids(protocol: SignalDiagnosisProtocol) -> tuple[str, ...]:
     )
 
 
-def _has_signal(cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol) -> bool:
+def _is_significant(
+    cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol
+) -> bool:
     q = protocol.multiple_testing.bh_fdr_q
     return (
         cell.rank_ic_vs_drift > 0.0
         and cell.rank_ic_bh_adjusted_p <= q
-        and cell.beta_removed_rank_ic > 0.0
-        and cell.beta_removed_bh_adjusted_p <= q
-        and cell.years_same_sign >= protocol.decision_rules.min_full_years_same_sign
+        and cell.demeaned_rank_ic > 0.0
+        and cell.demeaned_bh_adjusted_p <= q
+    )
+
+
+def _check_year_roster(
+    cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol
+) -> None:
+    """Year evidence is the complete full-year roster or absent; never a partial year."""
+
+    years = [item.year for item in cell.year_evidence]
+    if not years:
+        return
+    stability = protocol.stability
+    partial = sorted(set(years) & set(stability.partial_years_reported_only))
+    if partial:
+        raise _fail(
+            f"cell {cell.cell_id}: partial year(s) {partial} are reported only and "
+            "cannot be decisive year evidence"
+        )
+    unknown = sorted(set(years) - set(stability.full_years))
+    if unknown:
+        raise _fail(f"cell {cell.cell_id}: year(s) {unknown} are not full years")
+    missing = sorted(set(stability.full_years) - set(years))
+    if missing:
+        raise _fail(f"cell {cell.cell_id}: missing full-year evidence for {missing}")
+
+
+def _eligible_positive_years(
+    cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol
+) -> int:
+    floor = protocol.stability.min_covered_months_per_full_year
+    return sum(
+        1
+        for item in cell.year_evidence
+        if item.covered_months >= floor and item.increment_positive
+    )
+
+
+def _has_ineligible_year(
+    cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol
+) -> bool:
+    floor = protocol.stability.min_covered_months_per_full_year
+    return any(item.covered_months < floor for item in cell.year_evidence)
+
+
+def _has_signal(cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol) -> bool:
+    return (
+        _is_significant(cell, protocol)
+        and _eligible_positive_years(cell, protocol)
+        >= protocol.decision_rules.min_full_years_same_sign
     )
 
 
@@ -182,8 +273,8 @@ def _is_candidate(
     cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol
 ) -> bool:
     rules = protocol.decision_rules
-    lower = cell.alpha_ci_lower_cost_x1
-    point = cell.alpha_point_cost_x2
+    lower = cell.drift_excess_ci_lower_cost_x1
+    point = cell.drift_excess_point_cost_x2
     if lower is None or point is None:
         raise _fail(f"D4 evidence is missing for signal cell {cell.cell_id}")
     return (
@@ -243,6 +334,10 @@ def classify_signal_diagnosis(
     by_id = _check_roster(protocol, cells)
     ordered = [by_id[cell_id] for cell_id in decision_cell_ids(protocol)]
 
+    for cell in ordered:
+        _check_year_roster(cell, protocol)
+        if _is_significant(cell, protocol) and not cell.year_evidence:
+            raise _fail(f"year evidence is missing for significant cell {cell.cell_id}")
     signal_cells = [cell for cell in ordered if _has_signal(cell, protocol)]
     for cell in signal_cells:
         if not cell.has_d4:
@@ -250,16 +345,29 @@ def classify_signal_diagnosis(
     signal_ids = tuple(cell.cell_id for cell in signal_cells)
     q = protocol.multiple_testing.bh_fdr_q
     years = protocol.decision_rules.min_full_years_same_sign
+    floor = protocol.stability.min_covered_months_per_full_year
     if not signal_cells:
+        reasons = [
+            "no decision cell is positive and BH-significant (q="
+            f"{q}) on both the raw and the cross-sectionally demeaned target with a "
+            f"positive demeaned rank-IC increment in at least {years} eligible full "
+            "years"
+        ]
+        short = [
+            cell.cell_id
+            for cell in ordered
+            if _is_significant(cell, protocol) and _has_ineligible_year(cell, protocol)
+        ]
+        if short:
+            reasons.append(
+                f"coverage: {len(short)} significant cell(s) have a full year with "
+                f"fewer than {floor} covered months, which does not count"
+            )
         return VerdictResult(
             verdict=VERDICT_NO_SIGNAL,
             signal_cell_ids=(),
             candidate_cell_ids=(),
-            reasons=(
-                "no decision cell is positive and BH-significant (q="
-                f"{q}) on both the raw and the beta-removed target with the same "
-                f"sign in at least {years} full years",
-            ),
+            reasons=tuple(reasons),
             claim_ceiling=ceiling,
         )
 
@@ -270,16 +378,17 @@ def classify_signal_diagnosis(
             signal_cell_ids=signal_ids,
             candidate_cell_ids=(),
             reasons=(
-                f"{len(signal_cells)} signal cell(s); none has an after-cost alpha "
-                "interval strictly above zero at cost x1 together with a positive "
-                "point estimate at cost x2",
+                f"{len(signal_cells)} signal cell(s); none has an after-cost "
+                "payoff interval relative to the zero-cost drift-sign policy strictly "
+                "above zero at cost x1 together with a positive point estimate at "
+                "cost x2",
             ),
             claim_ceiling=ceiling,
         )
 
     ranked = sorted(
         qualifying,
-        key=lambda cell: (-(cell.alpha_ci_lower_cost_x1 or 0.0), cell.cell_id),
+        key=lambda cell: (-(cell.drift_excess_ci_lower_cost_x1 or 0.0), cell.cell_id),
     )
     cap = protocol.budget.max_candidates
     kept = ranked[:cap]
@@ -305,6 +414,7 @@ __all__ = [
     "DecisionCellEvidence",
     "ValidityFlags",
     "VerdictResult",
+    "YearStabilityEvidence",
     "classify_signal_diagnosis",
     "decision_cell_ids",
 ]

@@ -129,7 +129,9 @@ def test_current_docs_record_the_protocol_and_the_planned_not_executed_status() 
     digest = protocol_digest(default_signal_diagnosis_protocol())
 
     assert "evaluation/signal_diagnosis/" in boundaries
-    assert "report/issue1146-sd0-signal-diagnosis-protocol-20261106.json" in boundaries
+    assert (
+        "report/issue1146-sd0-signal-diagnosis-protocol-v2-20261110.json" in boundaries
+    )
     assert "signal_diagnosis/{__init__.py,protocol.py,verdict.py}" in boundaries
     assert "## Research-specific contract: signal diagnosis SD0" in assurance
     for heading in (

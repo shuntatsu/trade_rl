@@ -21,12 +21,13 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
     protocol_digest,
 )
 
-REPORT_PATH = "report/issue1146-sd0-signal-diagnosis-protocol-20261106.json"
+REPORT_PATH = "report/issue1146-sd0-signal-diagnosis-protocol-v2-20261110.json"
 ISSUE_URL = "https://github.com/shuntatsu/trade_rl/issues/1146"
 SD1_ORACLES = (
     "planted-signal recovery",
     "shuffled-future null with FDR control",
-    "beta-only market with residual IC near zero",
+    "common-level-only market with demeaned IC near zero, plus a heterogeneous-beta "
+    "control that documents what demeaning does not remove",
     "tail-only signal with rank-versus-linear IC divergence",
 )
 CITED_TESTS = (
@@ -40,14 +41,15 @@ def build_author_packet(head: str) -> dict[str, object]:
     """The SD0 G0-G2 author packet bound to ``head`` and the protocol digest."""
 
     digest = protocol_digest(default_signal_diagnosis_protocol())
-    bound = f"signal_diagnosis_protocol_v1 (SHA-256 {digest}, {REPORT_PATH})"
+    bound = f"signal_diagnosis_protocol_v2 (SHA-256 {digest}, {REPORT_PATH})"
     return {
         "schema_version": "research_assurance_v1",
         "identity": {"protocol_head": head, "implementation_head": head},
         "thesis": {
             "final_decision": (
                 "Objective: determine whether the current feature families carry a "
-                "predictive signal that is stable, survives beta removal and exceeds "
+                "predictive signal that is stable, survives removal of the same-time "
+                "cross-sectional mean (not heterogeneous market beta) and exceeds "
                 "round-trip cost, before any new learner is tried (Issue #1146, "
                 f"protocol digest {digest}), and decide whether to implement SD1 "
                 "(synthetic measurement tools and oracles) and later ask the owner "
@@ -63,9 +65,13 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "preregistered feature family has out-of-sample rank-IC predictive "
                 "power above the drift baseline (expanding mean, monthly update) at "
                 "the 24-bar horizon that remains after removing the same-time "
-                "cross-sectional mean (market beta), keeps its sign in at least four "
-                "of the five full calendar years 2021-2025, and under a simple "
-                "threshold rule earns an after-cost alpha whose 95% 20-day "
+                "cross-sectional mean (the common level; heterogeneous market beta is "
+                "not removed), has a positive increment in each of the four full "
+                "calendar years 2022-2025 (2021, whose model decisions start in "
+                "April, and the truncated 2026 are partial and reported only, and a "
+                "full year counts only with 12 covered months), and under a simple "
+                "threshold rule earns an after-cost payoff relative to a zero-cost "
+                "drift-sign policy (not a beta-adjusted alpha) whose 95% 20-day "
                 "moving-block-bootstrap interval excludes zero at 1x round-trip cost "
                 "and whose point estimate is positive at 2x. Frozen as "
                 f"{bound}. Dataset id {DATASET_ID}. Reused-development evidence only: "
@@ -79,20 +85,22 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "momentum or reversal, trend, volatility and range state, volume "
                 "and flow, funding and crowding, cross-asset relative strength), a "
                 "time-ordered out-of-sample fit should rank future returns better "
-                "than the drift baseline even after the market-wide component is "
-                "removed, and a large enough forecast should pay for the round "
+                "than the drift baseline even after the same-time cross-sectional "
+                "mean is removed, and a large enough forecast should pay for the round "
                 "trip. The diagnosis does not assume any mechanism is true; it "
                 "tests whether any information survives before a new learner is "
                 "tried"
             ),
             "counter_hypothesis": (
                 "Counterfactuals: the drift baseline (expanding mean, monthly update), "
-                "the beta-removed target, the year, regime and extreme-day slices and "
-                "the SD1 shuffled-future null separate a real signal from its "
+                "the cross-sectionally demeaned target, the year, regime and "
+                "extreme-day slices and the SD1 shuffled-future null separate a real "
+                "signal from its "
                 "alternatives. H0a: predictive power is indistinguishable from the drift baseline, "
                 "so the #1025 outcome is explained on the data side. H0b: apparent "
-                "predictive power is explained by market direction, a few extreme "
-                "days, concentration in particular years or symbols, or feature "
+                "predictive power is explained by the common cross-sectional level "
+                "or market direction, a few extreme days, concentration in particular "
+                "years or symbols, or feature "
                 "non-stationarity such as a funding_bps drift. H0c: a statistical "
                 "signal exists but does not exceed round-trip cost"
             ),
@@ -133,8 +141,10 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "Primary metric: the out-of-sample daily rank-IC increment over the "
                 "drift baseline with Benjamini-Hochberg adjustment (q = 0.10; Holm "
                 "FWER also reported). Guardrails: the same increment must hold on "
-                "the beta-removed target, keep its sign in four of five full "
-                "calendar years, and a simple after-cost threshold-rule alpha "
+                "cross-sectionally demeaned target and be positive in each of the "
+                "four full calendar years 2022-2025 (each with 12 months of at least "
+                "15 valid daily increments), and a simple after-cost threshold-rule "
+                "payoff relative to a zero-cost drift-sign policy "
                 "(fee 5 bp plus spread 2 bp per side, round trip 14 bp) must have a "
                 "20-day moving-block-bootstrap interval (2000 resamples, seed 0, "
                 "95%) excluding zero at cost x1 and a positive point at cost x2. "
@@ -154,7 +164,7 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "Known-used and post hoc: the development dataset was consumed by "
                 "earlier studies and the plan author has seen recorded aggregate "
                 "results on it (#1025 TD8, the M38 forecast diagnostic and a local "
-                "breakeven report) which motivated the beta and tail checks, so "
+                "breakeven report) which motivated the demeaning and tail checks, so "
                 "the protocol is not blind to those aggregates and no result can be "
                 "an out-of-sample or unused-data claim. SD2 and later real-data "
                 "execution needs a separate owner G4 lease; SD0 implements no "
@@ -167,7 +177,16 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "24-bar horizon with the standardise-and-clip transform and k = 1; "
                 "BH is applied over the 16 decision cells; the cost-adjusted sign "
                 "payoff target is the net payoff of a unit signed position; the "
-                "first fit is 2021-04-01 so 2021 is partly covered; 30 days stands "
+                "first fit is 2021-04-01 so 2021 is a partial reported-only year and "
+                "all four full years 2022-2025 must be positive (four of four, "
+                "stricter than the plan's four of five, fixed result-blind after the "
+                "review findings; a year with fewer than 12 covered months of at "
+                "least 15 valid daily increments is ineligible and fails closed to "
+                "NO_SIGNAL); the demeaned target removes only the common level and "
+                "not heterogeneous market beta, and the beta-regression baseline is "
+                "reported context that never decides; the drift-sign comparator is "
+                "charged no cost, a deliberately favourable choice, and the D4 "
+                "payoff relative to it is not a beta-adjusted alpha; 30 days stands "
                 "for monthly; the inner CV has 5 forward-chaining folds purged by "
                 "the label horizon; daily IC is pooled over the day's rows; "
                 "families are defined by indicator kind and are arbitrary; five "
@@ -197,9 +216,11 @@ def build_author_packet(head: str) -> dict[str, object]:
                 ),
                 "time": (
                     "dataset available_at not later than the decision timestamp; a "
-                    "label is usable only after t+h matures inside the window; the "
-                    "window ends where the FS1 warm-up span begins, derived from "
-                    "the FS1 registry"
+                    "label is usable only after t+h matures inside the window on the "
+                    "bar-close-time basis; the window ends where the FS1 warm-up span "
+                    "begins, derived from the FS1 registry; a decisive stability year "
+                    "must start at or after the first usable fit and end inside the "
+                    "window"
                 ),
                 "state": (
                     "no account or book state; the diagnosis is at signal level "
@@ -207,8 +228,9 @@ def build_author_packet(head: str) -> dict[str, object]:
                 ),
                 "sign": (
                     "positive rank-IC increment over the drift baseline on the raw "
-                    "and the beta-removed target; payoff is signed position times "
-                    "return minus absolute position times round-trip cost"
+                    "and the cross-sectionally demeaned target; payoff is signed "
+                    "position times return minus absolute position times round-trip "
+                    "cost, and D4 compares it with a zero-cost drift-sign policy"
                 ),
                 "risk": (
                     "no risk layer or sizing; unit exposure only; hard risk is "
@@ -236,14 +258,18 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "No evaluation window, label maturity or run request may "
                         "reach the FS1 warm-up span [2026-08-01T00:00Z, "
                         "2026-11-01T00:00Z) or the sealed window from "
-                        "2026-11-01T00:00Z, and labels must mature inside the "
-                        "window"
+                        "2026-11-01T00:00Z, labels must mature inside the window, and "
+                        "a full stability year must lie wholly inside the out-of-sample "
+                        "span that starts at the first usable fit"
                     ),
                     "counterexample": (
                         "A window ending one second after 2026-08-01T00:00Z, a "
                         "window covering the whole warm-up span, a window starting "
                         "at 2026-11-01, a naive datetime, a real_development "
-                        "request without an authorization digest"
+                        "request without an authorization digest, a protocol that "
+                        "lists 2021 (first fit in April) as a full year, a decisive "
+                        "year with 11 covered months, a partial year supplied as "
+                        "decisive evidence"
                     ),
                     "oracle": (
                         "tests/evaluation/test_signal_diagnosis_protocol.py "
@@ -267,13 +293,16 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "sign": {
                     "statement": (
                         "A signal needs a positive rank-IC increment on both the "
-                        "raw and the beta-removed target; the beta-removed target "
-                        "subtracts the same-time cross-sectional mean; rank IC and "
-                        "linear IC are separate statistics"
+                        "raw and the cross-sectionally demeaned target; the "
+                        "demeaned target subtracts the same-time cross-sectional "
+                        "mean and does not remove heterogeneous market beta; rank IC "
+                        "and linear IC are separate statistics"
                     ),
                     "counterexample": (
                         "A synthetic market where every symbol follows one common "
-                        "factor with no idiosyncratic signal; a planted "
+                        "factor with equal loading and no idiosyncratic signal; the "
+                        "same market with unequal loadings (the demeaned target keeps "
+                        "a residual, which the control documents); a planted "
                         "idiosyncratic signal; a signal present only in the "
                         "largest 1% of moves; labels shuffled in time"
                     ),
@@ -282,14 +311,15 @@ def build_author_packet(head: str) -> dict[str, object]:
                         + "; ".join(SD1_ORACLES)
                         + ". SD0 checks only, on hand-written numbers in "
                         "tests/evaluation/test_signal_diagnosis_verdict.py, that "
-                        "the rule rejects a cell whose beta-removed IC is zero, "
+                        "the rule rejects a cell whose demeaned IC is zero, "
                         "negative or not BH-significant"
                     ),
                     "known_limitations": (
                         "The four SD1 oracles are specified here and not "
                         "implemented in SD0; synthetic markets cannot show that "
                         "real beta, tails or non-stationarity behave like the "
-                        "synthetic ones"
+                        "synthetic ones; a heterogeneous-beta residual in the "
+                        "decisive target is a known, documented limit of v2"
                     ),
                 },
                 "execution": {
@@ -297,7 +327,8 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "The after-cost screen charges fee 5 bp plus spread 2 bp "
                         "per side (round trip 14 bp) at cost multipliers 1 and 2, "
                         "only when the forecast exceeds k times the round-trip "
-                        "cost, and charges nothing while flat"
+                        "cost, and charges nothing while flat; the comparator "
+                        "drift-sign policy is charged nothing"
                     ),
                     "counterexample": (
                         "A zero-cost or one-sided-cost rule, a rule that trades "
@@ -315,7 +346,7 @@ def build_author_packet(head: str) -> dict[str, object]:
                     "known_limitations": (
                         "A simple cost model without impact, funding, borrow, "
                         "latency, capacity or a risk layer, and not the canonical "
-                        "ledger; an after-cost screening alpha is not a P&L and a "
+                        "ledger; an after-cost screening payoff is not a P&L and a "
                         "candidate would still need native replay and a "
                         "prospective test"
                     ),
@@ -339,9 +370,11 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "claim-field refusal, frozen-reference rejection, empty and "
                         "altered grids) and tests/evaluation/"
                         "test_signal_diagnosis_verdict.py (every verdict boundary "
-                        "with hand-written numbers: BH q equality, four of five "
-                        "years, interval lower bound exactly zero, strictly "
-                        "positive 2x point, candidate cap and ranking)"
+                        "with hand-written numbers: BH q equality, four of four "
+                        "eligible full years, the 12-month coverage floor, refusal "
+                        "of a partial start-up year, interval lower bound exactly "
+                        "zero, strictly positive 2x point, candidate cap and "
+                        "ranking)"
                     ),
                     "known_limitations": (
                         "Software-level on synthetic inputs; a frozen digest proves "
@@ -400,6 +433,9 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "cap after any result is seen without a new protocol version and a "
                 "recorded exploration history",
                 "reading a SIGNAL_CANDIDATE label as an edge",
+                "calling any result beta-robust or beta-adjusted: the decisive target "
+                "removes only the same-time cross-sectional mean, and the D4 payoff is "
+                "relative to a zero-cost drift-sign policy, not a beta-adjusted alpha",
             ],
             "next_authorized_action": (
                 "SD1 synthetic measurement tools and oracles (synthetic "
@@ -416,9 +452,11 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "protocol digest mismatch, an available_at violation or contact "
                 "with the FS1 warm-up span or sealed window occurs; NO_SIGNAL if no "
                 "family-by-model cell is positive and BH-significant (q = 0.10) on "
-                "both the raw and the beta-removed target with the same sign in at "
-                "least four of five full years; SIGNAL_NOT_TRADABLE if signal cells "
-                "exist but none has a cost-x1 alpha interval strictly above zero "
+                "both the raw and the cross-sectionally demeaned target with a "
+                "positive demeaned increment in all four eligible full years "
+                "2022-2025; SIGNAL_NOT_TRADABLE if signal cells "
+                "exist but none has a cost-x1 interval of the payoff relative to the "
+                "zero-cost drift-sign policy strictly above zero "
                 "with a positive cost-x2 point; SIGNAL_CANDIDATE otherwise, keeping "
                 "at most three cells ranked by interval lower bound. Every label "
                 "stays known-used exploratory screening and is never an edge"

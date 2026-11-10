@@ -47,9 +47,10 @@ from trade_rl.strategies.forecasts.ridge import fit_ridge_forecast_from_training
 from trade_rl.strategies.forecasts.supervised import CausalForecastTrainingSet
 
 ROOT = Path(__file__).resolve().parents[2]
-REPORT = ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-20261106.json"
+REPORT = ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-v2-20261110.json"
+V1_BLOCKED_DIGEST = "7c353bf45feea49aa421172f6a8df4d9ed39789585d438c7a4b57d1409e5dfc9"
 PINNED_PROTOCOL_DIGEST = (
-    "7c353bf45feea49aa421172f6a8df4d9ed39789585d438c7a4b57d1409e5dfc9"
+    "7a550e789ce76fb2bfb598a9e1bc087bfc4ba30747ff0f845b2b79f51ff8f570"
 )
 SHA_A = "a" * 64
 
@@ -108,7 +109,8 @@ def test_default_protocol_is_frozen_and_its_digest_is_pinned() -> None:
     protocol = default_signal_diagnosis_protocol()
     raw = protocol_canonical_bytes(protocol)
 
-    assert protocol.schema_version == PROTOCOL_SCHEMA == "signal_diagnosis_protocol_v1"
+    assert protocol.schema_version == PROTOCOL_SCHEMA == "signal_diagnosis_protocol_v2"
+    assert protocol_digest(protocol) != V1_BLOCKED_DIGEST
     assert protocol_digest(protocol) == hashlib.sha256(raw).hexdigest()
     assert protocol_digest(protocol) == PINNED_PROTOCOL_DIGEST
     assert default_signal_diagnosis_protocol() == protocol
@@ -259,8 +261,9 @@ def test_grids_equal_the_values_fixed_in_issue_1146() -> None:
     assert protocol.stability.decisive_slices == ("year",)
     assert [t.target_id for t in protocol.targets] == [
         "raw_forward_log_return",
-        "beta_removed_cross_sectional_mean_residual",
+        "cross_sectionally_demeaned_forward_log_return",
         "cost_adjusted_sign_payoff",
+        "drift_excess_payoff",
     ]
     assert [t.transform_id for t in protocol.transforms] == [
         "raw",
@@ -289,13 +292,14 @@ def test_grids_equal_the_values_fixed_in_issue_1146() -> None:
     assert protocol.multiple_testing.holm_fwer_alpha == 0.05
     assert protocol.multiple_testing.bh_fdr_q == 0.10
     assert protocol.multiple_testing.decision_procedure == "bh_fdr"
-    assert protocol.stability.full_years == (2021, 2022, 2023, 2024, 2025)
-    assert protocol.stability.partial_years_reported_only == (2026,)
+    assert protocol.stability.full_years == (2022, 2023, 2024, 2025)
+    assert protocol.stability.partial_years_reported_only == (2021, 2026)
     assert protocol.stability.regime_lookback_days == 30
     assert protocol.stability.extreme_day_trim_fraction_per_tail == 0.01
-    assert [b for b in protocol.baselines] == [
+    assert [b.baseline_id for b in protocol.baselines] == [
         "zero_forecast",
         "drift_expanding_mean_monthly",
+        "drift_sign_policy_zero_cost",
         "beta_regression_on_market_mean",
     ]
 
@@ -319,9 +323,13 @@ def test_decision_rules_and_budget_fix_the_section_5_and_6_thresholds() -> None:
     assert rules.primary_horizon_bars == 24
     assert rules.primary_transform_id == "train_window_standardise_clip3"
     assert rules.signal_target_id == "raw_forward_log_return"
-    assert rules.persistence_target_id == "beta_removed_cross_sectional_mean_residual"
-    assert rules.tradability_target_id == "cost_adjusted_sign_payoff"
-    assert rules.candidate_ranking == "alpha_ci_lower_cost_x1_desc_then_cell_id_asc"
+    assert (
+        rules.persistence_target_id == "cross_sectionally_demeaned_forward_log_return"
+    )
+    assert rules.tradability_target_id == "drift_excess_payoff"
+    assert (
+        rules.candidate_ranking == "drift_excess_ci_lower_cost_x1_desc_then_cell_id_asc"
+    )
     assert budget.single_run is True
     assert budget.save_all_cells is True
     assert budget.post_result_additions_allowed is False
@@ -546,10 +554,12 @@ def test_grids_cannot_be_empty(mutate: Any) -> None:
         lambda p: p["multiple_testing"].__setitem__("bh_fdr_q", 0.05),
         lambda p: p["decision_rules"].__setitem__("min_full_years_same_sign", 3),
         lambda p: p["budget"].__setitem__("max_candidates", 4),
-        lambda p: p["stability"].__setitem__("full_years", [2022, 2023, 2024, 2025]),
+        lambda p: p["stability"].__setitem__("full_years", [2022, 2023, 2024]),
+        lambda p: p["stability"].__setitem__("min_covered_months_per_full_year", 9),
+        lambda p: p["stability"].__setitem__("covered_month_min_valid_days", 10),
         lambda p: p["families"][1]["feature_names"].pop(),
         lambda p: p["data"].__setitem__("evaluation_end", "2026-09-01T00:00:00Z"),
-        lambda p: p.__setitem__("schema_version", "signal_diagnosis_protocol_v2"),
+        lambda p: p.__setitem__("schema_version", "signal_diagnosis_protocol_v3"),
     ],
     ids=[
         "primary_horizon",
@@ -565,6 +575,8 @@ def test_grids_cannot_be_empty(mutate: Any) -> None:
         "year_threshold",
         "candidate_cap",
         "full_years",
+        "coverage_months",
+        "coverage_days",
         "family_member",
         "window_end",
         "schema_version",
@@ -582,7 +594,7 @@ def test_direct_construction_cannot_alter_a_frozen_grid() -> None:
     protocol = default_signal_diagnosis_protocol()
 
     with pytest.raises(SignalDiagnosisProtocolError, match="new protocol version"):
-        replace(protocol, baselines=("zero_forecast",))
+        replace(protocol, baselines=protocol.baselines[:1])
     with pytest.raises(SignalDiagnosisProtocolError):
         replace(protocol.horizons, secondary_bars=())
     with pytest.raises(SignalDiagnosisProtocolError):
@@ -869,3 +881,162 @@ def test_first_fit_partial_calendar_year_cannot_count_as_full_stability_year() -
     assert protocol.decision_rules.min_full_years_same_sign == len(
         protocol.stability.full_years
     )
+
+
+def test_a_full_stability_year_must_start_at_or_after_the_first_usable_fit() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    stability = replace(
+        protocol.stability,
+        full_years=(2021, 2022, 2023, 2024, 2025),
+        partial_years_reported_only=(2026,),
+    )
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="first usable fit"):
+        replace(protocol, stability=stability)
+
+
+def test_a_full_stability_year_must_end_inside_the_evaluation_window() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    stability = replace(
+        protocol.stability,
+        full_years=(2022, 2023, 2024, 2025, 2026),
+        partial_years_reported_only=(2021,),
+    )
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="evaluation window"):
+        replace(protocol, stability=stability)
+
+
+def test_full_and_partial_years_must_partition_the_out_of_sample_span() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    # 2021 (first fit in April) and 2026 (window ends in August) are the partial years.
+    dropped = replace(protocol.stability, partial_years_reported_only=(2026,))
+    invented = replace(
+        protocol.stability, partial_years_reported_only=(2021, 2026, 2019)
+    )
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="partition"):
+        replace(protocol, stability=dropped)
+    with pytest.raises(SignalDiagnosisProtocolError, match="partition"):
+        replace(protocol, stability=invented)
+
+
+def test_year_eligibility_is_a_fixed_coverage_rule_not_a_result_choice() -> None:
+    stability = default_signal_diagnosis_protocol().stability
+
+    assert stability.min_covered_months_per_full_year == 12
+    assert stability.covered_month_min_valid_days == 15
+    for needle in (
+        "UTC calendar month",
+        "valid daily rank-IC increment",
+        "fewer than",
+        "does not count",
+    ):
+        assert needle in stability.coverage_rule, needle
+    # The year sign is taken on the decisive (demeaned) persistence target only.
+    protocol = default_signal_diagnosis_protocol()
+    assert "persistence target" in stability.year_sign_statistic
+    assert "strictly greater than zero" in stability.year_sign_statistic
+    assert protocol.decision_rules.persistence_target_id in {
+        t.target_id for t in protocol.targets
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda s: replace(s, min_covered_months_per_full_year=0),
+        lambda s: replace(s, min_covered_months_per_full_year=13),
+        lambda s: replace(s, covered_month_min_valid_days=0),
+        lambda s: replace(s, covered_month_min_valid_days=29),
+    ],
+    ids=["months_zero", "months_over_twelve", "days_zero", "days_over_28"],
+)
+def test_coverage_rule_bounds_are_validated(mutate: Any) -> None:
+    with pytest.raises(SignalDiagnosisProtocolError):
+        mutate(default_signal_diagnosis_protocol().stability)
+
+
+def test_v1_is_not_loadable_and_its_blocked_digest_is_not_reused() -> None:
+    payload = _payload()
+    payload["schema_version"] = "signal_diagnosis_protocol_v1"
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="unsupported protocol"):
+        protocol_from_payload(payload)
+    assert PINNED_PROTOCOL_DIGEST != V1_BLOCKED_DIGEST
+
+
+def test_the_decisive_target_is_named_for_what_it_computes() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    target = next(
+        t
+        for t in protocol.targets
+        if t.target_id == protocol.decision_rules.persistence_target_id
+    )
+    definition = target.definition.lower()
+
+    assert "cross-sectional mean" in definition
+    assert "no regression coefficient" in definition
+    assert "does not remove heterogeneous market beta" in definition
+    text = protocol_canonical_bytes(protocol).decode("utf-8").lower()
+    for stale in ("beta_removed", "beta-removed", "beta-robust", "survives removal"):
+        assert stale not in text, stale
+    assert {"beta_robust_signal", "beta_adjusted_alpha"} <= set(
+        protocol.forbidden_claims
+    )
+
+
+def test_d4_excess_payoff_is_defined_against_a_zero_cost_drift_policy() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    targets = {t.target_id: t.definition for t in protocol.targets}
+    baselines = {b.baseline_id: b for b in protocol.baselines}
+    excess = targets["drift_excess_payoff"]
+
+    assert protocol.decision_rules.tradability_target_id == "drift_excess_payoff"
+    assert "same row" in excess and "same cost multiplier" in excess
+    assert "drift_sign_policy_zero_cost" in excess
+    assert "not a beta-adjusted alpha" in excess
+    assert baselines["drift_sign_policy_zero_cost"].role == "decisive_comparator"
+    assert "charged no cost" in baselines["drift_sign_policy_zero_cost"].definition
+    assert baselines["drift_expanding_mean_monthly"].role == "decisive_comparator"
+    assert baselines["zero_forecast"].role == "reported_context"
+    assert baselines["beta_regression_on_market_mean"].role == "reported_context"
+
+
+def test_baselines_are_causal_with_explicit_update_and_availability_rules() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    drift = next(
+        b for b in protocol.baselines if b.baseline_id == "drift_expanding_mean_monthly"
+    )
+    beta = next(
+        b
+        for b in protocol.baselines
+        if b.baseline_id == "beta_regression_on_market_mean"
+    )
+
+    assert "label maturity" in drift.definition
+    assert "refit instant" in drift.definition
+    assert "not yet matured" in drift.definition
+    assert "never enters the verdict" in beta.definition
+    assert "720" in beta.definition  # explicit minimum sample, else no estimate
+
+
+def test_row_inclusion_rule_is_stated_on_the_bar_close_time_basis() -> None:
+    measurement = default_signal_diagnosis_protocol().measurement
+    rule = measurement.row_inclusion
+
+    assert "close time t" in rule
+    assert "evaluation_start < t" in rule
+    assert "t + h bars <= evaluation_end" in rule
+
+
+def test_a_label_closing_exactly_at_the_window_end_is_inside_one_bar_later_is_not() -> (
+    None
+):
+    protocol = default_signal_diagnosis_protocol()
+    end = datetime.fromisoformat(protocol.data.evaluation_end[:-1] + "+00:00")
+    bar = timedelta(hours=protocol.horizons.bar_hours)
+
+    reject_forbidden_window(end - timedelta(days=1), end)  # t + h == end
+    with pytest.raises(ForbiddenEvaluationWindowError):
+        reject_forbidden_window(end - timedelta(days=1), end + bar)

@@ -19,12 +19,14 @@ from trade_rl.evaluation.signal_diagnosis.verdict import (
     DecisionCellEvidence,
     ValidityFlags,
     VerdictResult,
+    YearStabilityEvidence,
     classify_signal_diagnosis,
     decision_cell_ids,
 )
 
 PROTOCOL = default_signal_diagnosis_protocol()
 CELL_IDS = decision_cell_ids(PROTOCOL)
+FULL_YEARS = PROTOCOL.stability.full_years
 CLEAN = ValidityFlags(
     leakage_detected=False,
     dataset_identity_mismatch=False,
@@ -34,6 +36,19 @@ CLEAN = ValidityFlags(
 )
 
 
+def _years(
+    positive: tuple[bool, ...] = (True, True, True, True),
+    *,
+    months: tuple[int, ...] = (12, 12, 12, 12),
+) -> tuple[YearStabilityEvidence, ...]:
+    return tuple(
+        YearStabilityEvidence(
+            year=year, covered_months=covered, increment_positive=is_positive
+        )
+        for year, is_positive, covered in zip(FULL_YEARS, positive, months, strict=True)
+    )
+
+
 def _no_signal_cell(cell_id: str) -> DecisionCellEvidence:
     family_id, model_id = cell_id.split(":")
     return DecisionCellEvidence(
@@ -41,12 +56,12 @@ def _no_signal_cell(cell_id: str) -> DecisionCellEvidence:
         model_id=model_id,
         rank_ic_vs_drift=0.001,
         rank_ic_bh_adjusted_p=0.60,
-        beta_removed_rank_ic=0.001,
-        beta_removed_bh_adjusted_p=0.70,
-        years_same_sign=2,
-        alpha_ci_lower_cost_x1=None,
-        alpha_ci_upper_cost_x1=None,
-        alpha_point_cost_x2=None,
+        demeaned_rank_ic=0.001,
+        demeaned_bh_adjusted_p=0.70,
+        year_evidence=_years((True, False, True, False)),
+        drift_excess_ci_lower_cost_x1=None,
+        drift_excess_ci_upper_cost_x1=None,
+        drift_excess_point_cost_x2=None,
     )
 
 
@@ -64,12 +79,12 @@ def _signal_cell(
         "model_id": model_id,
         "rank_ic_vs_drift": 0.02,
         "rank_ic_bh_adjusted_p": 0.04,
-        "beta_removed_rank_ic": 0.015,
-        "beta_removed_bh_adjusted_p": 0.05,
-        "years_same_sign": 5,
-        "alpha_ci_lower_cost_x1": lower,
-        "alpha_ci_upper_cost_x1": upper,
-        "alpha_point_cost_x2": point_x2,
+        "demeaned_rank_ic": 0.015,
+        "demeaned_bh_adjusted_p": 0.05,
+        "year_evidence": _years(),
+        "drift_excess_ci_lower_cost_x1": lower,
+        "drift_excess_ci_upper_cost_x1": upper,
+        "drift_excess_point_cost_x2": point_x2,
     }
     base.update(overrides)
     return DecisionCellEvidence(**base)
@@ -172,16 +187,16 @@ def test_a_negative_or_zero_rank_ic_increment_is_not_a_signal() -> None:
         )
 
 
-def test_signal_that_vanishes_after_beta_removal_is_no_signal() -> None:
+def test_signal_that_vanishes_after_cross_sectional_demeaning_is_no_signal() -> None:
     above = math.nextafter(PROTOCOL.multiple_testing.bh_fdr_q, 1.0)
-    vanished = _classify({FIRST: _signal_cell(FIRST, beta_removed_bh_adjusted_p=above)})
-    wrong_sign = _classify({FIRST: _signal_cell(FIRST, beta_removed_rank_ic=-0.001)})
-    zero = _classify({FIRST: _signal_cell(FIRST, beta_removed_rank_ic=0.0)})
+    vanished = _classify({FIRST: _signal_cell(FIRST, demeaned_bh_adjusted_p=above)})
+    wrong_sign = _classify({FIRST: _signal_cell(FIRST, demeaned_rank_ic=-0.001)})
+    zero = _classify({FIRST: _signal_cell(FIRST, demeaned_rank_ic=0.0)})
     kept = _classify(
         {
             FIRST: _signal_cell(
                 FIRST,
-                beta_removed_bh_adjusted_p=PROTOCOL.multiple_testing.bh_fdr_q,
+                demeaned_bh_adjusted_p=PROTOCOL.multiple_testing.bh_fdr_q,
             )
         }
     )
@@ -192,18 +207,78 @@ def test_signal_that_vanishes_after_beta_removal_is_no_signal() -> None:
     assert kept.verdict == "SIGNAL_CANDIDATE"
 
 
-def test_year_stability_boundary_is_four_of_five_full_years() -> None:
-    three = _classify({FIRST: _signal_cell(FIRST, years_same_sign=3)})
-    four = _classify({FIRST: _signal_cell(FIRST, years_same_sign=4)})
-    five = _classify({FIRST: _signal_cell(FIRST, years_same_sign=5)})
+def test_year_stability_requires_every_one_of_the_four_full_years() -> None:
+    three = _classify(
+        {FIRST: _signal_cell(FIRST, year_evidence=_years((True, True, True, False)))}
+    )
+    four = _classify({FIRST: _signal_cell(FIRST, year_evidence=_years())})
 
-    # The plan leaves "significant and beta-robust but year-unstable" unassigned;
+    # The plan leaves "significant and demeaned-robust but year-unstable" unassigned;
     # the protocol resolves it to NO_SIGNAL (H0b: concentration in a few years).
     assert three.verdict == "NO_SIGNAL"
     assert three.signal_cell_ids == ()
     assert four.verdict == "SIGNAL_CANDIDATE"
-    assert five.verdict == "SIGNAL_CANDIDATE"
-    assert PROTOCOL.decision_rules.min_full_years_same_sign == 4
+    assert PROTOCOL.decision_rules.min_full_years_same_sign == 4 == len(FULL_YEARS)
+
+
+def test_a_year_below_the_coverage_floor_is_ineligible_even_if_its_sign_is_positive() -> (
+    None
+):
+    floor = PROTOCOL.stability.min_covered_months_per_full_year
+    short = _signal_cell(FIRST, year_evidence=_years(months=(floor - 1, 12, 12, 12)))
+    exact = _signal_cell(FIRST, year_evidence=_years(months=(floor, 12, 12, 12)))
+
+    short_result = _classify({FIRST: short})
+    exact_result = _classify({FIRST: exact})
+
+    # A missing-month year is excluded, so only three years remain eligible.
+    assert short_result.verdict == "NO_SIGNAL"
+    assert exact_result.verdict == "SIGNAL_CANDIDATE"
+    assert any("coverage" in reason for reason in short_result.reasons)
+    assert not any("coverage" in reason for reason in exact_result.reasons)
+
+
+def test_a_partial_startup_year_cannot_be_supplied_as_decisive_evidence() -> None:
+    first_fit_year = int(PROTOCOL.prequential.first_fit_time[:4])
+    startup = YearStabilityEvidence(
+        year=first_fit_year, covered_months=9, increment_positive=True
+    )
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="partial"):
+        _classify({FIRST: _signal_cell(FIRST, year_evidence=(startup, *_years()[1:]))})
+    with pytest.raises(SignalDiagnosisProtocolError, match="partial"):
+        _classify({FIRST: _signal_cell(FIRST, year_evidence=(*_years(), startup))})
+
+
+def test_year_evidence_must_be_the_complete_full_year_roster_or_absent() -> None:
+    incomplete = _years()[:3]
+    duplicated = (*_years()[:3], _years()[0])
+    unknown = (*_years()[:3], YearStabilityEvidence(2019, 12, True))
+
+    for bad in (incomplete, duplicated, unknown):
+        with pytest.raises(SignalDiagnosisProtocolError, match="year"):
+            _classify({FIRST: _signal_cell(FIRST, year_evidence=bad)})
+    # A cell that stopped at an upper layer may carry no year evidence at all.
+    unsupported = _signal_cell(FIRST, rank_ic_bh_adjusted_p=0.9, year_evidence=())
+    assert _classify({FIRST: unsupported}).verdict == "NO_SIGNAL"
+    # ...but a cell that clears both significance tests cannot be classified without it.
+    with pytest.raises(SignalDiagnosisProtocolError, match="year evidence"):
+        _classify({FIRST: _signal_cell(FIRST, year_evidence=())})
+
+
+def test_year_stability_evidence_is_validated() -> None:
+    for kwargs in (
+        {"year": True, "covered_months": 12, "increment_positive": True},
+        {"year": 2022.0, "covered_months": 12, "increment_positive": True},
+        {"year": 0, "covered_months": 12, "increment_positive": True},
+        {"year": 2022, "covered_months": -1, "increment_positive": True},
+        {"year": 2022, "covered_months": 13, "increment_positive": True},
+        {"year": 2022, "covered_months": 12.0, "increment_positive": True},
+        {"year": 2022, "covered_months": True, "increment_positive": True},
+        {"year": 2022, "covered_months": 12, "increment_positive": 1},
+    ):
+        with pytest.raises(SignalDiagnosisProtocolError):
+            YearStabilityEvidence(**kwargs)  # type: ignore[arg-type]
 
 
 # ------------------------------------------------------------ SIGNAL_NOT_TRADABLE
@@ -335,8 +410,8 @@ def test_non_finite_numbers_are_rejected(bad: float) -> None:
     for field in (
         "rank_ic_vs_drift",
         "rank_ic_bh_adjusted_p",
-        "beta_removed_rank_ic",
-        "beta_removed_bh_adjusted_p",
+        "demeaned_rank_ic",
+        "demeaned_bh_adjusted_p",
     ):
         with pytest.raises(SignalDiagnosisProtocolError):
             _signal_cell(FIRST, **{field: bad})
@@ -345,15 +420,13 @@ def test_non_finite_numbers_are_rejected(bad: float) -> None:
             _signal_cell(FIRST, **{field: bad})
 
 
-def test_probabilities_years_and_interval_order_are_validated() -> None:
+def test_probabilities_year_evidence_type_and_interval_order_are_validated() -> None:
     for kwargs in (
         {"rank_ic_bh_adjusted_p": -0.01},
         {"rank_ic_bh_adjusted_p": 1.01},
-        {"beta_removed_bh_adjusted_p": 1.5},
-        {"years_same_sign": -1},
-        {"years_same_sign": 6},
-        {"years_same_sign": 4.0},
-        {"years_same_sign": True},
+        {"demeaned_bh_adjusted_p": 1.5},
+        {"year_evidence": [YearStabilityEvidence(2022, 12, True)]},
+        {"year_evidence": "2022"},
         {"lower": 0.01, "upper": 0.001},
     ):
         with pytest.raises(SignalDiagnosisProtocolError):
@@ -390,6 +463,25 @@ def test_cell_order_does_not_change_the_verdict() -> None:
     b = classify_signal_diagnosis(PROTOCOL, validity=CLEAN, cells=reverse)
 
     assert a == b
+
+
+def test_no_stale_beta_or_alpha_wording_remains_in_the_evidence_contract() -> None:
+    names = {field.name for field in dataclasses.fields(DecisionCellEvidence)}
+
+    assert names == {
+        "family_id",
+        "model_id",
+        "rank_ic_vs_drift",
+        "rank_ic_bh_adjusted_p",
+        "demeaned_rank_ic",
+        "demeaned_bh_adjusted_p",
+        "year_evidence",
+        "drift_excess_ci_lower_cost_x1",
+        "drift_excess_ci_upper_cost_x1",
+        "drift_excess_point_cost_x2",
+    }
+    text = " ".join(_classify({}).reasons).lower()
+    assert "beta" not in text and "alpha" not in text
 
 
 def test_the_verdict_never_names_an_edge_or_authorization() -> None:

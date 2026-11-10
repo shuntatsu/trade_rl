@@ -113,7 +113,7 @@ def test_packet_is_bound_to_the_protocol_digest_and_dataset_identity() -> None:
     assert DATASET_ID in thesis["hypothesis"]
     assert REPORT_PATH in thesis["hypothesis"]
     assert (ROOT / REPORT_PATH).is_file()
-    assert "signal_diagnosis_protocol_v1" in thesis["hypothesis"]
+    assert "signal_diagnosis_protocol_v2" in thesis["hypothesis"]
 
 
 def test_packet_states_the_required_honest_limits() -> None:
@@ -270,3 +270,31 @@ def test_the_fourteen_g0_contract_fields_are_covered() -> None:
     # what_this_can_prove / what_this_cannot_prove are the permitted/forbidden claims.
     assert claims["permitted"] and claims["forbidden"]
     assert len(G0_MARKERS) + 2 == 14
+
+
+def test_packet_uses_the_v2_semantics_and_no_stale_v1_wording() -> None:
+    packet = build_author_packet(HEAD)
+    text = _text(packet)
+    thesis = packet["thesis"]
+    assert isinstance(thesis, dict)
+
+    for stale in (
+        "signal_diagnosis_protocol_v1",
+        "beta-removed",
+        "beta removal",
+        "survives beta",
+        "five full calendar years",
+        "four of the five",
+        "2021-2025",
+        "after-cost alpha",
+    ):
+        assert stale not in text, stale
+    assert "2022-2025" in thesis["hypothesis"]
+    assert "partial and reported only" in thesis["hypothesis"]
+    assert "not heterogeneous market beta" in thesis["final_decision"]
+    assert "not a beta-adjusted alpha" in thesis["hypothesis"]
+    assert "four of four" in thesis["limitations"]
+    assert "12 covered months" in thesis["hypothesis"]
+    claims = packet["claims"]
+    assert isinstance(claims, dict)
+    assert any("beta-adjusted" in item for item in claims["forbidden"])

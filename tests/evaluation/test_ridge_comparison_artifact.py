@@ -910,7 +910,7 @@ def test_resealed_oversized_budget_uses_field_specific_loader_error(
     config["gross_budget"] = oversized
     digest = _reseal(root, payload)
 
-    with pytest.raises(ValueError, match=r"config\\.gross_budget must be finite"):
+    with pytest.raises(ValueError, match=r"config\.gross_budget must be finite"):
         load_ridge_comparison_artifact(root, expected_digest=digest)
 
 

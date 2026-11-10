@@ -14,6 +14,7 @@ from typing import BinaryIO, cast
 from trade_rl.artifacts.atomic_write import (
     _temporary_name_suffix,
     atomic_rename_directory,
+    atomic_rename_file,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.errors import (
@@ -166,7 +167,12 @@ class StudyStore:
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 )
-            staging.rename(target)
+            try:
+                atomic_rename_file(staging, target)
+            except FileExistsError as error:
+                raise InvalidExperimentStateError(
+                    f"Study artifact already exists: {relative}"
+                ) from error
         finally:
             if staging.exists() or staging.is_symlink():
                 staging.unlink(missing_ok=True)

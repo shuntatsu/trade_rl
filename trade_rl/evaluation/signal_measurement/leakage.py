@@ -1,11 +1,11 @@
 """Leakage detection harness for feature builders (Issue #1146, card SD1).
 
 A feature at decision row ``t`` is *causal* only if it is a function of inputs at rows
-``<= t``. :func:`future_perturbation_probe` tests exactly that, structurally: it
-rebuilds the feature after randomly perturbing every input row **after** a cutoff and
-checks whether feature rows at or before the cutoff change. This is a falsifier:
-a detected dependence proves leakage, but one seeded perturbation that causes no
-change does not prove that a builder is causal.
+``<= t``. :func:`future_perturbation_probe` probes this necessary condition by
+rebuilding a feature after randomly perturbing input rows **after** a cutoff and
+checking whether earlier feature rows change. For a deterministic builder, such a
+change reveals future dependence; no change from one seeded perturbation cannot
+prove causality.
 
 :func:`affine_label_copy` is a second, narrow screen for the crudest leak, a feature
 that is an affine or monotone copy of the matured label. It is not a substitute for the

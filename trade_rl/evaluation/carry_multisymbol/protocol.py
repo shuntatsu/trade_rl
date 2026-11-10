@@ -26,6 +26,7 @@ PROTOCOL_ID: Final = "carry-multisymbol-dev-v1"
 PROTOCOL_SCHEMA: Final = "carry_multisymbol_protocol_v1"
 
 #: Candidate USDT symbols; each needs both a spot and a USD-M perpetual market.
+#: BCHUSDT has no principled non-data reason to be left out, so it is included.
 CANDIDATES: Final = (
     "SOLUSDT",
     "BNBUSDT",
@@ -36,6 +37,7 @@ CANDIDATES: Final = (
     "DOTUSDT",
     "AVAXUSDT",
     "LTCUSDT",
+    "BCHUSDT",
 )
 #: Descriptive control arms on the identical window; never part of the decision.
 REFERENCE: Final = ("BTCUSDT", "ETHUSDT")
@@ -122,10 +124,12 @@ def required_symbol_passes(admitted: int) -> int:
     """Smallest K with ``admitted * p0 / K <= alpha`` (Markov, any dependence).
 
     ``p0 = 2**-5`` and ``alpha = 1/20``, so ``K = ceil(20 * admitted / 32)`` in exact
-    integer arithmetic. For 9 admitted symbols K is 6. The bound needs no
-    independence between symbols; it does assume independent sub-period signs inside
-    one symbol, which serial correlation of funding regimes weakens (a stated
-    limitation, not a corrected claim).
+    integer arithmetic. For 10 admitted symbols K is 7. The Markov step needs no
+    independence between symbols, but ``p0 = 2**-5`` assumes independent sub-period
+    signs inside one symbol. A persistent funding regime can make a symbol's five
+    sub-periods positive together with probability far above ``2**-5`` (up to one
+    half under a common factor), so the 1/20 figure can be invalid: the family rule
+    is a heuristic threshold, not a controlled error rate.
     """
     if isinstance(admitted, bool) or not isinstance(admitted, int) or admitted < 1:
         raise ValueError("admitted symbol count must be a positive integer")
@@ -141,6 +145,21 @@ def protocol_document() -> dict[str, object]:
         "extends": "funding_carry_development_v1 (BTC/ETH, halt-aware, twelve screens)",
         "data_scope": "known-used Tier D data before 2026-08-01; exploratory only",
         "candidates": list(CANDIDATES),
+        "candidate_provenance": (
+            "named in the planner's brief as large-cap USDT pairs with both a spot "
+            "and a USD-M perpetual market; BCHUSDT added because no principled "
+            "non-data reason to omit it exists; SUI, APT, ARB and OP of the 2026-07-13 "
+            "legacy universe are omitted only because they were listed after the "
+            "lookback starts (listing age)"
+        ),
+        "prior_exposure": (
+            "prices of eight candidates (and BTC/ETH) were read by the 2026-07-13 "
+            "legacy signal run, which also used funding_bps as a feature; prices, "
+            "funding events and funding P&L of BNB, XRP and ADA (with BTC/ETH) were "
+            "read in the Issue 810 P2 development study (2021-01-01 to 2026-08-01); "
+            "no delta-neutral spot/perpetual carry replay of any candidate was ever "
+            "computed"
+        ),
         "reference_symbols": list(REFERENCE),
         "window": {
             "start": WINDOW_START.isoformat(),
@@ -224,8 +243,15 @@ def protocol_document() -> dict[str, object]:
             ),
             "k_rule": "K = ceil(20 * admitted / 32)",
             "k_derivation": (
-                "Markov bound: P(passes >= K) <= admitted * 2**-5 / K <= 1/20 under "
-                "the sign-null, for any cross-symbol dependence"
+                "Markov step: P(passes >= K) <= admitted * p0 / K <= 1/20 holds for "
+                "any cross-symbol dependence IF p0 = 2**-5 per symbol, which assumes "
+                "independent sub-period signs inside a symbol"
+            ),
+            "error_rate_controlled": False,
+            "k_status": (
+                "heuristic threshold: serial correlation of funding regimes can make "
+                "p0 far larger than 2**-5, so the 1/20 bound can be invalid and the "
+                "family decision is not a controlled error rate"
             ),
             "outcomes": [
                 "CARRY_GENERALIZES_DEVELOPMENT",

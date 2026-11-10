@@ -17,9 +17,15 @@ import pytest
 from tools import carry_multisymbol_screen as cli
 from trade_rl.evaluation.carry_multisymbol import decision, protocol, runner
 from trade_rl.evaluation.carry_multisymbol.decision import CellSummary
-from trade_rl.integrations.market_store.carry_source import (
+from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
+    CarryIntegrityHalt,
+    CarryOperationalHalt,
+)
+from trade_rl.integrations.market_store.carry_source import (
+    ArchiveDirFetcher,
     CarryScreenData,
+    VisionArchiveSource,
 )
 from trade_rl.integrations.market_store.contracts import (
     FundingRow,
@@ -49,6 +55,7 @@ def test_protocol_is_registered_before_data_and_digest_is_stable() -> None:
         "DOTUSDT",
         "AVAXUSDT",
         "LTCUSDT",
+        "BCHUSDT",
     ]
     assert json.loads(json.dumps(document)) == document
 
@@ -99,8 +106,8 @@ def test_protocol_constants_equal_the_assembled_cost_contract() -> None:
 def test_family_threshold_follows_the_markov_bound_for_any_dependence() -> None:
     p0 = protocol.null_pass_probability()
     assert p0 == 2**-5
-    table = {n: protocol.required_symbol_passes(n) for n in range(6, 10)}
-    assert table == {6: 4, 7: 5, 8: 5, 9: 6}
+    table = {n: protocol.required_symbol_passes(n) for n in range(6, 11)}
+    assert table == {6: 4, 7: 5, 8: 5, 9: 6, 10: 7}
     for admitted, required in table.items():
         assert admitted * p0 / required <= 1 / 20
         assert admitted * p0 / (required - 1) > 1 / 20  # and K is the smallest such
@@ -132,6 +139,30 @@ def test_window_and_authorization_refusals() -> None:
     ):
         with pytest.raises(ValueError, match="G4 authorization"):
             protocol.validate_g4_authorization_url(bad)
+
+
+def test_bch_is_a_candidate_and_the_provenance_and_exposure_are_hash_bound() -> None:
+    assert "BCHUSDT" in protocol.CANDIDATES
+    assert len(protocol.CANDIDATES) <= 11  # the assembler's pair limit
+    document = protocol.protocol_document()
+    assert "BCHUSDT added" in document["candidate_provenance"]
+    exposure = document["prior_exposure"]
+    for needle in ("2026-07-13", "BNB, XRP and ADA", "no delta-neutral"):
+        assert needle in exposure
+    family = document["family_decision"]
+    assert family["error_rate_controlled"] is False
+    assert "heuristic" in family["k_status"] and "can be invalid" in family["k_status"]
+
+
+def test_liquidity_floor_arithmetic_is_the_data_free_min_admitted_worst_case() -> None:
+    leg = protocol.INITIAL_CAPITAL * protocol.GROSS_BUDGET / (2 * protocol.MIN_ADMITTED)
+    stress_participation = (
+        protocol.MAX_PARTICIPATION * protocol.TREATMENTS[3].capacity_multiplier
+    )
+    needed_hourly_volume = leg / stress_participation
+    assert round(leg, 2) == 416.67 and round(needed_hourly_volume) == 416_667
+    margin = protocol.MIN_MEDIAN_HOURLY_QUOTE_VOLUME / needed_hourly_volume
+    assert 2.3 < margin < 2.5
 
 
 def test_lease_text_names_digest_commit_window_and_the_limits() -> None:
@@ -243,25 +274,26 @@ def test_arm_needs_all_four_cells_and_a_missing_cell_is_a_failure() -> None:
 def test_family_generalizes_only_with_the_portfolio_and_at_least_k_symbols() -> None:
     result = decision.decide(ADMITTED, {}, grid(ADMITTED))
     assert result["outcome"] == decision.GENERALIZES
-    assert result["required_symbol_passes"] == 6 and result["symbol_passes"] == 9
-    assert result["decision_cell_count"] == 40
+    assert result["required_symbol_passes"] == 7 and result["symbol_passes"] == 10
+    assert result["decision_cell_count"] == 44
     assert result["edge_claim"] is False
     assert result["production_eligible"] is False
     assert result["live_trading_authorized"] is False
-    assert result["markov_false_positive_bound"] <= 1 / 20
+    assert result["markov_bound_if_subperiods_independent"] <= 1 / 20
+    assert result["error_rate_controlled"] is False
 
-    five_fail = [(s, "cost2x", {"total": -0.01}) for s in ADMITTED[:3]]
-    exactly_six = decision.decide(ADMITTED, {}, grid(ADMITTED, failing=five_fail))
-    assert exactly_six["symbol_passes"] == 6
-    assert exactly_six["outcome"] == decision.GENERALIZES
-    seven_fail = [(s, "base", {"total": -0.01}) for s in ADMITTED[:4]]
-    short = decision.decide(ADMITTED, {}, grid(ADMITTED, failing=seven_fail))
-    assert short["symbol_passes"] == 5
+    three_fail = [(s, "cost2x", {"total": -0.01}) for s in ADMITTED[:3]]
+    exactly_k = decision.decide(ADMITTED, {}, grid(ADMITTED, failing=three_fail))
+    assert exactly_k["symbol_passes"] == 7
+    assert exactly_k["outcome"] == decision.GENERALIZES
+    four_fail = [(s, "base", {"total": -0.01}) for s in ADMITTED[:4]]
+    short = decision.decide(ADMITTED, {}, grid(ADMITTED, failing=four_fail))
+    assert short["symbol_passes"] == 6
     assert short["outcome"] == decision.DOES_NOT_GENERALIZE
     assert short["failed_cells"] == sorted(f"{s}__base" for s in ADMITTED[:4])
 
     portfolio_down = decision.decide(ADMITTED, {}, grid(ADMITTED, portfolio_ok=False))
-    assert portfolio_down["symbol_passes"] == 9
+    assert portfolio_down["symbol_passes"] == 10
     assert portfolio_down["outcome"] == decision.DOES_NOT_GENERALIZE
     assert portfolio_down["portfolio_pass"] is False
 
@@ -323,7 +355,10 @@ class FakeSource:
     def read_klines(self, market, symbol, interval, start_ms, end_ms):
         self.calls += 1
         if (market, symbol) in self.refuse:
-            raise CarryCoverageError(f"{market.value} {symbol} is not published")
+            raise CarryCoverageError(
+                f"{market.value} {symbol} is not published",
+                {"kind": "archive_not_published", "url": f"x/{symbol}", "status": 404},
+            )
         quote = 10_000.0 if symbol in self.low_volume else 5_000_000.0
         skipped = self.holes.get((market, symbol), set())
         base = 50.0 + sum(map(ord, symbol)) % 100
@@ -510,6 +545,164 @@ def test_a_malformed_archive_aborts_the_run_instead_of_excluding_a_symbol(
     assert not (tmp_path / "screen" / "decision.json").exists()
 
 
+# --- coverage versus failure at the runner ------------------------------------------
+
+
+NOW = datetime(2026, 11, 10, tzinfo=UTC)
+
+
+def archive_data(fetcher, *, sleep=lambda _s: None):
+    source = VisionArchiveSource(fetcher, cli.build_plan(NOW), sleep=sleep)
+    return screen_data(source), source
+
+
+def archives_fetcher():
+    from tests.integrations.market_store.support import fetcher_for
+
+    return fetcher_for(cli.build_plan(NOW))
+
+
+def halt_marker(tmp_path):
+    return json.loads((tmp_path / "screen" / "halt.json").read_text("utf-8"))
+
+
+def test_an_empty_offline_cache_halts_instead_of_producing_inconclusive(
+    tiny, tmp_path
+) -> None:
+    empty = tmp_path / "empty-cache"
+    data = screen_data(
+        VisionArchiveSource(ArchiveDirFetcher(empty), cli.build_plan(NOW))
+    )
+    with pytest.raises(CarryOperationalHalt):
+        runner.run_screen(request(tmp_path), data)
+    root = tmp_path / "screen"
+    assert not (root / "decision.json").exists()
+    assert not (root / "inclusion.json").exists()
+    marker = halt_marker(tmp_path)
+    assert marker["kind"] == "operational" and marker["resumable"] is True
+    assert marker["evidence"]["kind"] == "offline_cache_miss"
+    assert marker["symbol"] == "SOLUSDT"
+    assert marker["protocol_digest"] == protocol.protocol_digest()
+
+
+def test_persistent_server_errors_halt_with_a_resumable_marker(tiny, tmp_path) -> None:
+    fetcher = archives_fetcher()
+    for url in list(fetcher.files):
+        if "/spot/" in url and "SOLUSDT" in url and not url.endswith(".CHECKSUM"):
+            fetcher.fail(url, 503)
+    data, _ = archive_data(fetcher)
+    with pytest.raises(CarryOperationalHalt):
+        runner.run_screen(request(tmp_path), data)
+    marker = halt_marker(tmp_path)
+    assert marker["kind"] == "operational" and marker["resumable"] is True
+    assert marker["evidence"]["status"] == 503 and marker["evidence"]["attempts"] == 3
+    assert not (tmp_path / "screen" / "decision.json").exists()
+
+
+def test_a_tampered_archive_halts_with_an_integrity_marker(tiny, tmp_path) -> None:
+    from tests.integrations.market_store.support import archive_bytes
+
+    plan = cli.build_plan(NOW)
+    fetcher = archives_fetcher()
+    spec = next(
+        s for s in plan.specs if s.symbol == "SOLUSDT" and s.market is StoreMarket.SPOT
+    )
+    fetcher.files[spec.url] = archive_bytes(spec, close_bump=1)
+    data, _ = archive_data(fetcher)
+    with pytest.raises(CarryIntegrityHalt):
+        runner.run_screen(request(tmp_path), data)
+    marker = halt_marker(tmp_path)
+    assert marker["kind"] == "integrity" and marker["resumable"] is False
+    assert marker["evidence"]["kind"] == "checksum_mismatch"
+    assert not (tmp_path / "screen" / "inclusion.json").exists()
+
+
+def test_an_unexpected_error_also_leaves_a_halt_marker(tiny, tmp_path) -> None:
+    class Broken(FakeSource):
+        def read_funding(self, *args):
+            raise RuntimeError("disk full")
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        runner.run_screen(request(tmp_path), screen_data(Broken()))
+    marker = halt_marker(tmp_path)
+    assert marker["kind"] == "unexpected_error" and marker["resumable"] is False
+    assert "disk full" in marker["detail"]
+
+
+def test_a_halted_run_resumes_and_archives_the_earlier_marker(tiny, tmp_path) -> None:
+    with pytest.raises(CarryOperationalHalt):
+        runner.run_screen(
+            request(tmp_path),
+            screen_data(
+                VisionArchiveSource(
+                    ArchiveDirFetcher(tmp_path / "cache"), cli.build_plan(NOW)
+                )
+            ),
+        )
+    result = runner.run_screen(request(tmp_path), screen_data(FakeSource()))
+    assert result["outcome"] == decision.GENERALIZES
+    root = tmp_path / "screen"
+    assert not (root / "halt.json").exists()
+    assert len(list((root / "halts").glob("halt-*.json"))) == 1
+
+
+def test_a_404_excludes_one_symbol_and_records_the_url_and_status(
+    tiny, tmp_path
+) -> None:
+    plan = cli.build_plan(NOW)
+    fetcher = archives_fetcher()
+    spec = next(
+        s for s in plan.specs if s.symbol == "SOLUSDT" and s.market is StoreMarket.SPOT
+    )
+    del fetcher.files[spec.url]
+    data, _ = archive_data(fetcher)
+    result = runner.run_screen(request(tmp_path), data)
+    assert result["excluded"]["SOLUSDT"] == "lookback_incomplete"
+    facts = json.loads((tmp_path / "screen" / "inclusion.json").read_text("utf-8"))[
+        "symbols"
+    ]["SOLUSDT"]
+    assert facts["exclusion_evidence"] == {
+        "kind": "archive_not_published",
+        "url": spec.url,
+        "status": 404,
+    }
+    assert not (tmp_path / "screen" / "halt.json").exists()
+
+
+def test_exclusion_evidence_is_written_for_gaps(tiny, tmp_path) -> None:
+    gap_ms = int(datetime(2022, 1, 4, 5, tzinfo=UTC).timestamp() * 1000)
+    source = FakeSource(holes={(StoreMarket.USDS_M, "XRPUSDT"): {gap_ms}})
+    runner.run_screen(request(tmp_path), screen_data(source))
+    facts = json.loads((tmp_path / "screen" / "inclusion.json").read_text("utf-8"))[
+        "symbols"
+    ]["XRPUSDT"]
+    assert facts["reason_code"] == "window_coverage"
+    assert facts["exclusion_evidence"]["kind"] == "gap"
+    assert facts["exclusion_evidence"]["market"] == "usds_m"
+
+
+def test_a_halt_is_a_cli_exit_not_a_silent_exclusion(tiny, tmp_path) -> None:
+    args = [
+        "screen",
+        "--start",
+        "2022-01-03",
+        "--end",
+        "2022-01-06",
+        "--g4-authorization-url",
+        G4_URL,
+        "--output-dir",
+        str(tmp_path / "out"),
+    ]
+    code, out, err = run_cli(
+        args,
+        tmp_path=tmp_path,
+        factory=lambda plan: VisionArchiveSource(
+            ArchiveDirFetcher(tmp_path / "none"), plan
+        ),
+    )
+    assert code == 3 and out == "" and "halted" in err and "resumable" in err
+
+
 def test_missing_lookback_history_excludes_a_young_listing(tiny, tmp_path) -> None:
     source = FakeSource(refuse={(StoreMarket.SPOT, "XRPUSDT")})
     result = runner.run_screen(
@@ -629,7 +822,13 @@ def test_cli_plan_is_offline_and_prints_digest_and_lease(tmp_path) -> None:
     assert code == 0
     assert document["protocol_digest"] == protocol.protocol_digest()
     assert document["g4_authorization_text"] == protocol.lease_text(code_commit=COMMIT)
-    assert document["required_symbol_passes"] == {"6": 4, "7": 5, "8": 5, "9": 6}
+    assert document["required_symbol_passes"] == {
+        "6": 4,
+        "7": 5,
+        "8": 5,
+        "9": 6,
+        "10": 7,
+    }
     assert document["archives_planned"]["klines"] > 1000
 
 

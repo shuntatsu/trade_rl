@@ -18,11 +18,49 @@ from trade_rl.integrations.binance.vision import _epoch_ms, _normalize_epoch_ms
 
 
 class CarryCoverageError(ValueError):
-    """A requested carry series is absent or has an unexplained gap.
+    """A documented absence: a 404 on a planned archive, or a gap no halt explains.
 
-    This is a coverage fact (nothing was published or a gap is unexplained), never a
-    data-integrity failure: a failed checksum or malformed archive is not this error.
+    Only this error may exclude a symbol from the screen. It carries machine-readable
+    ``evidence`` (URL and status, or the gap) that the screen records per symbol. A
+    failed checksum, a malformed or duplicated row, a server error, a transport
+    failure or an offline cache miss is never this error.
     """
+
+    def __init__(
+        self, message: str, evidence: Mapping[str, object] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.evidence: dict[str, object] | None = (
+            None if evidence is None else dict(evidence)
+        )
+
+
+class CarryScreenHalt(RuntimeError):
+    """The run cannot continue honestly; it halts instead of excluding a symbol."""
+
+    kind = "halt"
+    resumable = False
+
+    def __init__(self, message: str, evidence: Mapping[str, object]) -> None:
+        super().__init__(message)
+        self.evidence: dict[str, object] = dict(evidence)
+
+
+class CarryOperationalHalt(CarryScreenHalt):
+    """Server errors, transport failures, timeouts or an offline cache miss.
+
+    Nothing was learned about the data, so the run halts and may be resumed.
+    """
+
+    kind = "operational"
+    resumable = True
+
+
+class CarryIntegrityHalt(CarryScreenHalt):
+    """A checksum mismatch or a malformed, duplicated or unordered row."""
+
+    kind = "integrity"
+    resumable = False
 
 
 def parse_carry_spot_rows(

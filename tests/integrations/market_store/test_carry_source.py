@@ -10,9 +10,14 @@ from tests.integrations.market_store.support import (
     archive_bytes,
     fetcher_for,
 )
-from trade_rl.integrations.market_store.carry_source import (
-    ArchiveDirFetcher,
+from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
+    CarryIntegrityHalt,
+    CarryOperationalHalt,
+)
+from trade_rl.integrations.market_store.carry_source import (
+    OFFLINE_MISS_STATUS,
+    ArchiveDirFetcher,
     VisionArchiveSource,
     hourly_quote_volume,
     load_carry_pair,
@@ -67,57 +72,132 @@ def test_source_verifies_each_archive_and_records_its_evidence() -> None:
     assert entry["checksum_url"] == f"{spec.url}.CHECKSUM"
 
 
-def test_a_tampered_archive_is_a_checksum_error_not_a_coverage_gap() -> None:
+def read_spot(source, symbol="SOLUSDT"):
+    return source.read_klines(
+        StoreMarket.SPOT, symbol, "1h", ms_from_utc(START), ms_from_utc(END)
+    )
+
+
+def no_sleep(_seconds: float) -> None:
+    return None
+
+
+def test_a_tampered_archive_is_an_integrity_halt_never_a_coverage_gap() -> None:
     plan = january_plan()
     fetcher = fetcher_for(plan)
     spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
     fetcher.files[spec.url] = archive_bytes(spec, close_bump=1)
-    source = VisionArchiveSource(fetcher, plan)
-    with pytest.raises(ChecksumError):
-        source.read_klines(
-            StoreMarket.SPOT, "SOLUSDT", "1h", ms_from_utc(START), ms_from_utc(END)
-        )
-    assert not isinstance(ChecksumError("x"), CarryCoverageError)
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        read_spot(VisionArchiveSource(fetcher, plan))
+    assert not isinstance(caught.value, CarryCoverageError)
+    assert caught.value.evidence["url"] == spec.url
+    assert caught.value.evidence["kind"] == "checksum_mismatch"
+    assert isinstance(caught.value.__cause__, ChecksumError)
 
 
-def test_a_malformed_archive_is_not_swallowed_as_a_coverage_gap() -> None:
+def test_a_malformed_archive_is_an_integrity_halt() -> None:
     plan = january_plan()
     fetcher = fetcher_for(plan)
     spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
     fetcher.add(spec.url, archive_bytes(spec, close_bump=10**9))
-    with pytest.raises(Exception) as caught:
-        VisionArchiveSource(fetcher, plan).read_klines(
-            StoreMarket.SPOT, "SOLUSDT", "1h", ms_from_utc(START), ms_from_utc(END)
-        )
-    assert not isinstance(caught.value, CarryCoverageError)
-    assert isinstance(caught.value, (ArchiveContentError, ValueError, OSError))
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        read_spot(VisionArchiveSource(fetcher, plan))
+    assert caught.value.evidence["kind"] == "malformed_archive"
+    assert isinstance(caught.value.__cause__, ArchiveContentError)
 
 
-@pytest.mark.parametrize("defect", ["missing_archive", "missing_checksum", "http_500"])
-def test_unavailable_archives_are_coverage_errors(defect: str) -> None:
+def test_an_archive_404_is_the_only_archive_level_coverage_fact() -> None:
     plan = january_plan()
     fetcher = fetcher_for(plan)
     spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
-    if defect == "missing_archive":
-        del fetcher.files[spec.url]
-    elif defect == "missing_checksum":
-        del fetcher.files[spec.checksum_url]
-    else:
-        fetcher.fail(spec.url, 500)
-    with pytest.raises(CarryCoverageError):
-        VisionArchiveSource(fetcher, plan).read_klines(
-            StoreMarket.SPOT, "SOLUSDT", "1h", ms_from_utc(START), ms_from_utc(END)
-        )
+    del fetcher.files[spec.url]
+    with pytest.raises(CarryCoverageError) as caught:
+        read_spot(VisionArchiveSource(fetcher, plan))
+    assert caught.value.evidence == {
+        "kind": "archive_not_published",
+        "url": spec.url,
+        "status": 404,
+    }
 
 
-def test_unplanned_symbol_or_uncovered_period_is_a_coverage_error() -> None:
+def test_a_missing_checksum_file_cannot_prove_the_archive_and_halts() -> None:
+    plan = january_plan()
+    fetcher = fetcher_for(plan)
+    spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
+    del fetcher.files[spec.checksum_url]
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        read_spot(VisionArchiveSource(fetcher, plan))
+    assert caught.value.evidence["url"] == spec.checksum_url
+    assert caught.value.evidence["status"] == 404
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 429, 0])
+def test_persistent_transient_failures_halt_after_a_bounded_retry(status) -> None:
+    plan = january_plan()
+    fetcher = fetcher_for(plan)
+    spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
+    fetcher.fail(spec.url, status)
+    source = VisionArchiveSource(fetcher, plan, max_attempts=3, sleep=no_sleep)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        read_spot(source)
+    assert not isinstance(caught.value, CarryCoverageError)
+    assert caught.value.resumable is True
+    assert caught.value.evidence == {
+        "kind": "archive_unavailable",
+        "url": spec.url,
+        "status": status,
+        "attempts": 3,
+    }
+    assert fetcher.requested.count(spec.url) == 3
+
+
+def test_a_transient_failure_that_clears_is_retried_to_success() -> None:
+    plan = january_plan()
+    inner = fetcher_for(plan)
+    spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
+
+    class Flaky:
+        def __init__(self) -> None:
+            self.failures = 2
+
+        def fetch(self, url):
+            if url == spec.url and self.failures:
+                self.failures -= 1
+                return FetchResult(status=503, body=None)
+            return inner.fetch(url)
+
+    sleeps: list[float] = []
+    source = VisionArchiveSource(Flaky(), plan, max_attempts=3, sleep=sleeps.append)
+    assert len(read_spot(source)) == 31 * 24
+    assert len(sleeps) == 2 and sleeps == sorted(sleeps)
+
+
+def test_four_xx_other_than_404_is_not_retried_and_halts() -> None:
+    plan = january_plan()
+    fetcher = fetcher_for(plan)
+    spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
+    fetcher.fail(spec.url, 403)
+    with pytest.raises(CarryOperationalHalt):
+        read_spot(VisionArchiveSource(fetcher, plan, sleep=no_sleep))
+    assert fetcher.requested.count(spec.url) == 1
+
+
+def test_an_offline_cache_miss_halts_and_is_never_a_coverage_fact(tmp_path) -> None:
+    plan = january_plan()
+    source = VisionArchiveSource(ArchiveDirFetcher(tmp_path), plan, sleep=no_sleep)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        read_spot(source)
+    assert not isinstance(caught.value, CarryCoverageError)
+    assert caught.value.evidence["kind"] == "offline_cache_miss"
+    assert caught.value.evidence["status"] == OFFLINE_MISS_STATUS
+
+
+def test_unplanned_symbol_or_uncovered_period_is_a_plan_defect_that_halts() -> None:
     plan = january_plan()
     source = VisionArchiveSource(fetcher_for(plan), plan)
-    with pytest.raises(CarryCoverageError):
-        source.read_klines(
-            StoreMarket.SPOT, "ADAUSDT", "1h", ms_from_utc(START), ms_from_utc(END)
-        )
-    with pytest.raises(CarryCoverageError):
+    with pytest.raises(CarryIntegrityHalt):
+        read_spot(source, "ADAUSDT")
+    with pytest.raises(CarryIntegrityHalt):
         source.read_klines(
             StoreMarket.SPOT,
             "SOLUSDT",
@@ -152,7 +232,7 @@ def test_archive_dir_fetcher_is_offline_by_default_and_never_mistakes_a_miss_for
     plan = january_plan()
     spec = plan.specs[0]
     result = ArchiveDirFetcher(tmp_path).fetch(spec.url)
-    assert (result.status, result.body) == (0, None)
+    assert (result.status, result.body) == (OFFLINE_MISS_STATUS, None)
 
 
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
@@ -199,11 +279,8 @@ def test_a_cached_archive_is_still_verified_against_its_checksum(tmp_path) -> No
     cache.fetch(spec.checksum_url)
     cached = next(tmp_path.rglob(spec.filename))
     cached.write_bytes(cached.read_bytes()[:-5] + b"XXXXX")
-    with pytest.raises(Exception) as caught:
-        VisionArchiveSource(ArchiveDirFetcher(tmp_path), plan).read_klines(
-            StoreMarket.SPOT, "SOLUSDT", "1h", ms_from_utc(START), ms_from_utc(END)
-        )
-    assert not isinstance(caught.value, CarryCoverageError)
+    with pytest.raises(CarryIntegrityHalt):
+        read_spot(VisionArchiveSource(ArchiveDirFetcher(tmp_path), plan))
 
 
 # --- pair loader ----------------------------------------------------------------------
@@ -310,7 +387,7 @@ def test_lookback_volume_requires_complete_hours_and_reads_only_quote_volume() -
         end_time=T1,
     )
     assert values.shape == (48,) and set(values) == {1_000_000.0}
-    with pytest.raises(CarryCoverageError, match="hourly bars"):
+    with pytest.raises(CarryCoverageError, match="missing hourly bar"):
         hourly_quote_volume(
             ListSource(spot_skip=(5,)),
             StoreMarket.SPOT,
@@ -322,3 +399,136 @@ def test_lookback_volume_requires_complete_hours_and_reads_only_quote_volume() -
 
 def test_fetch_result_type_is_the_ingestion_contract() -> None:
     assert FetchResult(status=200, body=b"x").status == 200
+
+
+# --- row-level integrity versus coverage in the pair loader -------------------------
+
+
+class RowsSource(ListSource):
+    """ListSource with row-level defects injected after generation."""
+
+    def __init__(self, *, spot=None, perp=None, funding=None, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.spot, self.perp, self.fund = spot, perp, funding
+
+    def read_klines(self, market, symbol, interval, start_ms, end_ms):
+        rows = super().read_klines(market, symbol, interval, start_ms, end_ms)
+        edit = self.spot if market is StoreMarket.SPOT else self.perp
+        return edit(rows) if edit else rows
+
+    def read_funding(self, market, symbol, start_ms, end_ms):
+        rows = super().read_funding(market, symbol, start_ms, end_ms)
+        return self.fund(rows) if self.fund else rows
+
+
+def load(source, halts=()):
+    return load_carry_pair(
+        source, "SOLUSDT", start_time=T0, end_time=T1, halt_intervals=halts
+    )
+
+
+@pytest.mark.parametrize("leg", ["spot", "perp"])
+@pytest.mark.parametrize("defect", ["duplicate", "unordered"])
+def test_duplicate_or_unordered_rows_are_integrity_halts(leg, defect) -> None:
+    def edit(rows):
+        if defect == "duplicate":
+            return [*rows[:5], rows[4], *rows[5:]]
+        return [*rows[:5], rows[6], rows[5], *rows[7:]]
+
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        load(RowsSource(**{leg: edit}))
+    assert not isinstance(caught.value, CarryCoverageError)
+    assert caught.value.evidence["kind"] == f"{defect}_rows"
+    assert caught.value.evidence["market"] == ("spot" if leg == "spot" else "usds_m")
+
+
+def test_duplicate_funding_events_are_an_integrity_halt() -> None:
+    with pytest.raises(CarryIntegrityHalt):
+        load(RowsSource(funding=lambda rows: [*rows, rows[0]]))
+
+
+def test_a_missing_bar_is_a_coverage_fact_with_its_evidence() -> None:
+    with pytest.raises(CarryCoverageError) as caught:
+        load(ListSource(spot_skip=(12,)))
+    evidence = caught.value.evidence
+    assert evidence["kind"] == "gap" and evidence["market"] == "spot"
+    assert evidence["missing_hours"] == 1
+    assert evidence["first_missing_open_ms"] == ms_from_utc(
+        datetime(2023, 3, 24, 12, tzinfo=UTC)
+    )
+
+
+def test_a_gap_only_partly_inside_a_declared_halt_is_still_a_coverage_fact() -> None:
+    with pytest.raises(CarryCoverageError):
+        load(ListSource(spot_skip=(10, 11, 12)), halts=HALT)  # 10:00 is not halted
+
+
+def test_a_missing_first_bar_cannot_be_explained_by_a_halt() -> None:
+    with pytest.raises(CarryCoverageError):
+        load(
+            ListSource(spot_skip=(0,)),
+            halts=((T0, datetime(2023, 3, 24, 2, tzinfo=UTC)),),
+        )
+
+
+def test_a_funding_gap_is_a_coverage_fact() -> None:
+    with pytest.raises(CarryCoverageError) as caught:
+        load(RowsSource(funding=lambda rows: rows[:2]))
+    assert caught.value.evidence["kind"] == "funding_gap"
+
+
+def test_lookback_rows_follow_the_same_split() -> None:
+    kwargs = dict(start_time=T0, end_time=T1)
+    with pytest.raises(CarryIntegrityHalt):
+        hourly_quote_volume(
+            RowsSource(spot=lambda rows: [*rows[:3], rows[2], *rows[3:]]),
+            StoreMarket.SPOT,
+            "SOLUSDT",
+            **kwargs,
+        )
+    with pytest.raises(CarryCoverageError):
+        hourly_quote_volume(
+            ListSource(spot_skip=(7,)), StoreMarket.SPOT, "SOLUSDT", **kwargs
+        )
+
+
+def test_funding_gap_rule_matches_the_assemblers_rule() -> None:
+    from dataclasses import replace
+
+    from tests.integrations.test_binance_carry import series
+    from trade_rl.integrations.binance.carry import assemble_carry_dataset
+    from trade_rl.integrations.market_store.carry_source import funding_coverage_gap
+
+    spot, perp = series(perpetual=False), series(perpetual=True)
+    base = np.asarray(perp.funding_event_count).copy()
+    variants = {"full": base.copy(), "none": np.zeros_like(base)}
+    late = base.copy()
+    late[:20] = 0
+    variants["late_start"] = late
+    early = base.copy()
+    early[-20:] = 0
+    variants["early_end"] = early
+    hole = base.copy()
+    hole[15:40] = 0
+    variants["hole"] = hole
+    for name, counts in variants.items():
+        changed = replace(
+            perp,
+            funding_event_count=counts,
+            funding_available=counts > 0,
+            funding_rate=counts * 0.0001,
+        )
+        try:
+            assemble_carry_dataset({"BTCUSDT": (spot, changed)})
+            accepted = True
+        except ValueError:
+            accepted = False
+        assert (funding_coverage_gap(counts) is None) is accepted, name
+
+
+def test_coverage_evidence_is_optional_and_copied() -> None:
+    assert CarryCoverageError("x").evidence is None
+    evidence = {"kind": "gap"}
+    error = CarryCoverageError("x", evidence)
+    evidence["kind"] = "changed"
+    assert error.evidence == {"kind": "gap"}

@@ -177,9 +177,10 @@ def decide(
         "symbol_passes": passes,
         "required_symbol_passes": required,
         "null_pass_probability": protocol.null_pass_probability(),
-        "markov_false_positive_bound": count
+        "markov_bound_if_subperiods_independent": count
         * protocol.null_pass_probability()
         / required,
+        "error_rate_controlled": False,
         "independent_binomial_tail_diagnostic": binomial_tail(
             count, required, protocol.null_pass_probability()
         ),

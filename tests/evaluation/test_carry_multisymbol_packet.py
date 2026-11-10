@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT / "report/issue810-carry-multisymbol-research-assurance-20261110.json"
 )
-PINNED_DIGEST = "6868a5f482cf335f4126a3af8484e3e565173bc8be1d0443af6a446204d51212"
+PINNED_DIGEST = "PACKET_DIGEST_PLACEHOLDER"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -27,12 +27,28 @@ DOCUMENTS = (
     ROOT / "docs/research/current-status.md",
 )
 CODE_PATHS = (
+    # the screen, its data adapters and its command line
     "trade_rl/evaluation/carry.py",
     "trade_rl/evaluation/carry_multisymbol",
     "trade_rl/integrations/binance/carry.py",
     "trade_rl/integrations/market_store/carry_source.py",
-    "trade_rl/strategies/carry.py",
     "tools/carry_multisymbol_screen.py",
+    "trade_rl/strategies/carry.py",
+    # shared economic, parsing and evidence dependencies the screen executes
+    "trade_rl/integrations/binance/dataset.py",
+    "trade_rl/integrations/binance/vision.py",
+    "trade_rl/integrations/binance/types.py",
+    "trade_rl/integrations/market_store/parse.py",
+    "trade_rl/integrations/market_store/checksum.py",
+    "trade_rl/integrations/market_store/fetch.py",
+    "trade_rl/integrations/market_store/archive_url.py",
+    "trade_rl/integrations/market_store/embargo.py",
+    "trade_rl/integrations/market_store/plan.py",
+    "trade_rl/integrations/market_store/contracts.py",
+    "trade_rl/integrations/market_store/ingest.py",
+    "trade_rl/data",
+    "trade_rl/simulation",
+    "trade_rl/artifacts",
 )
 
 
@@ -132,3 +148,41 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
         check=True,
     ).stdout.split()
     assert changed == [], "re-pin the packet heads after changing the bound code"
+
+
+def test_the_bound_code_list_covers_the_shared_economic_dependencies() -> None:
+    for needed in (
+        "trade_rl/strategies/carry.py",
+        "trade_rl/evaluation/carry.py",
+        "trade_rl/simulation",
+        "trade_rl/data",
+        "trade_rl/integrations/market_store/parse.py",
+        "trade_rl/integrations/market_store/checksum.py",
+        "trade_rl/integrations/binance/dataset.py",
+    ):
+        assert needed in CODE_PATHS
+    for path in CODE_PATHS:
+        assert (ROOT / path).exists(), path
+
+
+def test_exposure_candidate_provenance_and_bch_are_disclosed_everywhere() -> None:
+    fixture = "tests/fixtures/legacy/realdata_20260713_signal_metadata.json"
+    assert (ROOT / fixture).is_file()
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert fixture in spec and "withdrawn" in spec
+    assert "BCH" in spec and "included" in spec
+    assert "416,667 USDT of hourly volume" in spec
+    assert "read no market data in this task" in spec
+    assert "not a controlled error rate" in spec
+    thesis = packet()["thesis"]["limitations"]
+    for needle in (
+        "realdata_20260713_signal_metadata.json",
+        "BCHUSDT",
+        "carry-outcome-blind, not data-blind",
+        "not a controlled error rate",
+    ):
+        assert needle in thesis, needle
+    forbidden = " ".join(packet()["claims"]["forbidden"])
+    assert "data-blind" in forbidden and "controlled error rate" in forbidden
+    text = json.dumps(packet())
+    assert "mutation" not in text

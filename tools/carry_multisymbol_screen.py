@@ -34,6 +34,7 @@ from trade_rl.evaluation.carry_multisymbol.runner import (
     ScreenRequest,
     run_screen,
 )
+from trade_rl.integrations.binance.carry import CarryScreenHalt
 from trade_rl.integrations.market_store.carry_source import (
     ArchiveDirFetcher,
     CarryRowSource,
@@ -46,6 +47,7 @@ from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestio
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
+EXIT_HALTED = 3
 
 GitState = Callable[[], tuple[str, bool]]
 RowSourceFactory = Callable[[IngestionPlan], CarryRowSource]
@@ -132,7 +134,9 @@ def _vision_rows(archive_dir: Path, allow_network: bool) -> RowSourceFactory:
         if allow_network:
             from trade_rl.integrations.market_store.fetch import VisionFetcher
 
-            inner = VisionFetcher()
+            # the source owns the bounded retry; one attempt per call avoids
+            # multiplying it
+            inner = VisionFetcher(max_attempts=1)
         return VisionArchiveSource(ArchiveDirFetcher(archive_dir, inner), plan)
 
     return factory
@@ -212,6 +216,13 @@ def main(
             _screen_data(rows_factory(build_plan(datetime.now(UTC)))),
             log=lambda message: print(message, file=err),
         )
+    except CarryScreenHalt as error:
+        state_word = "resumable" if error.resumable else "not resumable"
+        err.write(
+            f"halted ({error.kind}, {state_word}); see halt.json in the output "
+            f"directory: {error}\n"
+        )
+        return EXIT_HALTED
     except (ValueError, SealedWindowEmbargoError, FileExistsError) as error:
         err.write(f"refused: {error}\n")
         return EXIT_REFUSED

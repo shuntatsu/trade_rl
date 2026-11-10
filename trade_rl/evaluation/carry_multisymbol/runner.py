@@ -30,6 +30,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 from trade_rl.evaluation.carry_multisymbol.decision import CellSummary, decide
 from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
+    CarryIntegrityHalt,
+    CarryScreenHalt,
     assemble_carry_dataset,
     assemble_multisymbol_carry_dataset,
 )
@@ -126,21 +128,34 @@ class _Loaded:
 def _load_symbol(data: ScreenData, symbol: str) -> _Loaded:
     facts: dict[str, object] = {"symbol": symbol}
 
-    def excluded(code: str, detail: str) -> _Loaded:
-        facts.update({"admitted": False, "reason_code": code, "detail": detail[:400]})
+    def excluded(
+        code: str, detail: str, evidence: Mapping[str, object] | None = None
+    ) -> _Loaded:
+        facts.update(
+            {
+                "admitted": False,
+                "reason_code": code,
+                "detail": detail[:400],
+                "exclusion_evidence": None if evidence is None else dict(evidence),
+            }
+        )
         return _Loaded(symbol, None, facts)
 
     try:
         volumes = dict(data.lookback_median_volumes(symbol))
     except CarryCoverageError as error:
-        return excluded("lookback_incomplete", str(error))
+        return excluded("lookback_incomplete", str(error), error.evidence)
     facts["lookback_median_hourly_quote_volume"] = volumes
     if min(volumes.values()) < protocol.MIN_MEDIAN_HOURLY_QUOTE_VOLUME:
-        return excluded("liquidity_below_threshold", "median hourly quote volume")
+        return excluded(
+            "liquidity_below_threshold",
+            "median hourly quote volume",
+            {"kind": "liquidity", "medians": volumes},
+        )
     try:
         pair = data.pair(symbol)
     except CarryCoverageError as error:
-        return excluded("window_coverage", str(error))
+        return excluded("window_coverage", str(error), error.evidence)
     probe = (
         assemble_carry_dataset
         if symbol in protocol.REFERENCE
@@ -149,7 +164,11 @@ def _load_symbol(data: ScreenData, symbol: str) -> _Loaded:
     try:
         probe({symbol: pair})
     except ValueError as error:
-        return excluded("funding_or_clock_coverage", str(error))
+        # gaps were classified as coverage facts already; a failure here is not one
+        raise CarryIntegrityHalt(
+            f"{symbol}: assembly refused the loaded series: {error}",
+            {"kind": "assembly_failure", "symbol": symbol, "detail": str(error)},
+        ) from error
     facts.update(
         {
             "admitted": True,
@@ -254,6 +273,47 @@ def _cell(
     return summary
 
 
+def _archive_stale_halt(root: Path) -> None:
+    stale = root / "halt.json"
+    if stale.is_file():
+        folder = root / "halts"
+        folder.mkdir(exist_ok=True)
+        stale.replace(
+            folder / f"halt-{len(list(folder.glob('halt-*.json'))) + 1:03d}.json"
+        )
+
+
+def _write_halt(
+    root: Path,
+    error: BaseException,
+    *,
+    symbol: str | None,
+    request: ScreenRequest,
+    at: datetime,
+) -> None:
+    """Leave a marker that the run halted instead of finishing or excluding."""
+    if isinstance(error, CarryScreenHalt):
+        kind, resumable, evidence = error.kind, error.resumable, error.evidence
+    else:
+        kind, resumable, evidence = "unexpected_error", False, None
+    _write_json(
+        root / "halt.json",
+        {
+            "kind": kind,
+            "resumable": resumable,
+            "symbol": symbol,
+            "detail": f"{type(error).__name__}: {error}"[:500],
+            "evidence": evidence,
+            "protocol_digest": protocol.protocol_digest(),
+            "code_commit": request.code_commit,
+            "halted_at": at.isoformat(),
+            "note": (
+                "a halt is not an exclusion and not a result: no decision was written"
+            ),
+        },
+    )
+
+
 def run_screen(
     request: ScreenRequest,
     data: ScreenData,
@@ -269,88 +329,101 @@ def run_screen(
     started_at = now()
     root = request.output_dir
     _prepare_output(request)
-    loaded: dict[str, _Loaded] = {}
-    for symbol in (*protocol.CANDIDATES, *protocol.REFERENCE):
-        loaded[symbol] = _load_symbol(data, symbol)
-        log(f"{symbol}: admitted={loaded[symbol].facts['admitted']}")
-    admitted = tuple(s for s in protocol.CANDIDATES if loaded[s].pair is not None)
-    references = tuple(s for s in protocol.REFERENCE if loaded[s].pair is not None)
-    excluded = {
-        s: str(loaded[s].facts["reason_code"])
-        for s in protocol.CANDIDATES
-        if loaded[s].pair is None
-    }
-    _write_json(
-        root / "inclusion.json",
-        {
-            "admitted": list(admitted),
-            "excluded": excluded,
-            "references_loaded": list(references),
-            "symbols": {s: loaded[s].facts for s in sorted(loaded)},
-        },
-    )
-    _write_json(
-        root / "data-manifest.json",
-        {
-            "archives": data.evidence(),
-            "source": data.name,
-        },
-    )
-    if request.coverage_only:
-        return {"coverage_only": True, "admitted": list(admitted), "excluded": excluded}
-    summaries: dict[tuple[str, str], CellSummary] = {}
-    if len(admitted) >= protocol.MIN_ADMITTED:
-        for arm in _arms(admitted, references):
-            pairs: dict[str, tuple[RawMarketSeries, RawMarketSeries]] = {}
-            for member in arm.symbols:
-                pair = loaded[member].pair
-                if pair is None:
-                    raise ValueError(f"arm {arm.name} member {member} is not loaded")
-                pairs[member] = pair
-            assemble = (
-                assemble_carry_dataset
-                if arm.legacy_contract
-                else _multisymbol_assembler
-            )
-            datasets: dict[tuple[float, float], MarketDataset] = {}
-            for treatment in protocol.TREATMENTS:
-                key = (treatment.cost_multiplier, treatment.capacity_multiplier)
-                if key not in datasets:
-                    datasets[key] = assemble(
-                        pairs,
-                        cost_multiplier=treatment.cost_multiplier,
-                        capacity_multiplier=treatment.capacity_multiplier,
-                    )
-                summaries[(arm.name, treatment.name)] = _cell(
-                    root, arm, treatment, datasets[key]
+    _archive_stale_halt(root)
+    current: dict[str, str | None] = {"symbol": None}
+    try:
+        loaded: dict[str, _Loaded] = {}
+        for symbol in (*protocol.CANDIDATES, *protocol.REFERENCE):
+            current["symbol"] = symbol
+            loaded[symbol] = _load_symbol(data, symbol)
+            log(f"{symbol}: admitted={loaded[symbol].facts['admitted']}")
+        admitted = tuple(s for s in protocol.CANDIDATES if loaded[s].pair is not None)
+        references = tuple(s for s in protocol.REFERENCE if loaded[s].pair is not None)
+        excluded = {
+            s: str(loaded[s].facts["reason_code"])
+            for s in protocol.CANDIDATES
+            if loaded[s].pair is None
+        }
+        _write_json(
+            root / "inclusion.json",
+            {
+                "admitted": list(admitted),
+                "excluded": excluded,
+                "references_loaded": list(references),
+                "symbols": {s: loaded[s].facts for s in sorted(loaded)},
+            },
+        )
+        _write_json(
+            root / "data-manifest.json",
+            {
+                "archives": data.evidence(),
+                "source": data.name,
+            },
+        )
+        if request.coverage_only:
+            return {
+                "coverage_only": True,
+                "admitted": list(admitted),
+                "excluded": excluded,
+            }
+        summaries: dict[tuple[str, str], CellSummary] = {}
+        if len(admitted) >= protocol.MIN_ADMITTED:
+            for arm in _arms(admitted, references):
+                pairs: dict[str, tuple[RawMarketSeries, RawMarketSeries]] = {}
+                for member in arm.symbols:
+                    pair = loaded[member].pair
+                    if pair is None:
+                        raise ValueError(
+                            f"arm {arm.name} member {member} is not loaded"
+                        )
+                    pairs[member] = pair
+                assemble = (
+                    assemble_carry_dataset
+                    if arm.legacy_contract
+                    else _multisymbol_assembler
                 )
-                log(f"cell {arm.name}__{treatment.name} done")
-    decision = decide(
-        admitted,
-        excluded,
-        summaries,
-        reference_arms=[
-            name
-            for name in (
-                protocol.REFERENCE_SHARED_ARM,
-                *(protocol.reference_arm(s) for s in references),
-            )
-            if (name, "base") in summaries
-        ],
-    )
-    decision = decision | {
-        "protocol_digest": protocol.protocol_digest(),
-        "protocol_id": protocol.PROTOCOL_ID,
-        "code_commit": request.code_commit,
-        "started_at": started_at.isoformat(),
-        "finished_at": now().isoformat(),
-        "cells": {
-            f"{arm}__{treatment}": cell.to_dict()
-            for (arm, treatment), cell in sorted(summaries.items())
-        },
-    }
-    _write_json(root / "decision.json", decision)
-    return decision
+                datasets: dict[tuple[float, float], MarketDataset] = {}
+                for treatment in protocol.TREATMENTS:
+                    key = (treatment.cost_multiplier, treatment.capacity_multiplier)
+                    if key not in datasets:
+                        datasets[key] = assemble(
+                            pairs,
+                            cost_multiplier=treatment.cost_multiplier,
+                            capacity_multiplier=treatment.capacity_multiplier,
+                        )
+                    summaries[(arm.name, treatment.name)] = _cell(
+                        root, arm, treatment, datasets[key]
+                    )
+                    log(f"cell {arm.name}__{treatment.name} done")
+        decision = decide(
+            admitted,
+            excluded,
+            summaries,
+            reference_arms=[
+                name
+                for name in (
+                    protocol.REFERENCE_SHARED_ARM,
+                    *(protocol.reference_arm(s) for s in references),
+                )
+                if (name, "base") in summaries
+            ],
+        )
+        decision = decision | {
+            "protocol_digest": protocol.protocol_digest(),
+            "protocol_id": protocol.PROTOCOL_ID,
+            "code_commit": request.code_commit,
+            "started_at": started_at.isoformat(),
+            "finished_at": now().isoformat(),
+            "cells": {
+                f"{arm}__{treatment}": cell.to_dict()
+                for (arm, treatment), cell in sorted(summaries.items())
+            },
+        }
+        _write_json(root / "decision.json", decision)
+        return decision
+    except Exception as error:
+        _write_halt(root, error, symbol=current["symbol"], request=request, at=now())
+        raise
 
 
 __all__ = ["ScreenData", "ScreenRequest", "run_screen"]

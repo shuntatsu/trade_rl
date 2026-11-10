@@ -14,6 +14,7 @@ from typing import cast
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.artifacts.publication import (
     inspect_published_market_dataset_artifact,
@@ -725,7 +726,7 @@ def bootstrap_canonical_m2_study(
         )
         if output.exists() or output.is_symlink():
             raise FileExistsError(f"bootstrap output already exists: {output}")
-        staging.rename(output)
+        atomic_rename_directory(staging, output)
         return result
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)

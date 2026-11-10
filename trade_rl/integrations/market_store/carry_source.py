@@ -110,6 +110,11 @@ class ArchiveDirFetcher:
 
     def fetch(self, url: str) -> FetchResult:
         path = self._path(url)
+        if path.is_symlink():
+            raise CarryOperationalHalt(
+                f"archive cache symlink is not trusted: {url}",
+                {"kind": "cache_symlink", "url": url},
+            )
         if path.is_file():
             return FetchResult(status=200, body=path.read_bytes())
         if self._inner is None:

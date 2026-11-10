@@ -28,6 +28,69 @@ def test_publish_json_once_is_canonical_and_never_overwrites(tmp_path: Path) -> 
     assert published.read_bytes() == original
 
 
+def test_publish_json_once_preserves_late_competing_file_after_last_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An external writer can claim the target just after our last false check."""
+    store = StudyStore(tmp_path / "study")
+    target = store.root / "plan.json"
+    competitor = canonical_json_bytes({"competitor": "keep"})
+    original_is_symlink = Path.is_symlink
+    injected = False
+
+    def race_after_final_false_symlink_check(path: Path) -> bool:
+        nonlocal injected
+        was_symlink = original_is_symlink(path)
+        if (
+            path == target
+            and not injected
+            and tuple(store.root.glob(".plan.json.staging-*"))
+        ):
+            assert not target.exists()
+            target.write_bytes(competitor)
+            injected = True
+        return was_symlink
+
+    monkeypatch.setattr(Path, "is_symlink", race_after_final_false_symlink_check)
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        store.publish_json_once("plan.json", {"owner": "this writer"})
+
+    assert injected, "the after-check contender was not injected"
+    assert target.read_bytes() == competitor
+    assert not tuple(store.root.glob(".plan.json.staging-*"))
+
+
+def test_publish_json_once_exclusive_rename_rejects_late_competing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A competitor after the helper's precheck must lose at the OS syscall."""
+    import trade_rl.artifacts.atomic_write as atomic_write
+
+    store = StudyStore(tmp_path / "study")
+    target = store.root / "plan.json"
+    competitor = canonical_json_bytes({"competitor": "claimed"})
+    original_rename = atomic_write._rename_directory_no_replace
+    injected = False
+
+    def race_at_os_rename(source: Path, destination: Path) -> None:
+        nonlocal injected
+        assert destination == target
+        assert not injected
+        assert source.is_file()
+        assert not target.exists()
+        target.write_bytes(competitor)
+        injected = True
+        original_rename(source, destination)
+
+    monkeypatch.setattr(atomic_write, "_rename_directory_no_replace", race_at_os_rename)
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        store.publish_json_once("plan.json", {"owner": "this writer"})
+
+    assert injected, "the exclusive OS rename was not reached"
+    assert target.read_bytes() == competitor
+    assert not tuple(store.root.glob(".plan.json.staging-*"))
+
+
 def test_publish_directory_once_removes_failed_staging(tmp_path: Path) -> None:
     store = StudyStore(tmp_path / "study")
 

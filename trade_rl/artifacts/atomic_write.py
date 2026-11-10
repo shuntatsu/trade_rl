@@ -150,4 +150,5 @@ def atomic_rename_file(source: str | Path, target: str | Path) -> Path:
             time.sleep(delays[attempt])
     raise AssertionError("file rename retry loop exited unexpectedly")
 
+
 __all__ = ["atomic_rename_directory", "atomic_rename_file", "atomic_write_bytes"]

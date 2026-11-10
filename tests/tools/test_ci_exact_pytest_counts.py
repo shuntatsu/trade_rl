@@ -77,6 +77,53 @@ def test_missing_skipped_or_failed_cases_are_rejected(
         require_exact_junit_tests(report, expected_tests=2)
 
 
+def test_duplicate_case_identity_cannot_substitute_for_second_platform_test(
+    tmp_path: Path,
+) -> None:
+    report = _report(tmp_path, tests=2)
+    doc = ET.parse(report)
+    cases = doc.getroot().findall("testsuite/testcase")
+    cases[0].set("classname", "tests.platform")
+    cases[1].set("classname", "tests.platform")
+    cases[1].set("name", cases[0].get("name", ""))
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="duplicate testcase"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
+def test_distinct_classes_can_have_the_same_case_name(tmp_path: Path) -> None:
+    report = _report(tmp_path, tests=2)
+    doc = ET.parse(report)
+    cases = doc.getroot().findall("testsuite/testcase")
+    cases[0].set("classname", "tests.platform_a")
+    cases[1].set("classname", "tests.platform_b")
+    cases[1].set("name", cases[0].get("name", ""))
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    require_exact_junit_tests(report, expected_tests=2)
+
+
+def test_missing_case_identity_is_rejected(tmp_path: Path) -> None:
+    report = _report(tmp_path, tests=2)
+    doc = ET.parse(report)
+    first = doc.getroot().find("testsuite/testcase")
+    assert first is not None
+    first.attrib.pop("name")
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="missing testcase identity"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
+def test_whitespace_only_case_name_is_rejected(tmp_path: Path) -> None:
+    report = _report(tmp_path, tests=2)
+    doc = ET.parse(report)
+    case = doc.getroot().find("testsuite/testcase")
+    assert case is not None
+    case.set("name", "   ")
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="missing testcase identity"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
 def test_missing_and_malformed_reports_are_rejected(tmp_path: Path) -> None:
     absent = tmp_path / "absent.xml"
     with pytest.raises(ValueError):

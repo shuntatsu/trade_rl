@@ -40,7 +40,20 @@ def require_exact_junit_tests(report: Path, *, expected_tests: int) -> None:
     cases = suite.findall("testcase")
     if len(cases) != expected_tests:
         raise ValueError("JUnit testcase count does not match the declared count")
+    seen_identities: set[tuple[str, str]] = set()
     for case in cases:
+        name = case.get("name")
+        classname = case.get("classname", "")
+        if (
+            not name
+            or not name.strip()
+            or ("classname" in case.attrib and not classname.strip())
+        ):
+            raise ValueError("JUnit testcase has missing testcase identity")
+        identity = (classname, name)
+        if identity in seen_identities:
+            raise ValueError("JUnit contains a duplicate testcase identity")
+        seen_identities.add(identity)
         for outcome in ("skipped", "failure", "error"):
             if case.find(outcome) is not None:
                 raise ValueError("JUnit testcase contains a skipped or failed outcome")

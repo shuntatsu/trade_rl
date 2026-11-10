@@ -360,6 +360,34 @@ def test_pairs_key_spoofing_is_rejected_before_json_decode(
 
 
 @pytest.mark.parametrize(
+    "key", ("fit_admitted", "schema_version", "observed_view_digest")
+)
+def test_duplicate_known_root_fields_fail_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    """A second allowed root name cannot hide a wide decoder allocation."""
+    raw_key = key.encode("ascii")
+    raw = b'{"' + raw_key + b'":null,"' + raw_key + b'":['
+    raw += b"0," * 16_384 + b"0]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("duplicate root name reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt root key is duplicated"):
+        study._decode_incomplete_receipt(raw)
+
+
+def test_root_duplicate_guard_ignores_nested_key_lookalikes() -> None:
+    """Nested and quoted names cannot forge duplicate direct root fields."""
+    raw = (
+        b'{"observed_view_digest":{"fit_admitted":false},'
+        b'"fit_admitted":false,"reason":"quoted fit_admitted pairs"}'
+    )
+    study._preflight_receipt_pair_objects(raw)
+
+
+@pytest.mark.parametrize(
     ("raw", "message"),
     (
         pytest.param(

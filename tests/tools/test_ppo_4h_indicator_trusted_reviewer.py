@@ -461,7 +461,7 @@ def test_frozen_authority_rejects_seal_ref_mutation_during_readback(
             return _seal_ref(ref_sha=SEAL_OBJECT_SHA if reads == 1 else "8" * 40)
         if "/git/tags/" in url:
             return _seal_object()
-        raise AssertionError(url)
+        return _seal_bootstrap_response(url)
 
     monkeypatch.setattr(actions.transport, "_api_json", api)
     with pytest.raises(ValueError, match="changed during verification"):
@@ -472,6 +472,36 @@ def test_frozen_authority_rejects_seal_ref_mutation_during_readback(
             deadline=999999999.0,
         )
     assert reads == 2
+
+
+def test_frozen_authority_detects_seal_ref_change_during_bootstrap_readback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No tag-ref stability claim if PR/CI/comment fetches can complete after
+    # a ref is retargeted and the validator never refetches its final SHA.
+    state = {"bootstrap_done": False, "ref_reads": 0}
+
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/git/ref/tags/" in url:
+            state["ref_reads"] += 1
+            sha = "8" * 40 if state["bootstrap_done"] else SEAL_OBJECT_SHA
+            return _seal_ref(ref_sha=sha)
+        if "/git/tags/" in url:
+            return _seal_object()
+        response = _seal_bootstrap_response(url)
+        if "/issues/comments/" in url:
+            state["bootstrap_done"] = True
+        return response
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match="changed during verification"):
+        actions._require_frozen_reviewer_authority_seal(
+            repo_path="shuntatsu/trade_rl",
+            token="token",
+            deadline=999999999.0,
+        )
+    assert state["ref_reads"] == 2
+    assert state["bootstrap_done"]
 
 
 def test_frozen_authority_accepts_descendant_with_independently_verified_bytes(

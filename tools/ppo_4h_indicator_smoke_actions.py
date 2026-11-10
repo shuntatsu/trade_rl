@@ -325,6 +325,14 @@ def _require_frozen_reviewer_authority_seal(
             raise ValueError(
                 "trusted reviewer authority seal workflow/runner pin differs"
             )
+    _require_bootstrap_authority_provenance(
+        repo_path=repo_path,
+        lines=message.splitlines(),
+        token=token,
+        deadline=deadline,
+    )
+    # The last ref observation must occur after the PR, CI and review-note
+    # reads: otherwise a tag retargeted during bootstrap verification passes.
     if (
         require_tag_object_sha(
             transport._api_json(ref_url, token=token, deadline=deadline)
@@ -332,12 +340,6 @@ def _require_frozen_reviewer_authority_seal(
         != tag_object_sha
     ):
         raise ValueError("trusted reviewer authority seal changed during verification")
-    _require_bootstrap_authority_provenance(
-        repo_path=repo_path,
-        lines=message.splitlines(),
-        token=token,
-        deadline=deadline,
-    )
 
 
 def _require_frozen_reviewer_authority(

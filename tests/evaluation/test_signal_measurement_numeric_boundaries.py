@@ -58,3 +58,31 @@ def test_standard_14bps_cost_is_unchanged() -> None:
         cost_multiplier=1,
     )
     np.testing.assert_allclose(out, [0.0, 0.0186, 0.0086, 0.0])
+
+
+@pytest.mark.parametrize(
+    ("initial", "final"),
+    [(1e20, 1e-300), (1e200, 1e-120)],
+)
+def test_subnormal_intermediate_ratio_preserves_log_return_precision(
+    initial: float, final: float
+) -> None:
+    """A finite subnormal ratio must not round away significant log information."""
+    with np.errstate(over="ignore", under="ignore", divide="ignore"):
+        calculated = forward_log_returns(np.array([[initial], [final]]), 1)
+    expected = math.log(final) - math.log(initial)
+    assert calculated[0, 0] == pytest.approx(expected, abs=5e-13, rel=0)
+    assert np.isnan(calculated[1, 0])
+
+
+def test_nonrepresentable_round_trip_input_identifies_its_field() -> None:
+    with pytest.raises(
+        SignalMeasurementError, match="round_trip_cost must be a positive finite"
+    ):
+        after_cost_payoff(
+            np.array([0.1]),
+            np.array([0.02]),
+            k=1,
+            round_trip_cost=10**400,  # type: ignore[arg-type]
+            cost_multiplier=1,
+        )

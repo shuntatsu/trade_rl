@@ -112,6 +112,49 @@ def _zero_book(dataset: MarketDataset) -> BookState:
     )
 
 
+def test_unmarketable_limit_open_projection_underflow_rejects_before_order_state() -> (
+    None
+):
+    """An eligible event must not precede an unbookable open-mark reservation."""
+    tiny_price = 1e-200
+    prices = np.full((6, 1), tiny_price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        contract_multipliers=np.array([tiny_price]),
+    )
+    executor = _executor(dataset)
+    book = BookState.zero(1, 1_000.0, np.array([tiny_price]), np.array([tiny_price]))
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents(
+        (_intent(executor, -1.0, order_type=OrderType.LIMIT, limit_price=1e200),)
+    )
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([tiny_price]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+            runtime, context
+        )
+    assert accepted == []
+    assert [(event.event_type, event.reason) for event in runtime.events] == [
+        ("submitted", None),
+        ("rejected", "unrepresentable_notional"),
+    ]
+    assert runtime.rejected_count == 1
+    assert runtime.book.quantities.tolist() == [0.0]
+    assert runtime.book.cash == 1_000.0
+    assert runtime.fill_count == 0
+    assert book.quantities.tolist() == [0.0]
+
+
 @pytest.mark.parametrize("quantity", [-1.0, 1.0])
 @pytest.mark.parametrize("time_in_force", [TimeInForce.GTC, TimeInForce.IOC])
 def test_unrepresentable_order_is_rejected_at_stateful_admission(

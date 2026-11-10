@@ -719,6 +719,17 @@ The approved digest is the outer checkpoint protocol's canonical content
 digest. All economic stages must retain the reviewed code and workflow
 identity; a constant checkout SHA alone does not establish constant transport
 behavior. Terminated child processes must be reaped before evidence upload.
+The checkpoint importer additionally requires the entire receipt `sys.version`
+string and exact `uv_version` to match the current execution environment,
+along with the receipt-bound SHA-256 of the workflow, `uv.lock`, and
+`pyproject.toml`. Selecting a different Python 3.12 patch/build or changing
+the workflow file is therefore not a transparent resume: old stage receipts
+fail closed, even when the selected Python minor version and code checkout
+SHA remain unchanged. Any runner-toolcache migration must explicitly
+validate or version the checkpoint lineage, preserve prior evidence without
+rewriting it, and establish continuity across prepare, arm, and finalize
+before allowing economic execution. Ordinary software CI alone does not
+prove existing checkpoint resumes remain available.
 
 
 ## Research-specific contract: forward study FS1

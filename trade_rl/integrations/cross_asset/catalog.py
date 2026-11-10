@@ -74,7 +74,13 @@ SOURCES: dict[str, SourceSpec] = {
 
 @dataclass(frozen=True, slots=True)
 class SeriesSpec:
-    """One daily series, its point-in-time rules and its role in the features."""
+    """One daily series, its point-in-time rules and its role in the features.
+
+    ``revision_risk`` is ``low`` only when a measurement supports it (see
+    ``revision_evidence``); ``possible`` means revisions were measured and
+    ``unknown`` means no vintage history could be compared. Only ``low`` series
+    are default composite members; every other series is opt-in.
+    """
 
     key: str
     source: str
@@ -87,7 +93,18 @@ class SeriesSpec:
     release: ReleaseRule
     max_staleness_hours: float
     trend_breadth: bool = False
-    revision_risk: str = "low"
+    revision_risk: str = "unknown"
+    revision_evidence: str = "no vintage history available to compare"
+
+    def __post_init__(self) -> None:
+        if self.revision_risk not in REVISION_RISKS:
+            raise ValueError(f"revision_risk must be one of {sorted(REVISION_RISKS)}")
+        if not self.revision_evidence:
+            raise ValueError("revision_evidence must not be empty")
+
+    @property
+    def default_member(self) -> bool:
+        return self.revision_risk == "low"
 
     def url(self) -> str:
         template = SOURCES[self.source].url_template
@@ -106,14 +123,26 @@ class SeriesSpec:
             "max_staleness_hours": self.max_staleness_hours,
             "trend_breadth": self.trend_breadth,
             "revision_risk": self.revision_risk,
+            "revision_evidence": self.revision_evidence,
         }
 
+
+REVISION_RISKS = frozenset({"low", "possible", "unknown"})
 
 _NY = "America/New_York"
 _DAILY = ReleaseRule(lag_business_days=1)
 _WEEKLY_MONDAY = ReleaseRule(lag_business_days=1, weekly_release_weekday=0)
 _DAILY_STALE_HOURS = 10 * 24.0
 _WEEKLY_STALE_HOURS = 16 * 24.0
+
+# ALFRED measurement, 2026-11-10: the vintage published on VINTAGE_DATE compared
+# with the current values over the dates both contain. Reproduce with
+# https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=<ID>&vintage_date=<date>
+_ALFRED = "ALFRED vintage 2023-11-15 vs current"
+_NO_VINTAGE_YAHOO = (
+    "no vintage history exists for this endpoint; revisions can only be seen by "
+    "repeated fetches (status counts them)"
+)
 
 
 def _fred(
@@ -122,12 +151,13 @@ def _fred(
     group: str,
     description: str,
     *,
+    risk: str,
+    evidence: str,
     close: time = time(17, 0),
     tz: str = _NY,
     release: ReleaseRule = _DAILY,
     stale: float = _DAILY_STALE_HOURS,
     breadth: bool = False,
-    revision_risk: str = "low",
 ) -> SeriesSpec:
     return SeriesSpec(
         key=key,
@@ -141,7 +171,8 @@ def _fred(
         release=release,
         max_staleness_hours=stale,
         trend_breadth=breadth,
-        revision_risk=revision_risk,
+        revision_risk=risk,
+        revision_evidence=evidence,
     )
 
 
@@ -167,7 +198,8 @@ def _yahoo(
         release=_DAILY,
         max_staleness_hours=_DAILY_STALE_HOURS,
         trend_breadth=breadth,
-        revision_risk="low",
+        revision_risk="unknown",
+        revision_evidence=_NO_VINTAGE_YAHOO,
     )
 
 
@@ -186,24 +218,59 @@ def _stooq(
         release=_DAILY,
         max_staleness_hours=_DAILY_STALE_HOURS,
         trend_breadth=False,
-        revision_risk="low",
+        revision_risk="unknown",
+        revision_evidence="source unavailable (bot check); never measured",
     )
 
 
 P, L = SeriesKind.PRICE, SeriesKind.LEVEL
 
+# Continuous front-month futures (GC=F, SI=F, HG=F, CL=F, BZ=F) are deliberately
+# absent: their series jump on contract rolls and the only repair, back-adjusting
+# the history, would use future knowledge. No key-less spot gold, silver or
+# copper series exists (Yahoo XAUUSD=X, XAGUSD=X and XCUUSD=X answer 404).
 CATALOG: tuple[SeriesSpec, ...] = (
     # --- US rates (H.15 / Treasury): percent levels, measured in differences.
-    _fred("DGS2", L, "rates", "US Treasury 2y constant maturity yield, %"),
-    _fred("DGS10", L, "rates", "US Treasury 10y constant maturity yield, %"),
-    _fred("T10Y2Y", L, "rates", "10y minus 2y Treasury spread, pct points"),
-    _fred("DFII10", L, "rates", "US 10y TIPS real yield, %"),
+    _fred(
+        "DGS2",
+        L,
+        "rates",
+        "US Treasury 2y constant maturity yield, %",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 11862 values changed",
+    ),
+    _fred(
+        "DGS10",
+        L,
+        "rates",
+        "US Treasury 10y constant maturity yield, %",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 15454 changed (1 of 14484 against the 2020-01-02 vintage)",
+    ),
+    _fred(
+        "T10Y2Y",
+        L,
+        "rates",
+        "10y minus 2y Treasury spread, pct points",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 11863 values changed",
+    ),
+    _fred(
+        "DFII10",
+        L,
+        "rates",
+        "US 10y TIPS real yield, %",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 5223 values changed",
+    ),
     # --- Dollar and FX (H.10 noon buying rates, released weekly on Mondays).
     _fred(
         "DTWEXBGS",
         P,
         "dollar",
         "Nominal broad US dollar index",
+        risk="possible",
+        evidence=f"{_ALFRED}: 1707 of 4479 values changed (max 0.5%, 2018-2023)",
         close=time(12, 0),
         release=_WEEKLY_MONDAY,
         stale=_WEEKLY_STALE_HOURS,
@@ -214,66 +281,88 @@ CATALOG: tuple[SeriesSpec, ...] = (
         P,
         "fx",
         "JPY per USD",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 13251 changed (0 of 12284 against 2020-01-02)",
         close=time(12, 0),
         release=_WEEKLY_MONDAY,
         stale=_WEEKLY_STALE_HOURS,
-        breadth=True,
     ),
     _fred(
         "DEXUSEU",
         P,
         "fx",
         "USD per EUR",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 6236 values changed",
         close=time(12, 0),
         release=_WEEKLY_MONDAY,
         stale=_WEEKLY_STALE_HOURS,
-        breadth=True,
     ),
     _fred(
         "DEXUSUK",
         P,
         "fx",
         "USD per GBP",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 13257 values changed",
         close=time(12, 0),
         release=_WEEKLY_MONDAY,
         stale=_WEEKLY_STALE_HOURS,
-        breadth=True,
     ),
     _fred(
         "DEXCHUS",
         P,
         "fx",
         "CNY per USD",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 10697 values changed",
         close=time(12, 0),
         release=_WEEKLY_MONDAY,
         stale=_WEEKLY_STALE_HOURS,
-        breadth=True,
     ),
     _fred(
         "DEXUSAL",
         P,
         "fx",
         "USD per AUD",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 13250 values changed",
         close=time(12, 0),
         release=_WEEKLY_MONDAY,
         stale=_WEEKLY_STALE_HOURS,
-        breadth=True,
     ),
     # --- Risk appetite.
-    _fred("VIXCLS", P, "risk", "CBOE VIX close", close=time(16, 15)),
+    _fred(
+        "VIXCLS",
+        P,
+        "risk",
+        "CBOE VIX close",
+        risk="low",
+        evidence=f"{_ALFRED}: 8 of 8544 values changed (max 4.2%, last in 2019)",
+        close=time(16, 15),
+    ),
     _fred(
         "BAMLH0A0HYM2",
         L,
         "risk",
         "ICE BofA US high yield option-adjusted spread, %",
-        revision_risk="possible",
+        risk="possible",
+        evidence=(
+            "ICE licensing keeps a rolling three year window: the 2023-11-15 "
+            "vintage held 4 observations, so history is rewritten even though "
+            "vintages 2024-06-03 and 2025-06-02 show 0 changed"
+        ),
     ),
     _fred(
         "BAMLC0A0CM",
         L,
         "risk",
         "ICE BofA US corporate option-adjusted spread, %",
-        revision_risk="possible",
+        risk="possible",
+        evidence=(
+            "ICE licensing keeps a rolling three year window (same series "
+            "family as BAMLH0A0HYM2); the 2025-06-02 vintage shows 0 changed"
+        ),
     ),
     # --- Equity indices published on FRED. SP500 was observed three sessions
     # behind at the first fetch, so it carries a three business day lag.
@@ -282,6 +371,8 @@ CATALOG: tuple[SeriesSpec, ...] = (
         P,
         "equity",
         "S&P 500 (FRED keeps about ten years)",
+        risk="unknown",
+        evidence="ALFRED returns 404 for this series: no vintage to compare",
         close=time(16, 0),
         release=ReleaseRule(lag_business_days=3),
         breadth=True,
@@ -291,6 +382,8 @@ CATALOG: tuple[SeriesSpec, ...] = (
         P,
         "equity",
         "NASDAQ composite",
+        risk="possible",
+        evidence=f"{_ALFRED}: 996 of 13275 values changed (max 1.4%, mostly 2018-2020)",
         close=time(16, 0),
         breadth=True,
     ),
@@ -299,6 +392,8 @@ CATALOG: tuple[SeriesSpec, ...] = (
         P,
         "equity",
         "Nikkei 225",
+        risk="low",
+        evidence=f"{_ALFRED}: 0 of 18510 values changed",
         close=time(15, 30),
         tz="Asia/Tokyo",
         breadth=True,
@@ -309,16 +404,22 @@ CATALOG: tuple[SeriesSpec, ...] = (
         P,
         "commodity",
         "WTI crude spot, USD per barrel",
+        risk="possible",
+        evidence=f"{_ALFRED}: 0 changed but 743 of 9539 earlier values are now missing",
         release=ReleaseRule(lag_business_days=6),
         stale=15 * 24.0,
+        breadth=True,
     ),
     _fred(
         "DCOILBRENTEU",
         P,
         "commodity",
         "Brent crude spot, USD per barrel",
+        risk="possible",
+        evidence=f"{_ALFRED}: 0 changed but 890 of 9260 earlier values are now missing",
         release=ReleaseRule(lag_business_days=6),
         stale=15 * 24.0,
+        breadth=True,
     ),
     # --- Yahoo extras that FRED does not carry (no overlap with FRED above).
     _yahoo(
@@ -340,46 +441,6 @@ CATALOG: tuple[SeriesSpec, ...] = (
     ),
     _yahoo(
         "y_dxy", "DX-Y.NYB", "dollar", "ICE US dollar index", tz=_NY, close=time(17, 0)
-    ),
-    _yahoo(
-        "y_gold",
-        "GC=F",
-        "commodity",
-        "COMEX gold front future",
-        tz=_NY,
-        close=time(17, 0),
-    ),
-    _yahoo(
-        "y_silver",
-        "SI=F",
-        "commodity",
-        "COMEX silver front future",
-        tz=_NY,
-        close=time(17, 0),
-    ),
-    _yahoo(
-        "y_copper",
-        "HG=F",
-        "commodity",
-        "COMEX copper front future",
-        tz=_NY,
-        close=time(17, 0),
-    ),
-    _yahoo(
-        "y_wti",
-        "CL=F",
-        "commodity",
-        "NYMEX WTI front future",
-        tz=_NY,
-        close=time(17, 0),
-    ),
-    _yahoo(
-        "y_brent",
-        "BZ=F",
-        "commodity",
-        "ICE Brent front future",
-        tz=_NY,
-        close=time(17, 0),
     ),
     # --- Stooq (currently behind a bot check; probed once per fetch run).
     _stooq("stq_spx", "^spx", "equity", "S&P 500", tz=_NY, close=time(16, 0)),
@@ -411,8 +472,6 @@ CATALOG: tuple[SeriesSpec, ...] = (
     _stooq(
         "stq_xagusd", "xagusd", "commodity", "Silver spot", tz=_NY, close=time(17, 0)
     ),
-    _stooq("stq_cl_f", "cl.f", "commodity", "WTI future", tz=_NY, close=time(17, 0)),
-    _stooq("stq_hg_f", "hg.f", "commodity", "Copper future", tz=_NY, close=time(17, 0)),
 )
 
 _BY_KEY = {spec.key: spec for spec in CATALOG}
@@ -429,6 +488,7 @@ def series_by_key(key: str) -> SeriesSpec:
 
 __all__ = [
     "CATALOG",
+    "REVISION_RISKS",
     "SOURCES",
     "SeriesKind",
     "SeriesSpec",

@@ -5,12 +5,21 @@ inherits that observation's release time. Features are then joined to the
 decision grid as-of (``knowable_at <= t``) with an explicit staleness. Composites
 are stateless combinations of the aligned per-series features, so they cannot
 introduce any look-ahead beyond their inputs.
+
+Not to be confused with ``trade_rl.data.features.cross_asset``, which computes
+BTC-relative features among the *crypto* symbols of one dataset. This module
+only handles non-crypto macro and market series and never sees crypto prices.
+
+Default membership: a series feeds a composite only when its ``revision_risk`` is
+``low`` (measured; see the catalog). Series with ``possible`` or ``unknown``
+revision risk are opt-in through ``opt_in_series`` and the frame records which
+ones were used.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -54,7 +63,9 @@ class Composite:
 
 
 _EQUITIES = ("SP500", "NASDAQCOM", "NIKKEI225", "y_gdaxi", "y_ftse", "y_hsi", "y_ssec")
-_COMMODITIES = ("y_wti", "y_brent", "y_gold", "y_silver", "y_copper")
+# Front-month futures are excluded (roll jumps; back-adjusting would use future
+# knowledge) and no key-less spot gold/silver/copper exists, so only EIA oil.
+_COMMODITIES = ("DCOILWTICO", "DCOILBRENTEU")
 
 COMPOSITES: tuple[Composite, ...] = (
     Composite(
@@ -77,7 +88,6 @@ COMPOSITES: tuple[Composite, ...] = (
             ("VIXCLS", "sm20", -1),
             ("BAMLH0A0HYM2", "sm20", -1),
             ("BAMLC0A0CM", "sm20", -1),
-            ("y_gold", "sm20", -1),
         ),
         4,
     ),
@@ -159,6 +169,8 @@ def definitions() -> dict[str, object]:
             "members": list(_breadth_members()),
             "min_members": BREADTH_MIN_MEMBERS,
         },
+        "default_membership": "series with revision_risk == 'low'; every other"
+        " series only through opt_in_series",
         "rotations": [list(rotation) for rotation in ROTATIONS],
         "staleness": "hours from the session close of the as-of observation",
         "alignment": "as-of join on knowable_at <= decision time, past values only",
@@ -264,6 +276,7 @@ class FeatureFrame:
     available: np.ndarray  # bool [time, feature]
     staleness_hours: np.ndarray  # float64 [time, feature], NaN where unavailable
     series_present: tuple[str, ...]
+    opt_in_series: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         shape = (self.decision_ns.size, len(self.names))
@@ -297,6 +310,7 @@ class FeatureFrame:
             available=self.available[:, indices],
             staleness_hours=self.staleness_hours[:, indices],
             series_present=self.series_present,
+            opt_in_series=self.opt_in_series,
         )
 
 
@@ -354,8 +368,22 @@ def compute_frame(
     decision_times: np.ndarray,
     *,
     input_digest: str = "",
+    opt_in_series: Collection[str] = (),
 ) -> FeatureFrame:
-    """Compute every feature at the decision times using only released data."""
+    """Compute every feature at the decision times using only released data.
+
+    Composites use default members only (``revision_risk == "low"``) plus the
+    series named in ``opt_in_series``. Per-series columns are always computed.
+    """
+
+    catalog_keys = {spec.key: spec for spec in CATALOG}
+    opted = tuple(sorted(set(opt_in_series)))
+    unknown = [key for key in opted if key not in catalog_keys]
+    if unknown:
+        raise ValueError(f"unknown opt-in series: {unknown}")
+
+    def eligible(key: str) -> bool:
+        return catalog_keys[key].default_member or key in opted
 
     times = np.asarray(decision_times)
     if times.ndim != 1 or not np.issubdtype(times.dtype, np.datetime64):
@@ -376,14 +404,14 @@ def compute_frame(
         parts = [
             (aligned[(key, suffix)], sign)
             for key, suffix, sign in composite.members
-            if (key, suffix) in aligned
+            if (key, suffix) in aligned and eligible(key)
         ]
         columns[composite.name] = _combine(parts, composite.min_members, size)
     for name, window in zip(BREADTH_NAMES, MA_WINDOWS, strict=True):
         parts = [
             (aligned[(key, f"abv{window}")], 1)
             for key in _breadth_members()
-            if (key, f"abv{window}") in aligned
+            if (key, f"abv{window}") in aligned and eligible(key)
         ]
         columns[name] = _combine(parts, BREADTH_MIN_MEMBERS, size)
     for name, left, right in ROTATIONS:
@@ -416,6 +444,7 @@ def compute_frame(
         available=available,
         staleness_hours=staleness,
         series_present=tuple(sorted(obs)),
+        opt_in_series=opted,
     )
 
 

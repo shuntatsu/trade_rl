@@ -239,3 +239,26 @@ def test_manifest_lines_are_canonical_json(tmp_path: Path) -> None:
     line = (tmp_path / "manifest.jsonl").read_text(encoding="utf-8").strip()
     record = json.loads(line)
     assert json.dumps(record, sort_keys=True, separators=(",", ":")) == line
+
+
+def test_unchanged_recheck_keeps_the_original_capture_time(tmp_path: Path) -> None:
+    store = CrossAssetStore(tmp_path)
+    payload = _fred("DGS10", [("2026-11-04", "4.90")])
+    transport = FakeTransport({"id=DGS10": payload})
+    first = fetch_all(
+        store, _specs("DGS10"), transport, now=_clock(T0), sleep=lambda _s: None
+    )[0]
+    later = T0 + timedelta(days=2)
+    second = fetch_all(
+        store, _specs("DGS10"), transport, now=_clock(later), sleep=lambda _s: None
+    )[0]
+    assert second["status"] == "unchanged"
+    assert second["fetched_at"] == "2026-11-12T05:00:00Z"  # the re-check itself
+    assert second["captured_at"] == first["captured_at"] == "2026-11-10T05:00:00Z"
+    records = store.read_manifest()
+    # The vintage was captured at T0: a cutoff between capture and re-check
+    # still selects it, a cutoff before the capture does not.
+    between = latest_records(records, as_of=T0 + timedelta(hours=1))
+    assert between["DGS10"]["captured_at"] == "2026-11-10T05:00:00Z"
+    assert latest_records(records, as_of=T0 - timedelta(seconds=1)) == {}
+    assert manifest_digest(between) == manifest_digest(latest_records(records))

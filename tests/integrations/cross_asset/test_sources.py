@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
@@ -61,10 +63,10 @@ def test_every_series_uses_https_a_valid_zone_and_a_conservative_lag() -> None:
 
 
 def test_yahoo_requests_explicit_daily_bars_not_range_max() -> None:
-    url = series_by_key("y_gold").url()
+    url = series_by_key("y_dxy").url()
     assert "interval=1d" in url and "period1=" in url and "period2=" in url
     assert "range=max" not in url  # Yahoo downgrades range=max to monthly bars
-    assert "GC%3DF" in url
+    assert "DX-Y.NYB" in url
 
 
 def test_lags_reflect_observed_publication_delays() -> None:
@@ -206,7 +208,7 @@ def test_series_spec_payload_is_json_serialisable() -> None:
 
 
 def test_rows_whose_session_was_still_open_at_fetch_time_are_dropped() -> None:
-    spec = series_by_key("y_gold")  # closes 17:00 New York
+    spec = series_by_key("y_dxy")  # closes 17:00 New York
     payload = b"observation_date,X\n2025-03-03,1\n2025-03-04,2\n2025-03-05,3\n"
     parsed = parse_fred_csv(payload, "X")
     # Fetched 2025-03-05 15:00 UTC (10:00 EST): the 5th is still in progress.
@@ -216,3 +218,70 @@ def test_rows_whose_session_was_still_open_at_fetch_time_are_dropped() -> None:
     assert series.values.tolist() == [1.0, 2.0]
     # Without a fetch time (synthetic data) nothing is dropped.
     assert build_obs_series(spec, parsed).dates.size == 3
+
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_bar_timestamps.json"
+_SESSIONS = {
+    "^GDAXI": ("Europe/Berlin", time(17, 30)),
+    "^FTSE": ("Europe/London", time(16, 30)),
+    "^N225": ("Asia/Tokyo", time(15, 30)),
+    "^HSI": ("Asia/Hong_Kong", time(16, 0)),
+    "000001.SS": ("Asia/Shanghai", time(15, 0)),
+    "DX-Y.NYB": ("America/New_York", time(17, 0)),
+}
+
+
+def test_yahoo_bar_timestamps_map_to_their_own_session_never_an_earlier_one() -> None:
+    """Live sample 2024-03-04..2024-04-08 (spans the US and EU DST changes).
+
+    A bar stamped with an *earlier* date than its session would become knowable
+    before the session happened. Every bar's own timestamp must fall after the
+    previous calendar day's close and before the mapped day's close.
+    """
+
+    sample = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    checked = 0
+    for symbol, (zone, close_local) in _SESSIONS.items():
+        entry = sample[symbol]
+        assert entry["exchangeTimezoneName"] == zone
+        stamps = entry["timestamp"]
+        payload = json.dumps(
+            {
+                "chart": {
+                    "result": [
+                        {
+                            "meta": {"exchangeTimezoneName": zone},
+                            "timestamp": stamps,
+                            "indicators": {
+                                "quote": [
+                                    {
+                                        "close": [
+                                            float(i + 1) for i in range(len(stamps))
+                                        ]
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                    "error": None,
+                }
+            }
+        ).encode()
+        parsed = parse_yahoo_chart(payload)
+        by_date = {}
+        for index, stamp in enumerate(stamps):
+            by_date[
+                datetime.fromtimestamp(stamp, UTC).astimezone(ZoneInfo(zone)).date()
+            ] = (
+                stamp,
+                float(index + 1),
+            )
+        assert parsed.dates.astype(object).tolist() == sorted(by_date)
+        for day, (stamp, _value) in by_date.items():
+            instant = datetime.fromtimestamp(stamp, UTC)
+            assert instant < session_close_utc(day, zone, close_local), (symbol, day)
+            assert instant > session_close_utc(
+                day - timedelta(days=1), zone, close_local
+            ), (symbol, day)
+            checked += 1
+    assert checked > 100

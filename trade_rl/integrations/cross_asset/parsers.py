@@ -176,6 +176,10 @@ def parse_yahoo_chart(payload: bytes, series_id: str = "") -> ParsedSeries:
         if previous_stamp is not None and stamp <= previous_stamp:
             raise SourceDataError("Yahoo timestamps must be strictly increasing")
         previous_stamp = stamp
+        # A daily bar is stamped with its session OPEN in exchange-local time, so
+        # the exchange-local calendar date is the bar's own session date (never an
+        # earlier one). Verified on a live sample: see the committed timestamp
+        # fixture and its test.
         day = datetime.fromtimestamp(stamp, UTC).astimezone(timezone).date()
         last = day
         if close is None:

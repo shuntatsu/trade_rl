@@ -38,6 +38,7 @@ from trade_rl.integrations.cross_asset.loader import (
 from trade_rl.integrations.cross_asset.pit import knowable_at_utc
 from trade_rl.integrations.cross_asset.store import (
     CrossAssetStore,
+    captured_at,
     format_utc,
     latest_records,
     parse_utc,
@@ -95,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("composites", "all"),
         default="composites",
         help="composites only (default) or every per-series feature as well",
+    )
+    build.add_argument(
+        "--opt-in",
+        default="",
+        help="comma separated series keys with revision_risk other than low that "
+        "composites may use (default: none)",
     )
 
     commands.add_parser("status", help="per-series coverage, vintages and lag audit")
@@ -187,7 +194,7 @@ def status_report(store: CrossAssetStore) -> list[dict[str, object]]:
             row["state"] = "never fetched" if last is None else str(last["status"])
             row["reason"] = None if last is None else last.get("reason")
         else:
-            fetched_at = parse_utc(str(record["fetched_at"]))
+            fetched_at = parse_utc(captured_at(record))
             frontier = _expected_frontier(spec, fetched_at)
             last_row = record.get("last_row_date")
             behind = (
@@ -234,7 +241,10 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
 
 def _build(args: argparse.Namespace, out: TextIO) -> int:
     grid = regular_grid(args.start, args.end, args.timeframe)
-    frame = load_cross_asset_features(args.root, grid, as_of=args.as_of)
+    opt_in = tuple(item.strip() for item in args.opt_in.split(",") if item.strip())
+    frame = load_cross_asset_features(
+        args.root, grid, as_of=args.as_of, opt_in_series=opt_in
+    )
     if args.features == "composites":
         frame = frame.select(COMPOSITE_FEATURE_NAMES)
     tag = f"{args.timeframe}_{args.start:%Y%m%d}_{args.end:%Y%m%d}_{frame.input_digest[:8]}"
@@ -254,6 +264,7 @@ def _build(args: argparse.Namespace, out: TextIO) -> int:
         "input_digest": frame.input_digest,
         "names": list(frame.names),
         "series_present": list(frame.series_present),
+        "opt_in_series": list(frame.opt_in_series),
         "rows": int(frame.decision_ns.size),
         "timeframe": args.timeframe,
         "start": format_utc(args.start),

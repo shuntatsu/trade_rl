@@ -14,7 +14,11 @@ from trade_rl.integrations.cross_asset.pit import (
     knowable_at_array,
     session_close_array,
 )
-from trade_rl.integrations.cross_asset.store import CrossAssetStore, parse_utc
+from trade_rl.integrations.cross_asset.store import (
+    CrossAssetStore,
+    captured_at,
+    parse_utc,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +90,7 @@ def load_obs_series(
             spec,
             parsed,
             sha256=str(record["sha256"]),
-            fetched_at=parse_utc(str(record["fetched_at"])),
+            fetched_at=parse_utc(captured_at(record)),
         )
     return result
 

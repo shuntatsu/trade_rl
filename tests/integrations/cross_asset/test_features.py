@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from tests.integrations.cross_asset.support import (
+    OPT_IN_ALL,
     obs_series,
     random_walk,
     weekdays,
@@ -28,6 +29,7 @@ from trade_rl.integrations.cross_asset.features import (
 from trade_rl.integrations.cross_asset.pit import knowable_at_utc
 
 N = 400
+CATALOG_BY_KEY = {spec.key: spec for spec in CATALOG}
 
 
 def _nan_equal(left: np.ndarray, right: np.ndarray) -> bool:
@@ -213,7 +215,7 @@ def test_no_feature_row_changes_when_unreleased_observations_change() -> None:
     grid = _grid("2024-04-01T00:00", "2024-10-01T00:00", 24)
     cutoff = np.datetime64("2024-07-01T00:00", "ns")
     cutoff_ns = int(cutoff.astype(np.int64))
-    base = compute_frame(book, grid)  # type: ignore[arg-type]
+    base = compute_frame(book, grid, opt_in_series=OPT_IN_ALL)  # type: ignore[arg-type]
     rng = np.random.default_rng(99)
     mutated = {}
     for key, series in book.items():
@@ -222,7 +224,7 @@ def test_no_feature_row_changes_when_unreleased_observations_change() -> None:
         assert future.any()
         values[future] = values[future] * (1.0 + rng.uniform(0.2, 2.0, future.sum()))
         mutated[key] = obs_series(key, series.dates, values)  # type: ignore[attr-defined]
-    after = compute_frame(mutated, grid)
+    after = compute_frame(mutated, grid, opt_in_series=OPT_IN_ALL)
     rows = grid <= cutoff
     assert rows.any() and (~rows).any()
     assert _nan_equal(base.values[rows], after.values[rows])
@@ -244,9 +246,9 @@ def _trend_book(signs: dict[str, int]) -> dict[str, object]:
 
 
 def _last_row(book: dict[str, object]) -> tuple[object, int]:
-    end = max(s.knowable_ns[-1] for s in book.values())  # type: ignore[attr-defined]
+    end = min(s.knowable_ns[-1] for s in book.values())  # type: ignore[attr-defined]
     grid = np.asarray([end], dtype="datetime64[ns]")
-    return compute_frame(book, grid), 0  # type: ignore[arg-type]
+    return compute_frame(book, grid, opt_in_series=OPT_IN_ALL), 0  # type: ignore[arg-type]
 
 
 def test_dollar_strength_has_the_economic_sign_for_each_member() -> None:
@@ -283,7 +285,14 @@ def test_risk_appetite_rises_with_equities_and_falls_with_volatility() -> None:
 
 
 def test_trend_breadth_is_the_share_of_series_above_their_moving_average() -> None:
-    members = ("SP500", "NASDAQCOM", "NIKKEI225", "DTWEXBGS", "DEXJPUS", "DEXUSEU")
+    members = (
+        "SP500",
+        "NASDAQCOM",
+        "NIKKEI225",
+        "DTWEXBGS",
+        "DCOILWTICO",
+        "DCOILBRENTEU",
+    )
     rising = {key: 1 for key in members}
     frame, row = _last_row(_trend_book(rising))
     assert frame.values[row, frame.column("trend_breadth_60")] == 1.0  # type: ignore[attr-defined]
@@ -357,3 +366,113 @@ def test_frame_rejects_invalid_decision_grids_and_unknown_names() -> None:
     with pytest.raises(KeyError):
         frame.select(["nope"])
     assert frame.select(["dollar_strength"]).values.shape == (2, 1)
+
+
+def _default_book() -> dict[str, object]:
+    keys = (
+        "DEXJPUS",
+        "DEXCHUS",
+        "DEXUSEU",
+        "DEXUSUK",
+        "DEXUSAL",
+        "T10Y2Y",
+        "NIKKEI225",
+        "VIXCLS",
+    )
+    days = weekdays(N)
+    book = {}
+    for offset, key in enumerate(keys):
+        book[key] = obs_series(key, days, random_walk(N, seed=40 + offset))
+    return book  # type: ignore[return-value]
+
+
+def test_default_composites_ignore_series_that_are_not_low_revision_risk() -> None:
+    low_only = _default_book()
+    extra = {}
+    days = weekdays(N)
+    for offset, key in enumerate(
+        (
+            "DTWEXBGS",
+            "NASDAQCOM",
+            "SP500",
+            "BAMLH0A0HYM2",
+            "DCOILWTICO",
+            "y_dxy",
+            "y_gdaxi",
+            "y_hsi",
+        )
+    ):
+        extra[key] = obs_series(key, days, random_walk(N, seed=70 + offset))
+    book = {**low_only, **extra}
+    assert all(not CATALOG_BY_KEY[key].default_member for key in extra)
+    end = min(s.knowable_ns[-1] for s in book.values())  # type: ignore[attr-defined]
+    grid = np.asarray([end], dtype="datetime64[ns]")
+    plain = compute_frame(low_only, grid)  # type: ignore[arg-type]
+    default = compute_frame(book, grid)  # type: ignore[arg-type]
+    for name in COMPOSITE_FEATURE_NAMES:
+        assert _nan_equal(
+            default.values[:, default.column(name)], plain.values[:, plain.column(name)]
+        ), name
+    assert default.opt_in_series == ()
+    assert default.available[0, default.column("dollar_strength")]
+    assert default.available[0, default.column("curve_slope")]
+    # Too few default members: these composites stay unavailable by default.
+    for name in (
+        "risk_appetite",
+        "equity_momentum20",
+        "commodity_momentum20",
+        "trend_breadth_60",
+    ):
+        assert not default.available[0, default.column(name)], name
+    opted = compute_frame(
+        book, grid, opt_in_series=("NASDAQCOM", "SP500", "y_gdaxi", "y_hsi")
+    )  # type: ignore[arg-type]
+    assert opted.opt_in_series == ("NASDAQCOM", "SP500", "y_gdaxi", "y_hsi")
+    assert opted.available[0, opted.column("equity_momentum20")]
+    assert opted.available[0, opted.column("risk_appetite")]
+    assert not _nan_equal(
+        opted.values[:, opted.column("risk_appetite")],
+        default.values[:, default.column("risk_appetite")],
+    )
+    # Opt-in never changes per-series columns.
+    assert _nan_equal(
+        opted.values[:, opted.column("NASDAQCOM__ret1")],
+        default.values[:, default.column("NASDAQCOM__ret1")],
+    )
+    with pytest.raises(ValueError, match="unknown opt-in"):
+        compute_frame(book, grid, opt_in_series=("nope",))  # type: ignore[arg-type]
+
+
+def test_revision_risk_labels_carry_evidence_and_futures_are_absent() -> None:
+    for spec in CATALOG:
+        assert spec.revision_risk in {"low", "possible", "unknown"}
+        assert spec.revision_evidence
+        if spec.revision_risk == "low":
+            assert "ALFRED" in spec.revision_evidence and "of" in spec.revision_evidence
+        if spec.source == "yahoo":
+            assert spec.revision_risk == "unknown"
+        assert not spec.symbol.endswith("=F"), spec.key
+    default = {spec.key for spec in CATALOG if spec.default_member}
+    assert default == {
+        "DGS2",
+        "DGS10",
+        "T10Y2Y",
+        "DFII10",
+        "DEXJPUS",
+        "DEXUSEU",
+        "DEXUSUK",
+        "DEXCHUS",
+        "DEXUSAL",
+        "VIXCLS",
+        "NIKKEI225",
+    }
+    for key in (
+        "DTWEXBGS",
+        "NASDAQCOM",
+        "BAMLH0A0HYM2",
+        "BAMLC0A0CM",
+        "DCOILWTICO",
+        "DCOILBRENTEU",
+    ):
+        assert CATALOG_BY_KEY[key].revision_risk == "possible", key
+    assert CATALOG_BY_KEY["SP500"].revision_risk == "unknown"

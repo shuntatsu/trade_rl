@@ -98,6 +98,7 @@ class FeatureNormalizer:
             available=available,
             staleness_hours=np.where(available, frame.staleness_hours, np.nan),
             series_present=frame.series_present,
+            opt_in_series=frame.opt_in_series,
         )
 
     def digest(self) -> str:

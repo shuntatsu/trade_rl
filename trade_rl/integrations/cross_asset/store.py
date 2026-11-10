@@ -130,22 +130,35 @@ class CrossAssetStore:
         return hashlib.sha256(payload).hexdigest() == record.get("sha256")
 
 
+def captured_at(record: Mapping[str, object]) -> str:
+    """When the record's bytes were first captured (``fetched_at`` for old files).
+
+    An ``unchanged`` re-check carries the capture time of the vintage it
+    confirmed, never the time of the re-check.
+    """
+
+    return str(record.get("captured_at") or record["fetched_at"])
+
+
 def latest_records(
     records: list[dict[str, object]], *, as_of: datetime | None = None
 ) -> dict[str, dict[str, object]]:
-    """Return the latest usable vintage per series fetched at or before ``as_of``."""
+    """Return the latest usable vintage per series captured at or before ``as_of``."""
 
     cutoff = format_utc(as_of) if as_of is not None else None
     latest: dict[str, dict[str, object]] = {}
     for record in records:
         if record.get("status") not in USABLE_STATUSES:
             continue
-        fetched_at = str(record["fetched_at"])
-        if cutoff is not None and fetched_at > cutoff:
+        stamp = captured_at(record)
+        if cutoff is not None and stamp > cutoff:
             continue
         key = str(record["key"])
         current = latest.get(key)
-        if current is None or fetched_at >= str(current["fetched_at"]):
+        if current is None or (stamp, str(record["fetched_at"])) >= (
+            captured_at(current),
+            str(current["fetched_at"]),
+        ):
             latest[key] = record
     return latest
 

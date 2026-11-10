@@ -871,21 +871,51 @@ Raw data may carry third-party restrictions: it lives only under the git-ignored
 
 ### Vintages and storage
 
-`fetch` writes the exact bytes to `data/cross_asset/raw/<source>/<key>/<UTC stamp>_<sha8>.<ext>` and appends one canonical JSON line to `data/cross_asset/manifest.jsonl` (source URL, fetch time, SHA-256, size, row count, first/last dates, status). An identical refetch records `unchanged`; a changed payload becomes a new immutable vintage with a revision summary (added/changed/dropped dates and the first changed date). `load_cross_asset_features(..., as_of=...)` selects the vintages fetched at or before a cutoff, and the frame carries `input_digest`, the digest of the exact raw SHA-256 set. History comes from the latest vintage at each fetch: ALFRED first-release vintages are not fetched, so series that are later revised (`revision_risk="possible"`: ICE BofA spreads) may carry hindsight in past values. Market closes that are not revised are not affected.
+`fetch` writes the exact bytes to `data/cross_asset/raw/<source>/<key>/<UTC stamp>_<sha8>.<ext>` and appends one canonical JSON line to `data/cross_asset/manifest.jsonl` (source URL, fetch time, SHA-256, size, row count, first/last dates, status). An identical refetch records `unchanged` and keeps the vintage's original `captured_at`: bytes are never restamped with the time of a re-check, and `as_of` cutoffs and the in-progress-bar filter use `captured_at`. A changed payload becomes a new immutable vintage with a revision summary (added/changed/dropped dates and the first changed date). `load_cross_asset_features(..., as_of=...)` selects the vintages captured at or before a cutoff, and the frame carries `input_digest`, the digest of the exact raw SHA-256 set. History comes from the latest vintage at each fetch, so a series that is revised later carries the revised past values.
+
+### Revision risk and default membership
+
+Each catalog series has `revision_risk` (`low`, `possible` or `unknown`) and a `revision_evidence` note. **Only `low` series are default composite members**; `possible` and `unknown` series stay available as per-series features and as composite members only through the explicit `opt_in_series` argument (CLI `build --opt-in KEY,...`). The frame and the dataset identity record the opt-in set.
+
+`low` rests on a measurement, not on the nature of the series. ALFRED (`https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=<ID>&vintage_date=<date>`, key-less) serves the vintage published on a date; on 2026-11-10 the 2023-11-15 vintage was compared with the current values over the dates both contain:
+
+| Series | Changed values | Label |
+| --- | --- | --- |
+| DGS2, T10Y2Y, DFII10, DEXUSEU, DEXUSUK, DEXCHUS, DEXUSAL, NIKKEI225 | 0 | low |
+| DGS10 | 0 of 15454 (1 of 14484 against the 2020-01-02 vintage) | low |
+| DEXJPUS | 0 of 13251 (0 of 12284 against 2020-01-02) | low |
+| VIXCLS | 8 of 8544 (max 4.2%, last in 2019) | low |
+| DTWEXBGS | 1707 of 4479 (max 0.5%, 2018-2023) | possible |
+| NASDAQCOM | 996 of 13275 (max 1.4%, mostly 2018-2020) | possible |
+| DCOILWTICO, DCOILBRENTEU | 0 changed, but 743 of 9539 and 890 of 9260 earlier values are now missing | possible |
+| BAMLH0A0HYM2, BAMLC0A0CM | ICE licensing keeps a rolling three year window (the 2023-11-15 vintage held 4 observations); 0 changed in the 2024-06-03 and 2025-06-02 vintages | possible |
+| SP500 | ALFRED returns 404: no vintage to compare | unknown |
+| Yahoo and Stooq series | no vintage history exists; only repeated fetches (`status` counts revisions) can show it | unknown |
+
+This is one comparison date, so `low` means "no revision observed", not a guarantee; re-measure with another vintage date before relying on a new series.
+
+Continuous front-month futures (`GC=F`, `SI=F`, `HG=F`, `CL=F`, `BZ=F`) were removed from the catalog: their series jump on contract rolls and back-adjusting them would use future knowledge. No key-less spot gold, silver or copper exists (Yahoo `XAUUSD=X`, `XAGUSD=X`, `XCUUSD=X` answer 404), so oil comes only from FRED (`possible`, hence opt-in). Consequently the default frame has no commodity or equity-breadth composite.
+
+### Yahoo bar dates
+
+A Yahoo daily bar's timestamp is the **session open in the exchange's local time** (09:00 Berlin, 08:00 London, 09:00 Tokyo, 09:30 Hong Kong and Shanghai, 00:00 New York for the dollar index). `parse_yahoo_chart` takes its calendar date in `exchangeTimezoneName`, so the bar is attributed to its own session and never to an earlier one. A live sample spanning the US and EU DST changes is committed as timestamps only (`tests/integrations/cross_asset/fixtures/yahoo_bar_timestamps.json`, dummy closes) and `test_yahoo_bar_timestamps_map_to_their_own_session_never_an_earlier_one` asserts each bar falls after the previous day's close and before its mapped day's close.
 
 ### Features
 
-`cross_asset_features_v1` (`features.py`; `definitions_digest()` is the SHA-256 of the full canonical definition: windows, member lists and the series catalog). Windows count **observations of the series**, not calendar days, and are trailing only.
+`cross_asset_features_v1` (`features.py`; `definitions_digest()` is the SHA-256 of the full canonical definition: windows, member lists, the series catalog with revision labels, and the default-membership rule). Windows count **observations of the series**, not calendar days, and are trailing only. This module is unrelated to `trade_rl/data/features/cross_asset.py`, which computes BTC-relative features among the crypto symbols of one dataset.
 
-- Per series: `ret|chg{1,5,20,60}` (log return for prices, difference for levels and spreads; NaN for non-positive prices), `rvol20` (sample std of the 1-observation change), `z252` (trailing z-score of log price or level), `sm20`/`sm60` (k-observation change over the trailing-252 std times sqrt(k), clipped at 5), `lvl` for levels and `abv60`/`abv200` (above the trailing moving average) for prices.
-- Composites on the decision grid: `dollar_strength`, `risk_appetite`, `equity_momentum20`, `commodity_momentum20`, `commodity_momentum60`, `curve_slope`, `curve_slope_chg20`, `trend_breadth_60`, `trend_breadth_200`, `rotation_equity_minus_commodity`, `rotation_equity_minus_dollar`. Each is the mean of the signed `sm*` (or `abv*`) members that are present and fresh, with a fixed minimum member count; fewer members than the minimum makes the composite unavailable.
+- Per series: `ret|chg{1,5,20,60}` (log return for prices, difference for levels and spreads; NaN for non-positive prices), `rvol20` (sample std of the 1-observation change), `z252` (trailing z-score of log price or level), `sm20`/`sm60` (k-observation change over the trailing-252 std times sqrt(k), clipped at 5), `lvl` for levels and `abv60`/`abv200` (above the trailing moving average) for prices. Per-series columns are computed for every series regardless of revision risk; selecting a `possible`/`unknown` series is an explicit choice.
+- Composites on the decision grid: `dollar_strength`, `risk_appetite`, `equity_momentum20`, `commodity_momentum20`, `commodity_momentum60`, `curve_slope`, `curve_slope_chg20`, `trend_breadth_60`, `trend_breadth_200`, `rotation_equity_minus_commodity`, `rotation_equity_minus_dollar`. Each is the mean of the signed `sm*` (or `abv*`) members that are eligible (default or opted in), present and fresh, with a fixed minimum member count; fewer members than the minimum makes the composite unavailable.
+- **Default membership** (`revision_risk == low`): `dollar_strength` = `DEXJPUS`, `DEXCHUS` (+), `DEXUSEU`, `DEXUSUK`, `DEXUSAL` (-), min 3; `curve_slope` and `curve_slope_chg20` = `T10Y2Y`; `risk_appetite` (min 4) can only see `NIKKEI225` (+) and `VIXCLS` (-), `equity_momentum20` (min 3) only `NIKKEI225`, and breadth (min 5) only `NIKKEI225`, so those composites and both rotations are unavailable by default. Opt-in members: `DTWEXBGS`, `y_dxy` (dollar); `SP500`, `NASDAQCOM`, `y_gdaxi`, `y_ftse`, `y_hsi`, `y_ssec` (equity, risk, breadth); `BAMLH0A0HYM2`, `BAMLC0A0CM` (risk); `DCOILWTICO`, `DCOILBRENTEU` (commodity, breadth).
 - Normalisation: `FeatureNormalizer.fit(frame, fit_start, fit_end)` uses only available rows with `fit_start <= t < fit_end`; a feature without enough fit data becomes unavailable instead of unscaled.
 
 ### CLI and hook
 
 `python -m trade_rl.integrations.cross_asset fetch|build|status` (default root `data/cross_asset`). `build` aligns features to a regular UTC grid (`--timeframe 4h|1d`) and writes `built/cross_asset_features_v1/*.npz|json` for inspection. `load_cross_asset_features(root, decision_times, as_of=..., feature_names=...)` returns the aligned `FeatureFrame` for any UTC grid.
 
-The opt-in dataset hook is `with_cross_asset_global_features(dataset, frame, feature_names=...)` in `dataset.py`. `MarketDataset.global_features` already reaches the `SharedPortfolioGymEnv` observation (`global_features` plus the `global_feature_available` mask) and the portfolio transform fits its own scale on the training window, so no shared feature code changes. The hook returns a new dataset whose original global columns are byte-identical, with `xa_<name>` columns appended (an unavailable entry is 0.0 with `global_feature_available=False` and missing reason 2), and whose identity binds the overlay (feature set, definitions digest, input digest, names, normaliser digest). Callers that do not use it get exactly the previous datasets, pinned by a golden dataset id test and by a test that default import paths never load the package.
+`build` and the loader take `--opt-in`/`opt_in_series` for non-default composite members.
+
+The opt-in dataset hook is `with_cross_asset_global_features(dataset, frame, feature_names=...)` in `dataset.py`. `MarketDataset.global_features` already reaches the `SharedPortfolioGymEnv` observation (`global_features` plus the `global_feature_available` mask) and the portfolio transform fits its own scale on the training window, so no shared feature code changes. The hook returns a new dataset whose original global columns are byte-identical, with `xa_<name>` columns appended (an unavailable entry is 0.0 with `global_feature_available=False` and missing reason 2), and whose identity binds the overlay (feature set, definitions digest, input digest, names, opt-in series, normaliser digest). Callers that do not use it get exactly the previous datasets, pinned by a golden dataset id test and by a test that default import paths never load the package.
 
 ## Repository integration boundary
 

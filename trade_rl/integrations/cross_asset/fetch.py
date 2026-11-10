@@ -182,7 +182,13 @@ def _fetch_one(
     digest = hashlib.sha256(payload).hexdigest()
     record["sha256"] = digest
     if previous is not None and previous.get("sha256") == digest:
-        record.update(status="unchanged", path=previous["path"], revision=None)
+        # The bytes are the vintage first captured earlier; do not restamp them.
+        record.update(
+            status="unchanged",
+            path=previous["path"],
+            revision=None,
+            captured_at=previous.get("captured_at", previous["fetched_at"]),
+        )
         return record
     path, _digest = store.write_raw(
         spec.source, spec.key, fetched_at, payload, extension=_EXTENSION[spec.source]
@@ -194,7 +200,12 @@ def _fetch_one(
             revision = diff_observations(old, parsed)
         except (OSError, ValueError):
             revision = {"unreadable_previous": True}
-    record.update(status="ok", path=path, revision=revision)
+    record.update(
+        status="ok",
+        path=path,
+        revision=revision,
+        captured_at=format_utc(fetched_at),
+    )
     return record
 
 

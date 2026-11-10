@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.integrations.cross_asset.support import seed_store
+from tests.integrations.cross_asset.support import OPT_IN_ALL, seed_store
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.cross_asset.dataset import (
     GLOBAL_PREFIX,
@@ -33,7 +33,7 @@ from trade_rl.strategies.rl.portfolio_transform import (
     fit_portfolio_observation_transform,
 )
 
-SELECTED = ("dollar_strength", "risk_appetite", "curve_slope", "trend_breadth_60")
+SELECTED = ("dollar_strength", "risk_appetite", "curve_slope", "equity_momentum20")
 START = datetime(2024, 6, 3, tzinfo=UTC)
 # Identity of ``_dataset()`` below, computed before this package existed. It
 # must never change because the overlay package was added.
@@ -77,7 +77,9 @@ def _dataset(n_bars: int = 8, start: datetime = START) -> MarketDataset:
 @pytest.fixture()
 def frame(tmp_path: Path) -> FeatureFrame:
     store = seed_store(tmp_path)
-    return load_cross_asset_features(store.root, _dataset().timestamps)
+    return load_cross_asset_features(
+        store.root, _dataset().timestamps, opt_in_series=OPT_IN_ALL
+    )
 
 
 def test_existing_dataset_identity_is_unchanged_by_the_overlay_package() -> None:
@@ -142,7 +144,9 @@ def test_overlay_is_reproducible_and_binds_its_inputs(frame: FeatureFrame) -> No
 def test_unavailable_entries_are_zero_with_an_explicit_mask(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
     early = _dataset(start=datetime(2022, 1, 3, tzinfo=UTC))  # before any release
-    frame = load_cross_asset_features(store.root, early.timestamps)
+    frame = load_cross_asset_features(
+        store.root, early.timestamps, opt_in_series=OPT_IN_ALL
+    )
     combined = with_cross_asset_global_features(early, frame, feature_names=SELECTED)
     assert not combined.global_feature_available[:, 1:].any()
     assert (combined.global_features[:, 1:] == 0.0).all()
@@ -177,7 +181,9 @@ def test_overlay_requires_the_exact_decision_grid_and_an_explicit_selection(
 def test_fit_window_normalizer_is_applied_before_the_overlay(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
     base = _dataset(n_bars=60)
-    frame = load_cross_asset_features(store.root, base.timestamps)
+    frame = load_cross_asset_features(
+        store.root, base.timestamps, opt_in_series=OPT_IN_ALL
+    )
     fit_end = base.timestamps[40]
     normalizer = FeatureNormalizer.fit(
         frame.select(SELECTED),
@@ -229,7 +235,9 @@ def test_overlay_reaches_the_ppo_observation_and_transform(tmp_path: Path) -> No
     store = seed_store(tmp_path)
     n_bars = 40
     base = _dataset(n_bars=n_bars)
-    frame = load_cross_asset_features(store.root, base.timestamps)
+    frame = load_cross_asset_features(
+        store.root, base.timestamps, opt_in_series=OPT_IN_ALL
+    )
     combined = with_cross_asset_global_features(base, frame, feature_names=SELECTED)
 
     def env_for(dataset: MarketDataset) -> SharedPortfolioGymEnv:
@@ -262,3 +270,28 @@ def test_overlay_reaches_the_ppo_observation_and_transform(tmp_path: Path) -> No
     normalized = transform.transform_observation(observation)
     assert normalized["global_features"].shape == (1 + len(SELECTED),)
     assert np.isfinite(normalized["global_features"]).all()
+
+
+def test_default_frame_marks_opt_in_dependent_features_unavailable(
+    tmp_path: Path,
+) -> None:
+    store = seed_store(tmp_path)
+    base = _dataset()
+    default = load_cross_asset_features(store.root, base.timestamps)
+    combined = with_cross_asset_global_features(
+        base, default, feature_names=("dollar_strength", "risk_appetite")
+    )
+    assert combined.global_feature_available[:, 1].all()  # five low-risk FX members
+    assert not combined.global_feature_available[:, 2].any()  # needs opt-in members
+    assert combined.identity_payload_json is not None
+    assert '"opt_in_series":[]' in combined.identity_payload_json
+    opted = load_cross_asset_features(
+        store.root, base.timestamps, opt_in_series=("SP500", "NASDAQCOM")
+    )
+    other = with_cross_asset_global_features(
+        base, opted, feature_names=("dollar_strength", "risk_appetite")
+    )
+    assert other.dataset_id != combined.dataset_id
+    assert '"opt_in_series":["NASDAQCOM","SP500"]' in (
+        other.identity_payload_json or ""
+    )

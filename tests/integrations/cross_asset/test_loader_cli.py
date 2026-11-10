@@ -15,6 +15,7 @@ import pytest
 import trade_rl.integrations.cross_asset.cli as cli_module
 from tests.integrations.cross_asset.support import (
     FETCHED_AT,
+    OPT_IN_ALL,
     FakeTransport,
     clock,
     fred_payload,
@@ -128,7 +129,7 @@ def test_normalizer_statistics_come_only_from_the_fit_window(tmp_path: Path) -> 
     grid = regular_grid(
         datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 7, 1, tzinfo=UTC), "1d"
     )
-    frame = load_cross_asset_features(store.root, grid)
+    frame = load_cross_asset_features(store.root, grid, opt_in_series=OPT_IN_ALL)
     names = ("dollar_strength", "risk_appetite", "SP500__ret5")
     chosen = frame.select(names)
     start, end = grid[0], grid[100]

@@ -72,6 +72,7 @@ def with_cross_asset_global_features(
         "names": list(names),
         "normalizer_digest": None if normalizer is None else normalizer.digest(),
         "series_present": list(frame.series_present),
+        "opt_in_series": list(frame.opt_in_series),
     }
     combined = replace(
         dataset,

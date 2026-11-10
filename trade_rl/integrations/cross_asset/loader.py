@@ -41,13 +41,16 @@ def load_cross_asset_features(
     as_of: datetime | None = None,
     series: Sequence[str] | None = None,
     feature_names: Sequence[str] | None = None,
+    opt_in_series: Sequence[str] = (),
 ) -> FeatureFrame:
     """Features at ``decision_times`` using only data released by each time.
 
     ``decision_times`` are UTC instants (for example crypto bar close times). A
     value is usable at ``t`` only if its release time is ``<= t``. ``as_of``
-    restricts the raw vintages to those fetched at or before it, which makes a
-    build reproducible after later refetches or revisions.
+    restricts the raw vintages to those captured at or before it, which makes a
+    build reproducible after later refetches or revisions. Composites use only
+    default (``revision_risk == "low"``) series unless ``opt_in_series`` names
+    others; the frame records the opt-in set.
     """
 
     store = CrossAssetStore(root)
@@ -61,7 +64,12 @@ def load_cross_asset_features(
             "trade_rl.integrations.cross_asset fetch`"
         )
     obs = load_obs_series(store, latest)
-    frame = compute_frame(obs, decision_times, input_digest=manifest_digest(latest))
+    frame = compute_frame(
+        obs,
+        decision_times,
+        input_digest=manifest_digest(latest),
+        opt_in_series=opt_in_series,
+    )
     return frame if feature_names is None else frame.select(feature_names)
 
 

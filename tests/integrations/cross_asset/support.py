@@ -8,12 +8,13 @@ from pathlib import Path
 
 import numpy as np
 
-from trade_rl.integrations.cross_asset.catalog import SeriesSpec, series_by_key
+from trade_rl.integrations.cross_asset.catalog import CATALOG, SeriesSpec, series_by_key
 from trade_rl.integrations.cross_asset.fetch import TransportError, fetch_all
 from trade_rl.integrations.cross_asset.observations import ObsSeries, build_obs_series
 from trade_rl.integrations.cross_asset.parsers import ParsedSeries
 from trade_rl.integrations.cross_asset.store import CrossAssetStore
 
+OPT_IN_ALL = tuple(spec.key for spec in CATALOG)
 FETCHED_AT = datetime(2025, 7, 10, 12, 0, tzinfo=UTC)
 SEEDED_KEYS = (
     "SP500",
@@ -22,6 +23,9 @@ SEEDED_KEYS = (
     "DTWEXBGS",
     "DEXJPUS",
     "DEXUSEU",
+    "DEXUSUK",
+    "DEXCHUS",
+    "DEXUSAL",
     "T10Y2Y",
     "VIXCLS",
 )

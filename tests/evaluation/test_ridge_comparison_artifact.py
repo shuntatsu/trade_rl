@@ -891,6 +891,36 @@ def test_loader_rejects_semantic_mutations_even_with_recomputed_digest(
         load_ridge_comparison_artifact(root, expected_digest=recomputed_digest)
 
 
+@pytest.mark.parametrize("oversized", (10**500, -(10**500)))
+def test_resealed_oversized_budget_uses_field_specific_loader_error(
+    tmp_path: Path,
+    oversized: int,
+) -> None:
+    """An otherwise valid sealed artifact must reject huge ints as ValueError."""
+    comparison, provenance = _comparison(tmp_path)
+    root = tmp_path / "comparison"
+    publish_ridge_comparison_artifact(root, comparison, provenance=provenance)
+    loaded = load_ridge_comparison_artifact(
+        root,
+        expected_digest=_digest((root / "comparison.json").read_bytes()),
+    )
+    payload = _mutable_payload(loaded)
+    config = payload["config"]
+    assert isinstance(config, dict)
+    config["gross_budget"] = oversized
+    digest = _reseal(root, payload)
+
+    with pytest.raises(ValueError, match=r"config\\.gross_budget must be finite"):
+        load_ridge_comparison_artifact(root, expected_digest=digest)
+
+
+def test_ridge_reader_preserves_representable_large_integer_conversion() -> None:
+    from trade_rl.evaluation.runs.ridge_comparison_artifact import _number
+
+    finite = 10**308
+    assert _number(finite, field="test_field") == float(finite)
+
+
 def test_loader_rejects_wrong_external_digest_raw_tampering_and_extra_files(
     tmp_path: Path,
 ) -> None:

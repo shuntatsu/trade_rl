@@ -399,6 +399,31 @@ def test_archive_cache_concurrent_publishers_have_private_stages(
     assert not list(tmp_path.rglob("*.part-*"))
 
 
+def test_archive_cache_parent_creation_failure_is_an_operational_halt(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unwritable parent is resumable I/O failure, not untyped OSError."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    original_mkdir = Path.mkdir
+
+    def deny_parent(path: Path, *args: object, **kwargs: object) -> None:
+        if path == target.parent:
+            raise PermissionError(errno.EACCES, "read-only cache parent")
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    class StaticFetcher:
+        def fetch(self, _url: str) -> FetchResult:
+            return FetchResult(status=200, body=b"downloaded archive bytes")
+
+    monkeypatch.setattr(Path, "mkdir", deny_parent)
+    with pytest.raises(CarryOperationalHalt, match="cache publication failed") as caught:
+        ArchiveDirFetcher(tmp_path, StaticFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_publication_failed"
+    assert not target.exists()
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
 def test_archive_cache_unsupported_exclusive_publish_halts_without_partial_cache(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

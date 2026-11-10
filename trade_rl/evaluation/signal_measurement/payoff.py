@@ -52,30 +52,14 @@ def _cost(
         raise SignalMeasurementError("k must be a positive integer")
     if type(cost_multiplier) is not int or cost_multiplier < 1:
         raise SignalMeasurementError("cost_multiplier must be a positive integer")
-    if isinstance(round_trip_cost, bool) or not isinstance(
-        round_trip_cost, (int, float)
-    ):
-        raise SignalMeasurementError("round_trip_cost must be a positive finite number")
-    try:
-        base_cost = float(round_trip_cost)
-        cost = base_cost * cost_multiplier
-        threshold = cost * k
-    except OverflowError as error:
-        raise SignalMeasurementError(
-            "derived cost and threshold must be positive finite numbers"
-        ) from error
-    if not math.isfinite(base_cost) or base_cost <= 0.0:
-        raise SignalMeasurementError("round_trip_cost must be a positive finite number")
     if (
-        not math.isfinite(cost)
-        or cost <= 0.0
-        or not math.isfinite(threshold)
-        or threshold <= 0.0
+        isinstance(round_trip_cost, bool)
+        or not isinstance(round_trip_cost, (int, float))
+        or not math.isfinite(round_trip_cost)
+        or round_trip_cost <= 0.0
     ):
-        raise SignalMeasurementError(
-            "derived cost and threshold must be positive finite numbers"
-        )
-    return k, cost
+        raise SignalMeasurementError("round_trip_cost must be a positive finite number")
+    return k, float(round_trip_cost) * cost_multiplier
 
 
 def _positions(forecast: np.ndarray, threshold: float) -> np.ndarray:

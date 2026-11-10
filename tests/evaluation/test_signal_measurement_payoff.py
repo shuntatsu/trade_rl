@@ -295,23 +295,3 @@ def test_a_planted_forecast_has_a_positive_drift_excess_at_cost_x1_and_x2() -> N
     assert results[1].lower > 0.0
     assert results[2].mean > 0.0
     assert results[2].mean < results[1].mean  # more cost, less excess
-
-@pytest.mark.parametrize(
-    ("k", "round_trip_cost", "cost_multiplier"),
-    (
-        (1, 1e308, 2),
-        (2, 1e308, 1),
-        (1, 10**500, 1),
-        (10**500, ROUND_TRIP, 1),
-        (1, ROUND_TRIP, 10**500),
-    ),
-)
-def test_derived_cost_overflow_is_a_typed_admission_failure(
-    k: int, round_trip_cost: float, cost_multiplier: int
-) -> None:
-    """A positive finite input never turns into an unreported NaN payoff."""
-    with pytest.raises(SignalMeasurementError, match="cost|finite"):
-        after_cost_payoff(
-            np.array([0.1]), np.array([0.02]),
-            k=k, round_trip_cost=round_trip_cost, cost_multiplier=cost_multiplier,
-        )

@@ -162,10 +162,14 @@ class ResolvedRunConfig:
         )
         ppo_seed = contract_non_negative_int(self.ppo_seed, field="ppo_seed")
         gross_budget = contract_finite(self.gross_budget, field="gross_budget")
+        if not 0.0 < gross_budget <= 1.0:
+            raise ContractViolationError("gross_budget must be within (0, 1]")
         initial_capital = contract_finite(
             self.initial_capital,
             field="initial_capital",
         )
+        if initial_capital <= 0.0:
+            raise ContractViolationError("initial_capital must be finite and positive")
         execution_overlay = contract_text(
             self.execution_overlay,
             field="execution_overlay",

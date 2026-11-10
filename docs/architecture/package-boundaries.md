@@ -116,7 +116,7 @@ trade_rl/
     ├── ppo_normalization_activation.json
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
     ├── paper/
-    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py}
+    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,collection_policy.py}
     │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
     │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
@@ -172,8 +172,21 @@ not supply a limit, including historical REST and Vision/cache reads, retain
 their existing behavior. These body-byte limits are not endpoint size, peak
 memory or total-runtime guarantees.
 `forward_evidence.py` revalidates the immutable response graph and reconstructs
-market summaries from raw bytes; consumption-time freshness is separate from
-offline historical verification. `forward_rules.py` captures current public
+market summaries from raw bytes; consumption latency (`as_of` within
+`MAX_CONSUME_LATENCY_MS` of capture completion) is separate from offline
+historical verification and from the per-quote age bound at capture completion.
+The worst-case venue-stamped mark age at valuation is `MAX_QUOTE_AGE_MS` +
+`MAX_CONSUME_LATENCY_MS` = 15 s. `MAX_QUOTE_AGE_MS`, `MAX_QUOTE_FUTURE_SKEW_MS`,
+`MAX_REQUEST_SECONDS` (one request), `MAX_CAPTURE_SPAN_SECONDS` and
+`MAX_CONSUME_LATENCY_MS` are protocol parameters set from the source and engineering
+reasoning, not from observed timing: a new paper attempt must pre-register them in its
+research-assurance packet (attempt 3: `report/issue810-carry-attempt3-research-assurance-20261108.json`,
+bound to these constants by test; its collection policy is implemented under
+`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` and its
+screen v3, evaluator audit and lineage v4 under
+`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`), pass G0-G2 and independent review, and never reuse an
+earlier seal under changed tolerances.
+`forward_rules.py` captures current public
 exchange metadata and derives supported market lot/notional/price bounds. It
 retains averaging semantics and unsupported account-rule limitations. Neither
 module consumes a trading account or authorizes an order.
@@ -198,13 +211,33 @@ source references to saved commands, commits isolated account transitions, and
 replays every result on restart. `paper/supervisor.py` binds public collection
 to frozen source/runtime/protocol identity and owns the single-collector lock,
 rule refresh, pending-decision resumption, terminal window and durable failure.
+`paper/collection_policy.py` is the pure, I/O-free home of the pre-registered
+attempt-3 collection-failure policy (retry, skip and rules-hold constants, the
+Class D/I/T classification of an acquisition failure from exception types and the
+three skipped-slot budgets); `supervisor` applies it and `control` stores its
+registry. It imports only `integrations.binance.forward` for the freshness error
+type, and the watchdog never loads it. A transient failure is retried only inside
+its slot before a capture is consumed; an unobtainable slot is skipped without a
+command; a Class D/I failure or a budget breach writes the permanent marker.
 `paper/control.py` records cycle start before acquisition and completion only
-after account commits, preventing restart from hiding failed or unused captures.
-These control records assign no financial meaning. `paper/operations.py` freezes
+after account commits, preventing restart from hiding failed or unused captures,
+and holds the tables `attempts` (one row per failed or unused capture directory)
+and `skips` (one row per skipped slot) beside the cycle table. The transport
+chains its final error to the HTTP or socket cause and a capture's freshness
+rejection is `ForwardFreshnessError`, so the classification reads types, not
+messages. These control records assign no financial meaning. `paper/operations.py` freezes
 the ninety-day economic screen, runs sixty-second slots and exposes explicitly
-chain-only operational status. `paper/assessment.py` excludes a running collector,
-replays the pinned event tip and all financial inputs, audits control/source
-rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
+chain-only operational status; `screen_plan` (v2) and `screen_plan_v3` share one
+constructor of the economic fields, and v3 adds only the `operational_quality` clause
+that restates the collection-policy constants. `paper/assessment.py` excludes a running
+collector, replays the pinned event tip and all financial inputs, audits control/source
+rosters, then measures and applies the fixed screen; the sealed plan's schema selects the
+v2 audit (any failed capture or skipped slot rejects) or the v3 audit. `paper/collection_audit.py`
+is the pure v3 audit: it reads the `attempts` and `skips` registry through a read-only
+connection the caller passes, re-derives the skipped slots from the cycle roster, applies
+the three budgets and the per-slot failed-capture bound, and builds the skip report (count
+and distribution relative to the 00:00, 08:00 and 16:00 UTC settlements); it imports only
+`collection_policy`. `paper/cli.py` exposes seal,
 run, status, check, supervise and write-once evaluation commands. The account/engine
 expose due announced funding for previously held exact quantities, including after
 exits. `paper/failure.py` is the single exclusive-create failure-marker writer and
@@ -225,14 +258,18 @@ neither the collector nor `paper/storage_probe.py`. The probe is the one other
 networked step: it runs the real `PaperCollector` for a few slots into a scratch root
 whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluate`,
 `cli run` and `cli supervise` refuse it (`attempt2 seal` only writes new roots).
+`paper/attempt3.py` is the same plan/seal/launch composition for the successor: it reads
+the preserved attempt-2 root's identity with the v1 reader (read-only), builds lineage
+v4 and the `screen_plan_v3`, and has the same offline/no-collector import boundary.
 `paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
-records, the single lineage classifier (`lineage_structure_problems`) and the
+and v4 records, the single lineage classifier (`lineage_structure_problems`) and the
 read-only re-verification of a recorded predecessor root. `seal_collection`,
 `seal_paper_study`, `cli seal`, `PaperEngine.initialize` and `PaperEngine(root)`
-(on open), `validate_attempt_lineage`, `attempt2`, `PaperCollector`, `cli run` and
-`cli supervise` all use it; v3 also needs a module-private token held by `attempt2`
-at the seal functions (a caller contract), and the collector re-reads an `available`
-root on every entry. This guards against accidental or non-canonical records through
+(on open), `validate_attempt_lineage`, `attempt2`, `attempt3`, `PaperCollector`,
+`cli run` and `cli supervise` all use it; v3 also needs a module-private token held by
+`attempt2` and v4 one held by `attempt3` at the seal functions (a caller contract), and
+the collector re-reads an `available` root (v4: with its failure marker) on every entry.
+A screen v3 plan is accepted only with lineage v4 and the reverse. This guards against accidental or non-canonical records through
 the supported entry points; it is not authentication against a malicious local
 operator. Among paper modules it imports only `account` at load time. These
 operations contain no production routing.
@@ -515,7 +552,7 @@ Gym/SB3 imports are local to the callable path.
 `evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。Ridge / LightGBMはRun configの正の整数`supervised_forecast_horizon_hours`（既定24、signed `datetime64[ns]`に収まる最大2,562,047時間）を両fitへ渡し、strategy名にも同じ時間数を使う。直接構築する`LeanCandidateConfig`は4つのthresholdでbuilt-in `bool`を拒否し、typed `fit_cutoff`もshared data helperでexact integer normalizationを行う。PPO・risk・execution設定はforecast horizonに依存しない。
-- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` はshared data helperでexact integer normalizationを行う。既にwrapされた `datetime64[ns]` から元時刻は復元できない。
+- `config.py`: Run JSONの単一parse/resolution authority。候補Run configのforecast horizonをstrictに検証し、`gross_budget`は有限な`(0, 1]`、`initial_capital`は有限な正値として結果生成前にfail-closedする。`fit_cutoff` / `evaluation_start` / `evaluation_stop_exclusive` の元ISO範囲・precisionもlosslessにns正規化してdataset-resolved specへbindする。typed `datetime64` はshared data helperでexact integer normalizationを行う。既にwrapされた `datetime64[ns]` から元時刻は復元できない。永続化する`ResolvedRunConfig`も同じbudget/capital境界を再検証し、Study/Experiment readerが実行不能な有限値をsemantic identityとして受け入れない。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。`supports_shared_cash_result_schema`は、shared-cash evidenceを持てるresult schemaとしてv7/v9/v10を許可する。新規Runは正のforecast horizonと明示的な`forecast_switch_cost`（`null`または有限な非負値）を`lean_candidate_result_v10`へbindし、per-symbolとoptional shared-cashの両方を同じcurrent schemaで表現する。v10はrisk config・完全なevaluation-period coverage・training/replay suppression evidenceを保持し、shared-cash時はsettlement / ledger evidenceも必須とする。loaderはreturn / maximum drawdownをraw seriesから再計算する。historical v8/v9を含む旧result schemasは不変のまま読み込み、新fieldのbackfillを拒否する。
@@ -767,9 +804,24 @@ The package reads no dataset, market value or file, fits nothing, imports no net
 
 Schema (plain SQL, `migrations/NNNN_name.sql`, applied in order with a `schema_version` ledger that records each file's SHA-256 and refuses an edited or unknown applied migration): `instruments`, `exchange_info_snapshots` + `instrument_rule_snapshots` (current-snapshot rules valid from retrieval, not historical rules), `sources` (one row per archive: URL, kind, period, archive sha256, the `.CHECKSUM` line digest, the sha256 of the `.CHECKSUM` file, size, HTTP status, fetched_at), `ingestion_runs` (code commit, command line, counts, status, FS1 warm-up flag and authorization URL), `klines`, `funding_rates` and `ingestion_conflicts`. Every price, quantity and rate is exact `NUMERIC`; natural keys are primary keys; CHECK constraints enforce `high >= max(open, close)`, `low <= min(open, close)` and non-negative volume. `klines`, `funding_rates`, `sources` (once ingested) and the exchange snapshots are append-only (triggers reject UPDATE and DELETE). TRUNCATE is also blocked on every evidence table, and a 404 `sources` record may only gain its evidence, never change its identity. What is committed outside the per-archive transaction: before the run, `ingest --allow-network` snapshots `exchangeInfo` (`exchange_info_snapshots`, `instrument_rule_snapshots`, `instruments`, `run_id` NULL); during the run, `instruments` rows and 404 `missing` source markers are committed as they occur, plus the `ingestion_runs` audit row; none of these holds a price, a funding rate or a boundary state. Re-ingesting an archive is a no-op; a changed value for an existing key rolls the archive back, is written to `ingestion_conflicts`, fails the run and is never applied.
 
+Known exchange placeholder (spot 1h, 2020-12-21 14:00 UTC). The public spot monthly archives for 2020-12 (verified for BTC, ETH, BNB, XRP, ADA and SOL against USDT) each contain one zero-volume placeholder row for the bar opening `1608559200000` (2020-12-21 14:00 UTC): open = high = low = close, volume, quote volume, taker volumes and trades all 0, and a `close_time` about 12.6 minutes **before** the open (about 13:47:20 UTC, different per symbol), which the generic close-after-open check rejects. `parse.py` recognises exactly that shape only for the six verified symbols (`is_known_exchange_placeholder`: BTC/ETH/BNB/XRP/ADA/SOL against USDT, spot market, `1h`, that open time, a flat positive price, all volumes and trades zero, and a `close_time` strictly before the open by less than one bar) and nothing else. The row passes the embargo, period, alignment and ordering checks first, is then skipped rather than stored, and is returned in `ParsedKlines.placeholders`; ingestion counts it in `RunCounts.placeholder_rows_skipped` and lists it (URL, open/close time, price) in `IngestReport.skipped_placeholders`, so the ingest CLI output shows it. Any other malformed row, including the same shape for an unverified symbol or at another bar or market, a nonzero volume or trade count, a non-flat candle or a `close_time` that is not just before the open, still raises `ArchiveContentError` and aborts the archive before any write. The archive checksum, `sources.row_count` (rows actually stored, so one fewer than the archive's data rows) and the append-only tables are unchanged; the skip is not persisted in a database column (no migration), so the audit trail is the checksum-pinned archive plus the run report. The store therefore holds no bar for that hour: the export keeps the gap (nothing is filled) and the unchanged Dataset builder's gap policy decides what happens. Related but not skipped: rows with zero volume whose `close_time` falls after the open (for example the six spot 2021-02 archives' bar at 2021-02-11 03:00 UTC) pass the unchanged validation and are stored as published.
+The separate file-backed `BinanceMarketDataSource` path in `integrations/binance/dataset.py` is **not row-identical** to the market store for this event: its `_parse_kline_rows` derives a close timestamp as `open_time + interval` without examining the archive `close_time` field, and currently retains the same zero-volume placeholder as a regular candle. The market store instead skips it and exposes the missing-hour gap. The characterized mismatch is pinned in `test_file_backed_reader_currently_retains_the_store_skipped_placeholder`; it is a known source-path difference, not evidence that either historical Dataset was retroactively corrected. Do not assert cross-path row/count parity here or silently change sealed/historical data. Both file-backed `STRICT` and opt-in `NON_TRADABLE_ROWS` currently admit that archive row as present and tradable; the latter reports zero missing bars when surrounded by a complete synthetic grid. This explicit source-clock divergence is pinned in `test_file_backed_gap_policies_do_not_mask_store_skipped_placeholder` using identical input rows, not asserted as desired future policy. Any harmonization must bind a separately reviewed, versioned source-clock rule into new Dataset identity rather than silently redefining historical evidence. The file-backed ingestion path remains unchanged. The market-store exception now explicitly restricts the skip to the six verified symbols; all other symbols keep the ordinary malformed-close-time refusal. Existing published Dataset bytes are not rewritten.
+
 FS1 data-protection boundaries. The FS1 forward study controls two spans (constants pinned by tests against the FS1 registry `warmup_only_start` / `scoring_start` and against the SQL functions of the migration). (1) The **warm-up span** `[2026-08-01T00:00Z, 2026-11-01T00:00Z)` may, per *FS1 acquisition procedure* in `research-assurance.md`, be fetched only with a separate Issue #810 data-fetch authorization, so the store refuses it **by default**; a run may admit it only with `--allow-fs1-warmup-span` together with `--fs1-warmup-authorization-url` naming that Issue #810 comment (both or neither). The flag, the URL and the run are recorded in `ingestion_runs`, the database triggers admit warm-up rows only for that still-running authorized run, and the URL is an attestation of the user's authorization, not a verified one. The boundaries are module constants (`FS1_WARMUP_START`, `SEALED_WINDOW_START`), not parameters of any public constructor, planner, ingester or exporter, so no caller can move them. Even then FS1 scoring does not use the store: it re-acquires and re-verifies its own data through its sealed tool (`evaluation/forward_acquisition`), and store rows never feed FS1 scoring. (2) The **sealed window** `>= 2026-11-01T00:00Z` (scored once after 2027-05-02) is refused **unconditionally**: there is no flag, parameter, table or SQL function that lifts it, and no sealed or warm-up row, authorization or release state is ever stored by a failed or empty run. Lifting it after FS1 is scored needs a future reviewed migration (replacing `market_sealed_from()`) and pull request. Both spans are enforced at five layers, and the decision is always made from the period parsed out of the Vision URL itself (`archive_url.py`), never from caller-declared metadata: `ingest` refuses any `ArchiveSpec` whose kind, market, symbol, interval, cadence or period disagrees with its URL before a run starts or anything is requested; `VisionFetcher.fetch` independently refuses, before any network call, every URL that is not a recognised Vision archive or `.CHECKSUM` path with a period entirely before 2026-08-01 (a fetcher constructed with the warm-up authorization URL may also take periods entirely before 2026-11-01; none can take a URL touching the sealed window) and never follows redirects; the planner never plans an archive whose period passes a closed span (a straddling monthly archive is replaced by its in-bounds daily archives; a funding month that cannot be published inside the bound is reported and skipped) and a requested range end inside a closed span exits with code 4; every parsed row is checked before any write; and PostgreSQL triggers on `klines`, `funding_rates` and `sources` reject such rows even under a direct INSERT. By default `plan`/`ingest` therefore end at 2026-08-01. The database guard for the warm-up span is an accident guard, not an authorization boundary: it admits warm-up rows only to the backend session that started a still-`running` authorized run no older than 12 hours (a hard-killed run is closed by the next `begin_run`, and an old one stops admitting rows), run identity and authorization columns are immutable and a finished run cannot be reopened; but the session variable `trade_rl.fs1_warmup_run_id` is an ordinary custom setting that any login role may `SET`, any role that may INSERT into `ingestion_runs` can create an authorized-looking run, and PostgreSQL cannot verify that an Issue #810 comment exists. Keep the store's write role with trusted operators; the sealed window has no such path.
 
-Export. `export_market_dataset` serves stored rows through the same transport interface as the Vision file path (Vision column layout from exact values, funding events with the Vision inclusive range, one stored raw `exchangeInfo` applied statically) so the unchanged builder, gap policy, 4h/1d aggregation and identity produce the `MarketDataset`. Digests of every row read, the exchange snapshot and an `fs1_warmup` record (whether any exported bar lies in the warm-up span, the last bar time and the authorizing run ids and Issue #810 URLs) enter the identity as `metadata_evidence` and the export receipt; the same store content and parameters give the same `dataset_id` (pin the rules snapshot with `--rules-snapshot-sha256`), and a test proves a store-backed build equals a file-backed build from the same archives.
+Export. The direct `BinanceMarketDataSource` and `build_binance_market_dataset` interfaces default to `STRICT` (including both requested time boundaries), whereas `export_market_dataset` and the market-store `export` CLI deliberately default to `NON_TRADABLE_ROWS`. Callers comparing the two paths must specify a matching policy; even then the documented 2020 spot placeholder remains a source-clock interpretation difference. `export_market_dataset` serves stored rows through the same transport interface as the Vision file path (Vision column layout from exact values, funding events with the Vision inclusive range, one stored raw `exchangeInfo` applied statically) so the unchanged builder, gap policy, 4h/1d aggregation and identity produce the `MarketDataset`. Digests of every row read, the exchange snapshot and an `fs1_warmup` record (whether any exported bar lies in the warm-up span, the last bar time and the authorizing run ids and Issue #810 URLs) enter the identity as `metadata_evidence` and the export receipt; the same store content and parameters give the same `dataset_id` (pin the rules snapshot with `--rules-snapshot-sha256`), and an existing test establishes a store-backed/file-backed match for its particular fixture with identical admitted archive rows. This is not a blanket same-archive parity guarantee: the documented Dec-2020 spot placeholder yields different admitted rows between these paths. Any stronger equivalence claim requires matching parsed rows and explicit gap-policy semantics.
+
+The non-tradable base-bar policy has an additional common-clock boundary: the
+generic `MarketDatasetBuilder` infers its regular clock from the earliest and
+latest **observed** source bars. If every configured symbol is missing the
+final requested interval, that clock would otherwise end early and silently
+omit the unobserved last row. The Binance Dataset builder therefore refuses
+any result whose first/last closed timestamps do not match the full requested
+range; it does **not** invent a final price or extend historical Dataset IDs.
+When only some symbols lack the last bar, the remaining symbol's close defines
+the full clock and the missing slots stay non-tradable with the existing
+causal feature masks. This fail-closed boundary does not resolve the separate
+2020 spot source-close-time mismatch or authorize old Dataset reinterpretation.
 
 Operating it (Windows, PowerShell; install Docker Desktop first, then `uv sync --extra store`):
 
@@ -793,7 +845,9 @@ uv run python -m trade_rl.integrations.market_store status
 uv run python -m trade_rl.integrations.market_store export --market usds_m --start 2021-01-01 --end 2026-08-01 --output-dir C:/data/exports/usds_m_2021_2026
 ```
 
-The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.4` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
+The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.15-bookworm` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
+
+The pinned Compose image and the CI service use `postgres:16.15-bookworm` (PostgreSQL 16 minor release with an explicit Bookworm base). A green fresh-container CI run does **not** validate changing the existing `trade_rl_market_store_data` volume. Before updating a populated local deployment, follow the [16.15 migration notes](https://www.postgresql.org/docs/16/release-16-15.html), including the 16.10 notes applicable when upgrading from 16.4; make and verify a backup, rehearse the upgrade and recovery on a copy, check applicable configuration/reindex guidance, and verify migration-twice/status, row counts and checksums. This source change performs no service restart or existing-volume migration.
 
 ## Repository integration boundary
 

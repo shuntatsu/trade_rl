@@ -9,7 +9,9 @@ Per archive:
 2. the archive and its official ``.CHECKSUM`` are fetched; a missing archive (404) is
    recorded as such and retried on the next run, any other failure aborts the run;
 3. the archive is verified against the checksum, parsed, and every row is checked
-   against the sealed-window embargo, all before the first write;
+   against the sealed-window embargo, all before the first write; the one documented
+   exchange placeholder candle (spot 1h, 2020-12-21 14:00 UTC) is skipped, counted in
+   ``placeholder_rows_skipped`` and reported, never stored;
 4. in one transaction the source row is written, existing rows for the same natural
    keys are compared by value, identical rows are counted (re-ingest is a no-op) and
    only unseen keys are inserted. A changed value for an existing key rolls the
@@ -40,6 +42,7 @@ from trade_rl.integrations.market_store.contracts import (
 )
 from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 from trade_rl.integrations.market_store.parse import (
+    SkippedPlaceholder,
     parse_funding_archive,
     parse_kline_archive,
 )
@@ -117,6 +120,7 @@ class RunCounts:
     rows_inserted: int = 0
     rows_identical: int = 0
     conflicts: int = 0
+    placeholder_rows_skipped: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -125,6 +129,7 @@ class RunCounts:
             "archives_planned": self.archives_planned,
             "archives_skipped": self.archives_skipped,
             "conflicts": self.conflicts,
+            "placeholder_rows_skipped": self.placeholder_rows_skipped,
             "rows_identical": self.rows_identical,
             "rows_inserted": self.rows_inserted,
         }
@@ -136,11 +141,15 @@ class IngestReport:
     status: str
     counts: RunCounts
     missing_urls: tuple[str, ...] = field(default=())
+    skipped_placeholders: tuple[SkippedPlaceholder, ...] = field(default=())
 
     def to_dict(self) -> dict[str, object]:
         return {
             "counts": self.counts.to_dict(),
             "missing_urls": list(self.missing_urls),
+            "skipped_placeholders": [
+                placeholder.to_dict() for placeholder in self.skipped_placeholders
+            ],
             "run_id": self.run_id,
             "status": self.status,
         }
@@ -291,6 +300,7 @@ def _ingest_archive(
     clock: Callable[[], datetime],
     counts: RunCounts,
     missing: list[str],
+    placeholders: list[SkippedPlaceholder],
 ) -> None:
     # the boundary decision comes from the URL itself, never from declared metadata
     parsed = verify_spec_matches_url(spec)
@@ -353,8 +363,11 @@ def _ingest_archive(
     end_ms = ms_from_utc(spec.period_end)
     kline_rows: list[KlineRow] = []
     funding_rows: list[FundingRow] = []
+    skipped: tuple[SkippedPlaceholder, ...] = ()
     if spec.kind is ArchiveKind.KLINES:
-        kline_rows = parse_kline_archive(archive.body, spec, embargo=embargo)
+        parsed_klines = parse_kline_archive(archive.body, spec, embargo=embargo)
+        kline_rows = parsed_klines.rows
+        skipped = parsed_klines.placeholders
         row_count = len(kline_rows)
     else:
         funding_rows = parse_funding_archive(archive.body, spec, embargo=embargo)
@@ -405,6 +418,8 @@ def _ingest_archive(
         store.record_conflicts(run_id, refused.conflicts)
         raise ConflictError(refused.conflicts) from None
     counts.archives_ingested += 1
+    counts.placeholder_rows_skipped += len(skipped)
+    placeholders.extend(skipped)
     counts.rows_inserted += inserted
     counts.rows_identical += identical
 
@@ -434,6 +449,7 @@ def run_ingestion(
     )
     counts = RunCounts(archives_planned=len(plan.specs))
     missing: list[str] = []
+    placeholders: list[SkippedPlaceholder] = []
     try:
         for spec in plan.specs:
             _ingest_archive(
@@ -446,6 +462,7 @@ def run_ingestion(
                 clock=now,
                 counts=counts,
                 missing=missing,
+                placeholders=placeholders,
             )
     except BaseException as error:
         store.finish_run(
@@ -461,6 +478,7 @@ def run_ingestion(
         status="succeeded",
         counts=counts,
         missing_urls=tuple(missing),
+        skipped_placeholders=tuple(placeholders),
     )
 
 

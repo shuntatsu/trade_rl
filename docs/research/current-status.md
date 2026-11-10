@@ -557,7 +557,7 @@ TD7では、TD6で残された課題（標準化特徴空間でのRidge適合お
 
 **Additional TD8 software integrity repair (2026-10-31, not a new economic run):** Three independently reproduced failures were corrected: (1) final block B0/value-head normalization now excludes source rows arriving after the block fit cutoff; (2) the 75% temporary margin fit no longer uses statistics from its held-out 25% calibration tail and the calibration replay receives its own frozen pre-calibration normalization vintage plus an independent ledger check; (3) the source-backed oracle now enforces an OHLC/one-tick necessary fill-price envelope, re-derives turnover, and checks a bar-mark maximum-drawdown lower bound. Exact stop/limit/path trigger pricing, contractual fee and financing repricing, and intrabar peak DD remain outside this oracle. Ineligible/terminated paired labels now retain baseline and candidate endpoint equity, partial observed return, reason and residual positions/orders. Their presence blocks study fitting and can publish an invalid, write-once `incomplete-pairs.json` attempt receipt; survivor-only fitting and all-FLAT zero-row fabrication are forbidden. These fixes are software-only; they invalidate attempts to interpret the earlier TD8 source outcome as produced by current code and do not authorize rerunning consumed 2024Q1 data.
 
-**Post-review ineligible-pair evidence (synthetic software-only):** The current collector retains source-backed simulation endpoints and reason codes for each ineligible pair using `decision_value_ineligible_pair_v1`. Unlike the earlier software implementation that retained only a count or allowed survivor-only learning, the runner now blocks the entire affected block before model fitting and, when an unused output destination is supplied, publishes a write-once `incomplete-pairs.json` failure receipt instead of a successful `result.json`. The additive `ineligible_pair_outcomes` result field remains empty for successful studies. Historical artifacts are not reclassified. **Failure-receipt hardening (software-only, #1025 follow-up, 2026-11-06):** the receipt is now `decision_value_incomplete_pair_attempt_v2`. It additionally binds the published artifact digest and the package-source-content and runtime-manifest-content digests (not a guarantee about the checkout or environment itself), carries pairs and self digests, fixes `fit_admitted=false` and `write_once_no_restart`, and is strictly reloadable with `load_incomplete_pair_attempt` (optionally pinned to the write-time digest). Tests drive the real label collector and runner with every, and with only some, candidates flagged ineligible; a second attempt on the same root is rejected and a partial block still aborts without fitting survivors. This changes no economic result, authorizes no consumed Tier D re-run, and is not a G4/G5 or live claim. The abort condition is *any* ineligible pair in a block, not only all candidates; a partially eligible block already aborted before, but with `output_dir` it now also writes the receipt and locks the root (previously nothing was written). A label failure in the causality-probe re-run is persisted the same way with `phase=causality_probe` and the perturbed-source `observed_view_digest` bound into the digest; the primary fit uses `phase=training`. Source/runtime identities are resolved before the run so the abort path cannot lose the receipt, and the default strict reload also validates each pair's endpoint structure. An attempt run without `output_dir` still leaves no durable receipt. **Failure-receipt robustness (software-only, #1025 follow-up, 2026-11-06):** the writer now emits `decision_value_incomplete_pair_attempt_v3`; existing `decision_value_incomplete_pair_attempt_v2` receipts stay readable (without the v3-only encodings). The writer applies the strict reader's validator to the encoded receipt before claiming the root, so every persisted receipt reloads, and no data-dependent encoding failure leaves the root retryable. Non-finite or unrepresentable endpoint values are recorded as `nonfinite:<kind>` sentinels (v3 only) and structurally broken records are quarantined as a minimal valid pair plus bounded source text; neither becomes a label. The reader parses numeric strings under a bounded grammar (at most 16,384 characters, 4,000 digits, exponent magnitude 4,096) before `Fraction`, closing a verifier stall on exponents such as `1e99999999`. In v3 `observed_view_digest` additionally covers timestamps, the tradable and feature-availability masks and the global features, but still not the optional execution/cost arrays; the tests inject insolvency into the candidate book after a real replay (no organically insolvent account is claimed). This changes no economic result, authorizes no consumed Tier D re-run, and is not a G4/G5 or live claim.
+**Post-review ineligible-pair evidence (synthetic software-only):** The current collector retains source-backed simulation endpoints and reason codes for each ineligible pair using `decision_value_ineligible_pair_v1`. Unlike the earlier software implementation that retained only a count or allowed survivor-only learning, the runner now blocks the entire affected block before model fitting and, when an unused output destination is supplied, publishes a write-once `incomplete-pairs.json` failure receipt instead of a successful `result.json`. The additive `ineligible_pair_outcomes` result field remains empty for successful studies. Historical artifacts are not reclassified. **Failure-receipt hardening (software-only, #1025 follow-up, 2026-11-06):** the receipt is now `decision_value_incomplete_pair_attempt_v2`. It additionally binds the published artifact digest and the package-source-content and runtime-manifest-content digests (not a guarantee about the checkout or environment itself), carries pairs and self digests, fixes `fit_admitted=false` and `write_once_no_restart`, and is strictly reloadable with `load_incomplete_pair_attempt` (optionally pinned to the write-time digest). Tests drive the real label collector and runner with every, and with only some, candidates flagged ineligible; a second attempt on the same root is rejected and a partial block still aborts without fitting survivors. This changes no economic result, authorizes no consumed Tier D re-run, and is not a G4/G5 or live claim. The abort condition is *any* ineligible pair in a block, not only all candidates; a partially eligible block already aborted before, but with `output_dir` it now also writes the receipt and locks the root (previously nothing was written). A label failure in the causality-probe re-run is persisted the same way with `phase=causality_probe` and the perturbed-source `observed_view_digest` bound into the digest; the primary fit uses `phase=training`. Source/runtime identities are resolved before the run so the abort path cannot lose the receipt, and the default strict reload also validates each pair's endpoint structure. An attempt run without `output_dir` still leaves no durable receipt. **Failure-receipt robustness (software-only, #1025 follow-up, 2026-11-06):** the writer now emits `decision_value_incomplete_pair_attempt_v3`; existing `decision_value_incomplete_pair_attempt_v2` receipts stay readable (without the v3-only encodings). The writer applies the strict structural/canonical decoder to the encoded receipt before claiming the root, so encoding failure does not leave the root retryable. The file-based loader separately enforces a default 64 MiB byte budget (or an explicit trusted-digest-pinned budget up to 512 MiB). Because the writer has no aggregate receipt size cap, an exceptionally large valid v2/v3 receipt is not guaranteed to reload under this resource policy. Non-finite or unrepresentable endpoint values are recorded as `nonfinite:<kind>` sentinels (v3 only) and structurally broken records are quarantined as a minimal valid pair plus bounded source text; neither becomes a label. The reader parses numeric strings under a bounded grammar (at most 16,384 characters, 4,000 digits, exponent magnitude 4,096) before `Fraction`, closing a verifier stall on exponents such as `1e99999999`. In v3 `observed_view_digest` additionally covers timestamps, the tradable and feature-availability masks and the global features, but still not the optional execution/cost arrays; the tests inject insolvency into the candidate book after a real replay (no organically insolvent account is claimed). This changes no economic result, authorizes no consumed Tier D re-run, and is not a G4/G5 or live claim.
 
 
 **TD8 v4 study/provenance integrity (software-only):** A full execution-policy payload and all risk controls now enter the v4 study digest; historical real-development v2 authorizations and artifacts remain immutable and nondefault undocumented v2 controls fail closed. Every eligible label now contains source/runtime-bound per-prefix teacher vintage, complete study/economic/risk/capital/horizon identity and native baseline/candidate evidence. The result content-addresses the entire eligible label population, and the TD8 learned model reference identity binds this evidence root as well as the common B0 recipe. TD8 fitting rejects missing candidate heads within a state and unequal horizons. These are software audit corrections, not new return evidence, real-data permission or a new G4 run.
@@ -1149,9 +1149,10 @@ storage and journal-replay latency remain operator-measured. No economics, P&L o
 profitability evidence was produced. The runbook is in
 `docs/specs/funding-carry-paper.md`.
 
-2026-10-31: attempt 1's evidence root is lost; its lineage rests on a prior
-recorded review. The `funding-carry-forward-20260918` worktree is not on the
-collection machine (no non-test `collector.sqlite` was found on C: or D:), and on
+2026-10-31: attempt 1's evidence root was not located; its lineage rests on a prior
+recorded review. The earlier documented worktree search did not locate
+`funding-carry-forward-20260918` in its inspected locations; this does not
+establish absence from all drives, volumes or other storage. On
 2026-10-30 the user stated in chat, quoted verbatim (two chat lines, joined by one
 newline in the sealed record):
 「そのデータはしらない。結果保存もどこにあるわからないから、
@@ -1164,13 +1165,99 @@ were NOT re-verified against the root now, and global attempt uniqueness remains
 unestablished. Attempt-2 lineage v3 records `predecessor_root_status`
 (`available` only with a root path that the existing v1 reader verifies; otherwise
 `unavailable` with the source record and the user's quoted statement) and keeps the
-disposition `invalidated` with reason `observation_gap`. For this case the G0
-requirement that a fresh review resolve the preserved root is replaced by a fresh
+disposition `invalidated` with reason `observation_gap`. G0 predecessor verification
+is not waived in general. The user's words above say only that they do not know where
+the data is and that new data may be collected, and a documented read-only implementer
+search on 2026-11-06 of drive C: (excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and directories
+named node_modules or site-packages at any depth; Program Files (x86) was searched)
+found no root with the attempt-1 protocol digest (scope and limits in
+`docs/architecture/research-assurance.md`; Docker volumes, other machines
+and external or backup storage were not searched). On 2026-11-06 the owner then answered 「承認する」 in a Claude Code chat to a
+statement that the planner originally recorded on Issue #810 (comment 6673566542,
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6673566542): the attempt-1 root need not be
+found, attempt 2 may be sealed with `--predecessor-root-status unavailable`, G0
+predecessor verification is not performed, and the predecessor protocol digest, final
+tip, observation gap and the absence of an earlier unreported attempt remain
+`not_established` (full quotation in `docs/architecture/research-assurance.md`). That is
+a G0 exception bounded to funding-carry attempt 2 and predecessor attempt 1; it relaxes
+no screen criterion, applies to no other case, and `unavailable` is recorded on
+attestation (the code does not check whether the root was located or can be read). The same comment
+records the screen start `2026-11-07T00:00:00Z` and approval of Windows Task Scheduler
+supervisor and watchdog jobs, and does not authorize FS1 scoring, unused or final-window
+reads, live trading or order routing, or the use of any attempt-1 readout. A fresh
 result-blind review of the lineage documentation and the pull request that introduced
-the rule. A short public-network storage probe (`paper/storage_probe.py`, a scratch
+the rule replaces the root resolution, and the predecessor chain stays
+`not_established`. Attempt 2 is not yet sealed: the independent `research_assurance_v1`
+review, the storage probe and the other seal requirements remain. A short public-network storage probe (`paper/storage_probe.py`, a scratch
 root that attempt2 seal/launch, evaluate, run and supervise refuse) replaces the attempt-1 byte-rate
-measurement; it has not been run. Nothing has been sealed, launched or collected, no
-attempt-2 start exists, and no economics, P&L or profitability evidence was produced.
+measurement; no completed run is recorded. A root named `carry-a2-storage-probe-20261105` on the collection
+machine holds an earlier storage-probe start: a scratch collector root that ended with a `collection-failure.json`
+("source timestamp is stale or in the future", recorded 2026-11-05T13:51:55Z). Issue #810 comment 6659653178
+(created 2026-11-05T13:49:34Z) lists the storage probe as the first authorized step; that root's `protocol.json`
+was written at 13:50:55Z (file time, 1 minute 21 seconds after the comment was created) and the failure was
+recorded 2 minutes 21 seconds after it, so the probe ran about two minutes after that comment and before the
+packet review. Who ran it is not recorded here. A file listing (names, sizes and times only; contents not read)
+shows 14 files of about 1.3 MB: the protocol, control, heartbeat and journal databases, the failure marker and raw
+capture files named for spot and perpetual exchange rules and spot time under `sources/`. No completed probe or
+bytes-per-observation report is recorded, and that root is not used or reused for any result or byte rate. No attempt-2 root has been sealed or launched, no
+sealed attempt-2 start exists (the owner has chosen `2026-11-07T00:00:00Z`, not yet sealed), and no economics, P&L or profitability evidence was produced.
+
+2026-11-05: a Research Assurance author packet for attempt 2 is recorded in
+[`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json)
+(digest `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`, status UNREVIEWED). It restates the existing frozen
+screen and lineage without changing any criterion. Sealing attempt 2 still requires an
+independent `research_assurance_v1` review. The owner's words of 2026-11-05 were
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ" (an agy review was named as acceptable);
+those words did not say that a same-account review suffices and alone did not authorize it. The owner explicitly
+made an exception for attempt 2 only in corrected comment 6680576996: a review by a
+model different from every implementation model, posted from the shuntatsu GitHub
+account, satisfies sealing condition (a). It is operator-enforced (sealing code does
+not call the research tool) and is not different-principal independence.
+`tools.research_assurance_github` rejects a same-principal review and does not report
+PASS for it, so the packet stays UNREVIEWED and no PASS is claimed. The packet's
+`protocol_head` and `implementation_head` are both `326188fc0c3c`, the last commit that
+changes `trade_rl/` in the pull request; the packet is committed in a later
+descendant. Issue #810 records:
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178 (2026-11-05; it
+does not name the G0 predecessor-verification exception) and
+https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996 (2026-11-06;
+the owner's **corrected search-premise** G0 authorization and attempt-2-only
+same-account review exception). The original comment 6673566542 records
+the selected start `2026-11-07T00:00:00Z` and Task Scheduler approval.
+Neither replaces the independent research review. No storage probe is run under this packet, nothing is
+sealed or launched, and no economic result exists.
+
+**2026-11-06 corrected G0 authorization (Issue #810 comment 6680576996).**
+The original operator question and comment 6673566542 overstated that all
+of drive C: had been searched. A repeat read-only scan covered **143,061
+directories**, covering drive C: excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and directories
+named node_modules or site-packages at any depth, and
+included Program Files (x86). It did not traverse 50 links/junctions or
+could not read 43 paths. The question put to the owner listed the exclusions and
+the not-searched locations but not those 43 unreadable paths, the 50 unfollowed
+junctions or that Program Files (x86) was searched; those details are in the same
+comment's search record, which supersedes the earlier 627-file record. None of **616 found protocol.json** files matched the
+attempt-1 digest; the previous count of 627 pertains to a different,
+incomplete search. Other machines, Docker volumes, cloud/backup and external
+media remain unsearched. The owner replied 「この前提で承認する」 to the
+corrected question, with all four predecessor facts not_established;
+the corrected comment supersedes only the old search premise, not the
+historical start time or Task Scheduler authorization. For **attempt 2
+only**, a review by a model different from every implementation model, posted
+from the same GitHub account, satisfies sealing condition (a) as an owner
+exception (operator-enforced; sealing code does not call the research tool);
+the machine research_assurance_github checker still rejects same-principal
+reviews and does not report PASS. The research-assurance author packet remains
+UNREVIEWED and no PASS is claimed; no seal, collection, FS1/unused/final or live authority
+follows from this software/documentation state.
+
+2026-11-08: funding-carry attempt 2 (screen start `2026-11-07T00:00:00Z`) is **INVALID**: its collector halted at `00:59:07Z` (cycle 61) with `source timestamp is stale or in the future` because `read_forward_snapshot` re-applied the five-second per-quote age bound at consumption time to a capture that had passed it at completion (root cause on Issue #810, comment 6711911740; since fixed on main by separating the quote-age bound from the ten-second consume-latency bound). The run is not repaired, resumed or evaluated. Attempt 3 is **pre-registered only**: author packet [`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json) (digest `29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status UNREVIEWED, no PASS claimed) fixes the timing tolerances to the source constants (quote age 5000 ms, future skew 1000 ms, request 5 s, capture span 10 s, consume latency 10000 ms, worst-case mark age 15 s), adopts a bounded collection-failure, retry and skipped-slot policy under the owner's 2026-11-08 delegation (Issue #810 comment 6715501420; implemented in the collector by a separate pull request, see the next paragraph; a slot with held rules older than one hour is a counted skipped slot and no decision uses such rules; accepted side effects: no claim beyond retained slots, results report the skip count with its funding-proximity distribution), and declares a new run identity (`C:\trade_rl_runs\attempt3\...`), a new seal and no reuse of the attempt-2 seal. The seal, start time, authorization comment and launch commit are `PENDING_OWNER_AUTHORIZATION`; no seal, storage probe, launch or network access exists, and the delegation authorizes none. The attempt-2 same-account receipt route is extended to attempt 3 (operator-enforced, no PASS claimed); the predecessor-root-unavailable G0 exception is not. No attempt-1 or attempt-2 outcome or timing metadata was read or is used, the economic screen is unchanged, and the packet cannot support a seal because its `implementation_head` holds no policy code. Details: `docs/specs/funding-carry-paper.md`.
+
+2026-11-08: the pre-registered attempt-3 collection policy is implemented in the collector (retry of transient failures inside a slot before a capture is consumed, skipped slots, the three skip budgets, terminal denial and integrity failures, a durable attempt and skip registry); implementation packet [`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-implementation-research-assurance-20261108.json) (digest `eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45`, status UNREVIEWED, no PASS claimed). At that packet's head the assessor still rejects any failed capture or skipped slot, and `carry_paper_screen_v3`, the evaluator audit and the attempt-lineage version naming attempt 2 do not exist (they are built under the seal-candidate packet in the next paragraph), so that packet cannot support a seal. A transient rules-refresh failure inside the one-hour hold proceeds on the held rules without consuming a budget and a Class D or Class I refresh failure ends the attempt (a conservative reading flagged for review). The seal, start time, authorization comment and launch commit stay `PENDING_OWNER_AUTHORIZATION`; no economic outcome was read and nothing is sealed, launched or collected.
+
+2026-11-08: the attempt-3 seal candidate is built: `carry_paper_screen_v3` (every economic field and the economic code of `carry_paper_screen_v2` unchanged; the one new field restates the registered collection-policy constants, so a failed capture or skipped slot rejects only when unregistered, of an unregistered class, over a budget, or accompanied by a failure marker), the evaluator audit of registered failures and skipped slots with a skip report that gives the skip count and its distribution relative to the 00:00, 08:00 and 16:00 UTC funding settlements (slot 0 counts if the collector starts late; registry rows carry no timestamps, so the retry delay and start window are not audited after the run), and `carry_paper_attempt_lineage_v4`, which names attempt 2 as an INVALID predecessor (software defect, Issue #810 comment 6711911740, no economic field) and records that the attempt-2 seal is not reused. Packet [`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json) (digest `3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781`, status UNREVIEWED, no PASS claimed). Still missing before any seal: the extended same-account receipt review of that exact digest and heads, the result-blind G0 resolution of the preserved attempt-2 root (the predecessor-root-unavailable exception does not extend), a fresh storage probe with its own authorization, the owner's authorization comment and the frozen launch commit. The seal, start time, authorization comment and launch commit stay `PENDING_OWNER_AUTHORIZATION`; no attempt-1 or attempt-2 outcome or timing was read, and nothing is sealed, launched, probed or collected. The exact operator procedure is in `docs/specs/funding-carry-paper.md`.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

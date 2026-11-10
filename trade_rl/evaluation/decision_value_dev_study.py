@@ -1464,6 +1464,10 @@ def _dataset_view_digest(dataset: MarketDataset) -> str:
 
 
 _INCOMPLETE_RECEIPT_FILE = "incomplete-pairs.json"
+# Default untrusted-reader resource budget, not a universal v2/v3 schema size.
+_DEFAULT_INCOMPLETE_RECEIPT_BYTES = 64 * 1024 * 1024
+# Exception for a separately pinned legacy/large receipt, still always bounded.
+_MAX_INCOMPLETE_RECEIPT_BYTES = 512 * 1024 * 1024
 _INCOMPLETE_RECEIPT_SCHEMA = "decision_value_incomplete_pair_attempt_v3"
 # v2 receipts may already exist on disk: the reader keeps accepting them (with
 # the plain finite-decimal rules only), but the writer only emits v3.
@@ -1811,12 +1815,13 @@ def _encode_incomplete_receipt(
     phase: str,
     observed_view_digest: str | None,
 ) -> tuple[bytes, str]:
-    """Return canonical receipt bytes that provably pass strict reload.
+    """Return canonical receipt bytes verified by the shared strict decoder.
 
-    The bytes are decoded by the reader's own validator before they are
-    returned. If the full encoding is rejected, every pair is quarantined and
-    the check is repeated, so that a reloadable receipt exists *before* the
-    destination root is claimed.
+    The bytes are checked by the reader's structural/canonical validator
+    before they are returned. If the encoding is rejected, every pair is
+    quarantined and checked again before claiming the destination root.
+    File-based reload also enforces a separate finite input-byte budget and
+    may reject an otherwise valid oversized receipt.
     """
     last_error: Exception | None = None
     for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):
@@ -2191,17 +2196,215 @@ def _validate_incomplete_pair_record(
     _require_canonical_round_trip(pair, field="pair record")
 
 
+def _preflight_receipt_json_depth(raw: bytes) -> None:
+    """Reject deep JSON before decoding; quoted and escaped delimiters are inert.
+
+    A backslash escapes only the immediately following byte, not the next
+    regex-matched delimiter (notably after a JSON Unicode escape). This is a
+    bounded-memory lexical scan; stdlib still validates syntax and the
+    existing schema/digests validate meaning.
+    """
+    depth = 0
+    in_string = False
+    escape_at: int | None = None
+    for token in re.finditer(rb'[\[\]{}"\\]', raw):
+        offset = token.start()
+        char = raw[offset]
+        if in_string:
+            if escape_at is not None and offset == escape_at + 1:
+                escape_at = None
+                continue
+            escape_at = None
+            if char == 0x5C:
+                escape_at = offset
+            elif char == 0x22:
+                in_string = False
+        elif char == 0x22:
+            in_string = True
+        elif char in (0x5B, 0x7B):
+            depth += 1
+            if depth > _MAX_RECEIPT_JSON_DEPTH + 16:
+                raise ValueError(
+                    "failure receipt JSON nesting exceeds configured limit"
+                )
+        elif char in (0x5D, 0x7D):
+            depth -= 1
+            if depth < 0:
+                raise ValueError("failure receipt JSON is malformed")
+
+
+def _preflight_receipt_pair_objects(raw: bytes) -> None:
+    """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
+
+    The canonical v2/v3 writer emits only fixed ASCII root field names. Refuse
+    unknown or escaped root member names (including Unicode aliases for pairs)
+    before JSON decoding. Direct pair-object field names use a fixed ASCII
+    schema; refuse aliases and unknown names before broad allocations.
+    Require every direct pair object to name each mandatory field exactly once
+    before decoding; names in nested content do not satisfy that requirement.
+    This bounded-depth lexical scan is not a JSON parser or pair-count cap:
+    the existing parser, canonicalizer, and validators remain authoritative.
+    """
+    allowed_root_keys = tuple(name.encode("ascii") for name in _INCOMPLETE_RECEIPT_KEYS)
+    max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
+    allowed_pair_keys = tuple(
+        name.encode("ascii")
+        for name in (*_PAIR_KEYS, "reference_vintage", _QUARANTINE_FIELD)
+    )
+    max_pair_key_bytes = max(map(len, allowed_pair_keys))
+    required_pair_keys = frozenset(name.encode("ascii") for name in _PAIR_KEYS)
+    stack = [0x7B]  # The caller has already checked the root opening brace.
+    in_string = False
+    escaped = False
+    root_key_start: int | None = None
+    pair_key_start: int | None = None
+    root_key_is_pairs = False
+    want_root_key = True
+    want_colon = False
+    want_value = False
+    seen_pairs = False
+    seen_root_keys: set[bytes] = set()
+    pairs_depth: int | None = None
+    want_pair = False
+    want_pair_key = False
+    direct_pair_fields: set[bytes] = set()
+
+    for offset in range(1, len(raw)):
+        char = raw[offset]
+        if in_string:
+            if root_key_start is not None and char == 0x5C:
+                raise ValueError("failure receipt root keys must be unescaped")
+            if pair_key_start is not None:
+                if char == 0x5C:
+                    raise ValueError("failure receipt pair keys must be unescaped")
+                if offset - pair_key_start > max_pair_key_bytes:
+                    raise ValueError("failure receipt pair key exceeds schema length")
+            if escaped:
+                escaped = False
+            elif char == 0x5C:
+                escaped = True
+            elif char == 0x22:
+                in_string = False
+                if root_key_start is not None:
+                    key_bytes = offset - root_key_start
+                    if key_bytes > max_root_key_bytes:
+                        raise ValueError(
+                            "failure receipt root key exceeds schema length"
+                        )
+                    if not any(
+                        key_bytes == len(name)
+                        and raw.startswith(name, root_key_start, offset)
+                        for name in allowed_root_keys
+                    ):
+                        raise ValueError("failure receipt fields are malformed")
+                    direct_root_key = raw[root_key_start:offset]
+                    if direct_root_key in seen_root_keys:
+                        if direct_root_key == b"pairs":
+                            raise ValueError("failure receipt pairs key is duplicated")
+                        raise ValueError("failure receipt root key is duplicated")
+                    seen_root_keys.add(direct_root_key)
+                    root_key_is_pairs = direct_root_key == b"pairs"
+                    root_key_start = None
+                    want_root_key = False
+                    want_colon = True
+                if pair_key_start is not None:
+                    key_bytes = offset - pair_key_start
+                    if not any(
+                        key_bytes == len(name)
+                        and raw.startswith(name, pair_key_start, offset)
+                        for name in allowed_pair_keys
+                    ):
+                        raise ValueError("failure receipt pair field is not recognised")
+                    direct_key = raw[pair_key_start:offset]
+                    if direct_key in direct_pair_fields:
+                        raise ValueError("failure receipt pair key is duplicated")
+                    direct_pair_fields.add(direct_key)
+                    pair_key_start = None
+                    want_pair_key = False
+            continue
+        if char in b" \t\r\n":
+            continue
+        if len(stack) == 1:
+            if want_colon:
+                if char != 0x3A:  # Invalid syntax belongs to the JSON parser.
+                    return
+                want_colon = False
+                want_value = True
+                continue
+            if want_value:
+                want_value = False
+                if root_key_is_pairs:
+                    if seen_pairs:
+                        raise ValueError("failure receipt pairs key is duplicated")
+                    seen_pairs = True
+                    if char == 0x5B:  # [
+                        pairs_depth = len(stack) + 1
+                        want_pair = True
+                root_key_is_pairs = False
+        if pairs_depth is not None and len(stack) == pairs_depth:
+            if want_pair and char not in (0x7B, 0x5D):  # { or ]
+                raise ValueError("failure receipt pairs must contain JSON objects")
+            if char == 0x7B:
+                direct_pair_fields.clear()
+                want_pair = False
+                want_pair_key = True
+            elif char == 0x2C:
+                want_pair = True
+        if char == 0x22:
+            if len(stack) == 1 and want_root_key:
+                root_key_start = offset + 1
+            elif (
+                pairs_depth is not None
+                and len(stack) == pairs_depth + 1
+                and want_pair_key
+            ):
+                pair_key_start = offset + 1
+            in_string = True
+        elif char in (0x7B, 0x5B):
+            stack.append(char)
+        elif char in (0x7D, 0x5D):
+            # Only a direct pair object closing here is checked. Nested
+            # endpoint/quarantine/reference_vintage keys are not pair keys.
+            if (
+                char == 0x7D
+                and pairs_depth is not None
+                and len(stack) == pairs_depth + 1
+                and stack[-1] == 0x7B
+                and not required_pair_keys.issubset(direct_pair_fields)
+            ):
+                raise ValueError("failure receipt pair fields are malformed")
+            if stack:
+                stack.pop()
+            if pairs_depth is not None and len(stack) < pairs_depth:
+                pairs_depth = None
+        elif char == 0x2C:
+            if len(stack) == 1:
+                want_root_key = True
+            elif pairs_depth is not None and len(stack) == pairs_depth + 1:
+                want_pair_key = True
+
+
 def _decode_incomplete_receipt(
     raw: bytes, *, expected_receipt_digest: str | None = None
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
+    _preflight_receipt_json_depth(raw)
+    # A canonical failure receipt is always a root object. Reject broad arrays
+    # and other non-objects before the JSON decoder can allocate their elements.
+    if not raw.startswith(b"{"):
+        raise ValueError("failure receipt must contain a JSON object")
+    _preflight_receipt_pair_objects(raw)
     try:
         loaded = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("failure receipt JSON is malformed") from error
     if not isinstance(loaded, dict) or any(not isinstance(k, str) for k in loaded):
         raise ValueError("failure receipt must contain a JSON object")
-    if raw != canonical_json_bytes(loaded):
+    try:
+        canonical = canonical_json_bytes(loaded)
+    except RecursionError as error:
+        raise ValueError("failure receipt JSON is malformed") from error
+    if raw != canonical:
         raise ValueError("failure receipt must use canonical JSON bytes")
     if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
         raise ValueError("failure receipt fields are malformed")
@@ -2256,7 +2459,10 @@ def _decode_incomplete_receipt(
 
 
 def load_incomplete_pair_attempt(
-    root: str | Path, *, expected_receipt_digest: str | None = None
+    root: str | Path,
+    *,
+    expected_receipt_digest: str | None = None,
+    max_receipt_bytes: int = _DEFAULT_INCOMPLETE_RECEIPT_BYTES,
 ) -> dict[str, object]:
     """Strictly reload a TD8 failure receipt; reject any tampering.
 
@@ -2269,18 +2475,65 @@ def load_incomplete_pair_attempt(
     encodings. Numeric strings are parsed under a bounded grammar, so hostile
     receipts are rejected quickly. Pass ``expected_receipt_digest`` (the value
     returned at write time) to also reject a fully re-sealed forgery.
+
+    The default read budget is 64 MiB (not an invariant of older receipts).
+    An explicitly pinned trusted digest is required to request a larger finite
+    budget, up to 512 MiB. Reading a larger file never falls back to an
+    unbounded allocation, and changed regular-file metadata fails closed.
     """
+    if (
+        type(max_receipt_bytes) is not int
+        or not 0 < max_receipt_bytes <= _MAX_INCOMPLETE_RECEIPT_BYTES
+    ):
+        raise ValueError("max_receipt_bytes must be a positive bounded integer")
+    if (
+        max_receipt_bytes > _DEFAULT_INCOMPLETE_RECEIPT_BYTES
+        and expected_receipt_digest is None
+    ):
+        raise ValueError("larger receipt byte budget requires a pinned digest")
     if expected_receipt_digest is not None:
         require_sha256(expected_receipt_digest, field="expected_receipt_digest")
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
-    if {entry.name for entry in directory.iterdir()} != {_INCOMPLETE_RECEIPT_FILE}:
-        raise ValueError("failure receipt root contents are malformed")
+    # Verify the single-file root without Path.iterdir()'s eager full scan.
+    with os.scandir(directory) as entries:
+        first = next(entries, None)
+        if (
+            first is None
+            or first.name != _INCOMPLETE_RECEIPT_FILE
+            or next(entries, None) is not None
+        ):
+            raise ValueError("failure receipt root contents are malformed")
     with open_regular_binary(
         directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
     ) as handle:
-        raw = handle.read()
+        before = os.fstat(handle.fileno())
+        if before.st_size > max_receipt_bytes:
+            raise ValueError("failure receipt exceeds configured byte budget")
+        # Bounded even if the file grows between the first fstat and read.
+        raw = handle.read(max_receipt_bytes + 1)
+        if len(raw) > max_receipt_bytes:
+            raise ValueError("failure receipt exceeds configured byte budget")
+        if handle.read(1):
+            raise ValueError("failure receipt changed during read")
+        after = os.fstat(handle.fileno())
+        before_identity = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if len(raw) != before.st_size or before_identity != after_identity:
+            raise ValueError("failure receipt changed during read")
     return _decode_incomplete_receipt(
         raw, expected_receipt_digest=expected_receipt_digest
     )

@@ -52,7 +52,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `bootstrap_canonical_m2_study` は次の順序を固定する。
 
-1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。一般のfinal-eligibleな新規research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext`を固定する。従来のPPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` を使い、独立per-symbol accountの選定 semanticsを維持する。共通資金ポートフォリオで選定する新protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` を使い、protocol、Observation / minimum-hold / terminal settlement / risk、final window、`StudyResearchContext`を一体で固定する。historical v1-v5 config / Planは既存artifactのread/inspection semanticsを維持する。
+1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、uniqueかつcanonical昇順の`ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。一般のfinal-eligibleな新規research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext`を固定する。従来のPPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` を使い、独立per-symbol accountの選定 semanticsを維持する。共通資金ポートフォリオで選定する新protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` を使い、protocol、Observation / minimum-hold / terminal settlement / risk、final window、`StudyResearchContext`を一体で固定する。historical v1-v5 config / Planは既存artifactのread/inspection semanticsを維持する。
 2. Binance exchange-infoのraw bytesと、そのsource URI・retrieval time・SHA-256をfreezeする。
 3. pre-registrationから決まる`vision-plan.json`をprimary source planとして固定する。primary monthly kline archiveのtimestamp coverageに欠損がある場合だけ、欠損UTC dayのofficial daily archiveをdeterministic repairとして取得し、`vision-resolution.json`へsymbol/timeframe・missing open timestamp・repair URLを記録する。repair判断にprice/return/P&Lを使わず、補間・synthetic OHLC・REST kline repairは禁止する。primary + repairの実使用raw archiveをURL・SHA-256・sizeのordered rosterとしてfreezeする。
 4. source同期後はmarket-data transportを`allow_network=False`で再構成し、dataset buildをcache-onlyへ切る。cache missやREST fallbackによるnetwork accessは失敗とする。
@@ -61,6 +61,8 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 7. implementation/runtime provenanceをbootstrap開始時とStudyPlan作成後・終了時に照合し、driftがあればpublishしない。
 8. config、primary Vision plan、resolved Vision repair、raw source roster、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを`bootstrap-manifest.json`へbindする。新規writerは`canonical_m2_bootstrap_manifest_v2`を出力し`vision_resolution_digest`を含める。legacy v1 readerはprimary-only artifactだけを明示的に維持し、v1へresolution fileを後付けしたschema混同は拒否する。
 9. complete rootをstaging directory内で検証した後、最後のrename一回だけでfinal outputをpublishする。
+
+`max_experiments` は後段の `StudyPlan` と同じ **1〜9,999** の上限を、JSON loaderと直接constructorの両方でsource acquisitionより前に検証する。10,000以上は源データを取得せず拒否する。
 
 公開`CanonicalM2BootstrapConfig`はJSON loader経由だけでなく直接constructorでも同じcanonical validationを強制する。output parentはsymlink経由を拒否する。dataset publication後は、事前登録したsource rangeに対するexact timestamp coverageと、登録済みfit symbol scopeに実際のcausal training rowが存在することを確認してからStudyPlanを作る。final staging graphを完全検証した**後**に終了時provenanceを取得・開始時と照合し、その後はResultを事前構築してrenameだけを行う。rename後にnetwork、inspection、hash再計算など失敗し得る処理を置かない。
 

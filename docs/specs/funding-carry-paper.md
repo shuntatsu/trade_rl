@@ -87,8 +87,29 @@ An offline forward-snapshot reader must revalidate every raw byte hash, response
 sidecar, official URL, response roster, timing bound and decoded market field.
 It must reproduce the published snapshot from raw responses; the summary alone
 is not authority. An optional expected snapshot digest binds a journal parent.
-Offline verification does not imply freshness now. Supplying an execution time
-additionally enforces every quote's five-second age and rejects future receipts.
+Offline verification does not imply freshness now. Two separate bounds apply.
+Every quote must be within five seconds old and one second ahead of the capture
+completion (`completed_at`), checked at capture and again by the reader; the
+capture itself may span up to ten seconds. Supplying a consumption time
+(`as_of`, the decision or execution time) additionally requires
+`0 <= as_of - completed_at <= 10 s` (`MAX_CONSUME_LATENCY_MS`, equal to the paper
+decision-to-execution window) and rejects earlier receipts; quotes are not
+re-aged against `as_of`. Consumption beyond the bound fails with
+"snapshot consumed too late after capture".
+
+Resulting worst case: a quote may be `MAX_QUOTE_AGE_MS` (5 s) old at capture
+completion and consumption may follow by up to `MAX_CONSUME_LATENCY_MS` (10 s),
+so a venue-stamped mark can be up to 15 s old at valuation. Fills are tighter:
+the depth executor requires the depth response's local receipt to be at most 5 s
+before execution (a local-clock bound, not a venue timestamp). Because venue-stamped
+futures depth is at most 5 s old at its own receipt, its venue-stamped age at
+execution is at most 10 s; spot depth has no venue timestamp and is bounded only by
+its receipt age. These
+tolerances are protocol parameters, set from the source constants and venue and
+engineering reasoning only (no attempt-2 timing was used). Attempt 3 pre-registers
+them in its research-assurance packet (see "Attempt 3 pre-registration" below),
+which must pass G0-G2 plus independent review before execution; no execution
+under changed tolerances may reuse an earlier seal.
 
 Current BTCUSDT/ETHUSDT spot and USD-M exchange information is a separate,
 write-once public capture. Require trading status, market-order support, matching
@@ -263,10 +284,13 @@ identities and elapsed gap, and check for an unreported earlier attempt. The
 schema does not authenticate external roots or prevent a caller from claiming a
 new attempt 1.
 
-Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) is lost:
-a search of the collection machine found no preserved root, and on 2026-10-30 the
-user said in chat that they do not know that data or where its results were saved and
-that new data may be collected. Attempt 2 therefore uses lineage
+Attempt 1's evidence root (the `funding-carry-forward-20260918` worktree) has not
+been located: on 2026-10-30 the user said in chat that they do not know that data or
+where its results were saved and that new data may be collected, and a documented
+read-only implementer search of drive C: (excluding the top-level directories Windows, Program Files, ProgramData, System Volume Information and Recovery and directories named node_modules or site-packages at any depth) on 2026-11-06 found no root
+with the attempt-1 protocol digest (scope and limits in the implementer search record
+of `docs/architecture/research-assurance.md`). The user's words do not say the root is
+lost or unreadable and do not mention G0. Attempt 2 uses lineage
 `carry_paper_attempt_lineage_v3`, which adds `predecessor_root.status` with value
 `available` or `unavailable` (v2 stays valid and unchanged). `plan` and `seal` require
 `--predecessor-root-status`:
@@ -289,7 +313,41 @@ that new data may be collected. Attempt 2 therefore uses lineage
   says it does not attest the predecessor lineage values or the absence of an
   earlier attempt. A `not_established` list names the predecessor protocol digest,
   final tip, observation gap, and the absence of an earlier unreported attempt.
-  The disposition stays `invalidated` with reason `observation_gap`.
+  The disposition stays `invalidated` with reason `observation_gap`. The code
+  accepts this status on attestation alone and does not check whether the root was
+  located or can be read. Using it skips G0 predecessor verification. The owner authorized that
+  skip, bounded to funding-carry attempt 2, on Issue #810 on 2026-11-06 (comment
+  6680576996, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996; the planner's
+  record of the owner's corrected chat answer 「この前提で承認する」, quoted verbatim in
+  `docs/architecture/research-assurance.md`). It is not a general exception, relaxes no
+  criterion, and the four `not_established` items stay `not_established`.
+
+**Search-scope correction (2026-11-06):** The original Issue #810 comment
+6673566542 and its question described a search across all of C:, which was
+inaccurate. The corrected [owner authorization](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996)
+records the fresh response 「この前提で承認する」 after the actual exclusions were
+disclosed. In a second read-only search, 143,061 directories were visited,
+43 paths were unreadable and 50 links/junctions were not followed. The
+search covered drive C: excluding the top-level directories Windows,
+Program Files, ProgramData, System Volume Information and Recovery and
+directories named node_modules or site-packages at any depth, and **included**
+Program Files (x86). This corrected record (comment 6680576996), not the
+superseded 627-file record, is the search record the sealing conditions rely on. The **616 found** protocol.json files yielded no matching
+attempt-1 digest; the prior 627 count was an earlier scoped observation, not
+a machine-wide enumeration. Other machines, cloud/backup, Docker volumes,
+external media and excluded/unreadable locations were not searched. This
+does not establish absence of the root; the four predecessor facts remain
+not_established. The question put to the owner listed the exclusions and the
+not-searched locations but not the 43 unreadable paths, the 50 unfollowed
+junctions or that Program Files (x86) was searched; those details are in the
+search record of the same comment. The same owner record makes an
+attempt-2-only exception: a review by a model different from every
+implementation model (Claude Haiku 5.5), posted from the same GitHub account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not
+call the research tool), does not establish different-principal independence and
+does not change the existing tools.research_assurance_github same-principal
+refusal: the tool does not report PASS for it, the packet is UNREVIEWED and no
+PASS is claimed.
 
 Threat model. These gates prevent accidental or non-canonical attempt-2 records
 from being sealed or run through the supported entry points (`attempt2`,
@@ -336,7 +394,7 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
   record. `attempt2`'s own sealing preconditions (authorization URL shape, start
   notice, checkout identity, free space) are only enforced by `attempt2 seal`.
 * Every `attempt2 launch`, including a supervisor relaunch after the start,
-  re-reads an `available` root and refuses if it is lost, unreadable or differs. A
+  re-reads an `available` root and refuses if it cannot be read or differs. A
   gap event or heartbeat does not prove an earlier valid predecessor-root read.
 * The collector (`PaperCollector`, hence `cli run`, and `cli supervise`) refuses,
   before taking the lock and without writing a failure marker, any lineage the
@@ -348,16 +406,22 @@ All gates use one shared classifier (`predecessor.lineage_structure_problems`):
   example a corrupt or locked journal) stops the collection and the restart exits
   with the refusal code, rather than being inferred from the attempt's own journal.
   Because that is a permanent refusal, an `available` lineage requires the old root
-  to stay intact for the whole screen; the planned attempt 2 uses `unavailable`.
+  to stay intact for the whole screen; attempt 2 would use `unavailable` only if the
+  G0 exception is separately authorized by the owner.
 
-Plainly: attempt 1's evidence root is lost; its lineage rests on a prior recorded
-review. The predecessor was not re-verified. For this case only, the runbook's
-"fresh review resolves the preserved root" requirement is replaced by a fresh
-result-blind review of the lineage documentation (this section and the
-current-status record) and the pull request that introduced the rule. That review
+Plainly: attempt 1's evidence root has not been located; if it is never found, its
+lineage rests on a prior recorded review and the predecessor is not re-verified. Because
+the owner authorized the G0 exception for attempt 2 on Issue #810 (2026-11-06, comment
+6680576996: the corrected search premise, with the owner's re-approval and the same-account
+review route; the earlier comment 6673566542 is superseded for that premise and is cited
+only for the start time and the Task Scheduler jobs), the runbook's "fresh review resolves the preserved root" requirement is
+replaced by a fresh result-blind review of the lineage documentation (this section and
+the current-status record) and the pull request that introduced the rule. That review
 cannot confirm the predecessor digests, tip or gap against the root, and it does not
 establish that no earlier unreported attempt exists; the sealed record lists these
-as `not_established`.
+as `not_established`. If the attempt-1 root is found, the `available` path with the v1
+reader must be used instead; for any other family, attempt or predecessor G0
+predecessor verification applies unchanged.
 
 Require positive net profit after actual simulated exits, positive marked equity
 change in every block, and total net profit greater than recorded fees. The last
@@ -462,17 +526,25 @@ evidence: no failure marker, no terminal heartbeat, child exit code neither 0 no
 2, no unacknowledged cycle in the control database, the projected observation gap
 (time since the last committed command plus a 60-second launch margin) still
 within the frozen 180 seconds, and at most five relaunches. A death inside a
-cycle is never resumed, because the control record deliberately halts reopening;
-a transient network error is not retried either, because the collector halts on
-any source failure. The 90-day screen therefore still ends on the first such
-event. Startup replays the entire journal, so relaunch latency grows with the
-journal; measure it before relying on the margin.
+cycle is never resumed, because the control record deliberately halts reopening.
+The collector no longer halts on every source failure: under the collection policy
+(see "Attempt 3 collection-policy implementation") a transient Class T failure is
+retried inside its slot before a capture is consumed and an unobtainable slot is
+skipped within the three registered budgets, while a Class D or Class I failure or a
+budget breach writes the permanent marker and the supervisor does not relaunch it.
+The 90-day screen therefore ends on such a failure, a breach or a death inside a
+cycle, not on the first transient error. The attempt-2 root was collected before that
+policy existed and ended on its first failure. Startup replays the entire journal,
+so relaunch latency grows with the journal; measure it before relying on the margin.
 
 ### Attempt 2 operator runbook
 
-Attempt 2 is prepared offline but is neither sealed nor started. Attempt 1's root
+Attempt 2 was sealed and launched from the frozen checkout described below and ended
+INVALID on 2026-11-07 (see "Attempt 3 pre-registration"). This runbook is retained as
+the procedure of that frozen attempt and the template for a successor, which needs its
+own lineage, packet, review and seal. Attempt 1's root
 is never resumed, backfilled or edited (and, if it exists, is preserved evidence that
-is only ever opened read-only; see the lost-root rule above).
+is only ever opened read-only; see the unavailable-predecessor rule above).
 `python -m trade_rl.evaluation.paper.attempt2` has three commands (`plan`, `seal`,
 `launch`) and `storage_probe` one more; each of which refuses unless
 `--authorization` is an Issue #810 comment URL
@@ -485,11 +557,26 @@ first; nothing here proves the comment exists or says what it should say.
    * if the attempt-1 root is available: obtain a fresh result-blind review that
      resolves it with its v1 reader and confirms protocol, event chain, final tip,
      last observation and elapsed gap, and checks for an unreported earlier attempt;
-     the lineage values are assertions until that review exists. If it is lost
-     (`--predecessor-root-status unavailable`, the current case): obtain a fresh
-     result-blind review of the lineage documentation and the pull request that
-     introduced the lost-predecessor rule instead; it does not re-verify the
-     predecessor;
+     the lineage values are assertions until that review exists. If it cannot be
+     found (`--predecessor-root-status unavailable`, the current case): the separate explicit
+     owner authorization on Issue #810 that names the G0 predecessor-verification
+     exception exists (corrected comment 6680576996, 2026-11-06, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996;
+     the owner's 2026-10-30 words alone say only that they do not know where the data
+     is and that new data may be collected). Then obtain a fresh result-blind review of the lineage
+     documentation and the pull request that introduced the unavailable-predecessor rule
+     instead; it does not re-verify the predecessor, and the predecessor chain stays
+     `not_established` (the predecessor-root-unavailable section in
+     `docs/architecture/research-assurance.md` defines the conditions and what is
+     recorded; it applies to no other case);
+   * obtain an independent `research_assurance_v1` review of the attempt-2 author
+     packet (see the packet section below) from a different authenticated GitHub
+     principal (for attempt 2 only, the owner-authorized same-account exception of
+     Issue #810 comment 6680576996 applies instead: a review by a model different from
+     every implementation model posted from the same GitHub account, with a valid
+     receipt for the exact digest and heads; see "Review route" below and the
+     "Predecessor root unavailable: owner-authorized G0 exception for carry attempt 2"
+     section of `docs/architecture/research-assurance.md`); a missing review leaves the
+     packet UNREVIEWED and attempt 2 unsealed;
    * create a dedicated detached worktree of the merged commit and a private locked
      environment; keep it unmodified until the screen ends (the sealed
      implementation and runtime digests are rechecked before every acquisition);
@@ -611,6 +698,11 @@ first; nothing here proves the comment exists or says what it should say.
    --expected-tip <TIP> --output <NEW_FILE>`. A pass retains
    `production_eligible=false`.
 
+The attempt-2 observation and its 90-day `cli status` / `cli evaluate` must run from the
+frozen checkout at launch commit `d649fe053f72`, not from
+`main`; `main` may evolve after launch, and a change to packet-bound code requires a new
+packet and a new seal before any new execution.
+
 The screen is invalidated by any `collection-failure.json`; an observation gap over
 180 seconds; a first observation more than 180 seconds after start; a last
 observation outside close plus 120 to 180 seconds; an unacknowledged cycle or
@@ -621,3 +713,473 @@ funding settlement; an unmatched hedge, drawdown at or above 10% or a stop; no
 funding receipt in a block; positions not flat at the end; any fill missing from
 the four instruments; and nonzero funding settled at or after close. Do not resume
 or repair a failed root; a further attempt needs a new lineage, review and seal.
+
+### Attempt 2 research-assurance author packet
+
+The Research Assurance Gate (Issue #687, `docs/architecture/research-assurance.md`)
+requires a versioned author packet before a new economic research protocol. The
+attempt-2 packet is
+[`report/issue810-carry-attempt2-research-assurance-20261105.json`](../../report/issue810-carry-attempt2-research-assurance-20261105.json). It
+describes the existing frozen `carry_paper_screen_v2` plan and the attempt-2
+lineage v3 (`predecessor_root` unavailable) exactly as implemented, changes no
+criterion, and records G0 (question, counter-hypothesis, cheapest falsifier, stop
+rule), the G1 chain from source to decision with all eight boundaries, the G2
+independent oracles by test path, the evidence stage and claim boundary, the
+attempt-1 `not_established` limits, the threat model and the storage-probe step.
+
+* Canonical digest: `617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770`
+  (`python -m tools.agent_repo assurance digest report/issue810-carry-attempt2-research-assurance-20261105.json`).
+* Status: **UNREVIEWED**. `assurance check` exits non-zero and reports
+  `economic_execution_authorized=false`. No review exists, so this is not a pass.
+* The packet binds protocol and implementation head `326188fc0c3cbcc4ff8bf453854e8515ed983abe`, the last commit that
+  changes `trade_rl/` in the pull request that adds the packet
+  (`git diff 326188fc0c3cbcc4ff8bf453854e8515ed983abe..<PR head> -- trade_rl/` is empty). A packet stored in the tree
+  cannot name the commit that contains it, so the packet is committed in a later
+  descendant and the PR head differs from the implementation head;
+  `tools.research_assurance_github` needs the PR head and the review `commit_id` to equal
+  `implementation_head`, so it cannot report PASS for an in-tree packet. The digest is the
+  SHA-256 of the packet JSON alone (`assurance_digest`), so a change to `trade_rl/` does
+  not by itself alter it: the digest changed in the head re-pin commit `5399cc664`
+  because that commit re-pinned the two head fields and rewrote the packet's `stop_rule`,
+  `limitations`, one `permitted` claim, `next_authorized_action` and `decision_rule`
+  text (review-route and search-scope wording); the code at `326188fc0` was already
+  final and `trade_rl/` did not change in it. The historical packet and digest
+  remain pinned as published; subsequent changes to `trade_rl/` or a sync merge do
+  **not** retroactively alter that packet or invalidate evidence about the code as
+  it stood at publication. However, a **new execution using changed dependency
+  code** requires a separately frozen packet with a new `implementation_head`,
+  digest and review before it can be authorized. Re-pinning the old packet in
+  place is forbidden. The dependency scope is `trade_rl/evaluation/paper/`
+  plus its transitive `trade_rl` imports (including lazy imports and ancestor
+  `__init__.py`), resolved at the pinned commit. The full-history guard
+  `test_heads_pin_the_code_as_of_the_frozen_packet_revision` compares that
+  dependency closure from the pinned implementation commit through the **last
+  commit modifying the frozen packet** (`git log -1 -- <packet path>`), not
+  through the current `HEAD`. The public record shows that
+  `326188fc0c3cbcc4ff8bf453854e8515ed983abe..5399cc664e561590312c682a67ac277c067c8de3`
+  modified only docs, tests and the packet, and no `trade_rl/` path.
+  Changes to other code after publication do not invalidate the historical
+  receipt, but they also cannot be used to run a new attempt under that receipt.
+  The guard runs only with the pinned commits reachable in full history;
+  default shallow CI checkouts (`fetch-depth` 1 or 2) skip it, so CI Green alone
+  does not establish the historical source-closure check.
+  `test_launch_commit_runs_packet_bound_code` additionally asserts, under the same
+  full-history condition, that this dependency closure is identical between the
+  pinned implementation commit and the frozen launch commit `d649fe053f72`.
+
+Sealing attempt 2 still needs all of the following, and this packet supplies none of
+them: (a) an independent `research_assurance_v1` review of the exact digest and
+heads (ordinarily verified through `tools.research_assurance_github`; for attempt 2 only,
+the owner-excepted review described under "Review route" below); (b) explicit user
+authorization on Issue #810 for the seal; and (c) either a verified attempt-1 root
+(the `available` path) or a separate explicit owner authorization on Issue #810 that
+names the G0 predecessor-verification exception (see
+`docs/architecture/research-assurance.md`). Evidence for (b) is the comment
+<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6659653178>
+(2026-11-05, posted from the owner's account and recorded by the planner relaying the
+owner; the owner can edit or revoke it; it names no UTC start; code checks only the URL
+shape). It is authorization evidence and does not replace (a); it does not satisfy (c),
+because the owner's quoted words in it do not mention G0. Evidence for (c)
+with `unavailable` is the **corrected** comment
+<https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6680576996>,
+which records the owner's fresh 「この前提で承認する」 on the accurately bounded
+C: search premise and four `not_established` predecessor facts. The **original**
+comment 6673566542 separately records the selected screen start
+`2026-11-07T00:00:00Z` and the Windows Task Scheduler supervisor/watchdog
+authorization; its description of an all-C: search was inaccurate and is
+superseded only for that search premise. Neither comment authorizes FS1 scoring,
+unused or final-window reads, live trading, order routing, relaxed criteria,
+or use of an attempt-1 economic or status readout. Neither comment is itself the review that (a) requires; the corrected comment only defines which review route satisfies (a) for attempt 2.
+
+Review route. AGENTS.md (#687) ordinarily requires a review from a different
+authenticated GitHub principal. The owner's words of 2026-11-05 were
+"別アカウントによるレビュー　別になんでもいいよ。agyのレビューでいいよ"; those words alone
+did not establish principal independence or authorize a same-principal exception.
+The owner **explicitly** made an exception **for attempt 2 only** in corrected
+Issue #810 comment 6680576996: a review by a model different from every
+implementation model (Claude Haiku 5.5), posted from the shuntatsu account,
+satisfies sealing condition (a). It is operator-enforced (sealing code does not
+call the research tool) and is not principal independence:
+`tools.research_assurance_github` still rejects same-principal reviews and does not
+report PASS for that route. The packet stays UNREVIEWED, no PASS is claimed, and an
+actual exact-digest/HEAD result-blind review must still exist before any seal. Nothing is sealed, launched or collected under
+this packet, and the storage probe (the only networked step before launch)
+is not run under it.
+
+### Attempt 3 pre-registration
+
+Attempt 3 was pre-registered first and its collection-failure policy is now implemented
+(see "Attempt 3 collection-policy implementation" below); its screen v3, evaluator audit
+and lineage v4 are built (see "Attempt 3 seal candidate" below). Nothing is sealed,
+launched, probed or collected, and
+the seal, start, authorization comment and launch commit below are
+`PENDING_OWNER_AUTHORIZATION`. Its pre-registration research-assurance
+author packet is
+[`report/issue810-carry-attempt3-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-research-assurance-20261108.json)
+(digest `29467597161a8856c97e2b9c46094e185bef84eed304ac7f33f75edf1ddbea10`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+`python -m tools.agent_repo assurance digest <packet>`). Its `protocol_head` and
+`implementation_head` are both `ec7acfd1f7ca51afa805edf2051e32eff764591b`, the last
+commit that changes `trade_rl/` in the pull request that adds it. That head holds no
+collection-policy code, so this packet can never support a seal; it stays frozen and is
+not re-pinned. The implementation packet below has its own head, digest and review.
+
+**Why a successor.** Attempt 2 ended INVALID: its collector halted at cycle 61
+(`2026-11-07T00:59:07Z`) and wrote `collection-failure.json` because the snapshot reader
+re-applied the five-second per-quote age bound at consumption time (root cause on Issue
+#810, comment 6711911740; fixed by PR #1164). That is a software defect read from the
+failure marker. No attempt-1 or attempt-2 price, equity, profit, drawdown, fill or
+funding figure and no attempt-2 timing metadata was read or is used; the attempt-2 root,
+its failure marker, frozen checkout and the `carry-a2-*` scheduled tasks stay untouched.
+The economic screen is unchanged: same universe (BTCUSDT, ETHUSDT; funding at 00, 08 and
+16 UTC), strategy, fees, depth fraction, stop and every economic acceptance criterion.
+
+**Timing tolerances (protocol parameters).** Each value equals a source constant or
+literal, and `tests/evaluation/test_paper_attempt3_assurance_packet.py` fails if the
+packet, this section and the source diverge. They are justified from venue and
+engineering mechanism only and may not change after a seal.
+
+Timing protocol parameters: quote_age_ms=5000; future_skew_ms=1000; request_seconds=5; capture_span_seconds=10; consume_latency_ms=10000; decision_window_seconds=10; depth_receipt_age_seconds=5; worst_case_mark_age_ms=15000.
+
+| Parameter | Source | Bounds |
+|---|---|---|
+| `quote_age_ms` | `MAX_QUOTE_AGE_MS` | venue-stamped quote age at its receipt and at capture completion |
+| `future_skew_ms` | `MAX_QUOTE_FUTURE_SKEW_MS` | quote ahead of local receipt (clock-offset tolerance) |
+| `request_seconds` | `MAX_REQUEST_SECONDS` | one request, monotonic; no response slower than the quote-age bound can carry a fresh quote |
+| `capture_span_seconds` | `MAX_CAPTURE_SPAN_SECONDS` | first request start to final receipt (cross-request skew) |
+| `consume_latency_ms` | `MAX_CONSUME_LATENCY_MS` | capture completion to decision or execution time; not a re-aging of quotes |
+| `decision_window_seconds` | `account.py`, `supervisor.py`, `depth.py` literals | decision to execution |
+| `depth_receipt_age_seconds` | `depth.py` literal | local receipt of the depth response to execution (local clock, not a venue timestamp) |
+| `worst_case_mark_age_ms` | `quote_age_ms + consume_latency_ms` | venue-stamped mark at valuation; venue-stamped futures depth in a fill is at most 5 s + 5 s = 10 s old |
+
+The flat 5bp adverse buffer is a paper assumption and is not calibrated to these ages.
+
+**Collection-failure, retry and gap policy (adopted under the owner's delegation).**
+Attempt 2 halted on a single failure; over 129,604 slots a transient network error is
+likely, so that behaviour makes a ninety-day window a bet against transient faults. This
+bounded, result-blind policy is derived from engineering and the frozen cadence only.
+The owner delegated the four open decisions on 2026-11-08 (「全部お任せで。一番成果が得られるもので」,
+relayed by the planner on Issue #810, comment 6715501420; the resolutions are the
+planner's, not the owner's drafting) and the policy was adopted as proposed. It is
+implemented in the collector (see "Attempt 3 collection-policy implementation"). It also
+relaxes one attempt-2 operational-quality clause (a failed capture rejects the screen)
+into a registered budget, pre-registered before any attempt-3 data and relaxing no
+economic criterion. The relaxed clause is evaluated only under screen v3 (see "Attempt 3
+seal candidate"); the attempt-2 screen v2 assessor still rejects any failed capture or
+skipped slot.
+
+Collection policy parameters: retries_per_slot=2; retry_delay_seconds=2; retry_start_window_seconds=30; max_consecutive_skipped_slots=1; max_skipped_slots_per_hour=2; max_skipped_slots_total=129; cadence_seconds=60; frozen_gap_limit_seconds=180.
+
+* Class D (HTTP 401, 403, 418, 429, 451 or any authorization, rate-limit or geo denial)
+  and Class I (provenance, protocol digest, clock reversal, journal or lock error,
+  malformed or oversized response, crossed or unsorted book, any other exception) are
+  never retried and write the permanent failure marker.
+* Class T (timeout, connection or DNS error, HTTP 500, 502, 503, 504, and a freshness
+  rejection of one capture) may be retried only inside the same slot, no later than
+  `retry_start_window_seconds` after the slot start, `retry_delay_seconds` after the
+  failed attempt, at most `retries_per_slot` times, only before a capture has been
+  consumed, and never after a decision is committed: a failed execution capture lets the
+  pending decision expire and skips the slot. Every failed attempt keeps its failure
+  evidence and is registered; a consumed capture is never discarded for another.
+* A skipped slot appends no financial command, so holdings and marks stay as they were.
+  One skipped slot leaves a gap near 120 s; a second consecutive one reaches the frozen
+  180-second limit, which is not relaxed. More than `max_skipped_slots_per_hour` in any
+  60 consecutive slots marks a persistent fault; `max_skipped_slots_total` is
+  floor(129,604 / 1000), 0.1% of the slots. A breach of any of the three budgets
+  (consecutive, per 60 slots, total), or any Class D or I failure, ends the attempt
+  INVALID.
+* No settlement-specific tolerance is added: the frozen rule that funding first received
+  more than 180 seconds after a settlement is a permanent quality failure still applies
+  and a skip cannot extend it. A failed rules refresh does not skip a slot while the held
+  rules are at most one hour old: a transient (Class T) refresh failure inside that hold
+  is not retried, proceeds on the held rules and consumes no retry and no skip budget,
+  and the next slot tries again, while a Class D or Class I refresh failure ends the
+  attempt whether or not rules are held. With no held rules, or rules older than one
+  hour, the refresh is required: it may use the slot's retries and, if it still fails,
+  the slot is skipped and counted. A slot whose held rules are older than one hour at
+  decision time is a skipped slot: it appends no command and counts toward the three skip
+  budgets (1 consecutive, 2 per 60, 129 total), a breach ends the attempt INVALID, and no
+  decision is ever made on rules older than one hour. A death inside a cycle is still
+  never resumed.
+* Built in the implementation pull request: the collector, the durable attempt and skip
+  registry and fake-transport tests for each class and budget. Built in the seal-candidate
+  pull request (see "Attempt 3 seal candidate"): the `carry_paper_screen_v3` plan whose
+  economic fields equal `carry_paper_screen_v2`, the evaluator audit that every failed
+  capture is registered and within budget, and the attempt-lineage version v4 naming
+  attempt 2 (its root is available, so ordinary G0 predecessor verification applies; the
+  predecessor-root-unavailable G0 exception of Issue #810 comment 6680576996 does not
+  extend to attempt 3). All of it still needs an independent review before any seal.
+* Accepted side effects and G3 claim boundary: a failed rules refresh proceeds on held
+  rules up to one hour old, and skipped slots may coincide with fast markets, so the
+  retained observations can lean toward calm periods; the budgets bound this bias but do
+  not remove it. No claim may extend beyond the retained slots, and every result must
+  report the skip count with its funding-proximity distribution.
+
+#### Attempt 3 collection-policy implementation
+
+The collector applies the policy above exactly as registered; no value was tuned.
+`trade_rl/evaluation/paper/collection_policy.py` holds the constants, the failure
+classification and the budget scan, `paper/control.py` the durable registry and
+`paper/supervisor.py` the application. Its implementation research-assurance packet is
+[`report/issue810-carry-attempt3-implementation-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-implementation-research-assurance-20261108.json)
+(digest `eeb2fcaa84c161bee4490a5ab0617a63ddcc38c4eb383f420379c7d175350d45`, status
+**UNREVIEWED**, `economic_execution_authorized=false`; `protocol_head` and
+`implementation_head` both `0dacfb147bc975b3d0049d671615c282e8c1181c`, the last commit
+that changes `trade_rl/` in the pull request that adds it). The pre-registration packet
+stays frozen. `tests/evaluation/test_paper_attempt3_implementation_packet.py` imports the
+constants and fails if the packet, this section and the code diverge. This packet cannot
+support a seal either: the `carry_paper_screen_v3` plan, the evaluator audit and the
+attempt-lineage version do not exist at its head. Nothing is sealed, launched, probed or
+collected.
+
+* **Slot and classification.** A slot is `floor((cycle start - screen start) / 60 s)`.
+  The transport chains its final error to the HTTP status or socket cause and a
+  capture's freshness rejection (stale or future quote, request or capture-span
+  overrun) is a distinct `ValueError` subtype, so classification reads types, never
+  messages. HTTP 401, 403, 418, 429, 451 is Class D; HTTP 500, 502, 503, 504, a
+  timeout, a connection or DNS error and a freshness rejection are Class T; every other
+  status or exception (including a consume-latency rejection, a crossed book, a clock
+  reversal, a journal or lock error and a termination signal) is Class I. A status in
+  the cause chain decides before any transient type. The permanent marker records
+  `failure_class` `D`, `I` or `B` (budget breach, with the budget and slot).
+* **Retries.** Only an acquisition that has not produced a capture is retried, at most
+  `retries_per_slot` times in total for the slot (rules and snapshot share the
+  allowance), `retry_delay_seconds` after the failure and only if the retry can start by
+  `retry_start_window_seconds` after the slot start. Each failed attempt is registered
+  durably (table `attempts`, one row per capture directory) before the delay, so an
+  unregistered failure cannot pass as a skip, and a death inside a cycle leaves it
+  unacknowledged and is never resumed. A capture that has been made is never replaced
+  by another one. The execution capture of a committed decision is never retried: the
+  slot is skipped, the decision expires and the next slot cancels it with the existing
+  permanent expired-decision gap, so the skip budget does not rescue that case.
+* **Skipped slots.** A slot with no obtainable snapshot, with rules that are required but
+  unobtainable, or whose held rules are older than one hour (checked before the snapshot
+  capture and again at decision time; a capture finished after the hour is registered
+  as unused and never decided on) is skipped: it appends no command and is registered
+  once in table `skips` with its reason. A slot that never ran, between two cycles or
+  between the screen start and the first cycle, slot 0 included (the engine anchors the
+  last command at the screen start; the seal-candidate pull request corrected the
+  collector, which had exempted slot 0 at this packet's head), is registered as a
+  skipped slot too, except when the cycle records
+  the frozen observation gap, which is already a permanent quality failure. This is
+  stricter than the registered text and consistent with the gap arithmetic; it is
+  ratified in Issue #810 comment 6717103371 (the planner's record relaying the
+  delegation in comment 6715501420; it relaxes no criterion and authorizes no seal or
+  launch). The three budgets are checked after
+  every registration, and the first breach in slot order ends the attempt.
+* **Rules-refresh resolution.** The registered text left open whether a transient
+  rules-refresh failure inside the one-hour hold is a Class T retry or consumes a
+  budget. The conservative reading is implemented: it is not retried, proceeds on the
+  held rules and consumes neither a retry nor a skip budget (the refresh is due again in
+  the next slot, from 3,300 s of age); a Class D or Class I refresh failure ends the
+  attempt in every case. This reading is flagged for review; it follows the
+  non-blocking note of review 5816161116 on the pre-registration pull request.
+* **Unchanged.** The 180 s observation-gap limit, every timing tolerance and the economic
+  screen are unchanged. At this packet's head the assessor still rejects any root with a
+  failed capture or a skipped slot, because the v3 plan and evaluator audit do not exist
+  there, so attempt 3 could not be evaluated as qualifying; they are built in the
+  seal-candidate pull request ("Attempt 3 seal candidate") and screen v2 keeps that
+  rejection for attempt-1 and attempt-2 roots. An execution that falls on rules
+  crossing one hour inside its ten-second window is not a new case: it falls under the
+  registered rule that any exception outside Class T is Class I, so it is terminal and
+  fail-closed and the policy is unchanged (ratified in Issue #810 comment 6717103371).
+
+**Run identity and seal procedure (nothing computed).** Run root
+`C:\trade_rl_runs\attempt3\root-<UTC seal date YYYYMMDD>` (new, outside every repository
+and not beneath the attempt-2 root); storage-probe scratch root
+`C:\trade_rl_runs\attempt3\storage-probe-<UTC date YYYYMMDD>`; frozen checkout
+`C:\trade_rl_frozen\attempt3-<first 8 hex of the launch commit>`; scheduled tasks
+`carry-a3-supervisor` and `carry-a3-check`. The attempt-2 seal and protocol digest are
+never reused and the attempt-3 protocol digest must differ from every earlier digest.
+Order: the pre-registration, the collector implementation and the seal candidate (screen
+v3, evaluator audit, lineage v4) are separate pull requests, each with its own packet;
+then independent
+review of the seal-candidate packet's exact digest and heads (the attempt-2 same-account receipt route of Issue
+#810 comment 6680576996, extended to attempt 3 by comment 6715501420: a fresh Claude Haiku
+5.5 agent, a different model from the Opus planner and the Sonnet implementer, posts a
+pull request review from the shuntatsu account; operator-enforced, not different-principal
+independence, and `tools.research_assurance_github` still rejects it, so the packet stays
+UNREVIEWED with no PASS claimed; the predecessor-root-unavailable G0 exception is not
+extended); fresh storage probe with its own
+authorization (not an attempt-2 byte rate); owner authorization comment on Issue #810
+naming the start; `plan`, then offline `seal` at least five minutes before the start;
+`launch` from the frozen checkout.
+
+| Field | Value |
+|---|---|
+| Collection policy decision | Issue #810 comment 6715501420 (owner delegation, adopted) |
+| Implementation packet | `report/issue810-carry-attempt3-implementation-research-assurance-20261108.json` (UNREVIEWED) |
+| Seal-candidate packet | `report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json` (UNREVIEWED) |
+| Review route | Issue #810 comment 6715501420 (extends the receipt route of comment 6680576996) |
+| Authorization comment | `PENDING_OWNER_AUTHORIZATION` |
+| Screen start (UTC) | `PENDING_OWNER_AUTHORIZATION` |
+| Protocol digest (seal) | `PENDING_OWNER_AUTHORIZATION` |
+| Launch commit | `PENDING_OWNER_AUTHORIZATION` |
+
+#### Attempt 3 seal candidate
+
+The three parts that the two earlier packets list as missing are built; nothing is
+sealed, launched, probed or collected, and the seal, start, authorization comment and
+launch commit stay `PENDING_OWNER_AUTHORIZATION`. The seal-candidate research-assurance
+packet is
+[`report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`](../../report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json)
+(digest `3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+`protocol_head` and `implementation_head` both `d0a76538f77a5a99825fc0c698a27153d8181933`, the last commit that changes
+`trade_rl/` in the pull request that adds it). The pre-registration and implementation
+packets stay frozen.
+`tests/evaluation/test_paper_attempt3_seal_candidate_packet.py` imports the constants
+and the schema names from the source and fails if the packet, this section and the code
+diverge. The packet is not a seal authorization: a seal still needs everything under
+"Still missing before a seal".
+
+* **`carry_paper_screen_v3`** (`operations.screen_plan_v3`). Every economic field is the
+  one `carry_paper_screen_v2` has (a single shared constructor, compared byte for byte by
+  test) and the measurement, `screen_reasons` and replay are the same code (their source
+  digests are pinned by test). The only new field is `operational_quality`, which restates
+  the registered policy constants and states that a failed capture or skipped slot no
+  longer rejects by itself. The plan is sealed only with lineage v4 and lineage v4 only
+  with the plan (a mixed pair is refused before any collection as
+  `screen_lineage_mismatch`). Screen v2 is unchanged for attempt-1 and attempt-2 roots
+  and no sealed result is re-classified.
+* **Evaluator audit** (`paper/collection_audit.py`; `assessment.registered_collection_evidence`,
+  selected by the sealed plan's schema). A root qualifies only if, besides everything
+  screen v2 requires: every failed or unused capture directory is registered once in
+  `attempts`, with an outcome that matches its evidence (a failed capture holds
+  `failure.json`; an unused one does not and belongs to a skipped slot) and is not
+  consumed by a command; no slot registers more than `retries_per_slot + 2` (4) failed
+  captures; every cycle without a command owns a registered skip of its own slot; every
+  skip has a registered reason (`missed_slot`, `rules_expired`, `rules_unavailable`,
+  `snapshot_unavailable`, `execution_capture_failed`) and an existing owner cycle; the
+  skipped slots re-derived from the cycle roster (any slot from slot 0 up to the last
+  cycle that no cycle with a command covers is skipped whether or not it was registered,
+  so a collector that starts late leaves slot 0 counted; the slots a recorded
+  observation gap already condemns are excluded) are all registered; and the union stays
+  inside the budgets (1 consecutive, 2 per 60 slots, 129 total). A permanent marker of any class
+  (D, I or B) rejects. A root with no skipped slot audits exactly like screen v2 (tested
+  over the v2 defects). The audit verifies registration, classes, budgets and the per-slot
+  bound. Registry rows carry no timestamps, so the retry delay and the retry start
+  window cannot be audited after the run: only the collector enforces them, at run
+  time. This limit belongs to the G3 claim boundary.
+* **Skip report.** The v3 assessment (`carry_paper_assessment_v3`) carries
+  `collection_report` (`carry_paper_collection_report_v1`): the skip count, the slots,
+  their reasons and the distribution of the skipped slot starts by distance to the nearest
+  00:00, 08:00 or 16:00 UTC settlement (within 180 s, 900 s, 3,600 s and beyond; before or
+  at/after; per settlement hour), beside the distribution of all slots for comparison. It
+  is descriptive and enters no criterion; it exists so that no result can omit its skip
+  count (G3).
+* **Lineage v4** (`carry_paper_attempt_lineage_v4`, `predecessor.canonical_lineage_v4`).
+  Attempt 3, predecessor attempt 2, disposition `invalidated`, reason `collector_failure`,
+  cause record Issue #810 comment 6711911740 (a software defect fixed by PR #1164),
+  `economic_outcome_used=false`, and `predecessor_seal.reused=false` with the requirement
+  that the successor digest differs (the evaluator rejects an equal digest, and attempt
+  1's). The predecessor identity (protocol digest, event count, final tip, last
+  observation time) is read from the preserved attempt-2 root by the v1 journal reader,
+  opened read-only, by `attempt3 plan` and `attempt3 seal`, and re-read on every collector
+  entry and every launch together with the existence (never the content) of its failure
+  marker; a root that is lost, changed or without the marker stops the collection. Only an
+  available root is admitted: the predecessor-root-unavailable G0 exception does not
+  extend to attempt 3. The values stay caller assertions until a result-blind reviewer
+  resolves the root. The attempt-2 root, marker, frozen checkout and `carry-a2-*` tasks
+  are never written.
+* **Entry point** `paper/attempt3.py` (`plan`, `seal`, `launch`; no collector or network
+  surface of its own, like `attempt2`). It refuses a new root that is, contains or lies
+  beneath the attempt-2 root. `seal_paper_study`, `cli seal`, `PaperEngine`,
+  `PaperCollector`, `cli run` and `cli supervise` all use the one lineage classifier; a v4
+  lineage needs the module-private attempt-3 token (a caller contract, not authentication)
+  and `cli seal` refuses it.
+
+**Exact seal and launch procedure (owner authorization required; nothing below has been
+run).** Run root `C:\trade_rl_runs\attempt3\root-<YYYYMMDD>` (UTC seal date), storage-probe
+root `C:\trade_rl_runs\attempt3\storage-probe-<YYYYMMDD>`, frozen checkout
+`C:\trade_rl_frozen\attempt3-<first 8 hex of LAUNCH_COMMIT>`, scheduled tasks
+`carry-a3-supervisor` and `carry-a3-check`. None exists; this work creates none and does
+not touch `C:\trade_rl_frozen\attempt2-*`, `C:\trade_rl_runs\attempt2\*`, the `carry-a2-*`
+tasks or the attempt-2 failure marker.
+
+1. Human prerequisites, before any command: this pull request merged; the extended
+   same-account receipt review of the packet's exact digest and heads (Issue #810 comment
+   6715501420) posted; a result-blind G0 review that resolves the preserved attempt-2 root
+   with the v1 reader (identity fields only: protocol digest, event count, final tip, last
+   observation time, and that the failure marker exists) and checks for an unreported
+   earlier attempt; the owner's authorization comment on Issue #810 naming the UTC start,
+   the run root and the launch commit; a dedicated detached worktree of the launch commit
+   (`git worktree add --detach C:\trade_rl_frozen\attempt3-<8 hex> <LAUNCH_COMMIT>`) with a
+   private locked environment, kept unmodified until the screen ends, whose packet-bound
+   code (the `trade_rl/evaluation/paper/` closure) equals the packet's
+   `implementation_head`; sleep and hibernation disabled, automatic restarts and updates
+   postponed for 90 days, clock synchronisation on.
+2. Fresh storage probe (the only networked step before launch), with its own
+   authorization comment; the byte rate of attempt 2 is not reused:
+
+   ```
+   python -m trade_rl.evaluation.paper.storage_probe \
+     --root C:\trade_rl_runs\attempt3\storage-probe-<YYYYMMDD> \
+     --authorization <PROBE_COMMENT_URL> --allow-network \
+     --output C:\trade_rl_runs\attempt3\storage-probe-<YYYYMMDD>.report.json
+   ```
+
+   Use `conservative_bytes_per_observation` of the report as the rate. The probe runs the
+   current collector, so the retry and skip policy applies to it; a probe that ends on a
+   permanent failure yields no rate.
+3. Plan (no side effects; `--output` writes a new draft once):
+
+   ```
+   python -m trade_rl.evaluation.paper.attempt3 plan \
+     --root C:\trade_rl_runs\attempt3\root-<YYYYMMDD> --start-at <FUTURE_UTC_ISO> \
+     --authorization <COMMENT_URL> \
+     --predecessor-root C:\trade_rl_runs\attempt2\root-20261107 \
+     --predecessor-protocol-sha256 <ATTEMPT_2_PROTOCOL_SHA256> \
+     --bytes-per-observation <PROBE_RATE> --output <NEW_DRAFT.json>
+   ```
+
+   `<ATTEMPT_2_PROTOCOL_SHA256>` is the digest the attempt-2 launch printed. The plan
+   opens the attempt-2 root read-only and refuses unless it matches the digest, shows an
+   event count, final tip and last observation, and holds the failure marker. The start
+   must be at least five minutes after the wall clock.
+4. Seal (offline) with the same arguments and `seal`; it prints `protocol_sha256`, to be
+   recorded and posted with the start. It refuses a missing authorization, an unreadable or
+   unmatched predecessor, a root that overlaps the attempt-2 root, a dirty checkout,
+   insufficient storage, an existing root and a start less than five minutes ahead.
+5. Launch (the only networked step after the probe), from the frozen checkout:
+
+   ```
+   python -m trade_rl.evaluation.paper.attempt3 launch \
+     --root C:\trade_rl_runs\attempt3\root-<YYYYMMDD> --start-at <SAME_START> \
+     --authorization <COMMENT_URL> --allow-network --protocol-sha256 <DIGEST> \
+     --log-file C:\trade_rl_runs\attempt3\logs\supervisor-<YYYYMMDD>.log
+   ```
+
+   It re-reads the attempt-2 root, so the root must stay intact for the whole screen.
+   A first launch after the start is refused as a late start.
+6. Windows Task Scheduler (PowerShell; `<PYTHON>` is the frozen checkout's locked
+   interpreter): `carry-a3-supervisor` runs the launch command at startup with restart on
+   failure and no time limit; `carry-a3-check` runs `cli check` every minute under the
+   same account.
+
+   ```
+   $a = New-ScheduledTaskAction -Execute <PYTHON> -WorkingDirectory <CHECKOUT> -Argument '-m trade_rl.evaluation.paper.attempt3 launch ...'
+   $s = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+   Register-ScheduledTask -TaskName carry-a3-supervisor -Action $a -Settings $s -Trigger (New-ScheduledTaskTrigger -AtStartup) -User <ACCOUNT> -RunLevel Limited
+   $c = New-ScheduledTaskAction -Execute <PYTHON> -WorkingDirectory <CHECKOUT> -Argument '-m trade_rl.evaluation.paper.cli check --root C:\trade_rl_runs\attempt3\root-<YYYYMMDD> --protocol-sha256 <DIGEST>'
+   $t = New-ScheduledTaskTrigger -Once -At <NOW_PLUS_ONE_MINUTE> -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 92)
+   Register-ScheduledTask -TaskName carry-a3-check -Action $c -Settings $s -Trigger $t -User <ACCOUNT> -RunLevel Limited
+   ```
+
+   Exit codes, monitoring and the terminal steps are those of the attempt-2 runbook:
+   3 means a failure marker exists (alert, do not clear, do not start a replacement into
+   the root), 4 means a live collector owns the root (do nothing), 5 means unhealthy
+   without a marker.
+7. Terminal: no earlier than close plus 180 seconds run `cli status`, record the final
+   `tip` externally, then `cli evaluate --root C:\trade_rl_runs\attempt3\root-<YYYYMMDD>
+   --protocol-sha256 <DIGEST> --expected-tip <TIP> --output <NEW_FILE>`. The result is a
+   `carry_paper_assessment_v3` whose `collection_report` must accompany every statement of
+   the outcome; a pass keeps `production_eligible=false`.
+
+**Still missing before a seal.** The independent review of the seal-candidate packet's
+exact digest and heads (the packet is `UNREVIEWED`; the same-account route is
+operator-enforced and `tools.research_assurance_github` does not report PASS for it); the
+result-blind G0 resolution of the preserved attempt-2 root and the check for an unreported
+earlier attempt; a fresh storage probe with its own authorization; the owner's
+authorization comment naming the UTC start, the run root and the launch commit; the frozen
+checkout; and the seal digest, which is computed only by `attempt3 seal` after all of
+these. Operator-run steps (probe, plan, seal, launch, the scheduled tasks) are untested
+against the real venue and the real attempt-2 root.

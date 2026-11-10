@@ -61,6 +61,10 @@ class BranchDecision:
     reason: str
 
 
+class _WorkflowRosterChanged(RuntimeError):
+    """A paginated workflow-status roster was inconsistent during observation."""
+
+
 class GitHubApi:
     def __init__(self, *, repository: str, token: str, api_url: str) -> None:
         owner, separator, name = repository.partition("/")
@@ -256,6 +260,19 @@ class GitHubApi:
         return tuple(result)
 
     def active_workflow_branch_names(self) -> frozenset[str]:
+        """Return only a complete roster; never combine pages across retries."""
+        for attempt in range(3):
+            try:
+                return self._active_workflow_branch_names_once()
+            except _WorkflowRosterChanged:
+                if attempt == 2:
+                    raise
+                # GitHub status transitions can shift total_count while paging.
+                # Re-read every status and page rather than accepting partial refs.
+                time.sleep(0.2)
+        raise AssertionError("unreachable workflow roster retry state")
+
+    def _active_workflow_branch_names_once(self) -> frozenset[str]:
         names: set[str] = set()
         for status in ("requested", "waiting", "pending", "queued", "in_progress"):
             page = 1
@@ -286,10 +303,12 @@ class GitHubApi:
                 if expected_total is None:
                     expected_total = count
                 elif count != expected_total:
-                    raise RuntimeError("workflow run total_count changed between pages")
+                    raise _WorkflowRosterChanged(
+                        "workflow run total_count changed between pages"
+                    )
                 remaining = count - (page - 1) * 100
                 if remaining < 0 or len(runs) != min(100, remaining):
-                    raise RuntimeError(
+                    raise _WorkflowRosterChanged(
                         "workflow run pagination is incomplete or exceeds total_count"
                     )
                 for run in runs:
@@ -547,6 +566,13 @@ def apply_cleanup(
 # because an exact ancestor of current main cannot contain unique code history.
 # Divergent sources, authoritative research refs and any currently used PR/run
 # stay outside this path. The older generic retention planner remains read-only.
+# M1 merge handoff requires durable source branch refs even when their
+# exact final head is already reachable from main. This exception is scoped
+# to the M1 branch namespace plus its Windows test-only companion.
+M1_SOURCE_REF_PREFIX = "fix/m1-"
+M1_ADDITIONAL_SOURCE_REFS = frozenset({"fix/windows-job-child-pid-marker-20261105"})
+
+
 RETIRED_MERGED_PRESERVED_PREFIXES = (
     "provenance/",
     "research/",
@@ -604,6 +630,11 @@ def plan_merged_retirement(
             reason = "open-pr-ref"
         elif branch.name in active_workflow_branches:
             reason = "active-workflow"
+        elif (
+            branch.name.startswith(M1_SOURCE_REF_PREFIX)
+            or branch.name in M1_ADDITIONAL_SOURCE_REFS
+        ):
+            reason = "m1-source-preservation"
         elif branch.name.startswith(RETIRED_MERGED_PRESERVED_PREFIXES):
             reason = "reserved-research-or-provenance"
         elif branch.sha not in reachable_from_main:

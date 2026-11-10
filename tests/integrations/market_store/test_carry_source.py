@@ -1,5 +1,9 @@
+import errno
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import Barrier
 
 import numpy as np
 import pytest
@@ -251,6 +255,85 @@ def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     assert perp.filename == spec.filename or perp.kind is ArchiveKind.KLINES
     ArchiveDirFetcher(tmp_path, inner).fetch(perp.url)
     assert len(list(tmp_path.rglob("*.zip"))) == 2
+
+
+def test_archive_cache_late_rival_is_not_overwritten(tmp_path) -> None:
+    """A competing on-disk file wins even if it appeared inside inner.fetch."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    winner = b"concurrent publisher bytes"
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(winner)
+            return FetchResult(status=200, body=b"newly downloaded bytes")
+
+    actual = ArchiveDirFetcher(tmp_path, RacingFetcher()).fetch(spec.url)
+    assert actual.status == 200
+    assert actual.body == winner
+    assert target.read_bytes() == winner
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
+def test_archive_cache_concurrent_publishers_have_private_stages(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both fetchers must return the one published winner and leak no temp file."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    real_link = os.link
+    at_link = Barrier(2)
+    stages = []
+
+    def racing_link(staging, destination):
+        assert destination == target
+        stages.append(staging)
+        at_link.wait(timeout=10)
+        return real_link(staging, destination)
+
+    class StaticFetcher:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            return FetchResult(status=200, body=self.payload)
+
+    monkeypatch.setattr(os, "link", racing_link)
+    fetchers = (
+        ArchiveDirFetcher(tmp_path, StaticFetcher(b"first archive")),
+        ArchiveDirFetcher(tmp_path, StaticFetcher(b"second archive")),
+    )
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = tuple(workers.map(lambda cache: cache.fetch(spec.url), fetchers))
+    winner = target.read_bytes()
+    assert winner in {b"first archive", b"second archive"}
+    assert len(stages) == len(set(stages)) == 2
+    assert all(result.status == 200 and result.body == winner for result in results)
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
+def test_archive_cache_unsupported_exclusive_publish_halts_without_partial_cache(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lack of hard-link support is operational failure, never silent fallback."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+
+    class StaticFetcher:
+        def fetch(self, _url: str) -> FetchResult:
+            return FetchResult(status=200, body=b"readable download")
+
+    def unsupported(_src, _dst) -> None:
+        raise OSError(errno.ENOTSUP, "hard links unavailable")
+
+    monkeypatch.setattr(os, "link", unsupported)
+    with pytest.raises(CarryOperationalHalt, match="cache"):
+        ArchiveDirFetcher(tmp_path, StaticFetcher()).fetch(spec.url)
+    assert not target.exists()
+    assert not list(tmp_path.rglob("*.part-*"))
 
 
 def test_archive_dir_fetcher_does_not_cache_failures_and_refuses_odd_urls(

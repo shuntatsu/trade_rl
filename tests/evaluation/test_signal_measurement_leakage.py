@@ -257,3 +257,34 @@ def test_probe_rejects_nonfinite_inputs_instead_of_silent_clearance() -> None:
             seed=0,
             relative_scale=0.05,
         )
+
+
+def test_all_zero_future_rows_still_expose_a_leaky_dependency() -> None:
+    """A nonzero prefix does not make the all-zero future safe to ignore."""
+    inputs = np.array([[1.0, 2.0], [3.0, 4.0], [0.0, 0.0], [0.0, 0.0]])
+
+    def next_row(values: np.ndarray) -> np.ndarray:
+        result = np.zeros((values.shape[0], 1), dtype=np.float64)
+        result[:-1, 0] = values[1:, 0]
+        return result
+
+    result = future_perturbation_probe(
+        next_row, inputs, cutoffs=(1,), seed=0, relative_scale=0.05
+    )
+    assert result.changed_rows == ((1, 1),)
+    assert result.leaks is True
+
+
+def test_precision_noop_future_cell_refuses_causal_clearance() -> None:
+    """A subnormal that rounds to itself cannot be treated as perturbed."""
+    tiny = np.nextafter(0.0, 1.0)
+    inputs = np.array([[1.0, 1.0], [3.0, 2.0], [tiny, 4.0], [5.0, 6.0]])
+
+    with pytest.raises(SignalMeasurementError, match="future perturbation"):
+        future_perturbation_probe(
+            lambda values: values.copy(),
+            inputs,
+            cutoffs=(1,),
+            seed=0,
+            relative_scale=0.05,
+        )

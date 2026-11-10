@@ -192,9 +192,11 @@ so a symlink swapped after a cache-hit existence check also fails closed. An
 already-linked configured cache root or subdirectory is refused before reads or
 writes; the static ancestor screen does not prove protection against a concurrent
 directory replacement. Filesystems without hard-link support fail closed as
-operational halts; there is no ordinary rename,
-copy-overwrite or shared `.part` fallback. These are cache publication and source
-integrity properties, not economic evaluation or market-data authorization. The wiring of the two sides is the repository-only command
+operational halts; there is no ordinary rename, copy-overwrite or shared
+`.part` fallback. These are cache publication and source integrity properties,
+not economic evaluation or market-data authorization.
+
+The wiring of the two sides is the repository-only command
 `tools/carry_multisymbol_screen.py` (`plan`, `screen`), which sits outside the
 production wheel; it requires a G4 authorization comment URL, the registered window and
 a clean checkout, and reads nothing at or after 2026-08-01.

@@ -297,6 +297,32 @@ def test_archive_cache_late_rival_is_not_overwritten(tmp_path) -> None:
     assert not list(tmp_path.rglob("*.part-*"))
 
 
+def test_archive_cache_raced_symlink_is_not_accepted_as_a_winner(
+    tmp_path,
+) -> None:
+    """A symlink introduced during an inner fetch must not win the cache race."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    outside = tmp_path / "other-owner"
+    outside.write_bytes(b"untrusted external bytes")
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                pytest.skip("symlinks unavailable on this filesystem")
+            return FetchResult(status=200, body=b"downloaded")
+
+    with pytest.raises(CarryOperationalHalt, match="cache publication conflict"):
+        ArchiveDirFetcher(tmp_path, RacingFetcher()).fetch(spec.url)
+    assert target.is_symlink()
+    assert outside.read_bytes() == b"untrusted external bytes"
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
 def test_archive_cache_concurrent_publishers_have_private_stages(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

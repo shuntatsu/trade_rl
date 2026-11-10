@@ -166,7 +166,16 @@ class StudyStore:
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 )
-            staging.rename(target)
+            # An exclusive hard link publishes the already-fsynced bytes without
+            # the POSIX rename race that could replace a competing file.
+            # Both paths share a parent, so the operation stays on one filesystem.
+            # Filesystems without hard-link support fail closed, never copy/rename.
+            try:
+                os.link(staging, target)
+            except FileExistsError as error:
+                raise InvalidExperimentStateError(
+                    f"Study artifact already exists: {relative}"
+                ) from error
         finally:
             if staging.exists() or staging.is_symlink():
                 staging.unlink(missing_ok=True)

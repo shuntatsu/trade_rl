@@ -78,6 +78,10 @@ def with_cross_asset_global_features(
     policy sees an explicit mask rather than a fabricated value.
     """
 
+    # Research eligibility requires an explicit Boolean opt-in. In particular,
+    # the config string "false" must not be truthy consent to hindsight.
+    if type(accept_revision_hindsight) is not bool:
+        raise ValueError("accept_revision_hindsight must be a bool")
     names = tuple(feature_names)
     if not names:
         raise ValueError("select at least one cross-asset feature")

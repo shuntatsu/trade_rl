@@ -19,11 +19,15 @@ def test_revision_hindsight_ack_requires_exact_boolean(
     store = seed_store(tmp_path)
     source = _dataset()
     frame = load_cross_asset_features(
-        store.root, source.timestamps, opt_in_series=("SP500",)
+        store.root,
+        source.timestamps,
+        opt_in_series=("SP500",),
     )
     with pytest.raises(ValueError, match="accept_revision_hindsight.*bool"):
         with_cross_asset_global_features(
-            source, frame, feature_names=("SP500__ret1",),
+            source,
+            frame,
+            feature_names=("SP500__ret1",),
             accept_revision_hindsight=invalid_ack,  # type: ignore[arg-type]
         )
     assert source.identity_verified

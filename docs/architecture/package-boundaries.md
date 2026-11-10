@@ -48,6 +48,7 @@ trade_rl/
 │       ├── derived_klines.py
 │       └── dataset.py
 │   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,cli.py,migrations/*.sql}
+│   └── cross_asset/{__init__.py,__main__.py,catalog.py,parsers.py,pit.py,store.py,fetch.py,observations.py,features.py,normalization.py,loader.py,dataset.py,cli.py}
 ├── risk/
 │   ├── inputs.py
 │   ├── portfolio.py
@@ -841,6 +842,50 @@ uv run python -m trade_rl.integrations.market_store export --market usds_m --sta
 The container binds only `127.0.0.1`, keeps data in the named volume `trade_rl_market_store_data` and reads credentials from the git-ignored `deploy/market-store/.env`; the connection URL is read only from `TRADE_RL_MARKET_STORE_URL`. Backup and restore: `docker compose -f deploy/market-store/compose.yml exec -T postgres pg_dump -U market_store -Fc market_store > market_store.dump`, then `pg_restore --clean --if-exists -d market_store` on a fresh container. Integration tests run against a real PostgreSQL only when `TRADE_RL_TEST_POSTGRES_URL` is set (each test uses its own throw-away schema); otherwise they skip. CI runs them in the `Market Store PostgreSQL` job with a `postgres:16.15-bookworm` service container, fails if any of them was skipped, and that job is in the `needs` of the generic independent-review gate, so a red store job blocks the gate. FS1 scoring and acquisition never import the store (architecture test).
 
 The pinned Compose image and the CI service use `postgres:16.15-bookworm` (PostgreSQL 16 minor release with an explicit Bookworm base). A green fresh-container CI run does **not** validate changing the existing `trade_rl_market_store_data` volume. Before updating a populated local deployment, follow the [16.15 migration notes](https://www.postgresql.org/docs/16/release-16-15.html), including the 16.10 notes applicable when upgrading from 16.4; make and verify a backup, rehearse the upgrade and recovery on a copy, check applicable configuration/reindex guidance, and verify migration-twice/status, row counts and checksums. This source change performs no service restart or existing-volume migration.
+
+## Cross-asset market context boundary
+
+`integrations/cross_asset/` (Track D, software only) fetches key-less public daily series for world equity indices, US rates, FX/dollar, volatility/credit spreads and commodities, stamps every observation with the UTC instant at which it became knowable, and builds the versioned feature set `cross_asset_features_v1`. It reads no crypto price, computes no correlation, IC or return against crypto, and authorizes no economic experiment: whether this information predicts crypto after costs is decided only by the signal-diagnosis gate (Issue #1146), after review. It depends only on `artifacts`, `data` (timeframe and `MarketDataset`) and numpy; `tests/integrations/cross_asset/test_loader_cli.py` rejects imports of `integrations.binance`, `integrations.market_store`, strategies, evaluation and simulation, and any other production module importing the package. It is not re-exported from `trade_rl.integrations`.
+
+### Sources (key-less, nothing behind a login)
+
+| Source | URL pattern | Terms |
+| --- | --- | --- |
+| FRED CSV | `https://fred.stlouisfed.org/graph/fredgraph.csv?id=<ID>` | <https://fred.stlouisfed.org/legal/>: personal, non-commercial, educational use with attribution; series with a third-party copyright notice (S&P 500, NASDAQ, Nikkei, ICE BofA) are personal use only. Federal Reserve Board releases (H.15, H.10) are public domain (<https://www.federalreserve.gov/disclaimer.htm>). |
+| Yahoo chart JSON | `https://query1.finance.yahoo.com/v8/finance/chart/<SYMBOL>?period1=631152000&period2=4102444800&interval=1d&events=history` | Unofficial, undocumented endpoint (the one yfinance uses). Terms: <https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html>, not reviewed by the implementer; no redistribution or commercial licence was obtained. `range=max` silently degrades to monthly bars, so an explicit 1990..2100 period is required. |
+| Stooq CSV | `https://stooq.com/q/d/l/?s=<SYMBOL>&i=d` | <https://stooq.com/>, terms not reviewed. On 2026-11-10 it served a JavaScript proof-of-work bot check instead of CSV. That is bot detection and is **not** bypassed: `fetch` probes the source once per run, records every Stooq series as `unavailable` and skips the rest. |
+
+Raw data may carry third-party restrictions: it lives only under the git-ignored `data/cross_asset/` and is never committed. Using these inputs in a commercial trading system needs a separate terms review by the owner.
+
+### Point-in-time rules
+
+`pit.py` holds the pure rules (no clock, network or filesystem).
+
+- **Stamp.** `knowable_at = max(session close, end of the publication business day)`. The session close is the venue's local close on the observation date converted to UTC through the IANA zone (daylight saving, including the different US/UK/EU change dates, is resolved by the database); the end of the publication day is 00:00 of the next calendar day in `America/New_York`. No intraday release time is assumed.
+- **Publication calendar.** Weekends plus a deliberately conservative union of US federal holidays (observed on Friday/Monday when they fall on a weekend) and Good Friday. Columbus and Veterans Day count as closed although exchanges trade, which can only delay knowability. Ad-hoc closures are not modelled.
+- **Lags** (`catalog.py`, never below one business day): FRED daily market series and Yahoo 1 business day; `SP500` 3 (observed three sessions behind on 2026-11-10); `DCOILWTICO`/`DCOILBRENTEU` 6 (EIA, observed about a week behind); H.10 series (`DTWEXBGS`, `DEX*`) are released weekly on Monday, so a value appears in the first Monday release strictly after its observation date (rolled to the next business day) plus a 1 business day buffer. `status` compares the configured lag with the latest published row of each fetch and flags a series that is behind its rule.
+- **Session closes** used: New York 16:00 (equities, `NASDAQCOM`, `SP500`), 16:15 (VIX), 17:00 (rates, credit, FX and futures), 12:00 (H.10 noon rates); Tokyo 15:30; London 16:30; Berlin 17:30; Hong Kong 16:00; Shanghai 15:00. A later-than-actual close is conservative.
+- **As-of join.** For a decision time `t` (a crypto bar close) a series contributes its latest row with `knowable_at <= t`; rows are only carried forward. Weekend and holiday bars therefore carry the last released value with growing staleness and nothing is back-filled. Staleness is the hours since the session close of the carried row and is exposed per feature; beyond the series' `max_staleness_hours` (10 days daily, 16 days weekly) the feature is unavailable (`available=False`, NaN) and is never extended.
+- **In-progress bars.** Rows whose session had not closed at fetch time are dropped at load.
+- **Missing values.** FRED `.`/empty and Yahoo null closes are dropped and counted (`missing_rows`); no value is interpolated or forward-filled inside a series.
+
+### Vintages and storage
+
+`fetch` writes the exact bytes to `data/cross_asset/raw/<source>/<key>/<UTC stamp>_<sha8>.<ext>` and appends one canonical JSON line to `data/cross_asset/manifest.jsonl` (source URL, fetch time, SHA-256, size, row count, first/last dates, status). An identical refetch records `unchanged`; a changed payload becomes a new immutable vintage with a revision summary (added/changed/dropped dates and the first changed date). `load_cross_asset_features(..., as_of=...)` selects the vintages fetched at or before a cutoff, and the frame carries `input_digest`, the digest of the exact raw SHA-256 set. History comes from the latest vintage at each fetch: ALFRED first-release vintages are not fetched, so series that are later revised (`revision_risk="possible"`: ICE BofA spreads) may carry hindsight in past values. Market closes that are not revised are not affected.
+
+### Features
+
+`cross_asset_features_v1` (`features.py`; `definitions_digest()` is the SHA-256 of the full canonical definition: windows, member lists and the series catalog). Windows count **observations of the series**, not calendar days, and are trailing only.
+
+- Per series: `ret|chg{1,5,20,60}` (log return for prices, difference for levels and spreads; NaN for non-positive prices), `rvol20` (sample std of the 1-observation change), `z252` (trailing z-score of log price or level), `sm20`/`sm60` (k-observation change over the trailing-252 std times sqrt(k), clipped at 5), `lvl` for levels and `abv60`/`abv200` (above the trailing moving average) for prices.
+- Composites on the decision grid: `dollar_strength`, `risk_appetite`, `equity_momentum20`, `commodity_momentum20`, `commodity_momentum60`, `curve_slope`, `curve_slope_chg20`, `trend_breadth_60`, `trend_breadth_200`, `rotation_equity_minus_commodity`, `rotation_equity_minus_dollar`. Each is the mean of the signed `sm*` (or `abv*`) members that are present and fresh, with a fixed minimum member count; fewer members than the minimum makes the composite unavailable.
+- Normalisation: `FeatureNormalizer.fit(frame, fit_start, fit_end)` uses only available rows with `fit_start <= t < fit_end`; a feature without enough fit data becomes unavailable instead of unscaled.
+
+### CLI and hook
+
+`python -m trade_rl.integrations.cross_asset fetch|build|status` (default root `data/cross_asset`). `build` aligns features to a regular UTC grid (`--timeframe 4h|1d`) and writes `built/cross_asset_features_v1/*.npz|json` for inspection. `load_cross_asset_features(root, decision_times, as_of=..., feature_names=...)` returns the aligned `FeatureFrame` for any UTC grid.
+
+The opt-in dataset hook is `with_cross_asset_global_features(dataset, frame, feature_names=...)` in `dataset.py`. `MarketDataset.global_features` already reaches the `SharedPortfolioGymEnv` observation (`global_features` plus the `global_feature_available` mask) and the portfolio transform fits its own scale on the training window, so no shared feature code changes. The hook returns a new dataset whose original global columns are byte-identical, with `xa_<name>` columns appended (an unavailable entry is 0.0 with `global_feature_available=False` and missing reason 2), and whose identity binds the overlay (feature set, definitions digest, input digest, names, normaliser digest). Callers that do not use it get exactly the previous datasets, pinned by a golden dataset id test and by a test that default import paths never load the package.
 
 ## Repository integration boundary
 

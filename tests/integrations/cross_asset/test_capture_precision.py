@@ -70,6 +70,7 @@ def test_old_second_only_capture_is_conservatively_unknown_during_that_second() 
     }
     # Legacy writers truncated actual subsecond capture time. The exact instant
     # is unknowable; never claim this row was fetched at the start of the second.
+    assert latest_records([legacy], as_of=SECOND) == {}
     assert (
         latest_records([legacy], as_of=SECOND + timedelta(microseconds=900_000)) == {}
     )
@@ -92,6 +93,10 @@ def test_capture_time_is_part_of_the_feature_input_provenance() -> None:
         "captured_at": "2025-07-10T12:00:00.750000Z",
     }
     assert manifest_digest({"DGS10": record}) != manifest_digest({"DGS10": later})
+    # A same-byte recheck does not change the vintage's input provenance:
+    # its fetched_at changes, while the original captured_at remains fixed.
+    recheck = {**record, "status": "unchanged", "fetched_at": later["fetched_at"]}
+    assert manifest_digest({"DGS10": record}) == manifest_digest({"DGS10": recheck})
 
 
 def test_new_exact_second_capture_is_known_at_that_second(tmp_path: Path) -> None:
@@ -122,9 +127,29 @@ def test_future_unchanged_recheck_cannot_be_selected_before_its_fetch_time() -> 
     }
 
 
-def test_parse_utc_refuses_an_embedded_offset_in_a_zulu_timestamp() -> None:
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "2025-07-10T12:00:00+09:00Z",
+        "2025-07-10T12:00:00+09:00",
+        "2025-07-10T12:00:00",
+    ],
+)
+def test_parse_utc_refuses_noncanonical_zulu_or_naive_timestamps(invalid: str) -> None:
     with pytest.raises(ValueError, match="UTC timestamp"):
-        parse_utc("2025-07-10T12:00:00+09:00Z")
+        parse_utc(invalid)
+
+
+def test_asof_cutoff_requires_timezone_aware_datetime() -> None:
+    record = {
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00.000000Z",
+        "captured_at": "2025-07-10T12:00:00.000000Z",
+        "sha256": "a" * 64,
+    }
+    with pytest.raises(ValueError, match="as_of must be timezone-aware"):
+        latest_records([record], as_of=datetime(2025, 7, 10, 12, 0))
 
 
 def test_legacy_recheck_uses_first_capture_when_same_raw_file_has_multiple_ok_rows(

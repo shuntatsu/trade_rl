@@ -56,10 +56,13 @@ SPOT_HALTS: Final = (
     ),
 )
 
-#: Median hourly quote turnover over the lookback, each leg (about 6 million USDT a
-#: day). The full-size equal-weight leg is about 280 USDT, i.e. 28,000 USDT of hourly
-#: volume at the 1% participation cap; this is a roughly nine-fold margin.
-MIN_MEDIAN_HOURLY_QUOTE_VOLUME: Final = 250_000.0
+#: Median hourly quote turnover over the lookback, each leg (about 24 million USDT a
+#: day). The largest equal-weight leg is about 420 USDT (six admitted pairs), which the
+#: most severe stress (0.1% participation) can fill in one bar only from 420,000 USDT
+#: of hourly volume; a part-filled leg on one side only would trip the matched-hedge
+#: stop for a liquidity reason, not a carry reason. The threshold keeps a margin of
+#: about 2.4x at the median hour.
+MIN_MEDIAN_HOURLY_QUOTE_VOLUME: Final = 1_000_000.0
 LOOKBACK_HOURS: Final = 92 * 24
 MIN_ADMITTED: Final = 6
 

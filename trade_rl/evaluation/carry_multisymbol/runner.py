@@ -139,14 +139,15 @@ def _load_symbol(data: ScreenData, symbol: str) -> _Loaded:
         return excluded("liquidity_below_threshold", "median hourly quote volume")
     try:
         pair = data.pair(symbol)
-        probe = (
-            assemble_carry_dataset
-            if symbol in protocol.REFERENCE
-            else _multisymbol_assembler
-        )
-        probe({symbol: pair})
     except CarryCoverageError as error:
         return excluded("window_coverage", str(error))
+    probe = (
+        assemble_carry_dataset
+        if symbol in protocol.REFERENCE
+        else _multisymbol_assembler
+    )
+    try:
+        probe({symbol: pair})
     except ValueError as error:
         return excluded("funding_or_clock_coverage", str(error))
     facts.update(

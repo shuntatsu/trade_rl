@@ -24,7 +24,7 @@ the planner, the archive parser and the window validator all refuse them.
 
 The constants live in `trade_rl/evaluation/carry_multisymbol/protocol.py`; the
 canonical digest is
-`88491eb6be9892e34456ecf579a8740ba81fb79203e1e95390c85ae34b4034a5`
+`7526710f22d15031edf1943ed1749d61515c8917986c827a51d7bc7d97cb2150`
 (`python -m tools.carry_multisymbol_screen plan`). A changed constant is a new
 protocol version and a new attempt; nothing is edited after a cell exists.
 
@@ -36,9 +36,11 @@ timestamps and quote volume alone, never from a price change or a return:
 - *listing age and minimum history*: both legs have a complete hourly series over
   the 92-day lookback 2021-10-01 to 2021-12-31;
 - *liquidity proxy*: the median hourly quote turnover of each leg over that lookback
-  is at least 250,000 USDT (about 6 million USDT a day). One full equal-weight leg is
-  about 280 USDT, i.e. 28,000 USDT of hourly volume at the 1% participation cap, so
-  the threshold is a roughly nine-fold margin;
+  is at least 1,000,000 USDT (about 24 million USDT a day). The largest equal-weight
+  leg is about 420 USDT (six admitted pairs); the 0.1% participation stress fills it
+  in one bar only from 420,000 USDT of hourly volume, and a leg part-filled on one
+  side only would trip the matched-hedge stop for a liquidity reason, not a carry
+  reason, so the threshold keeps a margin of about 2.4x at the median hour;
 - *window coverage*: both legs are complete over the window except the single
   externally evidenced spot halt (2023-03-24 11:27 to 14:00 UTC, the Binance
   incident already used by the BTC/ETH screens), and funding coverage passes the
@@ -117,7 +119,8 @@ The author packet
 states the counter-hypothesis (a 2023-2024 regime effect that fees and basis risk
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
-premium that the delta-neutral pair collects) and the independent oracle. Its status
+premium that the delta-neutral pair collects) and the independent oracle. Its digest is
+`f72e61b911b523b36f31f8a7838450065ef2be2bfc5e26f5f8d9451dc26e6296` and its status
 is **UNREVIEWED** and `economic_execution_authorized=false`: no independent review has
 been posted. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the

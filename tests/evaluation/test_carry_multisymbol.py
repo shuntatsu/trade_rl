@@ -324,7 +324,7 @@ class FakeSource:
         self.calls += 1
         if (market, symbol) in self.refuse:
             raise CarryCoverageError(f"{market.value} {symbol} is not published")
-        quote = 10_000.0 if symbol in self.low_volume else 1_000_000.0
+        quote = 10_000.0 if symbol in self.low_volume else 5_000_000.0
         skipped = self.holes.get((market, symbol), set())
         base = 50.0 + sum(map(ord, symbol)) % 100
         rows = []
@@ -485,6 +485,29 @@ def test_inclusion_rule_uses_only_coverage_and_volume(tiny, tmp_path) -> None:
     inclusion = json.loads((tmp_path / "screen" / "inclusion.json").read_text("utf-8"))
     assert inclusion["symbols"]["BNBUSDT"]["reason_code"] == "liquidity_below_threshold"
     assert inclusion["symbols"]["SOLUSDT"]["admitted"] is True
+
+
+def test_a_malformed_archive_aborts_the_run_instead_of_excluding_a_symbol(
+    tiny, tmp_path
+) -> None:
+    from trade_rl.integrations.market_store.parse import ArchiveContentError
+
+    class Malformed(CarryScreenData):
+        def pair(self, symbol):
+            if symbol == "BNBUSDT":
+                raise ArchiveContentError("OHLC bounds violated")
+            return super().pair(symbol)
+
+    data = Malformed(
+        FakeSource(),
+        lookback_start=protocol.LOOKBACK_START,
+        window_start=protocol.WINDOW_START,
+        window_end=protocol.WINDOW_END,
+        halt_intervals=protocol.SPOT_HALTS,
+    )
+    with pytest.raises(ArchiveContentError):
+        runner.run_screen(request(tmp_path), data)
+    assert not (tmp_path / "screen" / "decision.json").exists()
 
 
 def test_missing_lookback_history_excludes_a_young_listing(tiny, tmp_path) -> None:

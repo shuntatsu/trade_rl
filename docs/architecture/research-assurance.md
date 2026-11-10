@@ -1741,6 +1741,26 @@ exact seal and launch procedure and what is still missing.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
+## Research-specific contract: multi-symbol funding carry (Track B)
+
+The author packet is `report/issue810-carry-multisymbol-research-assurance-20261110.json` (digest `f72e61b911b523b36f31f8a7838450065ef2be2bfc5e26f5f8d9451dc26e6296`, status **UNREVIEWED**, `economic_execution_authorized=false`); the protocol is `specs/funding-carry-multisymbol.md` (`carry-multisymbol-dev-v1`). Its `protocol_head` and `implementation_head` are the last commit that changes `trade_rl/` or `tools/` in the change that adds it. It is a result-blind pre-registration: no funding, price or return of any candidate symbol was read, and no real-data run is part of it.
+
+### G0 — question, counter-hypothesis, falsifier
+
+Question: does the unchanged BTC/ETH spot-long / USD-M-perpetual-short carry earn a positive net return after the same costs on nine more USDT pairs and in the 2022 negative-funding regime? Counter-hypothesis: the BTC/ETH result was a 2023-2024 regime effect and fees, spread and basis risk consume the premium on altcoins. Cheapest falsifier: the coverage-only stage (listing age, history, liquidity, gaps) and then the 2x-cost stress with the every-sub-period rule on 2022, on data already in hand. Stop rule: no cell, symbol, window, cost, gross or rule changes after a cell exists; a failed family ends the line; a pass licenses only a separately pre-registered forward paper protocol.
+
+### G1 — mechanism and fixed semantics
+
+Leveraged long demand pushes the perpetual above spot, the funding rate transfers cash from longs to shorts, and a delta-neutral pair collects it net of the fees to build and unwind the hedge. Capital model: one shared canonical ledger per arm, gross 0.5 split equally across admitted pairs; independent symbol arms hold the same per-pair size. Decision clock and execution clock are the unchanged carry bot and executor. Terminal semantics: a real exit on the final bar and a flat book, or the cell fails. Train/evaluation parity does not apply (no learning).
+
+### G2 — independent oracles
+
+Time/source: only completed hourly bars; spot gaps are explained solely by the one declared halt, perpetual gaps never; archives are verified against the official checksum, and a failed checksum is not a coverage exclusion; later data is refused by the planner, parser, window validator and command line. Accounting: a hand-computed exact-rational three-pair ledger (quantities, per-leg fee plus adverse cost, signed funding, final equity) that does not call production sizing, cost or funding code. Evidence: a decision rule recomputed from hand-written cell summaries with the Markov bound `n * 2^-5 / K <= 1/20` for any dependence between symbols (its sub-period independence assumption is a stated limitation). Known limitations: synthetic inputs only; close-price marks; assumed fees and participation; one evidenced spot halt.
+
+### G3 — claim boundary
+
+Exploratory development evidence on known-used Tier D data: never an edge claim, unused-data validation, production eligibility or live permission, whatever the outcome. A run additionally needs an independent result-blind review of this packet's exact digest and heads and a separate owner G4 authorization comment (the exact text is in the spec); neither exists, and `python -m tools.agent_repo assurance check` returns a non-zero status until an external authenticated review is supplied.
+
 ## Research-specific contract: PPO versus A2C update families
 
 The proposed PPO/A2C development comparison changes the RL update family while

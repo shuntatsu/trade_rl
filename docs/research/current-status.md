@@ -285,6 +285,14 @@ State: key-less FRED (18 series) and Yahoo chart (5 series: four equity indices 
 
 Revision handling: each series carries measured `revision_risk` (ALFRED vintage 2023-11-15 versus current values: `DTWEXBGS`, `NASDAQCOM`, EIA oil and ICE BofA spreads are `possible`; `SP500` and Yahoo/Stooq are `unknown`). Only `low` sources generate columns by default; the other sources require explicit `opt_in_series`, so default composite availability is limited. Critically, `low` is *not* proof of first-release history (VIX had measured historical amendments). Therefore **even default low-risk columns require `accept_revision_hindsight=True` before being appended to a MarketDataset**, and `cross_asset_global_overlay_v3` records the newest-vintage source roster and `strict_point_in_time_verified=false`. This is retrospective exploratory consent, not strict PIT research eligibility. Continuous front-month futures (gold, silver, copper, oil) remain removed due to roll discontinuities; no key-less spot metal series is available. No old Dataset identity/artifact is rewritten.
 
+Capture-time correctness (software-only): Cross-asset fetches now retain exact UTC
+microseconds in new manifest/raw-file stamps. Historical second-only manifest stamps
+had discarded precision, so as-of eligibility begins conservatively at the next
+second; a revision captured later within the same second cannot be selected for an
+earlier cutoff. `cross_asset_input_provenance_v2` binds capture timestamps to the
+feature input digest. This does not reconstruct missing precision of old records,
+first-release macro vintages, or economic point-in-time eligibility.
+
 Open and not claimed: (a) the lags are conservative policy values, not measured publication times; (b) history is the latest vintage at fetch time and `low` rests on one vintage comparison; (c) the Yahoo endpoint is undocumented and its terms were not reviewed, and FRED third-party series are personal-use only; (d) FRED `SP500` covers about ten years and the ICE spreads three; (e) no FS1, warm-up or unused crypto data was read. Whether any feature predicts crypto after costs is untested and belongs to the SD gate under its own G0-G2 packet and independent review. Software CI Green does not authorize that experiment.
 
 ## Issue #810 synthetic residual-PPO over the cost-aware allocator (protocol frozen before the run; synthetic only; 2026-10-30)

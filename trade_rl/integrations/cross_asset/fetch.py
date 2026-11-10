@@ -23,7 +23,7 @@ from trade_rl.integrations.cross_asset.store import (
     MANIFEST_SCHEMA,
     USABLE_STATUSES,
     CrossAssetStore,
-    format_utc,
+    format_capture_utc,
     latest_records,
 )
 
@@ -91,7 +91,7 @@ def _base_record(spec: SeriesSpec, fetched_at: datetime) -> dict[str, object]:
         "source": spec.source,
         "symbol": spec.symbol,
         "url": spec.url(),
-        "fetched_at": format_utc(fetched_at),
+        "fetched_at": format_capture_utc(fetched_at),
     }
 
 
@@ -204,7 +204,7 @@ def _fetch_one(
         status="ok",
         path=path,
         revision=revision,
-        captured_at=format_utc(fetched_at),
+        captured_at=format_capture_utc(fetched_at),
     )
     return record
 

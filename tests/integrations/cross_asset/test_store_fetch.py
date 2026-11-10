@@ -77,7 +77,7 @@ def test_fetch_writes_raw_bytes_with_digest_url_and_fetch_time(tmp_path: Path) -
     assert record["sha256"] == hashlib.sha256(payload).hexdigest()
     assert record["bytes"] == len(payload)
     assert record["url"].startswith("https://fred.stlouisfed.org/graph/fredgraph.csv")
-    assert record["fetched_at"] == "2026-11-10T05:00:00Z"
+    assert record["fetched_at"] == "2026-11-10T05:00:00.000000Z"
     assert record["rows_total"] == 2 and record["first_obs"] == "2026-11-04"
     assert (tmp_path / record["path"]).read_bytes() == payload
     assert store.read_manifest() == [record]
@@ -207,9 +207,11 @@ def test_latest_records_honours_the_as_of_vintage_cutoff(tmp_path: Path) -> None
             sleep=lambda _s: None,
         )
     records = store.read_manifest()
-    assert latest_records(records)["DGS10"]["fetched_at"] == "2026-11-11T05:00:00Z"
+    assert (
+        latest_records(records)["DGS10"]["fetched_at"] == "2026-11-11T05:00:00.000000Z"
+    )
     early = latest_records(records, as_of=T0 + timedelta(hours=1))
-    assert early["DGS10"]["fetched_at"] == "2026-11-10T05:00:00Z"
+    assert early["DGS10"]["fetched_at"] == "2026-11-10T05:00:00.000000Z"
     assert latest_records(records, as_of=T0 - timedelta(days=1)) == {}
     assert manifest_digest(early) != manifest_digest(latest_records(records))
 
@@ -253,12 +255,14 @@ def test_unchanged_recheck_keeps_the_original_capture_time(tmp_path: Path) -> No
         store, _specs("DGS10"), transport, now=_clock(later), sleep=lambda _s: None
     )[0]
     assert second["status"] == "unchanged"
-    assert second["fetched_at"] == "2026-11-12T05:00:00Z"  # the re-check itself
-    assert second["captured_at"] == first["captured_at"] == "2026-11-10T05:00:00Z"
+    assert second["fetched_at"] == "2026-11-12T05:00:00.000000Z"  # the re-check itself
+    assert (
+        second["captured_at"] == first["captured_at"] == "2026-11-10T05:00:00.000000Z"
+    )
     records = store.read_manifest()
     # The vintage was captured at T0: a cutoff between capture and re-check
     # still selects it, a cutoff before the capture does not.
     between = latest_records(records, as_of=T0 + timedelta(hours=1))
-    assert between["DGS10"]["captured_at"] == "2026-11-10T05:00:00Z"
+    assert between["DGS10"]["captured_at"] == "2026-11-10T05:00:00.000000Z"
     assert latest_records(records, as_of=T0 - timedelta(seconds=1)) == {}
     assert manifest_digest(between) == manifest_digest(latest_records(records))

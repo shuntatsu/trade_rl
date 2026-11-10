@@ -39,6 +39,7 @@ from trade_rl.integrations.cross_asset.pit import knowable_at_utc
 from trade_rl.integrations.cross_asset.store import (
     CrossAssetStore,
     captured_at,
+    format_capture_utc,
     format_utc,
     latest_records,
     parse_utc,
@@ -269,8 +270,8 @@ def _build(args: argparse.Namespace, out: TextIO) -> int:
         "timeframe": args.timeframe,
         "start": format_utc(args.start),
         "end": format_utc(args.end),
-        "as_of": None if args.as_of is None else format_utc(args.as_of),
-        "built_at": format_utc(datetime.now(UTC)),
+        "as_of": None if args.as_of is None else format_capture_utc(args.as_of),
+        "built_at": format_capture_utc(datetime.now(UTC)),
     }
     atomic_write_bytes(
         target.with_suffix(".json"),

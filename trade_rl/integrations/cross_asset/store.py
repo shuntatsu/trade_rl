@@ -17,7 +17,7 @@ import json
 import os
 import re
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
@@ -26,6 +26,7 @@ from trade_rl.artifacts.hashing import content_digest
 MANIFEST_SCHEMA = "cross_asset_manifest_v1"
 USABLE_STATUSES = frozenset({"ok", "unchanged"})
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
+_UTC_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 
 
 def format_utc(value: datetime) -> str:
@@ -34,9 +35,23 @@ def format_utc(value: datetime) -> str:
     return value.astimezone(UTC).replace(microsecond=0, tzinfo=None).isoformat() + "Z"
 
 
+def format_capture_utc(value: datetime) -> str:
+    """Persist exact microseconds for new captures, including .000000 at S.
+
+    Legacy second-only timestamps may have been truncated by older software.
+    """
+
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamps must be timezone-aware")
+    return (
+        value.astimezone(UTC).replace(tzinfo=None).isoformat(timespec="microseconds")
+        + "Z"
+    )
+
+
 def parse_utc(text: str) -> datetime:
-    if not text.endswith("Z"):
-        raise ValueError(f"not a UTC timestamp: {text!r}")
+    if not _UTC_STAMP.fullmatch(text):
+        raise ValueError(f"not a canonical UTC timestamp: {text!r}")
     return datetime.fromisoformat(text[:-1]).replace(tzinfo=UTC)
 
 
@@ -69,7 +84,7 @@ class CrossAssetStore:
         _component(key, "key")
         _component(extension, "extension")
         digest = hashlib.sha256(payload).hexdigest()
-        stamp = format_utc(fetched_at).replace("-", "").replace(":", "")
+        stamp = format_capture_utc(fetched_at).replace("-", "").replace(":", "")
         relative = f"raw/{source}/{key}/{stamp}_{digest[:8]}.{extension}"
         target = self.root / relative
         if target.exists():
@@ -174,32 +189,57 @@ def captured_at(record: Mapping[str, object]) -> str:
     return str(record["captured_at"])
 
 
+def _stamp_eligible_at(stamp: str) -> datetime:
+    """Legacy seconds are upper bounds, new six-digit fractions are exact."""
+
+    instant = parse_utc(stamp)
+    return instant if "." in stamp else instant + timedelta(seconds=1)
+
+
+def _capture_eligible_at(record: Mapping[str, object]) -> datetime:
+    """Conservative visibility of this vintage's raw bytes."""
+
+    return _stamp_eligible_at(captured_at(record))
+
+
 def latest_records(
     records: list[dict[str, object]], *, as_of: datetime | None = None
 ) -> dict[str, dict[str, object]]:
-    """Return the latest usable vintage per series captured at or before ``as_of``."""
+    """Return latest usable captured vintages under a precise UTC as-of cutoff."""
 
-    cutoff = format_utc(as_of) if as_of is not None else None
+    if as_of is not None and (as_of.tzinfo is None or as_of.utcoffset() is None):
+        raise ValueError("as_of must be timezone-aware")
+    cutoff = as_of.astimezone(UTC) if as_of is not None else None
     latest: dict[str, dict[str, object]] = {}
+    latest_clock: dict[str, tuple[datetime, datetime]] = {}
     for record in records:
         if record.get("status") not in USABLE_STATUSES:
             continue
-        stamp = captured_at(record)
-        if cutoff is not None and stamp > cutoff:
+        eligible = _capture_eligible_at(record)
+        if cutoff is not None and eligible > cutoff:
+            continue
+        fetched = _stamp_eligible_at(str(record["fetched_at"]))
+        # A future unchanged re-check proves nothing about status at this cutoff.
+        if cutoff is not None and fetched > cutoff:
             continue
         key = str(record["key"])
-        current = latest.get(key)
-        if current is None or (stamp, str(record["fetched_at"])) >= (
-            captured_at(current),
-            str(current["fetched_at"]),
-        ):
+        order = (eligible, fetched)
+        if key not in latest_clock or order >= latest_clock[key]:
             latest[key] = record
+            latest_clock[key] = order
     return latest
 
 
 def manifest_digest(latest: Mapping[str, Mapping[str, object]]) -> str:
-    """Digest of exactly which raw bytes feed a build (key and sha256 only)."""
+    """Digest the source bytes and the capture-time authority of every input."""
 
     return content_digest(
-        sorted([key, record["sha256"]] for key, record in latest.items())
+        {
+            "schema": "cross_asset_input_provenance_v2",
+            "capture_policy": "microsecond_exact_or_legacy_next_second",
+            "records": sorted(
+                [key, record["sha256"], captured_at(record)]
+                for key, record in latest.items()
+            ),
+        }
     )

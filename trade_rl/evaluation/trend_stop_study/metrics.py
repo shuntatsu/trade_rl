@@ -101,22 +101,26 @@ def closed_trades_from_ledger(
     intervals: Sequence[SharedCashLedgerIntervalEvidence],
     multipliers: np.ndarray,
     symbols: Sequence[str],
+    extra_costs: Mapping[tuple[int, int], float] | None = None,
 ) -> tuple[ClosedTradeDiagnostics, dict[str, ClosedTradeDiagnostics]]:
     """Reconstruct closed position cycles per symbol from the raw order events.
 
     The interval execution cost is split across that interval's fills by notional.
-    Funding is not attributed to cycles (it stays portfolio-level).
+    ``extra_costs`` maps ``(interval position, event position)`` to an additional cost
+    (the stop haircut) charged on that exit fill, so it lowers that cycle's realized
+    PnL. Funding is not attributed to cycles (it stays portfolio-level).
     """
 
     trackers = {index: ClosedTradeTracker(multipliers) for index in range(len(symbols))}
-    for interval in intervals:
+    extra = extra_costs or {}
+    for position, interval in enumerate(intervals):
         fills = [
-            event
-            for event in interval.order_events
+            (index, event)
+            for index, event in enumerate(interval.order_events)
             if abs(float(event.filled_quantity)) > _TOLERANCE
         ]
-        total_notional = sum(abs(float(event.filled_notional)) for event in fills)
-        for event in fills:
+        total_notional = sum(abs(float(event.filled_notional)) for _, event in fills)
+        for index, event in fills:
             if event.execution_price is None:
                 raise ValueError("filled order event is missing its execution price")
             cost = (
@@ -125,7 +129,7 @@ def closed_trades_from_ledger(
                 else interval.interval_cost
                 * abs(float(event.filled_notional))
                 / total_notional
-            )
+            ) + extra.get((position, index), 0.0)
             trackers[int(event.symbol_index)].record_fill(
                 symbol=int(event.symbol_index),
                 quantity=float(event.filled_quantity),
@@ -154,8 +158,12 @@ def stop_exit_audit(
     intervals: Sequence[SharedCashLedgerIntervalEvidence],
     stop_events: Sequence[StopExitEvent],
     multipliers: np.ndarray,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[tuple[int, int], float]]:
     """Compare every stop exit's fills with its stop level.
+
+    Returns the aggregate audit and the haircut of each closing fill keyed by
+    ``(interval position, event position)``; the second value is what the runner
+    charges against the PnL stream.
 
     ``haircut_usdt`` is the price improvement over the stop level (a resting stop would
     have filled at the level or worse), summed over the closing quantity. Gaps through
@@ -169,12 +177,13 @@ def stop_exit_audit(
     positions: dict[int, float] = defaultdict(float)
     active: dict[int, _ActiveStop] = {}
     resolved: list[tuple[StopExitEvent, float, float, float]] = []
-    for interval in intervals:
+    by_fill: dict[tuple[int, int], float] = {}
+    for position_index, interval in enumerate(intervals):
         for symbol, events in by_symbol.items():
             while events and events[0].decision_index <= interval.start_index:
                 event = events.pop(0)
                 active[symbol] = _ActiveStop(event)
-        for fill in interval.order_events:
+        for fill_index, fill in enumerate(interval.order_events):
             quantity = float(fill.filled_quantity)
             if abs(quantity) <= _TOLERANCE:
                 continue
@@ -190,11 +199,15 @@ def stop_exit_audit(
                 price = float(fill.execution_price or 0.0)
                 stop.closed_quantity += closing
                 stop.closed_notional += closing * price
-                stop.improvement += (
+                improvement = (
                     max(0.0, stop.event.side * (price - stop.event.stop_level))
                     * closing
                     * float(multipliers[symbol])
                 )
+                stop.improvement += improvement
+                if improvement > 0.0:
+                    key = (position_index, fill_index)
+                    by_fill[key] = by_fill.get(key, 0.0) + improvement
             positions[symbol] = position + quantity
             if stop is not None and (
                 abs(positions[symbol]) <= _TOLERANCE
@@ -210,7 +223,7 @@ def stop_exit_audit(
         100.0 * event.side * (event.stop_level - average) / event.stop_level
         for event, average, _, _ in resolved
     ]
-    return {
+    audit = {
         "n_stop_exits": len(stop_events),
         "n_resolved": len(resolved),
         "n_unresolved": len(stop_events) - len(resolved),
@@ -222,8 +235,38 @@ def stop_exit_audit(
         "n_trailing_stops": sum(1 for event in stop_events if event.trailing),
         "mean_adverse_gap_pct": float(np.mean(gaps)) if gaps else None,
         "median_adverse_gap_pct": float(np.median(gaps)) if gaps else None,
-        "haircut_usdt": float(sum(item[3] for item in resolved)),
+        "haircut_usdt": float(sum(by_fill.values())),
     }
+    return audit, by_fill
+
+
+def haircut_adjusted_equity(
+    equity: np.ndarray,
+    n_intervals: int,
+    haircuts_by_fill: Mapping[tuple[int, int], float],
+) -> np.ndarray:
+    """Charge each exit's haircut as a cost on the interval that realizes it.
+
+    ``equity[0]`` is the initial value and ``equity[k]`` the value after interval
+    ``k - 1``. The haircut of an interval is taken as a fraction of the engine equity
+    at the start of that interval and applied to the adjusted path multiplicatively, so
+    it compounds through every later interval (positions are sized in proportion to
+    equity). It is a first-order adjustment, not a re-simulation with smaller positions.
+    """
+
+    path = np.asarray(equity, dtype=np.float64).reshape(-1)
+    if path.size != n_intervals + 1:
+        raise ValueError("equity path must hold one value per interval plus the start")
+    per_interval = np.zeros(n_intervals, dtype=np.float64)
+    for (position, _), amount in haircuts_by_fill.items():
+        per_interval[position] += amount
+    adjusted = np.empty_like(path)
+    adjusted[0] = path[0]
+    for step in range(n_intervals):
+        engine_return = path[step + 1] / path[step] - 1.0
+        cost_fraction = per_interval[step] / path[step]
+        adjusted[step + 1] = adjusted[step] * (1.0 + engine_return - cost_fraction)
+    return adjusted
 
 
 # -- gate -----------------------------------------------------------------------------
@@ -246,7 +289,11 @@ def evaluate_configuration(
 ) -> dict[str, Any]:
     """Apply the preregistered pass / fail rule to one (variant, timeframe) pair.
 
-    Every criterion is reported with its observed value so a failure is attributable.
+    Every cell's ``performance``, ``closed_trades`` and the bootstrap input are the
+    stop-haircut-adjusted quantities (the engine values are kept beside them as
+    ``engine_*``), so no criterion can pass on stop-fill optimism. Every criterion is
+    reported with its observed value so a failure is attributable; a missing value
+    fails closed.
     """
 
     per_year = _get(base, "performance", "per_year_return_pct")
@@ -256,15 +303,16 @@ def evaluate_configuration(
     calmar = _get(base, "performance", "calmar")
     benchmark_calmar = _get(benchmark, "performance", "calmar")
     profit_factor = _get(base, "closed_trades", "profit_factor")
+    worst_drawdown = max(
+        _get(base, "performance", "max_drawdown_pct"),
+        _get(cost_x2, "performance", "max_drawdown_pct"),
+    )
+    net_base = _get(base, "performance", "terminal_net_return_pct")
+    net_x2 = _get(cost_x2, "performance", "terminal_net_return_pct")
+    closed = _get(base, "closed_trades", "closed_trades")
     criteria: dict[str, dict[str, Any]] = {
-        "haircut_net_return_positive_base": {
-            "value": _get(base, "haircut", "haircut_net_return_pct"),
-            "passed": _get(base, "haircut", "haircut_net_return_pct") > 0.0,
-        },
-        "haircut_net_return_positive_cost_x2": {
-            "value": _get(cost_x2, "haircut", "haircut_net_return_pct"),
-            "passed": _get(cost_x2, "haircut", "haircut_net_return_pct") > 0.0,
-        },
+        "net_return_positive_base": {"value": net_base, "passed": net_base > 0.0},
+        "net_return_positive_cost_x2": {"value": net_x2, "passed": net_x2 > 0.0},
         "positive_sub_years_base": {
             "value": positive_years,
             "required": protocol.min_positive_sub_years,
@@ -277,28 +325,22 @@ def evaluate_configuration(
             and profit_factor >= protocol.min_profit_factor,
         },
         "max_drawdown_within_limit_all_scenarios": {
-            "value": max(
-                _get(base, "performance", "max_drawdown_pct"),
-                _get(cost_x2, "performance", "max_drawdown_pct"),
-            ),
+            "value": worst_drawdown,
             "required": 100.0 * protocol.max_drawdown_limit,
-            "passed": max(
-                _get(base, "performance", "max_drawdown_pct"),
-                _get(cost_x2, "performance", "max_drawdown_pct"),
-            )
-            <= 100.0 * protocol.max_drawdown_limit,
+            "passed": worst_drawdown <= 100.0 * protocol.max_drawdown_limit,
         },
         "closed_trades_base": {
-            "value": _get(base, "closed_trades", "closed_trades"),
+            "value": closed,
             "required": protocol.min_closed_trades,
-            "passed": _get(base, "closed_trades", "closed_trades")
-            >= protocol.min_closed_trades,
+            "passed": closed >= protocol.min_closed_trades,
         },
+        # Fail closed: a missing strategy or benchmark Calmar never passes.
         "calmar_exceeds_btc_buy_and_hold": {
             "value": calmar,
             "benchmark": benchmark_calmar,
             "passed": calmar is not None
-            and (benchmark_calmar is None or calmar > benchmark_calmar),
+            and benchmark_calmar is not None
+            and calmar > benchmark_calmar,
         },
         "bonferroni_bootstrap_lower_bound_positive": {
             "value": bootstrap["bonferroni_ci_low"],
@@ -324,12 +366,6 @@ def select_label(configurations: Mapping[str, Mapping[str, Any]]) -> dict[str, A
     }
 
 
-def haircut_net_return_pct(
-    net_return_pct: float, haircut_usdt: float, initial_capital: float
-) -> float:
-    return net_return_pct - 100.0 * haircut_usdt / initial_capital
-
-
 __all__ = [
     "LABEL_NO_WINNER",
     "LABEL_PROMISING",
@@ -337,7 +373,7 @@ __all__ = [
     "closed_trades_from_ledger",
     "daily_return_series",
     "evaluate_configuration",
-    "haircut_net_return_pct",
+    "haircut_adjusted_equity",
     "performance_summary",
     "select_label",
     "stop_exit_audit",

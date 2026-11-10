@@ -33,13 +33,17 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
-from trade_rl.evaluation.trend_stop_study.data import validate_study_dataset
+from trade_rl.evaluation.trend_stop_study.data import (
+    RosterTooSmallError,
+    SymbolExclusion,
+    validate_study_dataset,
+)
 from trade_rl.evaluation.trend_stop_study.metrics import (
     bootstrap_lower_bound,
     closed_trades_from_ledger,
     daily_return_series,
     evaluate_configuration,
-    haircut_net_return_pct,
+    haircut_adjusted_equity,
     performance_summary,
     select_label,
     stop_exit_audit,
@@ -49,6 +53,8 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
     ARM_EQUAL_WEIGHT_BUY_AND_HOLD,
     ARM_RULE,
     CELL_SCHEMA,
+    LABEL_INVALID,
+    PRIOR_EXPOSURE,
     PROTOCOL,
     RESULT_SCHEMA,
     SCENARIO_BASE,
@@ -110,6 +116,7 @@ class CellOutcome:
 
     summary: dict[str, Any]
     equity: np.ndarray
+    engine_equity: np.ndarray
     timestamps_ns: np.ndarray
     daily: np.ndarray
 
@@ -190,21 +197,23 @@ def summarize_cell(
     ledger = result.ledger_evidence
     if ledger is None:
         raise ValueError("cell summaries need ledger evidence")
-    equity, stamps = equity_path(result, dataset)
-    performance = performance_summary(stamps, equity, protocol)
+    engine_equity, stamps = equity_path(result, dataset)
     multipliers = dataset.resolved_array("contract_multipliers")
     intervals = ledger.intervals.intervals
+    audit, haircut_by_fill = stop_exit_audit(intervals, stop_events, multipliers)
+    # Every gated quantity comes from the haircut-adjusted equity path and closed
+    # cycles; the engine (un-haircut) values are kept beside them as ``engine_*``.
+    equity = haircut_adjusted_equity(engine_equity, len(intervals), haircut_by_fill)
+    performance = performance_summary(stamps, equity, protocol)
+    engine_performance = performance_summary(stamps, engine_equity, protocol)
     closed, per_symbol = closed_trades_from_ledger(
+        intervals, multipliers, dataset.symbols, haircut_by_fill
+    )
+    engine_closed, _ = closed_trades_from_ledger(
         intervals, multipliers, dataset.symbols
     )
-    audit = stop_exit_audit(intervals, stop_events, multipliers)
     reconciliation = reconcile_ledger(result, dataset, _dev_protocol(protocol))
     diagnostics = result.diagnostics
-    haircut_pct = haircut_net_return_pct(
-        float(performance["terminal_net_return_pct"]),
-        float(audit["haircut_usdt"]),
-        protocol.initial_capital,
-    )
     summary: dict[str, Any] = {
         "schema_version": CELL_SCHEMA,
         "arm": arm,
@@ -216,14 +225,17 @@ def summarize_cell(
         "symbols": list(dataset.symbols),
         "protocol_digest": protocol_digest(protocol),
         "performance": performance,
-        "haircut": {
-            **audit,
-            "haircut_net_return_pct": haircut_pct,
-        },
+        "engine_performance": engine_performance,
+        "haircut": audit,
         "closed_trades": {
             **closed.digest_payload(),
             "win_rate": closed.win_rate,
             "profit_factor": closed.profit_factor,
+        },
+        "engine_closed_trades": {
+            **engine_closed.digest_payload(),
+            "win_rate": engine_closed.win_rate,
+            "profit_factor": engine_closed.profit_factor,
         },
         "per_symbol": {
             symbol: item.digest_payload() for symbol, item in per_symbol.items()
@@ -243,6 +255,7 @@ def summarize_cell(
     return CellOutcome(
         summary=summary,
         equity=equity,
+        engine_equity=engine_equity,
         timestamps_ns=stamps,
         daily=daily_return_series(stamps, equity),
     )
@@ -377,6 +390,32 @@ def causality_probe(
     }
 
 
+def _invalid_result(
+    protocol: TrendStopProtocol,
+    authorization: str,
+    exclusions: Sequence[SymbolExclusion],
+    reason: str,
+) -> dict[str, Any]:
+    """The INVALID outcome for a roster below ``min_symbols``; no cell is replayed."""
+
+    return {
+        "schema_version": RESULT_SCHEMA,
+        "status": LABEL_INVALID,
+        "label": LABEL_INVALID,
+        "reason": reason,
+        "protocol_digest": protocol_digest(protocol),
+        "g4_authorization_url": authorization,
+        "git_head": _git_head(),
+        "exclusions": [item.to_mapping() for item in exclusions],
+        "prior_exposure": list(PRIOR_EXPOSURE),
+        "passing_configurations": [],
+        "stop_rule_triggered": False,
+        "notes": [
+            "INVALID is not NO_WINNER: no replay was run and no rule is rejected"
+        ],
+    }
+
+
 def _cell_valid(summary: Mapping[str, Any]) -> bool:
     return bool(summary["reconciliation"]["passed"]) and not summary["terminated"]
 
@@ -386,6 +425,7 @@ def run_study(
     protocol: TrendStopProtocol = PROTOCOL,
     *,
     g4_authorization_url: str | None,
+    exclusions: Sequence[SymbolExclusion] = (),
     progress: Progress | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, np.ndarray]]:
     """Run every cell. Returns ``(result, cells, equity_arrays)``.
@@ -402,10 +442,16 @@ def run_study(
             "a Dataset is required for exactly the preregistered timeframes"
         )
     used_symbols: dict[str, tuple[str, ...]] = {}
+    too_small: str | None = None
     for timeframe in protocol.timeframes:
-        used_symbols[timeframe] = validate_study_dataset(
-            datasets[timeframe], protocol, timeframe
-        )
+        try:
+            used_symbols[timeframe] = validate_study_dataset(
+                datasets[timeframe], protocol, timeframe, exclusions
+            )
+        except RosterTooSmallError as error:
+            too_small = too_small or str(error)
+    if too_small is not None:
+        return _invalid_result(protocol, authorization, exclusions, too_small), {}, {}
 
     cells: dict[str, dict[str, Any]] = {}
     outcomes: dict[tuple[str, str, str, str], CellOutcome] = {}
@@ -472,6 +518,8 @@ def run_study(
         "protocol": protocol.canonical_payload(),
         "g4_authorization_url": authorization,
         "git_head": _git_head(),
+        "exclusions": [item.to_mapping() for item in exclusions],
+        "prior_exposure": list(PRIOR_EXPOSURE),
         "datasets": {
             timeframe: {
                 "dataset_id": datasets[timeframe].dataset_id,
@@ -484,8 +532,11 @@ def run_study(
         "configurations": configurations,
         **selection,
         "notes": [
-            "known-used exploratory window: never a winner, never unused-data, paper "
-            "or live evidence",
+            "known-used exploratory window with disclosed prior exposure of the "
+            "universe and window (prior_exposure): never a winner, never unused-data, "
+            "paper or live evidence",
+            "every gated metric is computed from the stop-haircut-adjusted equity and "
+            "closed cycles; engine_* fields are the un-haircut reference",
             "stop_rule_triggered means: no re-tuning of stops, N, universe or "
             "timeframes on this window; RL step 2 is not started",
         ],
@@ -494,6 +545,7 @@ def run_study(
     for (timeframe, arm, variant_name, scenario), outcome in outcomes.items():
         name = f"{timeframe}__{variant_name or arm}__{scenario}"
         equity[f"{name}__equity"] = outcome.equity
+        equity[f"{name}__engine_equity"] = outcome.engine_equity
         equity[f"{name}__timestamp_ns"] = outcome.timestamps_ns
     return result, cells, equity
 

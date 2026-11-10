@@ -1,9 +1,13 @@
 """Frozen pre-registration for the trend-following-with-stops development study.
 
-This module is committed BEFORE any real-data run and before any return, price path or
-PnL of the candidate rule was read. Every parameter below was fixed on 2026-11-10
-from convention (Turtle-style 20/10 and 55/20 Donchian channels, ATR(14), 2x initial
-and 3x trailing ATR stops, 0.5% risk per trade) and not from data; the runner reads
+This module is committed BEFORE any real-data run of this rule: no return, price path
+or PnL of the candidate rule was computed. The universe and window are NOT unexposed:
+see :data:`PRIOR_EXPOSURE`. Every parameter below was fixed on 2026-11-10 from
+convention (Turtle-style 20/10 and 55/20 Donchian channels, ATR(14), 2x initial and 3x
+trailing ATR stops, 0.5% risk per trade); the thresholds (profit factor 1.2, 4 of 6
+sub-years, 100 cycles, 20% drawdown, Calmar versus BTC) are round-number conventions,
+and the implementer did not read the Phase 2 TSMOM figures when fixing any value (see
+the specification's attestation). The runner reads
 them from :data:`PROTOCOL` and never from the command line, and the result records
 :func:`protocol_digest` so a result can be matched to this file.
 
@@ -43,6 +47,20 @@ ARM_EQUAL_WEIGHT_BUY_AND_HOLD: Final = "equal_weight_buy_and_hold"
 
 LABEL_PROMISING: Final = "DEVELOPMENT_PROMISING"
 LABEL_NO_WINNER: Final = "NO_WINNER"
+LABEL_INVALID: Final = "INVALID"
+
+# Prior reads of this universe / window by other repository work (disclosed, not hidden).
+PRIOR_EXPOSURE: Final = (
+    "legacy signal metadata tests/fixtures/legacy/realdata_20260713_signal_metadata.json: "
+    "a GBM cross-sectional signal gate on 15 symbols (10 of the 11 here, all but DOT), "
+    "fit cutoff 2025-12-06; an information-coefficient gate, not a PnL of this rule",
+    "Phase 2 trial T1 (time-series momentum, 30d/90d blend, no stops, daily decisions) "
+    "on BTC, ETH, BNB, XRP, ADA over 2023-01-01..2026-08-01 reported a positive return; "
+    "directly related rule family on 5 of the 11 symbols and the 2023-2026 part of the "
+    "window",
+    "the M34 development Dataset (BTC, ETH, BNB, XRP, ADA, 2021-01..2026-08, 4h/1d "
+    "features) and the Phase 2/3 and directional studies that used it",
+)
 
 # Hard data boundary: the exploratory window ends with the last bar CLOSING at or before
 # this instant (exclusive of the FS1 warm-up span that starts here).
@@ -55,8 +73,8 @@ G4_AUTHORIZATION_URL_PATTERN: Final = re.compile(
 )
 
 DEVIATIONS: Final = (
-    "universe: eleven survivors of 2026-11 chosen by name and listing date before any "
-    "return was read; survivorship bias is a declared limitation",
+    "universe: eleven survivors of 2026-11 chosen by name and listing date, not from any "
+    "return of this rule; survivorship bias and prior exposure are declared limitations",
     "stop model: bar-extreme touch evaluated on the completed bar, exit at the next "
     "open (no intrabar fill at the stop price); fills better than the stop level are "
     "removed by the preregistered stop haircut",
@@ -69,6 +87,12 @@ DEVIATIONS: Final = (
     "hard risk: gross 1.0, per-symbol 0.5, no turnover cap; drawdown brake from 20% "
     "(the gate level) to flat at 30% of running-peak historical drawdown",
     "Bonferroni over the four preregistered (variant, timeframe) configurations",
+    "all gated metrics use the stop-haircut-adjusted equity and closed-cycle PnL; the "
+    "haircut is a first-order multiplicative adjustment, not a re-simulation",
+    "the roster must be complete: a symbol may be absent only with a recorded "
+    "missing-archive exclusion (URL and HTTP 404); any other failure halts the run, "
+    "and fewer than min_symbols remaining writes an INVALID result",
+    "prior exposure of the universe and window is disclosed in PRIOR_EXPOSURE",
 )
 
 
@@ -92,8 +116,9 @@ class TrendStopProtocol:
     schema_version: str = PROTOCOL_SCHEMA
     study_id: str = "trend_stop_tsmom_20261110"
     planner_task: str = "opus-plan-trend-stops-20261110"
-    # Universe: fixed by name and listing date, never by returns. A symbol may be
-    # dropped only for a missing-archive reason; fewer than ``min_symbols`` is INVALID.
+    # Universe: chosen by name and listing date, not from any return of this rule. A
+    # symbol may be absent only with a recorded HTTP 404 missing-archive exclusion; any
+    # other failure halts; fewer than ``min_symbols`` remaining is INVALID.
     symbols: tuple[str, ...] = (
         "BTCUSDT",
         "ETHUSDT",
@@ -108,6 +133,7 @@ class TrendStopProtocol:
         "XRPUSDT",
     )
     min_symbols: int = 8
+    exclusion_http_status: int = 404
     benchmark_symbol: str = "BTCUSDT"
     timeframes: tuple[str, ...] = ("4h", "1d")
     variants: tuple[VariantSpec, ...] = VARIANTS
@@ -252,8 +278,10 @@ __all__ = [
     "DATA_END_EXCLUSIVE",
     "DEVIATIONS",
     "G4_AUTHORIZATION_URL_PATTERN",
+    "LABEL_INVALID",
     "LABEL_NO_WINNER",
     "LABEL_PROMISING",
+    "PRIOR_EXPOSURE",
     "PROTOCOL",
     "PROTOCOL_SCHEMA",
     "RESULT_SCHEMA",

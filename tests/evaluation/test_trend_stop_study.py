@@ -27,8 +27,11 @@ from tests.strategies.test_trend_stop import (
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.evaluation.trend_stop_study import cli, metrics, runner
 from trade_rl.evaluation.trend_stop_study.data import (
+    RosterTooSmallError,
+    SymbolExclusion,
     build_dataset_from_transport,
     build_vision_dataset,
+    parse_exclusions,
     plan_vision_cache,
     validate_study_dataset,
 )
@@ -293,7 +296,7 @@ def test_dataset_validation_accepts_the_regular_roster_grid() -> None:
 def test_dataset_validation_rejects_roster_cadence_warmup_and_boundary() -> None:
     with pytest.raises(ValueError, match="symbols outside the roster"):
         _check(symbols=("BTCUSDT", "ETHUSDT", "XRPUSDT"))
-    with pytest.raises(ValueError, match="at least"):
+    with pytest.raises(RosterTooSmallError, match="at least"):
         _check(min_symbols=4)
     with pytest.raises(ValueError, match="benchmark symbol"):
         _check(benchmark_symbol="BNBUSDT")
@@ -403,10 +406,19 @@ def test_vision_fallback_plans_only_the_requested_timeframe_and_needs_a_cache(
 # -- metrics: independent oracles --------------------------------------------------------
 
 
-def _replay_hand_scenario(extra: list[tuple[float, float, float, float]] | None):
+WICK = [
+    (109.0, 109.0, 100.0, 107.0),
+    (108.0, 109.0, 106.0, 108.0),
+    (108.0, 109.0, 106.0, 108.0),
+]
+
+
+def _replay_hand_scenario(
+    extra: list[tuple[float, float, float, float]] | None, step_hours: int = 1
+):
     bars = FLAT_BARS + [BREAKOUT] + RUN_UP
     bars = bars + (extra if extra is not None else GAP_DOWN)
-    dataset = _dataset({"AAA": bars})
+    dataset = _dataset({"AAA": bars}, step_hours=step_hours)
     policy = TrendStopPortfolioPolicy(dataset, _config())
     result = run_shared_portfolio_replay(
         dataset,
@@ -424,29 +436,26 @@ def _replay_hand_scenario(extra: list[tuple[float, float, float, float]] | None)
 def test_stop_audit_keeps_a_gap_through_the_stop_and_removes_a_better_fill() -> None:
     dataset, policy, intervals = _replay_hand_scenario(None)
     multipliers = dataset.resolved_array("contract_multipliers")
-    gap = metrics.stop_exit_audit(intervals, policy.stop_events, multipliers)
+    gap, gap_by_fill = metrics.stop_exit_audit(
+        intervals, policy.stop_events, multipliers
+    )
 
     # Exit at 94 against a stop at 101: 7/101 worse than the level, no credit given back.
     assert gap["n_stop_exits"] == gap["n_resolved"] == 1
-    assert gap["haircut_usdt"] == 0.0
+    assert gap["haircut_usdt"] == 0.0 and gap_by_fill == {}
     assert gap["n_fill_better_than_stop"] == 0
     assert gap["mean_adverse_gap_pct"] == pytest.approx(100.0 * 7.0 / 101.0)
 
-    wick = [
-        (109.0, 109.0, 100.0, 107.0),
-        (108.0, 109.0, 106.0, 108.0),
-        (108.0, 109.0, 106.0, 108.0),
-    ]
-    dataset, policy, intervals = _replay_hand_scenario(wick)
-    audit = metrics.stop_exit_audit(
+    dataset, policy, intervals = _replay_hand_scenario(WICK)
+    audit, by_fill = metrics.stop_exit_audit(
         intervals, policy.stop_events, dataset.resolved_array("contract_multipliers")
     )
     # Exit at 108 is 7 above the stop level 101: 50/6 units * 7 = 58.33 of optimism.
     assert audit["haircut_usdt"] == pytest.approx(float(Fraction(50, 6) * 7), abs=1e-6)
     assert audit["n_fill_better_than_stop"] == 1
-    assert metrics.haircut_net_return_pct(0.0, audit["haircut_usdt"], 10_000.0) == (
-        pytest.approx(-100.0 * float(Fraction(50, 6) * 7) / 10_000.0)
-    )
+    # The haircut sits on the exit fill (interval 7 -> 8).
+    assert [position for position, _ in by_fill] == [7]
+    assert sum(by_fill.values()) == pytest.approx(audit["haircut_usdt"])
 
 
 def test_closed_trade_reconstruction_matches_the_hand_ledger() -> None:
@@ -469,7 +478,6 @@ def _cell(
     profit_factor: float | None = 1.5,
     trades: int = 400,
     calmar: float | None = 1.0,
-    haircut_net: float | None = None,
 ) -> dict[str, Any]:
     return {
         "performance": {
@@ -485,9 +493,6 @@ def _cell(
                 "2025": -1.0,
                 "2026": -2.0,
             },
-        },
-        "haircut": {
-            "haircut_net_return_pct": net if haircut_net is None else haircut_net
         },
         "closed_trades": {"profit_factor": profit_factor, "closed_trades": trades},
     }
@@ -514,8 +519,8 @@ def test_gate_passes_only_when_every_preregistered_criterion_holds() -> None:
 @pytest.mark.parametrize(
     ("overrides", "failed"),
     [
-        ({"base": {"haircut_net": -0.1}}, "haircut_net_return_positive_base"),
-        ({"stressed": {"haircut_net": -0.1}}, "haircut_net_return_positive_cost_x2"),
+        ({"base": {"net": -0.1}}, "net_return_positive_base"),
+        ({"stressed": {"net": -0.1}}, "net_return_positive_cost_x2"),
         (
             {"base": {"years": {"2021": 1.0, "2022": 1.0, "2023": 1.0, "2024": -1.0}}},
             "positive_sub_years_base",
@@ -525,6 +530,8 @@ def test_gate_passes_only_when_every_preregistered_criterion_holds() -> None:
         ({"stressed": {"drawdown": 20.5}}, "max_drawdown_within_limit_all_scenarios"),
         ({"base": {"trades": 99}}, "closed_trades_base"),
         ({"base": {"calmar": 0.3}}, "calmar_exceeds_btc_buy_and_hold"),
+        ({"benchmark": {"calmar": None}}, "calmar_exceeds_btc_buy_and_hold"),
+        ({"base": {"calmar": None}}, "calmar_exceeds_btc_buy_and_hold"),
         (
             {"bootstrap": {"bonferroni_ci_low": -0.01}},
             "bonferroni_bootstrap_lower_bound_positive",
@@ -632,3 +639,216 @@ def test_rule_cells_hold_positions_and_report_stop_diagnostics() -> None:
     )
     # Funding comes from the Dataset through the canonical ledger.
     assert "funding_pnl_usdt" in cell["costs"]
+
+
+# -- M2: the haircut reaches every gated quantity ----------------------------------------
+
+
+def _summarized_hand_cell(extra: list[tuple[float, float, float, float]]) -> Any:
+    """The hand scenario on a daily grid through the runner's own cell summary."""
+
+    dataset, policy, _ = _replay_hand_scenario(extra, step_hours=24)
+    replayed = run_shared_portfolio_replay(
+        dataset,
+        TrendStopPortfolioPolicy(dataset, _config()),
+        start_index=0,
+        stop_index=9,
+        initial_capital=10_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        capture_ledger_evidence=True,
+    )
+    return runner.summarize_cell(
+        arm="rule",
+        timeframe="1d",
+        variant="hand",
+        scenario=SCENARIO_BASE,
+        result=replayed,
+        dataset=dataset,
+        protocol=SMALL,
+        stop_events=policy.stop_events,
+        policy_summary=policy.summary(),
+    )
+
+
+def test_haircut_is_charged_to_the_pnl_stream_and_compounds_through_equity() -> None:
+    quantity = Fraction(50, 6)
+    outcome = _summarized_hand_cell(WICK)
+    cell = outcome.summary
+
+    # Engine: bought at 103, the wick exit fills at the open of 108, +41.67. A resting
+    # stop at 101 would have lost 2 per unit: 10000 - 50/6 * 2 = 9983.33.
+    engine_end = float(Fraction(10000) + quantity * (108 - 103))
+    adjusted_end = float(Fraction(10000) + quantity * (101 - 103))
+    assert outcome.engine_equity[-1] == pytest.approx(engine_end, abs=1e-6)
+    assert outcome.equity[-1] == pytest.approx(adjusted_end, abs=1e-6)
+    assert cell["engine_performance"]["terminal_net_return_pct"] > 0.0
+    assert cell["performance"]["terminal_net_return_pct"] < 0.0
+    # Before the exit the two paths are identical.
+    assert outcome.equity[:7] == pytest.approx(outcome.engine_equity[:7])
+    # Closed cycles carry the haircut as a cost on the exit fill: the engine cycle wins,
+    # the adjusted cycle loses, so the profit factor differs (None vs 0).
+    assert cell["engine_closed_trades"]["winning_trades"] == 1
+    assert cell["engine_closed_trades"]["profit_factor"] is None
+    assert cell["closed_trades"]["losing_trades"] == 1
+    assert cell["closed_trades"]["profit_factor"] == 0.0
+    assert cell["closed_trades"]["net_realized_pnl"] == pytest.approx(
+        float(quantity * (101 - 103)), abs=1e-6
+    )
+    # The bootstrap input compounds back to the adjusted terminal value.
+    assert float(np.prod(1.0 + outcome.daily)) * 10_000.0 == pytest.approx(
+        adjusted_end, abs=1e-6
+    )
+
+
+def test_a_criterion_passes_on_engine_pnl_but_fails_on_the_haircut_adjusted_run() -> (
+    None
+):
+    cell = _summarized_hand_cell(WICK).summary
+    benchmark = _cell(calmar=0.3)
+    stressed = _cell()
+
+    def verdict(performance: dict[str, Any]) -> bool:
+        base = {**cell, "performance": performance}
+        criteria = metrics.evaluate_configuration(
+            base, stressed, benchmark, {"bonferroni_ci_low": 0.1}, True, PROTOCOL
+        )["criteria"]
+        return bool(criteria["net_return_positive_base"]["passed"])
+
+    assert verdict(cell["engine_performance"]) is True  # un-haircut run passes
+    assert verdict(cell["performance"]) is False  # haircut run fails
+
+    gap = _summarized_hand_cell(GAP_DOWN).summary  # adverse gap: nothing credited back
+    assert gap["performance"]["terminal_net_return_pct"] == pytest.approx(
+        gap["engine_performance"]["terminal_net_return_pct"]
+    )
+    assert gap["haircut"]["haircut_usdt"] == 0.0
+
+
+def test_every_gated_metric_is_read_from_the_adjusted_cell_fields() -> None:
+    """The gate may not reach for the un-haircut ``engine_*`` fields."""
+
+    source = Path(metrics.__file__).read_text(encoding="utf-8")
+    gate = source[source.index("def evaluate_configuration") :]
+    assert "engine_" not in gate.split("def select_label")[0].split('"""')[2]
+
+
+# -- M1: roster completeness -------------------------------------------------------------
+
+
+def _nine_of_eleven() -> Any:
+    symbols = tuple(s for s in PROTOCOL.symbols if s not in ("DOTUSDT", "LTCUSDT"))
+    return synthetic_dataset(
+        "1d",
+        symbols,
+        first_close="2021-01-02T00:00:00",
+        last_close="2021-08-01T00:00:00",
+    )
+
+
+def _record(symbol: str, status: int = 404) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "url": "https://data.binance.vision/data/futures/um/monthly/klines/"
+        f"{symbol}/1d/{symbol}-1d-2021-01.zip",
+        "http_status": status,
+    }
+
+
+def test_a_nine_of_eleven_dataset_without_reasons_is_refused() -> None:
+    with pytest.raises(ValueError, match="absent without a recorded"):
+        validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d")
+    # Even an empty exclusion list is not a reason.
+    with pytest.raises(ValueError, match="DOTUSDT.*LTCUSDT"):
+        validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d", exclusions=())
+
+
+def test_recorded_missing_archive_exclusions_complete_the_roster() -> None:
+    exclusions = parse_exclusions([_record("DOTUSDT"), _record("LTCUSDT")], PROTOCOL)
+    used = validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d", exclusions)
+    assert len(used) == 9
+    # A recorded exclusion for only one of the two absentees still refuses.
+    with pytest.raises(ValueError, match="LTCUSDT"):
+        validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d", exclusions[:1])
+    # An excluded symbol must really be absent.
+    with pytest.raises(ValueError, match="present in the Dataset"):
+        validate_study_dataset(
+            _nine_of_eleven(), PROTOCOL, "1d", (SymbolExclusion("BTCUSDT", "u", 404),)
+        )
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _record("DOTUSDT", 503),  # transient failure: must halt
+        _record("DOTUSDT", 429),
+        {**_record("DOTUSDT"), "http_status": True},
+        {**_record("DOTUSDT"), "url": "https://example.com/DOTUSDT/x.zip"},
+        {**_record("DOTUSDT"), "url": _record("LTCUSDT")["url"]},
+        {**_record("DOTUSDT"), "reason": "cache miss"},
+        {"symbol": "DOTUSDT", "http_status": 404},
+        _record("BTCUSDT"),  # the benchmark can never be excluded
+        _record("XXXUSDT"),
+    ],
+)
+def test_only_an_http_404_for_the_symbols_archive_can_exclude_it(
+    record: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError):
+        parse_exclusions([record], PROTOCOL)
+
+
+def test_exclusion_lists_are_strict() -> None:
+    with pytest.raises(ValueError, match="duplicate"):
+        parse_exclusions([_record("DOTUSDT"), _record("DOTUSDT")], PROTOCOL)
+    with pytest.raises(ValueError):
+        parse_exclusions({"symbol": "DOTUSDT"}, PROTOCOL)
+    assert parse_exclusions(None, PROTOCOL) == ()
+
+
+def test_fewer_than_the_minimum_symbols_writes_an_invalid_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a replay ran for an INVALID roster")
+
+    monkeypatch.setattr(runner, "run_rule_cell", forbidden)
+    monkeypatch.setattr(runner, "run_benchmark_cell", forbidden)
+    monkeypatch.setattr(runner, "causality_probe", forbidden)
+    # The 3-symbol datasets are complete but short of the minimum.
+    protocol = replace(SMALL, min_symbols=4)
+
+    result, cells, equity = runner.run_study(
+        _small_datasets(), protocol, g4_authorization_url=AUTHORIZATION_URL
+    )
+
+    assert result["status"] == result["label"] == "INVALID"
+    assert "at least 4" in result["reason"]
+    assert result["stop_rule_triggered"] is False  # INVALID is not NO_WINNER
+    assert cells == {} and equity == {}
+    assert result["protocol_digest"] == protocol_digest(protocol)
+    written = cli.write_outputs(tmp_path / "invalid", result, cells, equity)
+    assert [path.name for path in written] == ["result.json"]
+    stored = json.loads(written[0].read_text(encoding="utf-8"))
+    assert stored["label"] == "INVALID" and stored["prior_exposure"]
+
+
+def test_the_result_carries_exclusions_and_the_prior_exposure_disclosure() -> None:
+    result, _, _ = runner.run_study(
+        _small_datasets(), SMALL, g4_authorization_url=AUTHORIZATION_URL
+    )
+    assert result["exclusions"] == []
+    joined = " ".join(result["prior_exposure"])
+    for needle in ("realdata_20260713_signal_metadata", "Phase 2", "M34"):
+        assert needle in joined
+    assert any("haircut-adjusted" in note for note in result["notes"])
+
+
+def test_vision_plan_drops_a_recorded_exclusion_and_nothing_else() -> None:
+    exclusion = parse_exclusions([_record("DOTUSDT")], PROTOCOL)
+    plan = plan_vision_cache(PROTOCOL, "1d", exclusion)
+    assert not any("/DOTUSDT/" in url for url in plan.urls)
+    assert all(
+        any(f"/{symbol}/" in url for url in plan.urls)
+        for symbol in PROTOCOL.symbols
+        if symbol != "DOTUSDT"
+    )

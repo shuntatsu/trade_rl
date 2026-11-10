@@ -55,7 +55,10 @@ def _config(**overrides: float | int | bool) -> TrendStopConfig:
 
 
 def _dataset(
-    bars: dict[str, list[Bar]], *, usable: dict[str, list[bool]] | None = None
+    bars: dict[str, list[Bar]],
+    *,
+    usable: dict[str, list[bool]] | None = None,
+    step_hours: int = 1,
 ) -> MarketDataset:
     symbols = tuple(bars)
     n_rows = len(next(iter(bars.values())))
@@ -74,7 +77,7 @@ def _dataset(
         dataset_id="a" * 64,
         symbols=symbols,
         timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
-        + np.arange(n_rows) * np.timedelta64(1, "h"),
+        + np.arange(n_rows) * np.timedelta64(step_hours, "h"),
         features=features,
         global_features=np.zeros((n_rows, 1), dtype=np.float64),
         open=open_,
@@ -87,7 +90,7 @@ def _dataset(
         feature_available=np.ones_like(features, dtype=np.bool_),
         feature_names=("unused",),
         global_feature_names=("unused_global",),
-        periods_per_year=8_760,
+        periods_per_year=8_760 // step_hours,
     )
 
 

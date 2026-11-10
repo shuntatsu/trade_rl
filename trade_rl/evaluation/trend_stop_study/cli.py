@@ -18,8 +18,10 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.evaluation.trend_stop_study.data import (
+    SymbolExclusion,
     build_vision_dataset,
     load_exported_dataset,
+    parse_exclusions,
 )
 from trade_rl.evaluation.trend_stop_study.protocol import (
     PROTOCOL,
@@ -52,10 +54,11 @@ def write_outputs(
         with path.open("xb") as stream:
             stream.write(_json_bytes(cells[name]))
         written.append(path)
-    equity_path = output_dir / "equity.npz"
-    with equity_path.open("xb") as stream:
-        np.savez_compressed(stream, **equity)
-    written.append(equity_path)
+    if equity:
+        equity_path = output_dir / "equity.npz"
+        with equity_path.open("xb") as stream:
+            np.savez_compressed(stream, **equity)
+        written.append(equity_path)
     result_path = output_dir / "result.json"
     with result_path.open("xb") as stream:
         stream.write(_json_bytes(result))
@@ -84,6 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"published {timeframe} Dataset artifact (market-store export output)",
         )
     parser.add_argument(
+        "--exclusions",
+        type=Path,
+        help=(
+            "JSON list of {symbol, url, http_status} missing-archive records (HTTP "
+            "404 for the symbol's Binance Vision archive URL); any other failure "
+            "halts the run and is never an exclusion"
+        ),
+    )
+    parser.add_argument(
         "--vision-cache",
         type=Path,
         help="fallback: complete local Binance Vision cache (never the network)",
@@ -97,7 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _load_datasets(
-    args: argparse.Namespace, protocol: TrendStopProtocol
+    args: argparse.Namespace,
+    protocol: TrendStopProtocol,
+    exclusions: tuple[SymbolExclusion, ...] = (),
 ) -> dict[str, MarketDataset]:
     datasets: dict[str, MarketDataset] = {}
     for timeframe in protocol.timeframes:
@@ -110,6 +124,7 @@ def _load_datasets(
                 timeframe,
                 cache_root=args.vision_cache,
                 exchange_info_dir=args.exchange_info_dir,
+                exclusions=exclusions,
             )
         else:
             raise ValueError(
@@ -131,11 +146,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("refusing to overwrite an existing study output", file=sys.stderr)
         return 2
     try:
-        datasets = _load_datasets(args, PROTOCOL)
+        exclusions: tuple[SymbolExclusion, ...] = ()
+        if args.exclusions is not None:
+            exclusions = parse_exclusions(
+                json.loads(args.exclusions.read_text(encoding="utf-8")), PROTOCOL
+            )
+        datasets = _load_datasets(args, PROTOCOL, exclusions)
         result, cells, equity = run_study(
             datasets,
             PROTOCOL,
             g4_authorization_url=authorization,
+            exclusions=exclusions,
             progress=lambda message: print(message, flush=True),
         )
     except ValueError as error:
@@ -143,7 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     write_outputs(output_dir, result, cells, equity)
     print(f"label={result['label']} passing={result['passing_configurations']}")
-    return 0
+    return 0 if result["label"] != "INVALID" else 3
 
 
 if __name__ == "__main__":  # pragma: no cover

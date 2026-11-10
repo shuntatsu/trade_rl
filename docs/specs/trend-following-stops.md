@@ -2,12 +2,13 @@
 
 Status: Active
 
-Pre-registered, result-blind development protocol and software for a long/short
+Pre-registered development protocol and software for a long/short
 Donchian breakout with ATR stops across a fixed set of USD-M perpetuals. The owner's
 idea (2026-11-10): trend following loses on many trades, but cutting losses quickly can
-still make money overall, a low win rate with positive skew. Nothing here has been run
-on real data, no real price, return or PnL was read to write it, and the protocol below
-is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
+still make money overall, a low win rate with positive skew. This rule has not been
+run on real data and no price path, return or PnL of it was computed to write this
+document. That is narrower than "unexposed": the universe and window were read by
+earlier work, listed in section 5a, and the protocol below is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
 result). The machine-readable G0-G3 author packet is
 [`report/trend-stop-research-assurance-20261110.json`](../../report/trend-stop-research-assurance-20261110.json);
 its review status is `UNREVIEWED` until an independent, authenticated review is posted.
@@ -37,7 +38,7 @@ on top of the rule.
 
 | Item | Value |
 |---|---|
-| Universe | BTC, ETH, BNB, ADA, LINK, DOGE, DOT, AVAX, LTC, SOL, XRP (USDT-margined perpetuals). Fixed by name and listing date, never by returns. A symbol may be dropped only for a missing-archive reason (recorded); fewer than 8 remaining makes the run INVALID. |
+| Universe | BTC, ETH, BNB, ADA, LINK, DOGE, DOT, AVAX, LTC, SOL, XRP (USDT-margined perpetuals). Chosen by name and listing date, not from any return of this rule (prior exposure of the universe: section 5a). The roster must be complete: a symbol may be absent only with a recorded exclusion, an HTTP 404 for that symbol's Binance Vision archive URL (`--exclusions` JSON of `{symbol, url, http_status}`). A transient fetch failure, cache miss or malformed/checksum error halts the run and never excludes a symbol; a Dataset missing a symbol without a record is refused. Fewer than 8 remaining writes an `INVALID` result (no replay, no rejection of the rule). |
 | Timeframes | 4h and 1d, native bars, one decision per bar |
 | Signal | Donchian breakout, long and short. Entry: close beyond the prior N-bar extremum (current bar excluded). Signal exit: close beyond the prior M-bar opposite extremum. Opposite entry signal reverses. |
 | Variants (at most 2) | `donchian_20_10` (N=20, M=10) and `donchian_55_20` (N=55, M=20), Turtle conventions in bars; never tuned |
@@ -67,10 +68,16 @@ decision-layer rule that uses the existing order, fill, cost and accounting path
    invented at the stop price.
 3. **Stop haircut.** Where the exit fill is better than the stop level (the bar wicked
    through and recovered, so a resting stop would have filled at the level), the runner
-   removes that price improvement from net PnL. `haircut_net_return` = engine net return
-   minus this haircut, and it is the quantity gated below. Adverse gaps are never
-   credited back. The haircut is computed from the raw order events and the policy's
-   stop log, not from the policy's own accounting.
+   removes that price improvement from PnL as a cost on that exit fill. It is applied
+   to the PnL stream, so **every gated quantity is computed from the haircut-adjusted
+   series**: the equity path (net return, sub-years, drawdown, Calmar, the bootstrap's
+   daily returns) and the closed-cycle PnL (profit factor). On the equity path the
+   haircut of an interval is a fraction of the engine equity at the start of that
+   interval, applied multiplicatively, so it compounds through every later interval (a
+   first-order adjustment, not a re-simulation with smaller positions). The engine
+   (un-haircut) values stay in each cell as `engine_*` for reference and are never
+   gated. Adverse gaps are never credited back. The haircut is computed from the raw
+   order events and the policy's stop log, not from the policy's own accounting.
 4. Limits: the entry reference is the observed fill-bar open (slippage is not in the
    stop distance); a stop touched and recovered inside a bar is charged at the level but
    the intrabar path after it is unknown; orders still working on the next bar (partial
@@ -82,12 +89,13 @@ Four configurations (2 variants x 2 timeframes) are tested; Bonferroni adjusts t
 bootstrap level to `0.05 / 4`. A configuration is `DEVELOPMENT_PROMISING` only if every
 criterion holds (base = repo costs, `cost_x2` = doubled costs):
 
-1. haircut-adjusted net return > 0 in base and in `cost_x2` (this includes funding);
-2. at least 4 of the 6 calendar sub-years positive (base, engine PnL);
-3. closed-cycle profit factor >= 1.2 (base; execution-cost net, funding excluded);
-4. ledger maximum drawdown <= 20% in base and `cost_x2`;
+1. net return > 0 in base and in `cost_x2` (haircut-adjusted; includes funding);
+2. at least 4 of the 6 calendar sub-years positive (base, haircut-adjusted);
+3. closed-cycle profit factor >= 1.2 (base; execution-cost and haircut net, funding excluded);
+4. maximum drawdown of the adjusted equity <= 20% in base and `cost_x2`;
 5. at least 100 closed position cycles (base);
-6. Calmar ratio above that of BTC buy-and-hold (base, same window and costs);
+6. Calmar ratio above that of BTC buy-and-hold (base, same window and costs); a missing
+   Calmar on either side fails the criterion;
 7. lower end of the Bonferroni-adjusted moving-block bootstrap interval of the
    annualised mean daily net return is above 0 (base);
 8. validity: ledger reconciliation passed in both scenarios, no termination, terminal
@@ -108,10 +116,45 @@ protocol, G0-G2 review, owner authorization) for step 2 or for an unused-data pr
   the many false breakouts so that a few large trends can pay for them.
 - Counter-hypothesis: crypto trends are already arbitraged at these horizons and whipsaw
   loss plus costs and funding exceed the trend gain; or the result is survivorship (the
-  roster is 2026 survivors), a single bull-market regime, or a gap/stop artifact.
+  roster is 2026 survivors), a single bull-market regime, a gap/stop artifact, or
+  selection by prior exposure: other work in this repository already read this universe
+  and part of this window (section 5a), including a related positive time-series
+  momentum result, so a pass here is not independent of that exposure.
 - Cheapest falsifiers, in order: the synthetic oracle tests (no data); the refusal and
   future-perturbation probes; then the frozen run itself. Pass criteria 1-8 are the
   economic falsifier and are fixed before any run.
+
+## 5a. Prior exposure and attestation
+
+The universe and window are not unexposed. Earlier repository work read them:
+
+- `tests/fixtures/legacy/realdata_20260713_signal_metadata.json`: a legacy GBM
+  cross-sectional signal gate over 15 symbols, of which 10 of the 11 here (all but DOT),
+  with a 2025-12-06 fit cutoff and a failed information-coefficient gate. It is a signal
+  metadata record, not the PnL of a trend rule.
+- Phase 2 trial T1 (time-series momentum: a 30d/90d return blend, volatility-scaled, no
+  stops, daily decisions) on BTC, ETH, BNB, XRP and ADA over 2023-01-01 to 2026-08-01
+  reported a positive return (see current-status.md). It is directly related prior
+  evidence: the same rule family on 5 of the 11 symbols and the 2023-2026 part of this
+  window, with a different signal and without stops.
+- The M34 development Dataset (BTC, ETH, BNB, XRP, ADA, 2021-01 to 2026-08, with 4h and
+  1d features) and the Phase 2/3 and directional studies that used it.
+
+Consequences: DOT was never read by those records; the other ten symbols were. All of
+2023-2026 is already used. This study cannot be called result-blind with respect to the
+universe and window, only with respect to this rule's own outcome.
+
+Attestation about parameters. N (20/55 and 10/20), ATR(14), the 2x and 3x stop
+multiples, 0.5% risk per trade, the per-symbol and gross caps, the 20% drawdown level,
+the profit-factor threshold of 1.2, the 4-of-6 sub-year rule, the 100-cycle minimum and
+the Calmar-versus-BTC comparison are taken from trading convention (Turtle-style
+channels, Wilder ATR, round-number thresholds) as given in the planner's brief on
+2026-11-10. The implementer attests that it did not read the Phase 2 T1 results, the
+legacy fixture or the M34 outcomes when fixing any value, and that no value was tuned on
+any data. The implementer cannot attest what the planner or owner had in mind from the
+repository's earlier results, so influence of the Phase 2 TSMOM result on the choice of
+rule family, 20/55 bars or the thresholds is **not excluded**; it is disclosed rather
+than denied. Any pass must be read with that in mind.
 
 ## 6. Independent oracles (G2) and evidence validity (G3)
 
@@ -129,8 +172,9 @@ protocol, G0-G2 review, owner authorization) for step 2 or for an unused-data pr
   current-bar extreme, the re-entry block, the channel's exclusion of the current bar,
   the gross-cap scaling or the HOLD each fail at least one test.
 - G3 claim boundary: the result is development, exploratory evidence on known-used data
-  with survivorship in the roster. It cannot support an unused-data, paper or live claim,
-  and an engine-PnL positive that fails the haircut is not a pass.
+  with survivorship in the roster and the prior exposure of section 5a. It cannot
+  support an unused-data, paper or live claim, and an engine-PnL positive that fails the
+  haircut-adjusted gate is not a pass.
 
 ## 7. Software map
 
@@ -146,7 +190,9 @@ protocol, G0-G2 review, owner authorization) for step 2 or for an unused-data pr
 The runner refuses, before any replay, a missing or malformed G4 authorization URL
 (`https://github.com/shuntatsu/trade_rl/<issues|pull>/<n>#issuecomment-<id>`; only the
 shape is checked, the owner lease remains a human gate), a window or Dataset reaching
-past 2026-07-31, a roster or cadence mismatch, and a non-empty output directory. Every
+past 2026-07-31, a roster that is incomplete without recorded 404 exclusions, a
+cadence mismatch, and a non-empty output directory. A roster below 8 symbols writes an
+`INVALID` result instead. Every
 cell is written as its own JSON file (`cells/<timeframe>__<arm>__<scenario>.json`) with
 `equity.npz` and `result.json`.
 
@@ -234,7 +280,8 @@ No reward term references stop outcomes.
 
 ## 10. What this change does not do
 
-No real data was read or computed, no order or venue call exists, FS1, warm-up, unused
-and final data are untouched, and no existing strategy, default or artifact changed.
+No real price, return or PnL of this rule was computed (the prior exposure of the
+universe and window by other work is disclosed in section 5a), no order or venue call
+exists, FS1, warm-up, unused and final data are untouched, and no existing strategy, default or artifact changed.
 Passing CI authorizes nothing: a G4 run needs the owner's authorization and an
 independent review of the packet.

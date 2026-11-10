@@ -473,6 +473,21 @@ def allocate_symbol_capacity(
                 )
             )
             continue
+        # BookState must not receive a nonzero fill whose left-associated
+        # quote notional has silently underflowed to zero. Do not consume
+        # shared capacity or inventory for such a rejected allocation. This
+        # arithmetic failure takes precedence over any minimum-notional rule.
+        if exact_notional == 0.0:
+            allocations.append(
+                _zero_allocation(
+                    request,
+                    requested_notional=requested_notional,
+                    capacity_before=capacity_before,
+                    accessible_capacity=accessible_capacity,
+                    reason="unrepresentable_notional",
+                )
+            )
+            continue
         applicable_minimum = (
             minimum_notional
             if request.minimum_notional is None
@@ -486,20 +501,6 @@ def allocate_symbol_capacity(
                     capacity_before=capacity_before,
                     accessible_capacity=accessible_capacity,
                     reason="below_minimum_notional",
-                )
-            )
-            continue
-        # BookState must not receive a nonzero fill whose left-associated
-        # quote notional has silently underflowed to zero. Do not consume
-        # shared capacity or inventory for such a rejected allocation.
-        if exact_notional == 0.0:
-            allocations.append(
-                _zero_allocation(
-                    request,
-                    requested_notional=requested_notional,
-                    capacity_before=capacity_before,
-                    accessible_capacity=accessible_capacity,
-                    reason="unrepresentable_notional",
                 )
             )
             continue

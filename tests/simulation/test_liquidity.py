@@ -557,3 +557,26 @@ def test_numpy_scalar_liquidity_underflow_remains_explicit_with_strict_errors(
         assert item.filled_quantity == direction
         assert item.filled_notional == 5e-324
         assert item.no_fill_reason is None
+
+
+@pytest.mark.parametrize("minimum_notional", [0.0, 1.0])
+def test_unrepresentable_fill_precedes_positive_minimum_notional(
+    minimum_notional: float,
+) -> None:
+    """A nonzero zero-notional fill is unbookable, not merely below minimum."""
+    allocations, evidence = allocate_symbol_capacity(
+        requests=(_request("a", 1.0, price=1e-200),),
+        processing_volume=1.0,
+        processing_market_notional=100.0,
+        price=1e-200,
+        contract_multiplier=1e-200,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=minimum_notional,
+    )
+    item = allocations[0]
+    assert item.filled_quantity == 0.0
+    assert item.filled_notional == 0.0
+    assert item.no_fill_reason == "unrepresentable_notional"
+    assert evidence.consumed_capacity_notional == 0.0
+    assert item.capacity_after == 100.0

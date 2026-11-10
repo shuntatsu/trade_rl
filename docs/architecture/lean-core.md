@@ -110,6 +110,8 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+`strategies/rules/trend_stop.py` の`TrendStopPortfolioPolicy`は、完了barだけから導いたprior-window Donchian channelとWilder ATRで、risk budget（既定は口座の0.5%をstop距離で割ったweight）をsizeしたlong/short targetと、保有中のexact-quantity HOLDを返す。stopは決定時点の完了barのlow（long）/high（short）がstop levelに届いたとき（favourable extremeを先に反映）に出口targetを返すdecision-layerのruleで、注文はnext openで既存の約定・cost・funding・accounting経路を通る。gapはそのまま受け、stop価格での約定は作らない。stop価格より良い約定の価格改善はstudy側のhaircutが損益から除く。engineのorder lifecycle、`PreTradeRisk`、既存strategyとdefaultは変更しない。pending注文を保存しないため、`order_latency_bars >= 2`は有効なstressではない。
+
 `strategies/portfolio_adapter.py` は、exact built-in `ConstantIntentStrategy`、
 `TrendIntentStrategy`、`RidgeForecastStrategy` だけを、固定symbol/feature rosterと
 有限な`(0, 1]`範囲の明示per-symbol intent budgetを持つnumeric `PortfolioPolicy` adapterへ

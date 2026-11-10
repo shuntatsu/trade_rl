@@ -189,27 +189,42 @@ def test_bootstrap_never_replaces_competing_empty_root_after_validation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A rival may claim the final path after the initial existence check."""
+    """Claim the output after bootstrap's last check but before its rename."""
     _install_fakes(monkeypatch)
     from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
 
     output = tmp_path / "canonical-m2"
     real_inspect = workflow_module.inspect_canonical_m2_bootstrap
+    real_is_symlink = Path.is_symlink
+    validated = False
+    competitor_created = False
 
-    def inspect_and_race(root: str | Path) -> CanonicalM2BootstrapResult:
+    def inspect_staging(root: str | Path) -> CanonicalM2BootstrapResult:
+        nonlocal validated
         verified = real_inspect(root)
-        # Simulate the interleaving after the fully verified staging graph,
-        # before the final publication syscall.
         assert Path(root).name.startswith(".canonical-m2.staging-")
-        output.mkdir()
+        validated = True
         return verified
 
+    def race_after_last_output_check(path: Path) -> bool:
+        nonlocal competitor_created
+        was_symlink = real_is_symlink(path)
+        if path == output and validated and not competitor_created:
+            # The enclosing `output.exists() or output.is_symlink()` still
+            # evaluates false: the contender appears *inside* the latter call.
+            assert not output.exists()
+            output.mkdir()
+            competitor_created = True
+        return was_symlink
+
     monkeypatch.setattr(
-        workflow_module, "inspect_canonical_m2_bootstrap", inspect_and_race
+        workflow_module, "inspect_canonical_m2_bootstrap", inspect_staging
     )
+    monkeypatch.setattr(Path, "is_symlink", race_after_last_output_check)
     with pytest.raises(FileExistsError):
         bootstrap_canonical_m2_study(_config_path(tmp_path), output)
 
+    assert competitor_created, "the late TOCTOU interleaving did not run"
     assert output.is_dir() and not tuple(output.iterdir())
     assert not tuple(tmp_path.glob(".canonical-m2.staging-*"))
 

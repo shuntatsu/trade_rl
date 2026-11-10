@@ -18,10 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 PINNED_PACKET_DIGEST = (
-    "92a4f31b11cee5040056b49964939bde3ee30c6b88321d640f9ef3e45e913f29"
+    "5aea2c8dd86d9404be3d189e0b78274eb4d4cea84301f0dab4da22de56153780"
 )
 PINNED_PROTOCOL_DIGEST = (
-    "0e1d3015d46f152ffdd5f16356980b1aa137c27b68cebe03a3615f5ce88b5693"
+    "f57f2d6dedd9a46b4d4ffc57c70dc495f60e517d8cd14f873c1cdab47d02bb9d"
 )
 HEAD_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -81,3 +81,25 @@ def test_spec_is_active_links_the_packet_and_states_the_boundary() -> None:
     assert "2026-07-31" in text
     assert "UNREVIEWED" in text
     assert "DEVELOPMENT_PROMISING" in text
+
+
+def test_packet_discloses_prior_exposure_and_does_not_claim_result_blindness() -> None:
+    packet = _packet()
+    text = json.dumps(packet)
+    for needle in (
+        "realdata",
+        "legacy GBM signal metadata",
+        "Phase 2 trial T1",
+        "M34",
+        "not excluded",
+        "haircut-adjusted",
+        "HTTP 404",
+    ):
+        assert needle in text, needle
+    limitations = packet["thesis"]["limitations"]
+    assert "not result-blind about its universe and window" in limitations
+    assert "No economic result, real price or return was read" not in text
+    assert any(
+        "result-blind about its universe" in item
+        for item in packet["claims"]["forbidden"]
+    )

@@ -188,8 +188,11 @@ archive/checksum bytes; a raced existing cache file wins and is returned for
 normal downstream checksum verification without overwriting. Pre-existing or
 raced-in symlink cache entries are refused, rather than followed as cache hits.
 Cache reads reuse the existing descriptor-based no-follow/regular-file helper,
-so a symlink swapped after a cache-hit existence check also fails closed. Filesystems without
-hard-link support fail closed as operational halts; there is no ordinary rename,
+so a symlink swapped after a cache-hit existence check also fails closed. An
+already-linked configured cache root or subdirectory is refused before reads or
+writes; the static ancestor screen does not prove protection against a concurrent
+directory replacement. Filesystems without hard-link support fail closed as
+operational halts; there is no ordinary rename,
 copy-overwrite or shared `.part` fallback. These are cache publication and source
 integrity properties, not economic evaluation or market-data authorization. The wiring of the two sides is the repository-only command
 `tools/carry_multisymbol_screen.py` (`plan`, `screen`), which sits outside the

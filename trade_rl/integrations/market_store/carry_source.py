@@ -109,6 +109,21 @@ class ArchiveDirFetcher:
             raise ValueError(f"unsafe archive path: {url}")
         return self._directory.joinpath(*parts)
 
+    def _reject_linked_cache_directories(self, target: Path, url: str) -> None:
+        # The configured root and the path components created beneath it must
+        # not already redirect writes or reads outside the selected cache root.
+        # This static screen is not an atomic defence against directory swaps.
+        ancestor = self._directory
+        parts = target.parent.relative_to(ancestor).parts
+        for component in (None, *parts):
+            if component is not None:
+                ancestor = ancestor / component
+            if ancestor.is_symlink() or ancestor.is_junction():
+                raise CarryOperationalHalt(
+                    f"archive cache directory is a symlink or junction: {url}",
+                    {"kind": "cache_directory_link", "url": url},
+                )
+
     @staticmethod
     def _read_cached(path: Path, url: str) -> bytes:
         # Open by checked descriptor to prevent a cache symlink swap after
@@ -124,6 +139,7 @@ class ArchiveDirFetcher:
 
     def fetch(self, url: str) -> FetchResult:
         path = self._path(url)
+        self._reject_linked_cache_directories(path, url)
         if path.is_symlink():
             raise CarryOperationalHalt(
                 f"archive cache symlink is not trusted: {url}",

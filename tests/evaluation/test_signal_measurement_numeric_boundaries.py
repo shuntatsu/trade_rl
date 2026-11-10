@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal, localcontext
 
 import numpy as np
 import pytest
@@ -105,6 +106,7 @@ def test_near_unity_return_preserves_direct_ratio_precision() -> None:
     [
         (1e10, 2.0e-298, False),  # ratio just below the normal boundary
         (1e10, 2.5e-298, True),  # ratio just above the normal boundary
+        (1e10, 1.0e-310, False),  # deep subnormal: wrong direct path loses digits
     ],
 )
 def test_subnormal_boundary_selects_the_intended_log_path(
@@ -116,10 +118,18 @@ def test_subnormal_boundary_selects_the_intended_log_path(
         # A wrong-branch mutant must not pass because two oracles accidentally agree.
         assert math.log(ratio) != math.log(final) - math.log(initial)
     result = forward_log_returns(np.array([[initial], [final]]), 1)
-    expected = (
-        math.log(ratio) if ratio_is_normal else math.log(final) - math.log(initial)
-    )
-    assert result[0, 0] == expected
+    # The reference is the log of the *exact* finite binary64 operands,
+    # evaluated at higher precision instead of requiring bitwise equality
+    # between platform math.log and vectorized NumPy ufunc implementations.
+    with localcontext() as context:
+        context.prec = 100
+        expected = float(
+            Decimal.from_float(final).ln() - Decimal.from_float(initial).ln()
+        )
+    # A two-ULP error budget remains strict for binary64 transcendentals;
+    # the deep-subnormal control above differs by ~1e-5 if the wrong path
+    # logs the rounded intermediate ratio instead of the stable endpoints.
+    assert abs(float(result[0, 0]) - expected) <= 2 * math.ulp(expected)
     assert np.isnan(result[1, 0])
 
 

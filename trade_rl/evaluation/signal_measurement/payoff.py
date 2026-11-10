@@ -47,20 +47,30 @@ def _aligned(*arrays: np.ndarray) -> None:
 
 def _cost(
     k: object, round_trip_cost: object, cost_multiplier: object
-) -> tuple[int, float]:
+) -> tuple[float, float]:
     if type(k) is not int or k < 1:
         raise SignalMeasurementError("k must be a positive integer")
     if type(cost_multiplier) is not int or cost_multiplier < 1:
         raise SignalMeasurementError("cost_multiplier must be a positive integer")
-    if (
-        isinstance(round_trip_cost, bool)
-        or not isinstance(round_trip_cost, (int, float))
-        or not math.isfinite(round_trip_cost)
-        or round_trip_cost <= 0.0
+    if isinstance(round_trip_cost, bool) or not isinstance(
+        round_trip_cost, (int, float)
     ):
         raise SignalMeasurementError("round_trip_cost must be a positive finite number")
-    return k, float(round_trip_cost) * cost_multiplier
-
+    try:
+        unit_cost = float(round_trip_cost)
+        factor = float(cost_multiplier)
+        k_factor = float(k)
+    except OverflowError as error:
+        raise SignalMeasurementError(
+            "derived cost and threshold must be finite"
+        ) from error
+    if not math.isfinite(unit_cost) or unit_cost <= 0.0:
+        raise SignalMeasurementError("round_trip_cost must be a positive finite number")
+    cost = unit_cost * factor
+    threshold = cost * k_factor
+    if not math.isfinite(cost) or not math.isfinite(threshold):
+        raise SignalMeasurementError("derived cost and threshold must be finite")
+    return threshold, cost
 
 def _positions(forecast: np.ndarray, threshold: float) -> np.ndarray:
     """sign(forecast) where ``|forecast| > threshold``, else 0 (NaN stays NaN)."""
@@ -82,8 +92,8 @@ def after_cost_payoff(
     model = _vector(forecast, "forecast")
     label = _vector(realised, "realised")
     _aligned(model, label)
-    k_value, cost = _cost(k, round_trip_cost, cost_multiplier)
-    position = _positions(model, k_value * cost)
+    threshold, cost = _cost(k, round_trip_cost, cost_multiplier)
+    position = _positions(model, threshold)
     payoff = position * label - np.abs(position) * cost
     eligible = np.isfinite(model) & np.isfinite(label)
     return np.where(eligible, payoff, np.nan)

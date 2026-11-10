@@ -31,7 +31,10 @@ def _positive_integer(value: object, *, field: str) -> int:
 def _number(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result

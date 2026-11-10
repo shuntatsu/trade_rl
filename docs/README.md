@@ -38,6 +38,7 @@ python -m tools.markdown_links --check
 
 - [Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) — 非LLM売買研究の親計画。進捗・依存はIssue/PR、現行判断はresearch/current-status.mdを正本とする。
 - Prospective carry: [specs/funding-carry-paper.md](specs/funding-carry-paper.md) / [plans/funding-carry-paper.md](plans/funding-carry-paper.md)
+- Multi-symbol carry development screen (pre-registered, no data read): [specs/funding-carry-multisymbol.md](specs/funding-carry-multisymbol.md)
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
 
 ## 情報の所有先と更新

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
@@ -11,9 +12,17 @@ import numpy as np
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import RawMarketSeries
-from trade_rl.integrations.binance.dataset import _parse_kline_rows
+from trade_rl.integrations.binance.dataset import _align_funding, _parse_kline_rows
 from trade_rl.integrations.binance.types import _aware_utc
 from trade_rl.integrations.binance.vision import _epoch_ms, _normalize_epoch_ms
+
+
+class CarryCoverageError(ValueError):
+    """A requested carry series is absent or has an unexplained gap.
+
+    This is a coverage fact (nothing was published or a gap is unexplained), never a
+    data-integrity failure: a failed checksum or malformed archive is not this error.
+    """
 
 
 def parse_carry_spot_rows(
@@ -93,6 +102,48 @@ def parse_carry_spot_rows(
     )
 
 
+def parse_carry_perp_rows(
+    rows: Sequence[Sequence[object]],
+    funding_events: Sequence[tuple[int, float]],
+    *,
+    start_time: datetime,
+    end_time: datetime,
+) -> RawMarketSeries:
+    """Strict hourly USD-M perpetual series: no missing bar is ever filled.
+
+    This is the ``STRICT`` Binance kline policy applied to Vision-layout rows plus
+    the published funding events on their original completed-bar clock. A missing,
+    duplicated or unordered bar fails closed, so the perpetual leg has no halt
+    calendar. Funding coverage is validated later by the carry assembler.
+    """
+    hour = 3_600_000
+    start = _epoch_ms(_aware_utc(start_time, field="start_time"))
+    end = _epoch_ms(_aware_utc(end_time, field="end_time"))
+    if start % hour or end % hour or end - start < 2 * hour:
+        raise ValueError("carry perpetual range must contain aligned hourly bars")
+    timestamps, opened, high, low, close, volume = _parse_kline_rows(
+        rows, interval_ms=hour, start_ms=start, end_ms=end
+    )
+    funding, available, counts = _align_funding(timestamps, funding_events)
+    return RawMarketSeries(
+        timestamps=timestamps,
+        available_at=timestamps,
+        open=opened,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        funding_rate=funding,
+        funding_available=available,
+        funding_event_count=counts,
+        tradable=np.ones(len(timestamps), dtype=np.bool_),
+    )
+
+
+def _positive_multiplier(value: float) -> bool:
+    return not isinstance(value, bool) and math.isfinite(value) and value > 0
+
+
 def assemble_carry_dataset(
     pairs: Mapping[str, tuple[RawMarketSeries, RawMarketSeries]],
     *,
@@ -108,8 +159,66 @@ def assemble_carry_dataset(
     """
     if not pairs or not set(pairs).issubset({"BTCUSDT", "ETHUSDT"}):
         raise ValueError("carry source requires BTCUSDT and/or ETHUSDT pairs")
+    return _assemble_pairs(
+        pairs,
+        cost_multiplier=cost_multiplier,
+        capacity_multiplier=capacity_multiplier,
+        identity={"source_contract": "funding_carry_development_v1"},
+    )
+
+
+MULTISYMBOL_SOURCE_CONTRACT = "funding_carry_multisymbol_development_v1"
+MAX_MULTISYMBOL_PAIRS = 11
+_MULTISYMBOL_SYMBOL = re.compile(r"^[A-Z0-9]{2,16}USDT$")
+
+
+def assemble_multisymbol_carry_dataset(
+    pairs: Mapping[str, tuple[RawMarketSeries, RawMarketSeries]],
+    *,
+    universe: Sequence[str],
+    cost_multiplier: float = 1.0,
+    capacity_multiplier: float = 1.0,
+) -> MarketDataset:
+    """Assemble a pre-registered USDT spot/USD-M perpetual pair universe.
+
+    Every economic assumption (fees, spread, lot, participation, funding-coverage
+    rule, close-price mark proxy) is the unchanged BTC/ETH development contract;
+    only the admitted symbol set differs. ``universe`` is the protocol's declared
+    set and every pair must belong to it, so a caller cannot relabel a symbol
+    that the protocol did not name. The universe is part of the content identity,
+    so the same series under a different declared universe is a different Dataset.
+    """
+    declared = tuple(universe)
+    if (
+        not declared
+        or len(set(declared)) != len(declared)
+        or not all(_MULTISYMBOL_SYMBOL.fullmatch(symbol) for symbol in declared)
+    ):
+        raise ValueError("carry universe must be unique USDT symbols")
+    if not pairs or not set(pairs).issubset(declared):
+        raise ValueError("carry pairs must all belong to the declared universe")
+    if len(pairs) > MAX_MULTISYMBOL_PAIRS:
+        raise ValueError(f"carry source supports at most {MAX_MULTISYMBOL_PAIRS} pairs")
+    return _assemble_pairs(
+        pairs,
+        cost_multiplier=cost_multiplier,
+        capacity_multiplier=capacity_multiplier,
+        identity={
+            "source_contract": MULTISYMBOL_SOURCE_CONTRACT,
+            "universe": sorted(declared),
+        },
+    )
+
+
+def _assemble_pairs(
+    pairs: Mapping[str, tuple[RawMarketSeries, RawMarketSeries]],
+    *,
+    cost_multiplier: float,
+    capacity_multiplier: float,
+    identity: Mapping[str, object],
+) -> MarketDataset:
     for value in (cost_multiplier, capacity_multiplier):
-        if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+        if not _positive_multiplier(value):
             raise ValueError("carry cost/capacity multipliers must be positive")
     if capacity_multiplier > 1.0:
         raise ValueError("carry capacity multiplier may only reduce participation")
@@ -181,7 +290,7 @@ def assemble_carry_dataset(
     )
     return dataset.with_content_identity(
         {
-            "source_contract": "funding_carry_development_v1",
+            **identity,
             "cost_multiplier": cost_multiplier,
             "capacity_multiplier": capacity_multiplier,
             "mark_price_limitation": "perpetual_bar_close_proxy",

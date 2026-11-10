@@ -47,7 +47,7 @@ trade_rl/
 │       ├── market_order_profile.py
 │       ├── derived_klines.py
 │       └── dataset.py
-│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,cli.py,migrations/*.sql}
+│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,carry_source.py,cli.py,migrations/*.sql}
 ├── risk/
 │   ├── inputs.py
 │   ├── portfolio.py
@@ -157,6 +157,30 @@ and preserves GTC residuals; it does not convert a quantity hold to a newly size
 weight each hour. The existing BookState and stateful executor own all P&L.
 Futures collateral checks are a projection of that same book excluding spot
 assets, not an additional ledger. No live order connection is provided.
+
+The multi-symbol carry development screen (Issue #810 Track B, spec
+`docs/specs/funding-carry-multisymbol.md`) extends that path without replacing it.
+`integrations/binance/carry.py` keeps `assemble_carry_dataset` (BTC/ETH only, content
+identity byte-identical, pinned by a golden-identity test) and adds
+`assemble_multisymbol_carry_dataset`, which reuses the same assembly body and
+economics for a protocol-declared USDT universe of up to eleven pairs under its own
+`funding_carry_multisymbol_development_v1` identity, plus `parse_carry_perp_rows`
+(strict hourly perpetual rows) and `CarryCoverageError` (an absent series or an
+unexplained gap, never a checksum or malformed-archive failure).
+`evaluation/carry.py` accepts any even leg count from two to twenty-two for the same
+alternating spot/perpetual layout. `evaluation/carry_multisymbol/` owns the
+pre-registered protocol constants and digest (`protocol.py`), the pure decision rule
+(`decision.py`) and the output-directory runner (`runner.py`); the runner consumes a
+`ScreenData` protocol, refuses any window but the registered one and writes every cell
+before the decision. It imports nothing from the market-data store: the architecture
+test that forbids any import of that package from outside it still holds. The store
+package therefore owns the data side, `integrations/market_store/carry_source.py`
+(`VisionArchiveSource`, `ArchiveDirFetcher`, `CarryScreenData`): checksum-verified
+Vision archives without a database or Docker, or a populated store through the same
+`CarryRowSource` protocol. The wiring of the two sides is the repository-only command
+`tools/carry_multisymbol_screen.py` (`plan`, `screen`), which sits outside the
+production wheel; it requires a G4 authorization comment URL, the registered window and
+a clean checkout, and reads nothing at or after 2026-08-01.
 
 `integrations/binance/forward.py` owns fresh public spot/perpetual evidence
 capture. It preserves exact raw response bytes, request/receipt timing and

@@ -72,6 +72,7 @@ def _cost(
         raise SignalMeasurementError("derived cost and threshold must be finite")
     return threshold, cost
 
+
 def _positions(forecast: np.ndarray, threshold: float) -> np.ndarray:
     """sign(forecast) where ``|forecast| > threshold``, else 0 (NaN stays NaN)."""
 

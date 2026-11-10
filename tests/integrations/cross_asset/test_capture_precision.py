@@ -178,6 +178,10 @@ def test_legacy_recheck_uses_first_capture_when_same_raw_file_has_multiple_ok_ro
         encoding="utf-8",
     )
     loaded = store.read_manifest()
+    # All legacy references to the same immutable raw bytes share the earliest
+    # captured_at, not merely an unchanged recheck of that raw path.
+    assert loaded[0]["captured_at"] == first["fetched_at"]
+    assert loaded[1]["captured_at"] == first["fetched_at"]
     assert loaded[2]["captured_at"] == first["fetched_at"]
     assert (
         latest_records(loaded, as_of=SECOND + timedelta(days=1, seconds=1))["DGS10"][

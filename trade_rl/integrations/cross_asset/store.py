@@ -170,10 +170,14 @@ def _resolve_legacy_capture_times(
     for number, record in enumerate(records, start=1):
         if record.get("status") not in USABLE_STATUSES or record.get("captured_at"):
             continue
-        if record["status"] == "ok":
-            record["captured_at"] = str(record["fetched_at"])
-            continue
         origin = origins.get((record.get("path"), record.get("sha256")))
+        if record["status"] == "ok":
+            # Repeated legacy "ok" rows can reference the same immutable raw
+            # file. The first recorded capture is the authority for its bytes.
+            record["captured_at"] = (
+                origin if origin is not None else str(record["fetched_at"])
+            )
+            continue
         if origin is None:
             raise ValueError(
                 f"manifest record {number} ({record['key']}) is an unchanged re-check "

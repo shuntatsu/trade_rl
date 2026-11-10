@@ -135,7 +135,15 @@ class ArchiveDirFetcher:
             return FetchResult(status=OFFLINE_MISS_STATUS, body=None)
         result = self._inner.fetch(url)
         if result.status == 200 and result.body:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            # Directory creation is part of cache publication and must use the
+            # same typed operational-failure boundary as staging and linking.
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                raise CarryOperationalHalt(
+                    f"archive cache publication failed: {url}",
+                    {"kind": "cache_publication_failed", "url": url},
+                ) from error
             # Every publisher owns a private staging file. A hard-link claim is
             # exclusive even when a rival arrives after the initial cache miss;
             # os.replace would silently overwrite that rival on POSIX.

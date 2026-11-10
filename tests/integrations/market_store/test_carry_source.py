@@ -417,7 +417,9 @@ def test_archive_cache_parent_creation_failure_is_an_operational_halt(
             return FetchResult(status=200, body=b"downloaded archive bytes")
 
     monkeypatch.setattr(Path, "mkdir", deny_parent)
-    with pytest.raises(CarryOperationalHalt, match="cache publication failed") as caught:
+    with pytest.raises(
+        CarryOperationalHalt, match="cache publication failed"
+    ) as caught:
         ArchiveDirFetcher(tmp_path, StaticFetcher()).fetch(spec.url)
     assert caught.value.evidence["kind"] == "cache_publication_failed"
     assert not target.exists()

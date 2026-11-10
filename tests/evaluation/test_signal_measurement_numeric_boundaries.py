@@ -39,8 +39,11 @@ def test_nonrepresentable_derived_cost_or_threshold_is_rejected(
     with np.errstate(over="ignore", invalid="ignore"):
         with pytest.raises(SignalMeasurementError, match="finite"):
             after_cost_payoff(
-                np.array([0.1]), np.array([0.02]),
-                k=k, round_trip_cost=cost, cost_multiplier=multiplier,
+                np.array([0.1]),
+                np.array([0.02]),
+                k=k,
+                round_trip_cost=cost,
+                cost_multiplier=multiplier,
             )
 
 

@@ -6,6 +6,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -40,6 +41,15 @@ START = datetime(2024, 6, 3, tzinfo=UTC)
 GOLDEN_BASE_DATASET_ID = (
     "b3a27aedec1f1deb146647688da798face43249a73ff3dfcaacc16245f9c1373"
 )
+
+
+def _overlay(
+    dataset: MarketDataset, frame: FeatureFrame, **kwargs: Any
+) -> MarketDataset:
+    """Overlay with the hindsight flag accepted (frames here opt in every series)."""
+
+    kwargs.setdefault("accept_revision_hindsight", True)
+    return with_cross_asset_global_features(dataset, frame, **kwargs)
 
 
 def _dataset(n_bars: int = 8, start: datetime = START) -> MarketDataset:
@@ -110,7 +120,7 @@ def test_overlay_appends_columns_and_leaves_existing_bytes_identical(
     frame: FeatureFrame,
 ) -> None:
     base = _dataset()
-    combined = with_cross_asset_global_features(base, frame, feature_names=SELECTED)
+    combined = _overlay(base, frame, feature_names=SELECTED)
     assert combined.identity_verified
     assert combined.dataset_id != base.dataset_id
     assert combined.global_feature_names == (
@@ -131,10 +141,10 @@ def test_overlay_appends_columns_and_leaves_existing_bytes_identical(
 
 def test_overlay_is_reproducible_and_binds_its_inputs(frame: FeatureFrame) -> None:
     base = _dataset()
-    first = with_cross_asset_global_features(base, frame, feature_names=SELECTED)
-    again = with_cross_asset_global_features(base, frame, feature_names=SELECTED)
+    first = _overlay(base, frame, feature_names=SELECTED)
+    again = _overlay(base, frame, feature_names=SELECTED)
     assert first.dataset_id == again.dataset_id
-    fewer = with_cross_asset_global_features(base, frame, feature_names=SELECTED[:2])
+    fewer = _overlay(base, frame, feature_names=SELECTED[:2])
     assert fewer.dataset_id != first.dataset_id
     assert first.identity_payload_json is not None
     assert frame.input_digest in first.identity_payload_json
@@ -147,7 +157,7 @@ def test_unavailable_entries_are_zero_with_an_explicit_mask(tmp_path: Path) -> N
     frame = load_cross_asset_features(
         store.root, early.timestamps, opt_in_series=OPT_IN_ALL
     )
-    combined = with_cross_asset_global_features(early, frame, feature_names=SELECTED)
+    combined = _overlay(early, frame, feature_names=SELECTED)
     assert not combined.global_feature_available[:, 1:].any()
     assert (combined.global_features[:, 1:] == 0.0).all()
     assert (combined.global_feature_staleness_hours[:, 1:] == 0.0).all()
@@ -162,20 +172,16 @@ def test_overlay_requires_the_exact_decision_grid_and_an_explicit_selection(
 ) -> None:
     shifted = _dataset(start=START + timedelta(hours=4))
     with pytest.raises(ValueError, match="decision times"):
-        with_cross_asset_global_features(shifted, frame, feature_names=SELECTED)
+        _overlay(shifted, frame, feature_names=SELECTED)
     with pytest.raises(ValueError, match="at least one"):
-        with_cross_asset_global_features(_dataset(), frame, feature_names=())
+        _overlay(_dataset(), frame, feature_names=())
     with pytest.raises(ValueError, match="unique"):
-        with_cross_asset_global_features(
-            _dataset(), frame, feature_names=("curve_slope", "curve_slope")
-        )
+        _overlay(_dataset(), frame, feature_names=("curve_slope", "curve_slope"))
     with pytest.raises(KeyError):
-        with_cross_asset_global_features(_dataset(), frame, feature_names=("nope",))
-    once = with_cross_asset_global_features(
-        _dataset(), frame, feature_names=("curve_slope",)
-    )
+        _overlay(_dataset(), frame, feature_names=("nope",))
+    once = _overlay(_dataset(), frame, feature_names=("curve_slope",))
     with pytest.raises(ValueError, match="already present"):
-        with_cross_asset_global_features(once, frame, feature_names=("curve_slope",))
+        _overlay(once, frame, feature_names=("curve_slope",))
 
 
 def test_fit_window_normalizer_is_applied_before_the_overlay(tmp_path: Path) -> None:
@@ -191,7 +197,7 @@ def test_fit_window_normalizer_is_applied_before_the_overlay(tmp_path: Path) -> 
         fit_end=fit_end,
         min_count=10,
     )
-    combined = with_cross_asset_global_features(
+    combined = _overlay(
         base,
         frame.select(SELECTED),
         feature_names=SELECTED,
@@ -238,7 +244,7 @@ def test_overlay_reaches_the_ppo_observation_and_transform(tmp_path: Path) -> No
     frame = load_cross_asset_features(
         store.root, base.timestamps, opt_in_series=OPT_IN_ALL
     )
-    combined = with_cross_asset_global_features(base, frame, feature_names=SELECTED)
+    combined = _overlay(base, frame, feature_names=SELECTED)
 
     def env_for(dataset: MarketDataset) -> SharedPortfolioGymEnv:
         return SharedPortfolioGymEnv(
@@ -278,7 +284,7 @@ def test_default_frame_marks_opt_in_dependent_features_unavailable(
     store = seed_store(tmp_path)
     base = _dataset()
     default = load_cross_asset_features(store.root, base.timestamps)
-    combined = with_cross_asset_global_features(
+    combined = _overlay(
         base, default, feature_names=("dollar_strength", "risk_appetite")
     )
     assert combined.global_feature_available[:, 1].all()  # five low-risk FX members
@@ -288,9 +294,7 @@ def test_default_frame_marks_opt_in_dependent_features_unavailable(
     opted = load_cross_asset_features(
         store.root, base.timestamps, opt_in_series=("SP500", "NASDAQCOM")
     )
-    other = with_cross_asset_global_features(
-        base, opted, feature_names=("dollar_strength", "risk_appetite")
-    )
+    other = _overlay(base, opted, feature_names=("dollar_strength", "risk_appetite"))
     assert other.dataset_id != combined.dataset_id
     assert '"opt_in_series":["NASDAQCOM","SP500"]' in (
         other.identity_payload_json or ""

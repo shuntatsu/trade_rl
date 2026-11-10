@@ -137,7 +137,7 @@ def test_aligned_value_is_the_latest_row_released_by_the_decision_time() -> None
     book = _equity_book()
     series = book["NASDAQCOM"]
     grid = _grid("2024-03-01T00:00", "2024-03-12T00:00", 4)  # spans a weekend
-    frame = compute_frame({"NASDAQCOM": series}, grid)  # type: ignore[arg-type]
+    frame = compute_frame({"NASDAQCOM": series}, grid, opt_in_series=OPT_IN_ALL)  # type: ignore[arg-type]
     arrays = series_feature_arrays(series)  # type: ignore[arg-type]
     column = frame.column("NASDAQCOM__ret1")
     stale_col = frame.column("NASDAQCOM__rvol20")
@@ -165,7 +165,7 @@ def test_weekend_bars_carry_the_last_released_value_with_growing_staleness() -> 
     book = _equity_book()
     series = book["NASDAQCOM"]
     grid = _grid("2024-03-08T00:00", "2024-03-12T00:00", 4)
-    frame = compute_frame({"NASDAQCOM": series}, grid)  # type: ignore[arg-type]
+    frame = compute_frame({"NASDAQCOM": series}, grid, opt_in_series=OPT_IN_ALL)  # type: ignore[arg-type]
     column = frame.column("NASDAQCOM__ret1")
     values = frame.values[:, column]
     stale = frame.staleness_hours[:, column]
@@ -195,7 +195,7 @@ def test_values_older_than_the_staleness_limit_become_unavailable() -> None:
         ],
         dtype="datetime64[ns]",
     )
-    frame = compute_frame({"NASDAQCOM": series}, grid)  # type: ignore[arg-type]
+    frame = compute_frame({"NASDAQCOM": series}, grid, opt_in_series=OPT_IN_ALL)  # type: ignore[arg-type]
     available = frame.available[:, frame.column("NASDAQCOM__ret1")]
     # Before the last release the previous row is used; after the limit, nothing.
     assert available.tolist() == [True, True, True, False]
@@ -206,7 +206,7 @@ def test_decision_times_before_the_first_release_are_unavailable() -> None:
     book = _equity_book()
     series = book["NASDAQCOM"]
     early = np.asarray([series.knowable_ns[0] - 1], dtype="datetime64[ns]")  # type: ignore[attr-defined]
-    frame = compute_frame({"NASDAQCOM": series}, early)  # type: ignore[arg-type]
+    frame = compute_frame({"NASDAQCOM": series}, early, opt_in_series=OPT_IN_ALL)  # type: ignore[arg-type]
     assert not frame.available.any()
 
 
@@ -434,11 +434,11 @@ def test_default_composites_ignore_series_that_are_not_low_revision_risk() -> No
         opted.values[:, opted.column("risk_appetite")],
         default.values[:, default.column("risk_appetite")],
     )
-    # Opt-in never changes per-series columns.
-    assert _nan_equal(
-        opted.values[:, opted.column("NASDAQCOM__ret1")],
-        default.values[:, default.column("NASDAQCOM__ret1")],
-    )
+    # Non-low series have no columns at all unless opted in.
+    assert "NASDAQCOM__ret1" not in default.names
+    assert "BAMLH0A0HYM2__ret1" not in default.names
+    assert "NASDAQCOM__ret1" in opted.names and "SP500__ret1" in opted.names
+    assert "y_dxy__ret1" not in opted.names  # not opted in
     with pytest.raises(ValueError, match="unknown opt-in"):
         compute_frame(book, grid, opt_in_series=("nope",))  # type: ignore[arg-type]
 

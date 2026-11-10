@@ -50,7 +50,10 @@ def load_cross_asset_features(
     restricts the raw vintages to those captured at or before it, which makes a
     build reproducible after later refetches or revisions. Composites use only
     default (``revision_risk == "low"``) series unless ``opt_in_series`` names
-    others; the frame records the opt-in set.
+    others and only those series produce columns at all; the frame records the
+    opt-in set and the series behind each column. Timing is point-in-time but
+    values are the newest vintage at capture, not first releases (revisions are
+    not vintage-corrected).
     """
 
     store = CrossAssetStore(root)

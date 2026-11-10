@@ -73,7 +73,7 @@ def test_values_do_not_depend_on_the_grid_resolution(tmp_path: Path) -> None:
 
 def test_as_of_selects_the_vintage_known_at_that_time(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
-    first = load_cross_asset_features(store.root, _grid("1d"))
+    first = load_cross_asset_features(store.root, _grid("1d"), opt_in_series=("SP500",))
     days = weekdays(420)
     revised = random_walk(420, seed=0)  # SP500 is seed offset 0 in seed_store
     revised[300:310] *= 1.2  # a revision inside the grid period
@@ -88,9 +88,12 @@ def test_as_of_selects_the_vintage_known_at_that_time(tmp_path: Path) -> None:
     assert record["status"] == "ok"
     assert record["revision"]["changed"] == 10  # type: ignore[index]
     old = load_cross_asset_features(
-        store.root, _grid("1d"), as_of=FETCHED_AT + timedelta(hours=1)
+        store.root,
+        _grid("1d"),
+        as_of=FETCHED_AT + timedelta(hours=1),
+        opt_in_series=("SP500",),
     )
-    new = load_cross_asset_features(store.root, _grid("1d"))
+    new = load_cross_asset_features(store.root, _grid("1d"), opt_in_series=("SP500",))
     assert old.input_digest == first.input_digest
     assert new.input_digest != old.input_digest
     column = old.column("SP500__ret1")
@@ -109,6 +112,7 @@ def test_loader_can_restrict_series_and_select_features(tmp_path: Path) -> None:
         store.root,
         _grid("1d"),
         series=("SP500", "NASDAQCOM"),
+        opt_in_series=("SP500", "NASDAQCOM"),
         feature_names=("SP500__ret1", "dollar_strength"),
     )
     assert frame.names == ("SP500__ret1", "dollar_strength")

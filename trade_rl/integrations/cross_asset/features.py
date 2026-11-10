@@ -10,10 +10,12 @@ Not to be confused with ``trade_rl.data.features.cross_asset``, which computes
 BTC-relative features among the *crypto* symbols of one dataset. This module
 only handles non-crypto macro and market series and never sees crypto prices.
 
-Default membership: a series feeds a composite only when its ``revision_risk`` is
-``low`` (measured; see the catalog). Series with ``possible`` or ``unknown``
-revision risk are opt-in through ``opt_in_series`` and the frame records which
-ones were used.
+Default membership: a series produces columns (per-series and composite) only
+when its ``revision_risk`` is ``low`` (measured; see the catalog). Series with
+``possible`` or ``unknown`` revision risk are opt-in through ``opt_in_series``;
+the frame records the opt-in set and, per column, the series that feed it.
+Values are the newest vintage at capture, not first releases: timing is
+point-in-time, value revisions are not.
 """
 
 from __future__ import annotations
@@ -171,6 +173,10 @@ def definitions() -> dict[str, object]:
         },
         "default_membership": "series with revision_risk == 'low'; every other"
         " series only through opt_in_series",
+        "series_gate": "a series that is neither low risk nor opted in produces no"
+        " per-series or composite column",
+        "vintage_basis": "latest vintage at capture, not first release; opted-in"
+        " non-low series carry revision hindsight",
         "rotations": [list(rotation) for rotation in ROTATIONS],
         "staleness": "hours from the session close of the as-of observation",
         "alignment": "as-of join on knowable_at <= decision time, past values only",
@@ -277,6 +283,9 @@ class FeatureFrame:
     staleness_hours: np.ndarray  # float64 [time, feature], NaN where unavailable
     series_present: tuple[str, ...]
     opt_in_series: tuple[str, ...] = ()
+    # Series feeding each column (same order as ``names``); empty means the
+    # frame has no provenance and consumers must refuse it.
+    column_sources: tuple[tuple[str, ...], ...] = ()
 
     def __post_init__(self) -> None:
         shape = (self.decision_ns.size, len(self.names))
@@ -291,6 +300,8 @@ class FeatureFrame:
             raise ValueError("feature names must be unique")
         if np.any(self.available & ~np.isfinite(self.values)):
             raise ValueError("available entries must be finite")
+        if self.column_sources and len(self.column_sources) != len(self.names):
+            raise ValueError("column_sources must have one entry per feature")
 
     def column(self, name: str) -> int:
         try:
@@ -311,6 +322,11 @@ class FeatureFrame:
             staleness_hours=self.staleness_hours[:, indices],
             series_present=self.series_present,
             opt_in_series=self.opt_in_series,
+            column_sources=(
+                tuple(self.column_sources[i] for i in indices)
+                if self.column_sources
+                else ()
+            ),
         )
 
 
@@ -372,8 +388,12 @@ def compute_frame(
 ) -> FeatureFrame:
     """Compute every feature at the decision times using only released data.
 
-    Composites use default members only (``revision_risk == "low"``) plus the
-    series named in ``opt_in_series``. Per-series columns are always computed.
+    Only series that are default members (``revision_risk == "low"``) or named
+    in ``opt_in_series`` produce columns at all, per-series and composite alike.
+    Values come from the newest vintage held, not from first releases, so an
+    opted-in series with ``possible``/``unknown`` risk carries revision hindsight;
+    ``column_sources`` records which series feed each column so consumers can
+    refuse or flag it.
     """
 
     catalog_keys = {spec.key: spec for spec in CATALOG}
@@ -393,27 +413,29 @@ def compute_frame(
     grid_ns = times.astype("datetime64[ns]").astype(np.int64)
     size = grid_ns.size
 
+    used_series = {key: series for key, series in obs.items() if eligible(key)}
     aligned: dict[tuple[str, str], _Aligned] = {}
-    for key, series in obs.items():
+    for key, series in used_series.items():
         arrays = series_feature_arrays(series)
         for suffix, feature in arrays.items():
             aligned[(key, suffix)] = _align_feature(series, feature, grid_ns)
 
     columns: dict[str, _Aligned] = {}
+    sources: dict[str, tuple[str, ...]] = {}
     for composite in COMPOSITES:
-        parts = [
-            (aligned[(key, suffix)], sign)
+        members = [
+            (key, suffix, sign)
             for key, suffix, sign in composite.members
-            if (key, suffix) in aligned and eligible(key)
+            if (key, suffix) in aligned
         ]
+        parts = [(aligned[(key, suffix)], sign) for key, suffix, sign in members]
         columns[composite.name] = _combine(parts, composite.min_members, size)
+        sources[composite.name] = tuple(sorted({key for key, _s, _g in members}))
     for name, window in zip(BREADTH_NAMES, MA_WINDOWS, strict=True):
-        parts = [
-            (aligned[(key, f"abv{window}")], 1)
-            for key in _breadth_members()
-            if (key, f"abv{window}") in aligned and eligible(key)
-        ]
+        keys = [key for key in _breadth_members() if (key, f"abv{window}") in aligned]
+        parts = [(aligned[(key, f"abv{window}")], 1) for key in keys]
         columns[name] = _combine(parts, BREADTH_MIN_MEMBERS, size)
+        sources[name] = tuple(sorted(keys))
     for name, left, right in ROTATIONS:
         a, b = columns[left], columns[right]
         ok = a.available & b.available
@@ -422,13 +444,15 @@ def compute_frame(
             ok,
             np.where(ok, np.fmax(a.staleness, b.staleness), np.nan),
         )
+        sources[name] = tuple(sorted(set(sources[left]) | set(sources[right])))
     names: list[str] = list(COMPOSITE_FEATURE_NAMES)
     for spec in CATALOG:
-        if spec.key not in obs:
+        if spec.key not in used_series:
             continue
         for suffix in series_suffixes(spec.kind):
             name = f"{spec.key}__{suffix}"
             columns[name] = aligned[(spec.key, suffix)]
+            sources[name] = (spec.key,)
             names.append(name)
 
     values = np.stack([columns[name].value for name in names], axis=1)
@@ -443,8 +467,9 @@ def compute_frame(
         values=values,
         available=available,
         staleness_hours=staleness,
-        series_present=tuple(sorted(obs)),
+        series_present=tuple(sorted(used_series)),
         opt_in_series=opted,
+        column_sources=tuple(sources[name] for name in names),
     )
 
 

@@ -109,7 +109,7 @@ class CrossAssetStore:
             ):
                 raise ValueError(f"manifest line {number} is not a valid record")
             records.append(record)
-        return records
+        return _resolve_legacy_capture_times(records)
 
     def read_raw(self, record: Mapping[str, object]) -> bytes:
         path = record.get("path")
@@ -130,14 +130,48 @@ class CrossAssetStore:
         return hashlib.sha256(payload).hexdigest() == record.get("sha256")
 
 
+def _resolve_legacy_capture_times(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Give pre-``captured_at`` rows a capture time or fail closed.
+
+    An ``ok`` row captured its own bytes when it was fetched. A legacy
+    ``unchanged`` row was restamped by the re-check and is resolved to the ``ok``
+    row that holds the same raw file; with no such row the capture time is
+    unknown (a still-open session bar could be admitted) and the manifest is
+    refused until the series is refetched.
+    """
+
+    origins = {
+        (record.get("path"), record.get("sha256")): str(record["fetched_at"])
+        for record in records
+        if record.get("status") == "ok"
+    }
+    for number, record in enumerate(records, start=1):
+        if record.get("status") not in USABLE_STATUSES or record.get("captured_at"):
+            continue
+        if record["status"] == "ok":
+            record["captured_at"] = str(record["fetched_at"])
+            continue
+        origin = origins.get((record.get("path"), record.get("sha256")))
+        if origin is None:
+            raise ValueError(
+                f"manifest record {number} ({record['key']}) is an unchanged re-check "
+                "without captured_at and no originating ok record: capture time "
+                "unknown; refetch the series"
+            )
+        record["captured_at"] = origin
+    return records
+
+
 def captured_at(record: Mapping[str, object]) -> str:
-    """When the record's bytes were first captured (``fetched_at`` for old files).
+    """When the record's bytes were first captured.
 
     An ``unchanged`` re-check carries the capture time of the vintage it
     confirmed, never the time of the re-check.
     """
 
-    return str(record.get("captured_at") or record["fetched_at"])
+    return str(record["captured_at"])
 
 
 def latest_records(

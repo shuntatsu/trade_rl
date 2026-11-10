@@ -605,3 +605,58 @@ def test_escaped_ordinary_byte_cannot_hide_actual_json_nesting(
     with pytest.raises(ValueError, match="failure receipt JSON nesting"):
         study._decode_incomplete_receipt(raw)
     assert decoder_calls == [], "actual nested arrays reached the JSON decoder"
+
+
+@pytest.mark.parametrize("declared", (b"0", b"1", b"9" * 16_384))
+def test_mismatched_receipt_pair_count_rejected_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, declared: bytes
+) -> None:
+    """Do not allocate a wide pair list when its declared count is impossible."""
+    pair = (
+        b'{"admissible_for_fit":false,"baseline":{},"candidate":{},'
+        b'"candidate_action":[0,0],"intervention_index":0,'
+        b'"prefix_start_index":0,"reason_codes":["blocked"],'
+        b'"schema":"decision_value_ineligible_pair_v1","terminal_index":1}'
+    )
+    raw = b'{"ineligible_pairs":' + declared + b',"pairs":['
+    raw += b",".join((pair,) * 1_024) + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("inconsistent pair count reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair count mismatch"):
+        study._decode_incomplete_receipt(raw)
+
+
+def test_matching_receipt_pair_count_remains_reloadable(tmp_path: Path) -> None:
+    """Both v3 writer and strict reader accept the unmodified correct count."""
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row(), _row(action=(0, 1)))
+    receipt = study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
+    assert receipt["ineligible_pairs"] == 2
+    assert len(receipt["pairs"]) == 2
+
+
+def test_broad_consistent_pair_count_reaches_existing_json_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The count preflight is not an artificial cap on valid-width arrays."""
+    pair = (
+        b'{"admissible_for_fit":false,"baseline":{},"candidate":{},'
+        b'"candidate_action":[0,0],"intervention_index":0,'
+        b'"prefix_start_index":0,"reason_codes":["blocked"],'
+        b'"schema":"decision_value_ineligible_pair_v1","terminal_index":1}'
+    )
+    raw = b'{"ineligible_pairs":1024,"pairs":['
+    raw += b",".join((pair,) * 1_024) + b"]}"
+
+    class DecoderReached(Exception):
+        pass
+
+    def stop_at_decoder(*_args: object, **_kwargs: object) -> object:
+        raise DecoderReached()
+
+    monkeypatch.setattr(study.json, "loads", stop_at_decoder)
+    with pytest.raises(DecoderReached):
+        study._decode_incomplete_receipt(raw)

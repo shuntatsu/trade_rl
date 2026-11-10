@@ -918,12 +918,12 @@ def test_resealed_four_family_cash_overflow_has_typed_field_error(
     cash_ref["sha256"] = hashlib.sha256(row_raw).hexdigest()
     cash_ref["size_bytes"] = len(row_raw)
     envelope["artifact_digest"] = hashlib.sha256(
-        b"trade_rl.four_family_portfolio_result_v1\\0"
+        b"trade_rl.four_family_portfolio_result_v1\0"
         + canonical_json_bytes(envelope["payload"])
     ).hexdigest()
     manifest_path.write_bytes(canonical_json_bytes(envelope))
 
-    with pytest.raises(ValueError, match=r"family\\.book\\.cash must be finite"):
+    with pytest.raises(ValueError, match=r"family\.book\.cash must be finite"):
         load_four_family_portfolio_result_artifact(
             root,
             expected_digest=envelope["artifact_digest"],

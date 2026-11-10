@@ -1743,7 +1743,7 @@ exact seal and launch procedure and what is still missing.
 
 ## Research-specific contract: multi-symbol funding carry (Track B)
 
-The author packet is `report/issue810-carry-multisymbol-research-assurance-20261110.json` (digest `f72e61b911b523b36f31f8a7838450065ef2be2bfc5e26f5f8d9451dc26e6296`, status **UNREVIEWED**, `economic_execution_authorized=false`); the protocol is `specs/funding-carry-multisymbol.md` (`carry-multisymbol-dev-v1`). Its `protocol_head` and `implementation_head` are the last commit that changes `trade_rl/` or `tools/` in the change that adds it. It is a result-blind pre-registration: no funding, price or return of any candidate symbol was read, and no real-data run is part of it.
+The author packet is `report/issue810-carry-multisymbol-research-assurance-20261110.json` (digest `6868a5f482cf335f4126a3af8484e3e565173bc8be1d0443af6a446204d51212`, status **UNREVIEWED**, `economic_execution_authorized=false`); the protocol is `specs/funding-carry-multisymbol.md` (`carry-multisymbol-dev-v1`). Its `protocol_head` and `implementation_head` are the last commit that changes `trade_rl/` or `tools/` in the change that adds it. It is a result-blind pre-registration: no funding, price or return of any candidate symbol was read, and no real-data run is part of it.
 
 ### G0 — question, counter-hypothesis, falsifier
 

@@ -153,6 +153,66 @@ def test_rule_validation_rounding_and_minimum_notional_are_explicit() -> None:
     assert below_minimum.reason == "below_minimum_notional"
 
 
+@pytest.mark.parametrize(
+    ("open_price", "multiplier", "limit_price", "expected_reason"),
+    [
+        (1e-200, 1e-200, 1e200, "unrepresentable_notional"),
+        (1e-160, 5e-164, 1e-159, None),
+    ],
+)
+def test_nonmarketable_limit_open_reservation_requires_representable_notional(
+    open_price: float,
+    multiplier: float,
+    limit_price: float,
+    expected_reason: str | None,
+) -> None:
+    """Preflight open-risk value even when the limit notional is nonzero."""
+    book = BookState.zero(1, 1_000.0, np.array([open_price]), np.array([multiplier]))
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity="nonmarketable-sell-open-underflow",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=-1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=limit_price,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=open_price,
+        decision_equity=1_000.0,
+    )
+    policy = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=1.0,
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        decision = policy.evaluate(
+            intent,
+            book=book,
+            processing_index=1,
+            asset_active=True,
+            tradable=True,
+            buy_allowed=True,
+            sell_allowed=True,
+            borrow_available=True,
+            tick_size=0.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+            reference_prices=np.array([open_price]),
+        )
+    assert decision.accepted is (expected_reason is None)
+    assert decision.reason == expected_reason
+    if expected_reason is None:
+        assert decision.admitted_notional > 0.0
+    assert book.quantities.tolist() == [0.0]
+    assert book.cash == 1_000.0
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

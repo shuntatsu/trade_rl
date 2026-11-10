@@ -489,3 +489,13 @@ def test_profile_inputs_are_validated() -> None:
         nonstationarity_profile(
             values, periods, ("a", "b"), min_train_rows=2, clip_abs=0.0
         )
+
+def test_forward_log_returns_extreme_finite_prices_have_finite_labels() -> None:
+    """A finite 1e600 price ratio must not overflow its log-return label."""
+    close = np.array([[1e-300], [1e300], [1e-300]])
+    outcome = forward_log_returns(close, 1)
+    expected = math.log(1e300) - math.log(1e-300)
+    np.testing.assert_allclose(
+        outcome[:2, 0], np.array([expected, -expected]), rtol=0.0, atol=1e-12
+    )
+    assert np.isnan(outcome[2, 0])

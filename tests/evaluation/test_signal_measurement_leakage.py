@@ -229,3 +229,29 @@ def test_the_identity_screen_validates_and_needs_enough_rows() -> None:
     assert (
         affine_label_copy(np.array([1.0, 2.0]), np.array([1.0, 2.0])) is False
     )  # too few rows
+
+def test_zero_in_future_field_cannot_mask_a_lookahead() -> None:
+    """The unrelated future column must not hide a zero-valued future dependency."""
+    inputs = np.array(
+        [[1.0, 1.0], [3.0, 2.0], [0.0, 4.0], [5.0, 6.0]]
+    )
+
+    def future_first_column(values: np.ndarray) -> np.ndarray:
+        result = np.zeros((values.shape[0], 1), dtype=np.float64)
+        result[:-1, 0] = values[1:, 0]
+        return result
+
+    result = future_perturbation_probe(
+        future_first_column, inputs, cutoffs=(1,), seed=0, relative_scale=0.05
+    )
+    assert result.changed_rows == ((1, 1),)
+    assert result.leaks is True
+
+
+def test_probe_rejects_nonfinite_inputs_instead_of_silent_clearance() -> None:
+    inputs = np.array([[1.0, 2.0], [np.nan, 3.0], [4.0, 5.0]])
+    with pytest.raises(SignalMeasurementError, match="finite"):
+        future_perturbation_probe(
+            lambda values: values.copy(),
+            inputs, cutoffs=(0,), seed=0, relative_scale=0.05,
+        )

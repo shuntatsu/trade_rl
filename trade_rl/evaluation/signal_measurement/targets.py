@@ -43,13 +43,15 @@ def forward_log_returns(close: object, horizon_bars: int) -> np.ndarray:
         raise SignalMeasurementError("close must be finite and positive")
     out = np.full(prices.shape, np.nan, dtype=np.float64)
     if prices.shape[0] > horizon:
-        # Preserve ordinary ratio precision, but avoid overflow/underflow of
-        # the intermediate ratio for otherwise finite positive prices.
+        # Keep the direct ratio for normal finite values (better relative
+        # precision near 1), but use log differences when the intermediate
+        # ratio overflows or enters the subnormal range and loses precision.
         with np.errstate(divide="ignore", over="ignore", under="ignore"):
             ratio = prices[horizon:] / prices[:-horizon]
             direct = np.log(ratio)
             stable = np.log(prices[horizon:]) - np.log(prices[:-horizon])
-        out[:-horizon] = np.where(np.isfinite(direct), direct, stable)
+        reliable_ratio = np.isfinite(direct) & (ratio >= np.finfo(np.float64).tiny)
+        out[:-horizon] = np.where(reliable_ratio, direct, stable)
     return out
 
 

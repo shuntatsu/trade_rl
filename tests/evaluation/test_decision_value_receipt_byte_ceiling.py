@@ -633,9 +633,7 @@ def test_matching_receipt_pair_count_remains_reloadable(tmp_path: Path) -> None:
     """Both v3 writer and strict reader accept the unmodified correct count."""
     root = tmp_path / "attempt"
     digest = _persist(root, _row(), _row(action=(0, 1)))
-    receipt = study.load_incomplete_pair_attempt(
-        root, expected_receipt_digest=digest
-    )
+    receipt = study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
     assert receipt["ineligible_pairs"] == 2
     assert len(receipt["pairs"]) == 2
 

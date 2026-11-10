@@ -47,10 +47,11 @@ from trade_rl.strategies.forecasts.ridge import fit_ridge_forecast_from_training
 from trade_rl.strategies.forecasts.supervised import CausalForecastTrainingSet
 
 ROOT = Path(__file__).resolve().parents[2]
-REPORT = ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-v2-20261110.json"
+REPORT = ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-v3-20261110.json"
 V1_BLOCKED_DIGEST = "7c353bf45feea49aa421172f6a8df4d9ed39789585d438c7a4b57d1409e5dfc9"
+V2_BLOCKED_DIGEST = "7a550e789ce76fb2bfb598a9e1bc087bfc4ba30747ff0f845b2b79f51ff8f570"
 PINNED_PROTOCOL_DIGEST = (
-    "7a550e789ce76fb2bfb598a9e1bc087bfc4ba30747ff0f845b2b79f51ff8f570"
+    "cbc26a54b7915e4927e39c65f9be32704088fdad83026bb6fffff00bcb7b8161"
 )
 SHA_A = "a" * 64
 
@@ -109,8 +110,8 @@ def test_default_protocol_is_frozen_and_its_digest_is_pinned() -> None:
     protocol = default_signal_diagnosis_protocol()
     raw = protocol_canonical_bytes(protocol)
 
-    assert protocol.schema_version == PROTOCOL_SCHEMA == "signal_diagnosis_protocol_v2"
-    assert protocol_digest(protocol) != V1_BLOCKED_DIGEST
+    assert protocol.schema_version == PROTOCOL_SCHEMA == "signal_diagnosis_protocol_v3"
+    assert protocol_digest(protocol) not in (V1_BLOCKED_DIGEST, V2_BLOCKED_DIGEST)
     assert protocol_digest(protocol) == hashlib.sha256(raw).hexdigest()
     assert protocol_digest(protocol) == PINNED_PROTOCOL_DIGEST
     assert default_signal_diagnosis_protocol() == protocol
@@ -559,7 +560,11 @@ def test_grids_cannot_be_empty(mutate: Any) -> None:
         lambda p: p["stability"].__setitem__("covered_month_min_valid_days", 10),
         lambda p: p["families"][1]["feature_names"].pop(),
         lambda p: p["data"].__setitem__("evaluation_end", "2026-09-01T00:00:00Z"),
-        lambda p: p.__setitem__("schema_version", "signal_diagnosis_protocol_v3"),
+        lambda p: p.__setitem__("schema_version", "signal_diagnosis_protocol_v4"),
+        lambda p: p["significance"].__setitem__("tail", "two_sided"),
+        lambda p: p["significance"]["bh_family_cell_ids"].pop(),
+        lambda p: p["significance"]["bh_family_ids"].pop(),
+        lambda p: p["bootstrap"].__setitem__("block_days", 10),
     ],
     ids=[
         "primary_horizon",
@@ -580,6 +585,10 @@ def test_grids_cannot_be_empty(mutate: Any) -> None:
         "family_member",
         "window_end",
         "schema_version",
+        "significance_tail",
+        "significance_family_cells",
+        "significance_families",
+        "bootstrap_block_days",
     ],
 )
 def test_grids_cannot_be_altered_without_a_version_change(mutate: Any) -> None:
@@ -957,13 +966,24 @@ def test_coverage_rule_bounds_are_validated(mutate: Any) -> None:
         mutate(default_signal_diagnosis_protocol().stability)
 
 
-def test_v1_is_not_loadable_and_its_blocked_digest_is_not_reused() -> None:
+@pytest.mark.parametrize(
+    "old_schema", ["signal_diagnosis_protocol_v1", "signal_diagnosis_protocol_v2"]
+)
+def test_superseded_versions_are_not_loadable_and_their_digests_are_not_reused(
+    old_schema: str,
+) -> None:
     payload = _payload()
-    payload["schema_version"] = "signal_diagnosis_protocol_v1"
+    payload["schema_version"] = old_schema
 
     with pytest.raises(SignalDiagnosisProtocolError, match="unsupported protocol"):
         protocol_from_payload(payload)
-    assert PINNED_PROTOCOL_DIGEST != V1_BLOCKED_DIGEST
+    assert PINNED_PROTOCOL_DIGEST not in (V1_BLOCKED_DIGEST, V2_BLOCKED_DIGEST)
+    # v2 had no significance procedure; its payload shape is refused outright.
+    legacy = _payload()
+    del legacy["significance"]
+    legacy["schema_version"] = "signal_diagnosis_protocol_v2"
+    with pytest.raises(SignalDiagnosisProtocolError):
+        protocol_from_payload(legacy)
 
 
 def test_the_decisive_target_is_named_for_what_it_computes() -> None:
@@ -1040,3 +1060,123 @@ def test_a_label_closing_exactly_at_the_window_end_is_inside_one_bar_later_is_no
     reject_forbidden_window(end - timedelta(days=1), end)  # t + h == end
     with pytest.raises(ForbiddenEvaluationWindowError):
         reject_forbidden_window(end - timedelta(days=1), end + bar)
+
+
+# ------------------------------------------------ frozen significance procedure (v3)
+
+
+def test_the_decisive_significance_test_is_frozen_field_by_field() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    significance = protocol.significance
+
+    assert significance.procedure_id == (
+        "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1"
+    )
+    assert significance.tail == "one_sided_positive"
+    assert "mean" in significance.null_hypothesis
+    assert "<= 0" in significance.null_hypothesis
+    for needle in (
+        "mean over the eligible UTC days",
+        "daily rank-IC increment",
+        "primary horizon",
+    ):
+        assert needle in significance.statistic, needle
+    for needle in (
+        "moving_block_mean_test",
+        "bootstrap.block_days",
+        "bootstrap.resamples",
+        "bootstrap.seed",
+        "p_value",
+        "1.0",
+    ):
+        assert needle in significance.p_value_source, needle
+    assert "label_overlap_days" in significance.dependence_rule
+    assert "decision cell" in significance.family_rule
+
+
+def test_the_bh_family_is_the_sixteen_frozen_decision_cells_for_each_target() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    significance = protocol.significance
+    expected = tuple(
+        f"{family.family_id}:{model_id}"
+        for family in protocol.families
+        for model_id in protocol.models.model_ids
+    )
+
+    assert len(expected) == 16
+    assert significance.bh_family_cell_ids == expected
+    assert significance.bh_family_ids == (
+        "raw_target_decision_cells",
+        "demeaned_target_decision_cells",
+    )
+    assert protocol.multiple_testing.decision_procedure == "bh_fdr"
+    assert protocol.multiple_testing.decision_test_family == "decision_cells"
+
+
+def test_the_family_cell_list_must_equal_the_families_times_models() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    short = replace(
+        protocol.significance,
+        bh_family_cell_ids=protocol.significance.bh_family_cell_ids[:-1],
+    )
+    swapped = replace(
+        protocol.significance,
+        bh_family_cell_ids=tuple(reversed(protocol.significance.bh_family_cell_ids)),
+    )
+
+    for bad in (short, swapped):
+        with pytest.raises(SignalDiagnosisProtocolError, match="decision cells"):
+            replace(protocol, significance=bad)
+
+
+def test_the_bootstrap_block_must_cover_the_label_overlap() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    # 72-bar labels overlap three daily rows, so a 2-day block cannot cover them.
+    horizons = replace(protocol.horizons, primary_bars=72, secondary_bars=(4, 96))
+    rules = replace(protocol.decision_rules, primary_horizon_bars=72)
+    bootstrap = replace(protocol.bootstrap, block_days=2)
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="label overlap"):
+        replace(protocol, horizons=horizons, decision_rules=rules, bootstrap=bootstrap)
+    # The frozen values satisfy it: 24 one-hour bars overlap at most one day.
+    assert protocol.bootstrap.block_days >= 1
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda s: replace(s, tail="two_sided"),
+        lambda s: replace(s, procedure_id=" "),
+        lambda s: replace(s, bh_family_ids=("raw_target_decision_cells",)),
+        lambda s: replace(s, bh_family_ids=("a", "a")),
+    ],
+    ids=["two_sided", "blank_id", "one_family", "duplicate_family"],
+)
+def test_the_significance_spec_validates_itself(mutate: Any) -> None:
+    with pytest.raises(SignalDiagnosisProtocolError):
+        mutate(default_signal_diagnosis_protocol().significance)
+
+
+def test_the_frozen_p_value_source_is_what_the_repository_bootstrap_returns() -> None:
+    """The text says p comes from ``moving_block_mean_test``; check its stated behaviour."""
+
+    protocol = default_signal_diagnosis_protocol()
+    boot = protocol.bootstrap
+    settings = {
+        "n_bootstrap": boot.resamples,
+        "seed": boot.seed,
+        "block_size": boot.block_days,
+    }
+    rng = np.random.default_rng(0)
+    strongly_positive = tuple(float(v) for v in 0.5 + 0.01 * rng.standard_normal(80))
+    non_positive = tuple(float(v) for v in -0.5 + 0.01 * rng.standard_normal(80))
+
+    strong = moving_block_mean_test(strongly_positive, **settings)
+    weak = moving_block_mean_test(non_positive, **settings)
+    too_short = moving_block_mean_test((0.3,), **settings)
+
+    assert boot.method == "moving_block_mean_test"
+    assert strong.p_value == pytest.approx(1.0 / (boot.resamples + 1))  # the smallest p
+    assert weak.p_value == 1.0  # observed mean <= 0: the one-sided p is exactly 1
+    assert too_short.p_value == 1.0  # fewer than two days cannot reject
+    assert strong.block_size == boot.block_days

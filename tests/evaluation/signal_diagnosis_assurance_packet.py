@@ -21,7 +21,7 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
     protocol_digest,
 )
 
-REPORT_PATH = "report/issue1146-sd0-signal-diagnosis-protocol-v2-20261110.json"
+REPORT_PATH = "report/issue1146-sd0-signal-diagnosis-protocol-v3-20261110.json"
 ISSUE_URL = "https://github.com/shuntatsu/trade_rl/issues/1146"
 SD1_ORACLES = (
     "planted-signal recovery",
@@ -41,7 +41,7 @@ def build_author_packet(head: str) -> dict[str, object]:
     """The SD0 G0-G2 author packet bound to ``head`` and the protocol digest."""
 
     digest = protocol_digest(default_signal_diagnosis_protocol())
-    bound = f"signal_diagnosis_protocol_v2 (SHA-256 {digest}, {REPORT_PATH})"
+    bound = f"signal_diagnosis_protocol_v3 (SHA-256 {digest}, {REPORT_PATH})"
     return {
         "schema_version": "research_assurance_v1",
         "identity": {"protocol_head": head, "implementation_head": head},
@@ -140,7 +140,13 @@ def build_author_packet(head: str) -> dict[str, object]:
             "metric_proxy_rationale": (
                 "Primary metric: the out-of-sample daily rank-IC increment over the "
                 "drift baseline with Benjamini-Hochberg adjustment (q = 0.10; Holm "
-                "FWER also reported). Guardrails: the same increment must hold on "
+                "FWER also reported). The p-value behind that gate is frozen in the "
+                "protocol: a one-sided test of a mean daily rank-IC increment above "
+                "zero (null: mean <= 0) by moving-block bootstrap with 20-day blocks, "
+                "which cover the one-day overlap of 24-bar labels, 2000 resamples and "
+                "seed 0; the correction is applied separately to the raw-target and "
+                "the demeaned-target p-values, each over exactly the same 16 decision "
+                "cells. Guardrails: the same increment must hold on the "
                 "cross-sectionally demeaned target and be positive in each of the "
                 "four full calendar years 2022-2025 (each with 12 months of at least "
                 "15 valid daily increments), and a simple after-cost threshold-rule "
@@ -192,8 +198,20 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "families are defined by indicator kind and are arbitrary; five "
                 "symbols and overlapping 24-hour labels give far fewer independent "
                 "observations than rows; bars stamped 2026-08-01T00:00Z close the "
-                "last development period and are inside the window. This packet is "
-                "UNREVIEWED"
+                "last development period and are inside the window. Prior exposure, "
+                "cited from Issue #1146 section 1 and not recomputed here: a local "
+                "breakeven report outside the repository (24-hour Ridge, alpha 10, "
+                "2020-01 to 2026-08) recorded a pooled IC of 0.0675, a rank IC of "
+                "0.0164 and a daily t of 2.31, and the M38 forecast diagnostic "
+                "(Ridge, 2024-03) recorded mse_skill -0.017588, so the design is "
+                "not blind to the gap between pooled and rank IC that motivated the "
+                "tail check. Power trade-off, deliberate: the persistence rule is "
+                "4 of 4 full years, stricter than the plan's 4 of 5; for a true "
+                "signal that is positive in each year with probability 0.8, 4 of 4 "
+                "passes with probability 0.41 while at least 4 of 5 would pass with "
+                "0.74, so NO_SIGNAL is the likely label for a modest real effect and "
+                "the rule favours few false positives on known-used data. This packet "
+                "is UNREVIEWED"
             ),
         },
         "mechanism": {
@@ -356,13 +374,21 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "The verdict is a pure function of saved cell evidence "
                         "under thresholds frozen with a digest; changing a grid, "
                         "threshold or window, loading a protocol with a claim "
-                        "field, or classifying incomplete evidence fails closed"
+                        "field, or classifying incomplete evidence fails closed. "
+                        "The Benjamini-Hochberg adjustment is computed inside the "
+                        "verdict, separately for the raw and the demeaned target, "
+                        "over exactly the 16 frozen decision cells from raw "
+                        "one-sided p-values that carry the frozen procedure's "
+                        "provenance; an already adjusted p-value cannot be supplied"
                     ),
                     "counterexample": (
                         "A protocol with a shrunken penalty grid and a matching "
                         "digest; a payload carrying an edge, G4 or live field; a "
                         "signal cell without D4 evidence; one tampered byte; a "
-                        "duplicate JSON key"
+                        "duplicate JSON key; p-values with foreign or missing "
+                        "provenance (another test, block length, resample count or "
+                        "seed); a protocol whose bootstrap block is shorter than the "
+                        "label overlap or whose BH family is not the decision cells"
                     ),
                     "oracle": (
                         "tests/evaluation/test_signal_diagnosis_protocol.py "
@@ -451,7 +477,8 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "classified by the frozen table: INVALID if leakage, a dataset or "
                 "protocol digest mismatch, an available_at violation or contact "
                 "with the FS1 warm-up span or sealed window occurs; NO_SIGNAL if no "
-                "family-by-model cell is positive and BH-significant (q = 0.10) on "
+                "family-by-model cell is positive and BH-significant (q = 0.10, "
+                "frozen one-sided moving-block-bootstrap p-values) on "
                 "both the raw and the cross-sectionally demeaned target with a "
                 "positive demeaned increment in all four eligible full years "
                 "2022-2025; SIGNAL_NOT_TRADABLE if signal cells "

@@ -17,9 +17,11 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
 )
 from trade_rl.evaluation.signal_diagnosis.verdict import (
     DecisionCellEvidence,
+    PValueProvenance,
     ValidityFlags,
     VerdictResult,
     YearStabilityEvidence,
+    bh_adjusted_p_values,
     classify_signal_diagnosis,
     decision_cell_ids,
 )
@@ -27,6 +29,15 @@ from trade_rl.evaluation.signal_diagnosis.verdict import (
 PROTOCOL = default_signal_diagnosis_protocol()
 CELL_IDS = decision_cell_ids(PROTOCOL)
 FULL_YEARS = PROTOCOL.stability.full_years
+Q = PROTOCOL.multiple_testing.bh_fdr_q
+FAMILY_SIZE = len(CELL_IDS)
+PROVENANCE = PValueProvenance(
+    procedure_id=PROTOCOL.significance.procedure_id,
+    block_days=PROTOCOL.bootstrap.block_days,
+    resamples=PROTOCOL.bootstrap.resamples,
+    seed=PROTOCOL.bootstrap.seed,
+    n_days=1400,
+)
 CLEAN = ValidityFlags(
     leakage_detected=False,
     dataset_identity_mismatch=False,
@@ -55,9 +66,10 @@ def _no_signal_cell(cell_id: str) -> DecisionCellEvidence:
         family_id=family_id,
         model_id=model_id,
         rank_ic_vs_drift=0.001,
-        rank_ic_bh_adjusted_p=0.60,
+        rank_ic_p_value=0.60,
         demeaned_rank_ic=0.001,
-        demeaned_bh_adjusted_p=0.70,
+        demeaned_p_value=0.70,
+        p_value_provenance=PROVENANCE,
         year_evidence=_years((True, False, True, False)),
         drift_excess_ci_lower_cost_x1=None,
         drift_excess_ci_upper_cost_x1=None,
@@ -78,9 +90,10 @@ def _signal_cell(
         "family_id": family_id,
         "model_id": model_id,
         "rank_ic_vs_drift": 0.02,
-        "rank_ic_bh_adjusted_p": 0.04,
+        "rank_ic_p_value": 0.001,
         "demeaned_rank_ic": 0.015,
-        "demeaned_bh_adjusted_p": 0.05,
+        "demeaned_p_value": 0.001,
+        "p_value_provenance": PROVENANCE,
         "year_evidence": _years(),
         "drift_excess_ci_lower_cost_x1": lower,
         "drift_excess_ci_upper_cost_x1": upper,
@@ -163,14 +176,15 @@ def test_all_cells_without_signal_is_no_signal() -> None:
 def test_fdr_boundary_equal_to_q_is_significant_just_above_is_not() -> None:
     q = PROTOCOL.multiple_testing.bh_fdr_q
     assert q == 0.10
+    # One small raw p among sixteen cells: its BH-adjusted value is p * 16 / 1, and 16 is
+    # a power of two, so p = q / 16 adjusts to exactly q.
+    edge = q / FAMILY_SIZE
 
-    at_q = _classify(
-        {FIRST: _signal_cell(FIRST, rank_ic_bh_adjusted_p=q, lower=-0.001)}
-    )
+    at_q = _classify({FIRST: _signal_cell(FIRST, rank_ic_p_value=edge, lower=-0.001)})
     above = _classify(
         {
             FIRST: _signal_cell(
-                FIRST, rank_ic_bh_adjusted_p=math.nextafter(q, 1.0), lower=-0.001
+                FIRST, rank_ic_p_value=math.nextafter(edge, 1.0), lower=-0.001
             )
         }
     )
@@ -188,15 +202,15 @@ def test_a_negative_or_zero_rank_ic_increment_is_not_a_signal() -> None:
 
 
 def test_signal_that_vanishes_after_cross_sectional_demeaning_is_no_signal() -> None:
-    above = math.nextafter(PROTOCOL.multiple_testing.bh_fdr_q, 1.0)
-    vanished = _classify({FIRST: _signal_cell(FIRST, demeaned_bh_adjusted_p=above)})
+    above = math.nextafter(PROTOCOL.multiple_testing.bh_fdr_q / FAMILY_SIZE, 1.0)
+    vanished = _classify({FIRST: _signal_cell(FIRST, demeaned_p_value=above)})
     wrong_sign = _classify({FIRST: _signal_cell(FIRST, demeaned_rank_ic=-0.001)})
     zero = _classify({FIRST: _signal_cell(FIRST, demeaned_rank_ic=0.0)})
     kept = _classify(
         {
             FIRST: _signal_cell(
                 FIRST,
-                demeaned_bh_adjusted_p=PROTOCOL.multiple_testing.bh_fdr_q,
+                demeaned_p_value=PROTOCOL.multiple_testing.bh_fdr_q / FAMILY_SIZE,
             )
         }
     )
@@ -259,7 +273,7 @@ def test_year_evidence_must_be_the_complete_full_year_roster_or_absent() -> None
         with pytest.raises(SignalDiagnosisProtocolError, match="year"):
             _classify({FIRST: _signal_cell(FIRST, year_evidence=bad)})
     # A cell that stopped at an upper layer may carry no year evidence at all.
-    unsupported = _signal_cell(FIRST, rank_ic_bh_adjusted_p=0.9, year_evidence=())
+    unsupported = _signal_cell(FIRST, rank_ic_p_value=0.9, year_evidence=())
     assert _classify({FIRST: unsupported}).verdict == "NO_SIGNAL"
     # ...but a cell that clears both significance tests cannot be classified without it.
     with pytest.raises(SignalDiagnosisProtocolError, match="year evidence"):
@@ -401,7 +415,7 @@ def test_d4_evidence_is_optional_only_for_cells_that_stopped_at_an_upper_layer()
     result = _classify({})
     assert result.verdict == "NO_SIGNAL"
     # Supplying D4 for a non-signal cell is allowed (all cells are saved).
-    extra = _signal_cell(FIRST, rank_ic_bh_adjusted_p=0.9)
+    extra = _signal_cell(FIRST, rank_ic_p_value=0.9)
     assert _classify({FIRST: extra}).verdict == "NO_SIGNAL"
 
 
@@ -409,9 +423,9 @@ def test_d4_evidence_is_optional_only_for_cells_that_stopped_at_an_upper_layer()
 def test_non_finite_numbers_are_rejected(bad: float) -> None:
     for field in (
         "rank_ic_vs_drift",
-        "rank_ic_bh_adjusted_p",
+        "rank_ic_p_value",
         "demeaned_rank_ic",
-        "demeaned_bh_adjusted_p",
+        "demeaned_p_value",
     ):
         with pytest.raises(SignalDiagnosisProtocolError):
             _signal_cell(FIRST, **{field: bad})
@@ -422,9 +436,9 @@ def test_non_finite_numbers_are_rejected(bad: float) -> None:
 
 def test_probabilities_year_evidence_type_and_interval_order_are_validated() -> None:
     for kwargs in (
-        {"rank_ic_bh_adjusted_p": -0.01},
-        {"rank_ic_bh_adjusted_p": 1.01},
-        {"demeaned_bh_adjusted_p": 1.5},
+        {"rank_ic_p_value": -0.01},
+        {"rank_ic_p_value": 1.01},
+        {"demeaned_p_value": 1.5},
         {"year_evidence": [YearStabilityEvidence(2022, 12, True)]},
         {"year_evidence": "2022"},
         {"lower": 0.01, "upper": 0.001},
@@ -472,9 +486,10 @@ def test_no_stale_beta_or_alpha_wording_remains_in_the_evidence_contract() -> No
         "family_id",
         "model_id",
         "rank_ic_vs_drift",
-        "rank_ic_bh_adjusted_p",
+        "rank_ic_p_value",
         "demeaned_rank_ic",
-        "demeaned_bh_adjusted_p",
+        "demeaned_p_value",
+        "p_value_provenance",
         "year_evidence",
         "drift_excess_ci_lower_cost_x1",
         "drift_excess_ci_upper_cost_x1",
@@ -499,3 +514,102 @@ def test_the_verdict_never_names_an_edge_or_authorization() -> None:
     text = " ".join(result.reasons).lower()
     for word in ("edge", "profitab", "g4", "g5", "live"):
         assert word not in text
+
+
+# ------------------------------------------- frozen significance procedure and BH (v3)
+
+
+def test_the_verdict_computes_bh_itself_over_the_sixteen_cell_family() -> None:
+    """A raw p of 0.04 is not significant alone; it is once enough cells also have small p."""
+
+    alone = _classify(
+        {FIRST: _signal_cell(FIRST, rank_ic_p_value=0.04, demeaned_p_value=0.04)}
+    )
+
+    # Seven other cells with raw p = 0.01 (unstable years, so they are not signals) change
+    # the family: the 0.04 cell becomes rank 8 and adjusts to 0.04 * 16 / 8 = 0.08 <= q.
+    helpers = {
+        cell_id: _signal_cell(
+            cell_id,
+            rank_ic_p_value=0.01,
+            demeaned_p_value=0.01,
+            year_evidence=_years((True, True, False, False)),
+        )
+        for cell_id in CELL_IDS[1:8]
+    }
+    crowded = _classify(
+        {
+            FIRST: _signal_cell(FIRST, rank_ic_p_value=0.04, demeaned_p_value=0.04),
+            **helpers,
+        }
+    )
+
+    assert alone.verdict == "NO_SIGNAL"
+    assert crowded.verdict == "SIGNAL_CANDIDATE"
+    assert crowded.signal_cell_ids == (FIRST,)
+
+
+def test_bh_adjusted_p_values_match_scipy_and_a_hand_worked_example() -> None:
+    import random
+
+    from scipy import stats
+
+    assert bh_adjusted_p_values([0.01, 0.04, 0.03, 0.005]) == pytest.approx(
+        (0.02, 0.04, 0.04, 0.02)
+    )
+    for seed in range(5):
+        generator = random.Random(seed)
+        p = [round(generator.random() ** 2, 4) for _ in range(16)]
+        assert bh_adjusted_p_values(p) == pytest.approx(
+            tuple(stats.false_discovery_control(p, method="bh")), abs=1e-12
+        )
+    assert bh_adjusted_p_values([0.9, 0.95]) == (0.95, 0.95)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"procedure_id": "a_different_test"},
+        {"block_days": 5},
+        {"resamples": 200},
+        {"seed": 1},
+    ],
+)
+def test_p_values_without_the_frozen_procedure_provenance_are_refused(
+    change: dict[str, object],
+) -> None:
+    foreign = dataclasses.replace(PROVENANCE, **change)
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="provenance"):
+        _classify({FIRST: _signal_cell(FIRST, p_value_provenance=foreign)})
+    # Every cell is checked, including a non-significant one.
+    cells = list(_cells({}))
+    cells[3] = dataclasses.replace(cells[3], p_value_provenance=foreign)
+    with pytest.raises(SignalDiagnosisProtocolError, match="provenance"):
+        classify_signal_diagnosis(PROTOCOL, validity=CLEAN, cells=tuple(cells))
+
+
+def test_provenance_records_are_validated() -> None:
+    for kwargs in (
+        {"procedure_id": ""},
+        {"procedure_id": 5},
+        {"block_days": 0},
+        {"block_days": True},
+        {"resamples": 0},
+        {"seed": -1},
+        {"seed": 1.0},
+        {"n_days": -1},
+        {"n_days": True},
+    ):
+        with pytest.raises(SignalDiagnosisProtocolError):
+            dataclasses.replace(PROVENANCE, **kwargs)
+    cell = _signal_cell(FIRST)
+    with pytest.raises(SignalDiagnosisProtocolError):
+        dataclasses.replace(cell, p_value_provenance="frozen")  # type: ignore[arg-type]
+
+
+def test_there_is_no_field_through_which_an_adjusted_p_can_be_supplied() -> None:
+    names = {field.name for field in dataclasses.fields(DecisionCellEvidence)}
+
+    assert not any("adjusted" in name or "bh" in name for name in names)
+    assert {"rank_ic_p_value", "demeaned_p_value", "p_value_provenance"} <= names

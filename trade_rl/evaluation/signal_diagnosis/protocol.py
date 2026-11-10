@@ -22,11 +22,13 @@ from a payload, validates each part and finally requires equality with the froze
 reference of the declared version, so an altered grid, threshold or window is
 rejected until a new schema version (and a new reference) exists.
 
-``signal_diagnosis_protocol_v2`` replaces the never-merged, review-blocked v1. v1 is
-not loadable: it counted 2021 (first fit April 2021) as a full stability year, called
-a cross-sectional demeaning "beta removal", left the D4 "alpha" undefined and left the
-drift and beta baselines without an estimation rule. v2 fixes each of these before any
-result exists; the cross-references below make the first defect unrepresentable.
+``signal_diagnosis_protocol_v3`` replaces the never-merged, review-blocked v1 and v2.
+Neither is loadable. v1 counted 2021 (first fit April 2021) as a full stability year,
+called a cross-sectional demeaning "beta removal", left the D4 "alpha" undefined and left
+the drift and beta baselines without an estimation rule. v2 fixed those but still did not
+say how the p-values behind the decisive Benjamini-Hochberg gate are produced. v3 freezes
+that procedure (test, null, tail, dependence handling, BH family) before any result
+exists; the cross-references below make the earlier defects unrepresentable.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ from typing import Any, Final, Union, get_args, get_origin, get_type_hints
 from trade_rl.artifacts.canonical import canonical_json_bytes, to_json_value
 from trade_rl.evaluation.forward_study.registry import Fs1Registry
 
-PROTOCOL_SCHEMA: Final = "signal_diagnosis_protocol_v2"
+PROTOCOL_SCHEMA: Final = "signal_diagnosis_protocol_v3"
 
 SCOPE_SYNTHETIC: Final = "synthetic_only"
 SCOPE_REAL: Final = "real_development"
@@ -550,6 +552,46 @@ class MultipleTestingSpec:
             raise _fail("the decision test family must be among the reported families")
 
 
+TAIL_ONE_SIDED_POSITIVE: Final = "one_sided_positive"
+
+
+@dataclass(frozen=True, slots=True)
+class SignificanceSpec:
+    """How the decisive rank-IC significance p-values are produced and corrected.
+
+    The gate "BH-adjusted p <= q" is only a protocol if the p-value itself is fixed:
+    one test, its null and tail, the handling of overlapping labels, and the exact
+    family the correction runs over. A verdict must accept p-values only from this
+    procedure.
+    """
+
+    procedure_id: str
+    statistic: str
+    null_hypothesis: str
+    tail: str
+    p_value_source: str
+    dependence_rule: str
+    family_rule: str
+    bh_family_ids: tuple[str, ...]
+    bh_family_cell_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for name in (
+            "procedure_id",
+            "statistic",
+            "null_hypothesis",
+            "p_value_source",
+            "dependence_rule",
+            "family_rule",
+        ):
+            _text(getattr(self, name), name)
+        _same(self.tail, TAIL_ONE_SIDED_POSITIVE, "tail")
+        families = _unique_texts(self.bh_family_ids, "bh_family_ids")
+        if len(families) != 2:
+            raise _fail("exactly two BH families are tested: raw and demeaned target")
+        _unique_texts(self.bh_family_cell_ids, "bh_family_cell_ids")
+
+
 @dataclass(frozen=True, slots=True)
 class StabilitySpec:
     full_years: tuple[int, ...]
@@ -761,6 +803,7 @@ class SignalDiagnosisProtocol:
     costs: CostSpec
     bootstrap: BootstrapSpec
     multiple_testing: MultipleTestingSpec
+    significance: SignificanceSpec
     baselines: tuple[BaselineSpec, ...]
     stability: StabilitySpec
     decision_rules: DecisionRules
@@ -800,6 +843,7 @@ class SignalDiagnosisProtocol:
             ("costs", CostSpec),
             ("bootstrap", BootstrapSpec),
             ("multiple_testing", MultipleTestingSpec),
+            ("significance", SignificanceSpec),
             ("stability", StabilitySpec),
             ("decision_rules", DecisionRules),
             ("budget", BudgetSpec),
@@ -864,6 +908,7 @@ class SignalDiagnosisProtocol:
                 raise _fail(f"decision_rules.{name} is not a declared cost multiplier")
         if rules.min_full_years_same_sign > len(self.stability.full_years):
             raise _fail("the year threshold exceeds the number of full years")
+        self._validate_significance()
         baseline_ids = [baseline.baseline_id for baseline in self.baselines]
         if len(set(baseline_ids)) != len(baseline_ids):
             raise _fail("baseline ids must be unique")
@@ -872,6 +917,28 @@ class SignalDiagnosisProtocol:
             raise _fail("the replay cap must equal the candidate cap")
         if tuple(self.verdict_labels) != VERDICT_LABELS:
             raise _fail("verdict_labels must be the four preregistered labels")
+
+    def _validate_significance(self) -> None:
+        """The BH family is the decision cells; the bootstrap block covers label overlap."""
+
+        expected = tuple(
+            f"{family.family_id}:{model_id}"
+            for family in self.families
+            for model_id in self.models.model_ids
+        )
+        if self.significance.bh_family_cell_ids != expected:
+            raise _fail(
+                "the BH family cell list must equal the decision cells "
+                "(every family by every model, in protocol order)"
+            )
+        overlap_days = math.ceil(
+            self.horizons.primary_bars * self.horizons.bar_hours / 24
+        )
+        if self.bootstrap.block_days < overlap_days:
+            raise _fail(
+                f"bootstrap.block_days {self.bootstrap.block_days} must cover the "
+                f"label overlap of {overlap_days} day(s)"
+            )
 
     def _validate_stability_years(self) -> None:
         """A full year must be fully out of sample; the years must tile the OOS span.
@@ -1319,7 +1386,7 @@ _TRANSFORMS: Final = (
 
 
 def _reference_payload() -> dict[str, object]:
-    """The frozen v2 payload, built from literals and the FS1 registry instants."""
+    """The frozen v3 payload, built from literals and the FS1 registry instants."""
 
     warmup_start = _iso_z(_WARMUP_START)
     expected_spans = _expected_spans()
@@ -1462,6 +1529,42 @@ def _reference_payload() -> dict[str, object]:
             "decision_procedure": "bh_fdr",
             "decision_test_family": "decision_cells",
             "reported_test_families": ["decision_cells", "d2_feature_cells"],
+        },
+        "significance": {
+            "procedure_id": "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1",
+            "statistic": "mean over the eligible UTC days of the daily rank-IC "
+            "increment (measurement.increment_definition) of one decision cell on one "
+            "target (raw or cross-sectionally demeaned) at the primary horizon and "
+            "transform",
+            "null_hypothesis": "the mean daily rank-IC increment is <= 0 (no "
+            "improvement over the drift baseline)",
+            "tail": TAIL_ONE_SIDED_POSITIVE,
+            "p_value_source": "the p_value of moving_block_mean_test applied to the "
+            "daily increment series with block_size = bootstrap.block_days, "
+            "n_bootstrap = bootstrap.resamples and seed = bootstrap.seed: one-sided, "
+            "p = (number of centred bootstrap means >= the observed mean + 1) / "
+            "(resamples + 1) when the observed mean is positive, and exactly 1.0 when "
+            "it is not or when fewer than two days are eligible",
+            "dependence_rule": "daily increments are dependent through overlapping "
+            "labels; label_overlap_days = ceil(primary_horizon_bars * bar_hours / 24), "
+            "which is 1 for 24 one-hour bars, and bootstrap.block_days must be at "
+            "least label_overlap_days; the block length is fixed here and never "
+            "chosen from data",
+            "family_rule": "Benjamini-Hochberg at multiple_testing.bh_fdr_q is applied "
+            "separately to the raw-target p-values and to the demeaned-target "
+            "p-values; each family is exactly the 16 decision cells listed in "
+            "bh_family_cell_ids and is adjusted together; a cell is significant only "
+            "when both adjusted p-values are at most q; Holm is reported over the "
+            "same families and never decides",
+            "bh_family_ids": [
+                "raw_target_decision_cells",
+                "demeaned_target_decision_cells",
+            ],
+            "bh_family_cell_ids": [
+                f"{family_id}:{model_id}"
+                for family_id in _FAMILY_KINDS
+                for model_id in ("ridge_inner_cv", "lightgbm_fixed")
+            ],
         },
         "baselines": [
             {"baseline_id": baseline_id, "role": role, "definition": text}
@@ -1611,7 +1714,7 @@ def protocol_from_payload(payload: Mapping[str, object]) -> SignalDiagnosisProto
 
 
 def default_signal_diagnosis_protocol() -> SignalDiagnosisProtocol:
-    """The frozen ``signal_diagnosis_protocol_v2`` object."""
+    """The frozen ``signal_diagnosis_protocol_v3`` object."""
 
     return protocol_from_payload(_reference_payload())
 
@@ -1745,6 +1848,7 @@ __all__ = [
     "PROTOCOL_SCHEMA",
     "SCOPE_REAL",
     "SCOPE_SYNTHETIC",
+    "TAIL_ONE_SIDED_POSITIVE",
     "VERDICT_CANDIDATE",
     "VERDICT_INVALID",
     "VERDICT_LABELS",
@@ -1771,6 +1875,7 @@ __all__ = [
     "SignalDiagnosisProtocol",
     "SignalDiagnosisProtocolError",
     "SignalDiagnosisRunRequest",
+    "SignificanceSpec",
     "StabilitySpec",
     "TargetSpec",
     "TransformSpec",

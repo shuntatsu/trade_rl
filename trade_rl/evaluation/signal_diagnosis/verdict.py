@@ -23,6 +23,14 @@ zero and the point estimate at cost x2 is strictly positive. This is not a
 beta-adjusted alpha. At most ``max_candidates`` candidates are kept, ranked by the
 interval's lower bound (descending) and then by cell id. Even the best label is a
 known-used, post hoc screening label; it is never an edge, G4, G5 or live claim.
+
+The verdict receives **raw one-sided p-values** produced by the protocol's frozen
+significance procedure (``protocol.significance``) and computes the Benjamini-Hochberg
+adjustment itself, separately for the raw and the demeaned target, over exactly the
+frozen decision-cell family. There is no field through which an already adjusted p-value
+can be supplied, and a cell whose :class:`PValueProvenance` does not equal the frozen
+procedure and bootstrap settings is refused. The provenance is an attestation by the
+(later) runner, not a proof: a pure function cannot re-run the bootstrap.
 """
 
 from __future__ import annotations
@@ -63,6 +71,47 @@ def _probability(value: object, field: str) -> float:
 
 def _optional_real(value: object, field: str) -> float | None:
     return None if value is None else _real(value, field)
+
+
+def bh_adjusted_p_values(p_values: Sequence[float]) -> tuple[float, ...]:
+    """Benjamini-Hochberg adjusted p-values ``min_{j>=k} m * p_(j) / j``, capped at 1."""
+
+    values = [_probability(value, "p-value") for value in p_values]
+    if not values:
+        raise _fail("at least one p-value is required")
+    count = len(values)
+    order = sorted(range(count), key=lambda index: values[index])
+    adjusted = [0.0] * count
+    running = 1.0
+    for position in range(count - 1, -1, -1):
+        index = order[position]
+        running = min(running, values[index] * count / (position + 1))
+        adjusted[index] = running
+    return tuple(adjusted)
+
+
+@dataclass(frozen=True, slots=True)
+class PValueProvenance:
+    """Which frozen procedure produced a cell's raw p-values (runner attestation)."""
+
+    procedure_id: str
+    block_days: int
+    resamples: int
+    seed: int
+    n_days: int
+
+    def __post_init__(self) -> None:
+        if type(self.procedure_id) is not str or not self.procedure_id.strip():
+            raise _fail("procedure_id must be non-empty text")
+        for name, minimum in (
+            ("block_days", 1),
+            ("resamples", 1),
+            ("seed", 0),
+            ("n_days", 0),
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or value < minimum:
+                raise _fail(f"{name} must be an integer of at least {minimum}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,8 +177,9 @@ class DecisionCellEvidence:
     """Saved evidence of one decision cell (family x model) at the primary settings.
 
     ``rank_ic_*`` are the out-of-sample rank IC increment over the drift baseline and
-    its BH-adjusted p-value on the raw target; ``demeaned_*`` repeat them on the
-    cross-sectionally demeaned target. ``year_evidence`` is the complete D5 roster of
+    its raw one-sided p-value on the raw target; ``demeaned_*`` repeat them on the
+    cross-sectionally demeaned target. Both p-values come from the frozen significance
+    procedure named by ``p_value_provenance``; the verdict adjusts them itself. ``year_evidence`` is the complete D5 roster of
     the protocol's full years; it may be empty only for a cell that does not clear
     both significance tests. The three ``drift_excess_*`` values are the D4 after-cost
     payoff relative to the zero-cost drift-sign policy (95% interval at cost x1,
@@ -140,9 +190,10 @@ class DecisionCellEvidence:
     family_id: str
     model_id: str
     rank_ic_vs_drift: float
-    rank_ic_bh_adjusted_p: float
+    rank_ic_p_value: float
     demeaned_rank_ic: float
-    demeaned_bh_adjusted_p: float
+    demeaned_p_value: float
+    p_value_provenance: PValueProvenance
     year_evidence: tuple[YearStabilityEvidence, ...]
     drift_excess_ci_lower_cost_x1: float | None
     drift_excess_ci_upper_cost_x1: float | None
@@ -154,9 +205,11 @@ class DecisionCellEvidence:
             if type(value) is not str or not value or ":" in value:
                 raise _fail(f"{name} must be non-empty text without ':'")
         _real(self.rank_ic_vs_drift, "rank_ic_vs_drift")
-        _probability(self.rank_ic_bh_adjusted_p, "rank_ic_bh_adjusted_p")
+        _probability(self.rank_ic_p_value, "rank_ic_p_value")
         _real(self.demeaned_rank_ic, "demeaned_rank_ic")
-        _probability(self.demeaned_bh_adjusted_p, "demeaned_bh_adjusted_p")
+        _probability(self.demeaned_p_value, "demeaned_p_value")
+        if not isinstance(self.p_value_provenance, PValueProvenance):
+            raise _fail("p_value_provenance must be a PValueProvenance")
         evidence = self.year_evidence
         if type(evidence) is not tuple or any(
             not isinstance(item, YearStabilityEvidence) for item in evidence
@@ -208,15 +261,52 @@ def decision_cell_ids(protocol: SignalDiagnosisProtocol) -> tuple[str, ...]:
     )
 
 
-def _is_significant(
-    cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol
-) -> bool:
+def _check_provenance(
+    cells: Sequence[DecisionCellEvidence], protocol: SignalDiagnosisProtocol
+) -> None:
+    """Refuse p-values that do not claim the frozen procedure and bootstrap settings."""
+
+    frozen = (
+        protocol.significance.procedure_id,
+        protocol.bootstrap.block_days,
+        protocol.bootstrap.resamples,
+        protocol.bootstrap.seed,
+    )
+    for cell in cells:
+        claimed = cell.p_value_provenance
+        if (
+            claimed.procedure_id,
+            claimed.block_days,
+            claimed.resamples,
+            claimed.seed,
+        ) != frozen:
+            raise _fail(
+                f"cell {cell.cell_id}: p-values lack the frozen procedure provenance "
+                f"{frozen}; refusing caller-supplied p-values"
+            )
+
+
+def _significant_cell_ids(
+    cells: Sequence[DecisionCellEvidence], protocol: SignalDiagnosisProtocol
+) -> frozenset[str]:
+    """Cells significant under BH over the frozen family, on both targets.
+
+    ``cells`` is the complete, protocol-ordered family (checked by the roster). BH is
+    applied to the raw-target p-values and to the demeaned-target p-values separately.
+    """
+
     q = protocol.multiple_testing.bh_fdr_q
-    return (
-        cell.rank_ic_vs_drift > 0.0
-        and cell.rank_ic_bh_adjusted_p <= q
+    raw = bh_adjusted_p_values([cell.rank_ic_p_value for cell in cells])
+    demeaned = bh_adjusted_p_values([cell.demeaned_p_value for cell in cells])
+    return frozenset(
+        cell.cell_id
+        for cell, raw_adjusted, demeaned_adjusted in zip(
+            cells, raw, demeaned, strict=True
+        )
+        if cell.rank_ic_vs_drift > 0.0
+        and raw_adjusted <= q
         and cell.demeaned_rank_ic > 0.0
-        and cell.demeaned_bh_adjusted_p <= q
+        and demeaned_adjusted <= q
     )
 
 
@@ -261,9 +351,13 @@ def _has_ineligible_year(
     return any(item.covered_months < floor for item in cell.year_evidence)
 
 
-def _has_signal(cell: DecisionCellEvidence, protocol: SignalDiagnosisProtocol) -> bool:
+def _has_signal(
+    cell: DecisionCellEvidence,
+    protocol: SignalDiagnosisProtocol,
+    significant: frozenset[str],
+) -> bool:
     return (
-        _is_significant(cell, protocol)
+        cell.cell_id in significant
         and _eligible_positive_years(cell, protocol)
         >= protocol.decision_rules.min_full_years_same_sign
     )
@@ -333,12 +427,21 @@ def classify_signal_diagnosis(
         raise _fail("cells must be a sequence of DecisionCellEvidence")
     by_id = _check_roster(protocol, cells)
     ordered = [by_id[cell_id] for cell_id in decision_cell_ids(protocol)]
+    if (
+        tuple(cell.cell_id for cell in ordered)
+        != protocol.significance.bh_family_cell_ids
+    ):
+        raise _fail("the cells are not the frozen BH family of decision cells")
+    _check_provenance(ordered, protocol)
+    significant = _significant_cell_ids(ordered, protocol)
 
     for cell in ordered:
         _check_year_roster(cell, protocol)
-        if _is_significant(cell, protocol) and not cell.year_evidence:
+        if cell.cell_id in significant and not cell.year_evidence:
             raise _fail(f"year evidence is missing for significant cell {cell.cell_id}")
-    signal_cells = [cell for cell in ordered if _has_signal(cell, protocol)]
+    signal_cells = [
+        cell for cell in ordered if _has_signal(cell, protocol, significant)
+    ]
     for cell in signal_cells:
         if not cell.has_d4:
             raise _fail(f"D4 evidence is missing for signal cell {cell.cell_id}")
@@ -356,7 +459,7 @@ def classify_signal_diagnosis(
         short = [
             cell.cell_id
             for cell in ordered
-            if _is_significant(cell, protocol) and _has_ineligible_year(cell, protocol)
+            if cell.cell_id in significant and _has_ineligible_year(cell, protocol)
         ]
         if short:
             reasons.append(
@@ -412,9 +515,11 @@ def classify_signal_diagnosis(
 
 __all__ = [
     "DecisionCellEvidence",
+    "PValueProvenance",
     "ValidityFlags",
     "VerdictResult",
     "YearStabilityEvidence",
+    "bh_adjusted_p_values",
     "classify_signal_diagnosis",
     "decision_cell_ids",
 ]

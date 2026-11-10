@@ -113,7 +113,7 @@ def test_packet_is_bound_to_the_protocol_digest_and_dataset_identity() -> None:
     assert DATASET_ID in thesis["hypothesis"]
     assert REPORT_PATH in thesis["hypothesis"]
     assert (ROOT / REPORT_PATH).is_file()
-    assert "signal_diagnosis_protocol_v2" in thesis["hypothesis"]
+    assert "signal_diagnosis_protocol_v3" in thesis["hypothesis"]
 
 
 def test_packet_states_the_required_honest_limits() -> None:
@@ -184,23 +184,74 @@ def test_every_changed_boundary_has_an_oracle_and_cited_paths_exist() -> None:
     assert [path for path in sorted(cited) if not (ROOT / path).is_file()] == []
 
 
-def test_packet_text_contains_no_result_values() -> None:
-    text = _text(build_author_packet(HEAD))
+# Aggregate magnitudes recorded in Issue #1146 section 1 before this protocol existed.
+# They are disclosed, as cited and not recomputed, so the exposure can be audited.
+CITED_PRIOR_VALUES = ("0.0675", "0.0164", "2.31", "-0.017588")
+OTHER_RECORDED_RESULTS = ("-1.95", "45.6", "16.03", "15.80", "5.55")
 
-    for recorded_value in (
-        "0.0675",
-        "0.0164",
-        "2.31",
-        "-1.95",
-        "45.6",
-        "16.03",
-        "15.80",
-        "5.55",
+
+def test_packet_text_contains_no_new_result_values() -> None:
+    packet = build_author_packet(HEAD)
+    thesis = packet["thesis"]
+    assert isinstance(thesis, dict)
+    text_without_limitations = _text(
+        {k: v for k, v in packet.items() if k != "thesis"}
+        | {"thesis": {k: v for k, v in thesis.items() if k != "limitations"}}
+    )
+
+    for recorded_value in (*CITED_PRIOR_VALUES, *OTHER_RECORDED_RESULTS):
+        assert recorded_value not in text_without_limitations, recorded_value
+    for recorded_value in OTHER_RECORDED_RESULTS:
+        assert recorded_value not in thesis["limitations"], recorded_value
+    assert re.search(r"pooled_ic|spearman_ic", _text(packet)) is None
+
+
+def test_limitations_disclose_the_prior_ic_exposure_and_the_power_trade_off() -> None:
+    packet = build_author_packet(HEAD)
+    thesis = packet["thesis"]
+    assert isinstance(thesis, dict)
+    limitations = thesis["limitations"]
+
+    for value in CITED_PRIOR_VALUES:
+        assert value in limitations, value
+    for needle in (
+        "cited from Issue #1146 section 1",
+        "not recomputed",
+        "pooled IC",
+        "rank IC",
         "mse_skill",
-        "-0.017588",
+        "daily t",
+        "4 of 4",
+        "0.41",
+        "0.74",
+        "deliberate",
     ):
-        assert recorded_value not in text, recorded_value
-    assert re.search(r"\bpooled_ic\b|\bspearman_ic\b", text) is None
+        assert needle in limitations, needle
+
+
+def test_packet_freezes_the_significance_procedure_and_the_bh_family() -> None:
+    packet = build_author_packet(HEAD)
+    thesis = packet["thesis"]
+    mechanism = packet["mechanism"]
+    claims = packet["claims"]
+    assert isinstance(thesis, dict) and isinstance(mechanism, dict)
+    assert isinstance(claims, dict)
+
+    for needle in (
+        "one-sided",
+        "moving-block bootstrap",
+        "20-day blocks",
+        "2000 resamples",
+        "16 decision cells",
+    ):
+        assert needle in thesis["metric_proxy_rationale"], needle
+    evidence = mechanism["independent_oracles"]["evidence"]
+    assert (
+        "Benjamini-Hochberg adjustment is computed inside the verdict"
+        in (evidence["statement"])
+    )
+    assert "provenance" in evidence["counterexample"]
+    assert "one-sided" in claims["decision_rule"]
 
 
 def test_any_edit_changes_the_digest_and_a_self_authored_review_stays_blocked() -> None:
@@ -280,6 +331,7 @@ def test_packet_uses_the_v2_semantics_and_no_stale_v1_wording() -> None:
 
     for stale in (
         "signal_diagnosis_protocol_v1",
+        "signal_diagnosis_protocol_v2",
         "beta-removed",
         "beta removal",
         "survives beta",

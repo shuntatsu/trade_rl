@@ -35,7 +35,7 @@ def _horizon(value: object) -> int:
 
 
 def forward_log_returns(close: object, horizon_bars: int) -> np.ndarray:
-    """``ln(close[t+h] / close[t])``; the last ``h`` rows have no matured label."""
+    """``ln(close[t+h]) - ln(close[t])``; last ``h`` rows are not mature."""
 
     prices = _matrix(close, "close")
     horizon = _horizon(horizon_bars)
@@ -43,7 +43,8 @@ def forward_log_returns(close: object, horizon_bars: int) -> np.ndarray:
         raise SignalMeasurementError("close must be finite and positive")
     out = np.full(prices.shape, np.nan, dtype=np.float64)
     if prices.shape[0] > horizon:
-        out[:-horizon] = np.log(prices[horizon:] / prices[:-horizon])
+        # The intermediate price ratio can overflow even when both logs are finite.
+        out[:-horizon] = np.log(prices[horizon:]) - np.log(prices[:-horizon])
     return out
 
 

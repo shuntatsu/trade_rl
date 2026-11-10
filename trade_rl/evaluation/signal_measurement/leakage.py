@@ -3,9 +3,9 @@
 A feature at decision row ``t`` is *causal* only if it is a function of inputs at rows
 ``<= t``. :func:`future_perturbation_probe` tests exactly that, structurally: it
 rebuilds the feature after randomly perturbing every input row **after** a cutoff and
-requires every feature row at or before the cutoff to be unchanged. A feature that
-reads a future price, a centred window, or a full-sample statistic fails, whatever its
-IC looks like.
+checks whether feature rows at or before the cutoff change. This is a falsifier:
+a detected dependence proves leakage, but one seeded perturbation that causes no
+change does not prove that a builder is causal.
 
 :func:`affine_label_copy` is a second, narrow screen for the crudest leak, a feature
 that is an affine or monotone copy of the matured label. It is not a substitute for the
@@ -67,12 +67,13 @@ def future_perturbation_probe(
 ) -> LeakageProbeResult:
     """Flag a feature builder whose rows at or before a cutoff depend on later inputs.
 
-    ``inputs`` is a ``(rows, columns)`` array of non-zero values (prices, volumes);
-    ``builder`` maps it to a feature array with the same number of rows. For each
-    cutoff ``c`` the rows after ``c`` are multiplied by ``1 + relative_scale * z`` with
-    ``z`` a seeded standard normal clipped to ``[-3, 3]``, the feature is rebuilt, and
-    the rows ``0..c`` of both feature arrays must be identical (``NaN`` equals
-    ``NaN``). The input array is never modified.
+    ``inputs`` is a finite numeric ``(rows, columns)`` array with at least one
+    non-zero value; ``builder`` preserves its row count. After cutoff ``c``, non-zero
+    inputs are scaled by ``1 + relative_scale * z`` (clipped seeded normal), while
+    zero inputs get an additive ``+/- relative_scale`` perturbation so a zero-valued
+    future dependency cannot be missed. If any future cell is unchanged due to
+    floating-point rounding or becomes non-finite, fail closed rather than claim no
+    leakage. Compare rows ``0..c`` (``NaN`` equals ``NaN``); do not modify inputs.
     """
 
     values = np.asarray(inputs)
@@ -95,6 +96,10 @@ def future_perturbation_probe(
         raise SignalMeasurementError("at least one cutoff is required")
 
     base_inputs = values.astype(np.float64, copy=True)
+    if not np.isfinite(base_inputs).all():
+        raise SignalMeasurementError("inputs must contain only finite values")
+    if not np.any(base_inputs):
+        raise SignalMeasurementError("inputs must contain a non-zero value")
     base = np.asarray(builder(base_inputs.copy()))
     if base.shape[0] != rows:
         raise SignalMeasurementError(
@@ -106,13 +111,15 @@ def future_perturbation_probe(
     for cutoff in chosen:
         noise = np.clip(rng.standard_normal(base_inputs[cutoff + 1 :].shape), -3.0, 3.0)
         perturbed = base_inputs.copy()
-        perturbed[cutoff + 1 :] = perturbed[cutoff + 1 :] * (
-            1.0 + relative_scale * noise
-        )
-        if np.array_equal(perturbed, base_inputs):
+        future = base_inputs[cutoff + 1 :]
+        varied = future * (1.0 + relative_scale * noise)
+        zero = future == 0.0
+        varied[zero] = np.where(noise[zero] >= 0.0, relative_scale, -relative_scale)
+        if not np.isfinite(varied).all() or np.any(varied == future):
             raise SignalMeasurementError(
-                "the perturbation changed nothing; the inputs after the cutoff must be non-zero"
+                "future perturbation must change every input cell without overflow"
             )
+        perturbed[cutoff + 1 :] = varied
         rebuilt = np.asarray(builder(perturbed))
         if rebuilt.shape != base.shape:
             raise SignalMeasurementError("the builder must keep its output shape")

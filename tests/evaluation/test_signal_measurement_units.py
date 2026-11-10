@@ -251,6 +251,9 @@ def test_block_mean_interval_reuses_the_repository_bootstrap_unchanged() -> None
     for bad in ([], [1.0, np.nan], [[1.0]]):
         with pytest.raises(SignalMeasurementError):
             block_mean_interval(bad, block_days=20, resamples=10, seed=0)
+    for bad_block in (0, -5, True, False, 81, 100):
+        with pytest.raises(SignalMeasurementError):
+            block_mean_interval(series, block_days=bad_block, resamples=10, seed=0)
 
 
 # ------------------------------------------------------------------------------- targets

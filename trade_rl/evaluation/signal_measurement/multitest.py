@@ -105,6 +105,16 @@ def block_mean_interval(
     values = array.astype(np.float64, copy=False)
     if not np.isfinite(values).all():
         raise SignalMeasurementError("daily_values must be finite")
+    if (
+        not isinstance(block_days, int)
+        or isinstance(block_days, bool)
+        or block_days <= 0
+    ):
+        raise SignalMeasurementError("block_days must be a positive integer")
+    if block_days > values.shape[0]:
+        raise SignalMeasurementError(
+            f"block_days ({block_days}) must not exceed the number of days ({values.shape[0]})"
+        )
     result = moving_block_mean_test(
         tuple(float(v) for v in values),
         n_bootstrap=resamples,

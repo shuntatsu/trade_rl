@@ -33,10 +33,20 @@ def test_even_low_revision_risk_needs_explicit_latest_vintage_ack(
     frame = load_cross_asset_features(store.root, dataset.timestamps)
     assert series_by_key("VIXCLS").revision_risk == "low"
 
-    with pytest.raises(ValueError, match="accept_revision_hindsight"):
-        with_cross_asset_global_features(
-            dataset, frame, feature_names=("VIXCLS__ret1",)
-        )
+    snapshot_id = dataset.dataset_id
+    snapshot_identity = dataset.identity_payload_json
+    snapshot_features = dataset.global_features.copy()
+    for acknowledgement in (False, None, 1, "True"):
+        with pytest.raises(ValueError, match="accept_revision_hindsight"):
+            with_cross_asset_global_features(
+                dataset,
+                frame,
+                feature_names=("VIXCLS__ret1",),
+                accept_revision_hindsight=acknowledgement,  # type: ignore[arg-type]
+            )
+        assert dataset.dataset_id == snapshot_id
+        assert dataset.identity_payload_json == snapshot_identity
+        np.testing.assert_array_equal(dataset.global_features, snapshot_features)
 
     accepted = with_cross_asset_global_features(
         dataset,
@@ -87,7 +97,26 @@ def test_even_unrevised_fx_composite_is_retrospective_by_default(
     store = seed_store(tmp_path)
     dataset = _dataset()
     frame = load_cross_asset_features(store.root, dataset.timestamps)
+    names = ("dollar_strength",)
     with pytest.raises(ValueError, match="accept_revision_hindsight"):
-        with_cross_asset_global_features(
-            dataset, frame, feature_names=("dollar_strength",)
-        )
+        with_cross_asset_global_features(dataset, frame, feature_names=names)
+    accepted = with_cross_asset_global_features(
+        dataset, frame, feature_names=names, accept_revision_hindsight=True
+    )
+    payload = json.loads(accepted.identity_payload_json or "{}")["cross_asset_overlay"]
+    expected_members = set(frame.column_sources[frame.column("dollar_strength")])
+    assert expected_members == {"DEXJPUS", "DEXCHUS", "DEXUSEU", "DEXUSUK", "DEXUSAL"}
+    assert payload["schema"] == "cross_asset_global_overlay_v3"
+    assert payload["strict_point_in_time_verified"] is False
+    assert payload["latest_vintage_series"] == sorted(expected_members)
+    assert payload["revision_hindsight_series"] == []
+    assert payload["accept_revision_hindsight"] is True
+    np.testing.assert_array_equal(
+        accepted.global_features[:, -1],
+        np.where(
+            frame.available[:, frame.column("dollar_strength")],
+            frame.values[:, frame.column("dollar_strength")],
+            0.0,
+        ).astype(np.float32),
+    )
+    assert accepted.identity_verified

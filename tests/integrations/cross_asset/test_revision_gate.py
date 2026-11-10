@@ -146,6 +146,9 @@ def test_opted_in_revised_series_need_an_explicit_hindsight_acceptance(
         base, frame, feature_names=("SP500__ret1",), accept_revision_hindsight=True
     )
     payload = json.loads(accepted.identity_payload_json or "{}")["cross_asset_overlay"]
+    assert payload["schema"] == "cross_asset_global_overlay_v3"
+    assert payload["strict_point_in_time_verified"] is False
+    assert payload["latest_vintage_series"] == ["SP500"]
     assert payload["accept_revision_hindsight"] is True
     assert payload["revision_hindsight_series"] == ["SP500"]
     assert payload["opt_in_series"] == ["NASDAQCOM", "SP500"]

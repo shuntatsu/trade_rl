@@ -239,6 +239,26 @@ def test_archive_dir_fetcher_is_offline_by_default_and_never_mistakes_a_miss_for
     assert (result.status, result.body) == (OFFLINE_MISS_STATUS, None)
 
 
+def test_archive_dir_fetcher_rejects_preexisting_symlink_cache_entry(
+    tmp_path,
+) -> None:
+    """A cache hit must not follow a symlink outside the cache."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    outside = tmp_path / "other-owner-bytes"
+    outside.write_bytes(b"unverified cached bytes")
+    try:
+        target.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this filesystem")
+
+    with pytest.raises(CarryOperationalHalt, match="symlink"):
+        ArchiveDirFetcher(tmp_path).fetch(spec.url)
+    assert target.is_symlink()
+    assert outside.read_bytes() == b"unverified cached bytes"
+
+
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     plan = january_plan()
     inner = fetcher_for(plan)

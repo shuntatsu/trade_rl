@@ -113,6 +113,14 @@ class ArchiveDirFetcher:
         # The configured root and the path components created beneath it must
         # not already redirect writes or reads outside the selected cache root.
         # This static screen is not an atomic defence against directory swaps.
+        # Cached reads already reject links in the *absolute* parent chain;
+        # writes must apply the same rule, including above the configured root.
+        for parent in self._directory.absolute().parents:
+            if parent.is_symlink() or parent.is_junction():
+                raise CarryOperationalHalt(
+                    f"archive cache directory is a symlink or junction: {url}",
+                    {"kind": "cache_directory_link", "url": url},
+                )
         ancestor = self._directory
         parts = target.parent.relative_to(ancestor).parts
         for component in (None, *parts):

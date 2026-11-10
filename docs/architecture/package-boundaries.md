@@ -188,10 +188,12 @@ archive/checksum bytes; a raced existing cache file wins and is returned for
 normal downstream checksum verification without overwriting. Pre-existing or
 raced-in symlink cache entries are refused, rather than followed as cache hits.
 Cache reads reuse the existing descriptor-based no-follow/regular-file helper,
-so a symlink swapped after a cache-hit existence check also fails closed. An
-already-linked configured cache root or subdirectory is refused before reads or
-writes. On a successful cache miss, the directory screen runs again after the
-injected fetch and after parent creation, before staging bytes. This refuses
+so a symlink swapped after a cache-hit existence check also fails closed. Any
+already-linked ancestor in the absolute filesystem path (including above the
+configured cache root), the cache root itself or a subdirectory is refused before
+reads or writes, matching the cached-read no-follow boundary. On a successful
+cache miss, the directory screen runs again after the injected fetch and after
+parent creation, before staging bytes. This refuses
 directory links planted at either of those callback boundaries, but path-based
 checks are not atomic against an actively concurrent directory replacement. Filesystems without hard-link support fail closed as
 operational halts; there is no ordinary rename, copy-overwrite or shared

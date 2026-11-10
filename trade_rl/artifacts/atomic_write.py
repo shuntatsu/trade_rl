@@ -52,13 +52,13 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> Path:
 
 
 def _rename_directory_no_replace(staging: Path, output: Path) -> None:
-    """Use an OS-enforced no-replace rename; never fall back to POSIX rename."""
+    """Use an OS-enforced no-replace rename for files or directories."""
 
     staging_path = os.fsencode(staging)
     output_path = os.fsencode(output)
     # ctypes c_char_p silently truncates at NUL; never rename a different path.
     if b"\x00" in staging_path or b"\x00" in output_path:
-        raise ValueError("directory publication path contains NUL")
+        raise ValueError("exclusive publication path contains NUL")
 
     if _IS_WINDOWS:
         # Windows rename refuses an occupied destination; keep the bounded lock retry.
@@ -122,4 +122,32 @@ def atomic_rename_directory(source: str | Path, target: str | Path) -> Path:
     raise AssertionError("directory rename retry loop exited unexpectedly")
 
 
-__all__ = ["atomic_rename_directory", "atomic_write_bytes"]
+def atomic_rename_file(source: str | Path, target: str | Path) -> Path:
+    """Atomically publish a staged regular file without replacing an occupied target."""
+
+    staging = Path(source)
+    output = Path(target)
+    if staging.is_symlink() or not staging.is_file():
+        raise ValueError("file publication source must be a regular file")
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f"file publication target already exists: {output}")
+    delays = _DIRECTORY_RENAME_RETRY_DELAYS if _IS_WINDOWS else ()
+    for attempt in range(len(delays) + 1):
+        try:
+            # The native no-replace rename handles files as well as directories.
+            _rename_directory_no_replace(staging, output)
+            return output
+        except PermissionError:
+            if attempt >= len(delays):
+                raise
+            if (
+                staging.is_symlink()
+                or not staging.is_file()
+                or output.exists()
+                or output.is_symlink()
+            ):
+                raise
+            time.sleep(delays[attempt])
+    raise AssertionError("file rename retry loop exited unexpectedly")
+
+__all__ = ["atomic_rename_directory", "atomic_rename_file", "atomic_write_bytes"]

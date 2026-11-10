@@ -247,6 +247,49 @@ def _require_bootstrap_authority_provenance(
     ):
         raise ValueError("trusted authority seal bootstrap Full CI identity differs")
 
+    attempt = ci.get("run_attempt")
+    if type(attempt) is not int or attempt < 1:
+        raise ValueError("trusted authority seal bootstrap Full CI attempt is invalid")
+    inventory = get(f"actions/runs/{ci_id}/attempts/{attempt}/jobs?per_page=100")
+    jobs = inventory.get("jobs")
+    total_count = inventory.get("total_count")
+    if (
+        not isinstance(jobs, list)
+        or type(total_count) is not int
+        or total_count != len(jobs)
+        or total_count > 100
+    ):
+        raise ValueError("trusted authority seal bootstrap CI job inventory incomplete")
+    required_jobs = {
+        "Lean Core",
+        "PPO Runtime",
+        "Human Guide",
+        "Market Store PostgreSQL",
+    }
+    observed: set[str] = set()
+    for job in jobs:
+        if not isinstance(job, dict):
+            raise ValueError("trusted authority seal bootstrap CI job malformed")
+        job_name = job.get("name")
+        if not isinstance(job_name, str):
+            raise ValueError("trusted authority seal bootstrap CI job name malformed")
+        if job_name not in required_jobs:
+            continue
+        if (
+            job_name in observed
+            or job.get("run_id") != ci_id
+            or job.get("run_attempt") != attempt
+            or job.get("head_sha") != review_head
+            or job.get("status") != "completed"
+            or job.get("conclusion") != "success"
+        ):
+            raise ValueError(
+                "trusted authority seal bootstrap verification job invalid"
+            )
+        observed.add(job_name)
+    if observed != required_jobs:
+        raise ValueError("trusted authority seal bootstrap verification job missing")
+
     comment = get(f"issues/comments/{comment_id}")
     body = comment.get("body")
     if (

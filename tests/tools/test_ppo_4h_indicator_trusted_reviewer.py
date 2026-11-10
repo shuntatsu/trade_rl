@@ -318,8 +318,25 @@ def _seal_bootstrap_response(url: str) -> dict[str, object]:
             "event": "pull_request",
             "name": "CI",
             "path": ".github/workflows/ci.yml",
+            "run_attempt": 1,
             "repository": {"id": actions.TRUSTED_REPOSITORY_ID},
         }
+    if url.endswith(
+        f"/actions/runs/{BOOTSTRAP_FULL_CI_RUN}/attempts/1/jobs?per_page=100"
+    ):
+        names = ("Lean Core", "PPO Runtime", "Human Guide", "Market Store PostgreSQL")
+        jobs = [
+            {
+                "name": name,
+                "status": "completed",
+                "conclusion": "success",
+                "head_sha": BOOTSTRAP_REVIEW_HEAD,
+                "run_id": BOOTSTRAP_FULL_CI_RUN,
+                "run_attempt": 1,
+            }
+            for name in names
+        ]
+        return {"total_count": len(jobs), "jobs": jobs}
     if url.endswith(f"/issues/comments/{SEAL_REVIEW_COMMENT_ID}"):
         return {
             "id": SEAL_REVIEW_COMMENT_ID,
@@ -440,6 +457,94 @@ def test_frozen_authority_rejects_unbound_bootstrap_reference(
 
     monkeypatch.setattr(actions.transport, "_api_json", api)
     with pytest.raises(ValueError, match=failure):
+        actions._require_frozen_reviewer_authority_seal(
+            repo_path="shuntatsu/trade_rl",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_frozen_authority_rejects_bootstrap_ci_with_skipped_required_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object()
+        response = _seal_bootstrap_response(url)
+        if "/attempts/1/jobs?" in url:
+            response["jobs"][0]["conclusion"] = "skipped"
+        return response
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match="bootstrap.*job"):
+        actions._require_frozen_reviewer_authority_seal(
+            repo_path="shuntatsu/trade_rl",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("missing_core", "verification job missing"),
+        ("duplicate_core", "verification job invalid"),
+        ("wrong_run", "verification job invalid"),
+        ("wrong_attempt", "verification job invalid"),
+        ("wrong_head", "verification job invalid"),
+        ("pending_core", "verification job invalid"),
+        ("truncated_inventory", "inventory incomplete"),
+        ("bad_ci_attempt", "Full CI attempt"),
+        ("bool_ci_attempt", "Full CI attempt"),
+        ("malformed_job_name", "CI job name malformed"),
+    ],
+)
+def test_bootstrap_ci_rejects_missing_duplicate_stale_or_partial_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    expected: str,
+) -> None:
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/git/ref/tags/" in url:
+            return _seal_ref()
+        if "/git/tags/" in url:
+            return _seal_object()
+        value = _seal_bootstrap_response(url)
+        if case == "bad_ci_attempt" and url.endswith(
+            f"/actions/runs/{BOOTSTRAP_FULL_CI_RUN}"
+        ):
+            value["run_attempt"] = None
+        if case == "bool_ci_attempt" and url.endswith(
+            f"/actions/runs/{BOOTSTRAP_FULL_CI_RUN}"
+        ):
+            value["run_attempt"] = True
+        if "/attempts/1/jobs?" in url:
+            jobs = value["jobs"]
+            if case == "missing_core":
+                jobs.pop(0)
+            elif case == "duplicate_core":
+                jobs.append(dict(jobs[0]))
+            elif case == "wrong_run":
+                jobs[0]["run_id"] = 123
+            elif case == "wrong_attempt":
+                jobs[0]["run_attempt"] = 2
+            elif case == "wrong_head":
+                jobs[0]["head_sha"] = "0" * 40
+            elif case == "pending_core":
+                jobs[0]["status"] = "in_progress"
+                jobs[0]["conclusion"] = None
+            elif case == "malformed_job_name":
+                jobs[0]["name"] = None
+            elif case == "truncated_inventory":
+                value["total_count"] += 1
+            if case in {"missing_core", "duplicate_core"}:
+                value["total_count"] = len(jobs)
+        return value
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    with pytest.raises(ValueError, match=expected):
         actions._require_frozen_reviewer_authority_seal(
             repo_path="shuntatsu/trade_rl",
             token="token",

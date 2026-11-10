@@ -546,7 +546,11 @@ The seal records a bootstrap PR/head, exact-head Full CI run, approval
 comment and v2 protocol identities. The consumer refetches those GitHub
 records and rejects mismatched source history, CI and review-note identity,
 including the original SHA-256 of the approval comment; later comment edits
-make the sealed reference invalid.
+make the sealed reference invalid. For the exact bootstrap Full CI run attempt,
+it also requires untruncated GitHub job inventory with exactly one completed,
+successful Lean Core, PPO Runtime, Human Guide and Market Store PostgreSQL job
+bound to the bootstrap-reviewed SHA and run/attempt identity. Overall workflow
+success alone is not proof these mandatory verification lanes actually ran.
 This binds the references but cannot by itself authenticate the external
 reviewer/provider asserted in a comment.
 A review body, tag, or `reviewer_independence=ESTABLISHED` assertion that is not backed

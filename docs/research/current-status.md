@@ -1864,8 +1864,12 @@ The subsequent merged reviewer toolcache repair changed the trusted workflow
 bytes again; the still-unpublished v7 candidate was repinned to `f47d2bf9…`
 and digest `3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8`,
 with the runner digest unchanged. The strengthened consumer additionally
-refetches the seal's bootstrap PR/head, Full CI run and sealing comment;
-reference consistency alone does not prove genuine external-model execution.
+refetches the seal's bootstrap PR/head, Full CI run and sealing comment.
+The exact CI run/attempt must additionally include all four required Green
+Lean Core/PPO Runtime/Human Guide/Market Store PostgreSQL jobs, with no
+missing, duplicate, stale-head or truncated job inventory. Workflow-level
+success alone is insufficient. This reference consistency still does not
+prove genuine external-model execution.
 This does **not**
 create a tag, authenticate independent bootstrap review, authorize any trusted
 Gemini request, or permit economic execution.

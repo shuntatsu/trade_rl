@@ -33,6 +33,7 @@ from typing import Protocol
 
 import numpy as np
 
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
@@ -108,6 +109,19 @@ class ArchiveDirFetcher:
             raise ValueError(f"unsafe archive path: {url}")
         return self._directory.joinpath(*parts)
 
+    @staticmethod
+    def _read_cached(path: Path, url: str) -> bytes:
+        # Open by checked descriptor to prevent a cache symlink swap after
+        # Path.is_file() and before the actual cache read.
+        try:
+            with open_regular_binary(path, field="Vision archive cache") as handle:
+                return handle.read()
+        except (OSError, ValueError) as error:
+            raise CarryOperationalHalt(
+                f"archive cache entry could not be safely read: {url}",
+                {"kind": "cache_read_failed", "url": url},
+            ) from error
+
     def fetch(self, url: str) -> FetchResult:
         path = self._path(url)
         if path.is_symlink():
@@ -116,7 +130,7 @@ class ArchiveDirFetcher:
                 {"kind": "cache_symlink", "url": url},
             )
         if path.is_file():
-            return FetchResult(status=200, body=path.read_bytes())
+            return FetchResult(status=200, body=self._read_cached(path, url))
         if self._inner is None:
             return FetchResult(status=OFFLINE_MISS_STATUS, body=None)
         result = self._inner.fetch(url)
@@ -143,13 +157,7 @@ class ArchiveDirFetcher:
                         f"archive cache publication conflict: {url}",
                         {"kind": "cache_publication_conflict", "url": url},
                     ) from error
-                try:
-                    return FetchResult(status=200, body=path.read_bytes())
-                except OSError as read_error:
-                    raise CarryOperationalHalt(
-                        f"archive cache winner cannot be read: {url}",
-                        {"kind": "cache_publication_conflict", "url": url},
-                    ) from read_error
+                return FetchResult(status=200, body=self._read_cached(path, url))
             except OSError as error:
                 raise CarryOperationalHalt(
                     f"archive cache publication failed: {url}",

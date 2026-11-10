@@ -373,6 +373,10 @@ def test_cache_rejects_directory_link_swapped_after_parent_mkdir(
     target = fetcher._path(spec.url)
     first_component = target.parent.relative_to(root).parts[0]
     linked = root / first_component
+    # Populate the foreign destination's parent so an unchecked path would
+    # succeed in writing *outside* the cache, not merely raise ENOENT.
+    foreign_target = outside.joinpath(*target.relative_to(linked).parts)
+    foreign_target.parent.mkdir(parents=True, exist_ok=True)
     parked = tmp_path / "parked-cache-component"
     original_mkdir = Path.mkdir
     swapped = False
@@ -399,7 +403,8 @@ def test_cache_rejects_directory_link_swapped_after_parent_mkdir(
     assert swapped
     assert caught.value.evidence["kind"] == "cache_directory_link"
     assert linked.is_symlink()
-    assert list(outside.rglob("*")) == []
+    assert not foreign_target.exists()
+    assert not list(outside.rglob("*.part-*"))
 
 
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:

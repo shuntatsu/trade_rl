@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -124,3 +125,38 @@ def test_future_unchanged_recheck_cannot_be_selected_before_its_fetch_time() -> 
 def test_parse_utc_refuses_an_embedded_offset_in_a_zulu_timestamp() -> None:
     with pytest.raises(ValueError, match="UTC timestamp"):
         parse_utc("2025-07-10T12:00:00+09:00Z")
+
+
+def test_legacy_recheck_uses_first_capture_when_same_raw_file_has_multiple_ok_rows(
+    tmp_path: Path,
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    first = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/same.csv",
+        "sha256": "a" * 64,
+    }
+    second = {**first, "fetched_at": "2025-07-11T12:00:00Z"}
+    recheck = {
+        **first,
+        "status": "unchanged",
+        "fetched_at": "2025-07-12T12:00:00Z",
+    }
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(
+            json.dumps(record, sort_keys=True) + "\n"
+            for record in (first, second, recheck)
+        ),
+        encoding="utf-8",
+    )
+    loaded = store.read_manifest()
+    assert loaded[2]["captured_at"] == first["fetched_at"]
+    assert (
+        latest_records(loaded, as_of=SECOND + timedelta(days=1, seconds=1))["DGS10"][
+            "fetched_at"
+        ]
+        == second["fetched_at"]
+    )

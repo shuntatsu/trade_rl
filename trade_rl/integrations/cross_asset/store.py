@@ -157,11 +157,16 @@ def _resolve_legacy_capture_times(
     refused until the series is refetched.
     """
 
-    origins = {
-        (record.get("path"), record.get("sha256")): str(record["fetched_at"])
-        for record in records
-        if record.get("status") == "ok"
-    }
+    origins: dict[tuple[object, object], str] = {}
+    for record in records:
+        if record.get("status") != "ok":
+            continue
+        key = (record.get("path"), record.get("sha256"))
+        stamp = str(record["fetched_at"])
+        # A legacy raw file can be referenced by more than one "ok" entry.
+        # The capture authority is the earliest occurrence, not the last one.
+        if key not in origins or parse_utc(stamp) < parse_utc(origins[key]):
+            origins[key] = stamp
     for number, record in enumerate(records, start=1):
         if record.get("status") not in USABLE_STATUSES or record.get("captured_at"):
             continue

@@ -407,6 +407,40 @@ def test_cache_rejects_directory_link_swapped_after_parent_mkdir(
     assert not list(outside.rglob("*.part-*"))
 
 
+@pytest.mark.parametrize("linked_during_fetch", (False, True))
+def test_cache_rejects_symlink_in_parent_of_configured_root(
+    tmp_path: Path, linked_during_fetch: bool
+) -> None:
+    """A linked ancestor ABOVE the cache root must never redirect publication."""
+    spec = january_plan().specs[0]
+    outside = tmp_path / "external"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-cache-parent"
+    root = linked_parent / "cache"
+
+    def plant_parent_link() -> None:
+        try:
+            linked_parent.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("directory symlinks unavailable on this filesystem")
+
+    if not linked_during_fetch:
+        plant_parent_link()
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            if linked_during_fetch:
+                plant_parent_link()
+            return FetchResult(status=200, body=b"synthetic downloaded bytes")
+
+    with pytest.raises(CarryOperationalHalt, match="cache directory") as caught:
+        ArchiveDirFetcher(root, RacingFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_directory_link"
+    assert linked_parent.is_symlink()
+    assert list(outside.rglob("*")) == []
+
+
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     plan = january_plan()
     inner = fetcher_for(plan)

@@ -151,6 +151,10 @@ class ArchiveDirFetcher:
             return FetchResult(status=OFFLINE_MISS_STATUS, body=None)
         result = self._inner.fetch(url)
         if result.status == 200 and result.body:
+            # An inner fetch may create a linked ancestor after our cache-miss
+            # check. Refuse it before mkdir can create directories outside
+            # the configured root.
+            self._reject_linked_cache_directories(path, url)
             # Directory creation is part of cache publication and must use the
             # same typed operational-failure boundary as staging and linking.
             try:
@@ -160,6 +164,11 @@ class ArchiveDirFetcher:
                     f"archive cache publication failed: {url}",
                     {"kind": "cache_publication_failed", "url": url},
                 ) from error
+            # Parent creation itself can be a callback/swap point. Recheck
+            # before any private stage is opened or a hard link is published.
+            # These path-based checks are not atomic under hostile concurrent
+            # directory replacement; see the architecture contract.
+            self._reject_linked_cache_directories(path, url)
             # Every publisher owns a private staging file. A hard-link claim is
             # exclusive even when a rival arrives after the initial cache miss;
             # os.replace would silently overwrite that rival on POSIX.

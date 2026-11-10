@@ -190,8 +190,10 @@ raced-in symlink cache entries are refused, rather than followed as cache hits.
 Cache reads reuse the existing descriptor-based no-follow/regular-file helper,
 so a symlink swapped after a cache-hit existence check also fails closed. An
 already-linked configured cache root or subdirectory is refused before reads or
-writes; the static ancestor screen does not prove protection against a concurrent
-directory replacement. Filesystems without hard-link support fail closed as
+writes. On a successful cache miss, the directory screen runs again after the
+injected fetch and after parent creation, before staging bytes. This refuses
+directory links planted at either of those callback boundaries, but path-based
+checks are not atomic against an actively concurrent directory replacement. Filesystems without hard-link support fail closed as
 operational halts; there is no ordinary rename, copy-overwrite or shared
 `.part` fallback. These are cache publication and source integrity properties,
 not economic evaluation or market-data authorization.

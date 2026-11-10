@@ -3,6 +3,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from threading import Barrier
 
 import numpy as np
@@ -257,6 +258,43 @@ def test_archive_dir_fetcher_rejects_preexisting_symlink_cache_entry(
         ArchiveDirFetcher(tmp_path).fetch(spec.url)
     assert target.is_symlink()
     assert outside.read_bytes() == b"unverified cached bytes"
+
+
+def test_archive_cache_read_rejects_symlink_swapped_after_hit_check(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Path.is_file success must not authorize a later symlink read."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"original cache")
+    outside = tmp_path / "external-bytes"
+    outside.write_bytes(b"untrusted external bytes")
+    # Verify this filesystem can create symlinks before running the race.
+    probe = tmp_path / "symlink-probe"
+    try:
+        probe.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this filesystem")
+    probe.unlink()
+
+    real_is_file = Path.is_file
+    replaced = False
+
+    def swap_after_hit_check(path: Path) -> bool:
+        nonlocal replaced
+        hit = real_is_file(path)
+        if path == target and hit and not replaced:
+            replaced = True
+            target.unlink()
+            target.symlink_to(outside)
+        return hit
+
+    monkeypatch.setattr(Path, "is_file", swap_after_hit_check)
+    with pytest.raises(CarryOperationalHalt, match="cache"):
+        ArchiveDirFetcher(tmp_path).fetch(spec.url)
+    assert replaced and target.is_symlink()
+    assert outside.read_bytes() == b"untrusted external bytes"
 
 
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:

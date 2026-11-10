@@ -185,6 +185,35 @@ def test_existing_output_is_rejected_without_mutation(
     assert {entry.name for entry in output.iterdir()} == {"keep.txt"}
 
 
+def test_bootstrap_never_replaces_competing_empty_root_after_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rival may claim the final path after the initial existence check."""
+    _install_fakes(monkeypatch)
+    from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
+
+    output = tmp_path / "canonical-m2"
+    real_inspect = workflow_module.inspect_canonical_m2_bootstrap
+
+    def inspect_and_race(root: str | Path) -> CanonicalM2BootstrapResult:
+        verified = real_inspect(root)
+        # Simulate the interleaving after the fully verified staging graph,
+        # before the final publication syscall.
+        assert Path(root).name.startswith(".canonical-m2.staging-")
+        output.mkdir()
+        return verified
+
+    monkeypatch.setattr(
+        workflow_module, "inspect_canonical_m2_bootstrap", inspect_and_race
+    )
+    with pytest.raises(FileExistsError):
+        bootstrap_canonical_m2_study(_config_path(tmp_path), output)
+
+    assert output.is_dir() and not tuple(output.iterdir())
+    assert not tuple(tmp_path.glob(".canonical-m2.staging-*"))
+
+
 def test_mid_bootstrap_failure_leaves_no_final_or_staging_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -39,8 +39,11 @@ def test_nonrepresentable_derived_cost_or_threshold_is_rejected(
     with np.errstate(over="ignore", invalid="ignore"):
         with pytest.raises(SignalMeasurementError, match="finite"):
             after_cost_payoff(
-                np.array([0.1]), np.array([0.02]),
-                k=k, round_trip_cost=cost, cost_multiplier=multiplier,
+                np.array([0.1]),
+                np.array([0.02]),
+                k=k,
+                round_trip_cost=cost,
+                cost_multiplier=multiplier,
             )
 
 
@@ -48,6 +51,10 @@ def test_standard_14bps_cost_is_unchanged() -> None:
     score = np.array([0.0014, 0.001401, -0.003, 0.0])
     actual = np.array([0.02, 0.02, -0.01, 0.01])
     out = after_cost_payoff(
-        score, actual, k=1, round_trip_cost=0.0014, cost_multiplier=1
+        score,
+        actual,
+        k=1,
+        round_trip_cost=0.0014,
+        cost_multiplier=1,
     )
     np.testing.assert_allclose(out, [0.0, 0.0186, 0.0086, 0.0])

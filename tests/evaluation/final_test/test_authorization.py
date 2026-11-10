@@ -285,25 +285,32 @@ def test_inspection_rejects_symlinked_parent_path(
         )
 
 
+@pytest.mark.parametrize("occupied", (False, True))
 def test_publication_race_is_reported_as_one_shot_conflict(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    occupied: bool,
 ) -> None:
+    """An empty or populated competitor must not be replaced at the OS rename."""
+    from trade_rl.artifacts.atomic_write import _rename_directory_no_replace
+
     study_root, _ = _winner_study(tmp_path / "study", monkeypatch)
     output = tmp_path / "authorization"
-    original_rename = Path.rename
+    intercepted = False
 
-    def claim_before_rename(path: Path, target: str | Path) -> Path:
-        resolved_target = Path(target)
-        if (
-            path.name.startswith(".authorization.staging-")
-            and resolved_target == output
-        ):
-            output.mkdir()
+    def competitor(staging: Path, target: Path) -> None:
+        nonlocal intercepted
+        assert staging.is_dir() and target == output
+        assert not intercepted
+        intercepted = True
+        output.mkdir()
+        if occupied:
             (output / "claimed").write_text("other publisher", encoding="utf-8")
-        return original_rename(path, target)
+        _rename_directory_no_replace(staging, target)
 
-    monkeypatch.setattr(Path, "rename", claim_before_rename)
+    monkeypatch.setattr(
+        "trade_rl.artifacts.atomic_write._rename_directory_no_replace", competitor
+    )
 
     with pytest.raises(InvalidExperimentStateError, match="already exists"):
         authorize_final_evaluation(
@@ -313,7 +320,43 @@ def test_publication_race_is_reported_as_one_shot_conflict(
             authorized_at=_AUTHORIZED_AT,
         )
 
-    assert (output / "claimed").read_text(encoding="utf-8") == "other publisher"
+    assert intercepted
+    assert output.is_dir()
+    assert {entry.name for entry in output.iterdir()} == (
+        {"claimed"} if occupied else set()
+    )
+    assert not list(tmp_path.glob(".authorization.staging-*"))
+    # The failed publication leaves its separate one-shot claim conservatively.
+    assert (tmp_path / ".authorization.claim").exists()
+
+
+def test_publication_unsupported_exclusive_rename_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unsupported OS no-replace must never fall back to a replacing rename."""
+    import errno
+
+    study_root, _ = _winner_study(tmp_path / "study", monkeypatch)
+    output = tmp_path / "authorization"
+
+    def unsupported(_stage: Path, _target: Path) -> None:
+        raise OSError(errno.ENOTSUP, "no exclusive directory rename")
+
+    monkeypatch.setattr(
+        "trade_rl.artifacts.atomic_write._rename_directory_no_replace", unsupported
+    )
+    with pytest.raises(ArtifactIntegrityError, match="rename failed"):
+        authorize_final_evaluation(
+            output,
+            study_root=study_root,
+            authorized_by="final-gate",
+            authorized_at=_AUTHORIZED_AT,
+        )
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".authorization.staging-*"))
+    assert (tmp_path / ".authorization.claim").exists()
 
 
 def test_inspection_rejects_malformed_json(

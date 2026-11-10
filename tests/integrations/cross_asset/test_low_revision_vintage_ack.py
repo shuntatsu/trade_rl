@@ -36,7 +36,7 @@ def test_even_low_revision_risk_needs_explicit_latest_vintage_ack(
     snapshot_id = dataset.dataset_id
     snapshot_identity = dataset.identity_payload_json
     snapshot_features = dataset.global_features.copy()
-    for acknowledgement in (False, None, 1, "True"):
+    for acknowledgement in (False, None, 1, 1.0, "True"):
         with pytest.raises(ValueError, match="accept_revision_hindsight"):
             with_cross_asset_global_features(
                 dataset,
@@ -60,6 +60,10 @@ def test_even_low_revision_risk_needs_explicit_latest_vintage_ack(
     assert info["latest_vintage_series"] == ["VIXCLS"]
     assert info["revision_hindsight_series"] == []  # low risk is not zero risk
     assert info["accept_revision_hindsight"] is True
+    assert accepted.dataset_id != snapshot_id
+    assert dataset.dataset_id == snapshot_id
+    assert dataset.identity_payload_json == snapshot_identity
+    np.testing.assert_array_equal(dataset.global_features, snapshot_features)
     assert accepted.identity_verified
 
 
@@ -111,6 +115,11 @@ def test_even_unrevised_fx_composite_is_retrospective_by_default(
     assert payload["latest_vintage_series"] == sorted(expected_members)
     assert payload["revision_hindsight_series"] == []
     assert payload["accept_revision_hindsight"] is True
+    assert payload["vintage_basis"] == "latest_vintage_at_capture_not_first_release"
+    assert accepted.global_features.shape[1] == dataset.global_features.shape[1] + 1
+    np.testing.assert_array_equal(
+        accepted.global_features[:, :-1], dataset.global_features
+    )
     np.testing.assert_array_equal(
         accepted.global_features[:, -1],
         np.where(

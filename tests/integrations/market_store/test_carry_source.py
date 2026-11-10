@@ -297,6 +297,37 @@ def test_archive_cache_read_rejects_symlink_swapped_after_hit_check(
     assert outside.read_bytes() == b"untrusted external bytes"
 
 
+@pytest.mark.parametrize("at_root", (True, False))
+def test_cache_rejects_existing_directory_symlink_before_writing(
+    tmp_path: Path, at_root: bool
+) -> None:
+    """No cached archive may be written through a linked cache directory."""
+    spec = january_plan().specs[0]
+    outside = tmp_path / "external"
+    outside.mkdir()
+    root = tmp_path / "cache"
+    if at_root:
+        link = root
+    else:
+        root.mkdir()
+        link = root / spec.url.removeprefix(
+            "https://data.binance.vision/data/"
+        ).split("/", 1)[0]
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable on this filesystem")
+
+    class SyntheticFetcher:
+        def fetch(self, _url: str) -> FetchResult:
+            return FetchResult(status=200, body=b"synthetic archive")
+
+    with pytest.raises(CarryOperationalHalt, match="cache directory"):
+        ArchiveDirFetcher(root, SyntheticFetcher()).fetch(spec.url)
+    assert list(outside.rglob("*")) == []
+    assert link.is_symlink()
+
+
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     plan = january_plan()
     inner = fetcher_for(plan)

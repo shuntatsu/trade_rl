@@ -321,6 +321,76 @@ def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(
     assert outside.read_bytes() == _COLLIDING_RAW[0]
 
 
+@pytest.mark.parametrize("linked_level", ["raw", "root", "above_root"])
+def test_raw_write_refuses_preexisting_symlinked_parent_before_publication(
+    tmp_path: Path, linked_level: str
+) -> None:
+    """A static ancestor symlink must never redirect a new raw write outside root."""
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if linked_level == "raw":
+        root = tmp_path / "store"
+        root.mkdir()
+        alias = root / "raw"
+        dest = outside / "fred" / "DGS10"
+    elif linked_level == "root":
+        root = tmp_path / "store"
+        alias = root
+        dest = outside / "raw" / "fred" / "DGS10"
+    else:
+        alias = tmp_path / "linked-parent"
+        root = alias / "store"
+        (outside / "store").mkdir()
+        dest = outside / "store" / "raw" / "fred" / "DGS10"
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable")
+    assert alias.is_symlink()
+    assert not dest.exists()
+    store = CrossAssetStore(root)
+    with pytest.raises(ValueError, match="parent.*symlink|symlink.*parent"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert not dest.exists()
+    assert not list(outside.rglob("*.part-*"))
+    assert alias.is_symlink()
+
+
+def test_raw_write_rechecks_a_directory_replaced_during_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A symlink planted at the mkdir boundary is refused before staging."""
+
+    root = tmp_path / "store"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = _colliding_raw_target(CrossAssetStore(root))
+    real_mkdir = Path.mkdir
+    replaced = False
+
+    def replace_after_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal replaced
+        real_mkdir(path, *args, **kwargs)
+        if path == target.parent and not replaced:
+            replaced = True
+            # The exact existing directory is moved away, and a static link
+            # appears before write_raw may create its privately staged file.
+            moved = tmp_path / "original-raw-tree"
+            (root / "raw").rename(moved)
+            (root / "raw").symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(Path, "mkdir", replace_after_mkdir)
+    with pytest.raises(ValueError, match="parent.*symlink"):
+        CrossAssetStore(root).write_raw(
+            "fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv"
+        )
+    assert replaced
+    assert (root / "raw").is_symlink()
+    assert not list(outside.rglob("*"))
+    assert not list((tmp_path / "original-raw-tree").rglob("*.part-*"))
+
+
 def test_raw_write_fails_closed_when_exclusive_links_are_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

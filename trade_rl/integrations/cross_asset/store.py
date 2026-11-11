@@ -63,6 +63,22 @@ def _component(value: str, label: str) -> str:
     return value
 
 
+def _reject_linked_parent(path: Path) -> None:
+    """Refuse a statically redirected destination directory chain.
+
+    This is a static check, not a concurrent hostile-directory-swap guarantee.
+    """
+
+    absolute = path.absolute()
+    for part in (absolute, *absolute.parents):
+        if part.is_symlink() or part.is_junction():
+            raise ValueError(
+                "cross-asset raw parent must not contain a symlink or junction"
+            )
+        if part.exists() and not part.is_dir():
+            raise ValueError("cross-asset raw parent must contain only directories")
+
+
 class CrossAssetStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
@@ -89,6 +105,10 @@ class CrossAssetStore:
         stamp = format_capture_utc(fetched_at).replace("-", "").replace(":", "")
         relative = f"raw/{source}/{key}/{stamp}_{digest[:8]}.{extension}"
         target = self.root / relative
+        # Check the existing destination chain before observing/creating files.
+        # A static linked root or ancestor would otherwise redirect publication
+        # outside the requested raw store on the cache-miss path.
+        _reject_linked_parent(target.parent)
         # The filename carries only 32 bits of the payload hash. Equal prefix
         # and capture timestamp do not prove equal full bytes; never follow a
         # symlink or accept a conflicting existing full digest.
@@ -100,6 +120,9 @@ class CrossAssetStore:
             return relative, digest
 
         target.parent.mkdir(parents=True, exist_ok=True)
+        # Recheck created directories before private staging. This still does
+        # not make path operations atomic against a hostile concurrent swap.
+        _reject_linked_parent(target.parent)
         # Atomic replacement would overwrite a competing capture that arrived
         # after the existence check. Each writer stages privately and claims the
         # destination with a same-filesystem hard link (exclusive on POSIX).

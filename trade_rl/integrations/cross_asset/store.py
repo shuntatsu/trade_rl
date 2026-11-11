@@ -17,13 +17,14 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import file_digest
+from trade_rl.artifacts.verified_file import file_digest, open_regular_binary
 
 MANIFEST_SCHEMA = "cross_asset_manifest_v1"
 USABLE_STATUSES = frozenset({"ok", "unchanged"})
@@ -173,17 +174,63 @@ class CrossAssetStore:
         line = json.dumps(
             dict(record), sort_keys=True, separators=(",", ":"), allow_nan=False
         )
+        # Unavailable/error captures append manifest rows without write_raw().
+        # Apply the same linked-ancestor boundary to these untrusted paths.
+        _reject_linked_parent(self.root)
         self.root.mkdir(parents=True, exist_ok=True)
-        with self.manifest_path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(line + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        _reject_linked_parent(self.root)
+        destination = self.manifest_path
+        if destination.is_symlink() or destination.is_junction():
+            raise ValueError("cross-asset manifest must not be a symlink or junction")
+        # O_NOFOLLOW closes the leaf-symlink swap between the static check
+        # and opening the manifest on supporting platforms.
+        flags = (
+            os.O_WRONLY
+            | os.O_APPEND
+            | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
+        try:
+            descriptor = os.open(destination, flags, 0o666)
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise ValueError(
+                    "cross-asset manifest must not be a symlink or junction"
+                ) from error
+            raise
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("cross-asset manifest must be a regular file")
+            if metadata.st_nlink != 1:
+                raise ValueError(
+                    "cross-asset manifest must not have multiple hard links"
+                )
+            with os.fdopen(descriptor, "a", encoding="utf-8", newline="\n") as handle:
+                descriptor = -1
+                handle.write(line + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
 
     def read_manifest(self) -> list[dict[str, object]]:
-        if not self.manifest_path.exists():
+        _reject_linked_parent(self.root)
+        destination = self.manifest_path
+        if not destination.exists() and not destination.is_symlink():
             return []
+        # A pre-existing FIFO/device may block in os.open(O_RDONLY) before
+        # the no-follow descriptor helper can fstat it. Reject statically
+        # before entering the opener; later hostile swaps remain out of scope.
+        if not destination.is_file():
+            raise ValueError("cross-asset manifest must be a regular file")
         records: list[dict[str, object]] = []
-        text = self.manifest_path.read_text(encoding="utf-8")
+        # The checked descriptor guards the entire read from leaf symlinks
+        # and, on supported POSIX, pins directory ancestors during opening.
+        with open_regular_binary(destination, field="cross-asset manifest") as handle:
+            text = handle.read().decode("utf-8")
         for number, line in enumerate(text.splitlines(), start=1):
             try:
                 record = json.loads(line)

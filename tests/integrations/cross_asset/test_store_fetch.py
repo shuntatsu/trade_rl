@@ -184,6 +184,198 @@ def test_transport_and_parse_failures_are_isolated_per_series(tmp_path: Path) ->
     assert records[1]["reason"].startswith("parse")
 
 
+@pytest.mark.parametrize("linked_level", ("root", "above_root"))
+def test_manifest_append_refuses_symlinked_store_ancestor(
+    tmp_path: Path, linked_level: str
+) -> None:
+    """Even error/unavailable records must not redirect manifest writes."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    alias = tmp_path / "linked"
+    if linked_level == "root":
+        root = alias
+        foreign = outside / "manifest.jsonl"
+    else:
+        root = alias / "store"
+        (outside / "store").mkdir()
+        foreign = outside / "store" / "manifest.jsonl"
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable")
+
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).append({"status": "unavailable"})
+    assert alias.is_symlink()
+    assert not foreign.exists()
+
+
+def test_manifest_append_refuses_symlinked_leaf_without_mutating_foreign_file(
+    tmp_path: Path,
+) -> None:
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    outside = tmp_path / "outside-manifest"
+    outside.write_bytes(b"foreign-file-must-remain-unchanged\\n")
+    try:
+        store.manifest_path.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks unavailable")
+
+    with pytest.raises(ValueError, match="symlink"):
+        store.append({"status": "unavailable"})
+    assert store.manifest_path.is_symlink()
+    assert outside.read_bytes() == b"foreign-file-must-remain-unchanged\\n"
+
+
+def test_manifest_reader_refuses_symlinked_leaf_and_ancestor(tmp_path: Path) -> None:
+    outside = tmp_path / "foreign"
+    outside.mkdir()
+    payload = (
+        b'{"schema":"cross_asset_manifest_v1","key":"DGS10",'
+        b'"fetched_at":"2026-11-10T05:00:00Z","status":"error"}\n'
+    )
+    # A valid external manifest must otherwise load on the unfenced path.
+    assert json.loads(payload.decode("utf-8"))["status"] == "error"
+    (outside / "manifest.jsonl").write_bytes(payload)
+    root = tmp_path / "store"
+    root.mkdir()
+    try:
+        (root / "manifest.jsonl").symlink_to(outside / "manifest.jsonl")
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks unavailable")
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).read_manifest()
+
+    (root / "manifest.jsonl").unlink()
+    root.rmdir()
+    root.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).read_manifest()
+    assert (outside / "manifest.jsonl").read_bytes() == payload
+
+
+def test_manifest_append_refuses_root_swapped_after_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The post-mkdir check must run before opening the append destination."""
+    root = tmp_path / "store"
+    outside = tmp_path / "external"
+    outside.mkdir()
+    parked = tmp_path / "parked-root"
+    original_mkdir = Path.mkdir
+    swapped = False
+
+    def swap_on_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal swapped
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path == root and not swapped:
+            root.rename(parked)
+            try:
+                root.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pytest.skip("directory symlinks unavailable")
+            swapped = True
+
+    monkeypatch.setattr(Path, "mkdir", swap_on_mkdir)
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).append({"status": "unavailable"})
+    assert swapped
+    assert root.is_symlink()
+    assert not (outside / "manifest.jsonl").exists()
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(os, "O_NOFOLLOW"),
+    reason="POSIX no-follow manifest open required",
+)
+def test_manifest_append_rejects_leaf_symlink_inserted_at_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leaf link inserted after static checks cannot redirect an append."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    outside = tmp_path / "foreign-leaf"
+    outside.write_bytes(b"immutable-sentinel")
+    original_open = os.open
+    injected = False
+
+    def race_at_open(path, flags, mode=0o777, **kwargs):
+        nonlocal injected
+        if Path(path) == store.manifest_path and not injected:
+            injected = True
+            store.manifest_path.symlink_to(outside)
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", race_at_open)
+    with pytest.raises(ValueError, match="symlink"):
+        store.append({"status": "unavailable"})
+    assert injected
+    assert store.manifest_path.is_symlink()
+    assert outside.read_bytes() == b"immutable-sentinel"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "O_NONBLOCK"),
+    reason="nonblocking file descriptor open not supported",
+)
+def test_manifest_append_requests_nonblocking_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A FIFO with no reader must not hang at the pre-fstat open."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    original_open = os.open
+    examined = False
+
+    def check_open(path, flags, mode=0o777, **kwargs):
+        nonlocal examined
+        if Path(path) == store.manifest_path:
+            examined = True
+            assert flags & os.O_NONBLOCK
+            raise OSError(errno.ENXIO, "simulated FIFO has no reader")
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", check_open)
+    with pytest.raises(OSError, match="FIFO has no reader"):
+        store.append({"status": "error"})
+    assert examined
+
+
+def test_manifest_append_refuses_externally_hardlinked_file(tmp_path: Path) -> None:
+    """Append must not mutate a file outside root via the same hardlinked inode."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    foreign = tmp_path / "other-file"
+    foreign.write_bytes(b"immutable-external-evidence")
+    try:
+        os.link(foreign, store.manifest_path)
+    except OSError:
+        pytest.skip("same-filesystem hardlinks unavailable")
+    with pytest.raises(ValueError, match="multiple hard links"):
+        store.append({"status": "error"})
+    assert foreign.read_bytes() == b"immutable-external-evidence"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX named pipes unavailable")
+def test_manifest_reader_refuses_fifo_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A FIFO with no writer must fail the static type fence, not block read()."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    os.mkfifo(store.manifest_path)
+
+    def fail_if_opened(*args: object, **kwargs: object) -> None:
+        pytest.fail("non-regular manifest must be rejected before opening")
+
+    monkeypatch.setattr(
+        "trade_rl.integrations.cross_asset.store.open_regular_binary", fail_if_opened
+    )
+    with pytest.raises(ValueError, match="regular file"):
+        store.read_manifest()
+
+
 def test_manifest_is_append_only_and_verified_on_read(tmp_path: Path) -> None:
     store = CrossAssetStore(tmp_path)
     payload = _fred("DGS10", [("2026-11-04", "4.90")])

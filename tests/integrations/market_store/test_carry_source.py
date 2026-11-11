@@ -485,6 +485,81 @@ def test_cache_rejects_parent_of_cache_root_swapped_after_mkdir(
     assert not list(outside.rglob("*.part-*"))
 
 
+@pytest.mark.parametrize("probe", ("is_symlink", "is_file"))
+def test_archive_cache_metadata_probe_error_is_typed_operational_halt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: str
+) -> None:
+    """An inaccessible cache entry is not an offline miss or a network retry."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    original = getattr(Path, probe)
+
+    def inaccessible(path: Path) -> bool:
+        if path == target:
+            raise PermissionError(errno.EACCES, "cache entry metadata denied")
+        return original(path)
+
+    class MustNotFetch:
+        def fetch(self, _url: str) -> FetchResult:
+            raise AssertionError("an inaccessible cache entry must not reach network")
+
+    monkeypatch.setattr(Path, probe, inaccessible)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        ArchiveDirFetcher(tmp_path, MustNotFetch()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_read_failed"
+    assert isinstance(caught.value.__cause__, PermissionError)
+
+
+def test_archive_cache_directory_metadata_probe_error_is_typed_halt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not misread an uninspectable cache directory as an empty cache."""
+    spec = january_plan().specs[0]
+    root = tmp_path / "cache"
+    original = Path.is_symlink
+
+    def inaccessible(path: Path) -> bool:
+        if path == root:
+            raise PermissionError(errno.EACCES, "cache directory metadata denied")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_symlink", inaccessible)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        ArchiveDirFetcher(root).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_directory_probe_failed"
+    assert isinstance(caught.value.__cause__, PermissionError)
+
+
+def test_archive_cache_race_winner_probe_error_is_typed_and_keeps_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link conflict with unreadable metadata is not a raw OSError."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    winner = b"independent publisher bytes"
+    original = Path.is_file
+
+    def inaccessible_winner(path: Path) -> bool:
+        if path == target and original(path):
+            raise PermissionError(errno.EACCES, "published entry metadata denied")
+        return original(path)
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(winner)
+            return FetchResult(status=200, body=b"losing downloader bytes")
+
+    monkeypatch.setattr(Path, "is_file", inaccessible_winner)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        ArchiveDirFetcher(tmp_path, RacingFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_publication_conflict"
+    assert isinstance(caught.value.__cause__, PermissionError)
+    assert target.read_bytes() == winner
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     plan = january_plan()
     inner = fetcher_for(plan)

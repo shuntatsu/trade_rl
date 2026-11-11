@@ -134,8 +134,9 @@ class ArchiveDirFetcher:
 
     @staticmethod
     def _read_cached(path: Path, url: str) -> bytes:
-        # Open by checked descriptor to prevent a cache symlink swap after
-        # Path.is_file() and before the actual cache read.
+        # Supported POSIX dir_fd/no-follow opens pin the directory chain and
+        # reject symlink swaps after Path.is_file(). The portable fallback
+        # checks static links but cannot guarantee an atomic no-swap read.
         try:
             with open_regular_binary(path, field="Vision archive cache") as handle:
                 return handle.read()

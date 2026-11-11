@@ -189,8 +189,10 @@ per producer and a same-filesystem exclusive hard link when publishing cached
 archive/checksum bytes; a raced existing cache file wins and is returned for
 normal downstream checksum verification without overwriting. Pre-existing or
 raced-in symlink cache entries are refused, rather than followed as cache hits.
-Cache reads reuse the existing descriptor-based no-follow/regular-file helper,
-so a symlink swapped after a cache-hit existence check also fails closed. Any
+Cache reads reuse the existing regular-file helper: supported POSIX
+descriptor-relative no-follow opens reject a cache symlink swapped after a
+cache-hit existence check, while the portable fallback refuses static linked
+paths without claiming atomic protection against concurrent swaps. Any
 already-linked ancestor in the absolute filesystem path (including above the
 configured cache root), the cache root itself or a subdirectory is refused before
 reads or writes, matching the cached-read no-follow boundary. On a successful

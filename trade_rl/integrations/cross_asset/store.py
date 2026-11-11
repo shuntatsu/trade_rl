@@ -12,16 +12,18 @@ previous vintage; no new file), ``unavailable`` (source blocked or missing) or
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import file_digest
 
 MANIFEST_SCHEMA = "cross_asset_manifest_v1"
 USABLE_STATUSES = frozenset({"ok", "unchanged"})
@@ -62,6 +64,22 @@ def _component(value: str, label: str) -> str:
     return value
 
 
+def _reject_linked_parent(path: Path) -> None:
+    """Refuse a statically redirected destination directory chain.
+
+    This is a static check, not a concurrent hostile-directory-swap guarantee.
+    """
+
+    absolute = path.absolute()
+    for part in (absolute, *absolute.parents):
+        if part.is_symlink() or part.is_junction():
+            raise ValueError(
+                "cross-asset raw parent must not contain a symlink or junction"
+            )
+        if part.exists() and not part.is_dir():
+            raise ValueError("cross-asset raw parent must contain only directories")
+
+
 class CrossAssetStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
@@ -88,13 +106,67 @@ class CrossAssetStore:
         stamp = format_capture_utc(fetched_at).replace("-", "").replace(":", "")
         relative = f"raw/{source}/{key}/{stamp}_{digest[:8]}.{extension}"
         target = self.root / relative
-        if target.exists():
-            if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+        # Check the existing destination chain before observing/creating files.
+        # A static linked root or ancestor would otherwise redirect publication
+        # outside the requested raw store on the cache-miss path.
+        _reject_linked_parent(target.parent)
+        # The filename carries only 32 bits of the payload hash. Equal prefix
+        # and capture timestamp do not prove equal full bytes; never follow a
+        # symlink or accept a conflicting existing full digest.
+        if target.exists() or target.is_symlink():
+            if file_digest(target, field="cross-asset raw file") != digest:
                 raise ValueError(
                     f"refusing to overwrite a different raw file: {relative}"
                 )
             return relative, digest
-        atomic_write_bytes(target, payload)
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Recheck created directories before private staging. This still does
+        # not make path operations atomic against a hostile concurrent swap.
+        _reject_linked_parent(target.parent)
+        # Atomic replacement would overwrite a competing capture that arrived
+        # after the existence check. Each writer stages privately and claims the
+        # destination with a same-filesystem hard link (exclusive on POSIX).
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent, prefix=f".{target.name}.part-", delete=False
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                # Accept only the exact already-published winner; a 32-bit
+                # filename-prefix collision must not replace earlier evidence.
+                if file_digest(target, field="cross-asset raw file") != digest:
+                    raise ValueError(
+                        f"refusing to overwrite a different raw file: {relative}"
+                    ) from None
+            else:
+                if os.name != "nt":
+                    directory = os.open(target.parent, os.O_RDONLY)
+                    try:
+                        try:
+                            os.fsync(directory)
+                        except OSError as error:
+                            # macOS and some POSIX filesystems cannot fsync a
+                            # directory, even after exclusive link succeeded.
+                            # Staged file bytes were fsynced before publication;
+                            # directory durability is not guaranteed here.
+                            if error.errno not in (
+                                errno.EINVAL,
+                                errno.ENOTSUP,
+                                errno.EOPNOTSUPP,
+                            ):
+                                raise
+                    finally:
+                        os.close(directory)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         return relative, digest
 
     def append(self, record: Mapping[str, object]) -> None:

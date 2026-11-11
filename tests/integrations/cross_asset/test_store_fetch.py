@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
+import stat
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -18,6 +23,7 @@ from trade_rl.integrations.cross_asset.fetch import (
 )
 from trade_rl.integrations.cross_asset.store import (
     CrossAssetStore,
+    format_capture_utc,
     latest_records,
     manifest_digest,
 )
@@ -214,6 +220,323 @@ def test_latest_records_honours_the_as_of_vintage_cutoff(tmp_path: Path) -> None
     assert early["DGS10"]["fetched_at"] == "2026-11-10T05:00:00.000000Z"
     assert latest_records(records, as_of=T0 - timedelta(days=1)) == {}
     assert manifest_digest(early) != manifest_digest(latest_records(records))
+
+
+# Two actual, distinct SHA-256 digests with the same 32-bit filename prefix.
+# The test verifies the collision instead of mocking or weakening SHA-256.
+_COLLIDING_RAW = (
+    b"synthetic cross-asset archive v1 #1223",
+    b"synthetic cross-asset archive v1 #63106",
+)
+
+
+def _colliding_raw_target(store: CrossAssetStore) -> Path:
+    first_digest = hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
+    other_digest = hashlib.sha256(_COLLIDING_RAW[1]).hexdigest()
+    assert first_digest != other_digest
+    assert first_digest[:8] == other_digest[:8]
+    stamp = format_capture_utc(T0).replace("-", "").replace(":", "")
+    return store.root / f"raw/fred/DGS10/{stamp}_{first_digest[:8]}.csv"
+
+
+def test_raw_publish_cannot_overwrite_a_late_colliding_rival(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A same-stamp SHA-prefix collision must not replace another vintage."""
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_link = os.link
+    injected = False
+
+    def inject_rival(staging: str | Path, destination: str | Path) -> None:
+        nonlocal injected
+        if Path(destination) == target:
+            assert not injected
+            injected = True
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(_COLLIDING_RAW[0])
+        real_link(staging, destination)
+
+    monkeypatch.setattr(os, "link", inject_rival)
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[1], extension="csv")
+    assert injected
+    assert target.read_bytes() == _COLLIDING_RAW[0]
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_two_colliding_raw_publishers_return_only_the_actual_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loser must fail, retaining exact winner bytes and no shared staging."""
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_link = os.link
+    link_barrier = Barrier(2)
+    stages: list[str | Path] = []
+
+    def synchronized_link(staging: str | Path, destination: str | Path) -> None:
+        assert Path(destination) == target
+        stages.append(staging)
+        link_barrier.wait(timeout=10)
+        real_link(staging, destination)
+
+    monkeypatch.setattr(os, "link", synchronized_link)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(store.write_raw, "fred", "DGS10", T0, raw, extension="csv")
+            for raw in _COLLIDING_RAW
+        ]
+        outcomes: list[tuple[str, str]] = []
+        failures: list[ValueError] = []
+        for future in futures:
+            try:
+                outcomes.append(future.result(timeout=15))
+            except ValueError as error:
+                failures.append(error)
+    assert len(stages) == len(set(map(str, stages))) == 2
+    assert len(outcomes) == len(failures) == 1
+    winner_payload = target.read_bytes()
+    assert winner_payload in _COLLIDING_RAW
+    assert outcomes[0][0] == target.relative_to(tmp_path).as_posix()
+    assert outcomes[0][1] == hashlib.sha256(winner_payload).hexdigest()
+    assert "refusing to overwrite" in str(failures[0])
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_two_identical_raw_publishers_both_reuse_the_exclusive_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two same-byte writers must both succeed without a second publication."""
+
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_link = os.link
+    barrier = Barrier(2)
+
+    def concurrent_link(staging: str | Path, destination: str | Path) -> None:
+        # Do not capture unrelated links from other test or runtime threads.
+        if Path(destination) != target:
+            return real_link(staging, destination)
+        barrier.wait(timeout=10)
+        real_link(staging, destination)
+
+    monkeypatch.setattr(os, "link", concurrent_link)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        requests = [
+            pool.submit(
+                store.write_raw, "fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv"
+            )
+            for _ in range(2)
+        ]
+        results = [request.result(timeout=15) for request in requests]
+    assert len(results) == 2
+    assert results[0] == results[1]
+    assert target.read_bytes() == _COLLIDING_RAW[0]
+    assert results[0][1] == hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+@pytest.mark.parametrize(
+    "unsupported_errno",
+    sorted(
+        {
+            getattr(errno, name)
+            for name in ("EINVAL", "ENOTSUP", "EOPNOTSUPP")
+            if hasattr(errno, name)
+        }
+    ),
+)
+def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unsupported_errno: int
+) -> None:
+    """Some POSIX filesystems reject directory fsync, not file fsync."""
+
+    if os.name != "posix":
+        pytest.skip("directory fsync specific to POSIX")
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    expected_dir = target.parent.stat()
+    real_fsync = os.fsync
+    directory_attempts = 0
+
+    def reject_directory_fsync(fd: int) -> None:
+        nonlocal directory_attempts
+        opened = os.fstat(fd)
+        if stat.S_ISDIR(opened.st_mode) and (opened.st_dev, opened.st_ino) == (
+            expected_dir.st_dev,
+            expected_dir.st_ino,
+        ):
+            directory_attempts += 1
+            raise OSError(unsupported_errno, "directory fsync unsupported")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", reject_directory_fsync)
+    relative, digest = store.write_raw(
+        "fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv"
+    )
+    assert directory_attempts == 1
+    assert (tmp_path / relative).read_bytes() == _COLLIDING_RAW[0]
+    assert digest == hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
+
+
+def test_raw_write_propagates_unexpected_directory_fsync_eio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected I/O error is not silently treated as unsupported fsync."""
+
+    if os.name != "posix":
+        pytest.skip("directory fsync specific to POSIX")
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    expected_dir = target.parent.stat()
+    real_fsync = os.fsync
+    seen = 0
+
+    def fail_directory_fsync(fd: int) -> None:
+        nonlocal seen
+        opened = os.fstat(fd)
+        if stat.S_ISDIR(opened.st_mode) and (opened.st_dev, opened.st_ino) == (
+            expected_dir.st_dev,
+            expected_dir.st_ino,
+        ):
+            seen += 1
+            raise OSError(errno.EIO, "persistent directory I/O failure")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fail_directory_fsync)
+    with pytest.raises(OSError, match="persistent directory I/O failure") as failure:
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert failure.value.errno == errno.EIO
+    assert seen == 1
+    # Exclusive publication already succeeded; it must remain unmodified, but
+    # the failed call must not report normal success or invent durability.
+    assert target.read_bytes() == _COLLIDING_RAW[0]
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(
+    tmp_path: Path,
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    outside = tmp_path / "external-evidence.csv"
+    outside.write_bytes(_COLLIDING_RAW[0])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this filesystem")
+    with pytest.raises(ValueError, match="raw"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert target.is_symlink()
+    assert outside.read_bytes() == _COLLIDING_RAW[0]
+
+
+@pytest.mark.parametrize("linked_level", ["raw", "root", "above_root"])
+def test_raw_write_refuses_preexisting_symlinked_parent_before_publication(
+    tmp_path: Path, linked_level: str
+) -> None:
+    """A static ancestor symlink must never redirect a new raw write outside root."""
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if linked_level == "raw":
+        root = tmp_path / "store"
+        root.mkdir()
+        alias = root / "raw"
+        dest = outside / "fred" / "DGS10"
+    elif linked_level == "root":
+        root = tmp_path / "store"
+        alias = root
+        dest = outside / "raw" / "fred" / "DGS10"
+    else:
+        alias = tmp_path / "linked-parent"
+        root = alias / "store"
+        (outside / "store").mkdir()
+        dest = outside / "store" / "raw" / "fred" / "DGS10"
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable")
+    assert alias.is_symlink()
+    assert not dest.exists()
+    store = CrossAssetStore(root)
+    with pytest.raises(ValueError, match="parent.*symlink|symlink.*parent"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert not dest.exists()
+    assert not list(outside.rglob("*.part-*"))
+    assert alias.is_symlink()
+
+
+def test_raw_write_rechecks_a_directory_replaced_during_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A symlink planted at the mkdir boundary is refused before staging."""
+
+    root = tmp_path / "store"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = _colliding_raw_target(CrossAssetStore(root))
+    real_mkdir = Path.mkdir
+    replaced = False
+
+    def replace_after_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal replaced
+        real_mkdir(path, *args, **kwargs)
+        if path == target.parent and not replaced:
+            replaced = True
+            # The exact existing directory is moved away, and a static link
+            # appears before write_raw may create its privately staged file.
+            moved = tmp_path / "original-raw-tree"
+            (root / "raw").rename(moved)
+            (root / "raw").symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(Path, "mkdir", replace_after_mkdir)
+    with pytest.raises(ValueError, match="parent.*symlink"):
+        CrossAssetStore(root).write_raw(
+            "fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv"
+        )
+    assert replaced
+    assert (root / "raw").is_symlink()
+    assert not list(outside.rglob("*"))
+    assert not list((tmp_path / "original-raw-tree").rglob("*.part-*"))
+
+
+def test_raw_write_fails_closed_when_exclusive_links_are_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+
+    def links_unavailable(_source: str | Path, _target: str | Path) -> None:
+        raise OSError(errno.ENOTSUP, "exclusive links unavailable")
+
+    monkeypatch.setattr(os, "link", links_unavailable)
+    with pytest.raises(OSError, match="exclusive links unavailable"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert not target.exists()
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_exact_repeated_raw_write_reuses_verified_bytes_without_a_new_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Equal full digests are idempotent, including the original raw path."""
+    store = CrossAssetStore(tmp_path)
+    first = store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+
+    def unexpected_second_link(_source: str | Path, _target: str | Path) -> None:
+        raise AssertionError("identical raw capture must not republish")
+
+    monkeypatch.setattr(os, "link", unexpected_second_link)
+    assert (
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+        == first
+    )
+    assert (tmp_path / first[0]).read_bytes() == _COLLIDING_RAW[0]
 
 
 def test_unsafe_series_keys_cannot_escape_the_raw_directory(tmp_path: Path) -> None:

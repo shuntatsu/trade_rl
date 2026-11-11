@@ -233,8 +233,10 @@ def test_manifest_reader_refuses_symlinked_leaf_and_ancestor(tmp_path: Path) -> 
     outside.mkdir()
     payload = (
         b'{"schema":"cross_asset_manifest_v1","key":"DGS10",'
-        b'"fetched_at":"2026-11-10T05:00:00Z","status":"error"}\\n'
+        b'"fetched_at":"2026-11-10T05:00:00Z","status":"error"}\n'
     )
+    # A valid external manifest must otherwise load on the unfenced path.
+    assert json.loads(payload.decode("utf-8"))["status"] == "error"
     (outside / "manifest.jsonl").write_bytes(payload)
     root = tmp_path / "store"
     root.mkdir()

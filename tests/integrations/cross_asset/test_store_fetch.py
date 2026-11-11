@@ -313,6 +313,48 @@ def test_manifest_append_rejects_leaf_symlink_inserted_at_open(
     assert outside.read_bytes() == b"immutable-sentinel"
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "O_NONBLOCK"),
+    reason="nonblocking file descriptor open not supported",
+)
+def test_manifest_append_requests_nonblocking_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A FIFO with no reader must not hang at the pre-fstat open."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    original_open = os.open
+    examined = False
+
+    def check_open(path, flags, mode=0o777, **kwargs):
+        nonlocal examined
+        if Path(path) == store.manifest_path:
+            examined = True
+            assert flags & os.O_NONBLOCK
+            raise OSError(errno.ENXIO, "simulated FIFO has no reader")
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", check_open)
+    with pytest.raises(OSError, match="FIFO has no reader"):
+        store.append({"status": "error"})
+    assert examined
+
+
+def test_manifest_append_refuses_externally_hardlinked_file(tmp_path: Path) -> None:
+    """Append must not mutate a file outside root via the same hardlinked inode."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    foreign = tmp_path / "other-file"
+    foreign.write_bytes(b"immutable-external-evidence")
+    try:
+        os.link(foreign, store.manifest_path)
+    except OSError:
+        pytest.skip("same-filesystem hardlinks unavailable")
+    with pytest.raises(ValueError, match="multiple hard links"):
+        store.append({"status": "error"})
+    assert foreign.read_bytes() == b"immutable-external-evidence"
+
+
 def test_manifest_is_append_only_and_verified_on_read(tmp_path: Path) -> None:
     store = CrossAssetStore(tmp_path)
     payload = _fred("DGS10", [("2026-11-04", "4.90")])

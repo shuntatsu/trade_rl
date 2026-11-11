@@ -609,6 +609,110 @@ def test_raw_write_propagates_unexpected_directory_fsync_eio(
     assert not list(target.parent.glob(f".{target.name}.part-*"))
 
 
+@pytest.mark.parametrize("linked_part", ("root", "directory", "file"))
+def test_raw_reader_refuses_symlink_alias_even_for_matching_source_digest(
+    tmp_path: Path, linked_part: str
+) -> None:
+    """Verified raw evidence must never come through a linked path component."""
+    root = tmp_path / "store"
+    rel = Path("raw/fred/DGS10.csv")
+    original = b"synthetic immutable cross-asset raw source"
+    if linked_part == "root":
+        foreign = tmp_path / "foreign"
+        target = foreign / rel
+        target.parent.mkdir(parents=True)
+        target.write_bytes(original)
+        try:
+            root.symlink_to(foreign, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+    elif linked_part == "directory":
+        target = root / "actual" / "fred" / "DGS10.csv"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(original)
+        try:
+            (root / "raw").symlink_to(root / "actual", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+    else:
+        target = root / "raw" / "fred" / "source.csv"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(original)
+        try:
+            (root / rel).symlink_to(target)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+
+    store = CrossAssetStore(root)
+    record = {"path": rel.as_posix(), "sha256": hashlib.sha256(original).hexdigest()}
+    with pytest.raises(ValueError, match="symlink|junction"):
+        store.read_raw(record)
+    assert store.verify_raw(record) is False
+    assert target.read_bytes() == original
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="POSIX descriptor-relative no-follow open required",
+)
+def test_raw_reader_rejects_leaf_symlink_swapped_after_static_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The checked descriptor must refuse a leaf changed after is_symlink()."""
+    store = CrossAssetStore(tmp_path / "store")
+    target = store.root / "raw/fred/DGS10.csv"
+    target.parent.mkdir(parents=True)
+    payload = b"synthetic immutable source bytes"
+    target.write_bytes(payload)
+    parked = target.with_name("parked.csv")
+    record = {
+        "path": "raw/fred/DGS10.csv",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    real_is_symlink = Path.is_symlink
+    swapped = False
+
+    def swap_after_check(path: Path) -> bool:
+        nonlocal swapped
+        linked = real_is_symlink(path)
+        if path == target and not linked and not swapped:
+            target.rename(parked)
+            target.symlink_to(parked)
+            swapped = True
+        return linked
+
+    # Do not monkeypatch os.open itself: the shared helper inspects whether
+    # that exact builtin belongs to os.supports_dir_fd to select the
+    # descriptor-relative POSIX path we need to test.
+    monkeypatch.setattr(Path, "is_symlink", swap_after_check)
+    with pytest.raises((OSError, ValueError)):
+        store.read_raw(record)
+    assert swapped
+    assert target.is_symlink()
+    assert parked.read_bytes() == payload
+    assert not store.verify_raw(record)
+
+
+@pytest.mark.parametrize("traversing", (False, True))
+def test_raw_reader_requires_a_lexical_relative_path_without_traversal(
+    tmp_path: Path, traversing: bool
+) -> None:
+    """A manifest may not select other store files by an absolute or .. alias."""
+    root = tmp_path / "store"
+    root.mkdir()
+    non_raw = root / "manifest.jsonl"
+    non_raw.write_bytes(b"synthetic non-raw bytes")
+    path = "raw/../manifest.jsonl" if traversing else str(non_raw)
+    record = {"path": path, "sha256": hashlib.sha256(non_raw.read_bytes()).hexdigest()}
+    store = CrossAssetStore(root)
+    with pytest.raises(ValueError, match="relative|traversal"):
+        store.read_raw(record)
+    assert not store.verify_raw(record)
+    assert non_raw.read_bytes() == b"synthetic non-raw bytes"
+
+
 def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(
     tmp_path: Path,
 ) -> None:

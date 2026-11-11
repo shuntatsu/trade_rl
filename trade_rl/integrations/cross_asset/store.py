@@ -250,10 +250,18 @@ class CrossAssetStore:
         path = record.get("path")
         if not isinstance(path, str):
             raise ValueError("record has no raw path")
-        resolved = (self.root / path).resolve()
-        if not resolved.is_relative_to(self.root.resolve()):
-            raise ValueError("raw path escapes the store root")
-        return resolved.read_bytes()
+        relative = Path(path)
+        # Manifest raw paths are store-relative; resolving first could follow a
+        # symlinked configured root and make a foreign tree appear in-bounds.
+        if not relative.parts or relative.anchor or ".." in relative.parts:
+            raise ValueError("raw path must be relative with no parent traversal")
+        # Open the literal path by the shared no-follow regular-file helper,
+        # keeping descriptor-pinned ancestor protection on supported POSIX.
+        # Portable fallback retains static, not atomic, ancestor checks.
+        with open_regular_binary(
+            self.root / relative, field="cross-asset raw file"
+        ) as handle:
+            return handle.read()
 
     def verify_raw(self, record: Mapping[str, object]) -> bool:
         """True when the raw file exists and still matches the recorded digest."""

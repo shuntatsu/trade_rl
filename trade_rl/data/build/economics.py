@@ -41,7 +41,10 @@ def _boolean(value: object, *, field: str) -> bool:
 def _rate(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be a finite non-negative number")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be a finite non-negative number") from error
     if not math.isfinite(resolved) or resolved < 0.0:
         raise ValueError(f"{field} must be a finite non-negative number")
     return resolved
@@ -50,7 +53,10 @@ def _rate(value: object, *, field: str) -> float:
 def _participation(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("max_participation_rate must be in (0, 1]")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ValueError("max_participation_rate must be in (0, 1]") from error
     if not math.isfinite(resolved) or not 0.0 < resolved <= 1.0:
         raise ValueError("max_participation_rate must be in (0, 1]")
     return resolved

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -18,6 +22,7 @@ from trade_rl.integrations.cross_asset.fetch import (
 )
 from trade_rl.integrations.cross_asset.store import (
     CrossAssetStore,
+    format_capture_utc,
     latest_records,
     manifest_digest,
 )
@@ -214,6 +219,122 @@ def test_latest_records_honours_the_as_of_vintage_cutoff(tmp_path: Path) -> None
     assert early["DGS10"]["fetched_at"] == "2026-11-10T05:00:00.000000Z"
     assert latest_records(records, as_of=T0 - timedelta(days=1)) == {}
     assert manifest_digest(early) != manifest_digest(latest_records(records))
+
+
+# Two actual, distinct SHA-256 digests with the same 32-bit filename prefix.
+# The test verifies the collision instead of mocking or weakening SHA-256.
+_COLLIDING_RAW = (
+    b"synthetic cross-asset archive v1 #1223",
+    b"synthetic cross-asset archive v1 #63106",
+)
+
+
+def _colliding_raw_target(store: CrossAssetStore) -> Path:
+    first_digest = hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
+    other_digest = hashlib.sha256(_COLLIDING_RAW[1]).hexdigest()
+    assert first_digest != other_digest
+    assert first_digest[:8] == other_digest[:8]
+    stamp = format_capture_utc(T0).replace("-", "").replace(":", "")
+    return store.root / f"raw/fred/DGS10/{stamp}_{first_digest[:8]}.csv"
+
+
+def test_raw_publish_cannot_overwrite_a_late_colliding_rival(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A same-stamp SHA-prefix collision must not replace another vintage."""
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_link = os.link
+    injected = False
+
+    def inject_rival(staging: str | Path, destination: str | Path) -> None:
+        nonlocal injected
+        if Path(destination) == target:
+            assert not injected
+            injected = True
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(_COLLIDING_RAW[0])
+        real_link(staging, destination)
+
+    monkeypatch.setattr(os, "link", inject_rival)
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[1], extension="csv")
+    assert injected
+    assert target.read_bytes() == _COLLIDING_RAW[0]
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_two_colliding_raw_publishers_return_only_the_actual_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loser must fail, retaining exact winner bytes and no shared staging."""
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_link = os.link
+    link_barrier = Barrier(2)
+    stages: list[str | Path] = []
+
+    def synchronized_link(staging: str | Path, destination: str | Path) -> None:
+        assert Path(destination) == target
+        stages.append(staging)
+        link_barrier.wait(timeout=10)
+        real_link(staging, destination)
+
+    monkeypatch.setattr(os, "link", synchronized_link)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(store.write_raw, "fred", "DGS10", T0, raw, extension="csv")
+            for raw in _COLLIDING_RAW
+        ]
+        outcomes: list[tuple[str, str]] = []
+        failures: list[ValueError] = []
+        for future in futures:
+            try:
+                outcomes.append(future.result(timeout=15))
+            except ValueError as error:
+                failures.append(error)
+    assert len(stages) == len(set(map(str, stages))) == 2
+    assert len(outcomes) == len(failures) == 1
+    winner_payload = target.read_bytes()
+    assert winner_payload in _COLLIDING_RAW
+    assert outcomes[0][0] == target.relative_to(tmp_path).as_posix()
+    assert outcomes[0][1] == hashlib.sha256(winner_payload).hexdigest()
+    assert "refusing to overwrite" in str(failures[0])
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(
+    tmp_path: Path,
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    outside = tmp_path / "external-evidence.csv"
+    outside.write_bytes(_COLLIDING_RAW[0])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this filesystem")
+    with pytest.raises(ValueError, match="raw"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert target.is_symlink()
+    assert outside.read_bytes() == _COLLIDING_RAW[0]
+
+
+def test_raw_write_fails_closed_when_exclusive_links_are_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+
+    def links_unavailable(_source: str | Path, _target: str | Path) -> None:
+        raise OSError(errno.ENOTSUP, "exclusive links unavailable")
+
+    monkeypatch.setattr(os, "link", links_unavailable)
+    with pytest.raises(OSError, match="exclusive links unavailable"):
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert not target.exists()
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
 
 
 def test_unsafe_series_keys_cannot_escape_the_raw_directory(tmp_path: Path) -> None:

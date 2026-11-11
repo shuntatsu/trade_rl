@@ -357,6 +357,25 @@ def test_manifest_append_refuses_externally_hardlinked_file(tmp_path: Path) -> N
     assert foreign.read_bytes() == b"immutable-external-evidence"
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX named pipes unavailable")
+def test_manifest_reader_refuses_fifo_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A FIFO with no writer must fail the static type fence, not block read()."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    os.mkfifo(store.manifest_path)
+
+    def fail_if_opened(*args: object, **kwargs: object) -> None:
+        pytest.fail("non-regular manifest must be rejected before opening")
+
+    monkeypatch.setattr(
+        "trade_rl.integrations.cross_asset.store.open_regular_binary", fail_if_opened
+    )
+    with pytest.raises(ValueError, match="regular file"):
+        store.read_manifest()
+
+
 def test_manifest_is_append_only_and_verified_on_read(tmp_path: Path) -> None:
     store = CrossAssetStore(tmp_path)
     payload = _fred("DGS10", [("2026-11-04", "4.90")])

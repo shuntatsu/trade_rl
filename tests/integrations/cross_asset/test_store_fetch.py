@@ -339,7 +339,13 @@ def test_two_identical_raw_publishers_both_reuse_the_exclusive_winner(
 
 @pytest.mark.parametrize(
     "unsupported_errno",
-    sorted({errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP}),
+    sorted(
+        {
+            getattr(errno, name)
+            for name in ("EINVAL", "ENOTSUP", "EOPNOTSUPP")
+            if hasattr(errno, name)
+        }
+    ),
 )
 def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durability(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unsupported_errno: int
@@ -349,12 +355,19 @@ def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durabil
     if os.name != "posix":
         pytest.skip("directory fsync specific to POSIX")
     store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    expected_dir = target.parent.stat()
     real_fsync = os.fsync
     directory_attempts = 0
 
     def reject_directory_fsync(fd: int) -> None:
         nonlocal directory_attempts
-        if stat.S_ISDIR(os.fstat(fd).st_mode):
+        opened = os.fstat(fd)
+        if stat.S_ISDIR(opened.st_mode) and (opened.st_dev, opened.st_ino) == (
+            expected_dir.st_dev,
+            expected_dir.st_ino,
+        ):
             directory_attempts += 1
             raise OSError(unsupported_errno, "directory fsync unsupported")
         real_fsync(fd)
@@ -377,12 +390,18 @@ def test_raw_write_propagates_unexpected_directory_fsync_eio(
         pytest.skip("directory fsync specific to POSIX")
     store = CrossAssetStore(tmp_path)
     target = _colliding_raw_target(store)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    expected_dir = target.parent.stat()
     real_fsync = os.fsync
     seen = 0
 
     def fail_directory_fsync(fd: int) -> None:
         nonlocal seen
-        if stat.S_ISDIR(os.fstat(fd).st_mode):
+        opened = os.fstat(fd)
+        if stat.S_ISDIR(opened.st_mode) and (opened.st_dev, opened.st_ino) == (
+            expected_dir.st_dev,
+            expected_dir.st_ino,
+        ):
             seen += 1
             raise OSError(errno.EIO, "persistent directory I/O failure")
         real_fsync(fd)

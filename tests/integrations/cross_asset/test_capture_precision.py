@@ -363,3 +363,88 @@ def test_usable_manifest_rejects_blank_series_key(tmp_path: Path, bad_key: str) 
     )
     with pytest.raises(ValueError, match="raw provenance"):
         store.read_manifest()
+
+
+@pytest.mark.parametrize(
+    ("invalid_field", "invalid_value"),
+    [
+        ("key", " DGS10 "),
+        ("key", "DGS10 "),
+        ("path", " "),
+        ("path", " raw/fred/DGS10/a.csv"),
+        ("sha256", " "),
+        ("sha256", " " + "a" * 64),
+    ],
+)
+def test_usable_manifest_rejects_noncanonical_whitespace_in_raw_provenance(
+    tmp_path: Path, invalid_field: str, invalid_value: str
+) -> None:
+    record = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/a.csv",
+        "sha256": "a" * 64,
+    }
+    record[invalid_field] = invalid_value
+    store = CrossAssetStore(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        json.dumps(record, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="raw provenance"):
+        store.read_manifest()
+
+
+def test_unchanged_recheck_cannot_claim_a_future_original_capture(
+    tmp_path: Path,
+) -> None:
+    """An ok row written after an unchanged receipt cannot explain that receipt."""
+
+    origin = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-12T12:00:00Z",
+        "path": "raw/fred/DGS10/original.csv",
+        "sha256": "a" * 64,
+    }
+    premature = {
+        **origin,
+        "status": "unchanged",
+        "fetched_at": "2025-07-11T12:00:00Z",
+    }
+    store = CrossAssetStore(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(json.dumps(r, sort_keys=True) + "\n" for r in (premature, origin)),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="capture origin.*after"):
+        store.read_manifest()
+
+
+def test_legacy_first_capture_is_independent_of_duplicate_ok_record_order(
+    tmp_path: Path,
+) -> None:
+    early = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/a.csv",
+        "sha256": "a" * 64,
+    }
+    late = {**early, "fetched_at": "2025-07-11T12:00:00Z"}
+    unchanged = {
+        **early,
+        "status": "unchanged",
+        "fetched_at": "2025-07-12T12:00:00Z",
+    }
+    store = CrossAssetStore(tmp_path)
+    # Earliest first, latest second: a naive last-write-wins origin map is wrong.
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(json.dumps(r, sort_keys=True) + "\n" for r in (early, late, unchanged)),
+        encoding="utf-8",
+    )
+    resolved = store.read_manifest()
+    assert all(row["captured_at"] == early["fetched_at"] for row in resolved)

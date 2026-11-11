@@ -154,10 +154,13 @@ def _raw_identity(record: Mapping[str, object], number: int) -> tuple[str, str, 
     if (
         not isinstance(key, str)
         or not key.strip()
+        or key != key.strip()
         or not isinstance(path, str)
-        or not path
+        or not path.strip()
+        or path != path.strip()
         or not isinstance(digest, str)
-        or not digest
+        or not digest.strip()
+        or digest != digest.strip()
     ):
         raise ValueError(f"manifest record {number} has incomplete raw provenance")
     return key, path, digest
@@ -206,6 +209,14 @@ def _resolve_legacy_capture_times(
                 f"manifest record {number} ({record['key']}) is an unchanged re-check "
                 "without captured_at and no originating ok record: capture time "
                 "unknown; refetch the series"
+            )
+        # A later first capture cannot justify an earlier unchanged recheck.
+        # Legacy second-only stamps have unknown fractional time: compare their
+        # conservative latest-possible instants rather than treating :00 as exact.
+        if _stamp_eligible_at(origin) > _stamp_eligible_at(str(record["fetched_at"])):
+            raise ValueError(
+                f"manifest record {number} ({record['key']}) has capture origin "
+                f"{origin} after fetched_at {record['fetched_at']}"
             )
         record["captured_at"] = origin
     return records

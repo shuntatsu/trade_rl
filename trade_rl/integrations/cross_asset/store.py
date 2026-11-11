@@ -204,7 +204,9 @@ class CrossAssetStore:
             if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError("cross-asset manifest must be a regular file")
             if metadata.st_nlink != 1:
-                raise ValueError("cross-asset manifest must not have multiple hard links")
+                raise ValueError(
+                    "cross-asset manifest must not have multiple hard links"
+                )
             with os.fdopen(descriptor, "a", encoding="utf-8", newline="\n") as handle:
                 descriptor = -1
                 handle.write(line + "\n")

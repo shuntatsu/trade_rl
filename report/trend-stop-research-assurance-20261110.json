@@ -1,8 +1,8 @@
 {
  "schema_version": "research_assurance_v1",
  "identity": {
-  "protocol_head": "3e0e9e470e161f730cbd6dae1d59f0b2e2df8769",
-  "implementation_head": "3e0e9e470e161f730cbd6dae1d59f0b2e2df8769"
+  "protocol_head": "8fa1ddea25f5c0bfea49f803450b791605420a85",
+  "implementation_head": "8fa1ddea25f5c0bfea49f803450b791605420a85"
  },
  "thesis": {
   "final_decision": "whether to request separate owner authorization for one bounded G4 development run of a long/short Donchian breakout with ATR stops on eleven USD-M perpetuals at 4h and 1d, and, only after a DEVELOPMENT_PROMISING label, a separate protocol for a reinforcement-learning overlay. This packet authorizes no economic run, no unused-data access, no order and no live use.",

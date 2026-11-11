@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 PINNED_PACKET_DIGEST = (
-    "5aea2c8dd86d9404be3d189e0b78274eb4d4cea84301f0dab4da22de56153780"
+    "894fedb0b88dd872039fdfbc546f872d485d1d6130ae5e096c79ceebf141bb64"
 )
 PINNED_PROTOCOL_DIGEST = (
     "f57f2d6dedd9a46b4d4ffc57c70dc495f60e517d8cd14f873c1cdab47d02bb9d"

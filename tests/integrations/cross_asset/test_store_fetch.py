@@ -657,10 +657,10 @@ def test_raw_reader_refuses_symlink_alias_even_for_matching_source_digest(
     or os.open not in os.supports_dir_fd,
     reason="POSIX descriptor-relative no-follow open required",
 )
-def test_raw_reader_rejects_leaf_symlink_swapped_at_descriptor_open(
+def test_raw_reader_rejects_leaf_symlink_swapped_after_static_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The last checked leaf must not redirect its opened descriptor."""
+    """The checked descriptor must refuse a leaf changed after is_symlink()."""
     store = CrossAssetStore(tmp_path / "store")
     target = store.root / "raw/fred/DGS10.csv"
     target.parent.mkdir(parents=True)
@@ -671,18 +671,22 @@ def test_raw_reader_rejects_leaf_symlink_swapped_at_descriptor_open(
         "path": "raw/fred/DGS10.csv",
         "sha256": hashlib.sha256(payload).hexdigest(),
     }
-    real_open = os.open
+    real_is_symlink = Path.is_symlink
     swapped = False
 
-    def swap_at_open(path, flags, mode=0o777, **kwargs):
+    def swap_after_check(path: Path) -> bool:
         nonlocal swapped
-        if path == target.name and kwargs.get("dir_fd") is not None and not swapped:
+        linked = real_is_symlink(path)
+        if path == target and not linked and not swapped:
             target.rename(parked)
             target.symlink_to(parked)
             swapped = True
-        return real_open(path, flags, mode, **kwargs)
+        return linked
 
-    monkeypatch.setattr(os, "open", swap_at_open)
+    # Do not monkeypatch os.open itself: the shared helper inspects whether
+    # that exact builtin belongs to os.supports_dir_fd to select the
+    # descriptor-relative POSIX path we need to test.
+    monkeypatch.setattr(Path, "is_symlink", swap_after_check)
     with pytest.raises((OSError, ValueError)):
         store.read_raw(record)
     assert swapped

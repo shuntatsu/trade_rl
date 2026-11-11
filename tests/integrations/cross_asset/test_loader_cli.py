@@ -168,6 +168,31 @@ def test_loader_parses_exactly_the_raw_bytes_it_digest_verified(
         load_obs_series(store, {"SP500": record})
 
 
+@pytest.mark.parametrize("failure", ("missing", "tampered"))
+def test_loader_refuses_invalid_raw_before_calling_source_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """Retain the existing missing/digest halt without parsing untrusted bytes."""
+    from trade_rl.integrations.cross_asset.observations import load_obs_series
+    from trade_rl.integrations.cross_asset.parsers import PARSERS
+
+    store = seed_store(tmp_path)
+    record = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    target = tmp_path / str(record["path"])
+    if failure == "missing":
+        target.unlink()
+    else:
+        target.write_bytes(b"invalid cached source payload")
+    parser_name, _ = PARSERS["fred"]
+
+    def unexpected_parse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("unverified source must never reach the parser")
+
+    monkeypatch.setitem(PARSERS, "fred", (parser_name, unexpected_parse))
+    with pytest.raises(ValueError, match="raw file for SP500 is missing or fails its digest"):
+        load_obs_series(store, {"SP500": record})
+
+
 def test_normalizer_statistics_come_only_from_the_fit_window(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
     grid = regular_grid(

@@ -609,6 +609,66 @@ def test_raw_write_propagates_unexpected_directory_fsync_eio(
     assert not list(target.parent.glob(f".{target.name}.part-*"))
 
 
+@pytest.mark.parametrize("linked_part", ("root", "directory", "file"))
+def test_raw_reader_refuses_symlink_alias_even_for_matching_source_digest(
+    tmp_path: Path, linked_part: str
+) -> None:
+    """Verified raw evidence must never come through a linked path component."""
+    root = tmp_path / "store"
+    rel = Path("raw/fred/DGS10.csv")
+    original = b"synthetic immutable cross-asset raw source"
+    if linked_part == "root":
+        foreign = tmp_path / "foreign"
+        target = foreign / rel
+        target.parent.mkdir(parents=True)
+        target.write_bytes(original)
+        try:
+            root.symlink_to(foreign, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+    elif linked_part == "directory":
+        target = root / "actual" / "fred" / "DGS10.csv"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(original)
+        try:
+            (root / "raw").symlink_to(root / "actual", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+    else:
+        target = root / "raw" / "fred" / "source.csv"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(original)
+        try:
+            (root / rel).symlink_to(target)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+
+    store = CrossAssetStore(root)
+    record = {"path": rel.as_posix(), "sha256": hashlib.sha256(original).hexdigest()}
+    with pytest.raises(ValueError, match="symlink|junction"):
+        store.read_raw(record)
+    assert store.verify_raw(record) is False
+    assert target.read_bytes() == original
+
+
+@pytest.mark.parametrize("traversing", (False, True))
+def test_raw_reader_requires_a_lexical_relative_path_without_traversal(
+    tmp_path: Path, traversing: bool
+) -> None:
+    """A manifest may not select other store files by an absolute or .. alias."""
+    root = tmp_path / "store"
+    root.mkdir()
+    non_raw = root / "manifest.jsonl"
+    non_raw.write_bytes(b"synthetic non-raw bytes")
+    path = "raw/../manifest.jsonl" if traversing else str(non_raw)
+    record = {"path": path, "sha256": hashlib.sha256(non_raw.read_bytes()).hexdigest()}
+    store = CrossAssetStore(root)
+    with pytest.raises(ValueError, match="relative|traversal"):
+        store.read_raw(record)
+    assert not store.verify_raw(record)
+    assert non_raw.read_bytes() == b"synthetic non-raw bytes"
+
+
 def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(
     tmp_path: Path,
 ) -> None:

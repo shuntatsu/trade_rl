@@ -145,19 +145,22 @@ class CrossAssetStore:
         return hashlib.sha256(payload).hexdigest() == record.get("sha256")
 
 
-def _raw_identity(record: Mapping[str, object], number: int) -> tuple[str, str]:
-    """Only usable manifest records with complete raw provenance may be indexed."""
+def _raw_identity(record: Mapping[str, object], number: int) -> tuple[str, str, str]:
+    """Bind each immutable raw origin to exactly one catalog series."""
 
+    key = record.get("key")
     path = record.get("path")
     digest = record.get("sha256")
     if (
-        not isinstance(path, str)
+        not isinstance(key, str)
+        or not key
+        or not isinstance(path, str)
         or not path
         or not isinstance(digest, str)
         or not digest
     ):
         raise ValueError(f"manifest record {number} has incomplete raw provenance")
-    return path, digest
+    return key, path, digest
 
 
 def _resolve_legacy_capture_times(
@@ -166,13 +169,13 @@ def _resolve_legacy_capture_times(
     """Give pre-``captured_at`` rows a capture time or fail closed.
 
     New records with explicit ``captured_at`` preserve it; legacy ``ok``
-    records sharing a raw path and digest use the earliest supported capture.
+    records sharing a series key, raw path and digest use the earliest capture.
     Legacy ``unchanged`` records inherit that origin, not their later recheck.
     Without a complete raw path/digest or any originating ``ok`` record, the
     historical capture time is unknown and the record is refused.
     """
 
-    origins: dict[tuple[object, object], str] = {}
+    origins: dict[tuple[str, str, str], str] = {}
     for number, record in enumerate(records, start=1):
         if record.get("status") != "ok":
             continue

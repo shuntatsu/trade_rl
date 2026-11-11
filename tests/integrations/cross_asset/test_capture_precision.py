@@ -243,3 +243,63 @@ def test_usable_manifest_record_without_raw_identity_fails_closed(
     )
     with pytest.raises(ValueError, match="raw provenance"):
         store.read_manifest()
+
+
+def test_unchanged_from_other_series_cannot_inherit_capture_authority(
+    tmp_path: Path,
+) -> None:
+    """Sharing raw path and checksum never proves a different series had an origin."""
+
+    origin = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/original.csv",
+        "sha256": "a" * 64,
+    }
+    foreign = {
+        **origin,
+        "key": "DGS2",
+        "status": "unchanged",
+        "fetched_at": "2025-07-11T12:00:00Z",
+    }
+    store = CrossAssetStore(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in (origin, foreign)),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="without captured_at"):
+        store.read_manifest()
+
+
+def test_distinct_series_cannot_share_legacy_origin_clock(
+    tmp_path: Path,
+) -> None:
+    """The first capture for B is B's own, not A's earlier matching raw reference."""
+
+    origin = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/legacy-shared/file.csv",
+        "sha256": "b" * 64,
+    }
+    second = {**origin, "key": "DGS2", "fetched_at": "2025-07-11T12:00:00Z"}
+    recheck = {
+        **second,
+        "status": "unchanged",
+        "fetched_at": "2025-07-12T12:00:00Z",
+    }
+    store = CrossAssetStore(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(
+            json.dumps(row, sort_keys=True) + "\n" for row in (origin, second, recheck)
+        ),
+        encoding="utf-8",
+    )
+    loaded = store.read_manifest()
+    assert loaded[0]["captured_at"] == origin["fetched_at"]
+    assert loaded[1]["captured_at"] == second["fetched_at"]
+    assert loaded[2]["captured_at"] == second["fetched_at"]

@@ -26,6 +26,7 @@ from trade_rl.artifacts.hashing import content_digest
 MANIFEST_SCHEMA = "cross_asset_manifest_v1"
 USABLE_STATUSES = frozenset({"ok", "unchanged"})
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
+_SHA256_LOWER_HEX = re.compile(r"^[0-9a-f]{64}$")
 _UTC_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 
 
@@ -159,8 +160,7 @@ def _raw_identity(record: Mapping[str, object], number: int) -> tuple[str, str, 
         or not path.strip()
         or path != path.strip()
         or not isinstance(digest, str)
-        or not digest.strip()
-        or digest != digest.strip()
+        or _SHA256_LOWER_HEX.fullmatch(digest) is None
     ):
         raise ValueError(f"manifest record {number} has incomplete raw provenance")
     return key, path, digest

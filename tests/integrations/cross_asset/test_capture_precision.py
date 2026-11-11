@@ -346,6 +346,64 @@ def test_legacy_multiple_raw_origins_resolve_independently_of_record_order(
     assert at_b["DGS10"]["sha256"] == b["sha256"]
 
 
+@pytest.mark.parametrize(
+    "invalid_digest",
+    [
+        "a" * 63,
+        "a" * 65,
+        "A" * 64,
+        "z" * 64,
+        "a" * 32 + " " + "a" * 31,
+    ],
+)
+def test_raw_origin_requires_canonical_sha256(
+    tmp_path: Path, invalid_digest: str
+) -> None:
+    store = CrossAssetStore(tmp_path)
+    record = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/a.csv",
+        "sha256": invalid_digest,
+    }
+    (tmp_path / "manifest.jsonl").write_text(
+        json.dumps(record, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="raw provenance"):
+        store.read_manifest()
+
+
+def test_legacy_duplicate_ok_reversed_order_still_uses_true_first_capture(
+    tmp_path: Path,
+) -> None:
+    early = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/a.csv",
+        "sha256": "a" * 64,
+    }
+    late = {**early, "fetched_at": "2025-07-11T12:00:00Z"}
+    unchanged = {
+        **early,
+        "status": "unchanged",
+        "fetched_at": "2025-07-12T12:00:00Z",
+    }
+    # The earlier ok row occurs *after* the later ok row in the manifest.
+    store = CrossAssetStore(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(
+            json.dumps(row, sort_keys=True) + "\n" for row in (late, early, unchanged)
+        ),
+        encoding="utf-8",
+    )
+    resolved = store.read_manifest()
+    assert all(row["captured_at"] == early["fetched_at"] for row in resolved)
+
+
 @pytest.mark.parametrize("bad_key", ["", "  "])
 def test_usable_manifest_rejects_blank_series_key(tmp_path: Path, bad_key: str) -> None:
     store = CrossAssetStore(tmp_path)

@@ -6,6 +6,7 @@ import ast
 import io
 import json
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -126,6 +127,45 @@ def test_loader_refuses_a_tampered_raw_file(tmp_path: Path) -> None:
     (tmp_path / str(record["path"])).write_bytes(b"observation_date,X\n")
     with pytest.raises(ValueError, match="digest"):
         load_cross_asset_features(store.root, _grid("1d"))
+
+
+def test_loader_parses_exactly_the_raw_bytes_it_digest_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A raw file changed after digest verification must not leak new values."""
+    from trade_rl.integrations.cross_asset.observations import load_obs_series
+
+    store = seed_store(tmp_path)
+    record = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    expected = load_obs_series(store, {"SP500": record})["SP500"]
+    original = store.read_raw(record)
+    rows = original.splitlines(keepends=True)
+    assert len(rows) > 2 and b"," in rows[1]
+    rows[1] = rows[1].split(b",", 1)[0] + b",999999.0\\n"
+    tampered = b"".join(rows)
+    assert tampered != original
+    target = tmp_path / str(record["path"])
+    real_read = store.read_raw
+    calls = 0
+
+    def read_then_modify_file(item: Mapping[str, object]) -> bytes:
+        nonlocal calls
+        payload = real_read(item)
+        calls += 1
+        if calls == 1:
+            target.write_bytes(tampered)
+        return payload
+
+    monkeypatch.setattr(store, "read_raw", read_then_modify_file)
+    actual = load_obs_series(store, {"SP500": record})["SP500"]
+    assert calls == 1
+    assert actual.sha256 == expected.sha256 == record["sha256"]
+    np.testing.assert_array_equal(actual.dates, expected.dates)
+    np.testing.assert_array_equal(actual.values, expected.values)
+    assert target.read_bytes() == tampered
+    # A subsequent call may never admit the now-altered on-disk source.
+    with pytest.raises(ValueError, match="digest"):
+        load_obs_series(store, {"SP500": record})
 
 
 def test_normalizer_statistics_come_only_from_the_fit_window(tmp_path: Path) -> None:
